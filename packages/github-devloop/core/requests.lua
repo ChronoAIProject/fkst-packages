@@ -508,17 +508,22 @@ function M.build_review_result_issue_marker_comment_request(repo, issue_number, 
 end
 
 function M.build_review_result_pr_comment_request(repo, pr_number, issue_proposal_id, issue_version, reached, source_ref)
-  local request = M.build_review_result_comment_request(repo, pr_number, issue_proposal_id, issue_version, reached, source_ref)
-  request.pr_number = pr_number
-  request.issue_number = nil
-  request.dedup_key = M._dedup_key({
-    "review-result",
-    "pr-comment",
-    tostring(issue_proposal_id),
-    tostring(reached.decision),
-    tostring(reached.dedup_key),
-  })
-  return request
+  local body_text = M.neutralize_untrusted_comment_text(reached.body or "")
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    pr_number = pr_number,
+    body = "github-devloop PR review decision: " .. tostring(reached.decision)
+      .. "\n\n" .. body_text,
+    dedup_key = M._dedup_key({
+      "review-result",
+      "pr-comment",
+      tostring(issue_proposal_id),
+      tostring(reached.decision),
+      tostring(reached.dedup_key),
+    }),
+    source_ref = M.normalize_source_ref(source_ref),
+  }
 end
 
 function M.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready, fix_version, reason, source_ref)
@@ -577,18 +582,22 @@ function M.build_merge_gate_fix_issue_marker_comment_request(repo, issue_number,
 end
 
 function M.build_merge_gate_fix_pr_comment_request(repo, pr_number, merge_ready, fix_version, reason, source_ref)
-  local request = M.build_merge_gate_fix_comment_request(repo, merge_ready.pr_number, merge_ready, fix_version, reason, source_ref)
-  request.pr_number = pr_number
-  request.issue_number = nil
-  request.dedup_key = M._dedup_key({
-    "merge",
-    "pr-comment",
-    "fixing",
-    tostring(merge_ready.proposal_id),
-    tostring(merge_ready.version),
-    M.sanitize_key(reason or "gate-failed", false):gsub("/", "-"),
-  })
-  return request
+  local safe_reason = M.sanitize_key(reason or "gate-failed", false):gsub("/", "-")
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    pr_number = pr_number,
+    body = "github-devloop merge gate failed: " .. safe_reason,
+    dedup_key = M._dedup_key({
+      "merge",
+      "pr-comment",
+      "fixing",
+      tostring(merge_ready.proposal_id),
+      tostring(merge_ready.version),
+      safe_reason,
+    }),
+    source_ref = M.normalize_source_ref(source_ref),
+  }
 end
 
 function M.build_fix_reviewing_label_request(repo, issue_number, fix, new_head_sha, new_version)
@@ -694,17 +703,38 @@ function M.build_review_loop_comment_request(repo, issue_number, unresolved, iss
 end
 
 function M.build_review_loop_pr_comment_request(repo, pr_number, unresolved, issue_proposal_id, n, source_ref)
-  local request = M.build_review_loop_comment_request(repo, pr_number, unresolved, issue_proposal_id, n, source_ref)
-  request.pr_number = pr_number
-  request.issue_number = nil
-  request.dedup_key = M._dedup_key({
-    "review-loop",
-    "pr-comment",
-    tostring(issue_proposal_id),
-    tostring(n),
-    tostring(unresolved.dedup_key),
-  })
-  return request
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    pr_number = pr_number,
+    body = "github-devloop PR review no-consensus loop: " .. tostring(n),
+    dedup_key = M._dedup_key({
+      "review-loop",
+      "pr-comment",
+      tostring(issue_proposal_id),
+      tostring(n),
+      tostring(unresolved.dedup_key),
+    }),
+    source_ref = M.normalize_source_ref(source_ref or unresolved.source_ref),
+  }
+end
+
+function M.build_review_loop_issue_marker_comment_request(repo, issue_number, unresolved, issue_proposal_id, n, source_ref)
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = issue_number,
+    body = "github-devloop PR review loop fact: " .. tostring(n)
+      .. "\n\n" .. M.review_loop_marker(unresolved.proposal_id, issue_proposal_id, n, unresolved.dedup_key),
+    dedup_key = M._dedup_key({
+      "review-loop",
+      "issue-marker",
+      tostring(issue_proposal_id),
+      tostring(n),
+      tostring(unresolved.dedup_key),
+    }),
+    source_ref = M.normalize_source_ref(source_ref or unresolved.source_ref),
+  }
 end
 
 function M.build_review_meta_trigger_label_request(repo, issue_number, unresolved, issue_proposal_id, n, source_ref)
@@ -769,18 +799,21 @@ function M.build_review_meta_trigger_issue_marker_comment_request(repo, issue_nu
 end
 
 function M.build_review_meta_trigger_pr_comment_request(repo, pr_number, unresolved, issue_proposal_id, issue_version, n, source_ref)
-  local request = M.build_review_meta_trigger_comment_request(repo, pr_number, unresolved, issue_proposal_id, issue_version, n, source_ref)
-  request.pr_number = pr_number
-  request.issue_number = nil
-  request.dedup_key = M._dedup_key({
-    "review-loop",
-    "pr-comment",
-    "review-meta",
-    tostring(issue_proposal_id),
-    tostring(n),
-    tostring(unresolved.dedup_key),
-  })
-  return request
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    pr_number = pr_number,
+    body = "github-devloop PR review unresolved: escalating to review-meta after " .. tostring(n) .. " attempts",
+    dedup_key = M._dedup_key({
+      "review-loop",
+      "pr-comment",
+      "review-meta",
+      tostring(issue_proposal_id),
+      tostring(n),
+      tostring(unresolved.dedup_key),
+    }),
+    source_ref = M.normalize_source_ref(source_ref or unresolved.source_ref),
+  }
 end
 
 function M.build_review_meta_label_request(repo, issue_number, review_meta, action, version)

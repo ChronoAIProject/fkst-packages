@@ -36,10 +36,6 @@ local function temp_body_file(repo, issue_number)
   return "/tmp/fkst-github-devloop-" .. runtime_identity(repo, issue_number) .. ".md"
 end
 
-local function temp_pr_body_file(repo, pr_number)
-  return "/tmp/fkst-github-devloop-merge-" .. safe_segment(repo) .. "-pr-" .. safe_segment(pr_number) .. ".md"
-end
-
 local function issue_source_ref(repo, issue_number)
   return {
     kind = "external",
@@ -119,12 +115,6 @@ local function is_merged_pr(pr)
   return core.is_merged_pr(pr)
 end
 
-local function build_merging_body(merge_ready)
-  return "github-devloop is merging PR #" .. tostring(merge_ready.pr_number)
-    .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
-    .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
-end
-
 local function build_merging_issue_body(merge_ready)
   return "github-devloop merge state fact: merging"
     .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
@@ -143,17 +133,15 @@ local function write_merging_marker(repo, issue_number, merge_ready, comments)
   end
 end
 
-local function write_merging_pr_comment(repo, merge_ready, comments)
-  local dedup_key = merge_ready.dedup_key .. "/pr-comment/merging"
-  if core.has_trusted_comment_fragment(comments, core.comment_marker(dedup_key), core.trusted_bot_login()) then
-    return
-  end
-  local path = temp_pr_body_file(repo, merge_ready.pr_number)
-  file.write(path, build_merging_body(merge_ready) .. "\n\n" .. core.comment_marker(dedup_key) .. "\n")
-  local result = exec_sync({ cmd = core.gh_pr_comment_cmd(repo, merge_ready.pr_number, path), timeout = 30 })
-  if result.exit_code ~= 0 then
-    error("github-devloop: gh pr merging comment failed: " .. tostring(result.stderr))
-  end
+local function build_merging_pr_comment_request(repo, merge_ready)
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    pr_number = merge_ready.pr_number,
+    body = "github-devloop is merging PR #" .. tostring(merge_ready.pr_number),
+    dedup_key = merge_ready.dedup_key .. "/pr-comment/merging",
+    source_ref = pr_source_ref(repo, merge_ready.pr_number),
+  }
 end
 
 local function build_merged_requests(repo, issue_number, merge_ready)
@@ -175,11 +163,7 @@ local function build_merged_requests(repo, issue_number, merge_ready)
     schema = "github-proxy.v1",
     repo = repo,
     pr_number = merge_ready.pr_number,
-    body = "github-devloop merged PR #" .. tostring(merge_ready.pr_number)
-      .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
-      .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
-      .. "\n" .. core.state_marker(merge_ready.proposal_id, "merged", merge_ready.version)
-      .. "\n" .. core.merged_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha),
+    body = "github-devloop merged PR #" .. tostring(merge_ready.pr_number),
     dedup_key = merge_ready.dedup_key .. "/pr-comment/merged",
     source_ref = pr_source_ref(repo, merge_ready.pr_number),
   }
@@ -417,11 +401,7 @@ function pipeline(event)
       end,
       before_merge = function()
         write_merging_marker(repo, issue_number, merge_ready, rechecked_issue.comments)
-        local pr_recheck = exec_sync({ cmd = core.gh_pr_view_merge_cmd(repo, merge_ready.pr_number), timeout = 30 })
-        if pr_recheck.exit_code ~= 0 then
-          error("github-devloop: gh pr merging comment recheck failed: " .. tostring(pr_recheck.stderr))
-        end
-        write_merging_pr_comment(repo, merge_ready, core.parse_pr_view_merge(pr_recheck.stdout).comments)
+        core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_pr_comment_request", build_merging_pr_comment_request(repo, merge_ready))
       end,
     })
     if not merge_ok and merge_reason == "merge-confirmation-pending" then

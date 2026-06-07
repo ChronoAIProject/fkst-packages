@@ -166,12 +166,6 @@ function M.gh_issue_comment_cmd(repo, issue_number, body_file)
     .. " --body-file " .. M._shell_single_quote(body_file)
 end
 
-function M.gh_pr_comment_cmd(repo, pr_number, body_file)
-  return "gh pr comment " .. M._shell_single_quote(pr_number)
-    .. " --repo " .. M._shell_single_quote(repo)
-    .. " --body-file " .. M._shell_single_quote(body_file)
-end
-
 function M.gh_issue_close_cmd(repo, issue_number)
   return "gh issue close " .. M._shell_single_quote(issue_number)
     .. " --repo " .. M._shell_single_quote(repo)

@@ -106,14 +106,6 @@ local function mock_merging_comment(exit_code, stderr)
   })
 end
 
-local function mock_pr_merging_comment(exit_code, stderr)
-  t.mock_command("gh pr comment '7' --repo 'owner/repo' --body-file", {
-    stdout = "commented\n",
-    stderr = stderr or "",
-    exit_code = exit_code or 0,
-  })
-end
-
 local function mock_pr_merge_command(exit_code, stderr)
   t.mock_command("gh pr merge '7' --repo 'owner/repo' --merge --match-head-commit 'def456'", {
     stdout = "merged\n",
@@ -225,7 +217,6 @@ return {
   mock_pr_merge = mock_pr_merge,
   mock_pr_merge_rollup = mock_pr_merge_rollup,
   mock_merging_comment = mock_merging_comment,
-  mock_pr_merging_comment = mock_pr_merging_comment,
   mock_pr_merge_command = mock_pr_merge_command,
   has_call = has_call,
   mock_issue_close = mock_issue_close,

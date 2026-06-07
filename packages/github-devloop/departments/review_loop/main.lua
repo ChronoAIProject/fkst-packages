@@ -182,12 +182,15 @@ function pipeline(event)
       log.warn("github-devloop dept=review_loop proposal_id=" .. tostring(origin.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-loop-proposal")
       return
     end
+    local issue_marker_request = core.build_review_loop_issue_marker_comment_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, next_n, issue_source_ref)
     local comment_request = core.build_review_loop_pr_comment_request(origin.repo, pr_number, unresolved, origin.proposal_id, next_n, pr_source_ref)
     core.log_apply("review_loop", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
       "consensus.proposal",
+      "github-proxy.github_issue_comment_request",
       "github-proxy.github_pr_comment_request",
     })
     core.log_raise("review_loop", origin.proposal_id, "consensus.proposal", proposal)
+    core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_issue_comment_request", issue_marker_request)
     core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
   end)
 end

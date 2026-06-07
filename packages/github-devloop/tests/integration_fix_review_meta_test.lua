@@ -602,13 +602,16 @@ return {
 
     local result = run_review_loop(event, opts("review-loop-under-budget"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.is_true(result.raises[1].payload.dedup_key:find("/loop/1", 1, true) ~= nil)
-    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_comment_request"))
+    local issue_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(issue_comment.payload.body:find("github-devloop PR review loop fact", 1, true) ~= nil)
+    t.is_true(issue_comment.payload.body:find("fkst:github-devloop:review-loop:v1", 1, true) ~= nil)
     local pr_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.eq(pr_comment.payload.pr_number, 7)
-    t.is_true(pr_comment.payload.body:find("fkst:github-devloop:review-loop:v1", 1, true) ~= nil)
+    t.is_true(pr_comment.payload.body:find("github-devloop PR review no-consensus loop: 1", 1, true) ~= nil)
+    t.eq(pr_comment.payload.body:find("fkst:github-devloop:review-loop:v1", 1, true), nil)
   end,
 
   test_review_loop_old_unresolved_skips_after_issue_advanced_to_newer_fixing = function()
