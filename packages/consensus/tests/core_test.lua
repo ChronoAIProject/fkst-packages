@@ -273,6 +273,21 @@ return {
     t.is_nil(core.parse_meta_output(meta_answer("approve", string.rep("x", 201))))
   end,
 
+  test_parse_meta_output_rejects_malformed_marker_pollution = function()
+    t.is_nil(core.parse_meta_output(
+      meta_decision_label .. " approve/reject\n"
+        .. meta_answer("approve", "A later valid answer must not hide marker pollution.")
+    ))
+    t.is_nil(core.parse_meta_output(
+      meta_reason_label .. " \n" .. meta_answer("approve", "A later valid answer must not hide an empty reason.")
+    ))
+    t.is_nil(core.parse_meta_output(
+      meta_decision_label .. " maybe\n"
+        .. meta_reason_label .. " polluted\n"
+        .. meta_answer("unresolved", "A later valid answer must not hide an invalid decision.")
+    ))
+  end,
+
   test_aggregate_accepts_unanimous_approve = function()
     t.eq(core.aggregate({
       result("minimal", "approve"),

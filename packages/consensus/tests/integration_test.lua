@@ -153,6 +153,27 @@ return {
     t.is_true(calls[4].stdin:find("Structural angle needs the scope stated explicitly.", 1, true) ~= nil)
   end,
 
+  test_close_disagreement_polluted_meta_output_stays_unresolved = function()
+    mock_angle("approve", "Minimal angle approves the small scope.")
+    mock_angle("abstain", "Structural angle needs the scope stated explicitly.")
+    mock_angle("approve", "Delete angle accepts because no extra package surface is added.")
+    t.mock_command("codex exec", {
+      stdout = meta_decision_label .. " maybe\n"
+        .. meta_reason_label .. " polluted\n"
+        .. meta_decision_label .. " approve\n"
+        .. meta_reason_label .. " Later valid lines must not hide marker pollution.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_decide(proposal(), opts("meta-polluted"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "consensus_unresolved")
+    t.is_nil(result.raises[1].payload.meta_result)
+    t.eq(#codex_calls(), 4)
+  end,
+
   test_close_disagreement_meta_unresolved_stays_unresolved = function()
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("abstain", "Structural angle says the contract is underspecified.")

@@ -288,14 +288,19 @@ function M.parse_meta_output(stdout)
 
   local decision = nil
   local decision_count = 0
+  local decision_marker_count = 0
   local decision_index = nil
   local reason = nil
   local reason_count = 0
+  local reason_marker_count = 0
   local reason_index = nil
   local index = 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
     index = index + 1
 
+    if line:match("^%s*" .. meta_decision_label) ~= nil then
+      decision_marker_count = decision_marker_count + 1
+    end
     local token = line:match("^%s*" .. meta_decision_label .. "%s*(%a+)%s*$")
     if token ~= nil then
       local lowered = token:lower()
@@ -306,6 +311,9 @@ function M.parse_meta_output(stdout)
       end
     end
 
+    if line:match("^%s*" .. meta_reason_label) ~= nil then
+      reason_marker_count = reason_marker_count + 1
+    end
     local captured = line:match("^%s*" .. meta_reason_label .. "%s*(.+)$")
     if captured ~= nil then
       captured = trim(captured)
@@ -317,6 +325,9 @@ function M.parse_meta_output(stdout)
     end
   end
 
+  if decision_marker_count ~= decision_count or reason_marker_count ~= reason_count then
+    return nil
+  end
   if decision_count ~= 1 or reason_count ~= 1 then
     return nil
   end
