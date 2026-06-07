@@ -26,7 +26,7 @@ local function deterministic_branch_for(event)
 end
 
 local function mock_fresh_implement_worktree(path)
-  t.mock_command("git fetch 'origin' 'dev'", {
+  t.mock_command("git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'", {
     stdout = "",
     stderr = "",
     exit_code = 0,
@@ -54,7 +54,7 @@ local function mock_fresh_implement_worktree(path)
 end
 
 local function mock_existing_empty_implement_worktree(path)
-  t.mock_command("git fetch 'origin' 'dev'", {
+  t.mock_command("git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'", {
     stdout = "",
     stderr = "",
     exit_code = 0,
@@ -94,7 +94,7 @@ end
 local function mock_existing_empty_implement_worktree_reuse(path, branch)
   local worktree = (path or "/tmp/fkst-packages-test/github-devloop/runtime")
     .. "/worktrees/devloop-owner-repo-42-01HY"
-  t.mock_command("git fetch 'origin' 'dev'", {
+  t.mock_command("git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'", {
     stdout = "",
     stderr = "",
     exit_code = 0,
@@ -128,7 +128,7 @@ local function mock_existing_empty_implement_worktree_reuse(path, branch)
 end
 
 local function mock_existing_implement_branch(head)
-  t.mock_command("git fetch 'origin' 'dev'", {
+  t.mock_command("git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'", {
     stdout = "",
     stderr = "",
     exit_code = 0,

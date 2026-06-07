@@ -220,7 +220,10 @@ function M.git_fetch_branch_cmd(remote, branch)
   if not M._is_git_ref_safe(branch) then
     error("github-devloop: invalid fetch branch")
   end
-  return "git fetch " .. M._shell_single_quote(remote) .. " " .. M._shell_single_quote(branch)
+  local safe_remote = tostring(remote)
+  local safe_branch = tostring(branch)
+  return "git fetch " .. M._shell_single_quote(safe_remote)
+    .. " " .. M._shell_single_quote("+refs/heads/" .. safe_branch .. ":refs/remotes/" .. safe_remote .. "/" .. safe_branch)
 end
 
 function M.git_remote_branch_head_cmd(remote, branch)
@@ -231,17 +234,6 @@ function M.git_remote_branch_head_cmd(remote, branch)
     error("github-devloop: invalid remote branch")
   end
   return "git rev-parse --verify refs/remotes/" .. M._shell_single_quote(remote) .. "/" .. M._shell_single_quote(branch) .. "^{commit}"
-end
-
-function M.git_ahead_count_cmd(upstream, integration)
-  if not M._is_git_ref_safe(upstream) then
-    error("github-devloop: invalid upstream branch")
-  end
-  if not M._is_git_ref_safe(integration) then
-    error("github-devloop: invalid integration branch")
-  end
-  return "git rev-list --count refs/remotes/origin/" .. M._shell_single_quote(upstream)
-    .. "..refs/remotes/origin/" .. M._shell_single_quote(integration)
 end
 
 function M.git_show_ref_branch_cmd(branch)

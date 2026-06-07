@@ -61,18 +61,16 @@ function M.git_fast_forward_cmd(worktree, sha)
     .. M._shell_single_quote(require_safe_sha("fast-forward sha", sha))
 end
 
-function M.git_remote_trees_equal_quiet_cmd(upstream, integration)
-  return "git diff --quiet refs/remotes/origin/"
-    .. M._shell_single_quote(require_safe_branch("upstream branch", upstream))
-    .. " refs/remotes/origin/"
-    .. M._shell_single_quote(require_safe_branch("integration branch", integration))
-end
-
 function M.git_trees_equal_quiet_cmd(sha_a, sha_b)
   return "git diff --quiet "
     .. M._shell_single_quote(require_safe_sha("tree compare sha", sha_a))
     .. " "
     .. M._shell_single_quote(require_safe_sha("tree compare sha", sha_b))
+end
+
+function M.git_sha_ahead_count_cmd(base_sha, head_sha)
+  return "git rev-list --count "
+    .. M._shell_single_quote(require_safe_sha("base sha", base_sha) .. ".." .. require_safe_sha("head sha", head_sha))
 end
 
 function M.git_push_branch_force_with_lease_cmd(branch, new_sha, expected_old_sha)

@@ -35,20 +35,37 @@ local function run_scan(run_opts)
 end
 
 local function mock_fetches()
-  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
 end
 
-local function mock_ahead(count)
-  t.mock_command("git rev-list --count refs/remotes/origin/'dev'..refs/remotes/origin/'integration/dev'", {
-    stdout = tostring(count) .. "\n",
+local function mock_branch_snapshot(upstream_sha, integration_sha)
+  mock_fetches()
+  t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
+    stdout = (upstream_sha or "aaaa1111") .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", {
+    stdout = (integration_sha or "def456") .. "\n",
     stderr = "",
     exit_code = 0,
   })
 end
 
-local function mock_content_diff(has_diff)
-  t.mock_command("git diff --quiet refs/remotes/origin/'dev' refs/remotes/origin/'integration/dev'", {
+local function mock_ahead(upstream_sha, integration_sha, count)
+  t.mock_command(
+    "git rev-list --count '" .. tostring(upstream_sha or "aaaa1111") .. ".." .. tostring(integration_sha or "def456") .. "'",
+    {
+    stdout = tostring(count) .. "\n",
+    stderr = "",
+    exit_code = 0,
+    }
+  )
+end
+
+local function mock_content_diff(upstream_sha, integration_sha, has_diff)
+  t.mock_command("git diff --quiet '" .. tostring(upstream_sha or "aaaa1111") .. "' '" .. tostring(integration_sha or "def456") .. "'", {
     stdout = "",
     stderr = "",
     exit_code = has_diff and 1 or 0,
@@ -67,12 +84,12 @@ local function mock_pr_list(pr)
   t.mock_command("gh pr list", { stdout = stdout, stderr = "", exit_code = 0 })
 end
 
-local function mock_integration_head(head)
-  t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", {
-    stdout = (head or "def456") .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
+local function mock_rollup_state(upstream_sha, integration_sha, ahead, has_diff)
+  mock_branch_snapshot(upstream_sha, integration_sha)
+  mock_ahead(upstream_sha, integration_sha, ahead)
+  if ahead > 0 then
+    mock_content_diff(upstream_sha, integration_sha, has_diff)
+  end
 end
 
 return {
@@ -86,8 +103,7 @@ return {
 
   test_rollup_scan_not_ahead_noops = function()
     mock_env()
-    mock_fetches()
-    mock_ahead(0)
+    mock_rollup_state("aaaa1111", "def456", 0, false)
     local result = run_scan()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
@@ -96,13 +112,12 @@ return {
 
   test_rollup_scan_ahead_no_open_pr_real_creates_with_head_and_base = function()
     mock_env("1")
-    mock_fetches()
-    mock_ahead(3)
-    mock_content_diff(true)
+    mock_rollup_state("aaaa1111", "def456", 3, true)
     mock_pr_list(nil)
+    mock_rollup_state("aaaa1111", "def456", 3, true)
     t.mock_command("gh pr create", { stdout = "https://github.example/owner/repo/pull/9\n", stderr = "", exit_code = 0 })
     mock_pr_list({ number = 9 })
-    mock_integration_head("def456")
+    mock_rollup_state("aaaa1111", "def456", 3, true)
     local result = run_scan(opts("rollup-create", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr create"), 1)
@@ -112,9 +127,7 @@ return {
 
   test_rollup_scan_ahead_without_content_diff_skips_pr = function()
     mock_env("1")
-    mock_fetches()
-    mock_ahead(1)
-    mock_content_diff(false)
+    mock_rollup_state("aaaa1111", "def456", 1, false)
     local result = run_scan(opts("rollup-empty-diff", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
@@ -124,11 +137,9 @@ return {
 
   test_rollup_scan_existing_pr_never_duplicates_create = function()
     mock_env("1")
-    mock_fetches()
-    mock_ahead(2)
-    mock_content_diff(true)
+    mock_rollup_state("aaaa1111", "def456", 2, true)
     mock_pr_list({ number = 9 })
-    mock_integration_head("def456")
+    mock_rollup_state("aaaa1111", "def456", 2, true)
     local result = run_scan(opts("rollup-existing", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr create"), 0)
@@ -136,11 +147,9 @@ return {
 
   test_rollup_scan_manual_posture_no_ready_event = function()
     mock_env("1", "manual")
-    mock_fetches()
-    mock_ahead(2)
-    mock_content_diff(true)
+    mock_rollup_state("aaaa1111", "def456", 2, true)
     mock_pr_list({ number = 9 })
-    mock_integration_head("def456")
+    mock_rollup_state("aaaa1111", "def456", 2, true)
     local result = run_scan(opts("rollup-manual", { FKST_GITHUB_WRITE = "1", FKST_DEVLOOP_ROLLUP_MERGE = "manual" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
@@ -148,11 +157,9 @@ return {
 
   test_rollup_scan_auto_raises_ready_payload = function()
     mock_env("1", "auto")
-    mock_fetches()
-    mock_ahead(2)
-    mock_content_diff(true)
+    mock_rollup_state("aaaa1111", "def456", 2, true)
     mock_pr_list({ number = 9 })
-    mock_integration_head("def456")
+    mock_rollup_state("aaaa1111", "def456", 2, true)
     local result = run_scan(opts("rollup-auto", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
@@ -169,11 +176,31 @@ return {
 
   test_rollup_scan_dry_run_never_creates_pr = function()
     mock_env("")
-    mock_fetches()
-    mock_ahead(2)
-    mock_content_diff(true)
+    mock_rollup_state("aaaa1111", "def456", 2, true)
     mock_pr_list(nil)
     local result = run_scan()
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("gh pr create"), 0)
+  end,
+
+  test_rollup_scan_rechecks_empty_diff_before_create = function()
+    mock_env("1")
+    mock_rollup_state("aaaa1111", "def456", 2, true)
+    mock_pr_list(nil)
+    mock_rollup_state("cccc3333", "dddd4444", 1, false)
+    local result = run_scan(opts("rollup-create-recheck-empty", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("gh pr create"), 0)
+  end,
+
+  test_rollup_scan_existing_pr_rechecks_empty_diff_before_ready = function()
+    mock_env("1")
+    mock_rollup_state("aaaa1111", "def456", 2, true)
+    mock_pr_list({ number = 9 })
+    mock_rollup_state("cccc3333", "dddd4444", 1, false)
+    local result = run_scan(opts("rollup-ready-recheck-empty", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(h.count_calls("gh pr create"), 0)

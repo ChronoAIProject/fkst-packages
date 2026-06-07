@@ -37,8 +37,8 @@ local function run_conflict(payload, run_opts)
 end
 
 local function mock_fetch_and_heads(upstream_sha, integration_sha)
-  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'dev'^{commit}", { stdout = (upstream_sha or "aaaa1111") .. "\n", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = (integration_sha or "bbbb2222") .. "\n", stderr = "", exit_code = 0 })
 end
@@ -66,12 +66,12 @@ local function mock_real_push(integration_recheck, pushed_head)
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
-  t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = (integration_recheck or "bbbb2222") .. "\n", stderr = "", exit_code = 0 })
   if integration_recheck == nil or integration_recheck == "bbbb2222" then
     t.mock_command("rev-parse HEAD", { stdout = (pushed_head or "cccc3333") .. "\n", stderr = "", exit_code = 0 })
     t.mock_command("push origin HEAD:refs/heads/", { stdout = "", stderr = "", exit_code = 0 })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = (pushed_head or "cccc3333") .. "\n", stderr = "", exit_code = 0 })
   end
 end

@@ -160,8 +160,9 @@ return {
     )
     t.eq(core.git_status_cmd("/tmp/devloop-owner-repo-42"), "git -C '/tmp/devloop-owner-repo-42' status --porcelain")
     t.eq(core.git_base_head_cmd("dev"), "git rev-parse --verify refs/remotes/origin/'dev'^{commit}")
-    t.eq(core.git_fetch_branch_cmd("origin", "dev"), "git fetch 'origin' 'dev'")
+    t.eq(core.git_fetch_branch_cmd("origin", "dev"), "git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'")
     t.eq(core.git_remote_branch_head_cmd("origin", "dev"), "git rev-parse --verify refs/remotes/'origin'/'dev'^{commit}")
+    t.eq(core.git_sha_ahead_count_cmd("abc123", "def456"), "git rev-list --count 'abc123..def456'")
     t.is_true(core.git_worktree_add_new_branch_cmd(worktree_path, deterministic_branch, "abc123"):find("git worktree add -b", 1, true) ~= nil)
     t.eq(core.git_worktree_list_cmd(), "git worktree list --porcelain")
     local list = "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/dev\n\n"

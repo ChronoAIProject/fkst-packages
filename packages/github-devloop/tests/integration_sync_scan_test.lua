@@ -35,8 +35,8 @@ local function run_scan(run_opts)
 end
 
 local function mock_fetch_and_heads(upstream_sha, integration_sha)
-  t.mock_command("git fetch 'origin' 'dev'", { stdout = "", stderr = "", exit_code = 0 })
-  t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '+refs/heads/dev:refs/remotes/origin/dev'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'dev'^{commit}", { stdout = upstream_sha .. "\n", stderr = "", exit_code = 0 })
   t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = integration_sha .. "\n", stderr = "", exit_code = 0 })
 end
@@ -105,11 +105,11 @@ return {
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "bbbb2222\n", stderr = "", exit_code = 0 })
     t.mock_command("rev-parse HEAD", { stdout = "cccc3333\n", stderr = "", exit_code = 0 })
     t.mock_command("push origin HEAD:refs/heads/", { stdout = "", stderr = "", exit_code = 0 })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "cccc3333\n", stderr = "", exit_code = 0 })
 
     local result = run_scan(opts("sync-clean-real", { FKST_GITHUB_WRITE = "1" }))
@@ -130,14 +130,39 @@ return {
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "bbbb2222\n", stderr = "", exit_code = 0 })
     t.mock_command("rev-parse HEAD", { stdout = "aaaa1111\n", stderr = "", exit_code = 0 })
     t.mock_command("push origin HEAD:refs/heads/", { stdout = "", stderr = "", exit_code = 0 })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "aaaa1111\n", stderr = "", exit_code = 0 })
 
     local result = run_scan(opts("sync-fast-forward-real", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("merge --ff-only"), 1)
+    t.eq(count_calls("merge --no-ff --no-commit"), 0)
+    t.eq(count_calls("commit -F"), 0)
+    t.eq(count_calls("push origin HEAD:refs/heads/"), 1)
+  end,
+
+  test_sync_scan_rollup_merge_parent_fast_forwards_without_churn = function()
+    mock_env("1")
+    mock_fetch_and_heads("cccc3333", "bbbb2222")
+    t.mock_command("merge-base --is-ancestor 'cccc3333' 'bbbb2222'", { stdout = "", stderr = "", exit_code = 1 })
+    t.mock_command("merge-base --is-ancestor 'bbbb2222' 'cccc3333'", { stdout = "", stderr = "", exit_code = 0 })
+    mock_worktree_fast_forward()
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "bbbb2222\n", stderr = "", exit_code = 0 })
+    t.mock_command("rev-parse HEAD", { stdout = "cccc3333\n", stderr = "", exit_code = 0 })
+    t.mock_command("push origin HEAD:refs/heads/", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "cccc3333\n", stderr = "", exit_code = 0 })
+
+    local result = run_scan(opts("sync-rollup-parent-ff", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("merge --ff-only"), 1)
@@ -155,7 +180,7 @@ return {
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "bbbb2222\n", stderr = "", exit_code = 0 })
     mock_tree_compare(true)
     t.mock_command("git push origin 'aaaa1111:refs/heads/integration/dev' --force-with-lease='refs/heads/integration/dev:bbbb2222'", {
@@ -163,7 +188,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "aaaa1111\n", stderr = "", exit_code = 0 })
 
     local result = run_scan(opts("sync-tree-equal-real", { FKST_GITHUB_WRITE = "1" }))
@@ -187,7 +212,7 @@ return {
     t.eq(#result.raises, 0)
     t.eq(count_calls("merge --no-ff --no-commit"), 0)
     t.eq(count_calls("--force-with-lease"), 0)
-    t.eq(count_calls("git fetch 'origin' 'integration/dev'"), 1)
+    t.eq(count_calls("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'"), 1)
   end,
 
   test_sync_scan_tree_equal_real_mode_skips_when_integration_head_changed = function()
@@ -199,7 +224,7 @@ return {
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "1", stderr = "", exit_code = 0 })
-    t.mock_command("git fetch 'origin' 'integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git fetch 'origin' '+refs/heads/integration/dev:refs/remotes/origin/integration/dev'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("refs/remotes/'origin'/'integration/dev'^{commit}", { stdout = "cccc3333\n", stderr = "", exit_code = 0 })
 
     local result = run_scan(opts("sync-tree-equal-head-changed", { FKST_GITHUB_WRITE = "1" }))

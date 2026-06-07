@@ -42,8 +42,8 @@ local function remote_head(branch)
   return head
 end
 
-local function ahead_count(upstream, integration)
-  local result = run_cmd(core.git_ahead_count_cmd(upstream, integration), 30, "git rollup ahead count")
+local function ahead_count(upstream_sha, integration_sha)
+  local result = run_cmd(core.git_sha_ahead_count_cmd(upstream_sha, integration_sha), 30, "git rollup ahead count")
   local text = trim_stdout(result)
   local count = tonumber(text)
   if count == nil or count < 0 then
@@ -52,8 +52,8 @@ local function ahead_count(upstream, integration)
   return count
 end
 
-local function has_content_diff(upstream, integration)
-  local result = exec_sync({ cmd = core.git_remote_trees_equal_quiet_cmd(upstream, integration), timeout = 30 })
+local function has_content_diff(upstream_sha, integration_sha)
+  local result = exec_sync({ cmd = core.git_trees_equal_quiet_cmd(upstream_sha, integration_sha), timeout = 30 })
   if result.exit_code == 0 then
     return false
   end
@@ -87,6 +87,12 @@ local function create_rollup_pr(repo, upstream, integration, ahead)
   run_cmd(core.gh_pr_create_cmd(repo, integration, upstream, title, body_file), 60, "gh rollup PR create")
 end
 
+local function read_branches(upstream, integration)
+  fetch_branch(upstream)
+  fetch_branch(integration)
+  return remote_head(upstream), remote_head(integration)
+end
+
 function pipeline(event)
   core.log_entry("rollup_scan", event, "rollup", event and event.queue or "")
   local branches = core.branch_config()
@@ -99,14 +105,13 @@ function pipeline(event)
   end
 
   with_lock(core.rollup_lock_key(repo, branches.upstream, branches.integration), function()
-    fetch_branch(branches.upstream)
-    fetch_branch(branches.integration)
-    local ahead = ahead_count(branches.upstream, branches.integration)
+    local upstream_sha, integration_sha = read_branches(branches.upstream, branches.integration)
+    local ahead = ahead_count(upstream_sha, integration_sha)
     if ahead == 0 then
       core.log_cas_decision("rollup_scan", "rollup", { state = "not-ahead", version = branches.integration }, "tick", "rollup", "skip-idempotent(not-ahead)", "integration is not ahead of upstream")
       return
     end
-    if not has_content_diff(branches.upstream, branches.integration) then
+    if not has_content_diff(upstream_sha, integration_sha) then
       core.log_cas_decision("rollup_scan", "rollup", { state = "empty-diff", version = branches.integration }, "tick", "rollup", "skip-idempotent(empty-diff)", "integration has no content diff from upstream")
       return
     end
@@ -123,6 +128,16 @@ function pipeline(event)
         })
         return
       end
+      upstream_sha, integration_sha = read_branches(branches.upstream, branches.integration)
+      ahead = ahead_count(upstream_sha, integration_sha)
+      if ahead == 0 then
+        core.log_cas_decision("rollup_scan", "rollup", { state = "not-ahead", version = integration_sha }, "tick", "rollup", "skip-idempotent(not-ahead)", "integration is not ahead of upstream before create")
+        return
+      end
+      if not has_content_diff(upstream_sha, integration_sha) then
+        core.log_cas_decision("rollup_scan", "rollup", { state = "empty-diff", version = integration_sha }, "tick", "rollup", "skip-idempotent(empty-diff)", "integration has no content diff from upstream before create")
+        return
+      end
       create_rollup_pr(repo, branches.upstream, branches.integration, ahead)
       pr = list_open_pr(repo, branches.integration, branches.upstream)
       if pr == nil then
@@ -130,7 +145,16 @@ function pipeline(event)
       end
     end
 
-    local integration_head = remote_head(branches.integration)
+    upstream_sha, integration_sha = read_branches(branches.upstream, branches.integration)
+    ahead = ahead_count(upstream_sha, integration_sha)
+    if ahead == 0 then
+      core.log_cas_decision("rollup_scan", "rollup", { state = "not-ahead", version = integration_sha }, "tick", "rollup", "skip-idempotent(not-ahead)", "integration is not ahead of upstream before ready")
+      return
+    end
+    if not has_content_diff(upstream_sha, integration_sha) then
+      core.log_cas_decision("rollup_scan", "rollup", { state = "empty-diff", version = integration_sha }, "tick", "rollup", "skip-idempotent(empty-diff)", "integration has no content diff from upstream before ready")
+      return
+    end
     if cfg.rollup_merge == "manual" then
       core.log_line("info", "rollup_scan", "rollup", "POSTURE", {
         "posture=manual",
@@ -141,7 +165,7 @@ function pipeline(event)
       return
     end
 
-    local payload = core.rollup_ready_payload(repo, branches.upstream, branches.integration, pr.number, integration_head)
+    local payload = core.rollup_ready_payload(repo, branches.upstream, branches.integration, pr.number, integration_sha)
     core.log_raise("rollup_scan", "rollup", "devloop_rollup_ready", payload)
   end)
 end
