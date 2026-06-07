@@ -10,6 +10,7 @@ M.spec = {
     "devloop_reviewing",
     "devloop_review_meta",
   },
+  retry = core.marker_lag_retry(),
   stall_window = "10m",
 }
 

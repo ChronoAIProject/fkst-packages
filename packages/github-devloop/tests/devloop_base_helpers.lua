@@ -323,6 +323,16 @@ local function run_review_meta(payload, run_opts)
   }, run_opts)
 end
 
+local function run_review_scan(run_opts)
+  return t.run_department("departments/review_scan/main.lua", {
+    queue = "devloop_branch_tick",
+    payload = {
+      schema = "github-devloop.branch-tick.v1",
+      dedup_key = "review-scan-tick",
+    },
+  }, run_opts)
+end
+
 local function run_merge(payload, run_opts)
   mock_branch_config_env()
   return t.run_department("departments/merge/main.lua", {
@@ -740,6 +750,7 @@ return {
   run_fix = run_fix,
   run_review_loop = run_review_loop,
   run_review_meta = run_review_meta,
+  run_review_scan = run_review_scan,
   run_merge = run_merge,
   json_string = json_string,
   render_comment = render_comment,

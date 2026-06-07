@@ -10,6 +10,7 @@ M.spec = {
     "devloop_fixing",
     "devloop_merge_ready",
   },
+  retry = core.marker_lag_retry(),
   stall_window = "2m",
 }
 

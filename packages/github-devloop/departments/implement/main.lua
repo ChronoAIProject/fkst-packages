@@ -8,6 +8,7 @@ M.spec = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
   },
+  retry = core.marker_lag_retry(),
   stall_window = "10m",
 }
 

@@ -784,6 +784,14 @@ function M.normalize_source_ref(source_ref)
   }
 end
 
+function M.marker_lag_retry()
+  return {
+    max_attempts = 24,
+    base = "30s",
+    cap = "5m",
+  }
+end
+
 
 function M.trusted_bot_login()
   return trusted_bot_login or test_bot_login

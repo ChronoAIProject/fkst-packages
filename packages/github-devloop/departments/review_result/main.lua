@@ -11,6 +11,7 @@ M.spec = {
     "devloop_merge_ready",
   },
   fanout = { "consensus.consensus_reached" },
+  retry = core.marker_lag_retry(),
   stall_window = "30s",
 }
 

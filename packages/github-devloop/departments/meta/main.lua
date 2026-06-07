@@ -9,6 +9,7 @@ M.spec = {
     "github-proxy.github_issue_comment_request",
     "devloop_ready",
   },
+  retry = core.marker_lag_retry(),
   stall_window = "2m",
 }
 

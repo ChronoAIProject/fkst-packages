@@ -689,6 +689,20 @@ function M.review_loop_count_from_github_markers(comments, review_proposal_id, i
   return max_n
 end
 
+function M.review_loop_progress_from_github_markers(comments, review_proposal_id, issue_proposal_id)
+  local max_n = 0
+  local dedup_key = nil
+  for _, kind in ipairs({ "review-loop", "review-meta-trigger" }) do
+    for _, record in ipairs(review_marker_records(comments, kind, review_proposal_id, issue_proposal_id)) do
+      if record.n > max_n then
+        max_n = record.n
+        dedup_key = record.dedup_key
+      end
+    end
+  end
+  return max_n, dedup_key
+end
+
 function M.has_review_meta_trigger_marker(comments, review_proposal_id, issue_proposal_id, n, dedup_key)
   if type(comments) ~= "table" then
     return false

@@ -11,6 +11,7 @@ M.spec = {
     "github-proxy.github_issue_comment_request",
   },
   fanout = { "consensus.consensus_unresolved" },
+  retry = core.marker_lag_retry(),
   stall_window = "30s",
 }
 

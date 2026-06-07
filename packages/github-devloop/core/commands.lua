@@ -136,6 +136,18 @@ function M.gh_pr_list_head_base_cmd(repo, head, base)
     .. " --json number,headRefOid,headRefName,baseRefName,state"
 end
 
+function M.gh_pr_list_open_cmd(repo, limit)
+  local bounded_limit = tonumber(limit or 100)
+  if bounded_limit == nil or bounded_limit < 1 or bounded_limit > 100 then
+    error("github-devloop: invalid PR list limit")
+  end
+  return "gh pr list"
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --state open"
+    .. " --limit " .. tostring(math.floor(bounded_limit))
+    .. " --json number,headRefOid,headRefName,baseRefName,state"
+end
+
 function M.gh_pr_create_cmd(repo, head, base, title, body_file)
   if not M._is_git_ref_safe(head) then
     error("github-devloop: invalid PR head branch")

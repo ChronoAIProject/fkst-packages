@@ -12,6 +12,7 @@ M.spec = {
     "devloop_merge_ready",
   },
   fanout = { "github-proxy.github_entity_changed" },
+  retry = core.marker_lag_retry(),
   stall_window = "30s",
 }
 

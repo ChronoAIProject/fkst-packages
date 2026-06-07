@@ -7,6 +7,7 @@ M.spec = {
   produces = {
     "consensus.proposal",
   },
+  retry = core.marker_lag_retry(),
   stall_window = "30s",
 }
 

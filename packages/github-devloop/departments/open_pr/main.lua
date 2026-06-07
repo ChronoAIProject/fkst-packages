@@ -7,6 +7,7 @@ M.spec = {
   produces = {
     "github-proxy.github_pr_open_request",
   },
+  retry = core.marker_lag_retry(),
   stall_window = "2m",
 }
 

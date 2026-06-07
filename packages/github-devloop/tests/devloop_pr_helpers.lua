@@ -41,6 +41,25 @@ local function mock_pr_origin(comments, head, head_sha, state, base_branch)
   })
 end
 
+local function mock_pr_list_open(prs)
+  local rendered = {}
+  for _, pr in ipairs(prs or {}) do
+    table.insert(rendered, string.format(
+      '{"number":%s,"headRefOid":"%s","headRefName":"%s","baseRefName":"%s","state":"%s"}',
+      tostring(pr.number or 7),
+      json_string(pr.head_sha or "def456"),
+      json_string(pr.head or "devloop-owner-repo-42-01HY"),
+      json_string(pr.base or "dev"),
+      json_string(pr.state or "OPEN")
+    ))
+  end
+  t.mock_command("gh pr list", {
+    stdout = "[" .. table.concat(rendered, ",") .. "]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_pr_merge(comments, head, head_sha, state, head_repo, cross_repo, mergeable, merge_state, rollup_state, rollup_conclusion, merged_at)
   local rendered_comments = {}
   for _, comment in ipairs(comments or {}) do
@@ -214,6 +233,7 @@ return {
   merge_comments = merge_comments,
   review_result_approve_marker = review_result_approve_marker,
   mock_pr_origin = mock_pr_origin,
+  mock_pr_list_open = mock_pr_list_open,
   mock_pr_merge = mock_pr_merge,
   mock_pr_merge_rollup = mock_pr_merge_rollup,
   mock_merging_comment = mock_merging_comment,

@@ -11,6 +11,7 @@ M.spec = {
     "devloop_review_meta",
   },
   fanout = { "consensus.consensus_unresolved" },
+  retry = core.marker_lag_retry(),
   stall_window = "30s",
 }
 
