@@ -7,6 +7,7 @@ M.spec = {
   produces = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
     "devloop_fixing",
   },
   stall_window = "2m",
@@ -35,10 +36,21 @@ local function temp_body_file(repo, issue_number)
   return "/tmp/fkst-github-devloop-" .. runtime_identity(repo, issue_number) .. ".md"
 end
 
+local function temp_pr_body_file(repo, pr_number)
+  return "/tmp/fkst-github-devloop-merge-" .. safe_segment(repo) .. "-pr-" .. safe_segment(pr_number) .. ".md"
+end
+
 local function issue_source_ref(repo, issue_number)
   return {
     kind = "external",
     ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
+  }
+end
+
+local function pr_source_ref(repo, pr_number)
+  return {
+    kind = "external",
+    ref = tostring(repo) .. "#pr/" .. tostring(pr_number),
   }
 end
 
@@ -63,7 +75,8 @@ end
 local function raise_fixing(repo, issue_number, merge_ready, current_state, reason)
   local source_ref = issue_source_ref(repo, issue_number)
   local fix_version = core.fix_version_from_review_version(current_state.version)
-  local comment_request = core.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready, fix_version, reason, source_ref)
+  local comment_request = core.build_merge_gate_fix_issue_marker_comment_request(repo, issue_number, merge_ready, fix_version, reason, source_ref)
+  local pr_comment_request = core.build_merge_gate_fix_pr_comment_request(repo, merge_ready.pr_number, merge_ready, fix_version, reason, pr_source_ref(repo, merge_ready.pr_number))
   local label_request = core.build_state_label_request(
     repo,
     issue_number,
@@ -83,10 +96,12 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, reas
   core.log_cas_decision("merge", merge_ready.proposal_id, current_state, "merge-ready", "fixing", "applied", reason)
   core.log_apply("merge", merge_ready.proposal_id, "fixing", fix_version, { add = add_labels, remove = remove_labels }, {
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
     "github-proxy.github_issue_label_request",
     "devloop_fixing",
   })
   core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+  core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_pr_comment_request", pr_comment_request)
   core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
   core.log_raise("merge", merge_ready.proposal_id, "devloop_fixing", fix_payload)
 end
@@ -110,21 +125,40 @@ local function build_merging_body(merge_ready)
     .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
 end
 
+local function build_merging_issue_body(merge_ready)
+  return "github-devloop merge state fact: merging"
+    .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
+    .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
+end
+
 local function write_merging_marker(repo, issue_number, merge_ready, comments)
   if core.merging_fact(comments, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha) ~= nil then
     return
   end
   local path = temp_body_file(repo, issue_number)
-  file.write(path, build_merging_body(merge_ready))
+  file.write(path, build_merging_issue_body(merge_ready))
   local result = exec_sync({ cmd = core.gh_issue_comment_cmd(repo, issue_number, path), timeout = 30 })
   if result.exit_code ~= 0 then
     error("github-devloop: gh issue merging marker comment failed: " .. tostring(result.stderr))
   end
 end
 
+local function write_merging_pr_comment(repo, merge_ready, comments)
+  local dedup_key = merge_ready.dedup_key .. "/pr-comment/merging"
+  if core.has_trusted_comment_fragment(comments, core.comment_marker(dedup_key), core.trusted_bot_login()) then
+    return
+  end
+  local path = temp_pr_body_file(repo, merge_ready.pr_number)
+  file.write(path, build_merging_body(merge_ready) .. "\n\n" .. core.comment_marker(dedup_key) .. "\n")
+  local result = exec_sync({ cmd = core.gh_pr_comment_cmd(repo, merge_ready.pr_number, path), timeout = 30 })
+  if result.exit_code ~= 0 then
+    error("github-devloop: gh pr merging comment failed: " .. tostring(result.stderr))
+  end
+end
+
 local function build_merged_requests(repo, issue_number, merge_ready)
   local merged_source_ref = issue_source_ref(repo, issue_number)
-  local merged_body = "github-devloop merged PR #" .. tostring(merge_ready.pr_number)
+  local issue_body = "github-devloop merge state fact: merged"
     .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
     .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
     .. "\n" .. core.state_marker(merge_ready.proposal_id, "merged", merge_ready.version)
@@ -133,9 +167,21 @@ local function build_merged_requests(repo, issue_number, merge_ready)
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = merged_body,
-    dedup_key = merge_ready.dedup_key .. "/comment/merged",
+    body = issue_body,
+    dedup_key = merge_ready.dedup_key .. "/issue-marker/merged",
     source_ref = merged_source_ref,
+  }
+  local pr_comment_request = {
+    schema = "github-proxy.v1",
+    repo = repo,
+    pr_number = merge_ready.pr_number,
+    body = "github-devloop merged PR #" .. tostring(merge_ready.pr_number)
+      .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
+      .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
+      .. "\n" .. core.state_marker(merge_ready.proposal_id, "merged", merge_ready.version)
+      .. "\n" .. core.merged_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha),
+    dedup_key = merge_ready.dedup_key .. "/pr-comment/merged",
+    source_ref = pr_source_ref(repo, merge_ready.pr_number),
   }
   local label_request = core.build_state_label_request(
     repo,
@@ -144,7 +190,7 @@ local function build_merged_requests(repo, issue_number, merge_ready)
     merge_ready.dedup_key .. "/label/merged",
     merged_source_ref
   )
-  return comment_request, label_request
+  return comment_request, pr_comment_request, label_request
 end
 
 local function finalize_merged(repo, issue_number, merge_ready, current_state, reason)
@@ -153,14 +199,16 @@ local function finalize_merged(repo, issue_number, merge_ready, current_state, r
     error("github-devloop: gh issue close failed: " .. tostring(close_result.stderr))
   end
 
-  local comment_request, label_request = build_merged_requests(repo, issue_number, merge_ready)
+  local comment_request, pr_comment_request, label_request = build_merged_requests(repo, issue_number, merge_ready)
   local add_labels, remove_labels = core.state_label_changes("merged")
   core.log_cas_decision("merge", merge_ready.proposal_id, current_state, "merge-ready", "merged", "applied", reason)
   core.log_apply("merge", merge_ready.proposal_id, "merged", merge_ready.version, { add = add_labels, remove = remove_labels }, {
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
     "github-proxy.github_issue_label_request",
   })
   core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+  core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_pr_comment_request", pr_comment_request)
   core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
 end
 
@@ -369,6 +417,11 @@ function pipeline(event)
       end,
       before_merge = function()
         write_merging_marker(repo, issue_number, merge_ready, rechecked_issue.comments)
+        local pr_recheck = exec_sync({ cmd = core.gh_pr_view_merge_cmd(repo, merge_ready.pr_number), timeout = 30 })
+        if pr_recheck.exit_code ~= 0 then
+          error("github-devloop: gh pr merging comment recheck failed: " .. tostring(pr_recheck.stderr))
+        end
+        write_merging_pr_comment(repo, merge_ready, core.parse_pr_view_merge(pr_recheck.stdout).comments)
       end,
     })
     if not merge_ok and merge_reason == "merge-confirmation-pending" then

@@ -605,7 +605,10 @@ return {
     t.eq(#result.raises, 2)
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.is_true(result.raises[1].payload.dedup_key:find("/loop/1", 1, true) ~= nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request").payload.body:find("fkst:github-devloop:review-loop:v1", 1, true) ~= nil)
+    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_comment_request"))
+    local pr_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.eq(pr_comment.payload.pr_number, 7)
+    t.is_true(pr_comment.payload.body:find("fkst:github-devloop:review-loop:v1", 1, true) ~= nil)
   end,
 
   test_review_loop_old_unresolved_skips_after_issue_advanced_to_newer_fixing = function()
@@ -641,14 +644,20 @@ return {
 
     local loop_result = run_review_loop(event, opts("review-loop-budget"))
     t.eq(loop_result.exit_code, 0)
-    t.eq(#loop_result.raises, 3)
+    t.eq(#loop_result.raises, 4)
 	    t.eq(find_raise(loop_result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:review-meta")
 	    local review_meta_payload = find_raise(loop_result.raises, "devloop_review_meta").payload
     t.eq(review_meta_payload.version, impl_version .. "/review-loop/3")
-    t.eq(find_raise(loop_result.raises, "github-proxy.github_issue_comment_request").payload.body:find("fkst:github-devloop:review-meta:v1", 1, true), nil)
+    local issue_comment = find_raise(loop_result.raises, "github-proxy.github_issue_comment_request")
+    local pr_comment = find_raise(loop_result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(issue_comment.payload.body:find("state=\"review-meta\"", 1, true) ~= nil)
+    t.eq(issue_comment.payload.body:find("escalating to review-meta", 1, true), nil)
+    t.is_true(pr_comment.payload.body:find("escalating to review-meta", 1, true) ~= nil)
+    t.eq(pr_comment.payload.pr_number, 7)
+    t.eq(issue_comment.payload.body:find("fkst:github-devloop:review-meta:v1", 1, true), nil)
 
 	    mock_issue_review_meta({ "fkst-dev:review-meta" }, {
-	      find_raise(loop_result.raises, "github-proxy.github_issue_comment_request").payload.body,
+	      issue_comment.payload.body,
     })
     mock_meta_codex("accept", "The unresolved review is acceptable.")
 

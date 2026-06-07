@@ -55,6 +55,7 @@ local mock_pr_origin = h.mock_pr_origin
 local mock_pr_merge = h.mock_pr_merge
 local mock_pr_merge_rollup = h.mock_pr_merge_rollup
 local mock_merging_comment = h.mock_merging_comment
+local mock_pr_merging_comment = h.mock_pr_merging_comment
 local mock_pr_merge_command = h.mock_pr_merge_command
 local has_call = h.has_call
 local mock_issue_close = h.mock_issue_close
@@ -94,19 +95,25 @@ return {
     mock_write_env("1")
     mock_pr_merge({ origin_marker })
     mock_merging_comment()
+    mock_pr_merge({ origin_marker })
+    mock_pr_merging_comment()
     mock_pr_merge_command()
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
     mock_issue_close()
 
     local result = run_merge(event, opts("merge-success", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(count_calls("gh pr merge"), 1)
     t.eq(count_calls("gh issue close"), 1)
     t.eq(has_call("latestReviews"), false)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    local pr_comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:merged")
+    t.eq(comment_raise.payload.body:find("github-devloop merged PR #7", 1, true), nil)
+    t.is_true(pr_comment_raise.payload.body:find("github-devloop merged PR #7", 1, true) ~= nil)
+    t.eq(pr_comment_raise.payload.pr_number, 7)
     t.is_true(comment_raise.payload.body:find('state="merging"', 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('state="merged"', 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
@@ -124,13 +131,15 @@ return {
     mock_write_env("1")
     mock_pr_merge_rollup({ origin_marker }, legacy_rollup)
     mock_merging_comment()
+    mock_pr_merge_rollup({ origin_marker }, legacy_rollup)
+    mock_pr_merging_comment()
     mock_pr_merge_command()
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
     mock_issue_close()
 
     local result = run_merge(event, opts("merge-legacy-status-context", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(count_calls("gh pr merge"), 1)
     t.eq(count_calls("gh issue close"), 1)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:merged")
@@ -147,6 +156,8 @@ return {
     mock_write_env("1")
     mock_pr_merge({ origin_marker })
     mock_merging_comment()
+    mock_pr_merge({ origin_marker })
+    mock_pr_merging_comment()
     mock_pr_merge_command()
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
     mock_issue_close(1, "close race")
@@ -168,12 +179,14 @@ return {
 
     local healed = run_merge(event, opts("merge-close-failed-self-heal", { FKST_GITHUB_WRITE = "1" }))
     t.eq(healed.exit_code, 0)
-    t.eq(#healed.raises, 2)
+    t.eq(#healed.raises, 3)
     t.eq(count_calls("gh pr merge"), merge_calls_before_heal)
     t.eq(count_calls("gh issue close"), close_calls_before_heal + 1)
     local comment_raise = find_raise(healed.raises, "github-proxy.github_issue_comment_request")
+    local pr_comment_raise = find_raise(healed.raises, "github-proxy.github_pr_comment_request")
     local label_raise = find_raise(healed.raises, "github-proxy.github_issue_label_request")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:merged")
+    t.eq(pr_comment_raise.payload.pr_number, 7)
     t.is_true(comment_raise.payload.body:find('state="merged"', 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
   end,
@@ -244,7 +257,7 @@ return {
 
     local result = run_merge(event, opts("merge-self-heal-no-label", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(count_calls("gh issue close"), 1)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:merged")
@@ -289,6 +302,8 @@ return {
     mock_write_env("1")
     mock_pr_merge({ origin_marker })
     mock_merging_comment()
+    mock_pr_merge({ origin_marker })
+    mock_pr_merging_comment()
     mock_pr_merge_command()
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
     mock_issue_close()
@@ -297,7 +312,7 @@ return {
       FKST_GITHUB_WRITE = "1",
     }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(count_calls("gh pr merge"), 1)
     t.eq(count_calls("gh issue close"), 1)
   end,
@@ -400,7 +415,7 @@ return {
 
     local result = run_merge(event, opts("merge-ci-red", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
     t.eq(find_raise(result.raises, "devloop_fixing").payload.schema, "github-devloop.fixing.v1")
@@ -449,7 +464,7 @@ return {
 
     local result = run_merge(event, opts("merge-rollup-red-at-write-time", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(count_calls("gh pr merge"), 0)
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:fixing")
@@ -518,7 +533,7 @@ return {
 
     local result = run_merge(event, opts("merge-not-mergeable", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
   end,
@@ -568,7 +583,7 @@ return {
 
     local result = run_merge(event, opts("merge-head-advanced-after-recheck", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
     t.eq(find_raise(result.raises, "devloop_fixing").payload.schema, "github-devloop.fixing.v1")
@@ -586,6 +601,8 @@ return {
     mock_write_env("1")
     mock_pr_merge({ origin_marker })
     mock_merging_comment()
+    mock_pr_merge({ origin_marker })
+    mock_pr_merging_comment()
     mock_pr_merge_command()
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "OPEN")
 
@@ -627,7 +644,7 @@ return {
 
     local result = run_merge(event, opts("merge-queued-later-poll-merged", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(count_calls("gh issue close"), 1)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:merged")
@@ -660,6 +677,8 @@ return {
     mock_write_env("1")
     mock_pr_merge({ origin_marker })
     mock_merging_comment()
+    mock_pr_merge({ origin_marker })
+    mock_pr_merging_comment()
     mock_pr_merge_command(1, "merge race")
 
     local result = run_merge(event, opts("merge-command-failure", { FKST_GITHUB_WRITE = "1" }))
@@ -675,13 +694,15 @@ return {
 	    mock_issue_merge({ "fkst-dev:merging" }, merge_comments_with_merging(event))
 	    mock_write_env("1")
 	    mock_pr_merge({ origin_marker })
+	    mock_pr_merge({ origin_marker })
+	    mock_pr_merging_comment()
 	    mock_pr_merge_command()
 	    mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
 	    mock_issue_close()
 
 	    local retry = run_merge(event, opts("merge-command-failure-retry-from-merging", { FKST_GITHUB_WRITE = "1" }))
 	    t.eq(retry.exit_code, 0)
-	    t.eq(#retry.raises, 2)
+	    t.eq(#retry.raises, 3)
 	    t.eq(count_calls("gh pr merge"), merge_calls_after_failure + 1)
 	    t.eq(count_calls("gh issue close"), 1)
 	  end,

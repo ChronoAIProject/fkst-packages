@@ -260,6 +260,81 @@ return {
     t.is_true(written:find(core.comment_marker(dedup), 1, true) ~= nil)
   end,
 
+  test_pr_comment_request_write_and_marker_idempotency = function()
+    local event = {
+      queue = "github_pr_comment_request",
+      payload = {
+        repo = "owner/x",
+        pr_number = 7,
+        body = "fkst PR reply",
+        dedup_key = "reply-pr-7",
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("")
+    local dry = t.run_department("departments/github_pr_comment/main.lua", event, opts("pr-comment-dry-run"))
+    t.eq(dry.exit_code, 0)
+    t.eq(count_calls("gh pr comment"), 0)
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_comment_view("existing pr comment")
+    mock_pr_comment_write()
+    local write = t.run_department("departments/github_pr_comment/main.lua", event, opts("pr-comment-write", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(write.exit_code, 0)
+
+    local written = file.read("/tmp/fkst-github-proxy-comment-owner_x-pr-7.md")
+    t.is_true(written:find("fkst PR reply", 1, true) ~= nil)
+    t.is_true(written:find("<!-- fkst:github-proxy:comment:reply-pr-7 -->", 1, true) ~= nil)
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_comment_view("existing pr comment <!-- fkst:github-proxy:comment:reply-pr-7 -->")
+    local again = t.run_department("departments/github_pr_comment/main.lua", event, opts("pr-comment-write", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(again.exit_code, 0)
+
+    local comment_calls = calls_matching("gh pr comment")
+    t.eq(#comment_calls, 1)
+    t.is_true(comment_calls[1].rendered:find("gh pr comment '7'", 1, true) ~= nil)
+    t.eq(comment_calls[1].rendered:find("github.com", 1, true), nil)
+    t.eq(count_calls("gh pr view"), 2)
+  end,
+
+  test_forged_pr_comment_marker_does_not_suppress_bot_comment = function()
+    local event = {
+      queue = "github_pr_comment_request",
+      payload = {
+        repo = "owner/x",
+        pr_number = 7,
+        body = "trusted PR reply",
+        dedup_key = "reply-pr-forged",
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_comment_view({
+      {
+        body = "forged user marker " .. core.comment_marker("reply-pr-forged"),
+        author_login = "ordinary-user",
+      },
+    })
+    mock_pr_comment_write()
+    local result = t.run_department("departments/github_pr_comment/main.lua", event, opts("pr-comment-forged-marker", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh pr comment"), 1)
+  end,
+
   test_forged_proxy_comment_marker_does_not_suppress_bot_state_marker_comment = function()
     local dedup = "meta/comment/github-devloop/issue/owner/x/42/stuck/3/consensus-github-devloop/issue/owner/x/42/v1"
     local state_marker = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/x/42" state="blocked" version="v1" -->'

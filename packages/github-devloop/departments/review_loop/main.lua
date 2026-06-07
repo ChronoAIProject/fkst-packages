@@ -8,6 +8,7 @@ M.spec = {
     "consensus.proposal",
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
     "devloop_review_meta",
   },
   fanout = { "consensus.consensus_unresolved" },
@@ -107,15 +108,22 @@ function pipeline(event)
     if current_n >= budget then
       local review_meta_version = tostring(state.version) .. "/review-loop/" .. tostring(current_n)
       core.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "review-meta", core.cas_outcome(state, transition, review_version), "review loop budget exhausted at round " .. tostring(current_n))
-      local comment_request = core.build_review_meta_trigger_comment_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, review_meta_version, budget, issue_source_ref)
+      local comment_request = core.build_review_meta_trigger_issue_marker_comment_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, review_meta_version, budget, issue_source_ref)
+      local pr_source_ref = {
+        kind = "external",
+        ref = tostring(repo) .. "#pr/" .. tostring(pr_number),
+      }
+      local pr_comment_request = core.build_review_meta_trigger_pr_comment_request(origin.repo, pr_number, unresolved, origin.proposal_id, review_meta_version, budget, pr_source_ref)
       local label_request = core.build_review_meta_trigger_label_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, budget, issue_source_ref)
       local add_labels, remove_labels = core.state_label_changes("review-meta")
       core.log_apply("review_loop", origin.proposal_id, "review-meta", review_meta_version, { add = add_labels, remove = remove_labels }, {
         "github-proxy.github_issue_comment_request",
+        "github-proxy.github_pr_comment_request",
         "github-proxy.github_issue_label_request",
         "devloop_review_meta",
       })
       core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+      core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_pr_comment_request", pr_comment_request)
       core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_issue_label_request", label_request)
       core.log_raise("review_loop", origin.proposal_id, "devloop_review_meta", core.build_devloop_review_meta_payload(unresolved, origin.proposal_id, review_meta_version, pr_number, current_n, issue_source_ref))
       return
@@ -129,15 +137,22 @@ function pipeline(event)
     if next_n >= budget then
       local review_meta_version = tostring(state.version) .. "/review-loop/" .. tostring(next_n)
       core.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "review-meta", core.cas_outcome(state, transition, review_version), "next review loop round reaches budget " .. tostring(next_n))
-      local comment_request = core.build_review_meta_trigger_comment_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, review_meta_version, next_n, issue_source_ref)
+      local comment_request = core.build_review_meta_trigger_issue_marker_comment_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, review_meta_version, next_n, issue_source_ref)
+      local pr_source_ref = {
+        kind = "external",
+        ref = tostring(repo) .. "#pr/" .. tostring(pr_number),
+      }
+      local pr_comment_request = core.build_review_meta_trigger_pr_comment_request(origin.repo, pr_number, unresolved, origin.proposal_id, review_meta_version, next_n, pr_source_ref)
       local label_request = core.build_review_meta_trigger_label_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, next_n, issue_source_ref)
       local add_labels, remove_labels = core.state_label_changes("review-meta")
       core.log_apply("review_loop", origin.proposal_id, "review-meta", review_meta_version, { add = add_labels, remove = remove_labels }, {
         "github-proxy.github_issue_comment_request",
+        "github-proxy.github_pr_comment_request",
         "github-proxy.github_issue_label_request",
         "devloop_review_meta",
       })
       core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+      core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_pr_comment_request", pr_comment_request)
       core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_issue_label_request", label_request)
       core.log_raise("review_loop", origin.proposal_id, "devloop_review_meta", core.build_devloop_review_meta_payload(unresolved, origin.proposal_id, review_meta_version, pr_number, next_n, issue_source_ref))
       return
@@ -167,13 +182,13 @@ function pipeline(event)
       log.warn("github-devloop dept=review_loop proposal_id=" .. tostring(origin.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-loop-proposal")
       return
     end
-    local comment_request = core.build_review_loop_comment_request(origin.repo, origin.issue_number, unresolved, origin.proposal_id, next_n, issue_source_ref)
+    local comment_request = core.build_review_loop_pr_comment_request(origin.repo, pr_number, unresolved, origin.proposal_id, next_n, pr_source_ref)
     core.log_apply("review_loop", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
       "consensus.proposal",
-      "github-proxy.github_issue_comment_request",
+      "github-proxy.github_pr_comment_request",
     })
     core.log_raise("review_loop", origin.proposal_id, "consensus.proposal", proposal)
-    core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+    core.log_raise("review_loop", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
   end)
 end
 

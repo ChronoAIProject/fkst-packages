@@ -7,6 +7,7 @@ M.spec = {
   produces = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
     "devloop_fixing",
     "devloop_merge_ready",
   },
@@ -122,11 +123,17 @@ function pipeline(event)
     if reached.decision == "reject" then
       issue_version = core.fix_version_from_review_version(state.version)
     end
-    local comment_request = core.build_review_result_comment_request(origin.repo, origin.issue_number, origin.proposal_id, issue_version, reached, issue_source_ref)
+    local issue_marker_request = core.build_review_result_issue_marker_comment_request(origin.repo, origin.issue_number, origin.proposal_id, issue_version, reached, issue_source_ref)
+    local pr_source_ref = {
+      kind = "external",
+      ref = tostring(repo) .. "#pr/" .. tostring(pr_number),
+    }
+    local pr_comment_request = core.build_review_result_pr_comment_request(origin.repo, pr_number, origin.proposal_id, issue_version, reached, pr_source_ref)
     local label_request = core.build_review_result_label_request(origin.repo, origin.issue_number, origin.proposal_id, reached, issue_source_ref)
     local add_labels, remove_labels = core.state_label_changes(to_state)
     local raised = {
       "github-proxy.github_issue_comment_request",
+      "github-proxy.github_pr_comment_request",
       "github-proxy.github_issue_label_request",
     }
     local fix_payload = nil
@@ -148,7 +155,8 @@ function pipeline(event)
       table.insert(raised, "devloop_merge_ready")
     end
     core.log_apply("review_result", origin.proposal_id, to_state, issue_version, { add = add_labels, remove = remove_labels }, raised)
-    core.log_raise("review_result", origin.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+    core.log_raise("review_result", origin.proposal_id, "github-proxy.github_issue_comment_request", issue_marker_request)
+    core.log_raise("review_result", origin.proposal_id, "github-proxy.github_pr_comment_request", pr_comment_request)
     core.log_raise("review_result", origin.proposal_id, "github-proxy.github_issue_label_request", label_request)
     if fix_payload ~= nil then
       core.log_raise("review_result", origin.proposal_id, "devloop_fixing", fix_payload)

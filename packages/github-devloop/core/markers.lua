@@ -165,6 +165,22 @@ function M.review_result_marker(review_proposal_id, issue_proposal_id, decision,
     .. '" -->'
 end
 
+function M.comment_marker(dedup_key)
+  return "<!-- fkst:github-proxy:comment:" .. tostring(dedup_key) .. " -->"
+end
+
+function M.has_trusted_comment_fragment(comments, fragment, bot_login)
+  if type(comments) ~= "table" or type(fragment) ~= "string" or fragment == "" then
+    return false
+  end
+  for _, comment in ipairs(comments) do
+    if M._comment_author_login(comment) == bot_login and M._comment_body(comment):find(fragment, 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
 function M.merge_ready_marker(issue_proposal_id, pr_number, version, review_proposal_id, review_dedup_key, head_sha)
   if not M._is_positive_pr_number(pr_number) then
     error("github-devloop: invalid merge-ready pr number")
