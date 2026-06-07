@@ -1,19 +1,24 @@
 local M = {}
 
 local default_angles = { "minimal", "structural", "delete" }
--- Angle count and per-reply length are capped so consensus_reached has a PROVABLE upper
--- bound. Worst-case raw content = max_angles * max_reply_len = 8000 bytes; even at the
--- JSON worst case of 6 bytes/char (\uXXXX escaping) that is ~48 KiB, which with field
--- overhead stays under the reliable-delivery 64 KiB cap. We cannot measure the encoded
--- size at runtime (the SDK exposes json.decode only), so the bound is enforced statically.
+-- Angle count, per-reply length, and meta reason length are capped so consensus_reached
+-- has a PROVABLE upper bound. Worst-case raw reply content plus the copied meta reason is
+-- max_angles * max_reply_len + max_meta_reason_len * 2 = 8400 bytes; even at the JSON
+-- worst case of 6 bytes/char (\uXXXX escaping) that is ~50 KiB, leaving room for angle
+-- names and field overhead under the reliable-delivery 64 KiB cap. We cannot measure the
+-- encoded size at runtime (the SDK exposes json.decode only), so the bound is enforced
+-- statically.
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
 local max_body_len = 12000
 local max_context_len = 8000
 local max_reply_len = 2000
+local max_meta_reason_len = 200
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
+local meta_decision_label = "⟦FKST:META_DECISION⟧"
+local meta_reason_label = "⟦FKST:META_REASON⟧"
 
 local function trim(value)
   return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -52,7 +57,9 @@ local function neutralize_untrusted_prompt_text(text)
 
   local function neutralize_line(line)
     if line:match("^%s*" .. verdict_label) ~= nil
-      or line:match("^%s*" .. reply_label) ~= nil then
+      or line:match("^%s*" .. reply_label) ~= nil
+      or line:match("^%s*" .. meta_decision_label) ~= nil
+      or line:match("^%s*" .. meta_reason_label) ~= nil then
       return "> " .. line
     end
     return line
@@ -188,6 +195,38 @@ function M.build_angle_prompt(proposal, angle)
   })
 end
 
+function M.build_meta_prompt(proposal, angle_results, candidate_decision)
+  if type(proposal) ~= "table" then
+    error("consensus: proposal must be a table")
+  end
+  if candidate_decision ~= "approve" and candidate_decision ~= "reject" then
+    error("consensus: invalid meta candidate decision")
+  end
+
+  local rendered_results = {}
+  for _, result in ipairs(angle_results or {}) do
+    table.insert(rendered_results, table.concat({
+      "Angle: " .. neutralize_untrusted_prompt_text(result.angle),
+      "Verdict: " .. neutralize_untrusted_prompt_text(result.verdict),
+      "Reply: " .. neutralize_untrusted_prompt_text(result.reply),
+    }, "\n"))
+  end
+
+  local prompt = require("prompts.meta")
+  local context_block = ""
+  if proposal.context ~= nil and proposal.context ~= "" then
+    context_block = "Context:\n" .. neutralize_untrusted_prompt_text(proposal.context)
+  end
+
+  return M.render_template(prompt.template, {
+    candidate_decision = candidate_decision,
+    title = neutralize_untrusted_prompt_text(proposal.title),
+    body = neutralize_untrusted_prompt_text(proposal.body),
+    context_block = context_block,
+    angle_results = table.concat(rendered_results, "\n\n"),
+  })
+end
+
 -- Fail-closed parse. A genuine answer is an ADJACENT pair: exactly one clean verdict line
 -- immediately followed by exactly one reply line (the prompt asks for line one = verdict,
 -- line two = reply). The verdict sentinel must be followed by one whitelist word on its
@@ -244,6 +283,90 @@ function M.parse_angle_output(stdout)
   }
 end
 
+function M.parse_meta_output(stdout)
+  local text = tostring(stdout or "")
+
+  local decision = nil
+  local decision_count = 0
+  local decision_index = nil
+  local reason = nil
+  local reason_count = 0
+  local reason_index = nil
+  local index = 0
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    index = index + 1
+
+    local token = line:match("^%s*" .. meta_decision_label .. "%s*(%a+)%s*$")
+    if token ~= nil then
+      local lowered = token:lower()
+      if lowered == "approve" or lowered == "reject" or lowered == "unresolved" then
+        decision = lowered
+        decision_count = decision_count + 1
+        decision_index = index
+      end
+    end
+
+    local captured = line:match("^%s*" .. meta_reason_label .. "%s*(.+)$")
+    if captured ~= nil then
+      captured = trim(captured)
+      if captured ~= "" then
+        reason = captured
+        reason_count = reason_count + 1
+        reason_index = index
+      end
+    end
+  end
+
+  if decision_count ~= 1 or reason_count ~= 1 then
+    return nil
+  end
+  if reason_index ~= decision_index + 1 then
+    return nil
+  end
+  if not is_bounded_string(reason, max_meta_reason_len) then
+    return nil
+  end
+
+  return {
+    decision = decision,
+    reason = reason,
+  }
+end
+
+function M.meta_candidate_decision(angle_results)
+  if type(angle_results) ~= "table" or #angle_results == 0 then
+    return nil
+  end
+
+  local decision = nil
+  local has_abstain = false
+  for _, result in ipairs(angle_results) do
+    if type(result) ~= "table" or result.exit_code ~= 0 then
+      return nil
+    end
+    if not is_bounded_string(result.reply, max_reply_len) then
+      return nil
+    end
+
+    if result.verdict == "abstain" then
+      has_abstain = true
+    elseif result.verdict == "approve" or result.verdict == "reject" then
+      if decision == nil then
+        decision = result.verdict
+      elseif decision ~= result.verdict then
+        return nil
+      end
+    else
+      return nil
+    end
+  end
+
+  if decision == nil or not has_abstain then
+    return nil
+  end
+  return decision
+end
+
 function M.aggregate(angle_results)
   if type(angle_results) ~= "table" or #angle_results == 0 then
     return nil
@@ -270,7 +393,7 @@ function M.aggregate(angle_results)
   return decision
 end
 
-function M.build_reached_payload(proposal, decision, angle_results)
+function M.build_reached_payload(proposal, decision, angle_results, meta_result)
   if type(proposal) ~= "table" then
     error("consensus: proposal must be a table")
   end
@@ -280,10 +403,18 @@ function M.build_reached_payload(proposal, decision, angle_results)
   if not has_source_ref(proposal.source_ref) then
     error("consensus: missing source_ref")
   end
+  if meta_result ~= nil then
+    if type(meta_result) ~= "table"
+      or meta_result.decision ~= decision
+      or not is_bounded_string(meta_result.reason, max_meta_reason_len) then
+      error("consensus: invalid meta result")
+    end
+  end
 
   -- angle_results carries only {angle, verdict}; the full reply text lives in `body`
-  -- exactly once. Duplicating replies in both fields could push consensus_reached past
-  -- the reliable 64 KiB payload bound.
+  -- exactly once. The meta reason is small enough to also copy into meta_result.
+  -- Duplicating angle replies could push consensus_reached past the reliable 64 KiB
+  -- payload bound.
   local clean_results = {}
   local body_lines = {}
   for _, result in ipairs(angle_results or {}) do
@@ -299,6 +430,21 @@ function M.build_reached_payload(proposal, decision, angle_results)
   if #body_lines > 0 then
     table.remove(body_lines)
   end
+  if meta_result ~= nil then
+    if #body_lines > 0 then
+      table.insert(body_lines, "")
+    end
+    table.insert(body_lines, "meta-judge:")
+    table.insert(body_lines, meta_result.reason)
+  end
+
+  local clean_meta = nil
+  if meta_result ~= nil then
+    clean_meta = {
+      decision = meta_result.decision,
+      reason = meta_result.reason,
+    }
+  end
 
   return {
     schema = "consensus.consensus_reached.v1",
@@ -306,6 +452,7 @@ function M.build_reached_payload(proposal, decision, angle_results)
     decision = decision,
     body = table.concat(body_lines, "\n"),
     angle_results = clean_results,
+    meta_result = clean_meta,
     dedup_key = "consensus:" .. tostring(proposal.dedup_key),
     -- Normalize to {kind, ref} only: passing the input table through would let an
     -- upstream add unbounded extra fields that could push the payload past 64 KiB.

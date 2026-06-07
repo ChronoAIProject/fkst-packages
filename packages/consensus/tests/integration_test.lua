@@ -1,6 +1,8 @@
 local t = fkst.test
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
+local meta_decision_label = "⟦FKST:META_DECISION⟧"
+local meta_reason_label = "⟦FKST:META_REASON⟧"
 
 local function nonce()
   return tostring({}):gsub("[^%w._-]", "_")
@@ -64,6 +66,14 @@ local function mock_angle(verdict, reply, exit_code)
   })
 end
 
+local function mock_meta(decision, reason, exit_code)
+  t.mock_command("codex exec", {
+    stdout = meta_decision_label .. " " .. decision .. "\n" .. meta_reason_label .. " " .. reason .. "\n",
+    stderr = "",
+    exit_code = exit_code or 0,
+  })
+end
+
 return {
   test_all_angles_approve_raises_consensus_reached = function()
     mock_angle("approve", "Minimal angle approves.")
@@ -121,12 +131,48 @@ return {
     t.eq(#codex_calls(), 3)
   end,
 
-  test_abstain_raises_consensus_unresolved = function()
-    mock_angle("approve", "Minimal angle approves.")
-    mock_angle("abstain", "Structural angle abstains.")
-    mock_angle("approve", "Delete angle approves.")
+  test_close_disagreement_meta_converges_to_consensus_reached = function()
+    mock_angle("approve", "Minimal angle approves the small scope.")
+    mock_angle("abstain", "Structural angle needs the scope stated explicitly.")
+    mock_angle("approve", "Delete angle accepts because no extra package surface is added.")
+    mock_meta("approve", "The abstention is a scope wording concern, not a different action.")
 
-    local result = run_decide(proposal(), opts("abstain"))
+    local result = run_decide(proposal(), opts("meta-converges"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "consensus_reached")
+    t.eq(result.raises[1].payload.decision, "approve")
+    t.eq(result.raises[1].payload.meta_result.decision, "approve")
+    t.eq(result.raises[1].payload.meta_result.reason, "The abstention is a scope wording concern, not a different action.")
+    t.is_true(result.raises[1].payload.body:find("meta-judge:", 1, true) ~= nil)
+
+    local calls = codex_calls()
+    t.eq(#calls, 4)
+    t.is_true(calls[4].stdin:find("Meta-judge this non-unanimous consensus result.", 1, true) ~= nil)
+    t.is_true(calls[4].stdin:find("Candidate decision: approve", 1, true) ~= nil)
+    t.is_true(calls[4].stdin:find("Structural angle needs the scope stated explicitly.", 1, true) ~= nil)
+  end,
+
+  test_close_disagreement_meta_unresolved_stays_unresolved = function()
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("abstain", "Structural angle says the contract is underspecified.")
+    mock_angle("approve", "Delete angle approves.")
+    mock_meta("unresolved", "The abstention depends on a contract detail that is not present.")
+
+    local result = run_decide(proposal(), opts("meta-unresolved"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "consensus_unresolved")
+    t.is_nil(result.raises[1].payload.meta_result)
+    t.eq(#codex_calls(), 4)
+  end,
+
+  test_all_abstain_raises_consensus_unresolved_without_meta = function()
+    mock_angle("abstain", "Minimal angle abstains.")
+    mock_angle("abstain", "Structural angle abstains.")
+    mock_angle("abstain", "Delete angle abstains.")
+
+    local result = run_decide(proposal(), opts("all-abstain"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_unresolved")
