@@ -608,7 +608,7 @@ return {
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.is_true(result.raises[1].payload.dedup_key:find("/loop/1", 1, true) ~= nil)
     local issue_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(issue_comment.payload.body:find("github-devloop PR review loop fact", 1, true) ~= nil)
+    t.eq(issue_comment.payload.body:find("github-devloop PR review loop fact", 1, true), nil)
     t.is_true(issue_comment.payload.body:find("fkst:github-devloop:review-loop:v1", 1, true) ~= nil)
     local pr_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.eq(pr_comment.payload.pr_number, 7)
@@ -668,9 +668,13 @@ return {
 
     local meta_result = run_review_meta(review_meta_payload, opts("review-meta-accept"))
     t.eq(meta_result.exit_code, 0)
-    t.eq(#meta_result.raises, 3)
+    t.eq(#meta_result.raises, 4)
 	    t.eq(find_raise(meta_result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:merge-ready")
-	    t.is_true(find_raise(meta_result.raises, "github-proxy.github_issue_comment_request").payload.body:find("github-devloop review-meta action: accept", 1, true) ~= nil)
+	    t.eq(find_raise(meta_result.raises, "github-proxy.github_issue_comment_request").payload.body:find("github-devloop review-meta action: accept", 1, true), nil)
+    local meta_pr_comment = find_raise(meta_result.raises, "github-proxy.github_pr_comment_request")
+    t.eq(meta_pr_comment.payload.pr_number, 7)
+    t.is_true(meta_pr_comment.payload.body:find("github-devloop review-meta action: accept", 1, true) ~= nil)
+    t.eq(meta_pr_comment.payload.body:find("fkst:github-devloop:state:v1", 1, true), nil)
     t.eq(find_raise(meta_result.raises, "devloop_merge_ready").payload.schema, "github-devloop.merge-ready.v1")
     local accept_version = core.next_review_meta_action_version(review_meta_payload.version)
     local accept_current = core.current_state({
@@ -705,8 +709,10 @@ return {
     mock_meta_codex("fix", "Run another fix pass.")
     local fix_result = run_review_meta(event, opts("review-meta-fix"))
     t.eq(fix_result.exit_code, 0)
-    t.eq(#fix_result.raises, 3)
+    t.eq(#fix_result.raises, 4)
     t.eq(find_raise(fix_result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
+    t.eq(find_raise(fix_result.raises, "github-proxy.github_issue_comment_request").payload.body:find("Run another fix pass.", 1, true), nil)
+    t.is_true(find_raise(fix_result.raises, "github-proxy.github_pr_comment_request").payload.body:find("Run another fix pass.", 1, true) ~= nil)
     t.eq(find_raise(fix_result.raises, "devloop_fixing").payload.schema, "github-devloop.fixing.v1")
 
     mock_issue_review_meta({ "fkst-dev:review-meta" }, {
@@ -715,8 +721,10 @@ return {
     mock_meta_codex("block", "Needs human intervention.")
     local block_result = run_review_meta(event, opts("review-meta-block"))
     t.eq(block_result.exit_code, 0)
-    t.eq(#block_result.raises, 2)
+    t.eq(#block_result.raises, 3)
     t.eq(find_raise(block_result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(find_raise(block_result.raises, "github-proxy.github_issue_comment_request").payload.body:find("Needs human intervention.", 1, true), nil)
+    t.is_true(find_raise(block_result.raises, "github-proxy.github_pr_comment_request").payload.body:find("Needs human intervention.", 1, true) ~= nil)
   end,
 
   test_review_meta_marker_lag_retries_then_visible_marker_runs = function()
@@ -735,7 +743,7 @@ return {
 
     local visible = run_review_meta(event, opts("review-meta-marker-visible"))
     t.eq(visible.exit_code, 0)
-    t.eq(#visible.raises, 3)
+    t.eq(#visible.raises, 4)
     t.eq(find_raise(visible.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:merge-ready")
     t.eq(find_raise(visible.raises, "devloop_merge_ready").payload.schema, "github-devloop.merge-ready.v1")
   end,
@@ -750,8 +758,13 @@ return {
 
     local meta_result = run_review_meta(event, opts("review-meta-fix-canonical"))
     t.eq(meta_result.exit_code, 0)
-    t.eq(#meta_result.raises, 3)
+    t.eq(#meta_result.raises, 4)
     local meta_comment = find_raise(meta_result.raises, "github-proxy.github_issue_comment_request").payload.body
+    t.eq(meta_comment:find("github-devloop review-meta action: fix", 1, true), nil)
+    t.eq(meta_comment:find("Run another fix pass.", 1, true), nil)
+    local meta_pr_comment = find_raise(meta_result.raises, "github-proxy.github_pr_comment_request").payload.body
+    t.is_true(meta_pr_comment:find("github-devloop review-meta action: fix", 1, true) ~= nil)
+    t.is_true(meta_pr_comment:find("Run another fix pass.", 1, true) ~= nil)
     local current = core.current_state({
       core.state_marker(event.proposal_id, "review-meta", event.version),
       meta_comment,

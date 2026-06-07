@@ -116,8 +116,7 @@ local function is_merged_pr(pr)
 end
 
 local function build_merging_issue_body(merge_ready)
-  return "github-devloop merge state fact: merging"
-    .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
+  return core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
     .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
 end
 
@@ -146,8 +145,7 @@ end
 
 local function build_merged_requests(repo, issue_number, merge_ready)
   local merged_source_ref = issue_source_ref(repo, issue_number)
-  local issue_body = "github-devloop merge state fact: merged"
-    .. "\n\n" .. core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
+  local issue_body = core.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
     .. "\n" .. core.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
     .. "\n" .. core.state_marker(merge_ready.proposal_id, "merged", merge_ready.version)
     .. "\n" .. core.merged_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)

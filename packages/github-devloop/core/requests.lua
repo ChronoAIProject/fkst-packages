@@ -452,7 +452,13 @@ end
 function M.build_review_result_issue_marker_comment_request(repo, issue_number, issue_proposal_id, issue_version, reached, source_ref)
   local to_state = reached.decision == "approve" and "merge-ready" or "fixing"
   local state_marker = M.state_marker(issue_proposal_id, to_state, issue_version)
-  local marker = M.review_result_marker(reached.proposal_id, issue_proposal_id, reached.decision, reached.dedup_key)
+  local marker = M.review_result_marker(
+    reached.proposal_id,
+    issue_proposal_id,
+    reached.decision,
+    reached.dedup_key,
+    M.neutralize_untrusted_comment_text(reached.body or "")
+  )
   local merge_marker = ""
   if reached.decision == "approve" then
     local _, pr_number, _, reviewed_head_sha = M.parse_pr_review_proposal_id(reached.proposal_id)
@@ -462,8 +468,7 @@ function M.build_review_result_issue_marker_comment_request(repo, issue_number, 
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = "github-devloop PR review state fact: " .. tostring(reached.decision)
-      .. "\n\n" .. state_marker
+    body = state_marker
       .. "\n" .. marker
       .. merge_marker,
     dedup_key = M._dedup_key({
@@ -502,8 +507,7 @@ function M.build_merge_gate_fix_issue_marker_comment_request(repo, issue_number,
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = "github-devloop merge gate state fact: fixing"
-      .. "\n\n" .. M.state_marker(merge_ready.proposal_id, "fixing", fix_version)
+    body = M.state_marker(merge_ready.proposal_id, "fixing", fix_version)
       .. "\n" .. M.merge_gate_marker(
         merge_ready.proposal_id,
         merge_ready.pr_number,
@@ -650,8 +654,7 @@ function M.build_review_loop_issue_marker_comment_request(repo, issue_number, un
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = "github-devloop PR review loop fact: " .. tostring(n)
-      .. "\n\n" .. M.review_loop_marker(unresolved.proposal_id, issue_proposal_id, n, unresolved.dedup_key),
+    body = M.review_loop_marker(unresolved.proposal_id, issue_proposal_id, n, unresolved.dedup_key),
     dedup_key = M._dedup_key({
       "review-loop",
       "issue-marker",
@@ -687,8 +690,7 @@ function M.build_review_meta_trigger_issue_marker_comment_request(repo, issue_nu
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = "github-devloop PR review state fact: review-meta"
-      .. "\n\n" .. state_marker
+    body = state_marker
       .. "\n" .. marker,
     dedup_key = M._dedup_key({
       "review-loop",
@@ -750,10 +752,8 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = "github-devloop review-meta action: " .. tostring(action)
-      .. "\n\nReason:\n" .. safe_reason
-      .. "\n\n" .. M.state_marker(review_meta.proposal_id, to_state, state_version)
-      .. "\n" .. M.review_meta_marker(review_meta.proposal_id, review_meta.dedup_key, action, state_version)
+    body = M.state_marker(review_meta.proposal_id, to_state, state_version)
+      .. "\n" .. M.review_meta_marker(review_meta.proposal_id, review_meta.dedup_key, action, state_version, safe_reason)
       .. merge_marker,
     dedup_key = M._dedup_key({
       "review-meta",
@@ -762,6 +762,25 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
       tostring(state_version),
     }),
     source_ref = M.normalize_source_ref(review_meta.source_ref),
+  }
+end
+
+function M.build_review_meta_pr_comment_request(repo, pr_number, review_meta, action, reason, version, source_ref)
+  local safe_reason = M.neutralize_untrusted_comment_text(reason or "")
+  local state_version = version or review_meta.version
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    pr_number = pr_number,
+    body = "github-devloop review-meta action: " .. tostring(action)
+      .. "\n\nReason:\n" .. safe_reason,
+    dedup_key = M._dedup_key({
+      "review-meta",
+      "pr-comment",
+      tostring(review_meta.dedup_key),
+      tostring(state_version),
+    }),
+    source_ref = M.normalize_source_ref(source_ref),
   }
 end
 end

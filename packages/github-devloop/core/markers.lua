@@ -1,6 +1,37 @@
 local S = {}
 
 function S.install(M)
+local function marker_attr_unescape(value)
+  if value == nil then
+    return nil
+  end
+  return tostring(value)
+    :gsub("&#10;", "\n")
+    :gsub("&quot;", '"')
+    :gsub("&gt;", ">")
+    :gsub("&lt;", "<")
+    :gsub("&amp;", "&")
+end
+
+local function marker_attr_hex(value, limit)
+  local text = tostring(value or "")
+  if limit ~= nil and #text > limit then
+    text = text:sub(1, limit)
+  end
+  return (text:gsub(".", function(char)
+    return string.format("%02x", char:byte())
+  end))
+end
+
+local function marker_attr_unhex(value)
+  if value == nil or tostring(value):find("^[0-9a-fA-F]*$") == nil or (#tostring(value) % 2) ~= 0 then
+    return nil
+  end
+  return (tostring(value):gsub("..", function(hex)
+    return string.char(tonumber(hex, 16))
+  end))
+end
+
 function M.loop_budget()
   return M._loop_budget
 end
@@ -41,7 +72,7 @@ function M.review_meta_trigger_marker(review_proposal_id, issue_proposal_id, n, 
     .. '" -->'
 end
 
-function M.review_meta_marker(issue_proposal_id, dedup_key, action, version)
+function M.review_meta_marker(issue_proposal_id, dedup_key, action, version, reason)
   local fields = ""
   if action ~= nil then
     if not M._is_review_meta_action(action) then
@@ -51,6 +82,9 @@ function M.review_meta_marker(issue_proposal_id, dedup_key, action, version)
   end
   if version ~= nil then
     fields = fields .. '" version="' .. tostring(version)
+  end
+  if reason ~= nil then
+    fields = fields .. '" reason_hex="' .. marker_attr_hex(reason, M._max_meta_reason_len)
   end
   return '<!-- fkst:github-devloop:review-meta:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" dedup="' .. tostring(dedup_key)
@@ -154,14 +188,19 @@ function M.pr_origin_marker(proposal_id, issue_number, branch, impl_version, bas
     .. '" -->'
 end
 
-function M.review_result_marker(review_proposal_id, issue_proposal_id, decision, dedup_key)
+function M.review_result_marker(review_proposal_id, issue_proposal_id, decision, dedup_key, reason)
   if decision ~= "approve" and decision ~= "reject" then
     error("github-devloop: invalid review decision")
+  end
+  local reason_attr = ""
+  if reason ~= nil then
+    reason_attr = '" reason_hex="' .. marker_attr_hex(reason, M._max_meta_reason_len)
   end
   return '<!-- fkst:github-devloop:review-result:v1 proposal="' .. tostring(review_proposal_id)
     .. '" issue_proposal="' .. tostring(issue_proposal_id)
     .. '" decision="' .. tostring(decision)
     .. '" dedup="' .. tostring(dedup_key)
+    .. reason_attr
     .. '" -->'
 end
 
@@ -261,6 +300,8 @@ function M.review_reject_fact(comments, issue_proposal_id, issue_version)
       local marker_issue = marker:match('issue_proposal="([^"]+)"')
       local decision = marker:match('decision="([^"]+)"')
       local review_dedup = marker:match('dedup="([^"]*)"')
+      local reason = marker_attr_unhex(marker:match('reason_hex="([^"]*)"'))
+        or marker_attr_unescape(marker:match('reason="([^"]*)"'))
       local _, _, review_version, reviewed_head_sha = M.parse_pr_review_proposal_id(review_proposal)
       if marker_issue == tostring(issue_proposal_id)
         and decision == "reject"
@@ -271,7 +312,7 @@ function M.review_reject_fact(comments, issue_proposal_id, issue_version)
           review_proposal_id = review_proposal,
           review_dedup_key = review_dedup,
           reviewed_head_sha = reviewed_head_sha,
-          review_reason = M._comment_body(comment),
+          review_reason = reason or M._comment_body(comment),
         }
       end
     end
@@ -290,13 +331,15 @@ function M.review_meta_fix_fact(comments, issue_proposal_id, issue_version)
       local marker_dedup = marker:match('dedup="([^"]*)"')
       local action = marker:match('action="([^"]+)"')
       local version = marker:match('version="([^"]*)"')
+      local reason = marker_attr_unhex(marker:match('reason_hex="([^"]*)"'))
+        or marker_attr_unescape(marker:match('reason="([^"]*)"'))
       if marker_issue == tostring(issue_proposal_id)
         and marker_dedup ~= nil
         and action == "fix"
         and version == tostring(issue_version) then
         return {
           review_dedup_key = marker_dedup,
-          review_reason = M._comment_body(comment),
+          review_reason = reason or M._comment_body(comment),
         }
       end
     end
@@ -598,10 +641,19 @@ function M.has_review_result_marker(comments, review_proposal_id, issue_proposal
   if type(comments) ~= "table" then
     return false
   end
-  local needle = M.review_result_marker(review_proposal_id, issue_proposal_id, decision, dedup_key)
+  local marker_pattern = "<!%-%- fkst:github%-devloop:review%-result:v1.-%-%->"
   for _, comment in ipairs(M._trusted_marker_comments(comments)) do
-    if M._comment_body(comment):find(needle, 1, true) ~= nil then
-      return true
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]+)"')
+      local marker_issue = marker:match('issue_proposal="([^"]+)"')
+      local marker_decision = marker:match('decision="([^"]+)"')
+      local marker_dedup = marker:match('dedup="([^"]*)"')
+      if marker_proposal == tostring(review_proposal_id)
+        and marker_issue == tostring(issue_proposal_id)
+        and marker_decision == tostring(decision)
+        and marker_dedup == tostring(dedup_key) then
+        return true
+      end
     end
   end
   return false

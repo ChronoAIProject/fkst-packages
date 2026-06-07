@@ -7,6 +7,7 @@ M.spec = {
   produces = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
     "devloop_fixing",
     "devloop_merge_ready",
   },
@@ -83,10 +84,15 @@ function pipeline(event)
     local to_state = parsed.action == "fix" and "fixing" or parsed.action == "accept" and "merge-ready" or "blocked"
     local exit_version = core.next_review_meta_action_version(review_meta.version)
     local comment_request = core.build_review_meta_comment_request(repo, issue_number, review_meta, parsed.action, parsed.reason, exit_version)
+    local pr_comment_request = core.build_review_meta_pr_comment_request(repo, review_meta.pr_number, review_meta, parsed.action, parsed.reason, exit_version, {
+      kind = "external",
+      ref = tostring(repo) .. "#pr/" .. tostring(review_meta.pr_number),
+    })
     local label_request = core.build_review_meta_label_request(repo, issue_number, review_meta, parsed.action, exit_version)
     local add_labels, remove_labels = core.state_label_changes(to_state)
     local raised = {
       "github-proxy.github_issue_comment_request",
+      "github-proxy.github_pr_comment_request",
       "github-proxy.github_issue_label_request",
     }
     local fix_payload = nil
@@ -114,6 +120,7 @@ function pipeline(event)
 
     core.log_apply("review_meta", review_meta.proposal_id, to_state, exit_version, { add = add_labels, remove = remove_labels }, raised)
     core.log_raise("review_meta", review_meta.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+    core.log_raise("review_meta", review_meta.proposal_id, "github-proxy.github_pr_comment_request", pr_comment_request)
     core.log_raise("review_meta", review_meta.proposal_id, "github-proxy.github_issue_label_request", label_request)
     if fix_payload ~= nil then
       core.log_raise("review_meta", review_meta.proposal_id, "devloop_fixing", fix_payload)
