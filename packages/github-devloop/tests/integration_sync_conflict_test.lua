@@ -161,6 +161,23 @@ return {
     t.eq(h.count_calls("push origin HEAD:refs/heads/"), 0)
   end,
 
+  test_sync_conflict_unmerged_reappears_after_add_errors_without_commit_or_push = function()
+    mock_fetch_and_heads()
+    mock_conflicting_worktree()
+    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("diff --cached --check", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git -C", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("ls-files -u", { stdout = "100644 abc 1\tcore.lua\n", stderr = "", exit_code = 0 })
+    mock_cleanup()
+
+    local result = run_conflict(event(), opts("sync-conflict-unmerged-after-add", "1"))
+    t.eq(result.exit_code, 1)
+    t.eq(h.count_calls("commit -F"), 0)
+    t.eq(h.count_calls("push origin HEAD:refs/heads/"), 0)
+  end,
+
   test_sync_conflict_integration_head_moved_before_push_skips_unsafe_push = function()
     mock_fetch_and_heads()
     mock_conflicting_worktree()

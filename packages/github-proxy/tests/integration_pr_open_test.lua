@@ -219,6 +219,23 @@ return {
     t.eq(count_calls("gh pr create"), 0)
   end,
 
+  test_pr_open_request_fails_closed_when_implementing_marker_missing_base_branch = function()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_open_guard(nil, {
+      '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/x/42" state="implementing" version="v1" stage_rank="600" -->',
+      '<!-- fkst:github-devloop:implementing:v1 proposal="github-devloop/issue/owner/x/42" dedup="v1" branch="devloop-owner-x-42-01HY" head_sha="abc123" base_sha="abc123" -->',
+    })
+
+    local result = t.run_department("departments/github_pr_open/main.lua", pr_open_event(), opts("pr-open-missing-base-branch", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("git show-ref --verify refs/heads"), 0)
+    t.eq(count_calls("git push -u origin"), 0)
+    t.eq(count_calls("gh pr create"), 0)
+  end,
+
   test_pr_open_request_skips_when_same_named_tag_matches_recorded_head = function()
     mock_write_env("1")
     mock_bot_env()

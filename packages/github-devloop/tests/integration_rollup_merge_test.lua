@@ -87,6 +87,14 @@ return {
     t.eq(h.count_calls("gh pr merge"), 0)
   end,
 
+  test_rollup_merge_neutral_ci_does_not_merge = function()
+    mock_write_mode("1")
+    mock_pr("def456", "dev", "COMPLETED", "NEUTRAL")
+    local result = run_merge(event(), opts("rollup-merge-neutral", "1"))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("gh pr merge"), 0)
+  end,
+
   test_rollup_merge_unmergeable_never_merges = function()
     mock_write_mode("1")
     mock_pr("def456", "dev", "COMPLETED", "SUCCESS", "CONFLICTING", "DIRTY")
