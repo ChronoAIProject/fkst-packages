@@ -159,6 +159,9 @@ return {
       "gh issue view '42' --repo 'owner/repo' --json title,body,labels,comments"
     )
     t.eq(core.git_status_cmd("/tmp/devloop-owner-repo-42"), "git -C '/tmp/devloop-owner-repo-42' status --porcelain")
+    t.eq(core.git_base_head_cmd("dev"), "git rev-parse --verify refs/remotes/origin/'dev'^{commit}")
+    t.eq(core.git_fetch_branch_cmd("origin", "dev"), "git fetch 'origin' 'dev'")
+    t.eq(core.git_remote_branch_head_cmd("origin", "dev"), "git rev-parse --verify refs/remotes/'origin'/'dev'^{commit}")
     t.is_true(core.git_worktree_add_new_branch_cmd(worktree_path, deterministic_branch, "abc123"):find("git worktree add -b", 1, true) ~= nil)
     t.eq(core.git_worktree_list_cmd(), "git worktree list --porcelain")
     local list = "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/dev\n\n"
@@ -169,10 +172,12 @@ return {
     local marker = core.implementing_marker(ready.proposal_id, ready.dedup_key)
     t.is_true(marker:find("fkst:github-devloop:implementing:v1", 1, true) ~= nil)
     t.eq(core.has_implementing_marker({ marker }, ready.proposal_id, ready.dedup_key), true)
-    local branch_marker = core.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123")
-    local fact = core.implementing_fact({ branch_marker }, ready.proposal_id, ready.dedup_key)
+    local branch_marker = core.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
+    local fact = core.implementing_fact({ branch_marker }, ready.proposal_id, ready.dedup_key, "dev")
     t.eq(fact.branch, "devloop-owner-repo-42-01HY")
     t.eq(fact.head_sha, "abc123")
+    t.eq(fact.base_branch, "dev")
+    t.eq(fact.base_sha, "abc123")
     t.eq(core.is_safe_branch("devloop-owner-repo-42-01HY"), true)
     t.eq(core.is_safe_branch("../bad"), false)
 
@@ -192,7 +197,7 @@ return {
     t.is_true(#label.remove_labels >= 10)
     t.is_true(#label.dedup_key <= 512)
 
-    local comment = core.build_implementing_comment_request("owner/repo", "42", ready, "/tmp/devloop-owner-repo-42", "devloop-owner-repo-42-01HY", "abc123")
+    local comment = core.build_implementing_comment_request("owner/repo", "42", ready, "/tmp/devloop-owner-repo-42", "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
     t.is_true(comment.body:find("Worktree: /tmp/devloop-owner-repo-42", 1, true) ~= nil)
     t.is_true(comment.body:find("Branch: devloop-owner-repo-42-01HY", 1, true) ~= nil)
     t.is_true(comment.body:find(branch_marker, 1, true) ~= nil)
@@ -223,12 +228,13 @@ return {
     local pr_request = core.build_pr_open_request("owner/repo", "42", ready.proposal_id, {
       state = "implementing",
       version = ready.dedup_key,
-    }, "Implement decision recorder", "devloop-owner-repo-42-01HY", "abc123")
+    }, "Implement decision recorder", "devloop-owner-repo-42-01HY", "abc123", "dev")
     t.eq(pr_request.schema, "github-proxy.pr-open.v1")
     t.eq(pr_request.proposal_id, ready.proposal_id)
     t.eq(pr_request.impl_version, ready.dedup_key)
     t.eq(pr_request.branch, "devloop-owner-repo-42-01HY")
     t.eq(pr_request.head_sha, "abc123")
+    t.eq(pr_request.base_branch, "dev")
     t.eq(pr_request.expected_state, "implementing")
     t.eq(pr_request.expected_version, ready.dedup_key)
     t.is_true(pr_request.body:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
@@ -237,16 +243,17 @@ return {
     t.is_true(has_value(pr_request.issue_label_remove, "fkst-dev:implementing"))
 
     local origin = core.pr_origin_fact({
-      core.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key),
-    })
+      core.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+    }, "dev")
     t.eq(origin.proposal_id, ready.proposal_id)
     t.eq(origin.issue_number, "42")
     t.eq(origin.branch, "devloop-owner-repo-42-01HY")
 
     local link = core.pr_link_fact({
-      core.pr_link_marker(ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key),
-    }, ready.proposal_id)
+      core.pr_link_marker(ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+    }, ready.proposal_id, "dev")
     t.eq(link.pr_number, 7)
+    t.eq(link.base_branch, "dev")
   end,
 
   test_implement_prompt_neutralizes_untrusted_issue_text = function()

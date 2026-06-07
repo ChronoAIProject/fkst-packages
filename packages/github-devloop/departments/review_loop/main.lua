@@ -31,12 +31,13 @@ function pipeline(event)
   end
 
   core.assert_trusted_bot_configured()
+  local branches = core.branch_config()
   local pr_view = exec_sync({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
   if pr_view.exit_code ~= 0 then
     error("github-devloop: gh pr origin view failed for review loop: " .. tostring(pr_view.stderr))
   end
   local current_pr = core.parse_pr_view_origin(pr_view.stdout)
-  local origin = core.pr_origin_fact(current_pr.comments)
+  local origin = core.pr_origin_fact(current_pr.comments, branches.integration)
   if origin == nil then
     if core.is_devloop_issue_branch(current_pr.head_ref_name) then
       core.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|review-meta", "retry-pending(pr-origin)", "trusted PR origin marker not yet visible")
@@ -47,6 +48,11 @@ function pipeline(event)
   end
   if origin.repo ~= repo or tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch) then
     core.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|review-meta", "skip-foreign(pr-origin)", "PR origin mismatch")
+    return
+  end
+  if tostring(current_pr.base_ref_name or "") ~= tostring(origin.base_branch)
+    or tostring(origin.base_branch or "") ~= tostring(branches.integration) then
+    core.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|review-meta", "skip-foreign(base)", "PR base branch mismatch")
     return
   end
   if tostring(current_pr.state or ""):lower() ~= "open" then

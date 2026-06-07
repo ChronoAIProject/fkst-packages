@@ -74,6 +74,7 @@ return {
     t.eq(count_calls("--json labels,comments"), 2)
     local create = calls_matching("gh pr create")[1]
     t.eq(create.rendered:find("--json", 1, true), nil)
+    t.is_true(create.rendered:find("--base 'dev'", 1, true) ~= nil)
 
     local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
     t.is_true(issue_written:find("github-devloop PR opened: #7", 1, true) ~= nil)
@@ -286,6 +287,27 @@ return {
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
+  test_pr_open_request_fails_closed_when_created_pr_base_mismatches = function()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_open_guard(nil, pr_open_guard_comments())
+    mock_branch_head("abc123")
+    mock_pr_head_list("[]\n")
+    mock_git_push()
+    mock_pr_create(7)
+    mock_pr_head_state("abc123", "OPEN", "owner/x", false, "main")
+
+    local result = t.run_department("departments/github_pr_open/main.lua", pr_open_event(), opts("pr-open-created-base-mismatch", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("git push -u origin"), 1)
+    t.eq(count_calls("gh pr create"), 1)
+    t.eq(count_calls("gh issue comment"), 0)
+    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(count_calls("gh issue edit"), 0)
+  end,
+
   test_pr_open_request_reuses_existing_pr_without_duplicate_create = function()
     local event = pr_open_event()
     mock_write_env("1")
@@ -440,7 +462,7 @@ return {
     mock_pr_head_list('[{"number":9,"url":"https://github.example/owner/x/pull/9","headRefName":"devloop-owner-x-42-01HY","state":"OPEN"}]\n')
     mock_pr_head_state("abc123", "OPEN")
     mock_pr_comment_view({ {
-      body = 'github-devloop implementation PR for issue #42\n\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/owner/x/42" issue="42" branch="devloop-owner-x-42-01HY" impl_version="v1" -->',
+      body = 'github-devloop implementation PR for issue #42\n\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/owner/x/42" issue="42" branch="devloop-owner-x-42-01HY" impl_version="v1" base_branch="dev" -->',
       author_login = "fkst-test-bot",
     } })
     mock_pr_open_guard({ "fkst-dev:reviewing" }, pr_open_visible_comments({

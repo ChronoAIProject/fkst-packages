@@ -140,6 +140,7 @@ function pipeline(event)
 
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()
+    local branches = core.branch_config()
 
     local issue_view = exec_sync({ cmd = core.gh_issue_view_fix_cmd(repo, issue_number), timeout = 30 })
     if issue_view.exit_code ~= 0 then
@@ -208,7 +209,7 @@ function pipeline(event)
       feedback_reason = merge_gate_fact.review_reason
     end
 
-    local link = core.pr_link_fact(current_issue.comments, fix.proposal_id)
+    local link = core.pr_link_fact(current_issue.comments, fix.proposal_id, branches.integration)
     if link == nil or tostring(link.pr_number) ~= tostring(fix.pr_number) then
       core.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "retry-pending(pr-link)", "trusted issue PR link marker not visible")
       error("github-devloop: trusted pr-link marker not visible for fix; retrying")
@@ -219,7 +220,7 @@ function pipeline(event)
       error("github-devloop: gh pr fix view failed: " .. tostring(pr_view.stderr))
     end
     local current_pr = core.parse_pr_view_fix(pr_view.stdout)
-    local origin = core.pr_origin_fact(current_pr.comments)
+    local origin = core.pr_origin_fact(current_pr.comments, branches.integration)
     if origin == nil then
       core.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "retry-pending(pr-origin)", "trusted PR origin marker not visible")
       error("github-devloop: trusted pr-origin marker not visible for fix; retrying")
@@ -229,6 +230,9 @@ function pipeline(event)
       or tostring(origin.issue_number) ~= tostring(issue_number)
       or tostring(origin.branch) ~= tostring(link.branch)
       or tostring(origin.impl_version) ~= tostring(link.impl_version)
+      or tostring(origin.base_branch) ~= tostring(link.base_branch)
+      or tostring(origin.base_branch) ~= tostring(branches.integration)
+      or tostring(current_pr.base_ref_name or "") ~= tostring(origin.base_branch)
       or tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch) then
       core.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-foreign(pr-origin)", "PR origin/link does not match immutable PR branch")
       return
