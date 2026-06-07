@@ -41,7 +41,7 @@ function pipeline(event)
     error("github-devloop: gh pr origin view failed for review result: " .. tostring(pr_view.stderr))
   end
   local current_pr = core.parse_pr_view_origin(pr_view.stdout)
-  local origin = core.pr_origin_fact(current_pr.comments, branches.integration)
+  local origin = core.pr_origin_fact(current_pr.comments)
   if origin == nil then
     if core.is_devloop_issue_branch(current_pr.head_ref_name) then
       core.log_cas_decision("review_result", reached.proposal_id, { state = nil, version = nil }, "reviewing", "merge-ready|fixing", "retry-pending(pr-origin)", "trusted PR origin marker not yet visible")

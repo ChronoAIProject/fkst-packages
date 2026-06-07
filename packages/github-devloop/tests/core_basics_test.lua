@@ -146,7 +146,6 @@ return {
     local green, green_reason = core.pr_rollup_green({
       status_check_rollup = {
         { state = "COMPLETED", conclusion = "SUCCESS" },
-        { state = "COMPLETED", conclusion = "NEUTRAL" },
         { state = "COMPLETED", conclusion = "SKIPPED" },
         { state = "SUCCESS" },
       },
@@ -161,6 +160,14 @@ return {
     })
     t.eq(action_required, false)
     t.eq(action_reason, "rollup-red")
+
+    local neutral, neutral_reason = core.pr_rollup_green({
+      status_check_rollup = {
+        { state = "COMPLETED", conclusion = "NEUTRAL" },
+      },
+    })
+    t.eq(neutral, false)
+    t.eq(neutral_reason, "rollup-red")
 
     local failed, failed_reason = core.pr_rollup_green({
       status_check_rollup = {

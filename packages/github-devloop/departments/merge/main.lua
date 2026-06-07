@@ -235,7 +235,7 @@ function pipeline(event)
       core.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(" .. tostring(approval_reason) .. ")", "merge-ready event does not match canonical approval fact marker")
       return
     end
-    local link = core.pr_link_fact(current_issue.comments, merge_ready.proposal_id, branches.integration)
+    local link = core.pr_link_fact(current_issue.comments, merge_ready.proposal_id)
     if link == nil or tostring(link.pr_number) ~= tostring(merge_ready.pr_number) then
       core.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "retry-pending(pr-link)", "trusted issue PR link marker not visible")
       error("github-devloop: trusted pr-link marker not visible for merge; retrying")
@@ -246,7 +246,7 @@ function pipeline(event)
       error("github-devloop: gh pr merge view failed: " .. tostring(pr_view.stderr))
     end
     local current_pr = core.parse_pr_view_merge(pr_view.stdout)
-    local origin = core.pr_origin_fact(current_pr.comments, branches.integration)
+    local origin = core.pr_origin_fact(current_pr.comments)
     if origin == nil then
       core.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "retry-pending(pr-origin)", "trusted PR origin marker not visible")
       error("github-devloop: trusted pr-origin marker not visible for merge; retrying")
@@ -353,7 +353,7 @@ function pipeline(event)
       head_branch = origin.branch,
       base_branch = branches.integration,
       validate_rechecked_pr = function(rechecked_pr)
-        local recheck_origin = core.pr_origin_fact(rechecked_pr.comments, branches.integration)
+        local recheck_origin = core.pr_origin_fact(rechecked_pr.comments)
         if recheck_origin == nil
           or recheck_origin.proposal_id ~= merge_ready.proposal_id
           or recheck_origin.repo ~= repo

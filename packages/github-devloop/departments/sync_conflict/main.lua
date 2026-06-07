@@ -90,10 +90,16 @@ local function require_clean_resolution(worktree)
     error("github-devloop: sync conflict remains unresolved")
   end
   run_git(core.git_diff_check_cmd(worktree), 30, "git diff check")
+  run_git(core.git_diff_cached_check_cmd(worktree), 30, "git cached diff check")
 end
 
 local function commit_resolution(worktree, runtime, conflict)
   run_git(core.git_add_all_cmd(worktree), 30, "git add")
+  local unmerged = run_git(core.git_unmerged_paths_cmd(worktree), 30, "git unmerged path check before commit")
+  if tostring(unmerged.stdout or "") ~= "" then
+    error("github-devloop: sync conflict remains unresolved before commit")
+  end
+  run_git(core.git_diff_cached_check_cmd(worktree), 30, "git cached diff check before commit")
   local message_file = core.branch_sync_message_file(
     runtime,
     conflict.repo,

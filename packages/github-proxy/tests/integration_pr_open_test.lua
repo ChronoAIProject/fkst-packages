@@ -188,7 +188,7 @@ return {
     t.eq(count_calls("gh issue edit"), 1)
   end,
 
-	  test_pr_open_request_skips_when_branch_moved_past_recorded_head = function()
+  test_pr_open_request_skips_when_branch_moved_past_recorded_head = function()
     mock_write_env("1")
     mock_bot_env()
     mock_pr_open_guard(nil, pr_open_guard_comments())
@@ -199,6 +199,22 @@ return {
     }))
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git show-ref --verify refs/heads"), 1)
+    t.eq(count_calls("git push -u origin"), 0)
+    t.eq(count_calls("gh pr create"), 0)
+  end,
+
+  test_pr_open_request_skips_when_payload_base_mismatches_implementing_fact = function()
+    local event = pr_open_event()
+    event.payload.base_branch = "main"
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_open_guard(nil, pr_open_guard_comments())
+
+    local result = t.run_department("departments/github_pr_open/main.lua", event, opts("pr-open-base-forged", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("git show-ref --verify refs/heads"), 0)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
   end,

@@ -79,7 +79,8 @@ local function guard_pr_open_write(repo, payload, bot_login)
     or payload.impl_version == nil
     or payload.expected_state == nil
     or payload.expected_version == nil
-    or payload.head_sha == nil then
+    or payload.head_sha == nil
+    or payload.base_branch == nil then
     log.warn("github-proxy: PR open request missing write-time guard facts")
     return nil
   end
@@ -91,7 +92,7 @@ local function guard_pr_open_write(repo, payload, bot_login)
     log.warn("github-proxy: PR open request has unsafe head_sha")
     return nil
   end
-  if payload.base_branch ~= nil and not core.is_safe_branch(payload.base_branch) then
+  if not core.is_safe_branch(payload.base_branch) then
     log.warn("github-proxy: PR open request has unsafe base_branch")
     return nil
   end
@@ -122,7 +123,9 @@ local function guard_pr_open_write(repo, payload, bot_login)
     log.warn("github-proxy: PR open skipped because implementing fact marker is not visible")
     return nil
   end
-  if tostring(fact.branch) ~= tostring(payload.branch) or tostring(fact.head_sha) ~= tostring(payload.head_sha) then
+  if tostring(fact.branch) ~= tostring(payload.branch)
+    or tostring(fact.head_sha) ~= tostring(payload.head_sha)
+    or tostring(fact.base_branch) ~= tostring(payload.base_branch) then
     log.warn("github-proxy: PR open skipped because request does not match implementing fact marker")
     return nil
   end

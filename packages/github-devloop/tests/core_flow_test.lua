@@ -169,15 +169,25 @@ return {
     t.eq(core.find_worktree_for_branch(list, deterministic_branch), worktree_path)
     t.is_nil(core.find_worktree_for_branch(list, deterministic_branch .. "-other"))
 
-    local marker = core.implementing_marker(ready.proposal_id, ready.dedup_key)
+    local marker = core.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
     t.is_true(marker:find("fkst:github-devloop:implementing:v1", 1, true) ~= nil)
     t.eq(core.has_implementing_marker({ marker }, ready.proposal_id, ready.dedup_key), true)
     local branch_marker = core.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
-    local fact = core.implementing_fact({ branch_marker }, ready.proposal_id, ready.dedup_key, "dev")
+    local fact = core.implementing_fact({ branch_marker }, ready.proposal_id, ready.dedup_key)
     t.eq(fact.branch, "devloop-owner-repo-42-01HY")
     t.eq(fact.head_sha, "abc123")
     t.eq(fact.base_branch, "dev")
     t.eq(fact.base_sha, "abc123")
+    t.is_nil(core.implementing_fact({
+      '<!-- fkst:github-devloop:implementing:v1 proposal="' .. ready.proposal_id
+        .. '" dedup="' .. ready.dedup_key
+        .. '" branch="devloop-owner-repo-42-01HY" head_sha="abc123" base_sha="abc123" -->',
+    }, ready.proposal_id, ready.dedup_key))
+    t.is_nil(core.implementing_fact({
+      '<!-- fkst:github-devloop:implementing:v1 proposal="' .. ready.proposal_id
+        .. '" dedup="' .. ready.dedup_key
+        .. '" branch="devloop-owner-repo-42-01HY" head_sha="abc123" base_branch="dev" -->',
+    }, ready.proposal_id, ready.dedup_key))
     t.eq(core.is_safe_branch("devloop-owner-repo-42-01HY"), true)
     t.eq(core.is_safe_branch("../bad"), false)
 
@@ -244,16 +254,24 @@ return {
 
     local origin = core.pr_origin_fact({
       core.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
-    }, "dev")
+    })
     t.eq(origin.proposal_id, ready.proposal_id)
     t.eq(origin.issue_number, "42")
     t.eq(origin.branch, "devloop-owner-repo-42-01HY")
+    t.is_nil(core.pr_origin_fact({
+      '<!-- fkst:github-devloop:pr-origin:v1 proposal="' .. ready.proposal_id
+        .. '" issue="42" branch="devloop-owner-repo-42-01HY" impl_version="' .. ready.dedup_key .. '" -->',
+    }))
 
     local link = core.pr_link_fact({
       core.pr_link_marker(ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
-    }, ready.proposal_id, "dev")
+    }, ready.proposal_id)
     t.eq(link.pr_number, 7)
     t.eq(link.base_branch, "dev")
+    t.is_nil(core.pr_link_fact({
+      '<!-- fkst:github-devloop:pr-link:v1 proposal="' .. ready.proposal_id
+        .. '" pr="7" branch="devloop-owner-repo-42-01HY" impl_version="' .. ready.dedup_key .. '" -->',
+    }, ready.proposal_id))
   end,
 
   test_implement_prompt_neutralizes_untrusted_issue_text = function()

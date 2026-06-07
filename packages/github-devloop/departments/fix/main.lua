@@ -209,7 +209,7 @@ function pipeline(event)
       feedback_reason = merge_gate_fact.review_reason
     end
 
-    local link = core.pr_link_fact(current_issue.comments, fix.proposal_id, branches.integration)
+    local link = core.pr_link_fact(current_issue.comments, fix.proposal_id)
     if link == nil or tostring(link.pr_number) ~= tostring(fix.pr_number) then
       core.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "retry-pending(pr-link)", "trusted issue PR link marker not visible")
       error("github-devloop: trusted pr-link marker not visible for fix; retrying")
@@ -220,7 +220,7 @@ function pipeline(event)
       error("github-devloop: gh pr fix view failed: " .. tostring(pr_view.stderr))
     end
     local current_pr = core.parse_pr_view_fix(pr_view.stdout)
-    local origin = core.pr_origin_fact(current_pr.comments, branches.integration)
+    local origin = core.pr_origin_fact(current_pr.comments)
     if origin == nil then
       core.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "retry-pending(pr-origin)", "trusted PR origin marker not visible")
       error("github-devloop: trusted pr-origin marker not visible for fix; retrying")

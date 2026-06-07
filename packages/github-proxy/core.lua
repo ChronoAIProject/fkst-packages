@@ -454,15 +454,21 @@ function M.devloop_implementing_fact(comments, proposal_id, impl_version, bot_lo
       local marker_dedup = marker:match('dedup="([^"]*)"')
       local marker_branch = marker:match('branch="([^"]+)"')
       local marker_head_sha = marker:match('head_sha="([^"]+)"')
+      local marker_base_branch = marker:match('base_branch="([^"]+)"')
+      local marker_base_sha = marker:match('base_sha="([^"]+)"')
       if marker_proposal == proposal_id
         and marker_dedup == tostring(impl_version)
         and is_git_ref_safe(marker_branch)
-        and is_git_sha(marker_head_sha) then
+        and is_git_sha(marker_head_sha)
+        and is_git_ref_safe(marker_base_branch)
+        and (marker_base_sha == nil or is_git_sha(marker_base_sha)) then
         return {
           proposal_id = marker_proposal,
           impl_version = marker_dedup,
           branch = marker_branch,
           head_sha = marker_head_sha,
+          base_branch = marker_base_branch,
+          base_sha = marker_base_sha,
         }
       end
     end

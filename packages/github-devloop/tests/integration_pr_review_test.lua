@@ -129,7 +129,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_issue_open_pr({ "fkst-dev:implementing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "implementing", impl_version),
-      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123"),
+      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123"),
     })
     mock_branch_exists("devloop-owner-repo-42-01HY", "abc123")
     mock_bot_env()
@@ -162,7 +162,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_issue_open_pr({ "fkst-dev:implementing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "implementing", impl_version),
-      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123"),
+      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123"),
     })
     mock_branch_exists("devloop-owner-repo-42-01HY", "def456")
     mock_bot_env()
@@ -181,7 +181,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_issue_open_pr({ "fkst-dev:implementing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "implementing", impl_version),
-      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123"),
+      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123"),
     })
     mock_branch_exists("devloop-owner-repo-42-01HY", "abc123")
     mock_bot_env()
@@ -196,7 +196,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_issue_open_pr({ "fkst-dev:implementing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "implementing", impl_version),
-      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123"),
+      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123"),
     })
     mock_branch_exists("devloop-owner-repo-42-01HY", "abc123")
     mock_bot_env()

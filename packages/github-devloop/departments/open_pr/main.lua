@@ -53,7 +53,7 @@ function pipeline(event)
       return
     end
 
-    local fact = core.implementing_fact(current_issue.comments, proposal_id, state.version, branches.integration)
+    local fact = core.implementing_fact(current_issue.comments, proposal_id, state.version)
     if fact == nil then
       core.log_cas_decision("open_pr", proposal_id, state, "implementing", "pr-open", "retry-pending(implementing fact marker not visible)", "branch fact marker missing")
       error("github-devloop: implementing branch fact not visible for open_pr; retrying")

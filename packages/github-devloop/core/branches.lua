@@ -79,6 +79,13 @@ function M.git_diff_check_cmd(worktree)
   return "git -C " .. M._shell_single_quote(worktree) .. " diff --check"
 end
 
+function M.git_diff_cached_check_cmd(worktree)
+  if worktree == nil then
+    return "git diff --cached --check"
+  end
+  return "git -C " .. M._shell_single_quote(worktree) .. " diff --cached --check"
+end
+
 function M.git_commit_message_file_cmd(worktree, message_file)
   return "git -C " .. M._shell_single_quote(worktree)
     .. " commit -F " .. M._shell_single_quote(message_file)

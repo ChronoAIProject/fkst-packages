@@ -339,7 +339,7 @@ end
 
 local green_check_conclusions = {
   SUCCESS = true,
-  NEUTRAL = true,
+  -- NEUTRAL is excluded for irreversible-merge safety.
   SKIPPED = true,
 }
 

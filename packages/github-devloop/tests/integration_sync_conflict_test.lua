@@ -55,7 +55,10 @@ local function mock_successful_codex_resolution()
   t.mock_command("codex exec", { stdout = "resolved", stderr = "", exit_code = 0 })
   t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("diff --cached --check", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git -C", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("diff --cached --check", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("commit -F", { stdout = "[detached cccc3333] Sync dev into integration/dev\n", stderr = "", exit_code = 0 })
 end
 
@@ -89,7 +92,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(h.count_calls("codex exec"), 1)
-    t.eq(h.count_calls("ls-files -u"), 2)
+    t.eq(h.count_calls("ls-files -u"), 3)
     t.eq(h.count_calls("commit -F"), 1)
     t.eq(h.count_calls("push origin HEAD:refs/heads/"), 1)
   end,
@@ -114,6 +117,47 @@ return {
 
     local result = run_conflict(event(), opts("sync-conflict-leftover", "1"))
     t.eq(result.exit_code, 1)
+    t.eq(h.count_calls("push origin HEAD:refs/heads/"), 0)
+  end,
+
+  test_sync_conflict_staged_conflict_marker_errors_without_commit_or_push = function()
+    mock_fetch_and_heads()
+    mock_conflicting_worktree()
+    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("diff --cached --check", {
+      stdout = "core.lua:1: leftover conflict marker\n",
+      stderr = "",
+      exit_code = 2,
+    })
+    mock_cleanup()
+
+    local result = run_conflict(event(), opts("sync-conflict-staged-marker", "1"))
+    t.eq(result.exit_code, 1)
+    t.eq(h.count_calls("commit -F"), 0)
+    t.eq(h.count_calls("push origin HEAD:refs/heads/"), 0)
+  end,
+
+  test_sync_conflict_staged_whitespace_after_add_errors_without_commit_or_push = function()
+    mock_fetch_and_heads()
+    mock_conflicting_worktree()
+    t.mock_command("codex exec", { stdout = "done", stderr = "", exit_code = 0 })
+    t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("diff --check", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("diff --cached --check", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git -C", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("ls-files -u", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("diff --cached --check", {
+      stdout = "core.lua:2: trailing whitespace.\n",
+      stderr = "",
+      exit_code = 2,
+    })
+    mock_cleanup()
+
+    local result = run_conflict(event(), opts("sync-conflict-staged-after-add", "1"))
+    t.eq(result.exit_code, 1)
+    t.eq(h.count_calls("commit -F"), 0)
     t.eq(h.count_calls("push origin HEAD:refs/heads/"), 0)
   end,
 

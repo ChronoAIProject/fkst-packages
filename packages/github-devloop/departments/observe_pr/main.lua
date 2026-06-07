@@ -30,7 +30,7 @@ function pipeline(event)
   end
 
   local current_pr = core.parse_pr_view_origin(pr_view.stdout)
-  local origin = core.pr_origin_fact(current_pr.comments, branches.integration)
+  local origin = core.pr_origin_fact(current_pr.comments)
   if origin == nil then
     if core.is_devloop_issue_branch(current_pr.head_ref_name) then
       core.log_line("info", "observe_pr", "unknown", "CAS", {

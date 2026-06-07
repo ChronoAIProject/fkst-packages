@@ -73,6 +73,14 @@ return {
     t.eq(ok, false)
     t.eq(reason, "rollup-red")
 
+    ok, reason = core.evaluate_ci_merge_gate(pr({
+      status_check_rollup = {
+        { name = "ci", state = "COMPLETED", conclusion = "NEUTRAL" },
+      },
+    }))
+    t.eq(ok, false)
+    t.eq(reason, "rollup-red")
+
     ok, reason = core.evaluate_ci_merge_gate(pr({ mergeable = "CONFLICTING" }))
     t.eq(ok, false)
     t.eq(reason, "mergeable-conflicting")
