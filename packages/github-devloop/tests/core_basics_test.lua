@@ -140,6 +140,17 @@ return {
     local meta_fact = core.review_meta_fix_fact({ meta_comment }, "github-devloop/issue/owner/repo/42", action_version)
     t.eq(meta_fact.review_dedup_key, "meta-dedup")
     t.is_true(meta_fact.review_reason:find("Run another fix pass.", 1, true) ~= nil)
+    local meta_dedup = core.build_devloop_review_meta_payload({
+      proposal_id = id,
+      dedup_key = "consensus:" .. id .. "/review/loop/2",
+      source_ref = {
+        kind = "external",
+        ref = "owner/repo#pr/7",
+      },
+    }, "github-devloop/issue/owner/repo/42", version .. "/review-loop/3", 7, 3, source_ref()).dedup_key
+    local recoverable_meta = core.review_meta_marker("github-devloop/issue/owner/repo/42", meta_dedup, "fix", action_version)
+    local recoverable_fact = core.review_meta_fix_fact({ recoverable_meta }, "github-devloop/issue/owner/repo/42", action_version)
+    t.eq(recoverable_fact.review_proposal_id, id)
   end,
 
   test_ci_rollup_requires_completed_green_conclusion = function()

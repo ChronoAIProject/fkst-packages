@@ -8,11 +8,56 @@ M.spec = {
     "consensus.proposal",
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
+    "devloop_fixing",
     "devloop_merge_ready",
   },
   fanout = { "github-proxy.github_entity_changed" },
   stall_window = "30s",
 }
+
+local function issue_source_ref(repo, issue_number)
+  return {
+    kind = "external",
+    ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
+  }
+end
+
+local function fixing_fact(comments, proposal_id, version)
+  local fact = core.review_reject_fact(comments, proposal_id, version)
+    or core.review_meta_fix_fact(comments, proposal_id, version)
+    or core.merge_gate_fix_fact(comments, proposal_id, version)
+  if fact == nil or fact.review_proposal_id == nil then
+    return nil
+  end
+
+  local _, pr_number, _, reviewed_head_sha = core.parse_pr_review_proposal_id(fact.review_proposal_id)
+  reviewed_head_sha = fact.reviewed_head_sha or reviewed_head_sha
+  if pr_number == nil or not core.is_safe_pr_number(pr_number) or not core.is_safe_head_sha(reviewed_head_sha) then
+    return nil
+  end
+  return {
+    review_proposal_id = fact.review_proposal_id,
+    review_dedup_key = fact.review_dedup_key,
+    reviewed_head_sha = reviewed_head_sha,
+  }, pr_number
+end
+
+local function reraise_fixing(repo, issue_number, proposal_id, state, comments, source_ref)
+  local fact, pr_number = fixing_fact(comments, proposal_id, state.version)
+  if fact == nil then
+    core.log_cas_decision("observe_issue", proposal_id, state, "fixing", "fixing", "skip-pending(fix feedback marker not visible)", "fixing marker visible without a trusted recoverable feedback fact")
+    return
+  end
+  local fix_payload = core.build_devloop_fixing_payload({
+    proposal_id = proposal_id,
+    impl_version = state.version,
+  }, pr_number, fact, source_ref or issue_source_ref(repo, issue_number))
+  core.log_cas_decision("observe_issue", proposal_id, state, "fixing", "fixing", "skip-idempotent(already at to_state)", "fixing marker visible; reraising transition event")
+  core.log_apply("observe_issue", proposal_id, nil, nil, { add = {}, remove = {} }, {
+    "devloop_fixing",
+  })
+  core.log_raise("observe_issue", proposal_id, "devloop_fixing", fix_payload)
+end
 
 function pipeline(event)
   local issue = event.payload or {}
@@ -69,6 +114,9 @@ function pipeline(event)
           })
           core.log_raise("observe_issue", proposal_id, "devloop_merge_ready", merge_payload)
         end
+      end
+      if state.state == "fixing" then
+        reraise_fixing(issue.repo, issue.number, proposal_id, state, current.comments, issue.source_ref)
       end
       if state.state == "thinking" then
         return

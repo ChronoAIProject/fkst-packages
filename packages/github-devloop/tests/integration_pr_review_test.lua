@@ -431,6 +431,46 @@ return {
     t.is_true(proposal.body:find("+fixed by replay", 1, true) ~= nil)
   end,
 
+  test_observe_issue_reraises_fixing_for_poll_self_heal = function()
+    local impl_version = reviewing().version
+    local fix_version = core.fix_version_from_review_version(impl_version)
+    local review_id = core.pr_review_proposal_id("owner/repo", 7, impl_version, "def456")
+    local review_dedup = "consensus:" .. review_id .. "/review"
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:fixing" }, "OPEN", {
+      core.state_marker("github-devloop/issue/owner/repo/42", "fixing", fix_version),
+      core.review_result_marker(review_id, "github-devloop/issue/owner/repo/42", "reject", review_dedup),
+    })
+
+    local result = run_observe(issue(), opts("observe-issue-fixing-self-heal"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local fix_raise = find_raise(result.raises, "devloop_fixing")
+    t.eq(fix_raise.payload.schema, "github-devloop.fixing.v1")
+    t.eq(fix_raise.payload.proposal_id, "github-devloop/issue/owner/repo/42")
+    t.eq(fix_raise.payload.pr_number, 7)
+    t.eq(fix_raise.payload.version, fix_version)
+    t.eq(fix_raise.payload.review_proposal_id, review_id)
+    t.eq(fix_raise.payload.review_dedup_key, review_dedup)
+    t.eq(fix_raise.payload.reviewed_head_sha, "def456")
+  end,
+
+  test_observe_issue_does_not_reraise_fixing_after_issue_advanced = function()
+    local impl_version = reviewing().version
+    local fix_version = core.fix_version_from_review_version(impl_version)
+    local reviewing_version = core.next_fix_version(fix_version)
+    local review_id = core.pr_review_proposal_id("owner/repo", 7, impl_version, "def456")
+    local review_dedup = "consensus:" .. review_id .. "/review"
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "OPEN", {
+      core.state_marker("github-devloop/issue/owner/repo/42", "fixing", fix_version),
+      core.review_result_marker(review_id, "github-devloop/issue/owner/repo/42", "reject", review_dedup),
+      core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", reviewing_version),
+    })
+
+    local result = run_observe(issue(), opts("observe-issue-fixing-self-heal-done"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+  end,
+
   test_observe_pr_retries_devloop_branch_without_visible_backpointer = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local branch = core.implement_branch("owner/repo", "42", impl_version)

@@ -279,6 +279,31 @@ function M.review_reject_fact(comments, issue_proposal_id, issue_version)
   return nil
 end
 
+local function review_proposal_from_dedup_key(dedup_key)
+  local segments = {}
+  for segment in tostring(dedup_key or ""):gmatch("[^/]+") do
+    table.insert(segments, segment)
+  end
+  for start = 1, #segments - 5 do
+    if segments[start] == "github-devloop" and segments[start + 1] == "pr-review" then
+      for finish = start + 5, #segments do
+        local candidate = table.concat(segments, "/", start, finish)
+        if M.parse_pr_review_proposal_id(candidate) ~= nil then
+          return candidate
+        end
+      end
+    elseif segments[start] == "consensus-github-devloop" and segments[start + 1] == "pr-review" then
+      for finish = start + 5, #segments do
+        local candidate = "github-devloop/pr-review/" .. table.concat(segments, "/", start + 2, finish)
+        if M.parse_pr_review_proposal_id(candidate) ~= nil then
+          return candidate
+        end
+      end
+    end
+  end
+  return nil
+end
+
 function M.review_meta_fix_fact(comments, issue_proposal_id, issue_version)
   if type(comments) ~= "table" then
     return nil
@@ -295,6 +320,7 @@ function M.review_meta_fix_fact(comments, issue_proposal_id, issue_version)
         and action == "fix"
         and version == tostring(issue_version) then
         return {
+          review_proposal_id = review_proposal_from_dedup_key(marker_dedup),
           review_dedup_key = marker_dedup,
           review_reason = M._comment_body(comment),
         }
