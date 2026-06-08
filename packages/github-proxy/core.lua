@@ -121,20 +121,48 @@ function M.gh_failure_message(context, result)
   if type(result) == "table" then
     stderr = tostring(result.stderr or "")
   end
-  if M.is_gh_rate_limited(result) then
+  if M.gh_failure_class(result) == "gh-rate-limited" then
     return "github-proxy: gh-rate-limited: " .. tostring(context) .. " failed: " .. stderr
   end
   return "github-proxy: " .. tostring(context) .. " failed: " .. stderr
 end
 
-function M.run_gh(context, args)
+function M.gh_failure_class(result)
+  if M.is_gh_rate_limited(result) then
+    return "gh-rate-limited"
+  end
+  return "gh-failed"
+end
+
+function M.gh_status(context, result)
+  if type(result) == "table" and tonumber(result.exit_code) == 0 then
+    return {
+      ok = true,
+      class = "ok",
+      message = "",
+    }
+  end
+  local failure_class = M.gh_failure_class(result)
+  return {
+    ok = false,
+    class = failure_class,
+    message = M.gh_failure_message(context, result),
+  }
+end
+
+function M.try_gh(context, args)
   local run = exec_sync
   if type(run) ~= "function" then
-    error("github-proxy: run_gh requires exec_sync")
+    error("github-proxy: try_gh requires exec_sync")
   end
   local result = run(args)
-  if result.exit_code ~= 0 then
-    error(M.gh_failure_message(context, result))
+  return result, M.gh_status(context, result)
+end
+
+function M.run_gh(context, args)
+  local result, status = M.try_gh(context, args)
+  if not status.ok then
+    error(status.message)
   end
   return result
 end

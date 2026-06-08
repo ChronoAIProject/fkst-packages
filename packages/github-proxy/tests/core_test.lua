@@ -24,6 +24,8 @@ return {
       exit_code = 1,
     }
     t.eq(core.is_gh_rate_limited(result), true)
+    t.eq(core.gh_failure_class(result), "gh-rate-limited")
+    t.eq(core.gh_status("gh issue list", result).class, "gh-rate-limited")
     t.eq(
       core.gh_failure_message("gh issue list", result),
       "github-proxy: gh-rate-limited: gh issue list failed: GraphQL: API rate limit exceeded for user ID 1."
@@ -52,6 +54,8 @@ return {
       exit_code = 1,
     }
     t.eq(core.is_gh_rate_limited(result), false)
+    t.eq(core.gh_failure_class(result), "gh-failed")
+    t.eq(core.gh_status("gh pr list --head", result).class, "gh-failed")
     t.eq(
       core.gh_failure_message("gh pr list --head", result),
       "github-proxy: gh pr list --head failed: repository not found"
