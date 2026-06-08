@@ -56,13 +56,10 @@ function pipeline(event)
       return
     end
 
-    local edit = exec_sync({
+    core.run_gh("gh issue edit", {
       cmd = core.gh_issue_edit_labels_cmd(repo, payload.issue_number, add_labels, remove_labels),
       timeout = 30,
     })
-    if edit.exit_code ~= 0 then
-      error("github-proxy: gh issue edit failed: " .. tostring(edit.stderr))
-    end
   end)
 end
 

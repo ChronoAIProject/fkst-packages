@@ -93,6 +93,52 @@ function M.read_env(name, exec)
   return out.stdout
 end
 
+function M.is_gh_rate_limited(result)
+  if type(result) ~= "table" or tonumber(result.exit_code) == 0 then
+    return false
+  end
+  local text = tostring(result.stderr or ""):lower()
+  if text:find("api rate limit exceeded", 1, true) ~= nil then
+    return true
+  end
+  if text:find("was submitted too quickly", 1, true) ~= nil then
+    return true
+  end
+  if text:find("secondary rate limit", 1, true) ~= nil then
+    return true
+  end
+  if text:find("abuse detection", 1, true) ~= nil then
+    return true
+  end
+  if text:find("http 429", 1, true) ~= nil or text:find("status code 429", 1, true) ~= nil then
+    return true
+  end
+  return text:find("%f[%d]429%f[%D]") ~= nil
+end
+
+function M.gh_failure_message(context, result)
+  local stderr = ""
+  if type(result) == "table" then
+    stderr = tostring(result.stderr or "")
+  end
+  if M.is_gh_rate_limited(result) then
+    return "github-proxy: gh-rate-limited: " .. tostring(context) .. " failed: " .. stderr
+  end
+  return "github-proxy: " .. tostring(context) .. " failed: " .. stderr
+end
+
+function M.run_gh(context, args)
+  local run = exec_sync
+  if type(run) ~= "function" then
+    error("github-proxy: run_gh requires exec_sync")
+  end
+  local result = run(args)
+  if result.exit_code ~= 0 then
+    error(M.gh_failure_message(context, result))
+  end
+  return result
+end
+
 function M.configure_trusted_bot_login(login)
   if login == nil or tostring(login) == "" then
     trusted_bot_login = nil

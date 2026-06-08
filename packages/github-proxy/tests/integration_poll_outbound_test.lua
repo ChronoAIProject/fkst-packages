@@ -165,27 +165,25 @@ return {
     t.eq(count_calls("gh pr list"), 1)
   end,
 
-  test_inbound_poll_continues_when_issue_list_fails = function()
+  test_inbound_poll_rate_limit_errors_for_durable_retry = function()
     mock_repo_env()
-    mock_issue_list("", 2, "forced issue list failure")
+    mock_issue_list("", 1, "GraphQL: API rate limit exceeded for user ID 1.")
     mock_pr_list()
 
-    local result = t.run_department("departments/github_poll/main.lua", { queue = "github_poll_tick", payload = {} }, opts("issue-list-fails"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "github_entity_changed")
-    t.eq(result.raises[1].payload.type, "pr")
+    local result = t.run_department("departments/github_poll/main.lua", { queue = "github_poll_tick", payload = {} }, opts("issue-list-rate-limited"))
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
     t.eq(count_calls("gh issue list"), 1)
-    t.eq(count_calls("gh pr list"), 1)
+    t.eq(count_calls("gh pr list"), 0)
   end,
 
-  test_inbound_poll_continues_when_pr_list_fails = function()
+  test_inbound_poll_non_rate_limit_errors_for_retry = function()
     mock_repo_env()
     mock_issue_list()
     mock_pr_list("", 2, "forced pr list failure")
 
     local result = t.run_department("departments/github_poll/main.lua", { queue = "github_poll_tick", payload = {} }, opts("pr-list-fails"))
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "github_entity_changed")
     t.eq(result.raises[1].payload.type, "issue")

@@ -17,6 +17,47 @@ return {
     t.is_nil(value)
   end,
 
+  test_gh_rate_limit_failure_message_is_narrow = function()
+    local result = {
+      stdout = "",
+      stderr = "GraphQL: API rate limit exceeded for user ID 1.",
+      exit_code = 1,
+    }
+    t.eq(core.is_gh_rate_limited(result), true)
+    t.eq(
+      core.gh_failure_message("gh issue list", result),
+      "github-proxy: gh-rate-limited: gh issue list failed: GraphQL: API rate limit exceeded for user ID 1."
+    )
+  end,
+
+  test_gh_rate_limit_detection_accepts_abuse_and_429_forms = function()
+    t.eq(core.is_gh_rate_limited({
+      stderr = "You have triggered an abuse detection mechanism.",
+      exit_code = 1,
+    }), true)
+    t.eq(core.is_gh_rate_limited({
+      stderr = "Validation Failed: was submitted too quickly",
+      exit_code = 1,
+    }), true)
+    t.eq(core.is_gh_rate_limited({
+      stderr = "request failed with HTTP 429",
+      exit_code = 1,
+    }), true)
+  end,
+
+  test_gh_non_rate_limit_failure_message_stays_specific = function()
+    local result = {
+      stdout = "",
+      stderr = "repository not found",
+      exit_code = 1,
+    }
+    t.eq(core.is_gh_rate_limited(result), false)
+    t.eq(
+      core.gh_failure_message("gh pr list --head", result),
+      "github-proxy: gh pr list --head failed: repository not found"
+    )
+  end,
+
   test_entity_cache_key = function()
     local key = core.entity_cache_key("owner/repo", "issue", 12)
     t.eq(key, "github-proxy/issue/owner/repo/12")
