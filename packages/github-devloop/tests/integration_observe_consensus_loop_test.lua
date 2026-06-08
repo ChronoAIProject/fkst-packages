@@ -83,7 +83,9 @@ local find_raise = h.find_raise
 
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
-    mock_issue_state({ "fkst-dev:enabled" })
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {
+      { body = "Maintainer discussion must reach consensus angles.", author_login = "maintainer" },
+    })
     mock_issue_body("Body from GitHub")
 
     local result = run_observe(issue(), opts("observe-opt-in"))
@@ -93,6 +95,7 @@ return {
     t.eq(result.raises[1].payload.schema, "consensus.proposal.v1")
     t.eq(result.raises[1].payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(result.raises[1].payload.body, "Body from GitHub")
+    t.is_true(result.raises[1].payload.context:find("Maintainer discussion must reach consensus angles.", 1, true) ~= nil)
     t.eq(result.raises[1].payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")
 

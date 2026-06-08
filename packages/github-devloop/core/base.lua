@@ -5,12 +5,12 @@ function S.install(M)
 local max_key_len = 200
 local max_dedup_len = 512
 local max_title_len = 240
-local max_body_len = 8000
-local max_comments_len = 12000
+local max_body_len = 40000
+local max_comments_len = 40000
 local max_meta_reason_len = 2000
 local max_impl_output_len = 2000
-local max_pr_diff_len = 8000
-local max_proposal_context_len = 1200
+local max_pr_diff_len = 40000
+local max_proposal_context_len = 24000
 local max_pr_issue_context_len = 3000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
@@ -20,8 +20,6 @@ local max_worktree_prefix_len = 90
 local max_branch_len = 160
 local max_sha_len = 64
 local max_pr_title_len = 240
-local reliable_delivery_max_bytes = 64 * 1024
-local json_worst_case_bytes_per_char = 6
 local action_label = "⟦FKST:ACTION⟧"
 local intake_label = "⟦FKST:INTAKE⟧"
 local reason_label = "⟦FKST:REASON⟧"
@@ -144,31 +142,6 @@ end
 
 local function is_bounded_string(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
-end
-
-local function estimated_json_delivery_bytes(value, seen)
-  local kind = type(value)
-  if kind == "string" then
-    return (#value * json_worst_case_bytes_per_char) + 2
-  end
-  if kind == "number" or kind == "boolean" then
-    return #tostring(value)
-  end
-  if kind ~= "table" then
-    return 4
-  end
-  seen = seen or {}
-  if seen[value] then
-    return 0
-  end
-  seen[value] = true
-  local bytes = 2
-  for key, field in pairs(value) do
-    bytes = bytes + estimated_json_delivery_bytes(tostring(key), seen) + 1
-      + estimated_json_delivery_bytes(field, seen) + 1
-  end
-  seen[value] = nil
-  return bytes
 end
 
 local function has_value(values, expected)
@@ -687,18 +660,6 @@ function M.max_pr_diff_len()
   return max_pr_diff_len
 end
 
-function M.estimated_json_delivery_bytes(value)
-  return estimated_json_delivery_bytes(value)
-end
-
-function M.reliable_delivery_max_bytes()
-  return reliable_delivery_max_bytes
-end
-
-function M.fits_reliable_delivery(value)
-  return M.estimated_json_delivery_bytes(value) <= reliable_delivery_max_bytes
-end
-
 function M.render_template(template, vars)
   if type(template) ~= "string" then
     error("github-devloop: template must be a string")
@@ -826,7 +787,6 @@ M._max_pr_diff_len = max_pr_diff_len
 M._max_proposal_context_len = max_proposal_context_len
 M._max_pr_issue_context_len = max_pr_issue_context_len
 M._max_pr_title_len = max_pr_title_len
-M._reliable_delivery_max_bytes = reliable_delivery_max_bytes
 M._action_label = action_label
 M._intake_label = intake_label
 M._reason_label = reason_label

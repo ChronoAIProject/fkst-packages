@@ -125,7 +125,15 @@ function pipeline(event)
       error("github-devloop: gh issue view failed: " .. tostring(view.stderr))
     end
 
-    local proposal = core.build_proposal(issue, core.parse_issue_view_body(view.stdout))
+    local proposal_issue = {
+      repo = issue.repo,
+      number = issue.number,
+      title = issue.title,
+      updated_at = issue.updated_at,
+      comments = current.comments,
+      source_ref = issue.source_ref,
+    }
+    local proposal = core.build_proposal(proposal_issue, core.parse_issue_view_body(view.stdout))
     if not core.validate_proposal(proposal) then
       log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id) .. " tag=SKIP reason=cannot-build-valid-proposal")
       return

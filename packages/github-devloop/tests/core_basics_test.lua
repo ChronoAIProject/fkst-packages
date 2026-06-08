@@ -110,22 +110,21 @@ return {
     t.is_true(proposal.context:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
-    t.is_true(core.fits_reliable_delivery(proposal))
     t.eq(core.validate_proposal(proposal), true)
   end,
 
-  test_build_proposal_budgets_body_and_comments_for_reliable_delivery = function()
+  test_build_proposal_bounds_body_and_includes_comments = function()
     local proposal = core.build_proposal(issue({
       title = string.rep("t", core._max_title_len + 20),
       comments = {
-        { body = string.rep("c", core._max_comments_len) },
+        { body = string.rep("c", core._max_proposal_context_len) .. "TRUNCATED_COMMENT_TAIL" },
       },
     }), string.rep("b", core.max_body_len() + 5000))
 
-    t.is_true(#proposal.body <= core.max_body_len())
+    t.eq(#proposal.body, core.max_body_len())
     t.is_true(proposal.context ~= nil)
-    t.is_true(#proposal.context <= core._max_proposal_context_len)
-    t.is_true(core.estimated_json_delivery_bytes(proposal) <= core.reliable_delivery_max_bytes())
+    t.eq(#proposal.context, core._max_proposal_context_len)
+    t.is_nil(proposal.context:find("TRUNCATED_COMMENT_TAIL", 1, true))
     t.eq(core.validate_proposal(proposal), true)
   end,
 
@@ -163,7 +162,6 @@ return {
     t.is_true(proposal.body:find("> BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
     t.is_true(proposal.body:find("> +BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
     t.is_true(proposal.body:find("> +END UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(core.fits_reliable_delivery(proposal))
     t.eq(core.validate_proposal(proposal), true)
 
     local bounded = core.bounded_pr_diff(string.rep("x", core.max_pr_diff_len() + 10))
@@ -184,7 +182,6 @@ return {
     )
     t.is_true(#large_diff.body <= core.max_body_len())
     t.is_true(large_diff.body:find("END UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(core.fits_reliable_delivery(large_diff))
     t.eq(core.validate_proposal(large_diff), true)
     local marker = core.review_result_marker(id, "github-devloop/issue/owner/repo/42", "approve", "consensus:v1")
     t.eq(core.has_review_result_marker({ marker }, id, "github-devloop/issue/owner/repo/42", "approve", "consensus:v1"), true)

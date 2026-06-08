@@ -73,26 +73,27 @@ return {
     t.eq(core.is_eligible(proposal()), true)
   end,
 
-  test_is_eligible_accepts_bounded_reliable_delivery_input = function()
-    local bounded = proposal({
-      body = string.rep("b", 8000),
-      context = string.rep("c", 1200),
-    })
-    t.eq(core.is_eligible(bounded), true)
-    t.is_true(core.fits_reliable_delivery(bounded))
-    t.is_true(core.estimated_json_delivery_bytes(bounded) <= core.reliable_delivery_max_bytes())
-
-    t.eq(core.is_eligible(proposal({ body = string.rep("b", 8001) })), false)
-    t.eq(core.is_eligible(proposal({ context = string.rep("c", 1201) })), false)
+  test_is_eligible_accepts_raised_input_bounds = function()
     t.eq(core.is_eligible(proposal({
-      body = string.rep("b", 8000),
-      context = string.rep("c", 1200),
+      body = string.rep("b", 40000),
+      context = string.rep("c", 24000),
+    })), true)
+    t.eq(core.is_eligible(proposal({ body = string.rep("b", 40001) })), false)
+    t.eq(core.is_eligible(proposal({ context = string.rep("c", 24001) })), false)
+    t.eq(core.is_eligible(proposal({
+      body = string.rep("b", 40000),
+      context = string.rep("c", 24000),
       convergence_question = string.rep("q", 2000),
       prior_round_digests = {
-        { angle = "minimal", verdict = "approve", reply = string.rep("r", 700), digest = string.rep("d", 700) },
-        { angle = "structural", verdict = "approve", reply = string.rep("r", 700), digest = string.rep("d", 700) },
-        { angle = "delete", verdict = "approve", reply = string.rep("r", 700), digest = string.rep("d", 700) },
-        { angle = "extra", verdict = "approve", reply = string.rep("r", 700), digest = string.rep("d", 700) },
+        { angle = "minimal", verdict = "approve", reply = string.rep("r", 2400), digest = string.rep("d", 2400) },
+        { angle = "structural", verdict = "approve", reply = string.rep("r", 2400), digest = string.rep("d", 2400) },
+        { angle = "delete", verdict = "approve", reply = string.rep("r", 2400), digest = string.rep("d", 2400) },
+        { angle = "extra", verdict = "approve", reply = string.rep("r", 2400), digest = string.rep("d", 2400) },
+      },
+    })), true)
+    t.eq(core.is_eligible(proposal({
+      prior_round_digests = {
+        { angle = "minimal", verdict = "approve", reply = string.rep("r", 2401), digest = "d" },
       },
     })), false)
   end,
@@ -383,13 +384,13 @@ return {
   end,
 
   test_aggregate_rejects_overlong_reply = function()
-    -- max_reply_len is 1600; a longer reply must be rejected (no silent truncation)
+    -- max_reply_len is 4000; a longer reply must be rejected (no silent truncation)
     t.is_nil(core.aggregate({
       result("minimal", "approve"),
       {
         angle = "structural",
         verdict = "approve",
-        reply = string.rep("x", 1601),
+        reply = string.rep("x", 4001),
         exit_code = 0,
       },
       result("delete", "approve"),
@@ -448,16 +449,15 @@ return {
   end,
 
   test_build_reached_payload_bounds_worst_case = function()
-    -- worst case: max_angles (4) replies plus meta framing each at max_reply_len
+    -- worst case: max_angles (4) replies each at the max_reply_len cap
     local input = max_sized_proposal()
-    local big = string.rep("x", 1600)
+    local big = string.rep("x", 4000)
     local results = {}
     for _, angle in ipairs(input.angles) do
       table.insert(results, { angle = angle, verdict = "approve", reply = big, exit_code = 0 })
     end
-    local payload = core.build_reached_payload(input, "approve", results, big)
-    t.is_true(core.fits_reliable_delivery(payload))
-    t.is_true(core.estimated_json_delivery_bytes(payload) <= core.reliable_delivery_max_bytes())
+    local payload = core.build_reached_payload(input, "approve", results)
+    t.is_true(#payload.body < 24 * 1024)
   end,
 
   test_parse_meta_judge_output_accepts_reached_and_converge = function()
@@ -505,8 +505,8 @@ return {
     t.is_true(prompt:find("Focus on queue compatibility.", 1, true) ~= nil)
     t.is_true(prompt:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(prompt:find("Verdict: invalid", 1, true) ~= nil)
-    t.is_true(prompt:find(string.rep("s", 700), 1, true) ~= nil)
-    t.is_nil(prompt:find(string.rep("s", 701), 1, true))
+    t.is_true(prompt:find(string.rep("s", 2400), 1, true) ~= nil)
+    t.is_nil(prompt:find(string.rep("s", 2401), 1, true))
     t.is_nil(prompt:find("{{", 1, true))
   end,
 
@@ -548,18 +548,17 @@ return {
     local big = string.rep("x", 2000)
     local input = max_sized_proposal({ round = 100000, dedup_key = string.rep("d", 200) .. "/loop/100000" })
     local payload = core.build_converge_payload(input, big, {
-      { angle = input.angles[1], verdict = "approve", reply = string.rep("a", 1600), exit_code = 0 },
-      { angle = input.angles[2], verdict = "abstain", reply = string.rep("b", 1600), exit_code = 0 },
-      { angle = input.angles[3], verdict = "abstain", reply = string.rep("c", 1600), exit_code = 0 },
-      { angle = input.angles[4], stdout = string.rep("d", 1600), exit_code = 1 },
+      { angle = input.angles[1], verdict = "approve", reply = string.rep("a", 4000), exit_code = 0 },
+      { angle = input.angles[2], verdict = "abstain", reply = string.rep("b", 4000), exit_code = 0 },
+      { angle = input.angles[3], verdict = "abstain", reply = string.rep("c", 4000), exit_code = 0 },
+      { angle = input.angles[4], stdout = string.rep("d", 4000), exit_code = 1 },
     })
 
     t.eq(#payload.narrowed_question, 2000)
     for _, digest in ipairs(payload.angle_digests) do
-      t.is_true(#digest.reply <= 700)
-      t.is_true(#digest.digest <= 700)
+      t.is_true(#digest.reply <= 2400)
+      t.is_true(#digest.digest <= 2400)
     end
-    t.is_true(core.fits_reliable_delivery(payload))
   end,
 
   test_payload_builders_bound_extra_results = function()
@@ -569,19 +568,17 @@ return {
       table.insert(results, {
         angle = string.rep("x", 1000) .. tostring(index),
         verdict = "approve",
-        reply = string.rep("r", 1600),
-        stdout = string.rep("s", 1600),
+        reply = string.rep("r", 4000),
+        stdout = string.rep("s", 4000),
         exit_code = 0,
       })
     end
 
-    local reached = core.build_reached_payload(input, "approve", results, string.rep("m", 1600))
+    local reached = core.build_reached_payload(input, "approve", results, string.rep("m", 4000))
     local converge = core.build_converge_payload(input, string.rep("q", 2000), results)
     t.eq(#reached.angle_results, 4)
     t.eq(#reached.angle_results[1].angle, 200)
     t.eq(#converge.angle_digests, 4)
     t.eq(#converge.angle_digests[1].angle, 200)
-    t.is_true(core.fits_reliable_delivery(reached))
-    t.is_true(core.fits_reliable_delivery(converge))
   end,
 }

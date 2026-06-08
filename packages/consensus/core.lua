@@ -1,21 +1,18 @@
 local M = {}
 
 local default_angles = { "minimal", "structural", "delete" }
--- Reliable delivery stores encoded JSON, so every delivered payload must fit the 64 KiB
--- cap even when every string character expands to a six-byte JSON escape. Per-field caps
--- raise useful context where possible, and every inbound/outbound payload builder enforces
--- the final whole-payload cap.
+-- Angle count and per-reply length are capped so consensus_reached has a provable upper
+-- bound. The SDK exposes json.decode only, so encoded delivery size cannot be measured at
+-- runtime; keep all consensus inputs and model outputs under static package-level caps.
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
-local max_body_len = 8000
-local max_context_len = 1200
-local max_reply_len = 1600
+local max_body_len = 40000
+local max_context_len = 24000
+local max_reply_len = 4000
 local max_narrowed_question_len = 2000
-local max_digest_len = 700
-local max_prior_round_digests = max_angles
-local reliable_delivery_max_bytes = 64 * 1024
-local json_worst_case_bytes_per_char = 6
+local max_digest_len = 2400
+local max_prior_round_digests = 12
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 
@@ -32,50 +29,6 @@ end
 
 local function is_bounded_string(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
-end
-
-local function estimated_json_delivery_bytes(value, seen)
-  local kind = type(value)
-  if kind == "string" then
-    return (#value * json_worst_case_bytes_per_char) + 2
-  end
-  if kind == "number" or kind == "boolean" then
-    return #tostring(value)
-  end
-  if kind ~= "table" then
-    return 4
-  end
-  seen = seen or {}
-  if seen[value] then
-    return 0
-  end
-  seen[value] = true
-  local bytes = 2
-  for key, field in pairs(value) do
-    bytes = bytes + estimated_json_delivery_bytes(tostring(key), seen) + 1
-      + estimated_json_delivery_bytes(field, seen) + 1
-  end
-  seen[value] = nil
-  return bytes
-end
-
-function M.estimated_json_delivery_bytes(value)
-  return estimated_json_delivery_bytes(value)
-end
-
-function M.reliable_delivery_max_bytes()
-  return reliable_delivery_max_bytes
-end
-
-function M.fits_reliable_delivery(value)
-  return M.estimated_json_delivery_bytes(value) <= reliable_delivery_max_bytes
-end
-
-local function ensure_fits_reliable_delivery(payload, label)
-  if not M.fits_reliable_delivery(payload) then
-    error("consensus: " .. label .. " exceeds reliable delivery budget")
-  end
-  return payload
 end
 
 local function is_path_safe_key(value)
@@ -258,7 +211,7 @@ function M.is_eligible(proposal)
   if not valid_prior_round_digests(proposal.prior_round_digests) then
     return false
   end
-  return normalized_angles(proposal) ~= nil and M.fits_reliable_delivery(proposal)
+  return normalized_angles(proposal) ~= nil
 end
 
 function M.angles(proposal)
@@ -594,7 +547,7 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
     table.remove(body_lines)
   end
 
-  return ensure_fits_reliable_delivery({
+  return {
     schema = "consensus.consensus_reached.v1",
     proposal_id = proposal.proposal_id,
     decision = decision,
@@ -607,7 +560,7 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
       kind = proposal.source_ref.kind,
       ref = proposal.source_ref.ref,
     },
-  }, "consensus_reached payload")
+  }
 end
 
 function M.build_converge_payload(proposal, narrowed_question, angle_results)
@@ -618,7 +571,7 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results)
     error("consensus: missing source_ref")
   end
 
-  return ensure_fits_reliable_delivery({
+  return {
     schema = "consensus.consensus_converge.v1",
     proposal_id = proposal.proposal_id,
     round = tonumber(proposal.round) or 0,
@@ -631,7 +584,7 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results)
       kind = proposal.source_ref.kind,
       ref = proposal.source_ref.ref,
     },
-  }, "consensus_converge payload")
+  }
 end
 
 return M

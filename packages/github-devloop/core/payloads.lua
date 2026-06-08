@@ -123,44 +123,6 @@ local function bounded_issue_comments(M, comments)
   return text
 end
 
-local function shrink_body_preserving_review_suffix(M, body)
-  local text = tostring(body or "")
-  local suffix = "\n" .. M._untrusted_issue_data_end
-  if text:sub(-#suffix) == suffix and #text > #suffix + 1 then
-    return text:sub(1, #text - #suffix - 1) .. suffix
-  end
-  return text:sub(1, #text - 1)
-end
-
-local function fit_consensus_proposal(M, proposal)
-  if proposal.context ~= nil and proposal.context == "" then
-    proposal.context = nil
-  end
-
-  while not M.validate_proposal(proposal) do
-    local body_len = #tostring(proposal.body or "")
-    local context_len = proposal.context ~= nil and #proposal.context or 0
-    if context_len > 0 and context_len >= body_len then
-      proposal.context = proposal.context:sub(1, context_len - 1)
-      if proposal.context == "" then
-        proposal.context = nil
-      end
-    elseif body_len > 1 then
-      proposal.body = shrink_body_preserving_review_suffix(M, proposal.body)
-    else
-      error("github-devloop: consensus proposal cannot fit reliable delivery budget")
-    end
-  end
-
-  return proposal
-end
-
-local function budgeted_consensus_proposal(M, proposal, full_body, full_context)
-  proposal.body = M.bounded_body(full_body)
-  proposal.context = full_context
-  return fit_consensus_proposal(M, proposal)
-end
-
 function M.build_proposal(issue, body)
   local proposal_id = M.proposal_id(issue.repo, issue.number)
   local title = tostring(issue.title or "")
@@ -168,14 +130,16 @@ function M.build_proposal(issue, body)
     title = title:sub(1, M._max_title_len)
   end
 
-  return budgeted_consensus_proposal(M, {
+  return {
     schema = "consensus.proposal.v1",
     verdict_mode = "converge",
     proposal_id = proposal_id,
     title = title,
+    body = M.bounded_body(body),
+    context = bounded_issue_comments(M, issue.comments),
     dedup_key = M.proposal_dedup_key(proposal_id, issue.updated_at),
     source_ref = M.normalize_source_ref(issue.source_ref),
-  }, body, bounded_issue_comments(M, issue.comments))
+  }
 end
 
 -- Thread the meta-judge's narrowing onto a re-raised next-round proposal so the next
@@ -208,7 +172,7 @@ function M.build_loop_proposal(repo, issue_number, current, source_ref, n, conve
   }
   local proposal = M.build_proposal(issue, current.body)
   proposal.dedup_key = proposal.dedup_key .. "/loop/" .. tostring(n)
-  return fit_consensus_proposal(M, apply_converge_fields(proposal, n, converge))
+  return apply_converge_fields(proposal, n, converge)
 end
 
 function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, diff, source_ref)
@@ -258,7 +222,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
     error("github-devloop: PR review proposal exceeds bounded body")
   end
 
-  return fit_consensus_proposal(M, {
+  return {
     schema = "consensus.proposal.v1",
     verdict_mode = "gate",
     proposal_id = review_id,
@@ -269,13 +233,13 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
       "review",
     }),
     source_ref = M.normalize_source_ref(source_ref),
-  })
+  }
 end
 
 function M.build_pr_review_loop_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, diff, source_ref, n, converge)
   local proposal = M.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, diff, source_ref)
   proposal.dedup_key = proposal.dedup_key .. "/loop/" .. tostring(n)
-  return fit_consensus_proposal(M, apply_converge_fields(proposal, n, converge))
+  return apply_converge_fields(proposal, n, converge)
 end
 end
 

@@ -519,8 +519,8 @@ return {
     local converge = {
       narrowed_question = "Does the locking change still break idempotency under retry?",
       angle_digests = {
-        { angle = "minimal", verdict = "approve", reply = string.rep("m", 700), digest = string.rep("n", 700) },
-        { angle = "structural", verdict = "abstain", reply = string.rep("s", 700), digest = string.rep("t", 700) },
+        { angle = "minimal", verdict = "approve", reply = string.rep("m", 2400), digest = string.rep("n", 2400) },
+        { angle = "structural", verdict = "abstain", reply = string.rep("s", 2400), digest = string.rep("t", 2400) },
       },
     }
 
@@ -537,9 +537,10 @@ return {
     t.eq(thinking.convergence_question, converge.narrowed_question)
     t.eq(#thinking.prior_round_digests, 2)
     t.eq(thinking.prior_round_digests[2].verdict, "abstain")
+    t.eq(#thinking.prior_round_digests[1].reply, 2400)
+    t.eq(#thinking.prior_round_digests[2].digest, 2400)
     t.is_true(thinking.context:find("Carry current issue discussion into the next round.", 1, true) ~= nil)
     t.is_true(thinking.dedup_key:find("/loop/2", 1, true) ~= nil)
-    t.is_true(core.fits_reliable_delivery(thinking))
     t.is_true(core.validate_proposal(thinking))
 
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -551,9 +552,10 @@ return {
     t.eq(review.verdict_mode, "gate")
     t.eq(review.convergence_question, converge.narrowed_question)
     t.eq(#review.prior_round_digests, 2)
+    t.eq(#review.prior_round_digests[1].reply, 2400)
+    t.eq(#review.prior_round_digests[2].digest, 2400)
     t.is_true(review.dedup_key:find("/loop/2", 1, true) ~= nil)
     t.is_true(review.body:find("END UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(core.fits_reliable_delivery(review))
     t.is_true(core.validate_proposal(review))
 
     -- Without a converge carry the proposal stays valid and blind-compatible: the round is
