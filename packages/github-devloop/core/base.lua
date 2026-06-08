@@ -9,7 +9,7 @@ local max_body_len = 12000
 local max_comments_len = 12000
 local max_meta_reason_len = 2000
 local max_impl_output_len = 2000
-local max_pr_diff_len = 40000
+local max_pr_review_context_len = 8000
 local max_pr_issue_context_len = 3000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
@@ -640,23 +640,12 @@ function M.bounded_body(value)
   return text:sub(1, max_body_len)
 end
 
-function M.bounded_pr_diff(value)
-  local text = tostring(value or "")
-  if text == "" then
-    return "(empty PR diff)"
-  end
-  if #text <= max_pr_diff_len then
-    return text
-  end
-  return text:sub(1, max_pr_diff_len)
-end
-
 function M.max_body_len()
   return max_body_len
 end
 
-function M.max_pr_diff_len()
-  return max_pr_diff_len
+function M.max_pr_review_context_len()
+  return max_pr_review_context_len
 end
 
 function M.render_template(template, vars)
@@ -782,7 +771,7 @@ M._max_body_len = max_body_len
 M._max_comments_len = max_comments_len
 M._max_meta_reason_len = max_meta_reason_len
 M._max_impl_output_len = max_impl_output_len
-M._max_pr_diff_len = max_pr_diff_len
+M._max_pr_review_context_len = max_pr_review_context_len
 M._max_pr_issue_context_len = max_pr_issue_context_len
 M._max_pr_title_len = max_pr_title_len
 M._action_label = action_label

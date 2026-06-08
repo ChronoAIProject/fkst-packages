@@ -28,7 +28,7 @@ function M.validate_proposal(proposal)
   if not M._is_bounded_string(proposal.body, M._max_body_len) then
     return false
   end
-  if proposal.context ~= nil and not M._is_bounded_string(proposal.context, M._max_pr_diff_len) then
+  if proposal.context ~= nil and not M._is_bounded_string(proposal.context, M._max_pr_review_context_len) then
     return false
   end
   return M._has_bounded_source_ref(proposal.source_ref)

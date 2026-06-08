@@ -61,7 +61,6 @@ local merge_comments_with_merging = h.merge_comments_with_merging
 local mock_pr_fix = h.mock_pr_fix
 local mock_pr_origin_sequence = h.mock_pr_origin_sequence
 local mock_pr_head = h.mock_pr_head
-local mock_pr_diff = h.mock_pr_diff
 local mock_branch_exists = h.mock_branch_exists
 local mock_meta_codex = h.mock_meta_codex
 local mock_setup_worktree = h.mock_setup_worktree
@@ -151,15 +150,14 @@ return {
     })
     local origin_marker_for_review = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
-    mock_pr_diff("diff --git a/packages/github-devloop/core.lua b/packages/github-devloop/core.lua\n+fixed again\n")
-    mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
 
     local review_result = run_review_pr(reviewing_raise.payload, opts("fix-write-rereview"))
     t.eq(review_result.exit_code, 0)
     t.eq(#review_result.raises, 1)
     local proposal = find_raise(review_result.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, expected_version, "feedface"))
-    t.is_true(proposal.body:find("+fixed again", 1, true) ~= nil)
+    t.is_true(proposal.context:find("Pin your review to head SHA: feedface", 1, true) ~= nil)
+    t.is_true(proposal.context:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
 	  end,
 
   test_fix_marker_lag_retries_then_visible_marker_runs = function()
@@ -596,8 +594,6 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
-    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return true\n")
-    mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
 
     local result = run_review_loop(event, opts("review-loop-under-budget"))
     t.eq(result.exit_code, 0)
@@ -628,8 +624,6 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", full_version),
     })
-    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return true\n")
-    mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
 
     local result = run_review_loop(event, opts("review-loop-long-version-apply"))
     t.eq(result.exit_code, 0)
