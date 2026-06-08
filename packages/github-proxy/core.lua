@@ -71,6 +71,10 @@ local function is_git_sha(value)
   return type(value) == "string" and value:find("^[0-9A-Fa-f]+$") ~= nil and #value >= 6 and #value <= 64
 end
 
+local function is_safe_comment_id(value)
+  return is_bounded_string(value, max_marker_value_len) and tostring(value):find("^[%w_%-:/+=]+$") ~= nil
+end
+
 function M.read_env_command(name)
   if not allowed_env[name] then
     error("env name is not allowed: " .. tostring(name))
@@ -195,6 +199,7 @@ function M.parse_issue_comments(gh_json_stdout)
   local comments = {}
   for _, comment in ipairs(decoded.comments or {}) do
     table.insert(comments, {
+      id = comment.id,
       body = comment_body(comment),
       author_login = comment_author_login(comment),
     })
@@ -213,6 +218,19 @@ function M.has_trusted_marker(comments, dedup_key, bot_login)
     end
   end
   return false
+end
+
+function M.trusted_marker_comment(comments, dedup_key, bot_login)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker = M.comment_marker(dedup_key)
+  for _, comment in ipairs(comments) do
+    if comment_author_login(comment) == bot_login and comment_body(comment):find(marker, 1, true) ~= nil then
+      return comment
+    end
+  end
+  return nil
 end
 
 function M.has_trusted_comment_fragment(comments, fragment, bot_login)
@@ -706,6 +724,16 @@ function M.gh_issue_comment_cmd(repo, issue_number, body_file)
   return "gh issue comment " .. shell_single_quote(issue_number)
     .. " --repo " .. shell_single_quote(repo)
     .. " --body-file " .. shell_single_quote(body_file)
+end
+
+function M.gh_issue_comment_edit_cmd(comment_id, body_file)
+  if not is_safe_comment_id(comment_id) then
+    error("github-proxy: invalid issue comment id")
+  end
+  return "gh api graphql"
+    .. " -f query=" .. shell_single_quote("mutation($id:ID!,$body:String!){updateIssueComment(input:{id:$id,body:$body}){issueComment{id}}}")
+    .. " -f id=" .. shell_single_quote(comment_id)
+    .. " -f body=\"$(cat " .. shell_single_quote(body_file) .. ")\""
 end
 
 function M.gh_issue_edit_labels_cmd(repo, issue_number, add_labels, remove_labels)

@@ -14,5 +14,6 @@ require("core.convergence").install(M)
 require("core.prompts").install(M)
 require("core.requests").install(M)
 require("core.validators").install(M)
+require("core.status_card").install(M)
 
 return M

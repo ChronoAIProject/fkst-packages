@@ -62,7 +62,9 @@ function pipeline(event)
       -- delivery retries (otherwise a result marker comment could be permanently lost).
       error("github-proxy: gh issue view failed: " .. tostring(view.stderr))
     end
-    if core.has_trusted_marker(core.parse_issue_comments(view.stdout), payload.dedup_key, bot_login) then
+    local comments = core.parse_issue_comments(view.stdout)
+    local existing = core.trusted_marker_comment(comments, payload.dedup_key, bot_login)
+    if existing ~= nil and payload.upsert ~= true then
       log.info("github-proxy: comment marker already present")
       return
     end
@@ -70,9 +72,15 @@ function pipeline(event)
     local body = tostring(payload.body) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
     local path = temp_body_file(repo, payload.issue_number)
     file.write(path, body)
-    local comment = exec_sync({ cmd = core.gh_issue_comment_cmd(repo, payload.issue_number, path), timeout = 30 })
+    local cmd = core.gh_issue_comment_cmd(repo, payload.issue_number, path)
+    local action = "comment"
+    if existing ~= nil and payload.upsert == true then
+      cmd = core.gh_issue_comment_edit_cmd(existing.id, path)
+      action = "comment edit"
+    end
+    local comment = exec_sync({ cmd = cmd, timeout = 30 })
     if comment.exit_code ~= 0 then
-      error("github-proxy: gh issue comment failed: " .. tostring(comment.stderr))
+      error("github-proxy: gh issue " .. action .. " failed: " .. tostring(comment.stderr))
     end
   end)
 end

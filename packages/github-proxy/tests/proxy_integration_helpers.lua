@@ -87,16 +87,25 @@ local function comment_json(body, author)
   return string.format('{"body":"%s","author":{"login":"%s"}}', json_string(body), json_string(author or "fkst-test-bot"))
 end
 
+local function comment_json_with_id(body, author, id)
+  return string.format(
+    '{"id":"%s","body":"%s","author":{"login":"%s"}}',
+    json_string(id or "IC_kwDO1"),
+    json_string(body),
+    json_string(author or "fkst-test-bot")
+  )
+end
+
 local function mock_comment_view(comments, author)
   local rendered_comments = comments
   if type(comments) == "table" then
     local parts = {}
     for _, comment in ipairs(comments) do
-      table.insert(parts, comment_json(comment.body, comment.author_login or comment.author))
+      table.insert(parts, comment_json_with_id(comment.body, comment.author_login or comment.author, comment.id))
     end
     rendered_comments = table.concat(parts, ",")
   else
-    rendered_comments = comment_json(comments or "existing comment", author)
+    rendered_comments = comment_json_with_id(comments or "existing comment", author, "IC_kwDO1")
   end
   t.mock_command("gh issue view", {
     stdout = '{"comments":[' .. rendered_comments .. "]}\n",
@@ -159,6 +168,10 @@ end
 
 local function mock_comment_write()
   t.mock_command("gh issue comment", { stdout = "", exit_code = 0 })
+end
+
+local function mock_comment_edit()
+  t.mock_command("gh api graphql", { stdout = "", exit_code = 0 })
 end
 
 local function mock_label_write()
@@ -331,6 +344,7 @@ return {
   mock_branch_head = mock_branch_head,
   mock_non_branch_ref_head = mock_non_branch_ref_head,
   mock_comment_write = mock_comment_write,
+  mock_comment_edit = mock_comment_edit,
   mock_label_write = mock_label_write,
   mock_pr_head_list = mock_pr_head_list,
   mock_pr_head_state = mock_pr_head_state,

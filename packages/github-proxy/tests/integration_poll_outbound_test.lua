@@ -20,6 +20,7 @@ local mock_pr_open_guard = h.mock_pr_open_guard
 local mock_branch_head = h.mock_branch_head
 local mock_non_branch_ref_head = h.mock_non_branch_ref_head
 local mock_comment_write = h.mock_comment_write
+local mock_comment_edit = h.mock_comment_edit
 local mock_label_write = h.mock_label_write
 local mock_pr_head_list = h.mock_pr_head_list
 local mock_pr_head_state = h.mock_pr_head_state
@@ -469,6 +470,56 @@ return {
     local comment_calls = calls_matching("gh issue comment")
     t.eq(#comment_calls, 1)
     t.is_true(comment_calls[1].rendered:find("--repo 'owner/payload'", 1, true) ~= nil)
+  end,
+
+  test_upsert_comment_creates_then_edits_same_marker_comment = function()
+    local event = {
+      queue = "github_issue_comment_request",
+      payload = {
+        repo = "owner/x",
+        issue_number = 42,
+        body = "status v1",
+        dedup_key = "status-card/comment/github-devloop/issue/owner/x/42",
+        upsert = true,
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_comment_view("existing comment")
+    mock_comment_write()
+    local first = t.run_department("departments/github_comment/main.lua", event, opts("comment-upsert-create", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(first.exit_code, 0)
+    t.eq(count_calls("gh issue comment"), 1)
+    t.eq(count_calls("gh api graphql"), 0)
+
+    event.payload.body = "status v2"
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_comment_view({
+      {
+        id = "IC_kwDO123",
+        body = "status v1\n\n" .. core.comment_marker(event.payload.dedup_key),
+        author_login = "fkst-test-bot",
+      },
+    })
+    mock_comment_edit()
+    local second = t.run_department("departments/github_comment/main.lua", event, opts("comment-upsert-edit", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(second.exit_code, 0)
+    t.eq(count_calls("gh issue comment"), 1)
+    t.eq(count_calls("gh api graphql"), 1)
+
+    local edited = file.read("/tmp/fkst-github-proxy-comment-owner_x-issue-42.md")
+    t.is_true(edited:find("status v2", 1, true) ~= nil)
+    t.is_true(edited:find(core.comment_marker(event.payload.dedup_key), 1, true) ~= nil)
+    local api_call = calls_matching("gh api graphql")[1]
+    t.is_true(api_call.rendered:find("-f id='IC_kwDO123'", 1, true) ~= nil)
   end,
 
   test_comment_real_write_failure_errors_for_retry = function()

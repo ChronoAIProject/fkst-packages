@@ -13,10 +13,28 @@ function M.gh_issue_list_intake_cmd(repo, limit)
     .. " --json number,title,updatedAt,labels"
 end
 
+function M.gh_issue_list_status_card_cmd(repo, limit)
+  local bounded_limit = tonumber(limit or 100)
+  if bounded_limit == nil or bounded_limit < 1 or bounded_limit > 100 then
+    error("github-devloop: invalid status-card issue list limit")
+  end
+  return "gh issue list"
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --state open"
+    .. " --limit " .. tostring(math.floor(bounded_limit))
+    .. " --json number,title,updatedAt,labels"
+end
+
 function M.gh_issue_view_intake_scan_cmd(repo, issue_number)
   return "gh issue view " .. M._shell_single_quote(issue_number)
     .. " --repo " .. M._shell_single_quote(repo)
     .. " --json labels,comments,state"
+end
+
+function M.gh_issue_view_status_card_cmd(repo, issue_number)
+  return "gh issue view " .. M._shell_single_quote(issue_number)
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --json labels,state,comments"
 end
 
 function M.gh_issue_view_intake_judge_cmd(repo, issue_number)

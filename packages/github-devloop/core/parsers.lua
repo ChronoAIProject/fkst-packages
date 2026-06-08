@@ -111,6 +111,10 @@ function M.parse_issue_view_intake_scan(stdout)
   return M.parse_issue_view_state(stdout)
 end
 
+function M.parse_issue_view_status_card(stdout)
+  return M.parse_issue_view_state(stdout)
+end
+
 function M.parse_issue_view_intake_judge(stdout)
   return M.parse_issue_view_loop(stdout)
 end

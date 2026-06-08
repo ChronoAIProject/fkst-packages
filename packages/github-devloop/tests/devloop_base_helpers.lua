@@ -373,6 +373,14 @@ local function run_merge(payload, run_opts)
   }, run_opts)
 end
 
+local function run_status_card(run_opts)
+  mock_branch_config_env()
+  return t.run_department("departments/status_card/main.lua", {
+    queue = "devloop_status_card_tick",
+    payload = {},
+  }, run_opts)
+end
+
 local function json_string(value)
   return tostring(value)
     :gsub("\\", "\\\\")
@@ -441,6 +449,25 @@ local function mock_issue_state(labels, state, comments)
       json_string(state or "OPEN"),
       table.concat(rendered_labels, ","),
       table.concat(rendered_comments, ",")),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_issue_status_card(labels, state, comments)
+  mock_issue_state(labels, state, comments)
+end
+
+local function mock_issue_status_card_list(labels)
+  local rendered_labels = {}
+  for _, label in ipairs(labels or { "fkst-dev:reviewing" }) do
+    table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
+  end
+  t.mock_command("gh issue list", {
+    stdout = string.format(
+      '[{"number":42,"title":"Implement decision recorder","updatedAt":"2026-06-03T01:02:03Z","labels":[%s]}]\n',
+      table.concat(rendered_labels, ",")
+    ),
     stderr = "",
     exit_code = 0,
   })
@@ -763,10 +790,13 @@ return {
   run_review_loop = run_review_loop,
   run_review_meta = run_review_meta,
   run_merge = run_merge,
+  run_status_card = run_status_card,
   json_string = json_string,
   render_comment = render_comment,
   default_marker_version = default_marker_version,
   mock_issue_state = mock_issue_state,
+  mock_issue_status_card = mock_issue_status_card,
+  mock_issue_status_card_list = mock_issue_status_card_list,
   state_from_labels = state_from_labels,
   with_default_state_marker = with_default_state_marker,
   mock_issue_body = mock_issue_body,
