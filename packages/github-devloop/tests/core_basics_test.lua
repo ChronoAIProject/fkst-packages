@@ -126,8 +126,9 @@ return {
     t.is_true(proposal.body:find("Reviewed PR head: " .. head_sha, 1, true) ~= nil)
     t.is_true(proposal.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.is_true(proposal.body:find("> BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> +BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> +END UNTRUSTED ISSUE DATA", 1, true) ~= nil)
+    t.is_true(proposal.context:find("PR diff:", 1, true) ~= nil)
+    t.is_true(proposal.context:find("> +BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
+    t.is_true(proposal.context:find("> +END UNTRUSTED ISSUE DATA", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
 
     local bounded = core.bounded_pr_diff(string.rep("x", core.max_pr_diff_len() + 10))
@@ -240,8 +241,37 @@ return {
 
     t.is_true(#proposal.body <= core.max_body_len())
     t.is_true(proposal.body:find("Issue body:", 1, true) ~= nil)
-    t.is_true(proposal.body:find("PR diff:", 1, true) ~= nil)
-    t.is_true(proposal.body:find("+DIFF_SENTINEL_MUST_SURVIVE", 1, true) ~= nil)
+    t.is_true(proposal.context:find("PR diff:", 1, true) ~= nil)
+    t.is_true(proposal.context:find("+DIFF_SENTINEL_MUST_SURVIVE", 1, true) ~= nil)
+    t.eq(proposal.body:find("+DIFF_SENTINEL_MUST_SURVIVE", 1, true), nil)
+    t.eq(core.validate_proposal(proposal), true)
+  end,
+
+  test_pr_review_proposal_keeps_large_diff_beyond_old_body_budget = function()
+    local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local head_sha = "abcdef1234567890"
+    local old_diff_budget = 8000
+    local large_diff = "diff --git a/core.lua b/core.lua\n"
+      .. string.rep("+0123456789\n", math.floor(old_diff_budget / 11) + 20)
+      .. "+LARGE_DIFF_TAIL_MUST_SURVIVE\n"
+    local proposal = core.build_pr_review_proposal(
+      "owner/repo",
+      "42",
+      7,
+      version,
+      head_sha,
+      {
+        title = "Implement decision recorder",
+        body = "Issue body",
+      },
+      large_diff,
+      { kind = "external", ref = "owner/repo#pr/7" }
+    )
+
+    t.is_true(#proposal.body <= core.max_body_len())
+    t.is_true(#proposal.context <= core.max_pr_diff_len())
+    t.is_true(proposal.context:find("+LARGE_DIFF_TAIL_MUST_SURVIVE", 1, true) ~= nil)
+    t.eq(proposal.body:find("+LARGE_DIFF_TAIL_MUST_SURVIVE", 1, true), nil)
     t.eq(core.validate_proposal(proposal), true)
   end,
 

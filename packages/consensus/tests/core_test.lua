@@ -50,6 +50,15 @@ return {
     t.eq(core.is_eligible(proposal()), true)
   end,
 
+  test_is_eligible_accepts_large_bounded_context = function()
+    t.eq(core.is_eligible(proposal({
+      context = string.rep("x", 40000),
+    })), true)
+    t.eq(core.is_eligible(proposal({
+      context = string.rep("x", 40001),
+    })), false)
+  end,
+
   test_verdict_mode_defaults_to_converge_and_accepts_gate = function()
     t.eq(core.verdict_mode(proposal()), "converge")
     t.eq(core.verdict_mode(proposal({ verdict_mode = "converge" })), "converge")

@@ -184,9 +184,16 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
   if #issue_body > M._max_pr_issue_context_len then
     issue_body = issue_body:sub(1, M._max_pr_issue_context_len)
   end
-  local bounded_diff = M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(M.bounded_pr_diff(diff)))
-  if #bounded_diff > M._max_pr_diff_len then
-    bounded_diff = bounded_diff:sub(1, M._max_pr_diff_len)
+  local context_prefix = "PR diff:\n"
+  local max_context_diff_len = M._max_pr_diff_len - #context_prefix
+  local raw_diff = tostring(diff or "")
+  if raw_diff == "" then
+    raw_diff = "(empty PR diff)"
+  end
+  local bounded_diff = M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(raw_diff))
+  if #bounded_diff > max_context_diff_len then
+    local truncation_notice = "\n\n[PR diff truncated at github-devloop review context limit]\n"
+    bounded_diff = bounded_diff:sub(1, max_context_diff_len - #truncation_notice) .. truncation_notice
   end
   local body = "Review the PR diff and decide whether it should advance to merge-ready."
     .. "\n\n" .. M._untrusted_issue_data_begin
@@ -194,10 +201,13 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
     .. "\nReviewed PR head: " .. tostring(head_sha)
     .. "\nIssue title:\n" .. issue_title
     .. "\n\nIssue body:\n" .. issue_body
-    .. "\n\nPR diff:\n" .. bounded_diff
     .. "\n" .. M._untrusted_issue_data_end
   if #body > M._max_body_len then
     error("github-devloop: PR review proposal exceeds bounded body")
+  end
+  local context = context_prefix .. bounded_diff
+  if #context > M._max_pr_diff_len then
+    error("github-devloop: PR review context exceeds bounded diff")
   end
 
   return {
@@ -206,6 +216,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
     proposal_id = review_id,
     title = M.neutralize_untrusted_prompt_text(title),
     body = body,
+    context = context,
     dedup_key = M._dedup_key({
       review_id,
       "review",
