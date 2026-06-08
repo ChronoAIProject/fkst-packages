@@ -9,7 +9,7 @@ local max_body_len = 12000
 local max_comments_len = 12000
 local max_meta_reason_len = 2000
 local max_impl_output_len = 2000
-local max_pr_review_context_len = 8000
+local max_pr_review_context_len = 40000
 local max_pr_issue_context_len = 3000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
@@ -638,6 +638,14 @@ function M.bounded_body(value)
     return text
   end
   return text:sub(1, max_body_len)
+end
+
+function M.pr_review_diff_text(value)
+  local text = tostring(value or "")
+  if text == "" then
+    return "(empty PR diff)"
+  end
+  return text
 end
 
 function M.max_body_len()

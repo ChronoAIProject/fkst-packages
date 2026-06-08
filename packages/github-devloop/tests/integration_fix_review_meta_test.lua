@@ -150,14 +150,16 @@ return {
     })
     local origin_marker_for_review = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
+    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return 'fixed'\n")
+    mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
 
     local review_result = run_review_pr(reviewing_raise.payload, opts("fix-write-rereview"))
     t.eq(review_result.exit_code, 0)
     t.eq(#review_result.raises, 1)
     local proposal = find_raise(review_result.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, expected_version, "feedface"))
-    t.is_true(proposal.context:find("Pin your review to head SHA: feedface", 1, true) ~= nil)
-    t.is_true(proposal.context:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
+    t.is_true(proposal.context:find("Reviewed PR head: feedface", 1, true) ~= nil)
+    t.is_true(proposal.context:find("+return 'fixed'", 1, true) ~= nil)
 	  end,
 
   test_fix_marker_lag_retries_then_visible_marker_runs = function()

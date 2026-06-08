@@ -161,30 +161,24 @@ function M.build_loop_proposal(repo, issue_number, current, source_ref, n, conve
   return apply_converge_fields(proposal, n, converge)
 end
 
-local function build_pr_review_context(repo, pr_number, head_sha)
-  local diff_cmd = M.gh_pr_diff_cmd(repo, pr_number)
-  local checkout_cmd = "gh pr checkout " .. M._shell_single_quote(pr_number)
-    .. " --repo " .. M._shell_single_quote(repo)
-    .. " --detach"
-  local head_check_cmd = M.gh_pr_view_origin_cmd(repo, pr_number)
-  local context = "PR review source access:\n"
-    .. "The full PR diff is intentionally not embedded in this reliable event payload.\n"
-    .. "Before deciding, read the complete current diff from GitHub and inspect files as needed.\n"
-    .. "Use this read-only command for the complete diff:\n"
-    .. diff_cmd .. "\n"
-    .. "Pin your review to head SHA: " .. tostring(head_sha) .. "\n"
-    .. "Re-check the head with:\n"
-    .. head_check_cmd .. "\n"
-    .. "If headRefOid differs from the pinned SHA, reject or abstain as stale instead of reviewing mixed state.\n"
-    .. "To inspect surrounding code locally when needed, use:\n"
-    .. checkout_cmd .. "\n"
+local function build_pr_review_context(repo, pr_number, head_sha, diff)
+  local bounded_diff = M.pr_review_diff_text(diff)
+  bounded_diff = M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(bounded_diff))
+  local context = "PR review source context:\n"
+    .. "Repo: " .. tostring(repo) .. "\n"
+    .. "PR number: " .. tostring(pr_number) .. "\n"
+    .. "Reviewed PR head: " .. tostring(head_sha) .. "\n"
+    .. "The diff below was read by github-devloop after deriving the PR head and before rechecking that the head still matched.\n"
+    .. "\nBEGIN UNTRUSTED PR DIFF\n"
+    .. bounded_diff
+    .. "\nEND UNTRUSTED PR DIFF\n"
   if #context > M._max_pr_review_context_len then
-    error("github-devloop: PR review source access context exceeds bounded context")
+    error("github-devloop: PR review source context exceeds bounded context")
   end
   return context
 end
 
-function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref)
+function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, diff, source_ref)
   local review_id = M.pr_review_proposal_id(repo, pr_number, version, head_sha)
   local title = "Review PR #" .. tostring(pr_number) .. " for issue #" .. tostring(issue_number)
   if type(current_issue) == "table" and tostring(current_issue.title or "") ~= "" then
@@ -207,7 +201,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
   if #issue_body > M._max_pr_issue_context_len then
     issue_body = issue_body:sub(1, M._max_pr_issue_context_len)
   end
-  local context = build_pr_review_context(repo, pr_number, head_sha)
+  local context = build_pr_review_context(repo, pr_number, head_sha, diff)
   local body = "Review the complete PR diff and decide whether it should advance to merge-ready."
     .. "\n\n" .. M._untrusted_issue_data_begin
     .. "\nIssue proposal: " .. tostring(M.proposal_id(repo, issue_number))
@@ -233,8 +227,8 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
   }
 end
 
-function M.build_pr_review_loop_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge)
-  local proposal = M.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, source_ref)
+function M.build_pr_review_loop_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, diff, source_ref, n, converge)
+  local proposal = M.build_pr_review_proposal(repo, issue_number, pr_number, version, head_sha, current_issue, diff, source_ref)
   proposal.dedup_key = proposal.dedup_key .. "/loop/" .. tostring(n)
   return apply_converge_fields(proposal, n, converge)
 end

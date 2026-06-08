@@ -664,6 +664,41 @@ return {
     t.eq(reconcile_raise.dedup_key, "reconcile:" .. base_version .. "/loop/" .. tostring(cap))
   end,
 
+  test_review_loop_records_round_and_reraises_proposal_with_host_diff = function()
+    local event = review_unresolved({
+      round = 1,
+      narrowed_question = "Which review finding should narrow?",
+      angle_digests = {
+        { angle = "minimal", verdict = "abstain", digest = "needs-review" },
+      },
+    })
+    local impl_version = reviewing().version
+    local _, _, review_version = core.parse_pr_review_proposal_id(event.proposal_id)
+    local origin_marker = core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev")
+    mock_bot_env()
+    mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
+    mock_issue_review({ "fkst-dev:reviewing" }, {
+      core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
+    })
+    mock_pr_diff("diff --git a/review.lua b/review.lua\n+return 'review loop'\n")
+    mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
+
+    local result = run_review_loop(event, opts("review-loop-host-diff"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    local proposal = find_raise(result.raises, "consensus.proposal").payload
+    t.eq(proposal.proposal_id, event.proposal_id)
+    t.eq(proposal.dedup_key, event.dedup_key .. "/loop/2")
+    t.eq(proposal.round, 2)
+    t.eq(proposal.convergence_question, event.narrowed_question)
+    t.is_true(proposal.context:find("Reviewed PR head: def456", 1, true) ~= nil)
+    t.is_true(proposal.context:find("+return 'review loop'", 1, true) ~= nil)
+    t.eq(proposal.context:find("gh pr diff", 1, true), nil)
+    t.eq(count_calls("gh pr diff"), 1)
+    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 2)
+    t.eq(review_version, core.safe_version_segment(impl_version))
+  end,
+
   test_review_loop_round_cap_records_round_and_raises_review_reconcile_even_when_question_varies = function()
     local cap = core.max_converge_rounds()
     local event = review_unresolved({

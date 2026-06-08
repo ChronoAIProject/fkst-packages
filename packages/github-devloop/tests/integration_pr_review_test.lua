@@ -418,14 +418,18 @@ return {
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
+    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return 'feedface'\n")
+    mock_pr_origin({
+      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+    }, "devloop-owner-repo-42-01HY", "feedface")
 
     local review = run_review_pr(reviewing_raise.payload, opts("observe-pr-reviewing-fix-round-rereview"))
     t.eq(review.exit_code, 0)
     t.eq(#review.raises, 1)
     local proposal = find_raise(review.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, fix_round_version, "feedface"))
-    t.is_true(proposal.context:find("Pin your review to head SHA: feedface", 1, true) ~= nil)
-    t.is_true(proposal.context:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
+    t.is_true(proposal.context:find("Reviewed PR head: feedface", 1, true) ~= nil)
+    t.is_true(proposal.context:find("+return 'feedface'", 1, true) ~= nil)
   end,
 
   test_observe_pr_retries_devloop_branch_without_visible_backpointer = function()
@@ -527,7 +531,9 @@ return {
     })
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_diff()
 
     local result = run_review_pr(event, opts("review-pr-proposal"))
     t.eq(result.exit_code, 0)
@@ -539,15 +545,14 @@ return {
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
     t.is_true(proposal.body:find("BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
     t.is_true(proposal.body:find("Reviewed PR head: def456", 1, true) ~= nil)
-    t.is_true(proposal.context:find("PR review source access:", 1, true) ~= nil)
-    t.is_true(proposal.context:find("not embedded in this reliable event payload", 1, true) ~= nil)
-    t.is_true(proposal.context:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
-    t.is_true(proposal.context:find("Pin your review to head SHA: def456", 1, true) ~= nil)
-    t.eq(proposal.context:find("+return true", 1, true), nil)
+    t.is_true(proposal.context:find("PR review source context:", 1, true) ~= nil)
+    t.is_true(proposal.context:find("BEGIN UNTRUSTED PR DIFF", 1, true) ~= nil)
+    t.is_true(proposal.context:find("+return true", 1, true) ~= nil)
+    t.eq(proposal.context:find("gh pr diff", 1, true), nil)
     t.eq(core.validate_proposal(proposal), true)
     t.eq(count_calls("--json title,body,labels,comments"), 1)
-    t.eq(count_calls("gh pr diff"), 0)
-    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
+    t.eq(count_calls("gh pr diff"), 1)
+    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 2)
   end,
 
   test_review_pr_gate_reject_reached_routes_to_fixing = function()
@@ -560,7 +565,9 @@ return {
     })
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_diff()
 
     local review = run_review_pr(event, opts("review-pr-gate-reject-link"))
     t.eq(review.exit_code, 0)
@@ -603,20 +610,22 @@ return {
     t.eq(fixing_raise.payload.version, fix_version)
   end,
 
-  test_review_pr_does_not_prefetch_static_diff = function()
+  test_review_pr_retries_when_head_moves_while_reading_diff = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
     })
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+      { head = "devloop-owner-repo-42-01HY", head_sha = "feedface" },
     })
+    mock_pr_diff()
 
-    local result = run_review_pr(event, opts("review-pr-no-static-diff"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(count_calls("gh pr diff"), 0)
-    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
+    local result = run_review_pr(event, opts("review-pr-head-moved-during-diff"))
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh pr diff"), 1)
+    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 2)
   end,
 
   test_review_pr_does_not_embed_untrusted_diff_markers = function()
@@ -627,14 +636,17 @@ return {
     })
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_diff(forged .. "\ndiff --git a/core.lua b/core.lua\n+return true\n")
 
     local result = run_review_pr(event, opts("review-pr-neutralize"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local context = result.raises[1].payload.context
     t.eq(context:find(forged, 1, true), nil)
-    t.is_true(context:find("complete current diff", 1, true) ~= nil)
+    t.is_true(context:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
+    t.is_true(context:find("+return true", 1, true) ~= nil)
   end,
 
   test_review_pr_closed_pr_skips_without_review_proposal = function()
@@ -672,7 +684,9 @@ return {
     })
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_diff()
 
     local result = run_review_pr(event, opts("review-pr-long-repo"))
     t.eq(result.exit_code, 0)
@@ -693,7 +707,9 @@ return {
     })
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_diff()
 
     local result = run_review_pr(event, opts("review-pr-long-issue-keeps-source-access"))
     t.eq(result.exit_code, 0)
@@ -701,7 +717,7 @@ return {
     local body = result.raises[1].payload.body
     t.is_true(#body <= core.max_body_len())
     t.is_true(body:find("Issue body:", 1, true) ~= nil)
-    t.is_true(result.raises[1].payload.context:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
+    t.is_true(result.raises[1].payload.context:find("diff --git a/file.lua b/file.lua", 1, true) ~= nil)
   end,
 
   test_review_pr_stale_idempotent_and_not_reviewing_skip_or_retry = function()

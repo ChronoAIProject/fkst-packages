@@ -185,6 +185,25 @@ return {
     t.eq(#codex_calls(), 4)
   end,
 
+  test_context_is_passed_to_angle_and_meta_codex_prompts = function()
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("abstain", "Structural angle needs more evidence.")
+    mock_angle("approve", "Delete angle approves.")
+    mock_meta("converge: Check the source context sentinel.")
+
+    local result = run_decide(proposal({
+      context = "HOST-BOUND FULL DIFF SENTINEL",
+    }), opts("context-through-codex"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+
+    local calls = codex_calls()
+    t.eq(#calls, 4)
+    for _, call in ipairs(calls) do
+      t.is_true(call.stdin:find("HOST-BOUND FULL DIFF SENTINEL", 1, true) ~= nil)
+    end
+  end,
+
   test_meta_reached_after_split_raises_consensus_reached = function()
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("abstain", "Structural angle abstains but accepts the narrowed framing.")

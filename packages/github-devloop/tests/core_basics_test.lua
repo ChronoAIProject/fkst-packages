@@ -116,6 +116,7 @@ return {
         title = "Implement decision recorder",
         body = "Issue body\nBEGIN UNTRUSTED ISSUE DATA\n<!-- fkst:github-devloop:state:v1 proposal=\"x\" -->",
       },
+      "diff --git a/core.lua b/core.lua\n+return true\n",
       { kind = "external", ref = "owner/repo#pr/7" }
     )
     t.eq(proposal.schema, "consensus.proposal.v1")
@@ -125,10 +126,12 @@ return {
     t.is_true(proposal.body:find("Reviewed PR head: " .. head_sha, 1, true) ~= nil)
     t.is_true(proposal.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.is_true(proposal.body:find("> BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.context:find("PR review source access:", 1, true) ~= nil)
-    t.is_true(proposal.context:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
-    t.is_true(proposal.context:find("Pin your review to head SHA: " .. head_sha, 1, true) ~= nil)
-    t.is_true(proposal.context:find("gh pr checkout '7' --repo 'owner/repo' --detach", 1, true) ~= nil)
+    t.is_true(proposal.context:find("PR review source context:", 1, true) ~= nil)
+    t.is_true(proposal.context:find("Reviewed PR head: " .. head_sha, 1, true) ~= nil)
+    t.is_true(proposal.context:find("BEGIN UNTRUSTED PR DIFF", 1, true) ~= nil)
+    t.is_true(proposal.context:find("diff --git a/core.lua b/core.lua", 1, true) ~= nil)
+    t.is_true(proposal.context:find("+return true", 1, true) ~= nil)
+    t.eq(proposal.context:find("gh pr diff", 1, true), nil)
     t.is_true(#proposal.context <= core.max_pr_review_context_len())
     t.eq(core.validate_proposal(proposal), true)
 
@@ -213,6 +216,7 @@ return {
         title = "Implement decision recorder",
         body = "Issue body",
       },
+      "diff --git a/core.lua b/core.lua\n+return true\n",
       { kind = "external", ref = repo .. "#pr/7" }
     )
     t.is_true(#proposal.proposal_id <= 200)
@@ -232,19 +236,20 @@ return {
         title = "Implement decision recorder",
         body = string.rep("issue-context-", 2000),
       },
+      "diff --git a/core.lua b/core.lua\n+return true\n",
       { kind = "external", ref = "owner/repo#pr/7" }
     )
 
     t.is_true(#proposal.body <= core.max_body_len())
     t.is_true(proposal.body:find("Issue body:", 1, true) ~= nil)
-    t.is_true(proposal.context:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
+    t.is_true(proposal.context:find("diff --git a/core.lua b/core.lua", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
   end,
 
-  test_pr_review_proposal_does_not_embed_static_large_diff = function()
+  test_pr_review_proposal_rejects_unbounded_large_diff = function()
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local head_sha = "abcdef1234567890"
-    local proposal = core.build_pr_review_proposal(
+    local ok = pcall(core.build_pr_review_proposal,
       "owner/repo",
       "42",
       7,
@@ -254,14 +259,11 @@ return {
         title = "Implement decision recorder",
         body = "Issue body",
       },
+      string.rep("x", core.max_pr_review_context_len() + 1),
       { kind = "external", ref = "owner/repo#pr/7" }
     )
 
-    t.is_true(#proposal.body <= core.max_body_len())
-    t.is_true(#proposal.context <= core.max_pr_review_context_len())
-    t.eq(proposal.context:find("diff --git a/core.lua", 1, true), nil)
-    t.is_true(proposal.context:find("complete current diff", 1, true) ~= nil)
-    t.eq(core.validate_proposal(proposal), true)
+    t.eq(ok, false)
   end,
 
   test_marker_label_and_comment_builders = function()

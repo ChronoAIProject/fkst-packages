@@ -52,10 +52,10 @@ return {
 
   test_is_eligible_accepts_large_bounded_context = function()
     t.eq(core.is_eligible(proposal({
-      context = string.rep("x", 8000),
+      context = string.rep("x", 40000),
     })), true)
     t.eq(core.is_eligible(proposal({
-      context = string.rep("x", 8001),
+      context = string.rep("x", 40001),
     })), false)
   end,
 
