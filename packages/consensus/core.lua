@@ -1,18 +1,21 @@
 local M = {}
 
 local default_angles = { "minimal", "structural", "delete" }
--- Angle count and per-reply length are capped so consensus_reached has a PROVABLE upper
--- bound. The SDK exposes json.decode only, so encoded delivery size cannot be measured at
--- runtime; keep all consensus inputs and model outputs under static package-level caps.
+-- Reliable delivery stores encoded JSON, so every delivered payload must fit the 64 KiB
+-- cap even when every string character expands to a six-byte JSON escape. Per-field caps
+-- raise useful context where possible, and every inbound/outbound payload builder enforces
+-- the final whole-payload cap.
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
-local max_body_len = 40000
-local max_context_len = 24000
-local max_reply_len = 4000
+local max_body_len = 8000
+local max_context_len = 1200
+local max_reply_len = 1600
 local max_narrowed_question_len = 2000
-local max_digest_len = 2400
-local max_prior_round_digests = 12
+local max_digest_len = 700
+local max_prior_round_digests = max_angles
+local reliable_delivery_max_bytes = 64 * 1024
+local json_worst_case_bytes_per_char = 6
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 
@@ -29,6 +32,50 @@ end
 
 local function is_bounded_string(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
+end
+
+local function estimated_json_delivery_bytes(value, seen)
+  local kind = type(value)
+  if kind == "string" then
+    return (#value * json_worst_case_bytes_per_char) + 2
+  end
+  if kind == "number" or kind == "boolean" then
+    return #tostring(value)
+  end
+  if kind ~= "table" then
+    return 4
+  end
+  seen = seen or {}
+  if seen[value] then
+    return 0
+  end
+  seen[value] = true
+  local bytes = 2
+  for key, field in pairs(value) do
+    bytes = bytes + estimated_json_delivery_bytes(tostring(key), seen) + 1
+      + estimated_json_delivery_bytes(field, seen) + 1
+  end
+  seen[value] = nil
+  return bytes
+end
+
+function M.estimated_json_delivery_bytes(value)
+  return estimated_json_delivery_bytes(value)
+end
+
+function M.reliable_delivery_max_bytes()
+  return reliable_delivery_max_bytes
+end
+
+function M.fits_reliable_delivery(value)
+  return M.estimated_json_delivery_bytes(value) <= reliable_delivery_max_bytes
+end
+
+local function ensure_fits_reliable_delivery(payload, label)
+  if not M.fits_reliable_delivery(payload) then
+    error("consensus: " .. label .. " exceeds reliable delivery budget")
+  end
+  return payload
 end
 
 local function is_path_safe_key(value)
@@ -108,6 +155,14 @@ local function bounded(value, limit)
     return text:sub(1, limit)
   end
   return text
+end
+
+local function bounded_angle(value)
+  local angle = bounded(value or "unknown", max_key_len)
+  if angle == "" then
+    return "unknown"
+  end
+  return angle
 end
 
 local function is_verdict(value)
@@ -203,7 +258,7 @@ function M.is_eligible(proposal)
   if not valid_prior_round_digests(proposal.prior_round_digests) then
     return false
   end
-  return normalized_angles(proposal) ~= nil
+  return normalized_angles(proposal) ~= nil and M.fits_reliable_delivery(proposal)
 end
 
 function M.angles(proposal)
@@ -370,6 +425,9 @@ end
 function M.angle_digests(angle_results)
   local digests = {}
   for _, result in ipairs(angle_results or {}) do
+    if #digests >= max_angles then
+      break
+    end
     local verdict = result.verdict
     if not is_verdict(verdict) then
       verdict = "invalid"
@@ -384,7 +442,7 @@ function M.angle_digests(angle_results)
       digest = "No parseable angle reply."
     end
     table.insert(digests, {
-      angle = bounded(result.angle or "unknown", max_key_len),
+      angle = bounded_angle(result.angle),
       verdict = verdict,
       reply = reply,
       digest = bounded(digest, max_digest_len),
@@ -519,11 +577,15 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
     table.insert(body_lines, "")
   end
   for _, result in ipairs(angle_results or {}) do
+    if #clean_results >= max_angles then
+      break
+    end
+    local angle = bounded_angle(result.angle)
     table.insert(clean_results, {
-      angle = result.angle,
+      angle = angle,
       verdict = is_verdict(result.verdict) and result.verdict or "invalid",
     })
-    table.insert(body_lines, tostring(result.angle) .. ":")
+    table.insert(body_lines, angle .. ":")
     table.insert(body_lines, bounded(result.reply, max_reply_len))
     table.insert(body_lines, "")
   end
@@ -532,7 +594,7 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
     table.remove(body_lines)
   end
 
-  return {
+  return ensure_fits_reliable_delivery({
     schema = "consensus.consensus_reached.v1",
     proposal_id = proposal.proposal_id,
     decision = decision,
@@ -545,7 +607,7 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
       kind = proposal.source_ref.kind,
       ref = proposal.source_ref.ref,
     },
-  }
+  }, "consensus_reached payload")
 end
 
 function M.build_converge_payload(proposal, narrowed_question, angle_results)
@@ -556,7 +618,7 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results)
     error("consensus: missing source_ref")
   end
 
-  return {
+  return ensure_fits_reliable_delivery({
     schema = "consensus.consensus_converge.v1",
     proposal_id = proposal.proposal_id,
     round = tonumber(proposal.round) or 0,
@@ -569,7 +631,7 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results)
       kind = proposal.source_ref.kind,
       ref = proposal.source_ref.ref,
     },
-  }
+  }, "consensus_converge payload")
 end
 
 return M
