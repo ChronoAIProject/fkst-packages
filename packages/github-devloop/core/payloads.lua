@@ -111,6 +111,18 @@ function M.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
   }
 end
 
+local function bounded_issue_comments(M, comments)
+  local text = table.concat(M.comment_bodies(comments), "\n\n--- comment ---\n\n")
+  if text == "" then
+    return nil
+  end
+  text = M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(text))
+  if #text > M._max_proposal_context_len then
+    text = text:sub(1, M._max_proposal_context_len)
+  end
+  return text
+end
+
 function M.build_proposal(issue, body)
   local proposal_id = M.proposal_id(issue.repo, issue.number)
   local title = tostring(issue.title or "")
@@ -124,6 +136,7 @@ function M.build_proposal(issue, body)
     proposal_id = proposal_id,
     title = title,
     body = M.bounded_body(body),
+    context = bounded_issue_comments(M, issue.comments),
     dedup_key = M.proposal_dedup_key(proposal_id, issue.updated_at),
     source_ref = M.normalize_source_ref(issue.source_ref),
   }
@@ -154,6 +167,7 @@ function M.build_loop_proposal(repo, issue_number, current, source_ref, n, conve
     number = issue_number,
     title = current.title,
     updated_at = current.updated_at,
+    comments = current.comments,
     source_ref = source_ref,
   }
   local proposal = M.build_proposal(issue, current.body)
@@ -188,14 +202,22 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
   if #bounded_diff > M._max_pr_diff_len then
     bounded_diff = bounded_diff:sub(1, M._max_pr_diff_len)
   end
-  local body = "Review the PR diff and decide whether it should advance to merge-ready."
+  local body_prefix = "Review the PR diff and decide whether it should advance to merge-ready."
     .. "\n\n" .. M._untrusted_issue_data_begin
     .. "\nIssue proposal: " .. tostring(M.proposal_id(repo, issue_number))
     .. "\nReviewed PR head: " .. tostring(head_sha)
     .. "\nIssue title:\n" .. issue_title
     .. "\n\nIssue body:\n" .. issue_body
-    .. "\n\nPR diff:\n" .. bounded_diff
-    .. "\n" .. M._untrusted_issue_data_end
+    .. "\n\nPR diff:\n"
+  local body_suffix = "\n" .. M._untrusted_issue_data_end
+  local diff_budget = M._max_body_len - #body_prefix - #body_suffix
+  if diff_budget <= 0 then
+    error("github-devloop: PR review proposal has no bounded diff budget")
+  end
+  if #bounded_diff > diff_budget then
+    bounded_diff = bounded_diff:sub(1, diff_budget)
+  end
+  local body = body_prefix .. bounded_diff .. body_suffix
   if #body > M._max_body_len then
     error("github-devloop: PR review proposal exceeds bounded body")
   end

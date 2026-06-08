@@ -2,18 +2,16 @@ local M = {}
 
 local default_angles = { "minimal", "structural", "delete" }
 -- Angle count and per-reply length are capped so consensus_reached has a PROVABLE upper
--- bound. Worst-case raw content = max_angles * max_reply_len = 8000 bytes; even at the
--- JSON worst case of 6 bytes/char (\uXXXX escaping) that is ~48 KiB, which with field
--- overhead stays under the reliable-delivery 64 KiB cap. We cannot measure the encoded
--- size at runtime (the SDK exposes json.decode only), so the bound is enforced statically.
+-- bound. The SDK exposes json.decode only, so encoded delivery size cannot be measured at
+-- runtime; keep all consensus inputs and model outputs under static package-level caps.
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
-local max_body_len = 12000
-local max_context_len = 8000
-local max_reply_len = 2000
+local max_body_len = 40000
+local max_context_len = 24000
+local max_reply_len = 4000
 local max_narrowed_question_len = 2000
-local max_digest_len = 600
+local max_digest_len = 2400
 local max_prior_round_digests = 12
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"

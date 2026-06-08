@@ -527,6 +527,9 @@ return {
     local thinking = core.build_loop_proposal("owner/repo", "42", {
       title = "Converge narrowing",
       body = "Body",
+      comments = {
+        { body = "Carry current issue discussion into the next round." },
+      },
       updated_at = "2026-06-08T00:00:00Z",
     }, source_ref(), 2, converge)
     t.eq(thinking.round, 2)
@@ -534,6 +537,7 @@ return {
     t.eq(thinking.convergence_question, converge.narrowed_question)
     t.eq(#thinking.prior_round_digests, 2)
     t.eq(thinking.prior_round_digests[2].verdict, "abstain")
+    t.is_true(thinking.context:find("Carry current issue discussion into the next round.", 1, true) ~= nil)
     t.is_true(thinking.dedup_key:find("/loop/2", 1, true) ~= nil)
     t.is_true(core.validate_proposal(thinking))
 

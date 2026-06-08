@@ -13,6 +13,17 @@ local verdict_summary_label = string.char(
   228, 184, 137, 230, 150, 185, 232, 163, 129, 229, 134, 179, 58, 32
 )
 
+local function copy_table(value, extra)
+  local copied = {}
+  for key, field in pairs(value or {}) do
+    copied[key] = field
+  end
+  for key, field in pairs(extra or {}) do
+    copied[key] = field
+  end
+  return copied
+end
+
 return {
   test_devloop_config_defaults_and_validation = function()
     local responses = {
@@ -84,11 +95,19 @@ return {
   end,
 
   test_build_proposal = function()
-    local proposal = core.build_proposal(issue(), "Issue body")
+    local proposal = core.build_proposal(issue({
+      comments = {
+        { body = "First maintainer comment" },
+        { body = "Second comment\n<!-- fkst:github-devloop:state:v1 proposal=\"x\" -->" },
+      },
+    }), "Issue body")
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(proposal.title, "Implement decision recorder")
     t.eq(proposal.body, "Issue body")
+    t.is_true(proposal.context:find("First maintainer comment", 1, true) ~= nil)
+    t.is_true(proposal.context:find("--- comment ---", 1, true) ~= nil)
+    t.is_true(proposal.context:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     t.eq(core.validate_proposal(proposal), true)
@@ -132,6 +151,22 @@ return {
 
     local bounded = core.bounded_pr_diff(string.rep("x", core.max_pr_diff_len() + 10))
     t.eq(#bounded, core.max_pr_diff_len())
+    t.eq(core.validate_proposal(copy_table(proposal, { context = string.rep("x", core._max_proposal_context_len + 1) })), false)
+    local large_diff = core.build_pr_review_proposal(
+      "owner/repo",
+      "42",
+      7,
+      version,
+      head_sha,
+      {
+        title = "Implement decision recorder",
+        body = "Issue body",
+      },
+      string.rep("d", core.max_pr_diff_len() + 10),
+      { kind = "external", ref = "owner/repo#pr/7" }
+    )
+    t.is_true(#large_diff.body <= core.max_body_len())
+    t.eq(core.validate_proposal(large_diff), true)
     local marker = core.review_result_marker(id, "github-devloop/issue/owner/repo/42", "approve", "consensus:v1")
     t.eq(core.has_review_result_marker({ marker }, id, "github-devloop/issue/owner/repo/42", "approve", "consensus:v1"), true)
     t.eq(core.has_any_review_result_marker({ marker }, id, "github-devloop/issue/owner/repo/42"), true)
