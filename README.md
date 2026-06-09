@@ -38,11 +38,9 @@ scripts/run.sh test                 # self-test，所有包测试；flat 跑单�
 scripts/run.sh test github-proxy    # 只跑某个包；flat 跑 conformance + test
 scripts/run.sh test-composed        # 只跑 composed 包及其递归 deps 的组合 conformance
 
-# live 状态视图：把 substrate 导出的 delivery JSON 快照贴到静态 dept DAG 上。
-# 不直接读 redb、不写 GitHub；可输出表格、DOT 或 JSON。
-scripts/run.sh live-status github-devloop --delivery-json delivery-status.json
-scripts/run.sh live-status github-devloop --delivery-json delivery-status.json --format dot
-substrate-delivery-status --json | scripts/run.sh live-status github-devloop --delivery-json -
+# live 状态视图：把权威 graph JSON 和 delivery JSON 快照 join 成表格、DOT 或 JSON。
+scripts/run.sh live-status --graph-json graph.json --delivery-json delivery.json
+scripts/run.sh live-status --graph-json graph.json --delivery-json delivery.json --format dot
 
 # 通用一次性跑某部门：解码 RAISED 事件 + dump <RT> 树。包特定配置走 env。
 # github-proxy 的只读入站 dogfood（拿真 gh 打真仓，不写 GitHub）：
@@ -61,7 +59,7 @@ scripts/run.sh build
 
 `supervise` 是真实 `fkst-framework supervise` 的薄封装，不搭 host harness、不模拟事件、不注入 fake `gh`；它在前台运行，按 `Ctrl-C` 退出。脚本会显式传 `--project-root`、`--package-root` 和 `--framework-bin`，并设置彼此不同的临时 `FKST_RUNTIME_ROOT` / `FKST_DURABLE_ROOT`。
 
-`live-status` 是只读可观测性工具：它扫描 `packages/<pkg>/departments/*/main.lua` 的 `M.spec.consumes/produces` 与 `raisers/*.lua` 的 `produces`，形成 dept/raiser DAG；再读取一个 delivery 状态 JSON 快照，把每条 queue 的 `pending`、`leased`、`retry`、`dlq` 计数和事件指针标到边上。对 composed 包会自动带上 `composed.deps` 的递归依赖；不传包名时扫描全部 package；`--delivery-json -` 从 stdin 读取。JSON 快照可以是 `{ "queues": { "<queue>": { "pending": 1, "leased": 0, "retry": 0, "dlq": 0, "pending_events": [{"dedup_key":"..."}] } } }`，也兼容 `queues` 数组以及 `pending_count`、`in_flight`、`dead_letter` 等常见字段名。这个工具只 join 外部 snapshot 与源码图，不直接读取 redb；真正的 delivery 状态暴露仍由 fkst-substrate CLI/host 负责。
+`live-status` 是只读可观测性 joiner：它不扫描 Lua 源码、不解析 `M.spec`，只读取由 fkst-substrate 或 host 工具预先导出的权威 graph JSON，再叠加 delivery 状态 JSON 快照。graph JSON 需要包含 `department`、`raiser`、`queue` 对象或数组；department 记录使用 `consumes` / `produces`，raiser 记录使用 `produces`，queue 记录可选 `aliases`。delivery JSON 快照可以是 `{ "queues": { "<queue>": { "pending": 1, "leased": 0, "retry": 0, "dlq": 0, "pending_events": [{"dedup_key":"..."}] } } }`，也兼容 `queues` 数组以及 `pending_count`、`in_flight`、`dead_letter` 等常见字段名。`--delivery-json -` 从 stdin 读取。包库不直接读取 redb；delivery 状态暴露和 graph 导出仍由 fkst-substrate CLI/host 负责。
 
 本库不做版本化 manifest、root-list 或 override DSL。图由固定的 `departments/` 和 `raisers/` 目录扫描得到。flat 包可独立加载；composed 包显式承担跨包 wiring，并用 `composed.deps` 告诉测试脚本组合 conformance 需要一起加载哪些兄弟包。
 

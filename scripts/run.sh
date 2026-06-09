@@ -10,9 +10,9 @@
 #   scripts/run.sh check
 #       Run hermetic repository checks only. Does not resolve or execute BIN.
 #
-#   scripts/run.sh live-status [package] [--delivery-json <path>] [--format table|dot|json]
-#       Render a static department DAG joined with a substrate delivery-status
-#       JSON snapshot. Does not read redb directly or mutate external state.
+#   scripts/run.sh live-status --graph-json <path> [--delivery-json <path>] [--format table|dot|json]
+#       Join authoritative graph JSON with a delivery JSON snapshot. Does not
+#       scan Lua source, read redb directly, or mutate external state.
 #
 #   scripts/run.sh test-composed
 #       Run only composed graph conformance for packages with composed.deps.
@@ -305,27 +305,15 @@ cmd_test_composed() {
   "$BIN" conformance --project-root "$ROOT" "${args[@]}"
 }
 
-collect_package_roots_for_live_status() {
-  local target="${1:-}" pkg name
-  LIVE_STATUS_ROOTS=()
-  if [ -n "$target" ]; then
-    [ -d "$ROOT/packages/$target" ] || { echo "error: package not found: $target" >&2; return 1; }
-    collect_composed_package "$target" || return 1
-    for name in "${COMPOSED_SEEN[@]}"; do
-      LIVE_STATUS_ROOTS+=(--package-root "$ROOT/packages/$name")
-    done
-    return 0
-  fi
-  for pkg in "$ROOT"/packages/*/; do
-    [ -d "$pkg" ] || continue
-    LIVE_STATUS_ROOTS+=(--package-root "$pkg")
-  done
-}
-
 cmd_live_status() {
-  local target="" delivery_json="" format="table"
+  local graph_json="" delivery_json="" format="table"
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --graph-json)
+        [ "$#" -ge 2 ] || { echo "error: --graph-json requires a path" >&2; exit 1; }
+        graph_json="$2"; shift 2 ;;
+      --graph-json=*)
+        graph_json="${1#--graph-json=}"; shift ;;
       --delivery-json)
         [ "$#" -ge 2 ] || { echo "error: --delivery-json requires a path" >&2; exit 1; }
         delivery_json="$2"; shift 2 ;;
@@ -339,17 +327,16 @@ cmd_live_status() {
       --*)
         echo "error: unknown live-status option: $1" >&2; exit 1 ;;
       *)
-        if [ -n "$target" ]; then
-          echo "error: live-status accepts at most one package argument" >&2
-          exit 1
-        fi
-        target="$1"; shift ;;
+        echo "error: live-status does not accept package arguments; pass --graph-json" >&2
+        exit 1 ;;
     esac
   done
 
-  COMPOSED_SEEN=()
-  collect_package_roots_for_live_status "$target"
-  local args=(--project-root "$ROOT" "${LIVE_STATUS_ROOTS[@]}" --format "$format")
+  if [ -z "$graph_json" ]; then
+    echo "error: live-status requires --graph-json" >&2
+    exit 1
+  fi
+  local args=(--graph-json "$graph_json" --format "$format")
   if [ -n "$delivery_json" ]; then
     args+=(--delivery-json "$delivery_json")
   fi
