@@ -10,6 +10,10 @@
 #   scripts/run.sh check
 #       Run hermetic repository checks only. Does not resolve or execute BIN.
 #
+#   scripts/run.sh live-status [package] [--delivery-json <path>] [--format table|dot|json]
+#       Render a static department DAG joined with a substrate delivery-status
+#       JSON snapshot. Does not read redb directly or mutate external state.
+#
 #   scripts/run.sh test-composed
 #       Run only composed graph conformance for packages with composed.deps.
 #
@@ -123,6 +127,7 @@ usage() {
 
 cmd_check() {
   python3 "$ROOT/scripts/check_repo.py"
+  python3 "$ROOT/scripts/live_status.py" --self-test
 }
 
 extract_test_passes() {
@@ -300,6 +305,57 @@ cmd_test_composed() {
   "$BIN" conformance --project-root "$ROOT" "${args[@]}"
 }
 
+collect_package_roots_for_live_status() {
+  local target="${1:-}" pkg name
+  LIVE_STATUS_ROOTS=()
+  if [ -n "$target" ]; then
+    [ -d "$ROOT/packages/$target" ] || { echo "error: package not found: $target" >&2; return 1; }
+    collect_composed_package "$target" || return 1
+    for name in "${COMPOSED_SEEN[@]}"; do
+      LIVE_STATUS_ROOTS+=(--package-root "$ROOT/packages/$name")
+    done
+    return 0
+  fi
+  for pkg in "$ROOT"/packages/*/; do
+    [ -d "$pkg" ] || continue
+    LIVE_STATUS_ROOTS+=(--package-root "$pkg")
+  done
+}
+
+cmd_live_status() {
+  local target="" delivery_json="" format="table"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --delivery-json)
+        [ "$#" -ge 2 ] || { echo "error: --delivery-json requires a path" >&2; exit 1; }
+        delivery_json="$2"; shift 2 ;;
+      --delivery-json=*)
+        delivery_json="${1#--delivery-json=}"; shift ;;
+      --format)
+        [ "$#" -ge 2 ] || { echo "error: --format requires table, dot, or json" >&2; exit 1; }
+        format="$2"; shift 2 ;;
+      --format=*)
+        format="${1#--format=}"; shift ;;
+      --*)
+        echo "error: unknown live-status option: $1" >&2; exit 1 ;;
+      *)
+        if [ -n "$target" ]; then
+          echo "error: live-status accepts at most one package argument" >&2
+          exit 1
+        fi
+        target="$1"; shift ;;
+    esac
+  done
+
+  COMPOSED_SEEN=()
+  collect_package_roots_for_live_status "$target"
+  local args=(--project-root "$ROOT" "${LIVE_STATUS_ROOTS[@]}" --format "$format")
+  if [ -n "$delivery_json" ]; then
+    args+=(--delivery-json "$delivery_json")
+  fi
+  python3 "$ROOT/scripts/live_status.py" "${args[@]}"
+}
+
 cmd_run() {
   local pkg="${1:-}" dept="${2:-}"
   if [ -z "$pkg" ] || [ -z "$dept" ]; then
@@ -460,6 +516,7 @@ case "${1:-}" in
   check) shift; cmd_check "$@" ;;
   test) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;
   test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
+  live-status) shift; cmd_live_status "$@" ;;
   run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
   supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
   build) shift; cmd_build "$@" ;;
