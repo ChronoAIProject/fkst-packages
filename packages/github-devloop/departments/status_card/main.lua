@@ -57,6 +57,7 @@ function pipeline(event)
         core.log_apply("status_card", proposal_id, nil, current.version, { add = {}, remove = {} }, {
           "github-proxy.github_issue_comment_request",
         })
+        raise("github-proxy.github_issue_comment_request", request)
         core.log_raise("status_card", proposal_id, "github-proxy.github_issue_comment_request", request)
       else
         core.log_cas_decision("status_card", proposal_id, current, "active", "status-card", "skip-terminal-or-unmanaged", "no active trusted state marker")
