@@ -178,6 +178,7 @@ function pipeline(event)
       kind = "external",
       ref = tostring(repo) .. "#pr/" .. tostring(pr_number),
     }
+    core.assert_pr_review_fetch_source_available(repo, pr_number, current_pr.head_sha, pr_source_ref)
     local next_n = round + 1
     local worktree = core.prepare_review_worktree(repo, origin.issue_number, state.version, current_pr.head_ref_name, current_pr.head_sha)
     local proposal = core.build_pr_review_loop_proposal(repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, pr_source_ref, worktree, next_n, {

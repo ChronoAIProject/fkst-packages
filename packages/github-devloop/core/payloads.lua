@@ -116,23 +116,69 @@ function M.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
   }
 end
 
-function M.build_issue_fetch_context(repo, issue_number)
+function M.build_issue_fetch_context(repo, issue_number, source_ref)
+  local source_repo, source_issue_number = M.parse_issue_source_ref(M.normalize_source_ref(source_ref))
+  if source_repo == nil
+    or tostring(source_repo) ~= tostring(repo)
+    or tostring(source_issue_number) ~= tostring(issue_number) then
+    error("github-devloop: issue source_ref does not match fetch context")
+  end
   return "Fetch the full current GitHub issue body and all comments before judging.\n"
+    .. "Use source_ref external " .. tostring(source_repo) .. "#issue/" .. tostring(source_issue_number) .. " as the issue source of truth.\n"
     .. "Command: gh issue view " .. M._shell_single_quote(issue_number)
     .. " --repo " .. M._shell_single_quote(repo)
     .. " --json title,body,comments,state,labels,updatedAt"
 end
 
-function M.build_pr_review_fetch_context(repo, issue_number, pr_number, head_sha)
+function M.build_pr_review_fetch_context(repo, issue_number, pr_number, head_sha, source_ref)
+  local source_repo, source_pr_number = M.parse_pr_source_ref(M.normalize_source_ref(source_ref))
+  if source_repo == nil
+    or tostring(source_repo) ~= tostring(repo)
+    or tostring(source_pr_number) ~= tostring(pr_number) then
+    error("github-devloop: PR review source_ref does not match fetch context")
+  end
+  if not M.is_safe_head_sha(head_sha) then
+    error("github-devloop: invalid PR review head sha")
+  end
   return "Fetch the full current GitHub issue body and all comments before judging.\n"
     .. "Command: gh issue view " .. M._shell_single_quote(issue_number)
     .. " --repo " .. M._shell_single_quote(repo)
     .. " --json title,body,comments,state,labels,updatedAt\n"
-    .. "Fetch the complete current PR diff before judging.\n"
+    .. "Use source_ref external " .. tostring(source_repo) .. "#pr/" .. tostring(source_pr_number) .. " as the PR source of truth.\n"
+    .. "Fetch the complete current PR diff from source_ref before judging.\n"
     .. "Command: gh pr diff " .. M._shell_single_quote(pr_number)
     .. " --repo " .. M._shell_single_quote(repo) .. "\n"
+    .. "Do not use proposal payload body, diff, comments, or source_bundle as source material; this proposal intentionally omits them.\n"
     .. "Verify the reviewed PR head is " .. tostring(head_sha) .. ".\n"
     .. "When the diff needs surrounding code context, read relevant files from the checked-out repository or PR worktree at the current working directory."
+end
+
+function M.assert_pr_review_fetch_source_available(repo, pr_number, expected_head_sha, source_ref)
+  local source_repo, source_pr_number = M.parse_pr_source_ref(M.normalize_source_ref(source_ref))
+  if source_repo == nil
+    or tostring(source_repo) ~= tostring(repo)
+    or tostring(source_pr_number) ~= tostring(pr_number) then
+    error("github-devloop: PR review source_ref does not match fetch source")
+  end
+  if not M.is_safe_head_sha(expected_head_sha) then
+    error("github-devloop: invalid expected PR review head sha")
+  end
+
+  local result = exec_sync({ cmd = M.gh_pr_diff_cmd(repo, pr_number), timeout = 60 })
+  if result.exit_code ~= 0 then
+    error("github-devloop: gh pr diff failed for PR review source_ref fetch: " .. tostring(result.stderr))
+  end
+
+  local head_view = exec_sync({ cmd = M.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
+  if head_view.exit_code ~= 0 then
+    error("github-devloop: gh pr head recheck failed after source_ref fetch: " .. tostring(head_view.stderr))
+  end
+  local current_pr = M.parse_pr_view_origin(head_view.stdout)
+  if tostring(current_pr.state or ""):lower() ~= "open"
+    or tostring(current_pr.head_sha or "") ~= tostring(expected_head_sha) then
+    error("github-devloop: PR head moved after source_ref diff fetch; retrying")
+  end
+  return true
 end
 
 function M.build_proposal(issue)
@@ -149,7 +195,7 @@ function M.build_proposal(issue)
     title = title,
     dedup_key = M.proposal_dedup_key(proposal_id, issue.updated_at),
     source_ref = M.normalize_source_ref(issue.source_ref),
-    fetch_context = M.build_issue_fetch_context(issue.repo, issue.number),
+    fetch_context = M.build_issue_fetch_context(issue.repo, issue.number, issue.source_ref),
   }
 end
 
@@ -205,7 +251,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
       "review",
     }),
     source_ref = M.normalize_source_ref(source_ref),
-    fetch_context = M.build_pr_review_fetch_context(repo, issue_number, pr_number, head_sha),
+    fetch_context = M.build_pr_review_fetch_context(repo, issue_number, pr_number, head_sha, source_ref),
   }
   if codex_cwd ~= nil then
     proposal.codex_cwd = codex_cwd

@@ -547,14 +547,18 @@ return {
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
     t.is_nil(proposal.body)
+    t.is_nil(proposal.diff)
+    t.is_nil(proposal.comments)
+    t.is_nil(proposal.source_bundle)
     t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
     t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("Use source_ref external owner/repo#pr/7", 1, true) ~= nil)
     t.is_true(proposal.fetch_context:find("Verify the reviewed PR head is def456", 1, true) ~= nil)
     t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42-", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
     t.eq(count_calls("--json title,body,labels,comments"), 1)
-    t.eq(count_calls("gh pr diff"), 0)
-    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 2)
+    t.eq(count_calls("gh pr diff"), 1)
+    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 3)
   end,
 
   test_review_pr_gate_reject_reached_routes_to_fixing = function()
@@ -646,7 +650,11 @@ return {
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
     t.is_nil(proposal.body)
+    t.is_nil(proposal.diff)
+    t.is_nil(proposal.comments)
+    t.is_nil(proposal.source_bundle)
     t.eq(proposal.fetch_context:find(forged, 1, true), nil)
+    t.eq(count_calls("gh pr diff"), 1)
   end,
 
   test_review_pr_closed_pr_skips_without_review_proposal = function()
@@ -716,8 +724,12 @@ return {
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
     t.is_nil(proposal.body)
+    t.is_nil(proposal.diff)
+    t.is_nil(proposal.comments)
+    t.is_nil(proposal.source_bundle)
     t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
     t.eq(proposal.fetch_context:find("DIFF_SENTINEL_MUST_SURVIVE", 1, true), nil)
+    t.eq(count_calls("gh pr diff"), 1)
   end,
 
   test_review_pr_stale_idempotent_and_not_reviewing_skip_or_retry = function()

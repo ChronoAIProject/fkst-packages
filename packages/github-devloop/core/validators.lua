@@ -25,8 +25,19 @@ function M.validate_proposal(proposal)
     if not M._is_path_safe_key(proposal.proposal_id, M._max_key_len) or not M._is_path_safe_key(proposal.dedup_key, M._max_dedup_len) then
       return false
     end
+    local source_repo, source_pr_number = M.parse_pr_source_ref(proposal.source_ref)
+    if source_repo == nil
+      or tostring(source_pr_number) ~= tostring(pr_number) then
+      return false
+    end
   else
     if not M.is_safe_proposal_ref(proposal.proposal_id, proposal.dedup_key) then
+      return false
+    end
+    local source_repo, source_issue_number = M.parse_issue_source_ref(proposal.source_ref)
+    if source_repo == nil
+      or tostring(source_repo) ~= tostring(repo)
+      or tostring(source_issue_number) ~= tostring(issue_number) then
       return false
     end
   end

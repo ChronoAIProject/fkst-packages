@@ -84,19 +84,21 @@ function pipeline(event)
       core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale(pr-closed)", "re-derived PR is not open after source bundle build")
       return
     end
-    local worktree = core.prepare_review_worktree(repo, issue_number, reviewing.version, current_pr.head_ref_name, current_pr.head_sha)
 
     local pr_source_ref = {
       kind = "external",
       ref = tostring(repo) .. "#pr/" .. tostring(reviewing.pr_number),
     }
+    core.assert_pr_review_fetch_source_available(repo, reviewing.pr_number, current_pr.head_sha, pr_source_ref)
+    local worktree = core.prepare_review_worktree(repo, issue_number, reviewing.version, current_pr.head_ref_name, current_pr.head_sha)
+
     local proposal = core.build_pr_review_proposal(repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, worktree)
     if not core.validate_proposal(proposal) then
       log.warn("github-devloop dept=review_pr proposal_id=" .. tostring(reviewing.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-proposal")
       return
     end
 
-    core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "applied", "raising PR source-bundle review proposal")
+    core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "applied", "raising PR source_ref review proposal")
     core.log_apply("review_pr", reviewing.proposal_id, nil, nil, { add = {}, remove = {} }, {
       "consensus.proposal",
     })

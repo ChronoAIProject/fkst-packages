@@ -92,8 +92,18 @@ return {
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("Use source_ref external owner/repo#issue/42", 1, true) ~= nil)
     t.is_true(proposal.fetch_context:find("--json title,body,comments,state,labels,updatedAt", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
+
+    t.raises(function()
+      core.build_proposal(issue({
+        source_ref = {
+          kind = "external",
+          ref = "owner/repo#issue/43",
+        },
+      }))
+    end)
   end,
 
   test_pr_review_helpers = function()
@@ -125,14 +135,47 @@ return {
     t.eq(proposal.proposal_id, id)
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
     t.is_nil(proposal.body)
+    t.is_nil(proposal.diff)
+    t.is_nil(proposal.comments)
+    t.is_nil(proposal.source_bundle)
     t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
     t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("Use source_ref external owner/repo#pr/7", 1, true) ~= nil)
     t.is_true(proposal.fetch_context:find("Verify the reviewed PR head is " .. head_sha, 1, true) ~= nil)
     t.is_true(proposal.fetch_context:find("current working directory", 1, true) ~= nil)
     t.eq(proposal.codex_cwd, "/tmp/fkst-packages-test/github-devloop/review-worktree")
     t.eq(core.validate_proposal(proposal), true)
     proposal.codex_cwd = "relative-worktree"
     t.eq(core.validate_proposal(proposal), false)
+
+    local mismatched = core.build_pr_review_proposal(
+      "owner/repo",
+      "42",
+      7,
+      version,
+      head_sha,
+      {},
+      { kind = "external", ref = "owner/repo#pr/7" },
+      "/tmp/fkst-packages-test/github-devloop/review-worktree"
+    )
+    mismatched.source_ref = {
+      kind = "external",
+      ref = "owner/repo#pr/8",
+    }
+    t.eq(core.validate_proposal(mismatched), false)
+
+    t.raises(function()
+      core.build_pr_review_proposal(
+        "owner/repo",
+        "42",
+        7,
+        version,
+        head_sha,
+        {},
+        { kind = "external", ref = "owner/repo#pr/8" },
+        "/tmp/fkst-packages-test/github-devloop/review-worktree"
+      )
+    end)
 
     local bounded = core.bounded_pr_diff(string.rep("x", core.max_pr_diff_len() + 10))
     t.eq(#bounded, core.max_pr_diff_len())

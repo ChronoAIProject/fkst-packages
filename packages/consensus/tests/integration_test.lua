@@ -112,7 +112,25 @@ return {
     t.eq(result.exit_code, 0)
     local calls = codex_calls()
     t.eq(#calls, 3)
-    t.is_true(calls[1].rendered:find("/tmp/fkst-packages-test/consensus/worktree", 1, true) ~= nil)
+    for _, call in ipairs(calls) do
+      t.is_true(call.rendered:find("/tmp/fkst-packages-test/consensus/worktree", 1, true) ~= nil)
+    end
+  end,
+
+  test_decide_runs_meta_judge_in_proposal_cwd = function()
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("abstain", "Structural angle needs one blocker resolved.")
+    mock_angle("approve", "Delete angle approves.")
+    mock_meta("converge: Should structural concerns block this proposal?")
+
+    local result = run_decide(proposal({ codex_cwd = "/tmp/fkst-packages-test/consensus/review-worktree" }), opts("meta-with-cwd"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local calls = codex_calls()
+    t.eq(#calls, 4)
+    for _, call in ipairs(calls) do
+      t.is_true(call.rendered:find("/tmp/fkst-packages-test/consensus/review-worktree", 1, true) ~= nil)
+    end
   end,
 
   test_unanimous_abstain_raises_consensus_converge = function()
