@@ -30,10 +30,6 @@
 #       and runs in the foreground until Ctrl-C. FKST_PROJECT_ROOT can override
 #       the default project root of packages/<package>.
 #
-#   scripts/run.sh observe [--delivery-json <path>] [--format table|dot|json]
-#       Render the github-devloop department graph and optionally annotate queue
-#       edges with delivery counts from a substrate JSON dump.
-#
 #   scripts/run.sh build
 #       Local-only helper: update the fkst-substrate dev checkout and build
 #       fkst-framework. test/run/supervise ensure a traceable local BIN is built
@@ -434,10 +430,6 @@ cmd_supervise() {
   exec "$BIN" supervise --project-root "$project_root" --package-root "$pkgdir" --framework-bin "$BIN"
 }
 
-cmd_observe() {
-  python3 "$ROOT/scripts/devloop_observe.py" --project-root "$ROOT" "$@"
-}
-
 cmd_build() {
   local substrate="${FKST_SUBSTRATE:-}"
   if [ -z "$substrate" ]; then
@@ -470,7 +462,6 @@ case "${1:-}" in
   test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
   run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
   supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
-  observe) shift; cmd_observe "$@" ;;
   build) shift; cmd_build "$@" ;;
   -h|--help|help|"") usage ;;
   *) echo "unknown subcommand: $1" >&2; usage; exit 1 ;;
