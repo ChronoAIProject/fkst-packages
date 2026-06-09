@@ -101,6 +101,77 @@ return {
     t.is_true(parked.payload.body:find("Original queue: devloop_ready", 1, true) ~= nil)
   end,
 
+  test_dead_letter_parks_substrate_original_event_envelope = function()
+    local event = ready()
+    event.dedup_key = nil
+    mock_dead_letter_issue({
+      core.state_marker(event.proposal_id, "ready", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"),
+    })
+
+    local result = run_dead_letter({
+      original_event = {
+        queue = "devloop_ready",
+        payload = event,
+        dedup_key = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        source_ref = event.source_ref,
+      },
+      reason = "attempts_exhausted",
+    }, opts("dead-letter-original-event"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local parked = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.eq(parked.payload.repo, "owner/repo")
+    t.eq(parked.payload.issue_number, "42")
+    t.eq(parked.payload.dedup_key, "dead-letter/comment/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
+    t.is_true(parked.payload.body:find("Original queue: devloop_ready", 1, true) ~= nil)
+  end,
+
+  test_dead_letter_parks_lockless_payload_when_source_ref_identifies_issue = function()
+    local event = {
+      schema = "foreign.v1",
+      dedup_key = "foreign-owner-repo-42",
+      source_ref = issue().source_ref,
+    }
+    mock_dead_letter_issue({
+      core.state_marker("github-devloop/issue/owner/repo/42", "ready", ready().dedup_key),
+    })
+
+    local result = run_dead_letter({
+      original_event = {
+        queue = "foreign.queue",
+        payload = event,
+        dedup_key = event.dedup_key,
+        source_ref = event.source_ref,
+      },
+    }, opts("dead-letter-source-ref-issue"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local parked = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.eq(parked.payload.repo, "owner/repo")
+    t.eq(parked.payload.issue_number, "42")
+    t.is_true(parked.payload.body:find('dedup="foreign-owner-repo-42"', 1, true) ~= nil)
+  end,
+
+  test_dead_letter_unowned_payload_is_deterministic_skip = function()
+    local result = run_dead_letter({
+      original_event = {
+        queue = "foreign.queue",
+        payload = {
+          schema = "foreign.v1",
+          dedup_key = "foreign-without-source",
+        },
+        dedup_key = "foreign-without-source",
+      },
+    }, opts("dead-letter-unowned"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh issue view"), 0)
+    t.eq(count_calls("gh pr view"), 0)
+  end,
+
   test_dead_letter_existing_park_marker_is_idempotent = function()
     local event = ready()
     mock_dead_letter_issue({
@@ -117,7 +188,7 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_dead_letter_existing_escaped_park_marker_is_idempotent = function()
+  test_dead_letter_existing_escaped_park_marker_is_not_a_fact = function()
     local event = ready()
     mock_dead_letter_issue({
       core.state_marker(event.proposal_id, "ready", event.dedup_key),
@@ -130,7 +201,9 @@ return {
     }, opts("dead-letter-escaped-idempotent"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    t.eq(#result.raises, 1)
+    local parked = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(parked.payload.body:find("<!-- fkst:github-devloop:dead-letter:v1", 1, true) ~= nil)
   end,
 
   test_dead_letter_parks_review_converge_on_pr_thread = function()

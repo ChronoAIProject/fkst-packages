@@ -30,16 +30,29 @@ local function find_original_payload(payload)
   return payload
 end
 
+local function wrapper_events(payload)
+  local events = {}
+  if type(payload) ~= "table" then
+    return events
+  end
+  if type(payload.event) == "table" then
+    table.insert(events, payload.event)
+  end
+  if type(payload.original) == "table" then
+    table.insert(events, payload.original)
+  end
+  if type(payload.original_event) == "table" then
+    table.insert(events, payload.original_event)
+  end
+  return events
+end
+
 local function find_original_queue(payload, event)
   if type(payload) == "table" then
-    if type(payload.event) == "table" and payload.event.queue ~= nil then
-      return tostring(payload.event.queue)
-    end
-    if type(payload.original) == "table" and payload.original.queue ~= nil then
-      return tostring(payload.original.queue)
-    end
-    if type(payload.original_event) == "table" and payload.original_event.queue ~= nil then
-      return tostring(payload.original_event.queue)
+    for _, candidate in ipairs(wrapper_events(payload)) do
+      if candidate.queue ~= nil then
+        return tostring(candidate.queue)
+      end
     end
     if payload.queue ~= nil and tostring(payload.queue) ~= "github-devloop.dead_letter" then
       return tostring(payload.queue)
@@ -55,6 +68,11 @@ local function payload_source_ref(original, wrapper)
   if type(original) == "table" and M._has_bounded_source_ref(original.source_ref) then
     return original.source_ref
   end
+  for _, candidate in ipairs(wrapper_events(wrapper)) do
+    if M._has_bounded_source_ref(candidate.source_ref) then
+      return candidate.source_ref
+    end
+  end
   if type(wrapper) == "table" and M._has_bounded_source_ref(wrapper.source_ref) then
     return wrapper.source_ref
   end
@@ -64,6 +82,11 @@ end
 local function payload_dedup_key(original, wrapper)
   if type(original) == "table" and M._is_bounded_string(original.dedup_key, M._max_dedup_len) then
     return original.dedup_key
+  end
+  for _, candidate in ipairs(wrapper_events(wrapper)) do
+    if M._is_bounded_string(candidate.dedup_key, M._max_dedup_len) then
+      return candidate.dedup_key
+    end
   end
   if type(wrapper) == "table" and M._is_bounded_string(wrapper.dedup_key, M._max_dedup_len) then
     return wrapper.dedup_key
@@ -110,6 +133,19 @@ local function review_issue_proposal(original)
   }
 end
 
+local function issue_target_from_source_ref(original, wrapper)
+  local source_ref = payload_source_ref(original, wrapper)
+  local repo, issue_number = M.parse_issue_source_ref(source_ref)
+  if repo == nil or issue_number == nil then
+    return nil
+  end
+  return {
+    repo = repo,
+    issue_number = issue_number,
+    proposal_id = M.proposal_id(repo, issue_number),
+  }
+end
+
 local function pr_target_from_source_ref(original, wrapper)
   local source_ref = payload_source_ref(original, wrapper)
   local repo, pr_number = M.parse_pr_source_ref(source_ref)
@@ -148,21 +184,12 @@ function M.has_dead_letter_marker(comments, proposal_id, dedup_key)
     return false
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:dead%-letter:v1.-%-%->"
-  local escaped_marker_pattern = "&lt;!%-%- fkst:github%-devloop:dead%-letter:v1.-%-%-&gt;"
   for _, comment in ipairs(M._trusted_marker_comments(comments)) do
     local body = M._comment_body(comment)
     for marker in body:gmatch(marker_pattern) do
       if marker:match('proposal="([^"]+)"') == tostring(proposal_id)
         and marker:match('dedup="([^"]*)"') == tostring(dedup_key) then
         return true
-      end
-    end
-    if body:find("github-devloop dead-letter parked", 1, true) ~= nil then
-      for marker in body:gmatch(escaped_marker_pattern) do
-        if marker:match('proposal="([^"]+)"') == tostring(proposal_id)
-          and marker:match('dedup="([^"]*)"') == tostring(dedup_key) then
-          return true
-        end
       end
     end
   end
@@ -189,8 +216,8 @@ function M.parse_dead_letter_entity_view(stdout)
   }
 end
 
-function M.build_dead_letter_comment_request(target, proposal_id, original_queue, original, state, source_ref)
-  local dedup_key = payload_dedup_key(original, original)
+function M.build_dead_letter_comment_request(target, proposal_id, original_queue, original, state, source_ref, explicit_dedup_key)
+  local dedup_key = explicit_dedup_key or payload_dedup_key(original, original)
   local target_source_ref = source_ref
   if not M._has_bounded_source_ref(target_source_ref) then
     if target.kind == "issue" then
@@ -214,7 +241,7 @@ function M.build_dead_letter_comment_request(target, proposal_id, original_queue
   }), target_source_ref)
 end
 
-local function transition_for_dead_letter(original, state, issue_proposal_id)
+local function transition_for_dead_letter(original, state, issue_proposal_id, dedup_key)
   local schema = type(original) == "table" and original.schema or nil
   local from_states = from_states_by_schema[schema]
   if schema == "github-proxy.v1" and type(original) == "table" then
@@ -233,7 +260,7 @@ local function transition_for_dead_letter(original, state, issue_proposal_id)
     return "unknown"
   end
   local proposal_id = issue_proposal_id or (type(original) == "table" and original.proposal_id)
-  local incoming_version = payload_dedup_key(original, original)
+  local incoming_version = dedup_key or payload_dedup_key(original, original)
   if schema == "github-devloop.reviewing.v1"
     or schema == "github-devloop.fixing.v1"
     or schema == "github-devloop.review-meta.v1"
@@ -252,8 +279,8 @@ local function transition_for_dead_letter(original, state, issue_proposal_id)
   return M.versioned_transition_status(state, from_states, "__dead_letter_park__", incoming_version)
 end
 
-local function should_park(original, state, issue_proposal_id)
-  local transition = transition_for_dead_letter(original, state, issue_proposal_id)
+local function should_park(original, state, issue_proposal_id, dedup_key)
+  local transition = transition_for_dead_letter(original, state, issue_proposal_id, dedup_key)
   return transition == "apply" or transition == "pending" or transition == "unknown", transition
 end
 
@@ -282,9 +309,16 @@ function M.handle_dead_letter(event)
 
   local proposal_id, repo, issue_number = proposal_from_payload(original)
   local pr_review = review_issue_proposal(original)
+  local issue_target = issue_target_from_source_ref(original, wrapper)
   local pr_target = pr_target_from_source_ref(original, wrapper)
   local lock_key = proposal_id and M.transition_lock_key(proposal_id)
 
+  if lock_key == nil and issue_target ~= nil then
+    proposal_id = issue_target.proposal_id
+    repo = issue_target.repo
+    issue_number = issue_target.issue_number
+    lock_key = M.transition_lock_key(proposal_id)
+  end
   if pr_target ~= nil then
     lock_key = M.pr_transition_lock_key(pr_target.repo, pr_target.pr_number)
   elseif lock_key == nil and pr_review ~= nil then
@@ -292,10 +326,10 @@ function M.handle_dead_letter(event)
     lock_key = M.pr_transition_lock_key(pr_target.repo, pr_target.pr_number)
   end
   if lock_key == nil then
-    M.log_line("info", "dead_letter", proposal_id or "unknown", "PARK", {
+    M.log_line("info", "dead_letter", proposal_id or "unknown", "SKIP", {
       "queue=" .. tostring(original_queue),
       "dedup_key=" .. tostring(dedup_key),
-      "outcome=skip-foreign(no lock key)",
+      "outcome=skip-unowned(no source_ref target)",
     })
     return
   end
@@ -312,7 +346,7 @@ function M.handle_dead_letter(event)
       comments = pr.comments
       local origin = M.pr_origin_fact(comments)
       if origin == nil then
-        M.log_line("info", "dead_letter", proposal_id or "unknown", "PARK", {
+        M.log_line("info", "dead_letter", proposal_id or "unknown", "SKIP", {
           "queue=" .. tostring(original_queue),
           "dedup_key=" .. tostring(dedup_key),
           "outcome=skip-foreign(no trusted PR origin)",
@@ -346,13 +380,13 @@ function M.handle_dead_letter(event)
       return
     end
 
-    local park, transition = should_park(original, current, issue_proposal_id)
+    local park, transition = should_park(original, current, issue_proposal_id, dedup_key)
     if not park then
       M.log_cas_decision("dead_letter", issue_proposal_id, current, "dead-letter", "park", "skip-stale(" .. tostring(transition) .. ")", "dead-letter event no longer matches current marker")
       return
     end
 
-    local request = M.build_dead_letter_comment_request(target, issue_proposal_id, original_queue, original, current, source_ref)
+    local request = M.build_dead_letter_comment_request(target, issue_proposal_id, original_queue, original, current, source_ref, dedup_key)
     local queue = target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request"
     M.log_apply("dead_letter", issue_proposal_id, "dead-letter", dedup_key, { add = {}, remove = {} }, {
       queue,
