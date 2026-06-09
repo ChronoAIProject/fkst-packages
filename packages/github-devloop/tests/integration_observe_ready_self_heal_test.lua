@@ -25,6 +25,7 @@ return {
     local ready_raise = find_raise(result.raises, "devloop_ready")
     t.eq(ready_raise.payload.schema, "github-devloop.ready.v1")
     t.eq(ready_raise.payload.proposal_id, event.proposal_id)
+    t.eq(ready_raise.payload.source_ref.kind, "external")
     t.eq(ready_raise.payload.source_ref.ref, "owner/repo#issue/42")
     t.eq(ready_raise.payload.dedup_key, core.build_devloop_ready_payload({
       proposal_id = event.proposal_id,
