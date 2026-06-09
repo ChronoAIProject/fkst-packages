@@ -10,9 +10,7 @@ local default_angles = { "minimal", "structural", "delete" }
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
-local max_body_len = 12000
 local max_context_len = 8000
-local max_source_text_ref_len = 500
 local max_reply_len = 2000
 local max_framing_len = 1000
 local max_narrowed_question_len = 2000
@@ -94,6 +92,116 @@ local function has_source_ref(value)
   return type(value) == "table"
     and is_bounded_string(value.kind, max_key_len)
     and is_bounded_string(value.ref, max_key_len)
+end
+
+local function shell_single_quote(value)
+  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function parse_external_source_ref(source_ref)
+  if not has_source_ref(source_ref) or source_ref.kind ~= "external" then
+    return nil
+  end
+  local repo, entity_type, number = tostring(source_ref.ref or ""):match("^([^#]+)#([^/]+)/([0-9]+)$")
+  if repo == nil or entity_type == nil or number == nil then
+    return nil
+  end
+  if entity_type ~= "issue" and entity_type ~= "pr" then
+    return nil
+  end
+  return repo, entity_type, number
+end
+
+local function render_comments(comments)
+  local lines = {}
+  for index, comment in ipairs(comments or {}) do
+    if type(comment) == "table" and comment.body ~= nil then
+      local author = "unknown"
+      if type(comment.author) == "table" and comment.author.login ~= nil then
+        author = tostring(comment.author.login)
+      elseif comment.author_login ~= nil then
+        author = tostring(comment.author_login)
+      end
+      table.insert(lines, "Comment #" .. tostring(index) .. " by " .. author .. ":")
+      table.insert(lines, tostring(comment.body))
+      table.insert(lines, "")
+    elseif type(comment) == "string" then
+      table.insert(lines, "Comment #" .. tostring(index) .. ":")
+      table.insert(lines, comment)
+      table.insert(lines, "")
+    end
+  end
+  if #lines > 0 then
+    table.remove(lines)
+  end
+  return table.concat(lines, "\n")
+end
+
+function M.gh_issue_view_source_cmd(repo, issue_number)
+  return "gh issue view " .. shell_single_quote(issue_number)
+    .. " --repo " .. shell_single_quote(repo)
+    .. " --json title,body,comments"
+end
+
+function M.gh_pr_view_source_cmd(repo, pr_number)
+  return "gh pr view " .. shell_single_quote(pr_number)
+    .. " --repo " .. shell_single_quote(repo)
+    .. " --json title,body,comments,headRefName,headRefOid,state"
+end
+
+function M.gh_pr_diff_cmd(repo, pr_number)
+  return "gh pr diff " .. shell_single_quote(pr_number)
+    .. " --repo " .. shell_single_quote(repo)
+end
+
+function M.render_issue_source_text(stdout)
+  local decoded = json.decode(stdout or "{}")
+  local comments = render_comments(decoded.comments)
+  local lines = {
+    "BEGIN UNTRUSTED SOURCE DATA",
+    "GitHub issue title:",
+    tostring(decoded.title or ""),
+    "",
+    "GitHub issue body:",
+    tostring(decoded.body or ""),
+  }
+  if comments ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "GitHub issue comments:")
+    table.insert(lines, comments)
+  end
+  table.insert(lines, "END UNTRUSTED SOURCE DATA")
+  return table.concat(lines, "\n")
+end
+
+function M.render_pr_source_text(pr_stdout, diff_stdout)
+  local decoded = json.decode(pr_stdout or "{}")
+  local comments = render_comments(decoded.comments)
+  local lines = {
+    "BEGIN UNTRUSTED SOURCE DATA",
+    "GitHub PR title:",
+    tostring(decoded.title or ""),
+    "",
+    "GitHub PR state:",
+    tostring(decoded.state or ""),
+    "",
+    "GitHub PR head:",
+    tostring(decoded.headRefName or decoded.head_ref_name or "") .. " "
+      .. tostring(decoded.headRefOid or decoded.head_ref_oid or ""),
+    "",
+    "GitHub PR body:",
+    tostring(decoded.body or ""),
+  }
+  if comments ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "GitHub PR comments:")
+    table.insert(lines, comments)
+  end
+  table.insert(lines, "")
+  table.insert(lines, "GitHub PR diff:")
+  table.insert(lines, tostring(diff_stdout or ""))
+  table.insert(lines, "END UNTRUSTED SOURCE DATA")
+  return table.concat(lines, "\n")
 end
 
 local function normalize_round(value)
@@ -192,13 +300,13 @@ function M.is_eligible(proposal)
   if not is_bounded_string(proposal.title, max_title_len) then
     return false
   end
-  if proposal.body ~= nil and not is_bounded_string(proposal.body, max_body_len) then
+  if proposal.body ~= nil then
     return false
   end
   if proposal.context ~= nil and not is_bounded_string(proposal.context, max_context_len) then
     return false
   end
-  if proposal.source_text_ref ~= nil and #proposal.source_text_ref > max_source_text_ref_len then
+  if proposal.source_text_ref ~= nil then
     return false
   end
   if normalize_round(proposal.round) == nil then
@@ -222,11 +330,28 @@ function M.fetch_source_text(proposal)
   if type(proposal) ~= "table" then
     error("consensus: proposal must be a table")
   end
-  if proposal.source_text_ref == nil or proposal.source_text_ref == "" then
-    return proposal.body
+  local repo, entity_type, number = parse_external_source_ref(proposal.source_ref)
+  if repo == nil then
+    return nil
   end
 
-  return file.read(tostring(proposal.source_text_ref))
+  if entity_type == "issue" then
+    local result = exec_sync({ cmd = M.gh_issue_view_source_cmd(repo, number), timeout = 30 })
+    if type(result) ~= "table" or result.exit_code ~= 0 then
+      error("consensus: gh issue source view failed: " .. tostring(result and result.stderr or ""))
+    end
+    return M.render_issue_source_text(result.stdout)
+  end
+
+  local view = exec_sync({ cmd = M.gh_pr_view_source_cmd(repo, number), timeout = 30 })
+  if type(view) ~= "table" or view.exit_code ~= 0 then
+    error("consensus: gh pr source view failed: " .. tostring(view and view.stderr or ""))
+  end
+  local diff = exec_sync({ cmd = M.gh_pr_diff_cmd(repo, number), timeout = 30 })
+  if type(diff) ~= "table" or diff.exit_code ~= 0 then
+    error("consensus: gh pr diff failed: " .. tostring(diff and diff.stderr or ""))
+  end
+  return M.render_pr_source_text(view.stdout, diff.stdout)
 end
 
 function M.render_template(template, vars)
@@ -285,7 +410,7 @@ function M.build_angle_prompt(proposal, angle, source_text)
     bias = prompt.bias[angle] or ("Bias: " .. safe_angle .. ". Judge from this named perspective."),
     angle = safe_angle,
     title = neutralize_untrusted_prompt_text(proposal.title),
-    body = neutralize_untrusted_prompt_text(source_text or proposal.body),
+    body = neutralize_untrusted_prompt_text(source_text),
     context_block = context_block,
     convergence_block = convergence_block,
     verdict_options = verdict_mode == "gate" and "approve, reject, or abstain" or "approve or abstain",
@@ -445,7 +570,7 @@ function M.build_meta_judge_prompt(proposal, angle_results, source_text)
 
   return M.render_template(prompt.template, {
     title = neutralize_untrusted_prompt_text(proposal.title),
-    body = neutralize_untrusted_prompt_text(source_text or proposal.body),
+    body = neutralize_untrusted_prompt_text(source_text),
     context_block = context_block,
     convergence_block = convergence_block,
     angle_outputs = render_angle_outputs(angle_results),

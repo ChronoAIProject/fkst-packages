@@ -11,42 +11,6 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
-local function fetch_pr_source_text_ref(repo, pr_number, version)
-  local before = exec_sync({ cmd = core.gh_pr_view_source_cmd(repo, pr_number), timeout = 30 })
-  if before.exit_code ~= 0 then
-    error("github-devloop: gh pr source view failed: " .. tostring(before.stderr))
-  end
-  local before_pr = core.parse_pr_source_view(before.stdout)
-  if tostring(before_pr.state or ""):lower() ~= "open" then
-    error("github-devloop: PR source is not open")
-  end
-
-  local diff = exec_sync({ cmd = core.gh_pr_diff_cmd(repo, pr_number), timeout = 30 })
-  if diff.exit_code ~= 0 then
-    error("github-devloop: gh pr diff failed: " .. tostring(diff.stderr))
-  end
-
-  local after = exec_sync({ cmd = core.gh_pr_view_source_cmd(repo, pr_number), timeout = 30 })
-  if after.exit_code ~= 0 then
-    error("github-devloop: gh pr source recheck failed: " .. tostring(after.stderr))
-  end
-  local after_pr = core.parse_pr_source_view(after.stdout)
-  if tostring(after_pr.head_ref_name or "") ~= tostring(before_pr.head_ref_name or "")
-    or tostring(after_pr.head_sha or "") ~= tostring(before_pr.head_sha or "")
-    or tostring(after_pr.state or ""):lower() ~= "open" then
-    error("github-devloop: PR source changed while reading diff; retrying")
-  end
-
-  return core.write_source_snapshot(
-    core.read_env("FKST_RUNTIME_ROOT"),
-    "pr",
-    repo,
-    pr_number,
-    tostring(version or "") .. "/" .. tostring(before_pr.head_sha or ""),
-    core.render_pr_source_text(before_pr, diff.stdout)
-  )
-end
-
 function pipeline(event)
   local reviewing = event.payload or {}
   if not core.is_supported_reviewing(reviewing) then
@@ -111,7 +75,6 @@ function pipeline(event)
     if issue_number ~= nil then
       current_issue.title = "Issue #" .. tostring(issue_number)
     end
-    current_issue.source_text_ref = fetch_pr_source_text_ref(repo, reviewing.pr_number, reviewing.version)
     local proposal = core.build_pr_review_proposal(repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, nil, pr_source_ref)
     if not core.validate_proposal(proposal) then
       log.warn("github-devloop dept=review_pr proposal_id=" .. tostring(reviewing.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-proposal")

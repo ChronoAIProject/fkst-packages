@@ -125,8 +125,6 @@ return {
     t.is_nil(proposal.body)
     t.eq(core.validate_proposal(proposal), true)
 
-    local bounded = core.bounded_pr_diff(string.rep("x", core.max_pr_diff_len() + 10))
-    t.eq(#bounded, core.max_pr_diff_len())
     local marker = core.review_result_marker(id, "github-devloop/issue/owner/repo/42", "approve", "consensus:v1")
     t.eq(core.has_review_result_marker({ marker }, id, "github-devloop/issue/owner/repo/42", "approve", "consensus:v1"), true)
     t.eq(core.has_any_review_result_marker({ marker }, id, "github-devloop/issue/owner/repo/42"), true)

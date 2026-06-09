@@ -96,15 +96,15 @@ return {
     t.is_nil(result.raises[1].payload.body)
     t.eq(result.raises[1].payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")
-    t.is_true(result.raises[1].payload.source_text_ref ~= nil)
+    t.is_nil(result.raises[1].payload.source_text_ref)
 
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.eq(label_raise.payload.schema, "github-proxy.label.v1")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:thinking")
     t.eq(label_raise.payload.issue_number, 42)
-    t.eq(count_calls("gh issue view"), 2)
+    t.eq(count_calls("gh issue view"), 1)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json title,body,comments"), 1)
+    t.eq(count_calls("--json title,body,comments"), 0)
     t.eq(count_calls("--json body"), 0)
   end,
 

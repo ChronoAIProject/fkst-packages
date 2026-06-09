@@ -539,11 +539,11 @@ return {
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
-    t.is_true(proposal.source_text_ref ~= nil)
+    t.is_nil(proposal.source_text_ref)
     t.is_nil(proposal.body)
     t.eq(core.validate_proposal(proposal), true)
     t.eq(count_calls("--json title,body,labels,comments"), 0)
-    t.eq(count_calls("gh pr diff"), 1)
+    t.eq(count_calls("gh pr diff"), 0)
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
@@ -601,7 +601,7 @@ return {
     t.eq(fixing_raise.payload.version, fix_version)
   end,
 
-  test_review_pr_fetches_diff_to_source_snapshot_not_payload = function()
+  test_review_pr_raises_source_ref_without_fetching_diff = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -616,8 +616,8 @@ return {
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
     t.is_nil(proposal.body)
-    t.is_true(proposal.source_text_ref ~= nil)
-    t.eq(count_calls("gh pr diff"), 1)
+    t.is_nil(proposal.source_text_ref)
+    t.eq(count_calls("gh pr diff"), 0)
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
@@ -702,7 +702,7 @@ return {
     t.eq(#result.raises, 1)
     t.is_nil(result.raises[1].payload.body)
     t.eq(count_calls("--json title,body,labels,comments"), 0)
-    t.eq(count_calls("gh pr diff"), 1)
+    t.eq(count_calls("gh pr diff"), 0)
   end,
 
   test_review_pr_stale_idempotent_and_not_reviewing_skip_or_retry = function()

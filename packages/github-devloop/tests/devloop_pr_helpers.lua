@@ -429,17 +429,6 @@ local function mock_pr_review_source(diff, head, head_sha)
     json_string(branch),
     json_string(sha)
   )
-  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-    stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("--json title,body,comments,headRefName,headRefOid,state", {
-    stdout = pr_json,
-    stderr = "",
-    exit_code = 0,
-  })
-  mock_pr_diff(diff or "diff --git a/core.lua b/core.lua\n+FULL_PR_DIFF_SENTINEL\n")
   t.mock_command("--json title,body,comments,headRefName,headRefOid,state", {
     stdout = pr_json,
     stderr = "",
