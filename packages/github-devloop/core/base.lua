@@ -5,12 +5,14 @@ function S.install(M)
 local max_key_len = 200
 local max_dedup_len = 512
 local max_title_len = 240
-local max_body_len = 12000
-local max_comments_len = 12000
+local max_body_len = 40000
+local max_issue_body_section_len = 24000
+local max_issue_comments_section_len = 16000
+local max_comments_len = 40000
 local max_meta_reason_len = 2000
 local max_framing_len = 1000
 local max_impl_output_len = 2000
-local max_pr_diff_len = 8000
+local max_pr_diff_len = 40000
 local max_pr_issue_context_len = 3000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
@@ -652,15 +654,14 @@ function M.bounded_pr_diff(value)
   return text:sub(1, max_pr_diff_len)
 end
 
-local function is_maintainer_comment(comment)
+local function is_issue_context_comment(comment)
   if type(comment) ~= "table" then
     return false
   end
   if tostring(comment.author_login or "") == M.trusted_bot_login() then
     return false
   end
-  local association = tostring(comment.author_association or ""):upper()
-  return association == "OWNER" or association == "MEMBER" or association == "COLLABORATOR"
+  return tostring(comment.body or "") ~= ""
 end
 
 local function comment_created_at_text(comment)
@@ -678,7 +679,7 @@ local function comment_sort_key(comment, index)
   return created_at .. "\n" .. string.format("%06d", index)
 end
 
-function M.bounded_maintainer_comment_block(comments, budget)
+function M.bounded_issue_comment_block(comments, budget)
   local limit = tonumber(budget or max_comments_len)
   if limit == nil or limit <= 0 then
     return ""
@@ -692,7 +693,7 @@ function M.bounded_maintainer_comment_block(comments, budget)
 
   local selected = {}
   for index, comment in ipairs(comments) do
-    if is_maintainer_comment(comment) then
+    if is_issue_context_comment(comment) then
       table.insert(selected, {
         key = comment_sort_key(comment, index),
         index = index,
@@ -719,7 +720,7 @@ function M.bounded_maintainer_comment_block(comments, budget)
     return ""
   end
 
-  local block = "Maintainer comments:\n" .. table.concat(blocks, "\n\n")
+  local block = "Issue comments:\n" .. table.concat(blocks, "\n\n")
   if #block > limit then
     return block:sub(1, limit)
   end
@@ -731,17 +732,21 @@ function M.build_issue_proposal_body(body, comments)
   local prefix = "Issue body:\n"
   local separator = "\n\n"
   local body_text = prefix .. M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(issue_body))
-  if #body_text > max_body_len then
-    return body_text:sub(1, max_body_len)
+  local max_body_text_len = #prefix + max_issue_body_section_len
+  if #body_text > max_body_text_len then
+    body_text = body_text:sub(1, max_body_text_len)
   end
 
   local comment_budget = max_body_len - #body_text - #separator
+  if comment_budget > max_issue_comments_section_len then
+    comment_budget = max_issue_comments_section_len
+  end
   if comment_budget <= 0 then
     return body_text
   end
-  local comment_block = M.bounded_maintainer_comment_block(comments, comment_budget)
+  local comment_block = M.bounded_issue_comment_block(comments, comment_budget)
   if comment_block == "" then
-    return issue_body
+    return body_text
   end
   local combined = body_text .. separator .. comment_block
   if #combined > max_body_len then

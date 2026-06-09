@@ -191,17 +191,25 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
     issue_body = issue_body:sub(1, M._max_pr_issue_context_len)
   end
   local bounded_diff = M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(M.bounded_pr_diff(diff)))
-  if #bounded_diff > M._max_pr_diff_len then
-    bounded_diff = bounded_diff:sub(1, M._max_pr_diff_len)
-  end
-  local body = "Review the PR diff and decide whether it should advance to merge-ready."
+  local body_prefix = "Review the PR diff and decide whether it should advance to merge-ready."
     .. "\n\n" .. M._untrusted_issue_data_begin
     .. "\nIssue proposal: " .. tostring(M.proposal_id(repo, issue_number))
     .. "\nReviewed PR head: " .. tostring(head_sha)
     .. "\nIssue title:\n" .. issue_title
     .. "\n\nIssue body:\n" .. issue_body
-    .. "\n\nPR diff:\n" .. bounded_diff
-    .. "\n" .. M._untrusted_issue_data_end
+    .. "\n\nPR diff:\n"
+  local body_suffix = "\n" .. M._untrusted_issue_data_end
+  local diff_budget = M._max_body_len - #body_prefix - #body_suffix
+  if diff_budget <= 0 then
+    error("github-devloop: PR review proposal exceeds bounded body")
+  end
+  if diff_budget > M._max_pr_diff_len then
+    diff_budget = M._max_pr_diff_len
+  end
+  if #bounded_diff > diff_budget then
+    bounded_diff = bounded_diff:sub(1, diff_budget)
+  end
+  local body = body_prefix .. bounded_diff .. body_suffix
   if #body > M._max_body_len then
     error("github-devloop: PR review proposal exceeds bounded body")
   end

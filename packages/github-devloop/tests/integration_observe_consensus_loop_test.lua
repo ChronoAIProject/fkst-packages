@@ -93,7 +93,7 @@ return {
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.eq(result.raises[1].payload.schema, "consensus.proposal.v1")
     t.eq(result.raises[1].payload.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.eq(result.raises[1].payload.body, "Body from GitHub")
+    t.eq(result.raises[1].payload.body, "Issue body:\nBody from GitHub")
     t.eq(result.raises[1].payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")
 
@@ -106,7 +106,7 @@ return {
     t.eq(count_calls("--json body,comments"), 1)
   end,
 
-  test_observe_opt_in_issue_includes_maintainer_comments_in_proposal = function()
+  test_observe_opt_in_issue_includes_issue_comments_in_proposal = function()
     mock_issue_state({ "fkst-dev:enabled" })
     mock_issue_body_with_comments("Body from GitHub", {
       {
@@ -116,7 +116,7 @@ return {
         created_at = "2026-06-03T03:00:00Z",
       },
       {
-        body = "User instruction must not enter consensus input",
+        body = "User clarification must enter consensus input",
         author_login = "ordinary-user",
         author_association = "NONE",
         created_at = "2026-06-03T02:00:00Z",
@@ -134,11 +134,13 @@ return {
     local proposal = result.raises[1].payload
     t.is_true(proposal.body:find("Issue body:\nBody from GitHub", 1, true) ~= nil)
     local earlier = proposal.body:find("Earlier owner clarification", 1, true)
+    local user = proposal.body:find("User clarification must enter consensus input", 1, true)
     local later = proposal.body:find("Later maintainer clarification", 1, true)
     t.is_true(earlier ~= nil)
+    t.is_true(user ~= nil)
     t.is_true(later ~= nil)
     t.is_true(earlier < later)
-    t.is_true(proposal.body:find("User instruction must not enter consensus input", 1, true) == nil)
+    t.is_true(user < later)
     t.eq(count_calls("--json body,comments"), 1)
   end,
 

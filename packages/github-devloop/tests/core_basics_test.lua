@@ -13,6 +13,20 @@ local verdict_summary_label = string.char(
   228, 184, 137, 230, 150, 185, 232, 163, 129, 229, 134, 179, 58, 32
 )
 
+local function load_consensus_core()
+  local old_path = package.path
+  local old_core = package.loaded.core
+  package.loaded.core = nil
+  package.path = "../consensus/?.lua;packages/consensus/?.lua;" .. old_path
+  local ok, consensus_core = pcall(require, "core")
+  package.path = old_path
+  package.loaded.core = old_core
+  if not ok then
+    error(consensus_core)
+  end
+  return consensus_core
+end
+
 return {
   test_devloop_config_defaults_and_validation = function()
     local responses = {
@@ -88,13 +102,13 @@ return {
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(proposal.title, "Implement decision recorder")
-    t.eq(proposal.body, "Issue body")
+    t.eq(proposal.body, "Issue body:\nIssue body")
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     t.eq(core.validate_proposal(proposal), true)
   end,
 
-  test_build_proposal_includes_sorted_bounded_maintainer_comments = function()
+  test_build_proposal_includes_sorted_bounded_issue_comments = function()
     local proposal = core.build_proposal(issue(), "Issue body", {
       {
         body = "Second maintainer note",
@@ -103,7 +117,7 @@ return {
         created_at = "2026-06-03T02:00:00Z",
       },
       {
-        body = "Regular user request must stay out",
+        body = "Regular user clarification must enter consensus input",
         author_login = "ordinary-user",
         author_association = "NONE",
         created_at = "2026-06-03T01:00:00Z",
@@ -123,30 +137,59 @@ return {
     })
 
     t.is_true(proposal.body:find("Issue body:\nIssue body", 1, true) ~= nil)
-    t.is_true(proposal.body:find("Maintainer comments:", 1, true) ~= nil)
+    t.is_true(proposal.body:find("Issue comments:", 1, true) ~= nil)
     local first = proposal.body:find("Comment by owner-one at 2026-06-03T00:30:00Z", 1, true)
+    local user = proposal.body:find("Comment by ordinary-user at 2026-06-03T01:00:00Z", 1, true)
     local second = proposal.body:find("Comment by maintainer-two at 2026-06-03T02:00:00Z", 1, true)
     t.is_true(first ~= nil)
+    t.is_true(user ~= nil)
     t.is_true(second ~= nil)
     t.is_true(first < second)
-    t.is_true(proposal.body:find("Regular user request must stay out", 1, true) == nil)
+    t.is_true(user < second)
+    t.is_true(proposal.body:find("Regular user clarification must enter consensus input", 1, true) ~= nil)
     t.is_true(proposal.body:find('state="ready"', 1, true) == nil)
     t.is_true(proposal.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(#proposal.body <= core.max_body_len(), true)
     t.eq(core.validate_proposal(proposal), true)
   end,
 
-  test_build_proposal_keeps_redb_body_budget_with_comments = function()
-    local proposal = core.build_proposal(issue(), string.rep("b", core.max_body_len() - 40), {
+  test_build_proposal_reserves_comment_budget_with_long_issue_body = function()
+    local proposal = core.build_proposal(issue(), string.rep("b", core.max_body_len()), {
       {
-        body = string.rep("c", 500),
+        body = "comment survives a long issue body " .. string.rep("c", 500),
         author_login = "owner-one",
         author_association = "OWNER",
         created_at = "2026-06-03T00:30:00Z",
       },
     })
-    t.eq(#proposal.body, core.max_body_len())
+    t.is_true(#proposal.body <= core.max_body_len())
+    t.is_true(proposal.body:find("Issue comments:", 1, true) ~= nil)
+    t.is_true(proposal.body:find("comment survives a long issue body", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
+  end,
+
+  test_long_issue_and_comments_proposal_matches_consensus_contract = function()
+    local proposal = core.build_proposal(issue(), string.rep("b", core.max_body_len()), {
+      {
+        body = "ordinary user context " .. string.rep("u", 12000),
+        author_login = "ordinary-user",
+        author_association = "NONE",
+        created_at = "2026-06-03T01:00:00Z",
+      },
+      {
+        body = "maintainer context " .. string.rep("m", 12000),
+        author_login = "maintainer",
+        author_association = "MEMBER",
+        created_at = "2026-06-03T02:00:00Z",
+      },
+    })
+    local consensus_core = load_consensus_core()
+
+    t.is_true(#proposal.body > 12000)
+    t.is_true(#proposal.body <= core.max_body_len())
+    t.is_true(proposal.body:find("ordinary user context", 1, true) ~= nil)
+    t.is_true(proposal.body:find("maintainer context", 1, true) ~= nil)
+    t.eq(consensus_core.is_eligible(proposal), true)
   end,
 
   test_pr_review_helpers = function()
@@ -297,6 +340,28 @@ return {
     t.is_true(proposal.body:find("Issue body:", 1, true) ~= nil)
     t.is_true(proposal.body:find("PR diff:", 1, true) ~= nil)
     t.is_true(proposal.body:find("+DIFF_SENTINEL_MUST_SURVIVE", 1, true) ~= nil)
+    t.eq(core.validate_proposal(proposal), true)
+  end,
+
+  test_pr_review_proposal_bounds_large_diff_to_total_body_budget = function()
+    local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local head_sha = "abcdef1234567890"
+    local proposal = core.build_pr_review_proposal(
+      "owner/repo",
+      "42",
+      7,
+      version,
+      head_sha,
+      {
+        title = "Implement decision recorder",
+        body = "Issue body",
+      },
+      "diff --git a/core.lua b/core.lua\n" .. string.rep("+large diff line\n", 4000),
+      { kind = "external", ref = "owner/repo#pr/7" }
+    )
+
+    t.is_true(#proposal.body <= core.max_body_len())
+    t.is_true(proposal.body:find("PR diff:", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
   end,
 
