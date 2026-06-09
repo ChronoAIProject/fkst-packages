@@ -31,7 +31,19 @@ local function proposal(extra)
       kind = "proposal",
       ref = "demo/consensus/42",
     },
-    fetch_context = "Fetch the full proposal from the host fact source before judging.\nRef: demo/consensus/42",
+    fetch_sources = {
+      {
+        kind = "proposal",
+        source_ref = {
+          kind = "proposal",
+          ref = "demo/consensus/42",
+        },
+        command = {
+          tool = "fetch-proposal",
+          args = { "demo/consensus/42" },
+        },
+      },
+    },
   }
   for key, field in pairs(extra or {}) do
     value[key] = field
@@ -98,8 +110,9 @@ return {
     t.is_true(calls[1].stdin:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(calls[2].stdin:find("Angle: structural", 1, true) ~= nil)
     t.is_true(calls[3].stdin:find("Angle: delete", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("Use the source_ref and opaque fetch context below to fetch or read the complete current source material before judging.", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Use source_ref and every structured fetch source below to fetch or read the complete current source material before judging.", 1, true) ~= nil)
     t.is_true(calls[1].stdin:find("source_ref: kind=proposal ref=demo/consensus/42", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("command: fetch-proposal demo/consensus/42", 1, true) ~= nil)
     t.is_nil(calls[1].stdin:find("Create a small flat package", 1, true))
   end,
 
@@ -115,6 +128,66 @@ return {
     for _, call in ipairs(calls) do
       t.is_true(call.rendered:find("/tmp/fkst-packages-test/consensus/worktree", 1, true) ~= nil)
     end
+  end,
+
+  test_decide_review_prompt_fetches_pr_diff_from_worktree = function()
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("approve", "Structural angle approves.")
+    mock_angle("approve", "Delete angle approves.")
+
+    local review = proposal({
+      verdict_mode = "gate",
+      proposal_id = "review-42",
+      title = "Review PR 7",
+      dedup_key = "review-42-v1",
+      source_ref = {
+        kind = "external",
+        ref = "owner/repo#pr/7",
+      },
+      codex_cwd = "/tmp/fkst-packages-test/consensus/pr-review-worktree",
+      fetch_sources = {
+        {
+          kind = "github_issue",
+          source_ref = {
+            kind = "external",
+            ref = "owner/repo#issue/42",
+          },
+          command = {
+            tool = "gh",
+            args = { "issue", "view", "42", "--repo", "owner/repo", "--json", "title,body,comments,state,labels,updatedAt" },
+          },
+        },
+        {
+          kind = "github_pr_diff",
+          source_ref = {
+            kind = "external",
+            ref = "owner/repo#pr/7",
+          },
+          command = {
+            tool = "gh",
+            args = { "pr", "diff", "7", "--repo", "owner/repo" },
+          },
+          expected_head_sha = "def456",
+          cwd_required = true,
+          read_files_from_cwd = true,
+        },
+      },
+    })
+
+    local result = run_decide(review, opts("review-fetch-worktree"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local calls = codex_calls()
+    t.eq(#calls, 3)
+    t.is_true(calls[1].rendered:find("/tmp/fkst-packages-test/consensus/pr-review-worktree", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("source_ref: kind=external ref=owner/repo#pr/7", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("command: gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("expected_head_sha: def456", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("cwd_required: true", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("read_files_from_cwd: true", 1, true) ~= nil)
+    t.is_nil(calls[1].stdin:find("DIFF_SENTINEL_MUST_NOT_ENTER_PROMPT", 1, true))
+    t.is_nil(calls[1].stdin:find("ISSUE_BODY_SENTINEL_MUST_NOT_ENTER_PROMPT", 1, true))
+    t.is_nil(calls[1].stdin:find("COMMENT_SENTINEL_MUST_NOT_ENTER_PROMPT", 1, true))
   end,
 
   test_decide_runs_meta_judge_in_proposal_cwd = function()

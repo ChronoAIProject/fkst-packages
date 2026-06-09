@@ -3,7 +3,6 @@ local M = {}
 local max_key_len = 200
 local max_title_len = 240
 local max_body_len = 12000
-local max_fetch_context_len = 4000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
 local max_update_key_len = 50
@@ -42,6 +41,22 @@ local function has_bounded_source_ref(source_ref)
   return type(source_ref) == "table"
     and is_bounded_string(source_ref.kind, max_key_len)
     and is_bounded_string(source_ref.ref, max_key_len)
+end
+
+local function same_source_ref(a, b)
+  return has_bounded_source_ref(a)
+    and has_bounded_source_ref(b)
+    and tostring(a.kind) == tostring(b.kind)
+    and tostring(a.ref) == tostring(b.ref)
+end
+
+local function valid_fetch_sources(fetch_sources, source_ref)
+  return type(fetch_sources) == "table"
+    and #fetch_sources == 1
+    and type(fetch_sources[1]) == "table"
+    and is_bounded_string(fetch_sources[1].kind, max_key_len)
+    and same_source_ref(fetch_sources[1].source_ref, source_ref)
+    and is_bounded_string(fetch_sources[1].url, max_key_len)
 end
 
 local function require_field(payload, name)
@@ -270,8 +285,11 @@ function M.validate_proposal(proposal)
   if proposal.body ~= nil or proposal.diff ~= nil or proposal.comments ~= nil or proposal.source_bundle ~= nil then
     return false
   end
+  if proposal.fetch_context ~= nil then
+    return false
+  end
   return has_bounded_source_ref(proposal.source_ref)
-    and is_bounded_string(proposal.fetch_context, max_fetch_context_len)
+    and valid_fetch_sources(proposal.fetch_sources, proposal.source_ref)
 end
 
 -- Fail-closed gate before raising a reply: a malformed consensus_reached (missing/oversized

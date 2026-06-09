@@ -430,8 +430,7 @@ return {
     t.eq(#review.raises, 1)
     local proposal = find_raise(review.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, fix_round_version, "feedface"))
-    t.is_nil(proposal.body)
-    t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
+    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "feedface")
     t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42-", 1, true) ~= nil)
   end,
 
@@ -546,14 +545,7 @@ return {
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
-    t.is_nil(proposal.body)
-    t.is_nil(proposal.diff)
-    t.is_nil(proposal.comments)
-    t.is_nil(proposal.source_bundle)
-    t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("Use source_ref external owner/repo#pr/7", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("Verify the reviewed PR head is def456", 1, true) ~= nil)
+    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "def456")
     t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42-", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
     t.eq(count_calls("--json title,body,labels,comments"), 1)
@@ -616,7 +608,7 @@ return {
     t.eq(fixing_raise.payload.version, fix_version)
   end,
 
-  test_review_pr_retries_when_head_moves_while_building_fetch_context = function()
+  test_review_pr_retries_when_head_moves_while_preparing_fetch_sources = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -649,11 +641,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
-    t.is_nil(proposal.body)
-    t.is_nil(proposal.diff)
-    t.is_nil(proposal.comments)
-    t.is_nil(proposal.source_bundle)
-    t.eq(proposal.fetch_context:find(forged, 1, true), nil)
+    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "def456")
     t.eq(count_calls("gh pr diff"), 1)
   end,
 
@@ -723,12 +711,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
-    t.is_nil(proposal.body)
-    t.is_nil(proposal.diff)
-    t.is_nil(proposal.comments)
-    t.is_nil(proposal.source_bundle)
-    t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
-    t.eq(proposal.fetch_context:find("DIFF_SENTINEL_MUST_SURVIVE", 1, true), nil)
+    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "def456")
     t.eq(count_calls("gh pr diff"), 1)
   end,
 

@@ -94,8 +94,11 @@ return {
     t.eq(payload.source_ref.kind, "external")
     t.eq(payload.source_ref.ref, "owner/repo#issue/42")
     t.is_nil(payload.body)
-    t.is_true(payload.fetch_context:find("owner/repo#issue/42", 1, true) ~= nil)
-    t.is_true(payload.fetch_context:find("https://github.example/owner/repo/issues/42", 1, true) ~= nil)
+    t.is_nil(payload.fetch_context)
+    t.eq(#payload.fetch_sources, 1)
+    t.eq(payload.fetch_sources[1].kind, "issue")
+    t.eq(payload.fetch_sources[1].source_ref.ref, "owner/repo#issue/42")
+    t.eq(payload.fetch_sources[1].url, "https://github.example/owner/repo/issues/42")
     t.eq(#codex_calls(), 0)
   end,
 

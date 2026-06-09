@@ -13,6 +13,14 @@ local verdict_summary_label = string.char(
   228, 184, 137, 230, 150, 185, 232, 163, 129, 229, 134, 179, 58, 32
 )
 
+local function command_text(source)
+  local parts = { source.command.tool }
+  for _, arg in ipairs(source.command.args or {}) do
+    table.insert(parts, arg)
+  end
+  return table.concat(parts, " ")
+end
+
 return {
   test_devloop_config_defaults_and_validation = function()
     local responses = {
@@ -91,9 +99,11 @@ return {
     t.is_nil(proposal.body)
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
-    t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("Use source_ref external owner/repo#issue/42", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("--json title,body,comments,state,labels,updatedAt", 1, true) ~= nil)
+    t.is_nil(proposal.fetch_context)
+    t.eq(#proposal.fetch_sources, 1)
+    t.eq(proposal.fetch_sources[1].kind, "github_issue")
+    t.eq(proposal.fetch_sources[1].source_ref.ref, "owner/repo#issue/42")
+    t.eq(command_text(proposal.fetch_sources[1]), "gh issue view 42 --repo owner/repo --json title,body,comments,state,labels,updatedAt")
     t.eq(core.validate_proposal(proposal), true)
 
     t.raises(function()
@@ -138,13 +148,18 @@ return {
     t.is_nil(proposal.diff)
     t.is_nil(proposal.comments)
     t.is_nil(proposal.source_bundle)
-    t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("Use source_ref external owner/repo#pr/7", 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("Verify the reviewed PR head is " .. head_sha, 1, true) ~= nil)
-    t.is_true(proposal.fetch_context:find("current working directory", 1, true) ~= nil)
+    t.is_nil(proposal.fetch_context)
+    t.eq(#proposal.fetch_sources, 2)
+    t.eq(command_text(proposal.fetch_sources[1]), "gh issue view 42 --repo owner/repo --json title,body,comments,state,labels,updatedAt")
+    t.eq(command_text(proposal.fetch_sources[2]), "gh pr diff 7 --repo owner/repo")
+    t.eq(proposal.fetch_sources[2].source_ref.ref, "owner/repo#pr/7")
+    t.eq(proposal.fetch_sources[2].expected_head_sha, head_sha)
+    t.eq(proposal.fetch_sources[2].cwd_required, true)
+    t.eq(proposal.fetch_sources[2].read_files_from_cwd, true)
     t.eq(proposal.codex_cwd, "/tmp/fkst-packages-test/github-devloop/review-worktree")
     t.eq(core.validate_proposal(proposal), true)
+    proposal.codex_cwd = nil
+    t.eq(core.validate_proposal(proposal), false)
     proposal.codex_cwd = "relative-worktree"
     t.eq(core.validate_proposal(proposal), false)
 
@@ -260,7 +275,8 @@ return {
         title = "Implement decision recorder",
         body = "Issue body",
       },
-      { kind = "external", ref = repo .. "#pr/7" }
+      { kind = "external", ref = repo .. "#pr/7" },
+      "/tmp/fkst-packages-test/github-devloop/review-worktree"
     )
     t.is_true(#proposal.proposal_id <= 200)
     t.eq(core.validate_proposal(proposal), true)
@@ -279,12 +295,13 @@ return {
         title = "Implement decision recorder",
         body = string.rep("issue-context-", 2000),
       },
-      { kind = "external", ref = "owner/repo#pr/7" }
+      { kind = "external", ref = "owner/repo#pr/7" },
+      "/tmp/fkst-packages-test/github-devloop/review-worktree"
     )
 
     t.is_nil(proposal.body)
-    t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
-    t.eq(proposal.fetch_context:find("DIFF_SENTINEL_MUST_SURVIVE", 1, true), nil)
+    t.is_nil(proposal.fetch_context)
+    t.eq(command_text(proposal.fetch_sources[2]), "gh pr diff 7 --repo owner/repo")
     t.eq(core.validate_proposal(proposal), true)
   end,
 

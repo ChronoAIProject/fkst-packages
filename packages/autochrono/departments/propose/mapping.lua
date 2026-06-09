@@ -6,10 +6,14 @@ local function proposal_title(issue)
   return core.bounded_text("Draft maintainer reply for issue #" .. tostring(issue.issue_number), 240)
 end
 
-local function fetch_context(fields)
-  return "Fetch or inspect the full current issue from the source system before judging.\n"
-    .. "Source issue: " .. tostring(fields.repo) .. "#issue/" .. tostring(fields.issue_number) .. "\n"
-    .. "URL: " .. tostring(fields.url)
+local function fetch_sources(fields)
+  return {
+    {
+      kind = "issue",
+      source_ref = fields.source_ref,
+      url = tostring(fields.url),
+    },
+  }
 end
 
 function M.build_proposal(issue)
@@ -22,7 +26,7 @@ function M.build_proposal(issue)
     dedup_key = core.proposal_dedup_key(fields.repo, fields.issue_number, fields.updated_at),
     title = proposal_title(fields),
     source_ref = fields.source_ref,
-    fetch_context = fetch_context(fields),
+    fetch_sources = fetch_sources(fields),
   }
 end
 

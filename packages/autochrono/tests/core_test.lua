@@ -153,13 +153,16 @@ return {
     t.eq(core.render_template("{{a}}", { a = "x", unused = "y" }), "x")
   end,
 
-  test_build_proposal_fetch_context_points_to_issue = function()
+  test_build_proposal_fetch_sources_point_to_issue = function()
     local mapping = require("departments.propose.mapping")
     local payload = mapping.build_proposal(issue())
 
     t.is_nil(payload.body)
-    t.is_true(payload.fetch_context:find("owner/repo#issue/42", 1, true) ~= nil)
-    t.is_true(payload.fetch_context:find("https://github.example/owner/repo/issues/42", 1, true) ~= nil)
+    t.is_nil(payload.fetch_context)
+    t.eq(#payload.fetch_sources, 1)
+    t.eq(payload.fetch_sources[1].kind, "issue")
+    t.eq(payload.fetch_sources[1].source_ref.ref, "owner/repo#issue/42")
+    t.eq(payload.fetch_sources[1].url, "https://github.example/owner/repo/issues/42")
   end,
 
   test_build_proposal_throws_for_oversized_issue_title = function()
