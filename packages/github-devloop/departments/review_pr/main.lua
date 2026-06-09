@@ -71,17 +71,17 @@ function pipeline(event)
       return
     end
 
-    local after_bundle_pr_view = exec_sync({ cmd = core.gh_pr_view_origin_cmd(repo, reviewing.pr_number), timeout = 30 })
-    if after_bundle_pr_view.exit_code ~= 0 then
-      error("github-devloop: gh pr review head recheck failed: " .. tostring(after_bundle_pr_view.stderr))
+    local after_head_pr_view = exec_sync({ cmd = core.gh_pr_view_origin_cmd(repo, reviewing.pr_number), timeout = 30 })
+    if after_head_pr_view.exit_code ~= 0 then
+      error("github-devloop: gh pr review head recheck failed: " .. tostring(after_head_pr_view.stderr))
     end
-    local after_bundle_pr = core.parse_pr_view_origin(after_bundle_pr_view.stdout)
-    if tostring(after_bundle_pr.head_ref_name or "") ~= tostring(current_pr.head_ref_name or "")
-      or tostring(after_bundle_pr.head_sha or "") ~= tostring(current_pr.head_sha or "") then
-      error("github-devloop: PR head moved while building review source bundle; retrying")
+    local after_head_pr = core.parse_pr_view_origin(after_head_pr_view.stdout)
+    if tostring(after_head_pr.head_ref_name or "") ~= tostring(current_pr.head_ref_name or "")
+      or tostring(after_head_pr.head_sha or "") ~= tostring(current_pr.head_sha or "") then
+      error("github-devloop: PR head moved before building review proposal; retrying")
     end
-    if tostring(after_bundle_pr.state or ""):lower() ~= "open" then
-      core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale(pr-closed)", "re-derived PR is not open after source bundle build")
+    if tostring(after_head_pr.state or ""):lower() ~= "open" then
+      core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale(pr-closed)", "re-derived PR is not open after head recheck")
       return
     end
 
@@ -89,9 +89,7 @@ function pipeline(event)
       kind = "external",
       ref = tostring(repo) .. "#pr/" .. tostring(reviewing.pr_number),
     }
-    core.assert_pr_review_fetch_source_available(repo, reviewing.pr_number, current_pr.head_sha, pr_source_ref)
     local worktree = core.prepare_review_worktree(repo, issue_number, reviewing.version, current_pr.head_ref_name, current_pr.head_sha)
-
     local proposal = core.build_pr_review_proposal(repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, worktree)
     if not core.validate_proposal(proposal) then
       log.warn("github-devloop dept=review_pr proposal_id=" .. tostring(reviewing.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-proposal")

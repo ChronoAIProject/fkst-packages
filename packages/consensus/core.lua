@@ -2,32 +2,21 @@ local M = {}
 
 local default_angles = { "minimal", "structural", "delete" }
 -- Angle count and per-reply length are capped so consensus_reached has a PROVABLE upper
--- bound. Worst-case raw content = max_angles * max_reply_len + max_framing_len =
--- 8000 + 1000 = 9000 bytes; even at the JSON worst case of 6 bytes/char (\uXXXX
--- escaping) that is ~54 KiB, which with field overhead stays under the reliable-delivery
--- 64 KiB cap. We cannot measure the encoded size at runtime (the SDK exposes json.decode
--- only), so the bound is enforced statically.
+-- bound. Worst-case raw content = max_angles * max_reply_len = 8000 bytes; even at the
+-- JSON worst case of 6 bytes/char (\uXXXX escaping) that is ~48 KiB, which with field
+-- overhead stays under the reliable-delivery 64 KiB cap. We cannot measure the encoded
+-- size at runtime (the SDK exposes json.decode only), so the bound is enforced statically.
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
+local max_fetch_context_len = 4000
 local max_context_len = 8000
-local max_fetch_sources = 4
-local max_fetch_args = 16
-local max_fetch_url_len = 1000
 local max_reply_len = 2000
-local max_framing_len = 1000
 local max_narrowed_question_len = 2000
 local max_digest_len = 600
 local max_prior_round_digests = 12
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
-
-function M.verdict_mode(proposal)
-  if type(proposal) == "table" and proposal.verdict_mode == "gate" then
-    return "gate"
-  end
-  return "converge"
-end
 
 local function trim(value)
   return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -108,125 +97,6 @@ local function has_source_ref(value)
   return type(value) == "table"
     and is_bounded_string(value.kind, max_key_len)
     and is_bounded_string(value.ref, max_key_len)
-end
-
-local function same_source_ref(a, b)
-  return has_source_ref(a)
-    and has_source_ref(b)
-    and tostring(a.kind) == tostring(b.kind)
-    and tostring(a.ref) == tostring(b.ref)
-end
-
-local function is_single_line(value, limit)
-  return is_bounded_string(value, limit) and value:find("%c") == nil
-end
-
-local function valid_fetch_command(command)
-  if type(command) ~= "table" then
-    return false
-  end
-  if not is_single_line(command.tool, max_key_len) then
-    return false
-  end
-  if type(command.args) ~= "table" or #command.args > max_fetch_args then
-    return false
-  end
-  for _, arg in ipairs(command.args) do
-    if not is_single_line(arg, max_key_len) then
-      return false
-    end
-  end
-  return true
-end
-
-local function valid_fetch_source(source)
-  if type(source) ~= "table" then
-    return false
-  end
-  if not is_single_line(source.kind, max_key_len) then
-    return false
-  end
-  if not has_source_ref(source.source_ref) then
-    return false
-  end
-  if source.command ~= nil and not valid_fetch_command(source.command) then
-    return false
-  end
-  if source.url ~= nil and not is_single_line(source.url, max_fetch_url_len) then
-    return false
-  end
-  if source.expected_head_sha ~= nil and not is_single_line(source.expected_head_sha, max_key_len) then
-    return false
-  end
-  if source.cwd_required ~= nil and type(source.cwd_required) ~= "boolean" then
-    return false
-  end
-  if source.read_files_from_cwd ~= nil and type(source.read_files_from_cwd) ~= "boolean" then
-    return false
-  end
-  return source.command ~= nil or source.url ~= nil or source.cwd_required == true
-end
-
-local function valid_fetch_sources(value, proposal_source_ref)
-  if type(value) ~= "table" or #value == 0 or #value > max_fetch_sources then
-    return false
-  end
-  local has_primary = false
-  for _, source in ipairs(value) do
-    if not valid_fetch_source(source) then
-      return false
-    end
-    if same_source_ref(source.source_ref, proposal_source_ref) then
-      has_primary = true
-    end
-  end
-  return has_primary
-end
-
-local function fetch_sources_require_cwd(value)
-  for _, source in ipairs(value or {}) do
-    if type(source) == "table" and source.cwd_required == true then
-      return true
-    end
-  end
-  return false
-end
-
-local function render_command(command)
-  local parts = { neutralize_untrusted_prompt_text(command.tool) }
-  for _, arg in ipairs(command.args or {}) do
-    table.insert(parts, neutralize_untrusted_prompt_text(arg))
-  end
-  return table.concat(parts, " ")
-end
-
-local function render_source_context(proposal)
-  local lines = {
-    "source_ref: kind=" .. neutralize_untrusted_prompt_text(proposal.source_ref.kind)
-      .. " ref=" .. neutralize_untrusted_prompt_text(proposal.source_ref.ref),
-    "Fetch sources:",
-  }
-  for index, source in ipairs(proposal.fetch_sources or {}) do
-    table.insert(lines, tostring(index) .. ". kind=" .. neutralize_untrusted_prompt_text(source.kind)
-      .. " source_ref kind=" .. neutralize_untrusted_prompt_text(source.source_ref.kind)
-      .. " ref=" .. neutralize_untrusted_prompt_text(source.source_ref.ref))
-    if source.command ~= nil then
-      table.insert(lines, "   command: " .. render_command(source.command))
-    end
-    if source.url ~= nil then
-      table.insert(lines, "   url: " .. neutralize_untrusted_prompt_text(source.url))
-    end
-    if source.expected_head_sha ~= nil then
-      table.insert(lines, "   expected_head_sha: " .. neutralize_untrusted_prompt_text(source.expected_head_sha))
-    end
-    if source.cwd_required == true then
-      table.insert(lines, "   cwd_required: true")
-    end
-    if source.read_files_from_cwd == true then
-      table.insert(lines, "   read_files_from_cwd: true")
-    end
-  end
-  return table.concat(lines, "\n")
 end
 
 local function normalize_round(value)
@@ -328,13 +198,10 @@ function M.is_eligible(proposal)
   if proposal.body ~= nil or proposal.diff ~= nil or proposal.comments ~= nil or proposal.source_bundle ~= nil then
     return false
   end
-  if proposal.fetch_context ~= nil then
+  if proposal.fetch_sources ~= nil then
     return false
   end
-  if not valid_fetch_sources(proposal.fetch_sources, proposal.source_ref) then
-    return false
-  end
-  if fetch_sources_require_cwd(proposal.fetch_sources) and not is_safe_cwd(proposal.codex_cwd) then
+  if not is_bounded_string(proposal.fetch_context, max_fetch_context_len) then
     return false
   end
   if proposal.context ~= nil and not is_bounded_string(proposal.context, max_context_len) then
@@ -358,6 +225,13 @@ end
 
 function M.angles(proposal)
   return normalized_angles(proposal)
+end
+
+function M.verdict_mode(proposal)
+  if type(proposal) == "table" and proposal.verdict_mode == "gate" then
+    return "gate"
+  end
+  return "converge"
 end
 
 function M.codex_spawn_options(proposal, prompt, stall_window)
@@ -398,6 +272,12 @@ function M.reached_cache_key(dedup_key)
     error("consensus: invalid dedup_key")
   end
   return "consensus/reached/" .. tostring(dedup_key)
+end
+
+local function render_source_context(proposal)
+  return "source_ref: kind=" .. neutralize_untrusted_prompt_text(proposal.source_ref.kind)
+    .. " ref=" .. neutralize_untrusted_prompt_text(proposal.source_ref.ref)
+    .. "\nfetch_context:\n" .. neutralize_untrusted_prompt_text(proposal.fetch_context)
 end
 
 function M.build_angle_prompt(proposal, angle)
@@ -443,8 +323,8 @@ end
 -- Fail-closed parse. A genuine answer is an ADJACENT pair: exactly one clean verdict line
 -- immediately followed by exactly one reply line (the prompt asks for line one = verdict,
 -- line two = reply). The verdict sentinel must be followed by one whitelist word on its
--- own line (rejects the prompt echo "approve|abstain", "approve/reject",
--- "approve-ish"); the reply sentinel must be anchored at line start. A proposal body/context
+-- own line (rejects the prompt echo "approve|reject|abstain", "approve/reject",
+-- "approve-ish"); the reply sentinel must be anchored at line start. Proposal source/context
 -- is untrusted and may be echoed into stdout, so requiring a UNIQUE ADJACENT pair closes both
 -- duplicate injection (a second clean sentinel pair) and orphan pairing (a lone echoed reply
 -- attached to a verdict that lacked its own reply). Overlong replies are NOT truncated here;
@@ -502,8 +382,8 @@ function M.aggregate(angle_results, verdict_mode)
     return nil
   end
   local mode = verdict_mode == "gate" and "gate" or "converge"
-  local first_verdict = nil
 
+  local first_verdict = nil
   for _, result in ipairs(angle_results) do
     if type(result) ~= "table" or result.exit_code ~= 0 then
       return nil
@@ -520,7 +400,7 @@ function M.aggregate(angle_results, verdict_mode)
     end
     if first_verdict == nil then
       first_verdict = result.verdict
-    elseif result.verdict ~= first_verdict then
+    elseif first_verdict ~= result.verdict then
       return nil
     end
   end
@@ -586,7 +466,6 @@ function M.build_meta_judge_prompt(proposal, angle_results)
     convergence_block = "Current convergence question:\n"
       .. neutralize_untrusted_prompt_text(proposal.convergence_question)
   end
-  local verdict_mode = M.verdict_mode(proposal)
 
   return M.render_template(prompt.template, {
     title = neutralize_untrusted_prompt_text(proposal.title),
@@ -594,7 +473,7 @@ function M.build_meta_judge_prompt(proposal, angle_results)
     context_block = context_block,
     convergence_block = convergence_block,
     angle_outputs = render_angle_outputs(angle_results),
-    reached_options = verdict_mode == "gate"
+    reached_options = M.verdict_mode(proposal) == "gate"
       and "- reached:approve <short framing> when the angles support approving the current framing.\n- reached:reject <short framing> when the angles support rejecting the current framing."
       or "- reached:approve <short framing> when the angles support approving the current framing.",
   })
@@ -616,7 +495,7 @@ function M.parse_meta_judge_output(stdout, verdict_mode)
         count = count + 1
         local lowered = kind:lower()
         if lowered == "reached" then
-          -- decision must be an EXACT whitespace-delimited `approve`
+          -- decision must be an EXACT whitespace-delimited `approve`/`reject`
           -- token followed by a non-empty framing; `approve/reject`,
           -- `approve-ish`, or a bare `approve` (no framing) fail closed to
           -- nil so the caller converges instead of fabricating a reached.
@@ -677,12 +556,10 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
   -- the reliable 64 KiB payload bound.
   local clean_results = {}
   local body_lines = {}
-  local clean_framing = nil
-  if type(framing) == "string" then
-    clean_framing = bounded(framing, max_framing_len)
-  end
-  if clean_framing == "" then
-    clean_framing = nil
+  if framing ~= nil and framing ~= "" then
+    table.insert(body_lines, "Meta-judge framing:")
+    table.insert(body_lines, bounded(framing, max_reply_len))
+    table.insert(body_lines, "")
   end
   for _, result in ipairs(angle_results or {}) do
     table.insert(clean_results, {
@@ -698,11 +575,10 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
     table.remove(body_lines)
   end
 
-  local payload = {
+  return {
     schema = "consensus.consensus_reached.v1",
     proposal_id = proposal.proposal_id,
     decision = decision,
-    framing = clean_framing,
     body = table.concat(body_lines, "\n"),
     angle_results = clean_results,
     dedup_key = "consensus:" .. tostring(proposal.dedup_key),
@@ -713,7 +589,6 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
       ref = proposal.source_ref.ref,
     },
   }
-  return payload
 end
 
 function M.build_converge_payload(proposal, narrowed_question, angle_results)

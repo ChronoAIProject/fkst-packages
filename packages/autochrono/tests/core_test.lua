@@ -153,16 +153,13 @@ return {
     t.eq(core.render_template("{{a}}", { a = "x", unused = "y" }), "x")
   end,
 
-  test_build_proposal_fetch_sources_point_to_issue = function()
+  test_build_proposal_uses_fetch_context_without_embedded_body = function()
     local mapping = require("departments.propose.mapping")
     local payload = mapping.build_proposal(issue())
 
     t.is_nil(payload.body)
-    t.is_nil(payload.fetch_context)
-    t.eq(#payload.fetch_sources, 1)
-    t.eq(payload.fetch_sources[1].kind, "issue")
-    t.eq(payload.fetch_sources[1].source_ref.ref, "owner/repo#issue/42")
-    t.eq(payload.fetch_sources[1].url, "https://github.example/owner/repo/issues/42")
+    t.is_true(payload.fetch_context:find("Fetch the complete current issue", 1, true) ~= nil)
+    t.is_true(payload.fetch_context:find("https://github.example/owner/repo/issues/42", 1, true) ~= nil)
   end,
 
   test_build_proposal_throws_for_oversized_issue_title = function()
@@ -180,7 +177,8 @@ return {
     t.eq(core.validate_proposal(merge(ok, { proposal_id = "other/issue/owner/repo/42" })), false)  -- not parseable
     t.eq(core.validate_proposal(merge(ok, { proposal_id = "autochrono/issue/owner/repo//42" })), false)  -- non-canonical
     t.eq(core.validate_proposal(merge(ok, { body = "" })), false)  -- embedded content
-    t.eq(core.validate_proposal(merge(ok, { fetch_context = false })), false)
+    t.eq(core.validate_proposal(merge(ok, { fetch_context = "" })), false)
+    t.eq(core.validate_proposal(merge(ok, { fetch_sources = {} })), false)
     t.eq(core.validate_proposal(merge(ok, { source_ref = { kind = "external" } })), false)  -- ref missing
     t.eq(core.validate_proposal(merge(ok, { schema = "other" })), false)
   end,

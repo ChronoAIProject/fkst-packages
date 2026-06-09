@@ -1,7 +1,6 @@
 local base = require("tests.devloop_base_helpers")
 local t = base.t
 local core = base.core
-local json_string = base.json_string
 local function mock_setup_worktree(path)
   t.mock_command("git -C", {
     stdout = "dev\n",
@@ -199,23 +198,11 @@ local function mock_existing_devloop_worktree(issue_slug)
   })
 end
 
-local function mock_review_worktree(branch, head, path, diff)
-  t.mock_command("gh pr diff", {
-    stdout = diff or "diff --git a/file.lua b/file.lua\n+return true\n",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("--json headRefName,headRefOid,baseRefName,state,comments", {
-    stdout = string.format(
-      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","state":"OPEN","comments":[]}\n',
-      json_string(branch or "devloop-owner-repo-42-01HY"),
-      json_string(head or "def456")
-    ),
-    stderr = "",
-    exit_code = 0,
-  })
+local function mock_review_worktree(branch, head, runtime_root)
+  local root = runtime_root or "/tmp/fkst-packages-test/github-devloop/runtime"
+  local worktree = root .. "/worktrees/devloop-owner-repo-42"
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-    stdout = path or "/tmp/fkst-packages-test/github-devloop/runtime",
+    stdout = root,
     stderr = "",
     exit_code = 0,
   })
@@ -234,6 +221,7 @@ local function mock_review_worktree(branch, head, path, diff)
     stderr = "",
     exit_code = 0,
   })
+  return worktree
 end
 
 local function mock_implement_codex(exit_code, stdout, stderr)

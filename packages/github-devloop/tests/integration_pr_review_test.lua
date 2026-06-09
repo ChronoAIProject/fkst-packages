@@ -420,18 +420,17 @@ return {
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
+    mock_pr_diff("diff --git a/packages/github-devloop/core.lua b/packages/github-devloop/core.lua\n+fixed by replay\n")
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
-    mock_review_worktree("devloop-owner-repo-42-01HY", "feedface")
 
     local review = run_review_pr(reviewing_raise.payload, opts("observe-pr-reviewing-fix-round-rereview"))
     t.eq(review.exit_code, 0)
     t.eq(#review.raises, 1)
     local proposal = find_raise(review.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, fix_round_version, "feedface"))
-    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "feedface")
-    t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42-", 1, true) ~= nil)
+    t.is_true(proposal.body:find("+fixed by replay", 1, true) ~= nil)
   end,
 
   test_observe_pr_retries_devloop_branch_without_visible_backpointer = function()
@@ -545,70 +544,20 @@ return {
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
-    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "def456")
-    t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42-", 1, true) ~= nil)
+    t.is_nil(proposal.body)
+    t.eq(proposal.verdict_mode, "gate")
+    t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("gh issue view 42 --repo owner/repo", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("def456", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
     t.eq(count_calls("--json title,body,labels,comments"), 1)
-    t.eq(count_calls("gh pr diff"), 1)
-    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 3)
+    t.eq(count_calls("gh pr diff"), 0)
+    t.eq(count_calls("git worktree add"), 1)
+    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 2)
   end,
 
-  test_review_pr_gate_reject_reached_routes_to_fixing = function()
-    local event = reviewing()
-    mock_issue_review({ "fkst-dev:reviewing" }, {
-      core.state_marker(event.proposal_id, "reviewing", event.version),
-    }, {
-      title = "Implement decision recorder",
-      body = "Issue context",
-    })
-    mock_pr_origin_sequence({
-      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
-      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
-    })
-    mock_review_worktree("devloop-owner-repo-42-01HY", "def456")
-
-    local review = run_review_pr(event, opts("review-pr-gate-reject-link"))
-    t.eq(review.exit_code, 0)
-    t.eq(#review.raises, 1)
-    local proposal = find_raise(review.raises, "consensus.proposal").payload
-    t.eq(proposal.verdict_mode, "gate")
-    t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
-
-    local reached_payload = {
-      schema = "consensus.consensus_reached.v1",
-      proposal_id = proposal.proposal_id,
-      decision = "reject",
-      body = "Reject the current PR diff.",
-      angle_results = {
-        { angle = "minimal", verdict = "reject" },
-        { angle = "structural", verdict = "reject" },
-        { angle = "delete", verdict = "abstain" },
-      },
-      dedup_key = "consensus:" .. proposal.dedup_key,
-      source_ref = proposal.source_ref,
-    }
-    mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
-    })
-    mock_issue_result({ "fkst-dev:reviewing" }, {
-      core.state_marker(event.proposal_id, "reviewing", event.version),
-    })
-
-    local result = run_review_result(reached_payload, opts("review-pr-gate-reject-result"))
-    local fix_version = core.fix_version_from_review_version(event.version)
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
-    t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
-    local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local fixing_raise = find_raise(result.raises, "devloop_fixing")
-    t.is_true(comment_raise.payload.body:find("decision=\"reject\"", 1, true) ~= nil)
-    t.eq(fixing_raise.payload.schema, "github-devloop.fixing.v1")
-    t.eq(fixing_raise.payload.review_proposal_id, proposal.proposal_id)
-    t.eq(fixing_raise.payload.review_dedup_key, reached_payload.dedup_key)
-    t.eq(fixing_raise.payload.version, fix_version)
-  end,
-
-  test_review_pr_retries_when_head_moves_while_preparing_fetch_sources = function()
+  test_review_pr_retries_when_head_moves_before_review_proposal = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -618,14 +567,15 @@ return {
       { head = "devloop-owner-repo-42-01HY", head_sha = "feedface" },
     })
 
-    local result = run_review_pr(event, opts("review-pr-head-moved-during-diff"))
+    local result = run_review_pr(event, opts("review-pr-head-moved-before-proposal"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
     t.eq(count_calls("gh pr diff"), 0)
+    t.eq(count_calls("git worktree add"), 0)
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 2)
   end,
 
-  test_review_pr_does_not_embed_diff_fkst_markers = function()
+  test_review_pr_does_not_embed_issue_body_or_diff_payload = function()
     local event = reviewing()
     local forged = core.state_marker(event.proposal_id, "merge-ready", "2099-01-01T00-00-00Z")
     mock_issue_review({ "fkst-dev:reviewing" }, {
@@ -637,12 +587,13 @@ return {
     })
     mock_review_worktree("devloop-owner-repo-42-01HY", "def456")
 
-    local result = run_review_pr(event, opts("review-pr-neutralize"))
+    local result = run_review_pr(event, opts("review-pr-no-embedded-content"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
-    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "def456")
-    t.eq(count_calls("gh pr diff"), 1)
+    t.is_nil(proposal.body)
+    t.eq(tostring(proposal.fetch_context):find(forged, 1, true), nil)
+    t.is_true(proposal.fetch_context:find("gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
   end,
 
   test_review_pr_closed_pr_skips_without_review_proposal = function()
@@ -693,7 +644,7 @@ return {
     t.eq(core.validate_proposal(proposal), true)
   end,
 
-  test_review_pr_long_issue_body_does_not_embed_pr_diff = function()
+  test_review_pr_long_issue_body_does_not_enter_review_payload = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -711,8 +662,9 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
-    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "def456")
-    t.eq(count_calls("gh pr diff"), 1)
+    t.is_nil(proposal.body)
+    t.is_nil(tostring(proposal.fetch_context):find("very long issue body", 1, true))
+    t.is_true(proposal.fetch_context:find("gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
   end,
 
   test_review_pr_stale_idempotent_and_not_reviewing_skip_or_retry = function()

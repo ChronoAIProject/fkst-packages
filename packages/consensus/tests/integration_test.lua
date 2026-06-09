@@ -23,6 +23,7 @@ local function proposal(extra)
     schema = "consensus.proposal.v1",
     proposal_id = "proposal-42",
     title = "Adopt consensus package",
+    fetch_context = "Fetch the complete proposal from source_ref before judging.",
     context = "The package must stay silent unless all angles agree.",
     angles = { "minimal", "structural", "delete" },
     dedup_key = "proposal-42-v1",
@@ -30,19 +31,6 @@ local function proposal(extra)
     source_ref = {
       kind = "proposal",
       ref = "demo/consensus/42",
-    },
-    fetch_sources = {
-      {
-        kind = "proposal",
-        source_ref = {
-          kind = "proposal",
-          ref = "demo/consensus/42",
-        },
-        command = {
-          tool = "fetch-proposal",
-          args = { "demo/consensus/42" },
-        },
-      },
     },
   }
   for key, field in pairs(extra or {}) do
@@ -110,119 +98,40 @@ return {
     t.is_true(calls[1].stdin:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(calls[2].stdin:find("Angle: structural", 1, true) ~= nil)
     t.is_true(calls[3].stdin:find("Angle: delete", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("Use source_ref and every structured fetch source below to fetch or read the complete current source material before judging.", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Use source_ref and the fetch context below", 1, true) ~= nil)
     t.is_true(calls[1].stdin:find("source_ref: kind=proposal ref=demo/consensus/42", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("command: fetch-proposal demo/consensus/42", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Fetch the complete proposal from source_ref before judging.", 1, true) ~= nil)
     t.is_nil(calls[1].stdin:find("Create a small flat package", 1, true))
   end,
 
-  test_decide_runs_codex_in_proposal_cwd = function()
-    mock_angle("approve", "Minimal angle approves.")
-    mock_angle("approve", "Structural angle approves.")
-    mock_angle("approve", "Delete angle approves.")
+  test_unanimous_reject_raises_consensus_converge_by_default = function()
+    mock_angle("reject", "Minimal angle rejects.")
+    mock_angle("abstain", "Structural angle abstains.")
+    mock_angle("reject", "Delete angle rejects.")
+    mock_meta("converge: What would make every angle approve this proposal?")
 
-    local result = run_decide(proposal({ codex_cwd = "/tmp/fkst-packages-test/consensus/worktree" }), opts("with-cwd"))
-    t.eq(result.exit_code, 0)
-    local calls = codex_calls()
-    t.eq(#calls, 3)
-    for _, call in ipairs(calls) do
-      t.is_true(call.rendered:find("/tmp/fkst-packages-test/consensus/worktree", 1, true) ~= nil)
-    end
-  end,
-
-  test_decide_review_prompt_fetches_pr_diff_from_worktree = function()
-    mock_angle("approve", "Minimal angle approves.")
-    mock_angle("approve", "Structural angle approves.")
-    mock_angle("approve", "Delete angle approves.")
-
-    local review = proposal({
-      verdict_mode = "gate",
-      proposal_id = "review-42",
-      title = "Review PR 7",
-      dedup_key = "review-42-v1",
-      source_ref = {
-        kind = "external",
-        ref = "owner/repo#pr/7",
-      },
-      codex_cwd = "/tmp/fkst-packages-test/consensus/pr-review-worktree",
-      fetch_sources = {
-        {
-          kind = "github_issue",
-          source_ref = {
-            kind = "external",
-            ref = "owner/repo#issue/42",
-          },
-          command = {
-            tool = "gh",
-            args = { "issue", "view", "42", "--repo", "owner/repo", "--json", "title,body,comments,state,labels,updatedAt" },
-          },
-        },
-        {
-          kind = "github_pr_diff",
-          source_ref = {
-            kind = "external",
-            ref = "owner/repo#pr/7",
-          },
-          command = {
-            tool = "gh",
-            args = { "pr", "diff", "7", "--repo", "owner/repo" },
-          },
-          expected_head_sha = "def456",
-          cwd_required = true,
-          read_files_from_cwd = true,
-        },
-      },
-    })
-
-    local result = run_decide(review, opts("review-fetch-worktree"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local calls = codex_calls()
-    t.eq(#calls, 3)
-    t.is_true(calls[1].rendered:find("/tmp/fkst-packages-test/consensus/pr-review-worktree", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("source_ref: kind=external ref=owner/repo#pr/7", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("command: gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("expected_head_sha: def456", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("cwd_required: true", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("read_files_from_cwd: true", 1, true) ~= nil)
-    t.is_nil(calls[1].stdin:find("DIFF_SENTINEL_MUST_NOT_ENTER_PROMPT", 1, true))
-    t.is_nil(calls[1].stdin:find("ISSUE_BODY_SENTINEL_MUST_NOT_ENTER_PROMPT", 1, true))
-    t.is_nil(calls[1].stdin:find("COMMENT_SENTINEL_MUST_NOT_ENTER_PROMPT", 1, true))
-  end,
-
-  test_decide_runs_meta_judge_in_proposal_cwd = function()
-    mock_angle("approve", "Minimal angle approves.")
-    mock_angle("abstain", "Structural angle needs one blocker resolved.")
-    mock_angle("approve", "Delete angle approves.")
-    mock_meta("converge: Should structural concerns block this proposal?")
-
-    local result = run_decide(proposal({ codex_cwd = "/tmp/fkst-packages-test/consensus/review-worktree" }), opts("meta-with-cwd"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local calls = codex_calls()
-    t.eq(#calls, 4)
-    for _, call in ipairs(calls) do
-      t.is_true(call.rendered:find("/tmp/fkst-packages-test/consensus/review-worktree", 1, true) ~= nil)
-    end
-  end,
-
-  test_unanimous_abstain_raises_consensus_converge = function()
-    mock_angle("abstain", "Minimal angle needs narrower scope.")
-    mock_angle("abstain", "Structural angle needs clearer boundaries.")
-    mock_angle("abstain", "Delete angle needs proof the scope is necessary.")
-    mock_meta("converge: What concrete evidence would make the narrowed scope approvable?")
-
-    local result = run_decide(proposal(), opts("all-abstain"))
+    local result = run_decide(proposal(), opts("all-reject"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
-    t.eq(result.raises[1].payload.narrowed_question, "What concrete evidence would make the narrowed scope approvable?")
     t.eq(#codex_calls(), 4)
+  end,
+
+  test_gate_unanimous_reject_raises_consensus_reached = function()
+    mock_angle("reject", "Minimal angle rejects.")
+    mock_angle("reject", "Structural angle rejects.")
+    mock_angle("reject", "Delete angle rejects.")
+
+    local result = run_decide(proposal({ verdict_mode = "gate" }), opts("gate-reject"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].payload.decision, "reject")
+    t.eq(#codex_calls(), 3)
   end,
 
   test_split_verdicts_spawn_meta_and_raise_consensus_converge = function()
     mock_angle("approve", "Minimal angle approves.")
-    mock_angle("abstain", "Structural angle needs one blocker resolved.")
+    mock_angle("reject", "Structural angle rejects.")
     mock_angle("approve", "Delete angle approves.")
     mock_meta("converge: Should structural concerns block this proposal?")
 
@@ -248,50 +157,6 @@ return {
     t.is_true(calls[4].stdin:find("Angle outputs:", 1, true) ~= nil)
   end,
 
-  test_converge_mode_reject_outputs_raise_consensus_converge = function()
-    mock_angle("reject", "Minimal angle rejects but converge mode cannot reject.")
-    mock_angle("approve", "Structural angle approves.")
-    mock_angle("approve", "Delete angle approves.")
-    mock_meta("converge: What concern prevents approval?")
-
-    local result = run_decide(proposal({ verdict_mode = "converge" }), opts("converge-reject-output"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "consensus_converge")
-    t.eq(result.raises[1].payload.angle_digests[1].verdict, "invalid")
-    t.eq(result.raises[1].payload.narrowed_question, "What concern prevents approval?")
-    t.eq(#codex_calls(), 4)
-  end,
-
-  test_gate_mode_unanimous_reject_raises_consensus_reached_reject = function()
-    mock_angle("reject", "Minimal angle rejects the diff.")
-    mock_angle("reject", "Structural angle rejects the diff.")
-    mock_angle("reject", "Delete angle rejects the diff.")
-
-    local result = run_decide(proposal({ verdict_mode = "gate" }), opts("gate-all-reject"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "consensus_reached")
-    t.eq(result.raises[1].payload.decision, "reject")
-    t.eq(#codex_calls(), 3)
-  end,
-
-  test_gate_mode_meta_reject_raises_consensus_reached_reject = function()
-    mock_angle("reject", "Minimal angle rejects the diff.")
-    mock_angle("approve", "Structural angle approves.")
-    mock_angle("reject", "Delete angle rejects the diff.")
-    mock_meta("reached:reject reject until the failing test is fixed")
-
-    local result = run_decide(proposal({ verdict_mode = "gate" }), opts("gate-meta-reject"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "consensus_reached")
-    t.eq(result.raises[1].payload.decision, "reject")
-    t.eq(result.raises[1].payload.framing, "reject reject until the failing test is fixed")
-    t.eq(result.raises[1].payload.body:find("Meta-judge framing:", 1, true), nil)
-    t.eq(#codex_calls(), 4)
-  end,
-
   test_meta_reached_after_split_raises_consensus_reached = function()
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("abstain", "Structural angle abstains but accepts the narrowed framing.")
@@ -304,8 +169,7 @@ return {
     t.eq(result.raises[1].queue, "consensus_reached")
     t.eq(result.raises[1].payload.schema, "consensus.consensus_reached.v1")
     t.eq(result.raises[1].payload.decision, "approve")
-    t.eq(result.raises[1].payload.framing, "approve approve the narrowed framing")
-    t.eq(result.raises[1].payload.body:find("Meta-judge framing:", 1, true), nil)
+    t.is_true(result.raises[1].payload.body:find("Meta-judge framing:", 1, true) ~= nil)
     t.eq(#codex_calls(), 4)
   end,
 
@@ -313,7 +177,7 @@ return {
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("abstain", "Structural angle abstains.")
     mock_angle("approve", "Delete angle approves.")
-    mock_meta("converge: Ask structural to name the one blocker that prevents approval.")
+    mock_meta("converge: Ask structural to choose approve or reject with one blocker.")
 
     local result = run_decide(proposal(), opts("abstain"))
     t.eq(result.exit_code, 0)

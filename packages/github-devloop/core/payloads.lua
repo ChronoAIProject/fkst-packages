@@ -2,7 +2,7 @@ local S = {}
 
 function S.install(M)
 function M.build_devloop_ready_payload(source)
-  local payload = {
+  return {
     schema = "github-devloop.ready.v1",
     proposal_id = source.proposal_id,
     dedup_key = M._dedup_key({
@@ -11,10 +11,6 @@ function M.build_devloop_ready_payload(source)
     }),
     source_ref = M.normalize_source_ref(source.source_ref),
   }
-  if source.framing ~= nil then
-    payload.framing = tostring(source.framing)
-  end
-  return payload
 end
 
 function M.build_devloop_reviewing_payload(origin, pr_number, source_ref, version)
@@ -39,7 +35,7 @@ function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
   if review_fact.fix_version ~= nil then
     version = review_fact.fix_version
   end
-  local payload = {
+  return {
     schema = "github-devloop.fixing.v1",
     proposal_id = origin.proposal_id,
     pr_number = pr_number,
@@ -56,7 +52,6 @@ function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
     }),
     source_ref = M.normalize_source_ref(source_ref),
   }
-  return payload
 end
 
 function M.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
@@ -116,109 +111,26 @@ function M.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
   }
 end
 
-function M.build_issue_fetch_sources(repo, issue_number, source_ref)
-  local source_repo, source_issue_number = M.parse_issue_source_ref(M.normalize_source_ref(source_ref))
-  if source_repo == nil
-    or tostring(source_repo) ~= tostring(repo)
-    or tostring(source_issue_number) ~= tostring(issue_number) then
-    error("github-devloop: issue source_ref does not match fetch source")
-  end
-  return {
-    {
-      kind = "github_issue",
-      source_ref = M.normalize_source_ref(source_ref),
-      command = {
-        tool = "gh",
-        args = {
-          "issue",
-          "view",
-          tostring(source_issue_number),
-          "--repo",
-          tostring(source_repo),
-          "--json",
-          "title,body,comments,state,labels,updatedAt",
-        },
-      },
-    },
-  }
+function M.build_issue_fetch_context(repo, issue_number)
+  return "Fetch the complete current GitHub issue and all comments before judging: "
+    .. "gh issue view " .. tostring(issue_number)
+    .. " --repo " .. tostring(repo)
+    .. " --json title,body,comments,state,labels,updatedAt"
 end
 
-function M.build_pr_review_fetch_sources(repo, issue_number, pr_number, head_sha, source_ref)
-  local source_repo, source_pr_number = M.parse_pr_source_ref(M.normalize_source_ref(source_ref))
-  if source_repo == nil
-    or tostring(source_repo) ~= tostring(repo)
-    or tostring(source_pr_number) ~= tostring(pr_number) then
-    error("github-devloop: PR review source_ref does not match fetch source")
-  end
+function M.build_pr_review_fetch_context(repo, issue_number, pr_number, head_sha)
   if not M.is_safe_head_sha(head_sha) then
     error("github-devloop: invalid PR review head sha")
   end
-  return {
-    {
-      kind = "github_issue",
-      source_ref = {
-        kind = "external",
-        ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
-      },
-      command = {
-        tool = "gh",
-        args = {
-          "issue",
-          "view",
-          tostring(issue_number),
-          "--repo",
-          tostring(repo),
-          "--json",
-          "title,body,comments,state,labels,updatedAt",
-        },
-      },
-    },
-    {
-      kind = "github_pr_diff",
-      source_ref = M.normalize_source_ref(source_ref),
-      command = {
-        tool = "gh",
-        args = {
-          "pr",
-          "diff",
-          tostring(source_pr_number),
-          "--repo",
-          tostring(source_repo),
-        },
-      },
-      expected_head_sha = tostring(head_sha),
-      cwd_required = true,
-      read_files_from_cwd = true,
-    },
-  }
-end
-
-function M.assert_pr_review_fetch_source_available(repo, pr_number, expected_head_sha, source_ref)
-  local source_repo, source_pr_number = M.parse_pr_source_ref(M.normalize_source_ref(source_ref))
-  if source_repo == nil
-    or tostring(source_repo) ~= tostring(repo)
-    or tostring(source_pr_number) ~= tostring(pr_number) then
-    error("github-devloop: PR review source_ref does not match fetch source")
-  end
-  if not M.is_safe_head_sha(expected_head_sha) then
-    error("github-devloop: invalid expected PR review head sha")
-  end
-
-  local result = exec_sync({ cmd = M.gh_pr_diff_cmd(repo, pr_number), timeout = 60 })
-  if result.exit_code ~= 0 then
-    error("github-devloop: gh pr diff failed for PR review source_ref fetch: " .. tostring(result.stderr))
-  end
-
-  local head_view = exec_sync({ cmd = M.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
-  if head_view.exit_code ~= 0 then
-    error("github-devloop: gh pr head recheck failed after source_ref fetch: " .. tostring(head_view.stderr))
-  end
-  local current_pr = M.parse_pr_view_origin(head_view.stdout)
-  if tostring(current_pr.state or ""):lower() ~= "open"
-    or tostring(current_pr.head_sha or "") ~= tostring(expected_head_sha) then
-    error("github-devloop: PR head moved after source_ref diff fetch; retrying")
-  end
-  return true
+  return "Fetch the complete current GitHub issue and all comments: gh issue view "
+    .. tostring(issue_number)
+    .. " --repo " .. tostring(repo)
+    .. " --json title,body,comments,state,labels,updatedAt\n"
+    .. "Fetch the complete PR diff for the reviewed head " .. tostring(head_sha) .. ": gh pr diff "
+    .. tostring(pr_number)
+    .. " --repo " .. tostring(repo) .. "\n"
+    .. "Read related files from the provided worktree when needed. Fail closed if the PR head is not "
+    .. tostring(head_sha) .. "."
 end
 
 function M.build_proposal(issue)
@@ -230,12 +142,11 @@ function M.build_proposal(issue)
 
   return {
     schema = "consensus.proposal.v1",
-    verdict_mode = "converge",
     proposal_id = proposal_id,
     title = title,
     dedup_key = M.proposal_dedup_key(proposal_id, issue.updated_at),
     source_ref = M.normalize_source_ref(issue.source_ref),
-    fetch_sources = M.build_issue_fetch_sources(issue.repo, issue.number, issue.source_ref),
+    fetch_context = M.build_issue_fetch_context(issue.repo, issue.number),
   }
 end
 
@@ -291,7 +202,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
       "review",
     }),
     source_ref = M.normalize_source_ref(source_ref),
-    fetch_sources = M.build_pr_review_fetch_sources(repo, issue_number, pr_number, head_sha, source_ref),
+    fetch_context = M.build_pr_review_fetch_context(repo, issue_number, pr_number, head_sha),
   }
   if codex_cwd ~= nil then
     proposal.codex_cwd = codex_cwd

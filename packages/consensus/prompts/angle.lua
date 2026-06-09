@@ -11,8 +11,8 @@ Proposal:
 Angle: {{angle}}
 Title: {{title}}
 {{convergence_block}}
-Fetch/read sources:
-Use source_ref and every structured fetch source below to fetch or read the complete current source material before judging. Do not judge from prompt summaries alone.
+Source:
+Use source_ref and the fetch context below to fetch or read the complete current source material before judging. Do not judge from prompt summaries alone.
 {{source_context}}
 {{context_block}}]],
 

@@ -1,37 +1,83 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local action_label = h.action_label
+local reason_label = h.reason_label
 local has_value = h.has_value
 local opts = h.opts
 local source_ref = h.source_ref
 local issue = h.issue
+local reached = h.reached
 local unresolved = h.unresolved
 local ready = h.ready
 local reviewing = h.reviewing
+local review_reached = h.review_reached
 local review_unresolved = h.review_unresolved
 local fixing = h.fixing
+local pr_link_marker_for_fix = h.pr_link_marker_for_fix
 local review_meta_event = h.review_meta_event
 local review_reconcile = h.review_reconcile
+local merge_ready = h.merge_ready
+local run_observe = h.run_observe
+local run_result = h.run_result
+local run_loop = h.run_loop
 local run_review_reconcile = h.run_review_reconcile
+local run_implement = h.run_implement
+local run_open_pr = h.run_open_pr
+local run_observe_pr = h.run_observe_pr
 local run_review_pr = h.run_review_pr
+local run_review_result = h.run_review_result
 local run_fix = h.run_fix
 local run_review_loop = h.run_review_loop
 local run_review_meta = h.run_review_meta
+local run_merge = h.run_merge
 local json_string = h.json_string
 local render_comment = h.render_comment
+local default_marker_version = h.default_marker_version
+local mock_issue_state = h.mock_issue_state
+local state_from_labels = h.state_from_labels
+local with_default_state_marker = h.with_default_state_marker
+local mock_issue_body = h.mock_issue_body
+local mock_issue_result = h.mock_issue_result
+local mock_issue_loop = h.mock_issue_loop
+local mock_issue_implement = h.mock_issue_implement
+local mock_issue_implement_raw = h.mock_issue_implement_raw
+local mock_issue_open_pr = h.mock_issue_open_pr
+local mock_issue_reviewing = h.mock_issue_reviewing
 local mock_issue_review = h.mock_issue_review
+local mock_issue_fix = h.mock_issue_fix
 local mock_issue_fix_for_event = h.mock_issue_fix_for_event
 local mock_issue_review_meta = h.mock_issue_review_meta
+local mock_issue_merge = h.mock_issue_merge
+local merge_comments = h.merge_comments
 local mock_pr_origin = h.mock_pr_origin
+local mock_pr_merge = h.mock_pr_merge
+local mock_pr_merge_rollup = h.mock_pr_merge_rollup
+local mock_merging_comment = h.mock_merging_comment
+local mock_pr_merge_command = h.mock_pr_merge_command
+local has_call = h.has_call
+local mock_issue_close = h.mock_issue_close
+local merge_comments_with_merging = h.merge_comments_with_merging
 local mock_pr_fix = h.mock_pr_fix
+local mock_pr_origin_sequence = h.mock_pr_origin_sequence
+local mock_pr_head = h.mock_pr_head
+local mock_pr_diff = h.mock_pr_diff
+local mock_branch_exists = h.mock_branch_exists
 local mock_meta_codex = h.mock_meta_codex
+local mock_setup_worktree = h.mock_setup_worktree
+local deterministic_branch_for = h.deterministic_branch_for
+local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
+local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
+local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_implement_worktree_reuse
+local mock_existing_implement_branch = h.mock_existing_implement_branch
 local mock_git_commit = h.mock_git_commit
 local mock_git_push = h.mock_git_push
-local mock_review_worktree = h.mock_review_worktree
+local mock_existing_devloop_worktree = h.mock_existing_devloop_worktree
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
+local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
@@ -105,16 +151,15 @@ return {
     })
     local origin_marker_for_review = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
+    mock_pr_diff("diff --git a/packages/github-devloop/core.lua b/packages/github-devloop/core.lua\n+fixed again\n")
     mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
-    mock_review_worktree(branch, "feedface")
 
     local review_result = run_review_pr(reviewing_raise.payload, opts("fix-write-rereview"))
     t.eq(review_result.exit_code, 0)
     t.eq(#review_result.raises, 1)
     local proposal = find_raise(review_result.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, expected_version, "feedface"))
-    h.assert_pr_review_fetch_sources(proposal, "owner/repo", "42", 7, "feedface")
-    t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42-", 1, true) ~= nil)
+    t.is_true(proposal.body:find("+fixed again", 1, true) ~= nil)
 	  end,
 
   test_fix_marker_lag_retries_then_visible_marker_runs = function()
@@ -551,17 +596,14 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
+    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return true\n")
     mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
-    mock_review_worktree("devloop-owner-repo-42-01HY", "def456")
 
     local result = run_review_loop(event, opts("review-loop-under-budget"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.is_true(result.raises[1].payload.dedup_key:find("/loop/1", 1, true) ~= nil)
-    h.assert_pr_review_fetch_sources(result.raises[1].payload, "owner/repo", "42", 7, "def456")
-    t.is_true(tostring(result.raises[1].payload.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42-", 1, true) ~= nil)
-    t.eq(count_calls("gh pr diff"), 1)
     t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request").payload.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)
     t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request").payload.body:find('round="0"', 1, true) ~= nil)
   end,
@@ -586,16 +628,14 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", full_version),
     })
+    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return true\n")
     mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
-    mock_review_worktree("devloop-owner-repo-42-01HY", "def456")
 
     local result = run_review_loop(event, opts("review-loop-long-version-apply"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.eq(result.raises[1].payload.proposal_id, proposal_id)
-    h.assert_pr_review_fetch_sources(result.raises[1].payload, "owner/repo", "42", 7, "def456")
-    t.eq(count_calls("gh pr diff"), 1)
     t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request").payload.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)
     t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request").payload.body:find('round="0"', 1, true) ~= nil)
   end,
@@ -747,7 +787,7 @@ return {
       round = 3,
       narrowed_question = "Same review framing",
       angle_digests = {
-        { angle = "minimal", verdict = "abstain", digest = "same" },
+        { angle = "minimal", verdict = "reject", digest = "same" },
       },
     })
     local impl_version = reviewing().version
