@@ -332,6 +332,60 @@ function M.current_state(comments, proposal_id)
   }
 end
 
+function M.state_marker_history(comments, proposal_id, limit)
+  local history = {}
+  if type(comments) ~= "table" then
+    return history
+  end
+
+  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  local ordinal = 0
+  for _, comment in ipairs(M._trusted_marker_comments(comments)) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]+)"')
+      local marker_state = marker:match('state="([^"]+)"')
+      local marker_version = marker:match('version="([^"]*)"')
+      if marker_proposal == proposal_id and M._label_by_state[marker_state] ~= nil then
+        ordinal = ordinal + 1
+        table.insert(history, {
+          state = marker_state,
+          version = marker_version,
+          stage_rank = marker_stage_rank(marker, marker_state),
+          comment_created_at = M._comment_created_at(comment),
+          ordinal = ordinal,
+        })
+      end
+    end
+  end
+
+  table.sort(history, function(a, b)
+    if compare_state_marker(b, a) then
+      return true
+    end
+    if compare_state_marker(a, b) then
+      return false
+    end
+    local a_created = tostring(a.comment_created_at or "")
+    local b_created = tostring(b.comment_created_at or "")
+    if a_created ~= b_created then
+      return a_created > b_created
+    end
+    return (a.ordinal or 0) > (b.ordinal or 0)
+  end)
+
+  local bounded = tonumber(limit or #history)
+  if bounded == nil or bounded < 1 then
+    bounded = #history
+  end
+  while #history > bounded do
+    table.remove(history)
+  end
+  for _, entry in ipairs(history) do
+    entry.ordinal = nil
+  end
+  return history
+end
+
 function M.has_state_marker(comments, proposal_id, state, version)
   if type(comments) ~= "table" then
     return false

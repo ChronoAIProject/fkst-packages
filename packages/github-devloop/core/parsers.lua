@@ -84,6 +84,10 @@ function M.parse_issue_list_intake(stdout)
   return issues
 end
 
+function M.parse_issue_list_observe(stdout)
+  return M.parse_issue_list_intake(stdout)
+end
+
 function M.parse_issue_view_result(stdout)
   local decoded = json.decode(stdout or "{}")
   local state = M.issue_state_from_json(decoded)
@@ -108,6 +112,10 @@ function M.parse_issue_view_loop(stdout)
 end
 
 function M.parse_issue_view_intake_scan(stdout)
+  return M.parse_issue_view_state(stdout)
+end
+
+function M.parse_issue_view_observe(stdout)
   return M.parse_issue_view_state(stdout)
 end
 
