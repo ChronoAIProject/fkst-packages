@@ -278,6 +278,14 @@ function M.parse_pr_list_head_base(stdout)
   return prs
 end
 
+function M.parse_pr_list_observe(stdout)
+  return M.parse_pr_list_head_base(stdout)
+end
+
+function M.parse_pr_view_observe(stdout)
+  return M.parse_pr_view_origin(stdout)
+end
+
 function M.parse_pr_view_head_state(stdout)
   local decoded = json.decode(stdout or "{}")
   return {

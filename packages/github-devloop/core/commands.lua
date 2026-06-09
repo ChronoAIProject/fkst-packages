@@ -37,6 +37,24 @@ function M.gh_issue_view_observe_cmd(repo, issue_number)
     .. " --json labels,comments,state"
 end
 
+function M.gh_pr_list_observe_cmd(repo, limit)
+  local bounded_limit = tonumber(limit or 100)
+  if bounded_limit == nil or bounded_limit < 1 or bounded_limit > 100 then
+    error("github-devloop: invalid observe PR list limit")
+  end
+  return "gh pr list"
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --state all"
+    .. " --limit " .. tostring(math.floor(bounded_limit))
+    .. " --json number,headRefName,headRefOid,baseRefName,state,updatedAt"
+end
+
+function M.gh_pr_view_observe_cmd(repo, pr_number)
+  return "gh pr view " .. M._shell_single_quote(pr_number)
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --json headRefName,headRefOid,baseRefName,state,updatedAt,comments"
+end
+
 function M.gh_issue_view_intake_judge_cmd(repo, issue_number)
   return "gh issue view " .. M._shell_single_quote(issue_number)
     .. " --repo " .. M._shell_single_quote(repo)

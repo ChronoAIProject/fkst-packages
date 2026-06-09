@@ -34,6 +34,18 @@ local function snapshot_time(event)
   return tostring(now())
 end
 
+local function graph_paths()
+  local paths = {}
+  local listed = exec_sync({ cmd = "find departments -mindepth 2 -maxdepth 2 -name main.lua -type f", timeout = 30 })
+  if listed.exit_code ~= 0 then
+    error("github-devloop: department graph scan failed: " .. tostring(listed.stderr))
+  end
+  for line in tostring(listed.stdout or ""):gmatch("[^\r\n]+") do
+    table.insert(paths, line)
+  end
+  return paths
+end
+
 function pipeline(event)
   core.log_entry("observe_scan", event, "github-devloop/observe", "tick")
   core.assert_trusted_bot_configured()
@@ -54,12 +66,26 @@ function pipeline(event)
       local current = core.parse_issue_view_observe(viewed.stdout)
       core.log_forged_markers("observe_scan", proposal_id, current.comments)
       if core.should_observe_entity(current.labels, current.comments, proposal_id) then
-        table.insert(entities, core.observe_entity_summary(repo, issue_number, current))
+        table.insert(entities, core.observe_issue_summary(repo, issue_number, current))
       end
     end
   end
 
-  local payload = core.build_state_snapshot_payload(repo, entities, snapshot_time(event))
+  local pr_listed = run_cmd(core.gh_pr_list_observe_cmd(repo, OBSERVE_LIMIT), "gh observe PR list")
+  for _, pr in ipairs(core.parse_pr_list_observe(pr_listed.stdout)) do
+    local pr_number = tostring(pr.number or "")
+    if core.is_safe_pr_number(pr_number) then
+      local viewed = run_cmd(core.gh_pr_view_observe_cmd(repo, pr_number), "gh observe PR view")
+      local current = core.parse_pr_view_observe(viewed.stdout)
+      local summary = core.observe_pr_summary(repo, pr_number, current)
+      if summary ~= nil then
+        core.log_forged_markers("observe_scan", summary.proposal_id, current.comments)
+        table.insert(entities, summary)
+      end
+    end
+  end
+
+  local payload = core.build_state_snapshot_payload(repo, entities, core.devloop_pipeline_graph(graph_paths()), snapshot_time(event))
   core.log_raise("observe_scan", "github-devloop/observe", "devloop_state_snapshot", payload)
 end
 
