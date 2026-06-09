@@ -15,5 +15,6 @@ require("core.prompts").install(M)
 require("core.requests").install(M)
 require("core.entity").install(M)
 require("core.validators").install(M)
+require("core.dead_letter").install(M)
 
 return M
