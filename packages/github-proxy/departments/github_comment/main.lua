@@ -39,7 +39,7 @@ local function should_update_existing_comment(payload, existing)
 end
 
 local function existing_upsert_comment(comments, payload, bot_login)
-  if payload.upsert == true and payload.upsert_marker ~= nil then
+  if payload.upsert == true then
     return core.trusted_comment_with_marker(comments, payload.upsert_marker, bot_login)
   end
   return core.trusted_marker_comment(comments, payload.dedup_key, bot_login)

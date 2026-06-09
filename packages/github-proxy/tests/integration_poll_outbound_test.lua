@@ -585,6 +585,30 @@ return {
     t.eq(count_calls("gh api graphql"), 0)
   end,
 
+  test_upsert_requires_marker = function()
+    local event = {
+      queue = "github_issue_comment_request",
+      payload = {
+        repo = "owner/x",
+        issue_number = 42,
+        dedup_key = "status-card/comment/github-devloop/issue/owner/x/42",
+        upsert = true,
+        body = "github-devloop status\n\nState: fixing",
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_comment_view({})
+    local result = t.run_department("departments/github_comment/main.lua", event, opts("comment-upsert-missing-marker", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh issue comment"), 0)
+    t.eq(count_calls("gh api graphql"), 0)
+  end,
+
   test_comment_real_write_failure_errors_for_retry = function()
     local event = {
       queue = "github_issue_comment_request",
