@@ -96,6 +96,8 @@ return {
     t.eq(parked.payload.source_ref.ref, "owner/repo#issue/42")
     t.eq(parked.payload.dedup_key, "dead-letter/comment/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.is_true(parked.payload.body:find("fkst:github-devloop:dead%-letter:v1") ~= nil)
+    t.is_true(parked.payload.body:find("<!-- fkst:github-devloop:dead-letter:v1", 1, true) ~= nil)
+    t.is_nil(parked.payload.body:find("&lt;!-- fkst:github-devloop:dead-letter:v1", 1, true))
     t.is_true(parked.payload.body:find("Original queue: devloop_ready", 1, true) ~= nil)
   end,
 
@@ -103,13 +105,29 @@ return {
     local event = ready()
     mock_dead_letter_issue({
       core.state_marker(event.proposal_id, "ready", event.dedup_key),
-      core.dead_letter_marker(event.proposal_id, "devloop_ready", event.dedup_key, "ready", event.dedup_key),
+      '<!-- fkst:github-devloop:dead-letter:v1 proposal="github-devloop/issue/owner/repo/42" queue="devloop_ready" dedup="consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z" state="ready" version="consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z" -->',
     })
 
     local result = run_dead_letter({
       queue = "devloop_ready",
       payload = event,
     }, opts("dead-letter-idempotent"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+  end,
+
+  test_dead_letter_existing_escaped_park_marker_is_idempotent = function()
+    local event = ready()
+    mock_dead_letter_issue({
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      'github-devloop dead-letter parked\n\n&lt;!-- fkst:github-devloop:dead-letter:v1 proposal="github-devloop/issue/owner/repo/42" queue="devloop_ready" dedup="consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z" state="ready" version="consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z" --&gt;',
+    })
+
+    local result = run_dead_letter({
+      queue = "devloop_ready",
+      payload = event,
+    }, opts("dead-letter-escaped-idempotent"))
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)

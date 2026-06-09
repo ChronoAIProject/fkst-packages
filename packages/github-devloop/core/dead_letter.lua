@@ -148,11 +148,21 @@ function M.has_dead_letter_marker(comments, proposal_id, dedup_key)
     return false
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:dead%-letter:v1.-%-%->"
+  local escaped_marker_pattern = "&lt;!%-%- fkst:github%-devloop:dead%-letter:v1.-%-%-&gt;"
   for _, comment in ipairs(M._trusted_marker_comments(comments)) do
-    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+    local body = M._comment_body(comment)
+    for marker in body:gmatch(marker_pattern) do
       if marker:match('proposal="([^"]+)"') == tostring(proposal_id)
         and marker:match('dedup="([^"]*)"') == tostring(dedup_key) then
         return true
+      end
+    end
+    if body:find("github-devloop dead-letter parked", 1, true) ~= nil then
+      for marker in body:gmatch(escaped_marker_pattern) do
+        if marker:match('proposal="([^"]+)"') == tostring(proposal_id)
+          and marker:match('dedup="([^"]*)"') == tostring(dedup_key) then
+          return true
+        end
       end
     end
   end
