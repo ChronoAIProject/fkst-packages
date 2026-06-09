@@ -16,10 +16,9 @@ local function proposal(extra)
     context = "The package must stay silent unless all angles agree.",
     angles = { "minimal", "structural", "delete" },
     dedup_key = "proposal-42-v1",
-    -- Source-agnostic sample: an opaque {kind, ref} pointer, not tied to any provider.
     source_ref = {
-      kind = "proposal",
-      ref = "demo/consensus/42",
+      kind = "external",
+      ref = "owner/repo#issue/42",
     },
   }
   for key, field in pairs(extra or {}) do
@@ -70,6 +69,7 @@ return {
 
   test_is_eligible_rejects_missing_source_ref_and_wrong_schema = function()
     t.eq(core.is_eligible(proposal({ source_ref = false })), false)
+    t.eq(core.is_eligible(proposal({ source_ref = { kind = "proposal", ref = "demo/consensus/42" } })), false)
     t.eq(core.is_eligible(proposal({ schema = "other.proposal.v1" })), false)
     t.eq(core.is_eligible(proposal({ proposal_id = "../bad" })), false)
     t.eq(core.is_eligible(proposal({ dedup_key = "bad key" })), false)
@@ -364,7 +364,7 @@ return {
     t.eq(payload.dedup_key, "consensus:proposal-42-v1")
     -- source_ref is normalized to {kind, ref} (a fresh table, not the input identity)
     t.eq(payload.source_ref.kind, "proposal")
-    t.eq(payload.source_ref.ref, "demo/consensus/42")
+    t.eq(payload.source_ref.ref, "owner/repo#issue/42")
 
     -- order preserved, each item pinned to {angle, verdict}
     t.eq(#payload.angle_results, 3)
@@ -400,13 +400,13 @@ return {
 
   test_build_reached_payload_drops_extra_source_ref_fields = function()
     local input = proposal({
-      source_ref = { kind = "proposal", ref = "demo/consensus/42", blob = string.rep("x", 100000) },
+      source_ref = { kind = "external", ref = "owner/repo#issue/42", blob = string.rep("x", 100000) },
     })
     local payload = core.build_reached_payload(input, "approve", {
       result("minimal", "approve"),
     })
-    t.eq(payload.source_ref.kind, "proposal")
-    t.eq(payload.source_ref.ref, "demo/consensus/42")
+    t.eq(payload.source_ref.kind, "external")
+    t.eq(payload.source_ref.ref, "owner/repo#issue/42")
     -- the unbounded extra field must NOT survive into the payload
     t.is_nil(payload.source_ref.blob)
   end,
@@ -513,7 +513,7 @@ return {
     t.eq(payload.narrowed_question, "Narrow the disagreement.")
     t.eq(payload.dedup_key, "consensus:proposal-42-v1/loop/2")
     t.eq(payload.source_ref.kind, "proposal")
-    t.eq(payload.source_ref.ref, "demo/consensus/42")
+    t.eq(payload.source_ref.ref, "owner/repo#issue/42")
     t.eq(#payload.angle_digests, 3)
     t.eq(payload.angle_digests[1].reply, "minimal reply")
     t.eq(payload.angle_digests[3].verdict, "invalid")

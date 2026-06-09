@@ -150,35 +150,15 @@ function pipeline(event)
       return
     end
 
-    local diff = exec_sync({ cmd = core.gh_pr_diff_cmd(repo, pr_number), timeout = 30 })
-    if diff.exit_code ~= 0 then
-      error("github-devloop: gh pr diff failed for review loop: " .. tostring(diff.stderr))
-    end
-    local after_diff_pr_view = exec_sync({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
-    if after_diff_pr_view.exit_code ~= 0 then
-      error("github-devloop: gh pr review loop head recheck failed: " .. tostring(after_diff_pr_view.stderr))
-    end
-    local after_diff_pr = core.parse_pr_view_origin(after_diff_pr_view.stdout)
-    if tostring(after_diff_pr.head_ref_name or "") ~= tostring(current_pr.head_ref_name or "")
-      or tostring(after_diff_pr.head_sha or "") ~= tostring(current_pr.head_sha or "")
-      or tostring(after_diff_pr.state or ""):lower() ~= "open" then
-      error("github-devloop: PR head moved while reading review loop diff; retrying")
-    end
-
     local current_issue = {
       title = "PR #" .. tostring(pr_number),
-      body = "(PR-only review context; issue backing is absent)",
       comments = current_pr.comments,
     }
     if origin.issue_number ~= nil then
-      local issue_view = exec_sync({ cmd = core.gh_issue_view_review_loop_cmd(origin.repo, origin.issue_number), timeout = 30 })
-      if issue_view.exit_code ~= 0 then
-        error("github-devloop: gh issue review loop view failed: " .. tostring(issue_view.stderr))
-      end
-      current_issue = core.parse_issue_view_review_loop(issue_view.stdout)
+      current_issue.title = "Issue #" .. tostring(origin.issue_number)
     end
     local next_n = round + 1
-    local proposal = core.build_pr_review_loop_proposal(repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, diff.stdout, pr_source_ref, next_n, {
+    local proposal = core.build_pr_review_loop_proposal(repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, nil, pr_source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
     })

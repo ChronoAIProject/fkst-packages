@@ -25,7 +25,7 @@ function M.validate_proposal(proposal)
   if not M._is_bounded_string(proposal.title, M._max_title_len) then
     return false
   end
-  if not M._is_bounded_string(proposal.body, M._max_body_len) then
+  if proposal.body ~= nil and not M._is_bounded_string(proposal.body, M._max_body_len) then
     return false
   end
   return M._has_bounded_source_ref(proposal.source_ref)

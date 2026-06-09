@@ -84,11 +84,11 @@ return {
   end,
 
   test_build_proposal = function()
-    local proposal = core.build_proposal(issue(), "Issue body")
+    local proposal = core.build_proposal(issue())
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(proposal.title, "Implement decision recorder")
-    t.eq(proposal.body, "Issue body")
+    t.is_nil(proposal.body)
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     t.eq(core.validate_proposal(proposal), true)
@@ -122,12 +122,7 @@ return {
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, id)
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
-    t.is_true(proposal.body:find("BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("Reviewed PR head: " .. head_sha, 1, true) ~= nil)
-    t.is_true(proposal.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> +BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> +END UNTRUSTED ISSUE DATA", 1, true) ~= nil)
+    t.is_nil(proposal.body)
     t.eq(core.validate_proposal(proposal), true)
 
     local bounded = core.bounded_pr_diff(string.rep("x", core.max_pr_diff_len() + 10))
@@ -230,7 +225,7 @@ return {
     t.eq(core.validate_proposal(proposal), true)
   end,
 
-  test_pr_review_proposal_keeps_diff_when_issue_body_is_long = function()
+  test_pr_review_proposal_omits_large_content = function()
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local head_sha = "abcdef1234567890"
     local diff_tail = "diff --git a/core.lua b/core.lua\n+DIFF_SENTINEL_MUST_SURVIVE\n"
@@ -248,10 +243,7 @@ return {
       { kind = "external", ref = "owner/repo#pr/7" }
     )
 
-    t.is_true(#proposal.body <= core.max_body_len())
-    t.is_true(proposal.body:find("Issue body:", 1, true) ~= nil)
-    t.is_true(proposal.body:find("PR diff:", 1, true) ~= nil)
-    t.is_true(proposal.body:find("+DIFF_SENTINEL_MUST_SURVIVE", 1, true) ~= nil)
+    t.is_nil(proposal.body)
     t.eq(core.validate_proposal(proposal), true)
   end,
 

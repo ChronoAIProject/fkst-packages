@@ -8,15 +8,15 @@ M.spec = {
   stall_window = "2m",
 }
 
-local function spawn_angle(proposal, angle)
+local function spawn_angle(proposal, angle, source_text)
   return spawn_codex({
-    prompt = core.build_angle_prompt(proposal, angle),
+    prompt = core.build_angle_prompt(proposal, angle, source_text),
   })
 end
 
-local function spawn_meta_judge(proposal, angle_results)
+local function spawn_meta_judge(proposal, angle_results, source_text)
   return spawn_codex_sync({
-    prompt = core.build_meta_judge_prompt(proposal, angle_results),
+    prompt = core.build_meta_judge_prompt(proposal, angle_results, source_text),
   })
 end
 
@@ -43,12 +43,18 @@ function pipeline(event)
       return
     end
 
+    local source_text = core.fetch_source_text(proposal)
+    if source_text == nil then
+      log.warn("consensus: unsupported source_ref")
+      return
+    end
+
     local angle_results = {}
     local handles = {}
     local angles = core.angles(proposal)
     local verdict_mode = core.verdict_mode(proposal)
     for _, angle in ipairs(angles) do
-      table.insert(handles, spawn_angle(proposal, angle))
+      table.insert(handles, spawn_angle(proposal, angle, source_text))
     end
 
     local results = await_all(handles)
@@ -74,7 +80,7 @@ function pipeline(event)
       return
     end
 
-    local meta_result = spawn_meta_judge(proposal, angle_results)
+    local meta_result = spawn_meta_judge(proposal, angle_results, source_text)
     local parsed = nil
     if type(meta_result) == "table" and meta_result.exit_code == 0 then
       parsed = core.parse_meta_judge_output(meta_result.stdout, verdict_mode)
