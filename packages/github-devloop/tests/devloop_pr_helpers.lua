@@ -176,14 +176,6 @@ local function mock_pr_head(head, state)
   })
 end
 
-local function mock_pr_diff(diff, exit_code, stderr)
-  t.mock_command("gh pr diff", {
-    stdout = diff or "diff --git a/file.lua b/file.lua\n+return true\n",
-    stderr = stderr or "",
-    exit_code = exit_code or 0,
-  })
-end
-
 local function mock_branch_exists(branch, head)
   t.mock_command("show-ref --verify --quiet", {
     stdout = "",
@@ -224,7 +216,6 @@ return {
   mock_pr_fix = mock_pr_fix,
   mock_pr_origin_sequence = mock_pr_origin_sequence,
   mock_pr_head = mock_pr_head,
-  mock_pr_diff = mock_pr_diff,
   mock_branch_exists = mock_branch_exists,
   mock_meta_codex = mock_meta_codex,
 }

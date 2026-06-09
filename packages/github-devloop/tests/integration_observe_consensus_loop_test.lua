@@ -37,7 +37,6 @@ local default_marker_version = h.default_marker_version
 local mock_issue_state = h.mock_issue_state
 local state_from_labels = h.state_from_labels
 local with_default_state_marker = h.with_default_state_marker
-local mock_issue_body = h.mock_issue_body
 local mock_issue_result = h.mock_issue_result
 local mock_issue_loop = h.mock_issue_loop
 local mock_issue_reconcile = h.mock_issue_reconcile
@@ -62,7 +61,6 @@ local merge_comments_with_merging = h.merge_comments_with_merging
 local mock_pr_fix = h.mock_pr_fix
 local mock_pr_origin_sequence = h.mock_pr_origin_sequence
 local mock_pr_head = h.mock_pr_head
-local mock_pr_diff = h.mock_pr_diff
 local mock_branch_exists = h.mock_branch_exists
 local mock_setup_worktree = h.mock_setup_worktree
 local deterministic_branch_for = h.deterministic_branch_for
@@ -84,7 +82,6 @@ local find_raise = h.find_raise
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
     mock_issue_state({ "fkst-dev:enabled" })
-    mock_issue_body("Body from GitHub")
 
     local result = run_observe(issue(), opts("observe-opt-in"))
     t.eq(result.exit_code, 0)
@@ -92,7 +89,8 @@ return {
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.eq(result.raises[1].payload.schema, "consensus.proposal.v1")
     t.eq(result.raises[1].payload.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.eq(result.raises[1].payload.body, "Body from GitHub")
+    t.is_nil(result.raises[1].payload.body)
+    t.is_true(result.raises[1].payload.fetch_context:find("gh issue view 42 --repo owner/repo", 1, true) ~= nil)
     t.eq(result.raises[1].payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")
 
@@ -100,9 +98,9 @@ return {
     t.eq(label_raise.payload.schema, "github-proxy.label.v1")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:thinking")
     t.eq(label_raise.payload.issue_number, 42)
-    t.eq(count_calls("gh issue view"), 2)
+    t.eq(count_calls("gh issue view"), 1)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 1)
+    t.eq(count_calls("--json body"), 0)
   end,
 
   test_observe_skips_not_opt_in_and_already_stateful = function()
@@ -271,7 +269,6 @@ return {
 
   test_observe_uses_current_github_state_not_payload_state = function()
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN")
-    mock_issue_body("Body from GitHub")
 
     local result = run_observe(issue({ state = "CLOSED" }), opts("observe-stale-state"))
     t.eq(result.exit_code, 0)
@@ -288,28 +285,15 @@ return {
     t.eq(count_calls("--json body"), 0)
   end,
 
-  test_observe_issue_body_view_failure_errors_for_retry = function()
-    mock_issue_state({ "fkst-dev:enabled" })
-    mock_issue_view_failure("--json body", "forced body failure")
-
-	    local result = run_observe(issue(), opts("observe-body-view-failure"))
-	    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
-    t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 1)
-  end,
-
   test_observe_re_raises_until_thinking_label_is_on_issue = function()
     local run_opts = opts("observe-idempotent")
     mock_issue_state({ "fkst-dev:enabled" })
-    mock_issue_body("Body from GitHub")
 
     local first = run_observe(issue(), run_opts)
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 3)
 
     mock_issue_state({ "fkst-dev:enabled" })
-    mock_issue_body("Body from GitHub")
     local second = run_observe(issue(), run_opts)
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 3)
@@ -319,7 +303,7 @@ return {
     t.eq(thinking.exit_code, 0)
     t.eq(#thinking.raises, 0)
     t.eq(count_calls("--json labels,state"), 3)
-    t.eq(count_calls("--json body"), 2)
+    t.eq(count_calls("--json body"), 0)
   end,
 
   test_consensus_result_approve_raises_ready_label_and_comment = function()
@@ -595,7 +579,8 @@ return {
     t.eq(result.raises[1].queue, "consensus.proposal")
     t.eq(result.raises[1].payload.schema, "consensus.proposal.v1")
     t.eq(result.raises[1].payload.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.eq(result.raises[1].payload.body, "Body from GitHub")
+    t.is_nil(result.raises[1].payload.body)
+    t.is_true(result.raises[1].payload.fetch_context:find("gh issue view 42 --repo owner/repo", 1, true) ~= nil)
     t.eq(result.raises[1].payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1")
     t.eq(result.raises[1].payload.convergence_question, event.narrowed_question)
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")

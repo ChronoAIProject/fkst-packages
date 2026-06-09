@@ -39,7 +39,6 @@ local default_marker_version = h.default_marker_version
 local mock_issue_state = h.mock_issue_state
 local state_from_labels = h.state_from_labels
 local with_default_state_marker = h.with_default_state_marker
-local mock_issue_body = h.mock_issue_body
 local mock_issue_result = h.mock_issue_result
 local mock_issue_loop = h.mock_issue_loop
 local mock_issue_implement = h.mock_issue_implement
@@ -63,7 +62,6 @@ local merge_comments_with_merging = h.merge_comments_with_merging
 local mock_pr_fix = h.mock_pr_fix
 local mock_pr_origin_sequence = h.mock_pr_origin_sequence
 local mock_pr_head = h.mock_pr_head
-local mock_pr_diff = h.mock_pr_diff
 local mock_branch_exists = h.mock_branch_exists
 local mock_meta_codex = h.mock_meta_codex
 local mock_setup_worktree = h.mock_setup_worktree
@@ -420,17 +418,21 @@ return {
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
-    mock_pr_diff("diff --git a/packages/github-devloop/core.lua b/packages/github-devloop/core.lua\n+fixed by replay\n")
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
+    mock_review_worktree("devloop-owner-repo-42-01HY", "feedface")
 
     local review = run_review_pr(reviewing_raise.payload, opts("observe-pr-reviewing-fix-round-rereview"))
     t.eq(review.exit_code, 0)
     t.eq(#review.raises, 1)
     local proposal = find_raise(review.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, fix_round_version, "feedface"))
-    t.is_true(proposal.body:find("+fixed by replay", 1, true) ~= nil)
+    t.is_nil(proposal.body)
+    t.is_true(proposal.fetch_context:find("gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("feedface", 1, true) ~= nil)
+    t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42", 1, true) ~= nil)
+    t.eq(count_calls("gh pr diff"), 0)
   end,
 
   test_observe_pr_retries_devloop_branch_without_visible_backpointer = function()

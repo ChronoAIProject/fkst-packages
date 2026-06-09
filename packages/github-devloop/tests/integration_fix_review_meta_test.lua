@@ -37,7 +37,6 @@ local default_marker_version = h.default_marker_version
 local mock_issue_state = h.mock_issue_state
 local state_from_labels = h.state_from_labels
 local with_default_state_marker = h.with_default_state_marker
-local mock_issue_body = h.mock_issue_body
 local mock_issue_result = h.mock_issue_result
 local mock_issue_loop = h.mock_issue_loop
 local mock_issue_implement = h.mock_issue_implement
@@ -61,7 +60,6 @@ local merge_comments_with_merging = h.merge_comments_with_merging
 local mock_pr_fix = h.mock_pr_fix
 local mock_pr_origin_sequence = h.mock_pr_origin_sequence
 local mock_pr_head = h.mock_pr_head
-local mock_pr_diff = h.mock_pr_diff
 local mock_branch_exists = h.mock_branch_exists
 local mock_meta_codex = h.mock_meta_codex
 local mock_setup_worktree = h.mock_setup_worktree
@@ -151,15 +149,19 @@ return {
     })
     local origin_marker_for_review = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
-    mock_pr_diff("diff --git a/packages/github-devloop/core.lua b/packages/github-devloop/core.lua\n+fixed again\n")
     mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
+    mock_review_worktree(branch, "feedface")
 
     local review_result = run_review_pr(reviewing_raise.payload, opts("fix-write-rereview"))
     t.eq(review_result.exit_code, 0)
     t.eq(#review_result.raises, 1)
     local proposal = find_raise(review_result.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, expected_version, "feedface"))
-    t.is_true(proposal.body:find("+fixed again", 1, true) ~= nil)
+    t.is_nil(proposal.body)
+    t.is_true(proposal.fetch_context:find("gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("feedface", 1, true) ~= nil)
+    t.is_true(tostring(proposal.codex_cwd or ""):find("/worktrees/devloop-owner-repo-42", 1, true) ~= nil)
+    t.eq(count_calls("gh pr diff"), 0)
 	  end,
 
   test_fix_marker_lag_retries_then_visible_marker_runs = function()
@@ -596,8 +598,8 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
-    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return true\n")
     mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
+    mock_review_worktree("devloop-owner-repo-42-01HY", "def456")
 
     local result = run_review_loop(event, opts("review-loop-under-budget"))
     t.eq(result.exit_code, 0)
@@ -628,8 +630,8 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", full_version),
     })
-    mock_pr_diff("diff --git a/core.lua b/core.lua\n+return true\n")
     mock_pr_origin({ origin_marker }, "devloop-owner-repo-42-01HY", "def456")
+    mock_review_worktree("devloop-owner-repo-42-01HY", "def456")
 
     local result = run_review_loop(event, opts("review-loop-long-version-apply"))
     t.eq(result.exit_code, 0)

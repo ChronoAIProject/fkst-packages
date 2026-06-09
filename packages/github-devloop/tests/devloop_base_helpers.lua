@@ -505,14 +505,6 @@ local function with_default_state_marker(labels, comments)
   return rendered
 end
 
-local function mock_issue_body(body)
-  t.mock_command("--json body", {
-    stdout = string.format('{"body":"%s"}\n', json_string(body or "Issue body")),
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
 local function mock_issue_result(labels, comments)
   local rendered_labels = {}
   for _, label in ipairs(labels or { "fkst-dev:thinking" }) do
@@ -769,7 +761,6 @@ return {
   mock_issue_state = mock_issue_state,
   state_from_labels = state_from_labels,
   with_default_state_marker = with_default_state_marker,
-  mock_issue_body = mock_issue_body,
   mock_issue_result = mock_issue_result,
   mock_issue_loop = mock_issue_loop,
   mock_issue_reconcile = mock_issue_reconcile,

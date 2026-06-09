@@ -104,6 +104,43 @@ return {
     t.is_nil(calls[1].stdin:find("Create a small flat package", 1, true))
   end,
 
+  test_pr_review_proposal_passes_fetch_instruction_and_worktree_to_codex = function()
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("approve", "Structural angle approves.")
+    mock_angle("approve", "Delete angle approves.")
+
+    local result = run_decide(proposal({
+      verdict_mode = "gate",
+      proposal_id = "github-devloop/pr-review/owner/repo/7/version/def456",
+      title = "Review PR #7",
+      fetch_context = table.concat({
+        "Fetch the complete current GitHub issue and all comments: gh issue view 42 --repo owner/repo --json title,body,comments,state,labels,updatedAt",
+        "Fetch the complete PR diff for the reviewed head def456: gh pr diff 7 --repo owner/repo",
+        "Read related files from the provided worktree when needed. Fail closed if the PR head is not def456.",
+      }, "\n"),
+      context = nil,
+      dedup_key = "github-devloop/pr-review/owner/repo/7/version/def456/review",
+      source_ref = {
+        kind = "external",
+        ref = "owner/repo#pr/7",
+      },
+      codex_cwd = "/tmp/fkst-packages-test/github-devloop/worktrees/devloop-owner-repo-42",
+    }), opts("pr-review-fetch-prompt"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local calls = codex_calls()
+    t.eq(#calls, 3)
+    t.is_true(calls[1].rendered:find("/tmp/fkst-packages-test/github-devloop/worktrees/devloop-owner-repo-42", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Use source_ref and the fetch context below", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("source_ref: kind=external ref=owner/repo#pr/7", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("gh issue view 42 --repo owner/repo", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("gh pr diff 7 --repo owner/repo", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Read related files from the provided worktree", 1, true) ~= nil)
+    t.is_nil(calls[1].stdin:find("diff --git", 1, true))
+    t.is_nil(calls[1].stdin:find("ISSUE_BODY_SENTINEL_MUST_NOT_ENTER_PROMPT", 1, true))
+  end,
+
   test_unanimous_reject_raises_consensus_converge_by_default = function()
     mock_angle("reject", "Minimal angle rejects.")
     mock_angle("abstain", "Structural angle abstains.")

@@ -377,11 +377,7 @@ return {
     t.eq(first_comment.dedup_key ~= second_comment.dedup_key, true)
   end,
 
-  test_gh_issue_view_body_command_and_parse = function()
-    t.eq(
-      core.gh_issue_view_body_cmd("owner/repo", 42),
-      "gh issue view '42' --repo 'owner/repo' --json body"
-    )
+  test_gh_issue_view_state_command_and_parse = function()
     t.eq(
       core.gh_issue_view_state_cmd("owner/repo", 42),
       "gh issue view '42' --repo 'owner/repo' --json labels,state,comments"
@@ -390,8 +386,6 @@ return {
       core.gh_issue_view_result_cmd("owner/repo", 42),
       "gh issue view '42' --repo 'owner/repo' --json labels,comments"
     )
-    t.eq(core.parse_issue_view_body('{"body":"Hello"}'), "Hello")
-
     local state = core.parse_issue_view_state('{"state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[{"body":"hello","author":{"login":"fkst-test-bot"}}]}')
     t.eq(state.state, "OPEN")
     t.eq(state.labels[1], "fkst-dev:enabled")
