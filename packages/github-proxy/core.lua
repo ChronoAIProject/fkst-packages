@@ -8,6 +8,7 @@ local allowed_env = {
 local trusted_bot_login = nil
 local max_branch_len = 160
 local max_marker_value_len = 300
+local max_upsert_marker_len = 500
 local state_stage_rank = {
   thinking = 100,
   ready = 500,
@@ -73,6 +74,11 @@ end
 
 local function is_safe_comment_id(value)
   return is_bounded_string(value, max_marker_value_len) and tostring(value):find("^[%w_%-:/+=]+$") ~= nil
+end
+
+local function is_safe_upsert_marker(value)
+  return is_bounded_string(value, max_upsert_marker_len)
+    and tostring(value):find("^<!%-%- fkst:[%w_%-:/+%.=\" ]+ %-%->$") ~= nil
 end
 
 function M.read_env_command(name)
@@ -194,6 +200,15 @@ local function comment_author_login(comment)
   return nil
 end
 
+local function find_trusted_comment_with_marker(comments, marker, bot_login)
+  for _, comment in ipairs(comments) do
+    if comment_author_login(comment) == bot_login and comment_body(comment):find(marker, 1, true) ~= nil then
+      return comment
+    end
+  end
+  return nil
+end
+
 function M.parse_issue_comments(gh_json_stdout)
   local decoded = json.decode(gh_json_stdout or "{}")
   local comments = {}
@@ -225,13 +240,17 @@ function M.trusted_marker_comment(comments, dedup_key, bot_login)
   if type(comments) ~= "table" then
     return nil
   end
-  local marker = M.comment_marker(dedup_key)
-  for _, comment in ipairs(comments) do
-    if comment_author_login(comment) == bot_login and comment_body(comment):find(marker, 1, true) ~= nil then
-      return comment
-    end
+  return find_trusted_comment_with_marker(comments, M.comment_marker(dedup_key), bot_login)
+end
+
+function M.trusted_comment_with_marker(comments, marker, bot_login)
+  if type(comments) ~= "table" then
+    return nil
   end
-  return nil
+  if not is_safe_upsert_marker(marker) then
+    error("github-proxy: invalid upsert marker")
+  end
+  return find_trusted_comment_with_marker(comments, marker, bot_login)
 end
 
 function M.has_trusted_comment_fragment(comments, fragment, bot_login)

@@ -473,7 +473,8 @@ return {
   end,
 
   test_upsert_comment_creates_then_edits_same_marker_comment = function()
-    local status_body = "github-devloop status\n\nState: reviewing\nVersion: v1\n\n<!-- fkst:github-devloop:status-card:v1 proposal=\"github-devloop/issue/owner/x/42\" -->"
+    local status_marker = "<!-- fkst:github-devloop:status-card:v1 proposal=\"github-devloop/issue/owner/x/42\" -->"
+    local status_body = "github-devloop status\n\nState: reviewing\nVersion: v1\n\n" .. status_marker
     local event = {
       queue = "github_issue_comment_request",
       payload = {
@@ -481,6 +482,7 @@ return {
         issue_number = 42,
         dedup_key = "status-card/comment/github-devloop/issue/owner/x/42",
         upsert = true,
+        upsert_marker = status_marker,
         body = status_body,
       },
     }
@@ -500,14 +502,14 @@ return {
     t.is_true(created:find("State: reviewing", 1, true) ~= nil)
     t.is_true(created:find(core.comment_marker(event.payload.dedup_key), 1, true) ~= nil)
 
-    event.payload.body = "github-devloop status\n\nState: fixing\nVersion: v2\n\n<!-- fkst:github-devloop:status-card:v1 proposal=\"github-devloop/issue/owner/x/42\" -->"
+    event.payload.body = "github-devloop status\n\nState: fixing\nVersion: v2\n\n" .. status_marker
     mock_repo_env()
     mock_write_env("1")
     mock_bot_env()
     mock_comment_view({
       {
         id = "IC_kwDO123",
-        body = created,
+        body = "github-devloop status\n\nState: reviewing\nVersion: v1\n\n" .. status_marker,
         author_login = "fkst-test-bot",
         created_at = "2026-06-03T02:30:00Z",
       },
@@ -554,6 +556,31 @@ return {
       FKST_GITHUB_WRITE = "1",
     }))
     t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh issue comment"), 0)
+    t.eq(count_calls("gh api graphql"), 0)
+  end,
+
+  test_upsert_marker_must_be_real_html_marker = function()
+    local event = {
+      queue = "github_issue_comment_request",
+      payload = {
+        repo = "owner/x",
+        issue_number = 42,
+        dedup_key = "status-card/comment/github-devloop/issue/owner/x/42",
+        upsert = true,
+        upsert_marker = "&lt;!-- fkst:github-devloop:status-card:v1 proposal=\"github-devloop/issue/owner/x/42\" -->",
+        body = "github-devloop status\n\nState: fixing",
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_comment_view({})
+    local result = t.run_department("departments/github_comment/main.lua", event, opts("comment-upsert-bad-marker", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 1)
     t.eq(count_calls("gh issue comment"), 0)
     t.eq(count_calls("gh api graphql"), 0)
   end,

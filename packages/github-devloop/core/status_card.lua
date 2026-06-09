@@ -83,6 +83,7 @@ function M.build_status_card_comment_request(repo, issue_number, proposal_id, cu
   if type(current) ~= "table" or current.state == nil or current.version == nil then
     error("github-devloop: invalid status card state")
   end
+  local marker = M.status_card_marker(proposal_id)
   return {
     schema = "github-proxy.v1",
     repo = repo,
@@ -93,6 +94,7 @@ function M.build_status_card_comment_request(repo, issue_number, proposal_id, cu
       tostring(proposal_id),
     }),
     upsert = true,
+    upsert_marker = marker,
     body = M.render_status_card_body(proposal_id, current, comments),
     source_ref = M.normalize_source_ref(source_ref),
   }

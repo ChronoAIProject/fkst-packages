@@ -38,6 +38,13 @@ local function should_update_existing_comment(payload, existing)
   return existing ~= nil and payload.upsert == true
 end
 
+local function existing_upsert_comment(comments, payload, bot_login)
+  if payload.upsert == true and payload.upsert_marker ~= nil then
+    return core.trusted_comment_with_marker(comments, payload.upsert_marker, bot_login)
+  end
+  return core.trusted_marker_comment(comments, payload.dedup_key, bot_login)
+end
+
 function pipeline(event)
   local payload = event.payload or {}
   local repo = payload.repo
@@ -67,7 +74,7 @@ function pipeline(event)
       error("github-proxy: gh issue view failed: " .. tostring(view.stderr))
     end
     local comments = core.parse_issue_comments(view.stdout)
-    local existing = core.trusted_marker_comment(comments, payload.dedup_key, bot_login)
+    local existing = existing_upsert_comment(comments, payload, bot_login)
     if existing ~= nil and not should_update_existing_comment(payload, existing) then
       log.info("github-proxy: comment marker already present")
       return
