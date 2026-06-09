@@ -527,6 +527,37 @@ return {
     t.is_true(api_call.rendered:find("-f id='IC_kwDO123'", 1, true) ~= nil)
   end,
 
+  test_upsert_contract_requires_boolean_true = function()
+    local dedup = "status-card/comment/github-devloop/issue/owner/x/42"
+    local event = {
+      queue = "github_issue_comment_request",
+      payload = {
+        repo = "owner/x",
+        issue_number = 42,
+        dedup_key = dedup,
+        upsert = "true",
+        body = "github-devloop status\n\nState: fixing",
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_comment_view({
+      {
+        id = "IC_kwDO123",
+        body = "github-devloop status\n\nState: reviewing\n\n" .. core.comment_marker(dedup),
+        author_login = "fkst-test-bot",
+      },
+    })
+    local result = t.run_department("departments/github_comment/main.lua", event, opts("comment-upsert-string-is-dedup", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh issue comment"), 0)
+    t.eq(count_calls("gh api graphql"), 0)
+  end,
+
   test_comment_real_write_failure_errors_for_retry = function()
     local event = {
       queue = "github_issue_comment_request",

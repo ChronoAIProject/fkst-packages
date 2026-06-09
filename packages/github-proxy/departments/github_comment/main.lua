@@ -34,6 +34,10 @@ local function lock_name(repo, issue_number)
   return "github-proxy/" .. runtime_identity(repo, issue_number)
 end
 
+local function should_update_existing_comment(payload, existing)
+  return existing ~= nil and payload.upsert == true
+end
+
 function pipeline(event)
   local payload = event.payload or {}
   local repo = payload.repo
@@ -64,7 +68,7 @@ function pipeline(event)
     end
     local comments = core.parse_issue_comments(view.stdout)
     local existing = core.trusted_marker_comment(comments, payload.dedup_key, bot_login)
-    if existing ~= nil and payload.upsert ~= true then
+    if existing ~= nil and not should_update_existing_comment(payload, existing) then
       log.info("github-proxy: comment marker already present")
       return
     end
@@ -79,7 +83,7 @@ function pipeline(event)
     file.write(path, body)
     local cmd = core.gh_issue_comment_cmd(repo, payload.issue_number, path)
     local action = "comment"
-    if existing ~= nil and payload.upsert == true then
+    if should_update_existing_comment(payload, existing) then
       cmd = core.gh_issue_comment_edit_cmd(existing.id, path)
       action = "comment edit"
     end

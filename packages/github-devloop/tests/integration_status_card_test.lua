@@ -30,6 +30,13 @@ local function mock_env()
 end
 
 return {
+  test_status_card_cron_raiser_contract = function()
+    local raiser = dofile("raisers/status_card_poll.lua")
+    t.eq(raiser.type, "cron")
+    t.eq(raiser.interval, "10m")
+    t.eq(raiser.produces, "devloop_status_card_tick")
+  end,
+
   test_status_card_tick_raises_upsert_for_active_issue = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/2"
