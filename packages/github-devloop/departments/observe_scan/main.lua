@@ -19,31 +19,11 @@ local function read_repo()
   return repo
 end
 
-local function run_cmd(cmd, error_class)
-  local result = exec_sync({ cmd = cmd, timeout = 30 })
-  if result.exit_code ~= 0 then
-    error("github-devloop: " .. error_class .. " failed: " .. tostring(result.stderr))
-  end
-  return result
-end
-
 local function snapshot_time(event)
   if type(event) == "table" and event.ts ~= nil and tostring(event.ts) ~= "" then
     return tostring(event.ts)
   end
   return tostring(now())
-end
-
-local function graph_paths()
-  local paths = {}
-  local listed = exec_sync({ cmd = "find departments -mindepth 2 -maxdepth 2 -name main.lua -type f", timeout = 30 })
-  if listed.exit_code ~= 0 then
-    error("github-devloop: department graph scan failed: " .. tostring(listed.stderr))
-  end
-  for line in tostring(listed.stdout or ""):gmatch("[^\r\n]+") do
-    table.insert(paths, line)
-  end
-  return paths
 end
 
 function pipeline(event)
@@ -56,36 +36,7 @@ function pipeline(event)
     return
   end
 
-  local listed = run_cmd(core.gh_issue_list_observe_cmd(repo, OBSERVE_LIMIT), "gh observe issue list")
-  local entities = {}
-  for _, issue in ipairs(core.parse_issue_list_observe(listed.stdout)) do
-    local issue_number = tostring(issue.number or "")
-    if core.issue_ref_round_trips(repo, issue_number) then
-      local proposal_id = core.proposal_id(repo, issue_number)
-      local viewed = run_cmd(core.gh_issue_view_observe_cmd(repo, issue_number), "gh observe issue view")
-      local current = core.parse_issue_view_observe(viewed.stdout)
-      core.log_forged_markers("observe_scan", proposal_id, current.comments)
-      if core.should_observe_entity(current.labels, current.comments, proposal_id) then
-        table.insert(entities, core.observe_issue_summary(repo, issue_number, current))
-      end
-    end
-  end
-
-  local pr_listed = run_cmd(core.gh_pr_list_observe_cmd(repo, OBSERVE_LIMIT), "gh observe PR list")
-  for _, pr in ipairs(core.parse_pr_list_observe(pr_listed.stdout)) do
-    local pr_number = tostring(pr.number or "")
-    if core.is_safe_pr_number(pr_number) then
-      local viewed = run_cmd(core.gh_pr_view_observe_cmd(repo, pr_number), "gh observe PR view")
-      local current = core.parse_pr_view_observe(viewed.stdout)
-      local summary = core.observe_pr_summary(repo, pr_number, current)
-      if summary ~= nil then
-        core.log_forged_markers("observe_scan", summary.proposal_id, current.comments)
-        table.insert(entities, summary)
-      end
-    end
-  end
-
-  local payload = core.build_state_snapshot_payload(repo, entities, core.devloop_pipeline_graph(graph_paths()), snapshot_time(event))
+  local payload = core.build_state_snapshot_payload(repo, snapshot_time(event), core.observe_scope(OBSERVE_LIMIT, OBSERVE_LIMIT))
   core.log_raise("observe_scan", "github-devloop/observe", "devloop_state_snapshot", payload)
 end
 

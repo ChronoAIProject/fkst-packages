@@ -32,50 +32,6 @@ local function transition_from_history(history)
   }
 end
 
-local function copy_array(value)
-  local copied = {}
-  if type(value) == "string" then
-    table.insert(copied, value)
-  elseif type(value) == "table" then
-    for _, item in ipairs(value) do
-      table.insert(copied, tostring(item))
-    end
-  end
-  table.sort(copied)
-  return copied
-end
-
-local function read_department_spec(path)
-  local previous_pipeline = _G.pipeline
-  local ok, dept = pcall(dofile, path)
-  _G.pipeline = previous_pipeline
-  if not ok or type(dept) ~= "table" or type(dept.spec) ~= "table" then
-    return nil
-  end
-  return dept.spec
-end
-
-function M.devloop_pipeline_graph(department_paths)
-  local paths = department_paths or {}
-  local graph = {}
-  for _, path in ipairs(paths) do
-    local dept = tostring(path):match("departments/([^/]+)/main%.lua$")
-    local spec = dept and read_department_spec(path) or nil
-    if spec ~= nil then
-      table.insert(graph, {
-        dept = dept,
-        consumes = copy_array(spec.consumes),
-        produces = copy_array(spec.produces),
-        fanout = copy_array(spec.fanout),
-      })
-    end
-  end
-  table.sort(graph, function(a, b)
-    return tostring(a.dept) < tostring(b.dept)
-  end)
-  return graph
-end
-
 function M.should_observe_entity(labels, comments, proposal_id)
   local current = M.current_state(comments, proposal_id)
   return current ~= nil and current.state ~= nil
@@ -134,13 +90,22 @@ end
 
 M.observe_entity_summary = M.observe_issue_summary
 
-function M.build_state_snapshot_payload(repo, entities, graph, snapshot_at)
+function M.observe_scope(issue_limit, pr_limit)
+  return {
+    kind = "latest",
+    issue_limit = tonumber(issue_limit or 100) or 100,
+    pr_limit = tonumber(pr_limit or 100) or 100,
+  }
+end
+
+function M.build_state_snapshot_payload(repo, snapshot_at, scope)
   local observed_at = tostring(snapshot_at or "")
   if observed_at == "" then
     observed_at = tostring(now())
   end
+  local snapshot_scope = scope or M.observe_scope()
   return {
-    schema = "github-devloop.state-snapshot.v1",
+    schema = "github-devloop.state-snapshot-ref.v1",
     repo = repo,
     observed_at = observed_at,
     dedup_key = M._dedup_key({
@@ -152,8 +117,7 @@ function M.build_state_snapshot_payload(repo, entities, graph, snapshot_at)
       kind = "external",
       ref = tostring(repo) .. "#state-snapshot",
     },
-    entities = entities or {},
-    graph = graph or {},
+    scope = snapshot_scope,
     artifact = {
       kind = "log",
       queue = "devloop_state_snapshot",
@@ -162,14 +126,54 @@ function M.build_state_snapshot_payload(repo, entities, graph, snapshot_at)
   }
 end
 
+function M.collect_state_snapshot(repo, scope, run_cmd)
+  local snapshot_scope = scope or M.observe_scope()
+  local issue_limit = snapshot_scope.issue_limit or 100
+  local pr_limit = snapshot_scope.pr_limit or 100
+  local entities = {}
+
+  local listed = run_cmd(M.gh_issue_list_observe_cmd(repo, issue_limit), "gh observe issue list")
+  for _, issue in ipairs(M.parse_issue_list_observe(listed.stdout)) do
+    local issue_number = tostring(issue.number or "")
+    if M.issue_ref_round_trips(repo, issue_number) then
+      local proposal_id = M.proposal_id(repo, issue_number)
+      local viewed = run_cmd(M.gh_issue_view_observe_cmd(repo, issue_number), "gh observe issue view")
+      local current = M.parse_issue_view_observe(viewed.stdout)
+      M.log_forged_markers("observe_report", proposal_id, current.comments)
+      if M.should_observe_entity(current.labels, current.comments, proposal_id) then
+        table.insert(entities, M.observe_issue_summary(repo, issue_number, current))
+      end
+    end
+  end
+
+  local pr_listed = run_cmd(M.gh_pr_list_observe_cmd(repo, pr_limit), "gh observe PR list")
+  for _, pr in ipairs(M.parse_pr_list_observe(pr_listed.stdout)) do
+    local pr_number = tostring(pr.number or "")
+    if M.is_safe_pr_number(pr_number) then
+      local viewed = run_cmd(M.gh_pr_view_observe_cmd(repo, pr_number), "gh observe PR view")
+      local current = M.parse_pr_view_observe(viewed.stdout)
+      local summary = M.observe_pr_summary(repo, pr_number, current)
+      if summary ~= nil then
+        M.log_forged_markers("observe_report", summary.proposal_id, current.comments)
+        table.insert(entities, summary)
+      end
+    end
+  end
+
+  return entities
+end
+
 function M.state_snapshot_report_lines(snapshot)
   local artifact = type(snapshot) == "table" and type(snapshot.artifact) == "table" and snapshot.artifact or {}
+  local scope = type(snapshot) == "table" and type(snapshot.scope) == "table" and snapshot.scope or {}
   local lines = {
     "repo=" .. tostring(snapshot and snapshot.repo or ""),
     "observed_at=" .. tostring(snapshot and snapshot.observed_at or ""),
     "artifact=" .. tostring(artifact.kind or "log"),
+    "scope=" .. tostring(scope.kind or "latest")
+      .. " issues=" .. tostring(scope.issue_limit or "")
+      .. " prs=" .. tostring(scope.pr_limit or ""),
     "entities=" .. tostring(type(snapshot) == "table" and type(snapshot.entities) == "table" and #snapshot.entities or 0),
-    "graph_edges=" .. tostring(type(snapshot) == "table" and type(snapshot.graph) == "table" and #snapshot.graph or 0),
   }
   for _, entity in ipairs(type(snapshot) == "table" and snapshot.entities or {}) do
     local transition = entity.recent_transition or {}
