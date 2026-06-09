@@ -304,7 +304,7 @@ return {
     t.eq(count_calls("gh issue view"), 2)
   end,
 
-  test_issue_comment_request_keeps_existing_outbound_log_surface = function()
+  test_issue_comment_request_logs_outbound = function()
     local event = {
       queue = "github_issue_comment_request",
       payload = {
@@ -325,7 +325,15 @@ return {
       require("departments.github_comment.main")
       pipeline(event)
     end)
-    t.eq(has_log_line(dry_lines, { "tag=OUTBOUND" }), false)
+    t.is_true(has_log_line(dry_lines, {
+      "github-proxy",
+      "tag=OUTBOUND",
+      "mode=dry-run",
+      "repo=owner/x",
+      "issue=42",
+      "dedup_key=reply-42",
+      "reason=FKST_GITHUB_WRITE!=1",
+    }))
     t.eq(count_calls("gh issue comment"), 0)
 
     mock_repo_env()
@@ -337,7 +345,15 @@ return {
       require("departments.github_comment.main")
       pipeline(event)
     end)
-    t.eq(has_log_line(real_lines, { "tag=OUTBOUND" }), false)
+    t.is_true(has_log_line(real_lines, {
+      "github-proxy",
+      "tag=OUTBOUND",
+      "mode=real",
+      "repo=owner/x",
+      "issue=42",
+      "dedup_key=reply-42",
+      "result=commented",
+    }))
     t.eq(count_calls("gh issue comment"), 1)
   end,
 

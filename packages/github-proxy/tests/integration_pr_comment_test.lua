@@ -132,11 +132,17 @@ return {
     })
     mock_pr_comment_write()
 
-    local result = t.run_department("departments/github_pr_comment/main.lua", event(), opts("pr-comment-dedup", {
-      FKST_GITHUB_WRITE = "1",
-    }))
+    local lines = run_pr_comment_with_log_capture(event())
 
-    t.eq(result.exit_code, 0)
+    t.is_true(has_log_line(lines, {
+      "github-proxy",
+      "tag=OUTBOUND",
+      "mode=real",
+      "repo=owner/x",
+      "pr=7",
+      "dedup_key=review-result/comment/owner/x/7/v1",
+      "result=deduped",
+    }))
     t.eq(count_calls("gh pr view"), 1)
     t.eq(count_calls("gh pr comment"), 0)
   end,

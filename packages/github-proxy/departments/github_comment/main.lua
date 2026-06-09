@@ -13,6 +13,7 @@ function pipeline(event)
     kind = "issue",
     number = payload.issue_number,
     number_field = "issue_number",
+    log_number_field = "issue",
     view_comments_cmd = core.gh_issue_view_comments_cmd,
     comment_cmd = core.gh_issue_comment_cmd,
     view_label = "gh issue view",

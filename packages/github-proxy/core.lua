@@ -812,6 +812,22 @@ local function comment_runtime_identity(repo, kind, number)
   return id
 end
 
+local function log_comment_outbound(target, mode, repo, dedup_key, outcome_field)
+  local number_field = target.log_number_field or target.number_field
+  local fields = {
+    "github-proxy",
+    "tag=OUTBOUND",
+    "mode=" .. tostring(mode or ""),
+    "repo=" .. tostring(repo or ""),
+    tostring(number_field or "number") .. "=" .. tostring(target.number or ""),
+    "dedup_key=" .. tostring(dedup_key or ""),
+  }
+  if outcome_field ~= nil and outcome_field ~= "" then
+    table.insert(fields, tostring(outcome_field))
+  end
+  log.info(table.concat(fields, " "))
+end
+
 function M.write_comment_request(payload, target)
   local repo = payload.repo
   if repo == nil or repo == "" then
@@ -827,6 +843,7 @@ function M.write_comment_request(payload, target)
   end
 
   if M.read_env("FKST_GITHUB_WRITE") ~= "1" then
+    log_comment_outbound(target, "dry-run", repo, payload.dedup_key, "reason=FKST_GITHUB_WRITE!=1")
     log.info("github-proxy dry-run: would comment on " .. repo .. "#" .. tostring(target.number))
     return
   end
@@ -836,6 +853,7 @@ function M.write_comment_request(payload, target)
   with_lock("github-proxy/" .. runtime_id, function()
     local view = M.gh_exec(target.view_comments_cmd(repo, target.number), 30, target.view_label)
     if M.has_trusted_marker(M.parse_issue_comments(view.stdout), payload.dedup_key, bot_login) then
+      log_comment_outbound(target, "real", repo, payload.dedup_key, "result=deduped")
       log.info("github-proxy: comment marker already present")
       return
     end
@@ -844,6 +862,7 @@ function M.write_comment_request(payload, target)
     local path = "/tmp/fkst-github-proxy-" .. runtime_id .. ".md"
     file.write(path, body)
     M.gh_exec(target.comment_cmd(repo, target.number, path), 30, target.comment_label)
+    log_comment_outbound(target, "real", repo, payload.dedup_key, "result=commented")
   end)
 end
 
