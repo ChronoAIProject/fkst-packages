@@ -812,6 +812,27 @@ local function comment_runtime_identity(repo, kind, number)
   return id
 end
 
+local function comment_outbound_log(target, repo, payload, mode, outcome_field)
+  local number_field = "number"
+  if target.kind == "issue" then
+    number_field = "issue"
+  elseif target.kind == "pr" then
+    number_field = "pr"
+  end
+  local fields = {
+    "github-proxy",
+    "tag=OUTBOUND",
+    "mode=" .. tostring(mode or ""),
+    "repo=" .. tostring(repo or ""),
+    number_field .. "=" .. tostring(target.number or ""),
+    "dedup_key=" .. tostring(payload and payload.dedup_key or ""),
+  }
+  if outcome_field ~= nil and outcome_field ~= "" then
+    table.insert(fields, tostring(outcome_field))
+  end
+  log.info(table.concat(fields, " "))
+end
+
 function M.write_comment_request(payload, target)
   local repo = payload.repo
   if repo == nil or repo == "" then
@@ -827,6 +848,7 @@ function M.write_comment_request(payload, target)
   end
 
   if M.read_env("FKST_GITHUB_WRITE") ~= "1" then
+    comment_outbound_log(target, repo, payload, "dry-run", "reason=FKST_GITHUB_WRITE!=1")
     log.info("github-proxy dry-run: would comment on " .. repo .. "#" .. tostring(target.number))
     return
   end
@@ -844,6 +866,7 @@ function M.write_comment_request(payload, target)
     local path = "/tmp/fkst-github-proxy-" .. runtime_id .. ".md"
     file.write(path, body)
     M.gh_exec(target.comment_cmd(repo, target.number, path), 30, target.comment_label)
+    comment_outbound_log(target, repo, payload, "real", "result=commented")
   end)
 end
 
