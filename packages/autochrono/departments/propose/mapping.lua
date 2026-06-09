@@ -16,6 +16,7 @@ function M.build_proposal(issue)
     dedup_key = core.proposal_dedup_key(fields.repo, fields.issue_number, fields.updated_at),
     title = proposal_title(fields),
     source_ref = fields.source_ref,
+    source_text_ref = fields.source_text_ref,
   }
 end
 

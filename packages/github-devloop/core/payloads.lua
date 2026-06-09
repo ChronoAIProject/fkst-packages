@@ -130,6 +130,7 @@ function M.build_proposal(issue)
     title = title,
     dedup_key = M.proposal_dedup_key(proposal_id, issue.updated_at),
     source_ref = M.normalize_source_ref(issue.source_ref),
+    source_text_ref = issue.source_text_ref,
   }
 end
 
@@ -159,6 +160,7 @@ function M.build_loop_proposal(repo, issue_number, current, source_ref, n, conve
     title = current.title,
     updated_at = current.updated_at,
     source_ref = source_ref,
+    source_text_ref = current.source_text_ref,
   }
   local proposal = M.build_proposal(issue)
   proposal.dedup_key = proposal.dedup_key .. "/loop/" .. tostring(n)
@@ -188,6 +190,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
       "review",
     }),
     source_ref = M.normalize_source_ref(source_ref),
+    source_text_ref = type(current_issue) == "table" and current_issue.source_text_ref or nil,
   }
 end
 

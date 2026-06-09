@@ -62,6 +62,7 @@ local mock_pr_fix = h.mock_pr_fix
 local mock_pr_origin_sequence = h.mock_pr_origin_sequence
 local mock_pr_head = h.mock_pr_head
 local mock_pr_diff = h.mock_pr_diff
+local mock_pr_review_source = h.mock_pr_review_source
 local mock_branch_exists = h.mock_branch_exists
 local mock_meta_codex = h.mock_meta_codex
 local mock_setup_worktree = h.mock_setup_worktree
@@ -151,6 +152,7 @@ return {
     })
     local origin_marker_for_review = core.pr_origin_marker(event.proposal_id, "42", branch, expected_version, "dev")
     mock_pr_origin({ origin_marker_for_review }, branch, "feedface")
+    mock_pr_review_source(nil, branch, "feedface")
 
     local review_result = run_review_pr(reviewing_raise.payload, opts("fix-write-rereview"))
     t.eq(review_result.exit_code, 0)
@@ -594,6 +596,7 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
+    mock_pr_review_source()
 
     local result = run_review_loop(event, opts("review-loop-under-budget"))
     t.eq(result.exit_code, 0)
@@ -624,6 +627,7 @@ return {
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", full_version),
     })
+    mock_pr_review_source()
 
     local result = run_review_loop(event, opts("review-loop-long-version-apply"))
     t.eq(result.exit_code, 0)

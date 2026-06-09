@@ -3,6 +3,7 @@ local M = {}
 local max_key_len = 200
 local max_title_len = 240
 local max_body_len = 12000
+local max_source_text_ref_len = 500
 local max_repo_key_len = 100
 local max_issue_key_len = 30
 local max_update_key_len = 50
@@ -207,6 +208,7 @@ function M.require_issue_fields(issue)
     url = require_bounded_field(issue, "url", max_key_len),
     updated_at = require_bounded_field(issue, "updated_at", max_key_len),
     source_ref = M.normalize_source_ref(require_field(issue, "source_ref")),
+    source_text_ref = issue.source_text_ref,
   }
 end
 
@@ -266,6 +268,9 @@ function M.validate_proposal(proposal)
     return false
   end
   if proposal.body ~= nil and not is_bounded_string(proposal.body, max_body_len) then
+    return false
+  end
+  if proposal.source_text_ref ~= nil and not is_bounded_string(proposal.source_text_ref, max_source_text_ref_len) then
     return false
   end
   return has_bounded_source_ref(proposal.source_ref)

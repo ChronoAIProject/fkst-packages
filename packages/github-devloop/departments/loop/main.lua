@@ -106,6 +106,15 @@ function pipeline(event)
     end
 
     local next_n = round + 1
+    local source_text_ref = core.write_source_snapshot(
+      core.read_env("FKST_RUNTIME_ROOT"),
+      "issue",
+      repo,
+      issue_number,
+      tostring(current.updated_at or "") .. "/loop/" .. tostring(next_n),
+      core.render_issue_source_text(view.stdout)
+    )
+    current.source_text_ref = source_text_ref
     local proposal = core.build_loop_proposal(repo, issue_number, current, unresolved.source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,

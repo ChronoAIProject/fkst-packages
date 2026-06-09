@@ -12,6 +12,7 @@ local max_key_len = 200
 local max_title_len = 240
 local max_body_len = 12000
 local max_context_len = 8000
+local max_source_text_ref_len = 500
 local max_reply_len = 2000
 local max_framing_len = 1000
 local max_narrowed_question_len = 2000
@@ -19,8 +20,6 @@ local max_digest_len = 600
 local max_prior_round_digests = 12
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
-local untrusted_source_begin = "BEGIN UNTRUSTED SOURCE DATA"
-local untrusted_source_end = "END UNTRUSTED SOURCE DATA"
 
 function M.verdict_mode(proposal)
   if type(proposal) == "table" and proposal.verdict_mode == "gate" then
@@ -95,51 +94,6 @@ local function has_source_ref(value)
   return type(value) == "table"
     and is_bounded_string(value.kind, max_key_len)
     and is_bounded_string(value.ref, max_key_len)
-end
-
-local function shell_single_quote(value)
-  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
-end
-
-local function parse_github_source_ref(source_ref)
-  if not has_source_ref(source_ref) or source_ref.kind ~= "external" then
-    return nil
-  end
-  local ref = tostring(source_ref.ref or "")
-  local entity_type, number = ref:match("#(issue)/(%d+)$")
-  if entity_type == nil then
-    entity_type, number = ref:match("#(pr)/(%d+)$")
-  end
-  local repo = entity_type and ref:sub(1, #ref - #("#" .. entity_type .. "/" .. number)) or nil
-  if repo == nil or repo == "" then
-    return nil
-  end
-  local numeric = tonumber(number)
-  if numeric == nil or numeric < 1 or numeric % 1 ~= 0 then
-    return nil
-  end
-  return {
-    repo = repo,
-    entity_type = entity_type,
-    number = tostring(number),
-  }
-end
-
-function M.gh_issue_view_source_cmd(repo, issue_number)
-  return "gh issue view " .. shell_single_quote(issue_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --json title,body,comments"
-end
-
-function M.gh_pr_view_source_cmd(repo, pr_number)
-  return "gh pr view " .. shell_single_quote(pr_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --json title,body,comments,headRefName,headRefOid,state"
-end
-
-function M.gh_pr_diff_source_cmd(repo, pr_number)
-  return "gh pr diff " .. shell_single_quote(pr_number)
-    .. " --repo " .. shell_single_quote(repo)
 end
 
 local function normalize_round(value)
@@ -232,7 +186,7 @@ function M.is_eligible(proposal)
   if not is_path_safe_key(proposal.dedup_key) then
     return false
   end
-  if parse_github_source_ref(proposal.source_ref) == nil then
+  if not has_source_ref(proposal.source_ref) then
     return false
   end
   if not is_bounded_string(proposal.title, max_title_len) then
@@ -242,6 +196,9 @@ function M.is_eligible(proposal)
     return false
   end
   if proposal.context ~= nil and not is_bounded_string(proposal.context, max_context_len) then
+    return false
+  end
+  if proposal.source_text_ref ~= nil and #proposal.source_text_ref > max_source_text_ref_len then
     return false
   end
   if normalize_round(proposal.round) == nil then
@@ -261,137 +218,15 @@ function M.angles(proposal)
   return normalized_angles(proposal)
 end
 
-local function json_comment_author(comment)
-  if type(comment.author) == "table" and comment.author.login ~= nil then
-    return tostring(comment.author.login)
-  end
-  if comment.author_login ~= nil then
-    return tostring(comment.author_login)
-  end
-  return "unknown"
-end
-
-local function render_comments(comments)
-  local lines = {}
-  for index, comment in ipairs(comments or {}) do
-    if type(comment) == "table" and comment.body ~= nil then
-      table.insert(lines, "Comment #" .. tostring(index) .. " by " .. json_comment_author(comment) .. ":")
-      table.insert(lines, tostring(comment.body))
-      table.insert(lines, "")
-    elseif type(comment) == "string" then
-      table.insert(lines, "Comment #" .. tostring(index) .. ":")
-      table.insert(lines, comment)
-      table.insert(lines, "")
-    end
-  end
-  if #lines > 0 then
-    table.remove(lines)
-  end
-  return table.concat(lines, "\n")
-end
-
-local function render_issue_source(stdout)
-  local decoded = json.decode(stdout or "{}")
-  local comments = render_comments(decoded.comments)
-  local lines = {
-    untrusted_source_begin,
-    "GitHub issue title:",
-    tostring(decoded.title or ""),
-    "",
-    "GitHub issue body:",
-    tostring(decoded.body or ""),
-  }
-  if comments ~= "" then
-    table.insert(lines, "")
-    table.insert(lines, "GitHub issue comments:")
-    table.insert(lines, comments)
-  end
-  table.insert(lines, untrusted_source_end)
-  return table.concat(lines, "\n")
-end
-
-local function parse_pr_head(stdout)
-  local decoded = json.decode(stdout or "{}")
-  return {
-    title = tostring(decoded.title or ""),
-    body = tostring(decoded.body or ""),
-    comments = decoded.comments,
-    state = tostring(decoded.state or ""),
-    head_ref_name = decoded.headRefName or decoded.head_ref_name,
-    head_sha = decoded.headRefOid or decoded.head_ref_oid,
-  }
-end
-
-local function render_pr_source(pr, diff)
-  local comments = render_comments(pr.comments)
-  local lines = {
-    untrusted_source_begin,
-    "GitHub PR title:",
-    tostring(pr.title or ""),
-    "",
-    "GitHub PR state:",
-    tostring(pr.state or ""),
-    "",
-    "GitHub PR head:",
-    tostring(pr.head_ref_name or "") .. " " .. tostring(pr.head_sha or ""),
-    "",
-    "GitHub PR body:",
-    tostring(pr.body or ""),
-  }
-  if comments ~= "" then
-    table.insert(lines, "")
-    table.insert(lines, "GitHub PR comments:")
-    table.insert(lines, comments)
-  end
-  table.insert(lines, "")
-  table.insert(lines, "GitHub PR diff:")
-  table.insert(lines, tostring(diff or ""))
-  table.insert(lines, untrusted_source_end)
-  return table.concat(lines, "\n")
-end
-
 function M.fetch_source_text(proposal)
   if type(proposal) ~= "table" then
     error("consensus: proposal must be a table")
   end
-  local source = parse_github_source_ref(proposal.source_ref)
-  if source == nil then
-    return nil, "unsupported source_ref"
+  if proposal.source_text_ref == nil or proposal.source_text_ref == "" then
+    return proposal.body
   end
 
-  if source.entity_type == "issue" then
-    local result = exec_sync({ cmd = M.gh_issue_view_source_cmd(source.repo, source.number), timeout = 30 })
-    if type(result) ~= "table" or result.exit_code ~= 0 then
-      error("consensus: gh issue source view failed: " .. tostring(result and result.stderr))
-    end
-    return render_issue_source(result.stdout)
-  end
-
-  local before = exec_sync({ cmd = M.gh_pr_view_source_cmd(source.repo, source.number), timeout = 30 })
-  if type(before) ~= "table" or before.exit_code ~= 0 then
-    error("consensus: gh pr source view failed: " .. tostring(before and before.stderr))
-  end
-  local before_pr = parse_pr_head(before.stdout)
-  if before_pr.state:lower() ~= "open" then
-    error("consensus: PR source is not open")
-  end
-
-  local diff = exec_sync({ cmd = M.gh_pr_diff_source_cmd(source.repo, source.number), timeout = 30 })
-  if type(diff) ~= "table" or diff.exit_code ~= 0 then
-    error("consensus: gh pr diff failed: " .. tostring(diff and diff.stderr))
-  end
-
-  local after = exec_sync({ cmd = M.gh_pr_view_source_cmd(source.repo, source.number), timeout = 30 })
-  if type(after) ~= "table" or after.exit_code ~= 0 then
-    error("consensus: gh pr source recheck failed: " .. tostring(after and after.stderr))
-  end
-  local after_pr = parse_pr_head(after.stdout)
-  if tostring(after_pr.head_ref_name or "") ~= tostring(before_pr.head_ref_name or "")
-    or tostring(after_pr.head_sha or "") ~= tostring(before_pr.head_sha or "")
-    or tostring(after_pr.state or ""):lower() ~= "open" then
-    error("consensus: PR source changed while reading diff; retrying")
-  end
-  return render_pr_source(before_pr, diff.stdout)
+  return file.read(tostring(proposal.source_text_ref))
 end
 
 function M.render_template(template, vars)

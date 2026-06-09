@@ -69,10 +69,19 @@ return {
 
   test_is_eligible_rejects_missing_source_ref_and_wrong_schema = function()
     t.eq(core.is_eligible(proposal({ source_ref = false })), false)
-    t.eq(core.is_eligible(proposal({ source_ref = { kind = "proposal", ref = "demo/consensus/42" } })), false)
     t.eq(core.is_eligible(proposal({ schema = "other.proposal.v1" })), false)
     t.eq(core.is_eligible(proposal({ proposal_id = "../bad" })), false)
     t.eq(core.is_eligible(proposal({ dedup_key = "bad key" })), false)
+  end,
+
+  test_is_eligible_accepts_source_agnostic_ref_and_bounded_source_text_ref = function()
+    t.eq(core.is_eligible(proposal({
+      source_ref = { kind = "proposal", ref = "demo/consensus/42" },
+      source_text_ref = "/tmp/fkst-consensus-source.txt",
+    })), true)
+    t.eq(core.is_eligible(proposal({
+      source_text_ref = string.rep("x", 501),
+    })), false)
   end,
 
   test_is_eligible_rejects_too_many_angles = function()
@@ -363,7 +372,7 @@ return {
     t.eq(payload.framing, "Only implement the bounded parser fix.")
     t.eq(payload.dedup_key, "consensus:proposal-42-v1")
     -- source_ref is normalized to {kind, ref} (a fresh table, not the input identity)
-    t.eq(payload.source_ref.kind, "proposal")
+    t.eq(payload.source_ref.kind, "external")
     t.eq(payload.source_ref.ref, "owner/repo#issue/42")
 
     -- order preserved, each item pinned to {angle, verdict}
@@ -512,7 +521,7 @@ return {
     t.eq(payload.round, 2)
     t.eq(payload.narrowed_question, "Narrow the disagreement.")
     t.eq(payload.dedup_key, "consensus:proposal-42-v1/loop/2")
-    t.eq(payload.source_ref.kind, "proposal")
+    t.eq(payload.source_ref.kind, "external")
     t.eq(payload.source_ref.ref, "owner/repo#issue/42")
     t.eq(#payload.angle_digests, 3)
     t.eq(payload.angle_digests[1].reply, "minimal reply")

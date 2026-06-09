@@ -53,6 +53,95 @@ function M.comments_from_json(comments_json)
   return comments
 end
 
+local function json_comment_author(comment)
+  if type(comment) == "table" and comment.author_login ~= nil then
+    return tostring(comment.author_login)
+  end
+  if type(comment) == "table" and type(comment.author) == "table" and comment.author.login ~= nil then
+    return tostring(comment.author.login)
+  end
+  return "unknown"
+end
+
+local function render_source_comments(comments)
+  local lines = {}
+  for index, comment in ipairs(comments or {}) do
+    if type(comment) == "table" and comment.body ~= nil then
+      table.insert(lines, "Comment #" .. tostring(index) .. " by " .. json_comment_author(comment) .. ":")
+      table.insert(lines, tostring(comment.body))
+      table.insert(lines, "")
+    elseif type(comment) == "string" then
+      table.insert(lines, "Comment #" .. tostring(index) .. ":")
+      table.insert(lines, comment)
+      table.insert(lines, "")
+    end
+  end
+  if #lines > 0 then
+    table.remove(lines)
+  end
+  return table.concat(lines, "\n")
+end
+
+function M.render_issue_source_text(stdout)
+  local decoded = json.decode(stdout or "{}")
+  local comments = render_source_comments(decoded.comments)
+  local lines = {
+    M._untrusted_issue_data_begin,
+    "GitHub issue title:",
+    tostring(decoded.title or ""),
+    "",
+    "GitHub issue body:",
+    tostring(decoded.body or ""),
+  }
+  if comments ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "GitHub issue comments:")
+    table.insert(lines, comments)
+  end
+  table.insert(lines, M._untrusted_issue_data_end)
+  return table.concat(lines, "\n")
+end
+
+function M.parse_pr_source_view(stdout)
+  local decoded = json.decode(stdout or "{}")
+  return {
+    title = tostring(decoded.title or ""),
+    body = tostring(decoded.body or ""),
+    comments = decoded.comments,
+    state = tostring(decoded.state or ""),
+    head_ref_name = decoded.headRefName or decoded.head_ref_name,
+    head_sha = decoded.headRefOid or decoded.head_ref_oid,
+  }
+end
+
+function M.render_pr_source_text(pr, diff)
+  local comments = render_source_comments(pr and pr.comments)
+  local lines = {
+    M._untrusted_issue_data_begin,
+    "GitHub PR title:",
+    tostring(pr and pr.title or ""),
+    "",
+    "GitHub PR state:",
+    tostring(pr and pr.state or ""),
+    "",
+    "GitHub PR head:",
+    tostring(pr and pr.head_ref_name or "") .. " " .. tostring(pr and pr.head_sha or ""),
+    "",
+    "GitHub PR body:",
+    tostring(pr and pr.body or ""),
+  }
+  if comments ~= "" then
+    table.insert(lines, "")
+    table.insert(lines, "GitHub PR comments:")
+    table.insert(lines, comments)
+  end
+  table.insert(lines, "")
+  table.insert(lines, "GitHub PR diff:")
+  table.insert(lines, tostring(diff or ""))
+  table.insert(lines, M._untrusted_issue_data_end)
+  return table.concat(lines, "\n")
+end
+
 local function label_names(labels_json)
   local labels = {}
   for _, label in ipairs(labels_json or {}) do

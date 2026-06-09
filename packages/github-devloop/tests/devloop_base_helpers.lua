@@ -677,6 +677,25 @@ local function mock_issue_body(body)
   })
 end
 
+local function mock_issue_source(fields)
+  fields = fields or {}
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("--json title,body,comments", {
+    stdout = string.format(
+      '{"title":"%s","body":"%s","comments":[%s]}\n',
+      json_string(fields.title or "Implement decision recorder"),
+      json_string(fields.body or "Body from GitHub"),
+      render_comment(fields.comment or { body = "Source comment", author_login = "octocat" })
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_issue_result(labels, comments)
   set_pr_phase_comments(labels or { "fkst-dev:thinking" }, comments)
   local rendered_labels = {}
@@ -695,6 +714,11 @@ local function mock_issue_result(labels, comments)
 end
 
 local function mock_issue_loop(labels, comments, extra)
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
   local rendered_labels = {}
   for _, label in ipairs(labels or { "fkst-dev:thinking" }) do
     table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
@@ -946,6 +970,7 @@ return {
   set_pending_pr_origin = set_pending_pr_origin,
   take_pending_pr_origin = take_pending_pr_origin,
   mock_issue_body = mock_issue_body,
+  mock_issue_source = mock_issue_source,
   mock_issue_result = mock_issue_result,
   mock_issue_loop = mock_issue_loop,
   mock_issue_reconcile = mock_issue_reconcile,

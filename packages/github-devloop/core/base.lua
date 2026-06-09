@@ -15,6 +15,7 @@ local max_pr_issue_context_len = 3000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
 local max_update_key_len = 50
+local max_source_text_ref_len = 500
 local max_version_key_len = 40
 local max_worktree_prefix_len = 90
 local max_branch_len = 160
@@ -630,6 +631,52 @@ function M.implement_worktree_path(runtime_root, repo, issue_number, impl_versio
   return root:gsub("/+$", "") .. "/worktrees/devloop-" .. slug .. "-" .. suffix
 end
 
+local function runtime_root_path(runtime_root)
+  local root = trim(runtime_root)
+  if root == "" or root:find("[\r\n]") ~= nil then
+    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+  end
+  return root:gsub("/+$", "")
+end
+
+function M.source_snapshot_path(runtime_root, kind, repo, number, version)
+  local entity_kind = tostring(kind or "")
+  if entity_kind ~= "issue" and entity_kind ~= "pr" then
+    error("github-devloop: invalid source snapshot kind")
+  end
+  local root = runtime_root_path(runtime_root)
+  local suffix = decimal_checksum(
+    root
+      .. "#"
+      .. entity_kind
+      .. "#"
+      .. tostring(repo or "")
+      .. "#"
+      .. tostring(number or "")
+      .. "#"
+      .. tostring(version or "")
+  )
+  local path = "/tmp/fkst-github-devloop-source-"
+    .. entity_kind
+    .. "-"
+    .. M.safe_repo(repo):gsub("/", "-")
+    .. "-"
+    .. M.safe_issue(number)
+    .. "-"
+    .. suffix
+    .. ".txt"
+  if #path > max_source_text_ref_len then
+    error("github-devloop: source snapshot path is too long")
+  end
+  return path
+end
+
+function M.write_source_snapshot(runtime_root, kind, repo, number, version, text)
+  local path = M.source_snapshot_path(runtime_root, kind, repo, number, version)
+  file.write(path, tostring(text or ""))
+  return path
+end
+
 function M.bounded_body(value)
   local text = tostring(value or "")
   if text == "" then
@@ -787,6 +834,7 @@ M._max_impl_output_len = max_impl_output_len
 M._max_pr_diff_len = max_pr_diff_len
 M._max_pr_issue_context_len = max_pr_issue_context_len
 M._max_pr_title_len = max_pr_title_len
+M._max_source_text_ref_len = max_source_text_ref_len
 M._action_label = action_label
 M._intake_label = intake_label
 M._reason_label = reason_label

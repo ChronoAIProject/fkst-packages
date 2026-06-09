@@ -38,6 +38,7 @@ local mock_issue_state = h.mock_issue_state
 local state_from_labels = h.state_from_labels
 local with_default_state_marker = h.with_default_state_marker
 local mock_issue_body = h.mock_issue_body
+local mock_issue_source = h.mock_issue_source
 local mock_issue_result = h.mock_issue_result
 local mock_issue_loop = h.mock_issue_loop
 local mock_issue_reconcile = h.mock_issue_reconcile
@@ -84,6 +85,7 @@ local find_raise = h.find_raise
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
     mock_issue_state({ "fkst-dev:enabled" })
+    mock_issue_source()
 
     local result = run_observe(issue(), opts("observe-opt-in"))
     t.eq(result.exit_code, 0)
@@ -94,13 +96,15 @@ return {
     t.is_nil(result.raises[1].payload.body)
     t.eq(result.raises[1].payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")
+    t.is_true(result.raises[1].payload.source_text_ref ~= nil)
 
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.eq(label_raise.payload.schema, "github-proxy.label.v1")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:thinking")
     t.eq(label_raise.payload.issue_number, 42)
-    t.eq(count_calls("gh issue view"), 1)
+    t.eq(count_calls("gh issue view"), 2)
     t.eq(count_calls("--json labels,state"), 1)
+    t.eq(count_calls("--json title,body,comments"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -243,6 +247,7 @@ return {
 
   test_observe_uses_current_github_state_not_payload_state = function()
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN")
+    mock_issue_source()
 
     local result = run_observe(issue({ state = "CLOSED" }), opts("observe-stale-state"))
     t.eq(result.exit_code, 0)
@@ -261,6 +266,7 @@ return {
 
   test_observe_issue_does_not_fetch_body_for_proposal_payload = function()
     mock_issue_state({ "fkst-dev:enabled" })
+    mock_issue_source()
     mock_issue_view_failure("--json body", "forced body failure")
 
 	    local result = run_observe(issue(), opts("observe-no-body-view"))
@@ -274,12 +280,14 @@ return {
   test_observe_re_raises_until_thinking_label_is_on_issue = function()
     local run_opts = opts("observe-idempotent")
     mock_issue_state({ "fkst-dev:enabled" })
+    mock_issue_source()
 
     local first = run_observe(issue(), run_opts)
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 3)
 
     mock_issue_state({ "fkst-dev:enabled" })
+    mock_issue_source()
     local second = run_observe(issue(), run_opts)
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 3)

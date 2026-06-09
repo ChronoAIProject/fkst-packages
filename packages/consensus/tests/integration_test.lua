@@ -71,54 +71,39 @@ local function mock_meta(line, exit_code)
   })
 end
 
-local function json_string(value)
-  return '"' .. tostring(value or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n") .. '"'
+local function source_file(name, text)
+  local path = "/tmp/fkst-consensus-test-source-" .. nonce() .. "-" .. tostring(name) .. ".txt"
+  file.write(path, tostring(text or ""))
+  return path
 end
 
-local function mock_issue_source(extra)
+local function proposal_source(extra)
   extra = extra or {}
   local body = extra.body or "Full GitHub issue body."
   local comment = extra.comment or "Full GitHub issue comment."
-  t.mock_command("gh issue view", {
-    stdout = '{"title":'
-      .. json_string(extra.title or "Adopt consensus package")
-      .. ',"body":'
-      .. json_string(body)
-      .. ',"comments":[{"body":'
-      .. json_string(comment)
-      .. ',"author":{"login":"octocat"}}]}',
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
-local function mock_pr_source(diff)
-  local pr_json = '{"title":"Review candidate","body":"PR body","state":"OPEN","headRefName":"branch","headRefOid":"def456","comments":[{"body":"PR comment","author":{"login":"reviewer"}}]}'
-  t.mock_command("gh pr view", {
-    stdout = pr_json,
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("gh pr diff", {
-    stdout = diff or "diff --git a/core.lua b/core.lua\n+FULL_PR_DIFF_SENTINEL\n",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("gh pr view", {
-    stdout = pr_json,
-    stderr = "",
-    exit_code = 0,
-  })
+  return source_file(extra.name or "issue", table.concat({
+    "BEGIN UNTRUSTED SOURCE DATA",
+    "GitHub issue title:",
+    extra.title or "Adopt consensus package",
+    "",
+    "GitHub issue body:",
+    body,
+    "",
+    "GitHub issue comments:",
+    "Comment #1 by octocat:",
+    comment,
+    "END UNTRUSTED SOURCE DATA",
+  }, "\n"))
 end
 
 return {
   test_all_angles_approve_raises_consensus_reached = function()
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("approve", "Structural angle approves.")
     mock_angle("approve", "Delete angle approves.")
 
-    local result = run_decide(proposal(), opts("all-approve"))
+    local result = run_decide(input, opts("all-approve"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_reached")
@@ -143,13 +128,13 @@ return {
   end,
 
   test_unanimous_abstain_raises_consensus_converge = function()
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     mock_angle("abstain", "Minimal angle needs narrower scope.")
     mock_angle("abstain", "Structural angle needs clearer boundaries.")
     mock_angle("abstain", "Delete angle needs proof the scope is necessary.")
     mock_meta("converge: What concrete evidence would make the narrowed scope approvable?")
 
-    local result = run_decide(proposal(), opts("all-abstain"))
+    local result = run_decide(input, opts("all-abstain"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
@@ -158,13 +143,13 @@ return {
   end,
 
   test_split_verdicts_spawn_meta_and_raise_consensus_converge = function()
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("abstain", "Structural angle needs one blocker resolved.")
     mock_angle("approve", "Delete angle approves.")
     mock_meta("converge: Should structural concerns block this proposal?")
 
-    local result = run_decide(proposal(), opts("split"))
+    local result = run_decide(input, opts("split"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
@@ -187,13 +172,13 @@ return {
   end,
 
   test_converge_mode_reject_outputs_raise_consensus_converge = function()
-    mock_issue_source()
+    local input = proposal({ verdict_mode = "converge", source_text_ref = proposal_source() })
     mock_angle("reject", "Minimal angle rejects but converge mode cannot reject.")
     mock_angle("approve", "Structural angle approves.")
     mock_angle("approve", "Delete angle approves.")
     mock_meta("converge: What concern prevents approval?")
 
-    local result = run_decide(proposal({ verdict_mode = "converge" }), opts("converge-reject-output"))
+    local result = run_decide(input, opts("converge-reject-output"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
@@ -203,12 +188,12 @@ return {
   end,
 
   test_gate_mode_unanimous_reject_raises_consensus_reached_reject = function()
-    mock_issue_source()
+    local input = proposal({ verdict_mode = "gate", source_text_ref = proposal_source() })
     mock_angle("reject", "Minimal angle rejects the diff.")
     mock_angle("reject", "Structural angle rejects the diff.")
     mock_angle("reject", "Delete angle rejects the diff.")
 
-    local result = run_decide(proposal({ verdict_mode = "gate" }), opts("gate-all-reject"))
+    local result = run_decide(input, opts("gate-all-reject"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_reached")
@@ -217,13 +202,13 @@ return {
   end,
 
   test_gate_mode_meta_reject_raises_consensus_reached_reject = function()
-    mock_issue_source()
+    local input = proposal({ verdict_mode = "gate", source_text_ref = proposal_source() })
     mock_angle("reject", "Minimal angle rejects the diff.")
     mock_angle("approve", "Structural angle approves.")
     mock_angle("reject", "Delete angle rejects the diff.")
     mock_meta("reached:reject reject until the failing test is fixed")
 
-    local result = run_decide(proposal({ verdict_mode = "gate" }), opts("gate-meta-reject"))
+    local result = run_decide(input, opts("gate-meta-reject"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_reached")
@@ -234,13 +219,13 @@ return {
   end,
 
   test_meta_reached_after_split_raises_consensus_reached = function()
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("abstain", "Structural angle abstains but accepts the narrowed framing.")
     mock_angle("approve", "Delete angle approves.")
     mock_meta("reached:approve approve the narrowed framing")
 
-    local result = run_decide(proposal(), opts("split-meta-reached"))
+    local result = run_decide(input, opts("split-meta-reached"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_reached")
@@ -252,13 +237,13 @@ return {
   end,
 
   test_abstain_raises_consensus_converge = function()
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("abstain", "Structural angle abstains.")
     mock_angle("approve", "Delete angle approves.")
     mock_meta("converge: Ask structural to name the one blocker that prevents approval.")
 
-    local result = run_decide(proposal(), opts("abstain"))
+    local result = run_decide(input, opts("abstain"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
@@ -266,7 +251,7 @@ return {
   end,
 
   test_failed_codex_call_raises_consensus_converge = function()
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     t.mock_command("codex exec", {
       stderr = "forced failure",
@@ -275,22 +260,28 @@ return {
     mock_angle("approve", "Delete angle approves.")
     mock_meta("converge: Retry the failed structural angle with a concrete blocker.")
 
-    local result = run_decide(proposal(), opts("codex-fails"))
+    local result = run_decide(input, opts("codex-fails"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
-    t.eq(result.raises[1].payload.angle_digests[2].verdict, "invalid")
+    local invalid_count = 0
+    for _, item in ipairs(result.raises[1].payload.angle_digests) do
+      if item.verdict == "invalid" then
+        invalid_count = invalid_count + 1
+      end
+    end
+    t.eq(invalid_count, 1)
     t.eq(#codex_calls(), 4)
   end,
 
   test_unparseable_output_raises_consensus_converge_with_default_question = function()
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     t.mock_command("codex exec", { stdout = "no verdict here", exit_code = 0 })
     t.mock_command("codex exec", { stdout = "still nothing useful", exit_code = 0 })
     t.mock_command("codex exec", { stdout = "garbage output", exit_code = 0 })
     mock_meta("malformed")
 
-    local result = run_decide(proposal(), opts("unparseable"))
+    local result = run_decide(input, opts("unparseable"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
@@ -307,11 +298,11 @@ return {
   end,
 
   test_angles_override_runs_only_named_angles = function()
-    mock_issue_source()
+    local input = proposal({ angles = { "minimal", "delete" }, source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("approve", "Delete angle approves.")
 
-    local result = run_decide(proposal({ angles = { "minimal", "delete" } }), opts("angles-override"))
+    local result = run_decide(input, opts("angles-override"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].payload.decision, "approve")
@@ -325,17 +316,17 @@ return {
 
   test_same_dedup_key_skips_second_run = function()
     local run_opts = opts("cache-hit")
-    mock_issue_source()
+    local input = proposal({ source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("approve", "Structural angle approves.")
     mock_angle("approve", "Delete angle approves.")
 
-    local first = run_decide(proposal(), run_opts)
+    local first = run_decide(input, run_opts)
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 1)
 
     -- identical dedup_key -> idempotent skip, no new codex calls
-    local second = run_decide(proposal(), run_opts)
+    local second = run_decide(input, run_opts)
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 0)
     t.eq(#codex_calls(), 3)
@@ -343,42 +334,46 @@ return {
 
   test_new_version_reruns_consensus = function()
     local run_opts = opts("new-version")
-    mock_issue_source()
+    local first_input = proposal({ source_text_ref = proposal_source() })
     mock_angle("approve", "Minimal angle approves.")
     mock_angle("approve", "Structural angle approves.")
     mock_angle("approve", "Delete angle approves.")
 
-    local first = run_decide(proposal(), run_opts)
+    local first = run_decide(first_input, run_opts)
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 1)
     t.eq(first.raises[1].payload.dedup_key, "consensus:proposal-42-v1")
 
     -- a new version (different dedup_key) re-derives consensus instead of being skipped
-    mock_issue_source({ body = "Full GitHub issue body for v2." })
+    local second_input = proposal({
+      dedup_key = "proposal-42-v2",
+      source_text_ref = proposal_source({ body = "Full GitHub issue body for v2.", name = "issue-v2" }),
+    })
     mock_angle("approve", "Minimal angle approves again.")
     mock_angle("approve", "Structural angle approves again.")
     mock_angle("approve", "Delete angle approves again.")
 
-    local second = run_decide(proposal({ dedup_key = "proposal-42-v2" }), run_opts)
+    local second = run_decide(second_input, run_opts)
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 1)
     t.eq(second.raises[1].payload.dedup_key, "consensus:proposal-42-v2")
     t.eq(#codex_calls(), 6)
   end,
 
-  test_pr_source_ref_fetches_full_diff_for_review_prompt = function()
-    mock_pr_source("diff --git a/core.lua b/core.lua\n+FULL_PR_DIFF_SENTINEL\n")
-    mock_angle("approve", "Minimal angle approves.")
-    mock_angle("approve", "Structural angle approves.")
-    mock_angle("approve", "Delete angle approves.")
-
-    local result = run_decide(proposal({
+  test_source_text_ref_file_feeds_review_prompt_without_gh = function()
+    local input = proposal({
       verdict_mode = "gate",
+      source_text_ref = source_file("pr", "GitHub PR diff:\ndiff --git a/core.lua b/core.lua\n+FULL_PR_DIFF_SENTINEL\n"),
       source_ref = {
         kind = "external",
         ref = "owner/repo#pr/7",
       },
-    }), opts("pr-source-ref"))
+    })
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("approve", "Structural angle approves.")
+    mock_angle("approve", "Delete angle approves.")
+
+    local result = run_decide(input, opts("source-file-ref"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].payload.decision, "approve")
@@ -387,5 +382,8 @@ return {
     t.eq(#calls, 3)
     t.is_true(calls[1].stdin:find("GitHub PR diff:", 1, true) ~= nil)
     t.is_true(calls[1].stdin:find("+FULL_PR_DIFF_SENTINEL", 1, true) ~= nil)
+    for _, call in ipairs(t.command_calls()) do
+      t.is_nil(call.rendered:find("gh ", 1, true))
+    end
   end,
 }

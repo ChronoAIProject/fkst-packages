@@ -14,6 +14,42 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
+local function fetch_pr_source_text_ref(repo, pr_number, version, round)
+  local before = exec_sync({ cmd = core.gh_pr_view_source_cmd(repo, pr_number), timeout = 30 })
+  if before.exit_code ~= 0 then
+    error("github-devloop: gh pr source view failed for review loop: " .. tostring(before.stderr))
+  end
+  local before_pr = core.parse_pr_source_view(before.stdout)
+  if tostring(before_pr.state or ""):lower() ~= "open" then
+    error("github-devloop: PR source is not open for review loop")
+  end
+
+  local diff = exec_sync({ cmd = core.gh_pr_diff_cmd(repo, pr_number), timeout = 30 })
+  if diff.exit_code ~= 0 then
+    error("github-devloop: gh pr diff failed for review loop: " .. tostring(diff.stderr))
+  end
+
+  local after = exec_sync({ cmd = core.gh_pr_view_source_cmd(repo, pr_number), timeout = 30 })
+  if after.exit_code ~= 0 then
+    error("github-devloop: gh pr source recheck failed for review loop: " .. tostring(after.stderr))
+  end
+  local after_pr = core.parse_pr_source_view(after.stdout)
+  if tostring(after_pr.head_ref_name or "") ~= tostring(before_pr.head_ref_name or "")
+    or tostring(after_pr.head_sha or "") ~= tostring(before_pr.head_sha or "")
+    or tostring(after_pr.state or ""):lower() ~= "open" then
+    error("github-devloop: PR source changed while reading review loop diff; retrying")
+  end
+
+  return core.write_source_snapshot(
+    core.read_env("FKST_RUNTIME_ROOT"),
+    "pr",
+    repo,
+    pr_number,
+    tostring(version or "") .. "/review-loop/" .. tostring(round or 0) .. "/" .. tostring(before_pr.head_sha or ""),
+    core.render_pr_source_text(before_pr, diff.stdout)
+  )
+end
+
 local function append_round_fact(facts, round, narrowed_question, angle_digests, dedup_key)
   local copied = {}
   for _, fact in ipairs(facts or {}) do
@@ -158,6 +194,7 @@ function pipeline(event)
       current_issue.title = "Issue #" .. tostring(origin.issue_number)
     end
     local next_n = round + 1
+    current_issue.source_text_ref = fetch_pr_source_text_ref(repo, pr_number, state.version, next_n)
     local proposal = core.build_pr_review_loop_proposal(repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, nil, pr_source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,

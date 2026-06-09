@@ -37,6 +37,12 @@ function M.gh_issue_view_state_cmd(repo, issue_number)
     .. " --json labels,state,comments"
 end
 
+function M.gh_issue_view_source_cmd(repo, issue_number)
+  return "gh issue view " .. M._shell_single_quote(issue_number)
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --json title,body,comments"
+end
+
 function M.gh_issue_view_result_cmd(repo, issue_number)
   return "gh issue view " .. M._shell_single_quote(issue_number)
     .. " --repo " .. M._shell_single_quote(repo)
@@ -107,6 +113,12 @@ function M.gh_pr_view_origin_cmd(repo, pr_number)
   return "gh pr view " .. M._shell_single_quote(pr_number)
     .. " --repo " .. M._shell_single_quote(repo)
     .. " --json headRefName,headRefOid,baseRefName,state,updatedAt,comments"
+end
+
+function M.gh_pr_view_source_cmd(repo, pr_number)
+  return "gh pr view " .. M._shell_single_quote(pr_number)
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --json title,body,comments,headRefName,headRefOid,state"
 end
 
 function M.gh_pr_view_fix_cmd(repo, pr_number)

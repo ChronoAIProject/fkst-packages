@@ -421,6 +421,32 @@ local function mock_pr_diff(diff, exit_code, stderr)
   })
 end
 
+local function mock_pr_review_source(diff, head, head_sha)
+  local branch = head or "devloop-owner-repo-42-01HY"
+  local sha = head_sha or "def456"
+  local pr_json = string.format(
+    '{"title":"Review candidate","body":"PR body","state":"OPEN","headRefName":"%s","headRefOid":"%s","comments":[{"body":"PR comment","author":{"login":"reviewer"}}]}\n',
+    json_string(branch),
+    json_string(sha)
+  )
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("--json title,body,comments,headRefName,headRefOid,state", {
+    stdout = pr_json,
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_pr_diff(diff or "diff --git a/core.lua b/core.lua\n+FULL_PR_DIFF_SENTINEL\n")
+  t.mock_command("--json title,body,comments,headRefName,headRefOid,state", {
+    stdout = pr_json,
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_branch_exists(branch, head)
   t.mock_command("show-ref --verify --quiet", {
     stdout = "",
@@ -468,6 +494,7 @@ return {
   mock_pr_origin_sequence = mock_pr_origin_sequence,
   mock_pr_head = mock_pr_head,
   mock_pr_diff = mock_pr_diff,
+  mock_pr_review_source = mock_pr_review_source,
   mock_branch_exists = mock_branch_exists,
   mock_meta_codex = mock_meta_codex,
   reset_pr_helper_state = reset_pr_helper_state,

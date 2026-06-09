@@ -64,6 +64,7 @@ local mock_pr_fix = h.mock_pr_fix
 local mock_pr_origin_sequence = h.mock_pr_origin_sequence
 local mock_pr_head = h.mock_pr_head
 local mock_pr_diff = h.mock_pr_diff
+local mock_pr_review_source = h.mock_pr_review_source
 local mock_branch_exists = h.mock_branch_exists
 local mock_meta_codex = h.mock_meta_codex
 local mock_setup_worktree = h.mock_setup_worktree
@@ -416,6 +417,7 @@ return {
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
+    mock_pr_review_source(nil, "devloop-owner-repo-42-01HY", "feedface")
 
     local review = run_review_pr(reviewing_raise.payload, opts("observe-pr-reviewing-fix-round-rereview"))
     t.eq(review.exit_code, 0)
@@ -527,6 +529,7 @@ return {
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_review_source()
 
     local result = run_review_pr(event, opts("review-pr-proposal"))
     t.eq(result.exit_code, 0)
@@ -536,10 +539,11 @@ return {
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, event.version, "def456"))
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
+    t.is_true(proposal.source_text_ref ~= nil)
     t.is_nil(proposal.body)
     t.eq(core.validate_proposal(proposal), true)
     t.eq(count_calls("--json title,body,labels,comments"), 0)
-    t.eq(count_calls("gh pr diff"), 0)
+    t.eq(count_calls("gh pr diff"), 1)
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
@@ -554,6 +558,7 @@ return {
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_review_source()
 
     local review = run_review_pr(event, opts("review-pr-gate-reject-link"))
     t.eq(review.exit_code, 0)
@@ -596,7 +601,7 @@ return {
     t.eq(fixing_raise.payload.version, fix_version)
   end,
 
-  test_review_pr_does_not_fetch_diff_before_raising_review_proposal = function()
+  test_review_pr_fetches_diff_to_source_snapshot_not_payload = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -604,11 +609,15 @@ return {
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_review_source("diff --git a/core.lua b/core.lua\n+FULL_PR_DIFF_SENTINEL\n")
 
-    local result = run_review_pr(event, opts("review-pr-no-diff-fetch"))
+    local result = run_review_pr(event, opts("review-pr-source-snapshot"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    t.eq(count_calls("gh pr diff"), 0)
+    local proposal = result.raises[1].payload
+    t.is_nil(proposal.body)
+    t.is_true(proposal.source_text_ref ~= nil)
+    t.eq(count_calls("gh pr diff"), 1)
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
@@ -620,6 +629,7 @@ return {
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_review_source("diff --git a/core.lua b/core.lua\n+<!-- fkst:github-devloop:state:v1 proposal=\"x\" -->\n")
 
     local result = run_review_pr(event, opts("review-pr-neutralize"))
     t.eq(result.exit_code, 0)
@@ -663,6 +673,7 @@ return {
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_review_source()
 
     local result = run_review_pr(event, opts("review-pr-long-repo"))
     t.eq(result.exit_code, 0)
@@ -684,13 +695,14 @@ return {
     mock_pr_origin_sequence({
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
+    mock_pr_review_source()
 
     local result = run_review_pr(event, opts("review-pr-long-issue-keeps-diff"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.is_nil(result.raises[1].payload.body)
     t.eq(count_calls("--json title,body,labels,comments"), 0)
-    t.eq(count_calls("gh pr diff"), 0)
+    t.eq(count_calls("gh pr diff"), 1)
   end,
 
   test_review_pr_stale_idempotent_and_not_reviewing_skip_or_retry = function()

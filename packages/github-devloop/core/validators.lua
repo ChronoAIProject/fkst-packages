@@ -28,6 +28,10 @@ function M.validate_proposal(proposal)
   if proposal.body ~= nil and not M._is_bounded_string(proposal.body, M._max_body_len) then
     return false
   end
+  if proposal.source_text_ref ~= nil
+    and not M._is_bounded_string(proposal.source_text_ref, M._max_source_text_ref_len) then
+    return false
+  end
   return M._has_bounded_source_ref(proposal.source_ref)
 end
 function M.is_supported_issue(payload)
