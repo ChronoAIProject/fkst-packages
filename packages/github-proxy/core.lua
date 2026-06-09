@@ -815,7 +815,22 @@ end
 local function log_comment_outbound(target, mode, repo, dedup_key, outcome_field)
   if type(target.log_outbound) == "function" then
     target.log_outbound(mode, repo, target.number, dedup_key, outcome_field)
+    return
   end
+
+  local number_field = target.number_log_field or target.kind
+  local fields = {
+    "github-proxy",
+    "tag=OUTBOUND",
+    "mode=" .. tostring(mode or ""),
+    "repo=" .. tostring(repo or ""),
+    tostring(number_field) .. "=" .. tostring(target.number or ""),
+    "dedup_key=" .. tostring(dedup_key or ""),
+  }
+  if outcome_field ~= nil and outcome_field ~= "" then
+    table.insert(fields, tostring(outcome_field))
+  end
+  log.info(table.concat(fields, " "))
 end
 
 function M.write_comment_request(payload, target)

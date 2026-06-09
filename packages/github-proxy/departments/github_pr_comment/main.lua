@@ -7,28 +7,13 @@ M.spec = {
   stall_window = "30s",
 }
 
-local function log_pr_comment_outbound(mode, repo, pr_number, dedup_key, outcome_field)
-  local fields = {
-    "github-proxy",
-    "tag=OUTBOUND",
-    "mode=" .. tostring(mode or ""),
-    "repo=" .. tostring(repo or ""),
-    "pr=" .. tostring(pr_number or ""),
-    "dedup_key=" .. tostring(dedup_key or ""),
-  }
-  if outcome_field ~= nil and outcome_field ~= "" then
-    table.insert(fields, tostring(outcome_field))
-  end
-  log.info(table.concat(fields, " "))
-end
-
 function pipeline(event)
   local payload = event.payload or {}
   core.write_comment_request(payload, {
     kind = "pr",
     number = payload.pr_number,
     number_field = "pr_number",
-    log_outbound = log_pr_comment_outbound,
+    number_log_field = "pr",
     view_comments_cmd = core.gh_pr_view_comments_cmd,
     comment_cmd = core.gh_pr_comment_cmd,
     view_label = "gh pr view",

@@ -56,6 +56,43 @@ local function pr_list_many_json(count, target_number, target_updated_at)
   return "[" .. table.concat(parts, ",") .. "]\n"
 end
 
+local function run_department_with_log_capture(path, input_event, run_opts)
+  local seen = {}
+  local previous_info = log.info
+  log.info = function(message)
+    table.insert(seen, tostring(message))
+    previous_info(message)
+  end
+
+  local ok, result = pcall(function()
+    return t.run_department(path, input_event, run_opts)
+  end)
+
+  log.info = previous_info
+  if not ok then
+    error(result)
+  end
+  return seen, result
+end
+
+local function contains_all(line, expected)
+  for _, part in ipairs(expected) do
+    if line:find(part, 1, true) == nil then
+      return false
+    end
+  end
+  return true
+end
+
+local function has_log_line(lines, expected)
+  for _, line in ipairs(lines) do
+    if contains_all(line, expected) then
+      return true
+    end
+  end
+  return false
+end
+
 return {
   test_inbound_poll_raises_issue_and_pr_then_cache_hit = function()
     local event = { queue = "github_poll_tick", payload = {} }
@@ -268,6 +305,51 @@ return {
     t.is_true(comment_calls[1].rendered:find("gh issue comment", 1, true) ~= nil)
     t.eq(comment_calls[1].rendered:find("github.com", 1, true), nil)
     t.eq(count_calls("gh issue view"), 2)
+  end,
+
+  test_issue_comment_outbound_logs_use_structured_fields = function()
+    local event = {
+      queue = "github_issue_comment_request",
+      payload = {
+        repo = "owner/x",
+        issue_number = 42,
+        body = "fkst reply",
+        dedup_key = "reply-42",
+      },
+    }
+
+    mock_repo_env()
+    mock_write_env("")
+    local dry_lines, dry = run_department_with_log_capture("departments/github_comment/main.lua", event, opts("comment-dry-run-log"))
+    t.eq(dry.exit_code, 0)
+    t.is_true(has_log_line(dry_lines, {
+      "github-proxy",
+      "tag=OUTBOUND",
+      "mode=dry-run",
+      "repo=owner/x",
+      "issue=42",
+      "dedup_key=reply-42",
+      "reason=FKST_GITHUB_WRITE!=1",
+    }))
+
+    mock_repo_env()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_comment_view("existing comment")
+    mock_comment_write()
+    local real_lines, write = run_department_with_log_capture("departments/github_comment/main.lua", event, opts("comment-write-log", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(write.exit_code, 0)
+    t.is_true(has_log_line(real_lines, {
+      "github-proxy",
+      "tag=OUTBOUND",
+      "mode=real",
+      "repo=owner/x",
+      "issue=42",
+      "dedup_key=reply-42",
+      "result=commented",
+    }))
   end,
 
   test_same_version_meta_comment_marker_dedups_opposite_action = function()
