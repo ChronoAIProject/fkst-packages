@@ -8,7 +8,7 @@ local mock_pr_comment_view = h.mock_pr_comment_view
 local mock_pr_comment_write = h.mock_pr_comment_write
 local count_calls = h.count_calls
 
-local function run_pr_comment_with_log_capture(input_event)
+local function run_pr_comment_with_log_capture(input_event, run_opts)
   local seen = {}
   local previous_info = log.info
   log.info = function(message)
@@ -16,16 +16,15 @@ local function run_pr_comment_with_log_capture(input_event)
     previous_info(message)
   end
 
-  local loaded, result = pcall(function()
-    require("departments.github_pr_comment.main")
-    pipeline(input_event)
+  local ok, result = pcall(function()
+    return t.run_department("departments/github_pr_comment/main.lua", input_event, run_opts)
   end)
 
   log.info = previous_info
-  if not loaded then
+  if not ok then
     error(result)
   end
-  return seen
+  return seen, result
 end
 
 local function contains_all(line, expected)
@@ -81,8 +80,9 @@ return {
   test_pr_comment_request_dry_run_logs_outbound = function()
     mock_write_env("")
 
-    local lines = run_pr_comment_with_log_capture(event())
+    local lines, result = run_pr_comment_with_log_capture(event(), opts("pr-comment-dry-run-log"))
 
+    t.eq(result.exit_code, 0)
     t.is_true(has_log_line(lines, {
       "github-proxy",
       "tag=OUTBOUND",
@@ -162,8 +162,11 @@ return {
     mock_pr_comment_view("existing PR comment")
     mock_pr_comment_write()
 
-    local lines = run_pr_comment_with_log_capture(event())
+    local lines, result = run_pr_comment_with_log_capture(event(), opts("pr-comment-write-log", {
+      FKST_GITHUB_WRITE = "1",
+    }))
 
+    t.eq(result.exit_code, 0)
     t.is_true(has_log_line(lines, {
       "github-proxy",
       "tag=OUTBOUND",
