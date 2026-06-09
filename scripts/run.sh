@@ -128,6 +128,73 @@ usage() {
 cmd_check() {
   python3 "$ROOT/scripts/check_repo.py"
   python3 "$ROOT/scripts/live_status.py" --self-test
+  live_status_entrypoint_self_test
+}
+
+live_status_entrypoint_self_test() {
+  local tmp graph_json delivery_json table_out dot_out json_out rc
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/fkst-live-status-entrypoint.XXXXXX")"
+  graph_json="$tmp/graph.json"
+  delivery_json="$tmp/delivery.json"
+  table_out="$tmp/table.out"
+  dot_out="$tmp/dot.out"
+  json_out="$tmp/json.out"
+
+  cat >"$graph_json" <<'JSON'
+{
+  "department": {
+    "demo.scan": {"consumes": ["demo.tick"], "produces": ["demo.ready"]},
+    "demo.work": {"consumes": ["demo.ready"], "produces": []}
+  },
+  "raiser": {
+    "demo.tick": {"produces": ["demo.tick"]}
+  },
+  "queue": {
+    "demo.ready": {"aliases": ["ready"]}
+  }
+}
+JSON
+  cat >"$delivery_json" <<'JSON'
+{
+  "queues": {
+    "ready": {
+      "pending": 2,
+      "leased": [{"id": "lease-1"}],
+      "retry": 3,
+      "dlq": [{"source_ref": {"kind": "external", "ref": "owner/repo#issue/82"}}],
+      "pending_events": [{"dedup_key": "ready-1"}]
+    }
+  }
+}
+JSON
+
+  "$ROOT/scripts/run.sh" live-status --graph-json "$graph_json" --delivery-json "$delivery_json" >"$table_out"
+  grep -F "demo.ready" "$table_out" >/dev/null
+  grep -F "ready-1" "$table_out" >/dev/null
+
+  "$ROOT/scripts/run.sh" live-status --graph-json "$graph_json" --delivery-json "$delivery_json" --format dot >"$dot_out"
+  grep -F "digraph fkst_live_status" "$dot_out" >/dev/null
+  grep -F "demo.ready p=2 l=1 r=3 dlq=1" "$dot_out" >/dev/null
+
+  "$ROOT/scripts/run.sh" live-status --graph-json "$graph_json" --delivery-json "$delivery_json" --format json >"$json_out"
+  python3 - "$json_out" <<'PY'
+import json
+import sys
+
+rows = json.load(open(sys.argv[1], encoding="utf-8"))
+ready = next(row for row in rows if row["queue"] == "demo.ready")
+assert ready["pending"] == 2
+assert ready["leased"] == 1
+assert ready["retry"] == 3
+assert ready["dlq"] == 1
+assert "ready-1" in ready["pointers"]
+PY
+  rc=$?
+  rm -rf "$tmp"
+  if [ "$rc" -ne 0 ]; then
+    return "$rc"
+  fi
+  echo "OK: live-status entrypoint self-test"
 }
 
 extract_test_passes() {
