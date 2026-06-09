@@ -53,7 +53,7 @@ function pipeline(event)
       core.log_forged_markers("status_card", proposal_id, current_issue.comments)
       local current = core.current_state(current_issue.comments, proposal_id)
       if current.state ~= nil and not core.is_status_card_terminal_state(current.state) then
-        local request = core.build_status_card_comment_request(repo, issue_number, proposal_id, current, source_ref(repo, issue_number))
+        local request = core.build_status_card_comment_request(repo, issue_number, proposal_id, current, current_issue.comments, source_ref(repo, issue_number))
         core.log_apply("status_card", proposal_id, nil, current.version, { add = {}, remove = {} }, {
           "github-proxy.github_issue_comment_request",
         })

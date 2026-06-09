@@ -6,7 +6,6 @@ local allowed_env = {
   FKST_GITHUB_WRITE = true,
 }
 local trusted_bot_login = nil
-local max_status_action_len = 280
 local max_branch_len = 160
 local max_marker_value_len = 300
 local state_stage_rank = {
@@ -181,13 +180,6 @@ local function comment_body(comment)
     return tostring(comment.body or "")
   end
   return tostring(comment or "")
-end
-
-local function comment_created_at(comment)
-  if type(comment) == "table" then
-    return comment.created_at or comment.createdAt
-  end
-  return nil
 end
 
 local function comment_author_login(comment)
@@ -388,21 +380,6 @@ local function version_review_meta_action_round(version)
   return max_n
 end
 
-local function version_review_loop_round(version)
-  local max_n = 0
-  local previous = nil
-  for segment in tostring(version or ""):gmatch("[^/]+") do
-    if previous == "review-loop" then
-      local parsed = tonumber(segment) or 0
-      if parsed > max_n then
-        max_n = parsed
-      end
-    end
-    previous = segment
-  end
-  return max_n
-end
-
 local function version_order_key(version)
   local text = tostring(version or "")
   local rest = text
@@ -500,79 +477,6 @@ function M.current_devloop_state(comments, proposal_id, bot_login)
     end
   end
   return current or { state = nil, version = nil, stage_rank = 0 }
-end
-
-function M.is_devloop_status_card_terminal_state(state)
-  return state == "merged" or state == "blocked" or state == "impl-failed"
-end
-
-function M.devloop_status_card_marker(proposal_id)
-  return '<!-- fkst:github-devloop:status-card:v1 proposal="' .. tostring(proposal_id) .. '" -->'
-end
-
-local function trim(value)
-  return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
-local function neutralize_fkst_markers(value)
-  return tostring(value or ""):gsub("<!%-%- fkst:", "&lt;!-- fkst:")
-end
-
-local function first_display_line(body)
-  local text = tostring(body or "")
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    local trimmed = trim(line)
-    if trimmed ~= ""
-      and trimmed:find("<!-- fkst:", 1, true) == nil
-      and trimmed:find("AI:FKST", 1, true) == nil then
-      return trimmed
-    end
-  end
-  return ""
-end
-
-function M.latest_devloop_status_action_summary(comments, proposal_id, bot_login)
-  local latest = nil
-  local marker = M.devloop_status_card_marker(proposal_id)
-  for _, comment in ipairs(trusted_comments(comments, bot_login)) do
-    local body = comment_body(comment)
-    if body:find("github-devloop", 1, true) ~= nil and body:find(marker, 1, true) == nil then
-      local line = first_display_line(body)
-      if line ~= "" then
-        local created_at = comment_created_at(comment) or ""
-        if latest == nil or tostring(created_at) > tostring(latest.created_at) then
-          latest = {
-            created_at = created_at,
-            line = line,
-          }
-        end
-      end
-    end
-  end
-  if latest == nil then
-    return "No recent codex action marker is visible."
-  end
-  local summary = neutralize_fkst_markers(latest.line)
-  if #summary > max_status_action_len then
-    summary = summary:sub(1, max_status_action_len)
-  end
-  return summary
-end
-
-function M.render_devloop_status_card(comments, proposal_id, bot_login)
-  local current = M.current_devloop_state(comments, proposal_id, bot_login)
-  if current.state == nil or M.is_devloop_status_card_terminal_state(current.state) then
-    return nil
-  end
-  local version = tostring(current.version or "")
-  return "github-devloop status"
-    .. "\n\nState: " .. tostring(current.state)
-    .. "\nVersion: " .. version
-    .. "\nLoop round: " .. tostring(version_loop_round(version))
-    .. "\nFix round: " .. tostring(version_fix_round(version))
-    .. "\nReview loop round: " .. tostring(version_review_loop_round(version))
-    .. "\nRecent codex action: " .. M.latest_devloop_status_action_summary(comments, proposal_id, bot_login)
-    .. "\n\n" .. M.devloop_status_card_marker(proposal_id)
 end
 
 function M.devloop_implementing_fact(comments, proposal_id, impl_version, bot_login)
