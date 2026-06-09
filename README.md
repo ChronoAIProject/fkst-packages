@@ -46,6 +46,11 @@ FKST_GITHUB_REPO=ChronoAIProject/fkst-substrate scripts/run.sh run github-proxy 
 # 可用 FKST_PROJECT_ROOT 覆盖默认 project-root（packages/<pkg>）。
 FKST_GITHUB_REPO=owner/repo scripts/run.sh supervise github-proxy
 
+# github-devloop 观测视图：只读扫描 dept DAG；可接 substrate 暴露的 delivery JSON。
+scripts/run.sh observe
+scripts/run.sh observe --delivery-json /path/to/delivery.json
+scripts/run.sh observe --format dot > /tmp/github-devloop.dot
+
 # 本地 test/run/supervise 会对可溯源到 ../fkst-substrate 的 BIN 做 freshness 自动构建；
 # CI 不自动 build，FKST_NO_AUTOBUILD=1 可跳过。显式 build 仍会 git pull && cargo build。
 scripts/run.sh build
@@ -54,6 +59,8 @@ scripts/run.sh build
 `run` 用临时（或复用已设的）`FKST_RUNTIME_ROOT`、绝不设 `FKST_GITHUB_WRITE`，所以只读 dogfood 保持只读；同一 `FKST_RUNTIME_ROOT` 连跑两次可看去重。脚本对任何 `packages/<pkg>/departments/<dept>` 通用，不写死 github-proxy。
 
 `supervise` 是真实 `fkst-framework supervise` 的薄封装，不搭 host harness、不模拟事件、不注入 fake `gh`；它在前台运行，按 `Ctrl-C` 退出。脚本会显式传 `--project-root`、`--package-root` 和 `--framework-bin`，并设置彼此不同的临时 `FKST_RUNTIME_ROOT` / `FKST_DURABLE_ROOT`。
+
+`observe` 是 `github-devloop` 的只读可观测性视图：脚本扫描 `M.spec` 与 raiser 静态声明，把 department 作为节点、queue 作为边，默认递归带上 `composed.deps` 中的 `github-proxy` 与 `consensus` 以显示完整组合链路。当前 substrate 还没有稳定 CLI 直接导出 redb delivery 状态，因此 `--delivery-json` 接受 future substrate dump 或手工导出的 JSON，把每个 queue 的 `pending` / `leased` / `retry` / `dlq` 计数和事件指针叠到边上。支持两种输入形态：`{"queues":{"queue.name":{"pending":1,"leased":0,"retry":0,"dlq":0,"events":[...]}}}` 或 `[{"queue":"queue.name","pending":1,...}]`；事件指针优先取 `source_ref.ref`，其次取 `dedup_key` / `id` / `ref`。没有 `--delivery-json` 时仍输出静态 DAG，用于确认卡点应该落在哪条 queue 边上。
 
 本库不做版本化 manifest、root-list 或 override DSL。图由固定的 `departments/` 和 `raisers/` 目录扫描得到。flat 包可独立加载；composed 包显式承担跨包 wiring，并用 `composed.deps` 告诉测试脚本组合 conformance 需要一起加载哪些兄弟包。
 
