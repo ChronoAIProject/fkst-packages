@@ -652,6 +652,104 @@ function M.bounded_pr_diff(value)
   return text:sub(1, max_pr_diff_len)
 end
 
+local function is_maintainer_comment(comment)
+  if type(comment) ~= "table" then
+    return false
+  end
+  if tostring(comment.author_login or "") == M.trusted_bot_login() then
+    return false
+  end
+  local association = tostring(comment.author_association or ""):upper()
+  return association == "OWNER" or association == "MEMBER" or association == "COLLABORATOR"
+end
+
+local function comment_created_at_text(comment)
+  if type(comment) ~= "table" then
+    return ""
+  end
+  return tostring(comment.created_at or "")
+end
+
+local function comment_sort_key(comment, index)
+  local created_at = comment_created_at_text(comment)
+  if created_at == "" then
+    created_at = "9999-12-31T23:59:59Z"
+  end
+  return created_at .. "\n" .. string.format("%06d", index)
+end
+
+function M.bounded_maintainer_comment_block(comments, budget)
+  local limit = tonumber(budget or max_comments_len)
+  if limit == nil or limit <= 0 then
+    return ""
+  end
+  if limit > max_comments_len then
+    limit = max_comments_len
+  end
+  if type(comments) ~= "table" then
+    return ""
+  end
+
+  local selected = {}
+  for index, comment in ipairs(comments) do
+    if is_maintainer_comment(comment) then
+      table.insert(selected, {
+        key = comment_sort_key(comment, index),
+        index = index,
+        comment = comment,
+      })
+    end
+  end
+  table.sort(selected, function(a, b)
+    return a.key < b.key
+  end)
+
+  local blocks = {}
+  for _, item in ipairs(selected) do
+    local comment = item.comment
+    local author = tostring(comment.author_login or "unknown")
+    local created_at = comment_created_at_text(comment)
+    if created_at == "" then
+      created_at = "unknown time"
+    end
+    local text = M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(comment.body))
+    table.insert(blocks, "Comment by " .. author .. " at " .. created_at .. ":\n" .. text)
+  end
+  if #blocks == 0 then
+    return ""
+  end
+
+  local block = "Maintainer comments:\n" .. table.concat(blocks, "\n\n")
+  if #block > limit then
+    return block:sub(1, limit)
+  end
+  return block
+end
+
+function M.build_issue_proposal_body(body, comments)
+  local issue_body = M.bounded_body(body)
+  local prefix = "Issue body:\n"
+  local separator = "\n\n"
+  local body_text = prefix .. M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(issue_body))
+  if #body_text > max_body_len then
+    return body_text:sub(1, max_body_len)
+  end
+
+  local comment_budget = max_body_len - #body_text - #separator
+  if comment_budget <= 0 then
+    return body_text
+  end
+  local comment_block = M.bounded_maintainer_comment_block(comments, comment_budget)
+  if comment_block == "" then
+    return issue_body
+  end
+  local combined = body_text .. separator .. comment_block
+  if #combined > max_body_len then
+    return combined:sub(1, max_body_len)
+  end
+  return combined
+end
+
 function M.max_body_len()
   return max_body_len
 end

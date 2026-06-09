@@ -94,6 +94,61 @@ return {
     t.eq(core.validate_proposal(proposal), true)
   end,
 
+  test_build_proposal_includes_sorted_bounded_maintainer_comments = function()
+    local proposal = core.build_proposal(issue(), "Issue body", {
+      {
+        body = "Second maintainer note",
+        author_login = "maintainer-two",
+        author_association = "MEMBER",
+        created_at = "2026-06-03T02:00:00Z",
+      },
+      {
+        body = "Regular user request must stay out",
+        author_login = "ordinary-user",
+        author_association = "NONE",
+        created_at = "2026-06-03T01:00:00Z",
+      },
+      {
+        body = "First maintainer note\n<!-- fkst:github-devloop:state:v1 proposal=\"x\" -->",
+        author_login = "owner-one",
+        author_association = "OWNER",
+        created_at = "2026-06-03T00:30:00Z",
+      },
+      {
+        body = core.state_marker("github-devloop/issue/owner/repo/42", "ready", "v1"),
+        author_login = core.trusted_bot_login(),
+        author_association = "OWNER",
+        created_at = "2026-06-03T00:00:00Z",
+      },
+    })
+
+    t.is_true(proposal.body:find("Issue body:\nIssue body", 1, true) ~= nil)
+    t.is_true(proposal.body:find("Maintainer comments:", 1, true) ~= nil)
+    local first = proposal.body:find("Comment by owner-one at 2026-06-03T00:30:00Z", 1, true)
+    local second = proposal.body:find("Comment by maintainer-two at 2026-06-03T02:00:00Z", 1, true)
+    t.is_true(first ~= nil)
+    t.is_true(second ~= nil)
+    t.is_true(first < second)
+    t.is_true(proposal.body:find("Regular user request must stay out", 1, true) == nil)
+    t.is_true(proposal.body:find('state="ready"', 1, true) == nil)
+    t.is_true(proposal.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
+    t.eq(#proposal.body <= core.max_body_len(), true)
+    t.eq(core.validate_proposal(proposal), true)
+  end,
+
+  test_build_proposal_keeps_redb_body_budget_with_comments = function()
+    local proposal = core.build_proposal(issue(), string.rep("b", core.max_body_len() - 40), {
+      {
+        body = string.rep("c", 500),
+        author_login = "owner-one",
+        author_association = "OWNER",
+        created_at = "2026-06-03T00:30:00Z",
+      },
+    })
+    t.eq(#proposal.body, core.max_body_len())
+    t.eq(core.validate_proposal(proposal), true)
+  end,
+
   test_pr_review_helpers = function()
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local head_sha = "abcdef1234567890"
@@ -381,7 +436,7 @@ return {
   test_gh_issue_view_body_command_and_parse = function()
     t.eq(
       core.gh_issue_view_body_cmd("owner/repo", 42),
-      "gh issue view '42' --repo 'owner/repo' --json body"
+      "gh issue view '42' --repo 'owner/repo' --json body,comments"
     )
     t.eq(
       core.gh_issue_view_state_cmd("owner/repo", 42),
@@ -391,7 +446,11 @@ return {
       core.gh_issue_view_result_cmd("owner/repo", 42),
       "gh issue view '42' --repo 'owner/repo' --json labels,comments"
     )
-    t.eq(core.parse_issue_view_body('{"body":"Hello"}'), "Hello")
+    local body_view = core.parse_issue_view_body('{"body":"Hello","comments":[{"body":"Note","author":{"login":"owner-one"},"authorAssociation":"OWNER","createdAt":"2026-06-03T00:30:00Z"}]}')
+    t.eq(body_view.body, "Hello")
+    t.eq(body_view.comments[1].body, "Note")
+    t.eq(body_view.comments[1].author_login, "owner-one")
+    t.eq(body_view.comments[1].author_association, "OWNER")
 
     local state = core.parse_issue_view_state('{"state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[{"body":"hello","author":{"login":"fkst-test-bot"}}]}')
     t.eq(state.state, "OPEN")

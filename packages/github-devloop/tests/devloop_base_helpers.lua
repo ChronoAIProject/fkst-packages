@@ -384,16 +384,19 @@ local function render_comment(comment)
   local body = comment
   local author = "fkst-test-bot"
   local created_at = "2026-06-03T01:00:00Z"
+  local author_association = "MEMBER"
   if type(comment) == "table" then
     body = comment.body
     author = comment.author_login or author
     created_at = comment.created_at or created_at
+    author_association = comment.author_association or author_association
   end
   return string.format(
-    '{"body":"%s","author":{"login":"%s"},"createdAt":"%s"}',
+    '{"body":"%s","author":{"login":"%s"},"createdAt":"%s","authorAssociation":"%s"}',
     json_string(body or ""),
     json_string(author),
-    json_string(created_at)
+    json_string(created_at),
+    json_string(author_association)
   )
 end
 
@@ -506,8 +509,22 @@ local function with_default_state_marker(labels, comments)
 end
 
 local function mock_issue_body(body)
-  t.mock_command("--json body", {
-    stdout = string.format('{"body":"%s"}\n', json_string(body or "Issue body")),
+  t.mock_command("--json body,comments", {
+    stdout = string.format('{"body":"%s","comments":[]}\n', json_string(body or "Issue body")),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_issue_body_with_comments(body, comments)
+  local rendered_comments = {}
+  for _, comment in ipairs(comments or {}) do
+    table.insert(rendered_comments, render_comment(comment))
+  end
+  t.mock_command("--json body,comments", {
+    stdout = string.format('{"body":"%s","comments":[%s]}\n',
+      json_string(body or "Issue body"),
+      table.concat(rendered_comments, ",")),
     stderr = "",
     exit_code = 0,
   })
@@ -770,6 +787,7 @@ return {
   state_from_labels = state_from_labels,
   with_default_state_marker = with_default_state_marker,
   mock_issue_body = mock_issue_body,
+  mock_issue_body_with_comments = mock_issue_body_with_comments,
   mock_issue_result = mock_issue_result,
   mock_issue_loop = mock_issue_loop,
   mock_issue_reconcile = mock_issue_reconcile,

@@ -3,7 +3,10 @@ local S = {}
 function S.install(M)
 function M.parse_issue_view_body(stdout)
   local decoded = json.decode(stdout or "{}")
-  return M.bounded_body(decoded.body)
+  return {
+    body = M.bounded_body(decoded.body),
+    comments = M.comments_from_json(decoded.comments),
+  }
 end
 
 function M.parse_issue_view_state(stdout)
@@ -42,6 +45,7 @@ function M.comments_from_json(comments_json)
         body = tostring(comment.body),
         author_login = author_login,
         created_at = comment.createdAt or comment.created_at,
+        author_association = comment.authorAssociation or comment.author_association,
       })
     elseif type(comment) == "string" then
       table.insert(comments, {

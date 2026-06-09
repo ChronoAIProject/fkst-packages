@@ -116,19 +116,20 @@ function M.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
   }
 end
 
-function M.build_proposal(issue, body)
+function M.build_proposal(issue, body, comments)
   local proposal_id = M.proposal_id(issue.repo, issue.number)
   local title = tostring(issue.title or "")
   if #title > M._max_title_len then
     title = title:sub(1, M._max_title_len)
   end
+  local proposal_body = M.build_issue_proposal_body(body, comments)
 
   return {
     schema = "consensus.proposal.v1",
     verdict_mode = "converge",
     proposal_id = proposal_id,
     title = title,
-    body = M.bounded_body(body),
+    body = proposal_body,
     dedup_key = M.proposal_dedup_key(proposal_id, issue.updated_at),
     source_ref = M.normalize_source_ref(issue.source_ref),
   }
@@ -161,7 +162,7 @@ function M.build_loop_proposal(repo, issue_number, current, source_ref, n, conve
     updated_at = current.updated_at,
     source_ref = source_ref,
   }
-  local proposal = M.build_proposal(issue, current.body)
+  local proposal = M.build_proposal(issue, current.body, current.comments)
   proposal.dedup_key = proposal.dedup_key .. "/loop/" .. tostring(n)
   return apply_converge_fields(proposal, n, converge)
 end

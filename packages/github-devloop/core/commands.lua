@@ -28,7 +28,7 @@ end
 function M.gh_issue_view_body_cmd(repo, issue_number)
   return "gh issue view " .. M._shell_single_quote(issue_number)
     .. " --repo " .. M._shell_single_quote(repo)
-    .. " --json body"
+    .. " --json body,comments"
 end
 
 function M.gh_issue_view_state_cmd(repo, issue_number)

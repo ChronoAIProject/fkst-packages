@@ -38,6 +38,7 @@ local mock_issue_state = h.mock_issue_state
 local state_from_labels = h.state_from_labels
 local with_default_state_marker = h.with_default_state_marker
 local mock_issue_body = h.mock_issue_body
+local mock_issue_body_with_comments = h.mock_issue_body_with_comments
 local mock_issue_result = h.mock_issue_result
 local mock_issue_loop = h.mock_issue_loop
 local mock_issue_reconcile = h.mock_issue_reconcile
@@ -102,7 +103,43 @@ return {
     t.eq(label_raise.payload.issue_number, 42)
     t.eq(count_calls("gh issue view"), 2)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 1)
+    t.eq(count_calls("--json body,comments"), 1)
+  end,
+
+  test_observe_opt_in_issue_includes_maintainer_comments_in_proposal = function()
+    mock_issue_state({ "fkst-dev:enabled" })
+    mock_issue_body_with_comments("Body from GitHub", {
+      {
+        body = "Later maintainer clarification",
+        author_login = "maintainer-two",
+        author_association = "MEMBER",
+        created_at = "2026-06-03T03:00:00Z",
+      },
+      {
+        body = "User instruction must not enter consensus input",
+        author_login = "ordinary-user",
+        author_association = "NONE",
+        created_at = "2026-06-03T02:00:00Z",
+      },
+      {
+        body = "Earlier owner clarification",
+        author_login = "owner-one",
+        author_association = "OWNER",
+        created_at = "2026-06-03T01:00:00Z",
+      },
+    })
+
+    local result = run_observe(issue(), opts("observe-opt-in-comments"))
+    t.eq(result.exit_code, 0)
+    local proposal = result.raises[1].payload
+    t.is_true(proposal.body:find("Issue body:\nBody from GitHub", 1, true) ~= nil)
+    local earlier = proposal.body:find("Earlier owner clarification", 1, true)
+    local later = proposal.body:find("Later maintainer clarification", 1, true)
+    t.is_true(earlier ~= nil)
+    t.is_true(later ~= nil)
+    t.is_true(earlier < later)
+    t.is_true(proposal.body:find("User instruction must not enter consensus input", 1, true) == nil)
+    t.eq(count_calls("--json body,comments"), 1)
   end,
 
   test_observe_skips_not_opt_in_and_already_stateful = function()
@@ -116,7 +153,7 @@ return {
     t.eq(thinking.exit_code, 0)
     t.eq(#thinking.raises, 0)
     t.eq(count_calls("gh issue view"), 2)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_re_derives_labels_and_skips_stale_enabled_payload = function()
@@ -126,7 +163,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_issue_reconciles_regressed_label_to_canonical_marker = function()
@@ -144,7 +181,7 @@ return {
     t.eq(label_raise.payload.remove_labels[3], "fkst-dev:implementing")
     t.is_true(#label_raise.payload.remove_labels >= 10)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_issue_reraises_merge_ready_for_poll_self_heal = function()
@@ -161,7 +198,7 @@ return {
     t.eq(merge_raise.payload.version, event.version)
     t.eq(merge_raise.payload.reviewed_head_sha, event.reviewed_head_sha)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_issue_reraises_merging_for_poll_self_heal = function()
@@ -180,7 +217,7 @@ return {
     t.eq(merge_raise.payload.version, event.version)
     t.eq(merge_raise.payload.reviewed_head_sha, event.reviewed_head_sha)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_issue_reraises_fixing_for_poll_self_heal = function()
@@ -224,7 +261,7 @@ return {
       reviewed_head_sha = event.reviewed_head_sha,
     }, event.source_ref).dedup_key)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_issue_skips_fixing_self_heal_after_reviewing_progress = function()
@@ -253,7 +290,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_issue_skips_fixing_self_heal_without_fix_fact = function()
@@ -266,7 +303,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_uses_current_github_state_not_payload_state = function()
@@ -282,21 +319,21 @@ return {
     mock_issue_view_failure("--json labels,state", "forced state failure")
 
 	    local result = run_observe(issue(), opts("observe-state-view-failure"))
-	    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 0)
+    t.eq(count_calls("--json body,comments"), 0)
   end,
 
   test_observe_issue_body_view_failure_errors_for_retry = function()
     mock_issue_state({ "fkst-dev:enabled" })
-    mock_issue_view_failure("--json body", "forced body failure")
+    mock_issue_view_failure("--json body,comments", "forced body failure")
 
 	    local result = run_observe(issue(), opts("observe-body-view-failure"))
 	    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
     t.eq(count_calls("--json labels,state"), 1)
-    t.eq(count_calls("--json body"), 1)
+    t.eq(count_calls("--json body,comments"), 1)
   end,
 
   test_observe_re_raises_until_thinking_label_is_on_issue = function()
@@ -319,7 +356,7 @@ return {
     t.eq(thinking.exit_code, 0)
     t.eq(#thinking.raises, 0)
     t.eq(count_calls("--json labels,state"), 3)
-    t.eq(count_calls("--json body"), 2)
+    t.eq(count_calls("--json body,comments"), 2)
   end,
 
   test_consensus_result_approve_raises_ready_label_and_comment = function()
