@@ -9,17 +9,19 @@ M.spec = {
 }
 
 local function spawn_angle(proposal, angle)
-  return spawn_codex({
-    prompt = core.build_angle_prompt(proposal, angle),
-    stall_window = M.spec.stall_window,
-  })
+  return spawn_codex(core.codex_spawn_options(
+    proposal,
+    core.build_angle_prompt(proposal, angle),
+    M.spec.stall_window
+  ))
 end
 
 local function spawn_meta_judge(proposal, angle_results)
-  return spawn_codex_sync({
-    prompt = core.build_meta_judge_prompt(proposal, angle_results),
-    stall_window = M.spec.stall_window,
-  })
+  return spawn_codex_sync(core.codex_spawn_options(
+    proposal,
+    core.build_meta_judge_prompt(proposal, angle_results),
+    M.spec.stall_window
+  ))
 end
 
 local function raise_converge(proposal, angle_results, narrowed_question)

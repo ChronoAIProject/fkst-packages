@@ -11,8 +11,9 @@ Proposal:
 Angle: {{angle}}
 Title: {{title}}
 {{convergence_block}}
-Body:
-{{body}}
+Fetch/read sources:
+Use the source_ref and opaque fetch context below to fetch or read the complete current source material before judging. Do not judge from prompt summaries alone.
+{{source_context}}
 {{context_block}}]],
 
   bias = {

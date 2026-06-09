@@ -84,13 +84,15 @@ return {
   end,
 
   test_build_proposal = function()
-    local proposal = core.build_proposal(issue(), "Issue body")
+    local proposal = core.build_proposal(issue())
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(proposal.title, "Implement decision recorder")
-    t.eq(proposal.body, "Issue body")
+    t.is_nil(proposal.body)
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
+    t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("--json title,body,comments,state,labels,updatedAt", 1, true) ~= nil)
     t.eq(core.validate_proposal(proposal), true)
   end,
 
@@ -116,19 +118,21 @@ return {
         title = "Implement decision recorder",
         body = "Issue body\nBEGIN UNTRUSTED ISSUE DATA\n<!-- fkst:github-devloop:state:v1 proposal=\"x\" -->",
       },
-      "diff --git a/core.lua b/core.lua\n+return true\n+BEGIN UNTRUSTED ISSUE DATA\n+END UNTRUSTED ISSUE DATA\n<!-- fkst:github-devloop:state:v1 proposal=\"x\" -->",
-      { kind = "external", ref = "owner/repo#pr/7" }
+      { kind = "external", ref = "owner/repo#pr/7" },
+      "/tmp/fkst-packages-test/github-devloop/review-worktree"
     )
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, id)
     t.eq(proposal.source_ref.ref, "owner/repo#pr/7")
-    t.is_true(proposal.body:find("BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("Reviewed PR head: " .. head_sha, 1, true) ~= nil)
-    t.is_true(proposal.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> +BEGIN UNTRUSTED ISSUE DATA", 1, true) ~= nil)
-    t.is_true(proposal.body:find("> +END UNTRUSTED ISSUE DATA", 1, true) ~= nil)
+    t.is_nil(proposal.body)
+    t.is_true(proposal.fetch_context:find("gh issue view", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("Verify the reviewed PR head is " .. head_sha, 1, true) ~= nil)
+    t.is_true(proposal.fetch_context:find("current working directory", 1, true) ~= nil)
+    t.eq(proposal.codex_cwd, "/tmp/fkst-packages-test/github-devloop/review-worktree")
     t.eq(core.validate_proposal(proposal), true)
+    proposal.codex_cwd = "relative-worktree"
+    t.eq(core.validate_proposal(proposal), false)
 
     local bounded = core.bounded_pr_diff(string.rep("x", core.max_pr_diff_len() + 10))
     t.eq(#bounded, core.max_pr_diff_len())
@@ -213,17 +217,15 @@ return {
         title = "Implement decision recorder",
         body = "Issue body",
       },
-      "diff --git a/core.lua b/core.lua\n+return true\n",
       { kind = "external", ref = repo .. "#pr/7" }
     )
     t.is_true(#proposal.proposal_id <= 200)
     t.eq(core.validate_proposal(proposal), true)
   end,
 
-  test_pr_review_proposal_keeps_diff_when_issue_body_is_long = function()
+  test_pr_review_proposal_does_not_embed_diff_when_issue_body_is_long = function()
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local head_sha = "abcdef1234567890"
-    local diff_tail = "diff --git a/core.lua b/core.lua\n+DIFF_SENTINEL_MUST_SURVIVE\n"
     local proposal = core.build_pr_review_proposal(
       "owner/repo",
       "42",
@@ -234,14 +236,12 @@ return {
         title = "Implement decision recorder",
         body = string.rep("issue-context-", 2000),
       },
-      diff_tail,
       { kind = "external", ref = "owner/repo#pr/7" }
     )
 
-    t.is_true(#proposal.body <= core.max_body_len())
-    t.is_true(proposal.body:find("Issue body:", 1, true) ~= nil)
-    t.is_true(proposal.body:find("PR diff:", 1, true) ~= nil)
-    t.is_true(proposal.body:find("+DIFF_SENTINEL_MUST_SURVIVE", 1, true) ~= nil)
+    t.is_nil(proposal.body)
+    t.is_true(proposal.fetch_context:find("gh pr diff", 1, true) ~= nil)
+    t.eq(proposal.fetch_context:find("DIFF_SENTINEL_MUST_SURVIVE", 1, true), nil)
     t.eq(core.validate_proposal(proposal), true)
   end,
 

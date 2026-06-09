@@ -153,16 +153,13 @@ return {
     t.eq(core.render_template("{{a}}", { a = "x", unused = "y" }), "x")
   end,
 
-  test_build_proposal_body_renders_issue_fields = function()
+  test_build_proposal_fetch_context_points_to_issue = function()
     local mapping = require("departments.propose.mapping")
     local payload = mapping.build_proposal(issue())
 
-    t.is_true(payload.body:find("Repository: owner/repo", 1, true) ~= nil)
-    t.is_true(payload.body:find("Number: 42", 1, true) ~= nil)
-    t.is_true(payload.body:find("Title: Bridge issue", 1, true) ~= nil)
-    t.is_true(payload.body:find("URL: https://github.example/owner/repo/issues/42", 1, true) ~= nil)
-    t.is_true(payload.body:find("Updated at: 2026-06-03T01:02:03Z", 1, true) ~= nil)
-    t.is_nil(payload.body:find("{{", 1, true))
+    t.is_nil(payload.body)
+    t.is_true(payload.fetch_context:find("owner/repo#issue/42", 1, true) ~= nil)
+    t.is_true(payload.fetch_context:find("https://github.example/owner/repo/issues/42", 1, true) ~= nil)
   end,
 
   test_build_proposal_throws_for_oversized_issue_title = function()
@@ -179,7 +176,8 @@ return {
     t.eq(core.validate_proposal(merge(ok, { proposal_id = "autochrono/issue/owner/repo:42" })), false)  -- not path-safe
     t.eq(core.validate_proposal(merge(ok, { proposal_id = "other/issue/owner/repo/42" })), false)  -- not parseable
     t.eq(core.validate_proposal(merge(ok, { proposal_id = "autochrono/issue/owner/repo//42" })), false)  -- non-canonical
-    t.eq(core.validate_proposal(merge(ok, { body = "" })), false)  -- empty body
+    t.eq(core.validate_proposal(merge(ok, { body = "" })), false)  -- embedded content
+    t.eq(core.validate_proposal(merge(ok, { fetch_context = false })), false)
     t.eq(core.validate_proposal(merge(ok, { source_ref = { kind = "external" } })), false)  -- ref missing
     t.eq(core.validate_proposal(merge(ok, { schema = "other" })), false)
   end,

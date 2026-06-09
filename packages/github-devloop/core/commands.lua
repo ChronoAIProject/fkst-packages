@@ -327,6 +327,40 @@ function M.find_worktree_for_branch(stdout, branch)
   return nil
 end
 
+function M.prepare_review_worktree(repo, issue_number, version, branch, expected_head_sha, exec)
+  local run = exec or exec_sync
+  local runtime_result = run({ cmd = M.read_runtime_root_cmd(), timeout = 30 })
+  if runtime_result.exit_code ~= 0 then
+    error("github-devloop: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
+  end
+
+  local worktree = M.implement_worktree_path(runtime_result.stdout, repo, issue_number, version)
+  local list_result = run({ cmd = M.git_worktree_list_cmd(), timeout = 30 })
+  if list_result.exit_code ~= 0 then
+    error("github-devloop: git worktree list failed: " .. tostring(list_result.stderr))
+  end
+
+  local existing = M.find_worktree_for_branch(list_result.stdout, branch)
+  if existing ~= nil then
+    worktree = existing
+  else
+    local add_result = run({ cmd = M.git_worktree_add_existing_branch_cmd(worktree, branch), timeout = 60 })
+    if add_result.exit_code ~= 0 then
+      error("github-devloop: git worktree add failed for PR review: " .. tostring(add_result.stderr))
+    end
+  end
+
+  local head_result = run({ cmd = M.git_branch_head_cmd(branch), timeout = 30 })
+  if head_result.exit_code ~= 0 then
+    error("github-devloop: git PR review branch head check failed: " .. tostring(head_result.stderr))
+  end
+  local branch_head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
+  if not M.is_safe_head_sha(branch_head_sha) or tostring(branch_head_sha) ~= tostring(expected_head_sha) then
+    error("github-devloop: local PR review branch head does not match GitHub PR head")
+  end
+  return worktree
+end
+
 function M.git_rev_parse_branch_cmd(worktree, branch)
   return "git -C " .. M._shell_single_quote(worktree) .. " rev-parse --verify refs/heads/" .. M._shell_single_quote(branch)
 end

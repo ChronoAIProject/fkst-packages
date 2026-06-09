@@ -198,6 +198,29 @@ local function mock_existing_devloop_worktree(issue_slug)
   })
 end
 
+local function mock_review_worktree(branch, head, path)
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = path or "/tmp/fkst-packages-test/github-devloop/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree add", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("rev-parse --verify refs/heads/", {
+    stdout = (head or "def456") .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_implement_codex(exit_code, stdout, stderr)
   t.mock_command("codex exec", {
     stdout = stdout or "implemented",
@@ -283,6 +306,7 @@ return {
   mock_git_commit = mock_git_commit,
   mock_git_push = mock_git_push,
   mock_existing_devloop_worktree = mock_existing_devloop_worktree,
+  mock_review_worktree = mock_review_worktree,
   mock_implement_codex = mock_implement_codex,
   mock_git_status = mock_git_status,
   mock_write_env = mock_write_env,

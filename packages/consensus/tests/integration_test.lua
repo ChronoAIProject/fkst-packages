@@ -23,7 +23,6 @@ local function proposal(extra)
     schema = "consensus.proposal.v1",
     proposal_id = "proposal-42",
     title = "Adopt consensus package",
-    body = "Create a small flat package that asks several angles to judge a proposal.",
     context = "The package must stay silent unless all angles agree.",
     angles = { "minimal", "structural", "delete" },
     dedup_key = "proposal-42-v1",
@@ -32,6 +31,7 @@ local function proposal(extra)
       kind = "proposal",
       ref = "demo/consensus/42",
     },
+    fetch_context = "Fetch the full proposal from the host fact source before judging.\nRef: demo/consensus/42",
   }
   for key, field in pairs(extra or {}) do
     value[key] = field
@@ -98,6 +98,21 @@ return {
     t.is_true(calls[1].stdin:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(calls[2].stdin:find("Angle: structural", 1, true) ~= nil)
     t.is_true(calls[3].stdin:find("Angle: delete", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Use the source_ref and opaque fetch context below to fetch or read the complete current source material before judging.", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("source_ref: kind=proposal ref=demo/consensus/42", 1, true) ~= nil)
+    t.is_nil(calls[1].stdin:find("Create a small flat package", 1, true))
+  end,
+
+  test_decide_runs_codex_in_proposal_cwd = function()
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("approve", "Structural angle approves.")
+    mock_angle("approve", "Delete angle approves.")
+
+    local result = run_decide(proposal({ codex_cwd = "/tmp/fkst-packages-test/consensus/worktree" }), opts("with-cwd"))
+    t.eq(result.exit_code, 0)
+    local calls = codex_calls()
+    t.eq(#calls, 3)
+    t.is_true(calls[1].rendered:find("/tmp/fkst-packages-test/consensus/worktree", 1, true) ~= nil)
   end,
 
   test_unanimous_abstain_raises_consensus_converge = function()

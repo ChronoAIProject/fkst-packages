@@ -1,6 +1,14 @@
 local S = {}
 
 function S.install(M)
+local function safe_cwd(value)
+  return type(value) == "string"
+    and value ~= ""
+    and #value <= 1000
+    and value:sub(1, 1) == "/"
+    and value:find("[%c]") == nil
+end
+
 function M.validate_proposal(proposal)
   if type(proposal) ~= "table" then
     return false
@@ -25,10 +33,14 @@ function M.validate_proposal(proposal)
   if not M._is_bounded_string(proposal.title, M._max_title_len) then
     return false
   end
-  if not M._is_bounded_string(proposal.body, M._max_body_len) then
+  if proposal.body ~= nil or proposal.diff ~= nil or proposal.comments ~= nil or proposal.source_bundle ~= nil then
+    return false
+  end
+  if proposal.codex_cwd ~= nil and not safe_cwd(proposal.codex_cwd) then
     return false
   end
   return M._has_bounded_source_ref(proposal.source_ref)
+    and M._is_bounded_string(proposal.fetch_context, M._max_fetch_context_len)
 end
 function M.is_supported_issue(payload)
   return type(payload) == "table"

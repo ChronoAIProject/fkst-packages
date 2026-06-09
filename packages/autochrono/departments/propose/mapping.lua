@@ -6,17 +6,10 @@ local function proposal_title(issue)
   return core.bounded_text("Draft maintainer reply for issue #" .. tostring(issue.issue_number), 240)
 end
 
-local function proposal_body(issue)
-  local fields = core.require_issue_fields(issue)
-  local prompt = require("prompts.proposal")
-  local rendered = core.render_template(prompt.template, {
-    repo = fields.repo,
-    issue_number = fields.issue_number,
-    title = fields.title,
-    url = fields.url,
-    updated_at = fields.updated_at,
-  })
-  return core.bounded_text(rendered, core.max_body_len())
+local function fetch_context(fields)
+  return "Fetch or inspect the full current issue from the source system before judging.\n"
+    .. "Source issue: " .. tostring(fields.repo) .. "#issue/" .. tostring(fields.issue_number) .. "\n"
+    .. "URL: " .. tostring(fields.url)
 end
 
 function M.build_proposal(issue)
@@ -28,8 +21,8 @@ function M.build_proposal(issue)
     proposal_id = proposal_id,
     dedup_key = core.proposal_dedup_key(fields.repo, fields.issue_number, fields.updated_at),
     title = proposal_title(fields),
-    body = proposal_body(issue),
     source_ref = fields.source_ref,
+    fetch_context = fetch_context(fields),
   }
 end
 

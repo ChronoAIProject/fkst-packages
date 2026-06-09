@@ -10,8 +10,8 @@ local default_angles = { "minimal", "structural", "delete" }
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
-local max_body_len = 12000
 local max_context_len = 8000
+local max_fetch_context_len = 4000
 local max_reply_len = 2000
 local max_framing_len = 1000
 local max_narrowed_question_len = 2000
@@ -59,6 +59,19 @@ local function is_path_safe_key(value)
   return true
 end
 
+local function is_safe_cwd(value)
+  if type(value) ~= "string" or value == "" or #value > 1000 then
+    return false
+  end
+  if value:sub(1, 1) ~= "/" then
+    return false
+  end
+  if value:find("[%c]") ~= nil then
+    return false
+  end
+  return true
+end
+
 local function neutralize_untrusted_prompt_text(text)
   local value = tostring(text or "")
 
@@ -93,6 +106,16 @@ local function has_source_ref(value)
   return type(value) == "table"
     and is_bounded_string(value.kind, max_key_len)
     and is_bounded_string(value.ref, max_key_len)
+end
+
+local function render_source_context(proposal)
+  local lines = {
+    "source_ref: kind=" .. neutralize_untrusted_prompt_text(proposal.source_ref.kind)
+      .. " ref=" .. neutralize_untrusted_prompt_text(proposal.source_ref.ref),
+    "Fetch context:",
+    neutralize_untrusted_prompt_text(proposal.fetch_context),
+  }
+  return table.concat(lines, "\n")
 end
 
 local function normalize_round(value)
@@ -191,10 +214,16 @@ function M.is_eligible(proposal)
   if not is_bounded_string(proposal.title, max_title_len) then
     return false
   end
-  if not is_bounded_string(proposal.body, max_body_len) then
+  if proposal.body ~= nil or proposal.diff ~= nil or proposal.comments ~= nil or proposal.source_bundle ~= nil then
+    return false
+  end
+  if not is_bounded_string(proposal.fetch_context, max_fetch_context_len) then
     return false
   end
   if proposal.context ~= nil and not is_bounded_string(proposal.context, max_context_len) then
+    return false
+  end
+  if proposal.codex_cwd ~= nil and not is_safe_cwd(proposal.codex_cwd) then
     return false
   end
   if normalize_round(proposal.round) == nil then
@@ -212,6 +241,20 @@ end
 
 function M.angles(proposal)
   return normalized_angles(proposal)
+end
+
+function M.codex_spawn_options(proposal, prompt, stall_window)
+  local options = {
+    prompt = prompt,
+    stall_window = stall_window,
+  }
+  if type(proposal) == "table" and proposal.codex_cwd ~= nil then
+    if not is_safe_cwd(proposal.codex_cwd) then
+      error("consensus: invalid codex_cwd")
+    end
+    options.worktree = proposal.codex_cwd
+  end
+  return options
 end
 
 function M.render_template(template, vars)
@@ -270,7 +313,7 @@ function M.build_angle_prompt(proposal, angle)
     bias = prompt.bias[angle] or ("Bias: " .. safe_angle .. ". Judge from this named perspective."),
     angle = safe_angle,
     title = neutralize_untrusted_prompt_text(proposal.title),
-    body = neutralize_untrusted_prompt_text(proposal.body),
+    source_context = render_source_context(proposal),
     context_block = context_block,
     convergence_block = convergence_block,
     verdict_options = verdict_mode == "gate" and "approve, reject, or abstain" or "approve or abstain",
@@ -430,7 +473,7 @@ function M.build_meta_judge_prompt(proposal, angle_results)
 
   return M.render_template(prompt.template, {
     title = neutralize_untrusted_prompt_text(proposal.title),
-    body = neutralize_untrusted_prompt_text(proposal.body),
+    source_context = render_source_context(proposal),
     context_block = context_block,
     convergence_block = convergence_block,
     angle_outputs = render_angle_outputs(angle_results),

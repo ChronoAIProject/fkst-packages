@@ -3,6 +3,7 @@ local M = {}
 local max_key_len = 200
 local max_title_len = 240
 local max_body_len = 12000
+local max_fetch_context_len = 4000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
 local max_update_key_len = 50
@@ -69,10 +70,11 @@ function M.sanitize_key(value)
 
   local segments = {}
   for segment in sanitized:gmatch("[^/]+") do
+    local clean_segment = segment
     if segment == "." or segment == ".." then
-      segment = "-"
+      clean_segment = "-"
     end
-    table.insert(segments, segment)
+    table.insert(segments, clean_segment)
   end
 
   sanitized = table.concat(segments, "/")
@@ -265,10 +267,11 @@ function M.validate_proposal(proposal)
   if not is_bounded_string(proposal.title, max_title_len) then
     return false
   end
-  if not is_bounded_string(proposal.body, max_body_len) then
+  if proposal.body ~= nil or proposal.diff ~= nil or proposal.comments ~= nil or proposal.source_bundle ~= nil then
     return false
   end
   return has_bounded_source_ref(proposal.source_ref)
+    and is_bounded_string(proposal.fetch_context, max_fetch_context_len)
 end
 
 -- Fail-closed gate before raising a reply: a malformed consensus_reached (missing/oversized
