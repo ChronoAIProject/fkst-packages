@@ -1,21 +1,20 @@
 local M = {}
 
 local default_angles = { "minimal", "structural", "delete" }
--- Proposal snapshots and consensus outputs are bounded statically because the SDK exposes
--- json.decode only, not an encoded-size probe. Worst-case consensus output raw content is
--- max_angles * max_reply_len + max_framing_len = 17000 bytes; prior-round convergence
--- digests are capped independently at max_prior_round_digests * 2 * max_digest_len.
--- With JSON \uXXXX escaping, those bounded text fields remain below 6x their raw limits.
+-- Reliable delivery payloads must stay below 64 KiB even under worst-case JSON string
+-- escaping. The SDK exposes json.decode only, so eligibility checks use the conservative
+-- estimator below before accepting proposal snapshots.
+local max_reliable_payload_json_len = 64 * 1024
 local max_angles = 4
 local max_key_len = 200
 local max_title_len = 240
-local max_body_len = 40000
-local max_context_len = 24000
-local max_reply_len = 4000
+local max_body_len = 9000
+local max_context_len = 2000
+local max_reply_len = 1700
 local max_framing_len = 1000
-local max_narrowed_question_len = 2000
-local max_digest_len = 2400
-local max_prior_round_digests = 12
+local max_narrowed_question_len = 500
+local max_digest_len = 1000
+local max_prior_round_digests = 4
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 
@@ -32,6 +31,75 @@ end
 
 local function is_bounded_string(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
+end
+
+local function is_array(value)
+  local count = 0
+  for key, _ in pairs(value) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+      return false, 0
+    end
+    if key > count then
+      count = key
+    end
+  end
+  for index = 1, count do
+    if value[index] == nil then
+      return false, 0
+    end
+  end
+  return true, count
+end
+
+local function worst_case_json_len(value)
+  local value_type = type(value)
+  if value_type == "string" then
+    return 2 + (#value * 6)
+  end
+  if value_type == "number" or value_type == "boolean" then
+    return #tostring(value)
+  end
+  if value == nil then
+    return 4
+  end
+  if value_type ~= "table" then
+    return worst_case_json_len(tostring(value))
+  end
+
+  local array, count = is_array(value)
+  local size = 2
+  if array then
+    for index = 1, count do
+      if index > 1 then
+        size = size + 1
+      end
+      size = size + worst_case_json_len(value[index])
+    end
+    return size
+  end
+
+  local first = true
+  for key, field in pairs(value) do
+    if field ~= nil then
+      if not first then
+        size = size + 1
+      end
+      first = false
+      size = size + worst_case_json_len(tostring(key)) + 1 + worst_case_json_len(field)
+    end
+  end
+  return size
+end
+
+local function is_reliable_payload_sized(payload)
+  return worst_case_json_len(payload) <= max_reliable_payload_json_len
+end
+
+local function assert_reliable_payload_sized(payload, kind)
+  if not is_reliable_payload_sized(payload) then
+    error("consensus: " .. kind .. " payload exceeds reliable delivery bound")
+  end
+  return payload
 end
 
 local function is_path_safe_key(value)
@@ -206,7 +274,7 @@ function M.is_eligible(proposal)
   if not valid_prior_round_digests(proposal.prior_round_digests) then
     return false
   end
-  return normalized_angles(proposal) ~= nil
+  return normalized_angles(proposal) ~= nil and is_reliable_payload_sized(proposal)
 end
 
 function M.angles(proposal)
@@ -524,10 +592,10 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
   end
   for _, result in ipairs(angle_results or {}) do
     table.insert(clean_results, {
-      angle = result.angle,
+      angle = bounded(result.angle or "unknown", max_key_len),
       verdict = is_verdict(result.verdict) and result.verdict or "invalid",
     })
-    table.insert(body_lines, tostring(result.angle) .. ":")
+    table.insert(body_lines, bounded(result.angle or "unknown", max_key_len) .. ":")
     table.insert(body_lines, bounded(result.reply, max_reply_len))
     table.insert(body_lines, "")
   end
@@ -551,7 +619,7 @@ function M.build_reached_payload(proposal, decision, angle_results, framing)
       ref = proposal.source_ref.ref,
     },
   }
-  return payload
+  return assert_reliable_payload_sized(payload, "consensus_reached")
 end
 
 function M.build_converge_payload(proposal, narrowed_question, angle_results)
@@ -562,7 +630,7 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results)
     error("consensus: missing source_ref")
   end
 
-  return {
+  local payload = {
     schema = "consensus.consensus_converge.v1",
     proposal_id = proposal.proposal_id,
     round = tonumber(proposal.round) or 0,
@@ -576,6 +644,24 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results)
       ref = proposal.source_ref.ref,
     },
   }
+  return assert_reliable_payload_sized(payload, "consensus_converge")
 end
+
+function M.worst_case_json_len(value)
+  return worst_case_json_len(value)
+end
+
+function M.max_reliable_payload_json_len()
+  return max_reliable_payload_json_len
+end
+
+M._max_body_len = max_body_len
+M._max_context_len = max_context_len
+M._max_reply_len = max_reply_len
+M._max_framing_len = max_framing_len
+M._max_narrowed_question_len = max_narrowed_question_len
+M._max_digest_len = max_digest_len
+M._max_key_len = max_key_len
+M._max_title_len = max_title_len
 
 return M

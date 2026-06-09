@@ -185,10 +185,11 @@ return {
     })
     local consensus_core = load_consensus_core()
 
-    t.is_true(#proposal.body > 12000)
     t.is_true(#proposal.body <= core.max_body_len())
+    t.is_true(#proposal.body > 8000)
     t.is_true(proposal.body:find("ordinary user context", 1, true) ~= nil)
     t.is_true(proposal.body:find("maintainer context", 1, true) ~= nil)
+    t.is_true(consensus_core.worst_case_json_len(proposal) <= consensus_core.max_reliable_payload_json_len())
     t.eq(consensus_core.is_eligible(proposal), true)
   end,
 
@@ -362,6 +363,9 @@ return {
 
     t.is_true(#proposal.body <= core.max_body_len())
     t.is_true(proposal.body:find("PR diff:", 1, true) ~= nil)
+    local consensus_core = load_consensus_core()
+    t.is_true(consensus_core.worst_case_json_len(proposal) <= consensus_core.max_reliable_payload_json_len())
+    t.eq(consensus_core.is_eligible(proposal), true)
     t.eq(core.validate_proposal(proposal), true)
   end,
 

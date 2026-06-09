@@ -37,6 +37,33 @@ local function result(angle, verdict)
   }
 end
 
+local function max_safe_key(char)
+  return string.rep(char, core._max_key_len)
+end
+
+local function worst_case_proposal(extra)
+  local value = proposal({
+    proposal_id = max_safe_key("p"),
+    title = string.rep("t", core._max_title_len),
+    body = string.rep("b", core._max_body_len),
+    dedup_key = max_safe_key("d"),
+    angles = {
+      max_safe_key("a"),
+      max_safe_key("b"),
+      max_safe_key("c"),
+      max_safe_key("d"),
+    },
+    source_ref = {
+      kind = max_safe_key("k"),
+      ref = max_safe_key("r"),
+    },
+  })
+  for key, field in pairs(extra or {}) do
+    value[key] = field
+  end
+  return value
+end
+
 return {
   test_rejects_multiline_angle_injection = function()
     -- untrusted angle must not be able to inject a line-start sentinel into the prompt
@@ -52,14 +79,36 @@ return {
 
   test_is_eligible_accepts_raised_bounded_input_contract = function()
     t.eq(core.is_eligible(proposal({
-      body = string.rep("b", 40000),
-      context = string.rep("c", 24000),
-      prior_round_digests = {
-        { angle = "minimal", verdict = "approve", reply = string.rep("r", 2400), digest = string.rep("d", 2400) },
-      },
+      body = string.rep("b", core._max_body_len),
     })), true)
-    t.eq(core.is_eligible(proposal({ body = string.rep("b", 40001) })), false)
-    t.eq(core.is_eligible(proposal({ context = string.rep("c", 24001) })), false)
+    t.eq(core.is_eligible(proposal({ body = string.rep("b", core._max_body_len + 1) })), false)
+    t.eq(core.is_eligible(proposal({ context = string.rep("c", core._max_context_len + 1) })), false)
+    t.eq(core.is_eligible(proposal({
+      prior_round_digests = {
+        { angle = "minimal", verdict = "approve", reply = string.rep("r", core._max_digest_len + 1) },
+      },
+    })), false)
+  end,
+
+  test_is_eligible_rejects_payloads_above_reliable_json_bound = function()
+    local oversized = proposal({
+      body = string.rep("b", core._max_body_len),
+      context = string.rep("c", core._max_context_len),
+      convergence_question = string.rep("q", core._max_narrowed_question_len),
+      prior_round_digests = {
+        { angle = "minimal", verdict = "approve", reply = string.rep("r", core._max_digest_len), digest = string.rep("d", core._max_digest_len) },
+      },
+    })
+
+    t.is_true(core.worst_case_json_len(oversized) > core.max_reliable_payload_json_len())
+    t.eq(core.is_eligible(oversized), false)
+  end,
+
+  test_static_max_proposal_shape_fails_closed_above_reliable_bound = function()
+    local input = worst_case_proposal()
+
+    t.is_true(core.worst_case_json_len(input) > core.max_reliable_payload_json_len())
+    t.eq(core.is_eligible(input), false)
   end,
 
   test_verdict_mode_defaults_to_converge_and_accepts_gate = function()
@@ -96,7 +145,7 @@ return {
   test_is_eligible_rejects_bad_round_and_unbounded_convergence_fields = function()
     t.eq(core.is_eligible(proposal({ round = -1 })), false)
     t.eq(core.is_eligible(proposal({ round = "1.5" })), false)
-    t.eq(core.is_eligible(proposal({ convergence_question = string.rep("x", 2001) })), false)
+    t.eq(core.is_eligible(proposal({ convergence_question = string.rep("x", core._max_narrowed_question_len + 1) })), false)
     t.eq(core.is_eligible(proposal({
       prior_round_digests = {
         { angle = "minimal\nbad", verdict = "approve", reply = "x", digest = "x" },
@@ -348,13 +397,13 @@ return {
   end,
 
   test_aggregate_rejects_overlong_reply = function()
-    -- max_reply_len is 4000; a longer reply must be rejected (no silent truncation)
+    -- overlong replies must be rejected, not silently truncated
     t.is_nil(core.aggregate({
       result("minimal", "approve"),
       {
         angle = "structural",
         verdict = "approve",
-        reply = string.rep("x", 4001),
+        reply = string.rep("x", core._max_reply_len + 1),
         exit_code = 0,
       },
       result("delete", "approve"),
@@ -403,10 +452,10 @@ return {
   test_build_reached_payload_bounds_top_level_framing = function()
     local payload = core.build_reached_payload(proposal(), "approve", {
       result("minimal", "approve"),
-    }, string.rep("x", 1001))
+    }, string.rep("x", core._max_framing_len + 1))
 
-    t.is_true(#payload.framing <= 1000)
-    t.eq(#payload.framing, 1000)
+    t.is_true(#payload.framing <= core._max_framing_len)
+    t.eq(#payload.framing, core._max_framing_len)
     t.eq(payload.body:find(payload.framing, 1, true), nil)
   end,
 
@@ -435,15 +484,23 @@ return {
   end,
 
   test_build_reached_payload_bounds_worst_case = function()
-    -- worst case: max_angles (4) replies each at the max_reply_len (4000) cap
-    local input = proposal({ angles = { "a", "b", "c", "d" } })
-    local big = string.rep("x", 4000)
+    local input = worst_case_proposal()
+    local big = string.rep("x", core._max_reply_len)
     local results = {}
-    for _, angle in ipairs({ "a", "b", "c", "d" }) do
+    for _, angle in ipairs(input.angles) do
       table.insert(results, { angle = angle, verdict = "approve", reply = big, exit_code = 0 })
     end
-    local payload = core.build_reached_payload(input, "approve", results)
-    t.is_true(#payload.body < 20 * 1024)
+    local payload = core.build_reached_payload(input, "approve", results, string.rep("f", core._max_framing_len))
+    t.is_true(core.worst_case_json_len(payload) <= core.max_reliable_payload_json_len())
+  end,
+
+  test_build_reached_payload_bounds_untrusted_angle_names = function()
+    local payload = core.build_reached_payload(proposal(), "approve", {
+      { angle = string.rep("z", core._max_key_len + 100), verdict = "approve", reply = "ok", exit_code = 0 },
+    })
+
+    t.eq(#payload.angle_results[1].angle, core._max_key_len)
+    t.is_true(core.worst_case_json_len(payload) <= core.max_reliable_payload_json_len())
   end,
 
   test_parse_meta_judge_output_accepts_reached_and_converge = function()
@@ -491,7 +548,7 @@ return {
     t.is_true(prompt:find("Focus on queue compatibility.", 1, true) ~= nil)
     t.is_true(prompt:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(prompt:find("Verdict: invalid", 1, true) ~= nil)
-    t.is_nil(prompt:find(string.rep("s", 601), 1, true))
+    t.is_nil(prompt:find(string.rep("s", core._max_digest_len + 1), 1, true))
     t.is_nil(prompt:find("{{", 1, true))
   end,
 
@@ -530,20 +587,20 @@ return {
   end,
 
   test_build_converge_payload_bounds_worst_case = function()
-    local big = string.rep("x", 2000)
-    local payload = core.build_converge_payload(proposal({
-      angles = { "a", "b", "c", "d" },
-    }), big, {
-      { angle = "a", verdict = "approve", reply = string.rep("a", 4000), exit_code = 0 },
-      { angle = "b", verdict = "abstain", reply = string.rep("b", 4000), exit_code = 0 },
-      { angle = "c", verdict = "abstain", reply = string.rep("c", 4000), exit_code = 0 },
-      { angle = "d", stdout = string.rep("d", 4000), exit_code = 1 },
+    local big = string.rep("x", core._max_narrowed_question_len)
+    local input = worst_case_proposal({ round = 100000 })
+    local payload = core.build_converge_payload(input, big, {
+      { angle = input.angles[1], verdict = "approve", reply = string.rep("a", core._max_reply_len), exit_code = 0 },
+      { angle = input.angles[2], verdict = "abstain", reply = string.rep("b", core._max_reply_len), exit_code = 0 },
+      { angle = input.angles[3], verdict = "abstain", reply = string.rep("c", core._max_reply_len), exit_code = 0 },
+      { angle = input.angles[4], stdout = string.rep("d", core._max_reply_len), exit_code = 1 },
     })
 
-    t.eq(#payload.narrowed_question, 2000)
+    t.eq(#payload.narrowed_question, core._max_narrowed_question_len)
     for _, digest in ipairs(payload.angle_digests) do
-      t.is_true(#digest.reply <= 2400)
-      t.is_true(#digest.digest <= 2400)
+      t.is_true(#digest.reply <= core._max_digest_len)
+      t.is_true(#digest.digest <= core._max_digest_len)
     end
+    t.is_true(core.worst_case_json_len(payload) <= core.max_reliable_payload_json_len())
   end,
 }

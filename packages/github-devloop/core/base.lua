@@ -5,14 +5,14 @@ function S.install(M)
 local max_key_len = 200
 local max_dedup_len = 512
 local max_title_len = 240
-local max_body_len = 40000
-local max_issue_body_section_len = 24000
-local max_issue_comments_section_len = 16000
-local max_comments_len = 40000
+local max_body_len = 9000
+local max_issue_body_section_len = 5000
+local max_issue_comments_section_len = 3000
+local max_comments_len = 3000
 local max_meta_reason_len = 2000
 local max_framing_len = 1000
 local max_impl_output_len = 2000
-local max_pr_diff_len = 40000
+local max_pr_diff_len = 5000
 local max_pr_issue_context_len = 3000
 local max_repo_key_len = 100
 local max_issue_key_len = 30
@@ -714,17 +714,48 @@ function M.bounded_issue_comment_block(comments, budget)
       created_at = "unknown time"
     end
     local text = M.neutralize_untrusted_prompt_text(M._neutralize_fkst_markers(comment.body))
-    table.insert(blocks, "Comment by " .. author .. " at " .. created_at .. ":\n" .. text)
+    table.insert(blocks, {
+      header = "Comment by " .. author .. " at " .. created_at .. ":\n",
+      text = text,
+    })
   end
   if #blocks == 0 then
     return ""
   end
 
-  local block = "Issue comments:\n" .. table.concat(blocks, "\n\n")
-  if #block > limit then
-    return block:sub(1, limit)
+  local prefix = "Issue comments:\n"
+  local rendered = {}
+  for _, block in ipairs(blocks) do
+    table.insert(rendered, block.header .. block.text)
   end
-  return block
+  local full = prefix .. table.concat(rendered, "\n\n")
+  if #full <= limit then
+    return full
+  end
+
+  local fixed_len = #prefix
+  if #blocks > 1 then
+    fixed_len = fixed_len + ((#blocks - 1) * 2)
+  end
+  for _, block in ipairs(blocks) do
+    fixed_len = fixed_len + #block.header
+  end
+  if fixed_len >= limit then
+    return full:sub(1, limit)
+  end
+
+  local text_budget = limit - fixed_len
+  local per_comment = math.floor(text_budget / #blocks)
+  local remainder = text_budget - (per_comment * #blocks)
+  rendered = {}
+  for index, block in ipairs(blocks) do
+    local budget = per_comment
+    if index <= remainder then
+      budget = budget + 1
+    end
+    table.insert(rendered, block.header .. block.text:sub(1, budget))
+  end
+  return prefix .. table.concat(rendered, "\n\n")
 end
 
 function M.build_issue_proposal_body(body, comments)
