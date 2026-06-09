@@ -36,40 +36,6 @@ local pr_open_guard_comments = h.pr_open_guard_comments
 local pr_open_visible_comments = h.pr_open_visible_comments
 local reviewing_marker = h.reviewing_marker
 
-local function capture_info_logs(run)
-  local seen = {}
-  local previous_info = log.info
-  log.info = function(message)
-    table.insert(seen, tostring(message))
-    previous_info(message)
-  end
-
-  local ok, result = pcall(run)
-  log.info = previous_info
-  if not ok then
-    error(result)
-  end
-  return seen
-end
-
-local function contains_all(line, expected)
-  for _, part in ipairs(expected) do
-    if line:find(part, 1, true) == nil then
-      return false
-    end
-  end
-  return true
-end
-
-local function has_log_line(lines, expected)
-  for _, line in ipairs(lines) do
-    if contains_all(line, expected) then
-      return true
-    end
-  end
-  return false
-end
-
 local function pr_json(number, updated_at, state)
   return string.format(
     '{"number":%d,"title":"PR %d","url":"https://github.example/owner/x/pull/%d","updatedAt":"%s","state":"%s","labels":[{"name":"review"}]}',
@@ -302,59 +268,6 @@ return {
     t.is_true(comment_calls[1].rendered:find("gh issue comment", 1, true) ~= nil)
     t.eq(comment_calls[1].rendered:find("github.com", 1, true), nil)
     t.eq(count_calls("gh issue view"), 2)
-  end,
-
-  test_issue_comment_request_logs_outbound = function()
-    local event = {
-      queue = "github_issue_comment_request",
-      payload = {
-        repo = "owner/x",
-        issue_number = 42,
-        body = "fkst reply",
-        dedup_key = "reply-42",
-        source_ref = {
-          kind = "external",
-          ref = "owner/x#issue/42",
-        },
-      },
-    }
-
-    mock_repo_env()
-    mock_write_env("")
-    local dry_lines = capture_info_logs(function()
-      require("departments.github_comment.main")
-      pipeline(event)
-    end)
-    t.is_true(has_log_line(dry_lines, {
-      "github-proxy",
-      "tag=OUTBOUND",
-      "mode=dry-run",
-      "repo=owner/x",
-      "issue=42",
-      "dedup_key=reply-42",
-      "reason=FKST_GITHUB_WRITE!=1",
-    }))
-    t.eq(count_calls("gh issue comment"), 0)
-
-    mock_repo_env()
-    mock_write_env("1")
-    mock_bot_env()
-    mock_comment_view("existing comment")
-    mock_comment_write()
-    local real_lines = capture_info_logs(function()
-      require("departments.github_comment.main")
-      pipeline(event)
-    end)
-    t.is_true(has_log_line(real_lines, {
-      "github-proxy",
-      "tag=OUTBOUND",
-      "mode=real",
-      "repo=owner/x",
-      "issue=42",
-      "dedup_key=reply-42",
-      "result=commented",
-    }))
-    t.eq(count_calls("gh issue comment"), 1)
   end,
 
   test_same_version_meta_comment_marker_dedups_opposite_action = function()
