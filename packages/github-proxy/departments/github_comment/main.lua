@@ -44,8 +44,8 @@ function pipeline(event)
     log.warn("github-proxy: comment request missing repo")
     return
   end
-  if payload.issue_number == nil or payload.body == nil or payload.dedup_key == nil then
-    log.warn("github-proxy: comment request missing issue_number, body, or dedup_key")
+  if payload.issue_number == nil or payload.dedup_key == nil then
+    log.warn("github-proxy: comment request missing issue_number or dedup_key")
     return
   end
 
@@ -69,7 +69,20 @@ function pipeline(event)
       return
     end
 
-    local body = tostring(payload.body) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
+    local body_text = payload.body
+    if type(payload.render) == "table" and payload.render.kind == "github-devloop-status-card" then
+      body_text = core.render_devloop_status_card(comments, payload.render.proposal_id, bot_login)
+      if body_text == nil then
+        log.info("github-proxy: devloop status card skipped")
+        return
+      end
+    end
+    if body_text == nil then
+      log.warn("github-proxy: comment request missing body")
+      return
+    end
+
+    local body = tostring(body_text) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
     local path = temp_body_file(repo, payload.issue_number)
     file.write(path, body)
     local cmd = core.gh_issue_comment_cmd(repo, payload.issue_number, path)

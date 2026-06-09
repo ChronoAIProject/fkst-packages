@@ -58,11 +58,9 @@ return {
     t.eq(raised.payload.issue_number, "42")
     t.eq(raised.payload.dedup_key, "status-card/comment/github-devloop/issue/owner/repo/42")
     t.eq(raised.payload.source_ref.ref, "owner/repo#issue/42")
-    t.is_true(raised.payload.body:find("State: reviewing", 1, true) ~= nil)
-    t.is_true(raised.payload.body:find("Review loop round: 2", 1, true) ~= nil)
-    t.is_true(raised.payload.body:find("Recent codex action: github-devloop PR review convergence round 2", 1, true) ~= nil)
-    t.is_true(raised.payload.body:find("fkst:github-devloop:status-card:v1", 1, true) ~= nil)
-    t.eq(raised.payload.body:find("fkst:github-devloop:state:v1", 1, true), nil)
+    t.eq(raised.payload.body, nil)
+    t.eq(raised.payload.render.kind, "github-devloop-status-card")
+    t.eq(raised.payload.render.proposal_id, proposal_id)
   end,
 
   test_status_card_tick_skips_terminal_issue = function()

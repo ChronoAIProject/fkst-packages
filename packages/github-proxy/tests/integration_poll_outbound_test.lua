@@ -473,21 +473,39 @@ return {
   end,
 
   test_upsert_comment_creates_then_edits_same_marker_comment = function()
+    local proposal_id = "github-devloop/issue/owner/x/42"
+    local version = "ready/consensus-github-devloop/issue/owner/x/42/2026-06-03T01-02-03Z/review-loop/2"
+    local state_marker = '<!-- fkst:github-devloop:state:v1 proposal="' .. proposal_id .. '" state="reviewing" version="' .. version .. '" stage_rank="675" -->'
+    local status_marker = '<!-- fkst:github-devloop:status-card:v1 proposal="' .. proposal_id .. '" -->'
     local event = {
       queue = "github_issue_comment_request",
       payload = {
         repo = "owner/x",
         issue_number = 42,
-        body = "status v1",
-        dedup_key = "status-card/comment/github-devloop/issue/owner/x/42",
+        dedup_key = "status-card/comment/" .. proposal_id,
         upsert = true,
+        render = {
+          kind = "github-devloop-status-card",
+          proposal_id = proposal_id,
+        },
       },
     }
 
     mock_repo_env()
     mock_write_env("1")
     mock_bot_env()
-    mock_comment_view("existing comment")
+    mock_comment_view({
+      {
+        body = state_marker,
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:00:00Z",
+      },
+      {
+        body = "github-devloop PR review convergence round 2\n\nReview is still narrowing.",
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T02:00:00Z",
+      },
+    })
     mock_comment_write()
     local first = t.run_department("departments/github_comment/main.lua", event, opts("comment-upsert-create", {
       FKST_GITHUB_WRITE = "1",
@@ -495,16 +513,32 @@ return {
     t.eq(first.exit_code, 0)
     t.eq(count_calls("gh issue comment"), 1)
     t.eq(count_calls("gh api graphql"), 0)
+    local created = file.read("/tmp/fkst-github-proxy-comment-owner_x-issue-42.md")
+    t.is_true(created:find("State: reviewing", 1, true) ~= nil)
+    t.is_true(created:find("Review loop round: 2", 1, true) ~= nil)
+    t.is_true(created:find("Recent codex action: github-devloop PR review convergence round 2", 1, true) ~= nil)
+    t.is_true(created:find(status_marker, 1, true) ~= nil)
+    t.is_true(created:find(core.comment_marker(event.payload.dedup_key), 1, true) ~= nil)
 
-    event.payload.body = "status v2"
     mock_repo_env()
     mock_write_env("1")
     mock_bot_env()
     mock_comment_view({
       {
-        id = "IC_kwDO123",
-        body = "status v1\n\n" .. core.comment_marker(event.payload.dedup_key),
+        body = state_marker,
         author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:00:00Z",
+      },
+      {
+        body = "github-devloop fixing round 1\n\nFixing review feedback.",
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T03:00:00Z",
+      },
+      {
+        id = "IC_kwDO123",
+        body = created,
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T02:30:00Z",
       },
     })
     mock_comment_edit()
@@ -516,7 +550,8 @@ return {
     t.eq(count_calls("gh api graphql"), 1)
 
     local edited = file.read("/tmp/fkst-github-proxy-comment-owner_x-issue-42.md")
-    t.is_true(edited:find("status v2", 1, true) ~= nil)
+    t.is_true(edited:find("Recent codex action: github-devloop fixing round 1", 1, true) ~= nil)
+    t.is_true(edited:find(status_marker, 1, true) ~= nil)
     t.is_true(edited:find(core.comment_marker(event.payload.dedup_key), 1, true) ~= nil)
     local api_call = calls_matching("gh api graphql")[1]
     t.is_true(api_call.rendered:find("-f id='IC_kwDO123'", 1, true) ~= nil)
