@@ -81,6 +81,14 @@ local function mock_latest_tag(tag)
   })
 end
 
+local function mock_latest_tag_failure(stderr)
+  t.mock_command("git describe --tags --match 'v*' --abbrev=0 refs/remotes/origin/'dev'", {
+    stdout = "",
+    stderr = stderr or "fatal: bad object refs/remotes/origin/dev",
+    exit_code = 128,
+  })
+end
+
 local function mock_delta(base_ref, head_sha, count)
   t.mock_command("git rev-list --count '" .. tostring(base_ref) .. ".." .. tostring(head_sha) .. "'", {
     stdout = tostring(count) .. "\n",
@@ -161,6 +169,19 @@ return {
     t.is_true(proposal.content_fetch:find("v0.7.0.." .. head_a, 1, true) ~= nil)
   end,
 
+  test_release_scan_git_describe_failure_fails_closed = function()
+    mock_env("")
+    mock_fetch_dev()
+    mock_dev_head(head_a)
+    mock_latest_tag_failure("fatal: bad object refs/remotes/origin/dev")
+
+    local result = run_scan()
+    t.is_true(result.exit_code ~= 0)
+    t.eq(#result.raises, 0)
+    t.eq(h.count_calls("git rev-list --count"), 0)
+    t.eq(h.count_calls("gh issue list"), 0)
+  end,
+
   test_release_scan_pending_marker_skips_rescan = function()
     mock_env("")
     mock_fetch_dev()
@@ -172,6 +193,20 @@ return {
     local result = run_scan()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
+  end,
+
+  test_release_scan_same_tag_marker_skips_rescan_after_dev_moves = function()
+    mock_env("")
+    mock_fetch_dev()
+    mock_dev_head(head_b)
+    mock_latest_tag("v0.1.0")
+    mock_delta("v0.1.0", head_b, 2)
+    mock_marker_list(marker_issue("v0.2.0", head_a))
+
+    local result = run_scan()
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(core.release_tag_fact(core.parse_release_marker_issue_list(marker_issue("v0.2.0", head_a)), "owner/repo", "v0.2.0").head_sha, head_a)
   end,
 
   test_release_scan_published_marker_skips_rescan = function()
@@ -186,6 +221,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(core.release_fact(core.parse_release_marker_issue_list(marker_issue("v0.2.0", head_a, "published")), "owner/repo", "v0.2.0", head_a).status, "published")
+    t.eq(core.release_tag_fact(core.parse_release_marker_issue_list(marker_issue("v0.2.0", head_a, "published")), "owner/repo", "v0.2.0").status, "published")
   end,
 
   test_release_fact_prefers_published_over_pending = function()

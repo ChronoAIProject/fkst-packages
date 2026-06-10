@@ -28,11 +28,15 @@ end
 local function latest_tag()
   local result = exec_sync({ cmd = core.git_latest_release_tag_cmd("dev"), timeout = 30 })
   if result.exit_code ~= 0 then
-    return "v0.0.0"
+    local output = tostring(result.stderr or "") .. "\n" .. tostring(result.stdout or "")
+    if output:find("No names found", 1, true) ~= nil then
+      return "v0.0.0"
+    end
+    error("github-devloop: git latest release tag failed: " .. tostring(result.stderr))
   end
   local tag = trim_stdout(result)
   if tag == "" then
-    return "v0.0.0"
+    error("github-devloop: git latest release tag returned empty stdout")
   end
   return tag
 end
@@ -85,9 +89,9 @@ function pipeline(event)
     local marker_view = run_cmd(core.gh_issue_list_release_markers_cmd(repo), 30, "gh release marker list")
     local comments = core.parse_release_marker_issue_list(marker_view.stdout)
     core.log_forged_markers("release_scan", proposal.proposal_id, comments)
-    local fact = core.release_fact(comments, repo, tag, head_sha)
+    local fact = core.release_tag_fact(comments, repo, tag)
     if fact ~= nil then
-      core.log_cas_decision("release_scan", proposal.proposal_id, { state = fact.status, version = fact.dedup_key }, "tick", "proposal", "skip-idempotent(release-marker)", "release marker already covers this head")
+      core.log_cas_decision("release_scan", proposal.proposal_id, { state = fact.status, version = fact.dedup_key }, "tick", "proposal", "skip-idempotent(release-marker)", "release marker already covers this tag")
       return
     end
 

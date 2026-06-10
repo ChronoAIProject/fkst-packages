@@ -154,6 +154,41 @@ function M.release_fact(comments, repo, tag, head_sha)
   return best
 end
 
+function M.release_tag_fact(comments, repo, tag)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:release:v1.-%-%->"
+  local best = nil
+  for _, comment in ipairs(M._trusted_marker_comments(comments)) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      local marker_repo = marker:match('repo="([^"]+)"')
+      local marker_tag = marker:match('tag="([^"]+)"')
+      local marker_head = marker:match('head_sha="([^"]+)"')
+      local status = marker:match('status="([^"]+)"')
+      local dedup = marker:match('dedup="([^"]*)"')
+      if marker_repo == M.safe_repo(repo)
+        and marker_tag == tostring(tag)
+        and M._is_git_sha(marker_head)
+        and (status == "pending" or status == "published")
+        and M._is_bounded_string(dedup, M._max_dedup_len) then
+        local fact = {
+          repo = marker_repo,
+          tag = marker_tag,
+          head_sha = marker_head,
+          status = status,
+          dedup_key = dedup,
+        }
+        if status == "published" then
+          return fact
+        end
+        best = best or fact
+      end
+    end
+  end
+  return best
+end
+
 function M.build_release_proposal(repo, tag, head_sha, base_ref)
   local proposal_id = M.release_proposal_id(repo, tag, head_sha)
   local range = release_git_range(base_ref, head_sha)
