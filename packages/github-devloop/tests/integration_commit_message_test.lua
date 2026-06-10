@@ -45,8 +45,6 @@ local function bytes(...)
   return string.char(...)
 end
 
-local text_auto_implement = bytes(0xe8, 0x87, 0xaa, 0xe6, 0xb2, 0xbb, 0xe5, 0xae, 0x9e, 0xe7, 0x8e, 0xb0)
-local text_auto_fix = bytes(0xe8, 0x87, 0xaa, 0xe6, 0xb2, 0xbb, 0xe4, 0xbf, 0xae, 0xe5, 0xa4, 0x8d)
 local text_fix = bytes(0xe4, 0xbf, 0xae, 0xe6, 0xad, 0xa3)
 local text_title = bytes(0xe6, 0xa0, 0x87, 0xe9, 0xa2, 0x98)
 local text_feedback = bytes(0xe5, 0x8f, 0x8d, 0xe9, 0xa6, 0x88)
@@ -158,14 +156,14 @@ return {
     local command = run_implement_commit(title)
 
     t.is_true(command:find("gh issue view", 1, true) == nil)
-    t.is_true(command:find("commit -m " .. quoted(text_auto_implement .. " #42: " .. title), 1, true) ~= nil)
+    t.is_true(command:find("commit -m " .. quoted("auto-implement #42: " .. title), 1, true) ~= nil)
     t.eq(title_fetch_count(), 1)
   end,
 
   test_implement_commit_message_falls_back_when_title_fetch_fails = function()
     local command = run_implement_commit("ignored", true)
 
-    t.is_true(command:find("commit -m " .. quoted(text_auto_implement .. " #42"), 1, true) ~= nil)
+    t.is_true(command:find("commit -m " .. quoted("auto-implement #42"), 1, true) ~= nil)
     t.eq(title_fetch_count(), 1)
   end,
 
@@ -175,13 +173,13 @@ return {
 
     t.is_true(#message <= 200)
     assert_valid_utf8(message)
-    t.is_true(message:find(text_auto_implement .. " #42: ", 1, true) == 1)
+    t.is_true(message:find("auto-implement #42: ", 1, true) == 1)
   end,
 
   test_fix_commit_message_uses_issue_title = function()
     local title = text_fix .. " review " .. text_feedback
     local command = run_fix_commit(title)
 
-    t.is_true(command:find("commit -m " .. quoted(text_auto_fix .. " #42: " .. title), 1, true) ~= nil)
+    t.is_true(command:find("commit -m " .. quoted("auto-fix #42: " .. title), 1, true) ~= nil)
   end,
 }
