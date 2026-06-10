@@ -1,0 +1,219 @@
+local M = {}
+local root_ref = nil
+
+local stalled_label = "fkst-dev:stalled"
+
+local thresholds = {
+  thinking = 30 * 60,
+  ready = 30 * 60,
+  implementing = 90 * 60,
+  ["pr-open"] = 30 * 60,
+  reviewing = 60 * 60,
+  fixing = 90 * 60,
+  merging = 30 * 60,
+}
+
+local nonterminal_states = {
+  thinking = true,
+  ready = true,
+  implementing = true,
+  ["pr-open"] = true,
+  reviewing = true,
+  fixing = true,
+  merging = true,
+}
+
+local function root()
+  return root_ref or M
+end
+
+local function parse_version_epoch(version)
+  local text = tostring(version or "")
+  local year, month, day, hour, min, sec = nil, nil, nil, nil, nil, nil
+  for y, mo, d, h, mi, s in text:gmatch("(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d)[%-:](%d%d)[%-:](%d%d)Z") do
+    year, month, day, hour, min, sec = y, mo, d, h, mi, s
+  end
+  if year == nil then
+    return nil
+  end
+  local local_epoch = os.time({
+    year = tonumber(year),
+    month = tonumber(month),
+    day = tonumber(day),
+    hour = tonumber(hour),
+    min = tonumber(min),
+    sec = tonumber(sec),
+    isdst = false,
+  })
+  local offset = os.difftime(os.time(os.date("*t", local_epoch)), os.time(os.date("!*t", local_epoch)))
+  return local_epoch + offset
+end
+
+local function current_epoch()
+  local current = now()
+  if type(current) == "number" then
+    return current
+  end
+  return parse_version_epoch(current)
+end
+
+local function has_current_dependency_wait(comments, proposal_id, version)
+  local core = root()
+  if type(comments) ~= "table" then
+    return false
+  end
+  local wait_pattern = "<!%-%- fkst:github%-devloop:dependency%-wait:v1.-%-%->"
+  local cycle_pattern = "<!%-%- fkst:github%-devloop:dependency%-cycle:v1.-%-%->"
+  for _, comment in ipairs(core._trusted_marker_comments(comments)) do
+    local body = core._comment_body(comment)
+    for marker in body:gmatch(wait_pattern) do
+      if marker:match('proposal="([^"]+)"') == tostring(proposal_id)
+        and marker:match('version="([^"]*)"') == tostring(version) then
+        return true
+      end
+    end
+    for marker in body:gmatch(cycle_pattern) do
+      if marker:match('proposal="([^"]+)"') == tostring(proposal_id)
+        and marker:match('version="([^"]*)"') == tostring(version) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function has_stall_marker(comments, proposal_id, state, version)
+  local core = root()
+  if type(comments) ~= "table" then
+    return false
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:stall%-detected:v1.-%-%->"
+  for _, comment in ipairs(core._trusted_marker_comments(comments)) do
+    for marker in core._comment_body(comment):gmatch(marker_pattern) do
+      if marker:match('proposal="([^"]+)"') == tostring(proposal_id)
+        and marker:match('state="([^"]+)"') == tostring(state)
+        and marker:match('version="([^"]*)"') == tostring(version) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function stall_marker(proposal_id, state, version, threshold_seconds)
+  return '<!-- fkst:github-devloop:stall-detected:v1 proposal="' .. tostring(proposal_id)
+    .. '" state="' .. tostring(state)
+    .. '" version="' .. tostring(version)
+    .. '" threshold_seconds="' .. tostring(threshold_seconds)
+    .. '" -->'
+end
+
+local function issue_source_ref(repo, issue_number)
+  return {
+    kind = "external",
+    ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
+  }
+end
+
+function M.stall_watch_threshold_seconds(state)
+  return thresholds[state]
+end
+
+function M.is_stall_watch_state(state)
+  return nonterminal_states[state] == true
+end
+
+function M.has_stall_detected_marker(comments, proposal_id, state, version)
+  return has_stall_marker(comments, proposal_id, state, version)
+end
+
+function M.stall_detected_marker(proposal_id, state, version, threshold_seconds)
+  return stall_marker(proposal_id, state, version, threshold_seconds)
+end
+
+function M.has_current_dependency_hold(comments, proposal_id, version)
+  return has_current_dependency_wait(comments, proposal_id, version)
+end
+
+function M.stall_watch_assessment(issue)
+  local core = root()
+  local current = core.current_state(issue.comments, issue.proposal_id)
+  if current == nil or not nonterminal_states[current.state] then
+    return { action = "clear", current = current }
+  end
+  if current.state == "ready" and has_current_dependency_wait(issue.comments, issue.proposal_id, current.version) then
+    return { action = "none", current = current, reason = "dependency-held" }
+  end
+  local threshold = thresholds[current.state]
+  local version_epoch = parse_version_epoch(current.version)
+  local now_epoch = current_epoch()
+  if version_epoch == nil or now_epoch == nil then
+    return { action = "none", current = current, reason = "missing-version-timestamp" }
+  end
+  local age_seconds = now_epoch - version_epoch
+  if age_seconds < threshold then
+    return { action = "none", current = current, reason = "below-threshold", age_seconds = age_seconds, threshold_seconds = threshold }
+  end
+  if has_stall_marker(issue.comments, issue.proposal_id, current.state, current.version) then
+    return { action = "label-only", current = current, age_seconds = age_seconds, threshold_seconds = threshold }
+  end
+  return { action = "alert", current = current, age_seconds = age_seconds, threshold_seconds = threshold }
+end
+
+function M.build_stall_detected_comment_request(repo, issue_number, proposal_id, state, version, threshold_seconds, source_ref)
+  local core = root()
+  return {
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = issue_number,
+    body = "github-devloop stall detected"
+      .. "\n\nState: " .. tostring(state)
+      .. "\nVersion: " .. tostring(version)
+      .. "\nThreshold seconds: " .. tostring(threshold_seconds)
+      .. "\n\n" .. stall_marker(proposal_id, state, version, threshold_seconds),
+    dedup_key = core._dedup_key({
+      "stall-detected",
+      "comment",
+      tostring(proposal_id),
+      tostring(state),
+      tostring(version),
+    }),
+    source_ref = core.normalize_source_ref(source_ref or issue_source_ref(repo, issue_number)),
+  }
+end
+
+function M.build_stalled_label_request(repo, issue_number, proposal_id, version, source_ref)
+  local core = root()
+  return core.build_label_request(
+    repo,
+    issue_number,
+    { stalled_label },
+    {},
+    core._dedup_key({ "stall-detected", "label", "set", tostring(proposal_id), tostring(version) }),
+    source_ref or issue_source_ref(repo, issue_number)
+  )
+end
+
+function M.build_stalled_label_clear_request(repo, issue_number, proposal_id, version, source_ref)
+  local core = root()
+  return core.build_label_request(
+    repo,
+    issue_number,
+    {},
+    { stalled_label },
+    core._dedup_key({ "stall-detected", "label", "clear", tostring(proposal_id), tostring(version or "none") }),
+    source_ref or issue_source_ref(repo, issue_number)
+  )
+end
+
+function M.install(root_module)
+  root_ref = root_module
+  for k, v in pairs(M) do
+    if k ~= "install" then
+      root_module[k] = v
+    end
+  end
+  root_module._stalled_label = stalled_label
+end
+
+return M

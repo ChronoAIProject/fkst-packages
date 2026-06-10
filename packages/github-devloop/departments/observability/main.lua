@@ -5,6 +5,7 @@ local M = {}
 M.spec = {
   consumes = { "devloop_observe_tick" },
   produces = {},
+  fanout = { "devloop_observe_tick" },
   ephemeral = { "devloop_observe_tick" },
   retry = false,
   stall_window = "2m",
