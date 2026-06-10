@@ -19,6 +19,15 @@ local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 
+local function first_call_index(needle)
+  for index, call in ipairs(t.command_calls()) do
+    if call.rendered:find(needle, 1, true) ~= nil then
+      return index
+    end
+  end
+  return nil
+end
+
 return {
   test_review_result_approve_leaves_draft_pr_until_merge_ready_fact_is_visible = function()
     local event = review_reached()
@@ -99,6 +108,14 @@ return {
     t.eq(count_calls("gh pr ready '7' --repo 'owner/repo'"), 1)
     t.eq(count_calls("gh pr merge"), 1)
     t.eq(count_calls("gh issue close"), 1)
+    local merging_marker_index = first_call_index("gh pr comment '7' --repo 'owner/repo' --body-file")
+    local ready_index = first_call_index("gh pr ready '7' --repo 'owner/repo'")
+    local merge_index = first_call_index("gh pr merge '7' --repo 'owner/repo' --merge --match-head-commit 'def456'")
+    t.is_true(merging_marker_index ~= nil)
+    t.is_true(ready_index ~= nil)
+    t.is_true(merge_index ~= nil)
+    t.is_true(merging_marker_index < ready_index)
+    t.is_true(ready_index < merge_index)
   end,
 
   test_merge_keeps_draft_pr_draft_when_mergeability_gate_fails = function()
