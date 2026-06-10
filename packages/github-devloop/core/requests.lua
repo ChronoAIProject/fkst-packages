@@ -529,6 +529,7 @@ function M.build_pr_open_request(repo, issue_number, proposal_id, current, title
     branch = branch,
     head_sha = head_sha,
     base_branch = base_branch,
+    draft = true,
     title = bounded_title,
     body = body,
     issue_comment_body_template = "github-devloop PR opened: #{{pr_number}}"

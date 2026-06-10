@@ -17,12 +17,6 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
-local function is_already_ready_error(stderr)
-  local lower = tostring(stderr or ""):lower()
-  return lower:find("already ready", 1, true) ~= nil
-    or lower:find("not a draft", 1, true) ~= nil
-end
-
 function pipeline(event)
   local reached = event.payload or {}
   if not core.is_supported_review_result(reached) then
@@ -43,7 +37,6 @@ function pipeline(event)
     return
   end
 
-  local write_enabled = core.write_mode() == "real"
   core.assert_trusted_bot_configured()
   local branches = core.branch_config()
   local pr_view = exec_sync({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
@@ -136,29 +129,6 @@ function pipeline(event)
       issue_version = core.fix_version_from_review_version(state.version)
     end
     core.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, core.cas_outcome(state, transition, reached.dedup_key), "review decision=" .. tostring(reached.decision))
-    if reached.decision == "approve" then
-      if write_enabled then
-        local ready = exec_sync({ cmd = core.gh_pr_ready_cmd(repo, pr_number), timeout = 30 })
-        if ready.exit_code ~= 0 and not is_already_ready_error(ready.stderr) then
-          error("github-devloop: gh pr ready failed for review approval: " .. tostring(ready.stderr))
-        end
-        core.log_line("info", "review_result", origin.proposal_id, "OUTBOUND", {
-          "mode=real",
-          "cmd=gh pr ready",
-          "repo=" .. tostring(repo),
-          "pr=" .. tostring(pr_number),
-          "reason=review consensus approved",
-        })
-      else
-        core.log_line("info", "review_result", origin.proposal_id, "OUTBOUND", {
-          "mode=dry-run",
-          "cmd=gh pr ready",
-          "repo=" .. tostring(repo),
-          "pr=" .. tostring(pr_number),
-          "reason=would convert approved draft PR requires FKST_GITHUB_WRITE=1",
-        })
-      end
-    end
     local comment_request = core.build_review_result_comment_request(origin.repo, origin.issue_number, origin.proposal_id, issue_version, reached, pr_source_ref)
     local label_request = nil
     if origin.issue_number ~= nil then

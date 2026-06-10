@@ -413,6 +413,7 @@ return {
     t.eq(pr_request.branch, "devloop-owner-repo-42-01HY")
     t.eq(pr_request.head_sha, "abc123")
     t.eq(pr_request.base_branch, "dev")
+    t.eq(pr_request.draft, true)
     t.eq(pr_request.expected_state, "implementing")
     t.eq(pr_request.expected_version, ready.dedup_key)
     t.is_true(pr_request.body:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)

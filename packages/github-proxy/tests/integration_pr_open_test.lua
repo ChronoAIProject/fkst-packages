@@ -75,6 +75,40 @@ return {
     local create = calls_matching("gh pr create")[1]
     t.eq(create.rendered:find("--json", 1, true), nil)
     t.is_true(create.rendered:find("--base 'dev'", 1, true) ~= nil)
+    t.eq(create.rendered:find("--draft", 1, true), nil)
+
+    local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
+    t.is_true(issue_written:find("github-devloop PR opened: #7", 1, true) ~= nil)
+    t.is_true(issue_written:find('state="pr-open"', 1, true) ~= nil)
+    t.is_true(issue_written:find('pr="7"', 1, true) ~= nil)
+
+    local pr_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md")
+    t.is_true(pr_written:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
+  end,
+
+  test_pr_open_request_honors_explicit_draft_intent = function()
+    local event = pr_open_event()
+    event.payload.draft = true
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_open_guard(nil, pr_open_guard_comments())
+    mock_branch_head("abc123")
+    mock_pr_head_list("[]\n")
+    mock_git_push()
+    mock_pr_create(7)
+    mock_pr_head_state("abc123", "OPEN")
+    mock_comment_view("existing issue comment")
+    mock_comment_write()
+    mock_pr_comment_view("existing pr comment")
+    mock_pr_comment_write()
+    mock_pr_open_guard({ "fkst-dev:implementing" }, pr_open_visible_comments())
+    mock_label_write()
+
+    local result = t.run_department("departments/github_pr_open/main.lua", event, opts("pr-open-draft-write", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    local create = calls_matching("gh pr create")[1]
     t.is_true(create.rendered:find("--draft", 1, true) ~= nil)
 
     local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")

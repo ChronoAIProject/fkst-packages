@@ -146,6 +146,7 @@ return {
     t.eq(pr_raise.payload.schema, "github-proxy.pr-open.v1")
     t.eq(pr_raise.payload.branch, "devloop-owner-repo-42-01HY")
     t.eq(pr_raise.payload.head_sha, "abc123")
+    t.eq(pr_raise.payload.draft, true)
     t.eq(pr_raise.payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(pr_raise.payload.impl_version, impl_version)
     t.eq(pr_raise.payload.expected_state, "implementing")
