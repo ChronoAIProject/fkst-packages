@@ -4,7 +4,7 @@ local M = {}
 
 M.spec = {
   consumes = { "consensus.consensus_reached" },
-  produces = {},
+  produces = { "github-proxy.github_issue_create_request" },
   fanout = { "consensus.consensus_reached" },
   stall_window = "5m",
 }
@@ -45,6 +45,18 @@ local function draft_notes(repo, tag, base_ref, head_sha)
   end
   core.log_codex_result("release_publish", core.release_proposal_id(repo, tag, head_sha), "release-notes", result, "result=completed", nil)
   return core.normalize_release_notes(result.stdout, tag)
+end
+
+local function published_marker_issue_create_request(repo, tag, head_sha, dedup_key)
+  return {
+    schema = "github-proxy.issue-create.v1",
+    repo = repo,
+    title = "Release published " .. tostring(tag),
+    body = "github-devloop release published\n\n"
+      .. core.release_marker(repo, tag, head_sha, "published", dedup_key),
+    dedup_key = core._dedup_key({ "release", "published-marker", repo, tag, head_sha }),
+    source_ref = core.release_source_ref(repo),
+  }
 end
 
 function pipeline(event)
@@ -92,6 +104,8 @@ function pipeline(event)
     if not existing_ok(core.gh_release_view_cmd(repo, tag)) then
       run_cmd(core.gh_release_create_cmd(repo, tag, notes_file), 60, "gh release create")
     end
+    local marker_request = published_marker_issue_create_request(repo, tag, proposed_head, core.release_dedup_key(repo, tag, proposed_head))
+    core.log_raise("release_publish", reached.proposal_id, "github-proxy.github_issue_create_request", marker_request)
     core.log_cas_decision("release_publish", reached.proposal_id, { state = "approved", version = reached.dedup_key }, "approve", "published", "applied", "release published or already existed")
   end)
 end

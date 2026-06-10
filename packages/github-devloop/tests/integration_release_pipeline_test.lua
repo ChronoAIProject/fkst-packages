@@ -89,10 +89,18 @@ local function mock_delta(base_ref, head_sha, count)
   })
 end
 
-local function marker_issue(tag, head_sha)
+local function mock_first_release_delta(head_sha, count)
+  t.mock_command("git rev-list --count '" .. tostring(head_sha) .. "'", {
+    stdout = tostring(count) .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function marker_issue(tag, head_sha, status)
   local dedup = core.release_dedup_key("owner/repo", tag, head_sha)
   return '[{"author":{"login":"fkst-test-bot"},"body":'
-    .. '"' .. h.json_string(core.release_marker("owner/repo", tag, head_sha, "pending", dedup)) .. '"'
+    .. '"' .. h.json_string(core.release_marker("owner/repo", tag, head_sha, status or "pending", dedup)) .. '"'
     .. ',"comments":[]}]\n'
 end
 
@@ -120,7 +128,7 @@ return {
     mock_fetch_dev()
     mock_dev_head(head_a)
     mock_latest_tag(nil)
-    mock_delta("v0.0.0", head_a, 3)
+    mock_first_release_delta(head_a, 3)
     mock_marker_list("[]\n")
 
     local result = run_scan()
@@ -131,6 +139,8 @@ return {
     t.eq(proposal.dedup_key, core.release_dedup_key("owner/repo", "v0.1.0", head_a))
     t.eq(proposal.source_ref.ref, "owner/repo#repo")
     t.is_true(proposal.body:find("release v0.1.0", 1, true) ~= nil)
+    t.is_true(proposal.content_fetch:find("git log --oneline --decorate '" .. head_a .. "'", 1, true) ~= nil)
+    t.eq(h.count_calls("git rev-list --count 'v0.0.0.." .. head_a .. "'"), 0)
     local marker = h.find_raise(result.raises, "github-proxy.github_issue_create_request").payload
     t.eq(marker.title, "Release proposal v0.1.0")
     t.is_true(marker.body:find('status="pending"', 1, true) ~= nil)
@@ -162,6 +172,35 @@ return {
     local result = run_scan()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
+  end,
+
+  test_release_scan_published_marker_skips_rescan = function()
+    mock_env("")
+    mock_fetch_dev()
+    mock_dev_head(head_a)
+    mock_latest_tag("v0.1.0")
+    mock_delta("v0.1.0", head_a, 2)
+    mock_marker_list(marker_issue("v0.2.0", head_a, "published"))
+
+    local result = run_scan()
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(core.release_fact(core.parse_release_marker_issue_list(marker_issue("v0.2.0", head_a, "published")), "owner/repo", "v0.2.0", head_a).status, "published")
+  end,
+
+  test_release_fact_prefers_published_over_pending = function()
+    local dedup = core.release_dedup_key("owner/repo", "v0.2.0", head_a)
+    local comments = {
+      {
+        author_login = "fkst-test-bot",
+        body = core.release_marker("owner/repo", "v0.2.0", head_a, "pending", dedup),
+      },
+      {
+        author_login = "fkst-test-bot",
+        body = core.release_marker("owner/repo", "v0.2.0", head_a, "published", dedup),
+      },
+    }
+    t.eq(core.release_fact(comments, "owner/repo", "v0.2.0", head_a).status, "published")
   end,
 
   test_release_publish_dry_run_writes_nothing = function()
@@ -200,6 +239,9 @@ return {
     t.eq(h.count_calls("git push origin 'v0.2.0'"), 1)
     t.eq(h.count_calls("gh release create 'v0.2.0'"), 1)
     t.is_true(h.has_call("--notes-file "))
+    local marker = h.find_raise(result.raises, "github-proxy.github_issue_create_request").payload
+    t.eq(marker.title, "Release published v0.2.0")
+    t.is_true(marker.body:find('status="published"', 1, true) ~= nil)
   end,
 
   test_release_publish_moved_head_aborts_before_writes = function()

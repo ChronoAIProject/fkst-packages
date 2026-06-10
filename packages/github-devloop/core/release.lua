@@ -17,6 +17,16 @@ local function require_release_tag(tag)
   return tostring(tag)
 end
 
+local function release_git_range(base_ref, head_sha)
+  if not M._is_git_sha(head_sha) and tostring(head_sha) ~= "refs/remotes/origin/dev" then
+    error("github-devloop: invalid release range head")
+  end
+  if tostring(base_ref or "") == "v0.0.0" then
+    return tostring(head_sha)
+  end
+  return tostring(base_ref) .. ".." .. tostring(head_sha)
+end
+
 local function bounded_text(text, limit)
   local value = tostring(text or "")
   if #value > limit then
@@ -114,6 +124,7 @@ function M.release_fact(comments, repo, tag, head_sha)
     return nil
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:release:v1.-%-%->"
+  local best = nil
   for _, comment in ipairs(M._trusted_marker_comments(comments)) do
     for marker in M._comment_body(comment):gmatch(marker_pattern) do
       local marker_repo = marker:match('repo="([^"]+)"')
@@ -126,21 +137,26 @@ function M.release_fact(comments, repo, tag, head_sha)
         and marker_head == tostring(head_sha)
         and (status == "pending" or status == "published")
         and M._is_bounded_string(dedup, M._max_dedup_len) then
-        return {
+        local fact = {
           repo = marker_repo,
           tag = marker_tag,
           head_sha = marker_head,
           status = status,
           dedup_key = dedup,
         }
+        if status == "published" then
+          return fact
+        end
+        best = best or fact
       end
     end
   end
-  return nil
+  return best
 end
 
 function M.build_release_proposal(repo, tag, head_sha, base_ref)
   local proposal_id = M.release_proposal_id(repo, tag, head_sha)
+  local range = release_git_range(base_ref, head_sha)
   return {
     schema = "consensus.proposal.v1",
     verdict_mode = "gate",
@@ -152,7 +168,7 @@ function M.build_release_proposal(repo, tag, head_sha, base_ref)
       .. "\nBase: " .. tostring(base_ref)
       .. "\nHead: " .. tostring(head_sha)
       .. "\nUse the source_ref and content_fetch commands to derive the current log and issue context.",
-    content_fetch = "git log --oneline --decorate " .. M._shell_single_quote(tostring(base_ref) .. ".." .. tostring(head_sha))
+    content_fetch = "git log --oneline --decorate " .. M._shell_single_quote(range)
       .. "\n"
       .. "gh issue list --repo " .. M._shell_single_quote(repo)
       .. " --state closed --search " .. M._shell_single_quote("closed:" .. tostring(base_ref) .. ".." .. tostring(head_sha))
@@ -183,6 +199,7 @@ function M.is_supported_release_result(payload)
 end
 
 function M.release_notes_prompt(repo, tag, base_ref, head_sha)
+  local range = release_git_range(base_ref, head_sha)
   return table.concat({
     "Draft GitHub Release notes for this repository release.",
     "Return only the release notes body.",
@@ -193,10 +210,10 @@ function M.release_notes_prompt(repo, tag, base_ref, head_sha)
     "",
     "Repository: " .. tostring(repo),
     "Release: " .. tostring(tag),
-    "Range: " .. tostring(base_ref) .. ".." .. tostring(head_sha),
+    "Range: " .. range,
     "",
     "Fetch current source data yourself:",
-    "git log --oneline " .. M._shell_single_quote(tostring(base_ref) .. ".." .. tostring(head_sha)),
+    "git log --oneline " .. M._shell_single_quote(range),
     "gh issue list --repo " .. M._shell_single_quote(repo)
       .. " --state closed --search " .. M._shell_single_quote("closed:" .. tostring(base_ref) .. ".." .. tostring(head_sha))
       .. " --json number,title,closedAt",
@@ -226,17 +243,14 @@ function M.git_latest_release_tag_cmd(branch)
 end
 
 function M.git_release_delta_count_cmd(base_ref, head_sha)
-  if not M._is_git_sha(head_sha) and tostring(head_sha) ~= "refs/remotes/origin/dev" then
-    error("github-devloop: invalid release delta head")
-  end
-  return "git rev-list --count " .. M._shell_single_quote(tostring(base_ref) .. ".." .. tostring(head_sha))
+  return "git rev-list --count " .. M._shell_single_quote(release_git_range(base_ref, head_sha))
 end
 
 function M.git_release_log_cmd(base_ref, head_sha)
   if not M._is_git_sha(head_sha) then
     error("github-devloop: invalid release log head")
   end
-  return "git log --format=%s " .. M._shell_single_quote(tostring(base_ref) .. ".." .. tostring(head_sha))
+  return "git log --format=%s " .. M._shell_single_quote(release_git_range(base_ref, head_sha))
 end
 
 function M.git_tag_exists_cmd(tag)
