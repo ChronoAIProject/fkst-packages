@@ -3,11 +3,12 @@ local core = require("core")
 local M = {}
 
 M.spec = {
-  consumes = { "devloop_observe_tick" },
+  consumes = { "devloop_observe_tick", "github-proxy.github_entity_changed" },
   produces = {
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_label_request",
   },
+  fanout = { "github-proxy.github_entity_changed" },
   retry = false,
   stall_window = "2m",
 }
@@ -92,6 +93,39 @@ local function fetch_issue(repo, issue_number)
   return issue
 end
 
+local function fetch_pr(repo, pr_number, proposal_id)
+  local result, err = run_gh(core.gh_pr_view_origin_cmd(repo, pr_number), 30)
+  if result == nil then
+    log_skip(proposal_id, "pr-view-failed", err and err.stderr)
+    return nil
+  end
+  local ok, pr = pcall(core.parse_pr_view_origin, result.stdout)
+  if not ok or type(pr) ~= "table" then
+    log_skip(proposal_id, "pr-view-malformed", pr)
+    return nil
+  end
+  return pr
+end
+
+local function entity_comments(repo, issue, proposal_id)
+  local comments = {}
+  for _, comment in ipairs(issue.comments or {}) do
+    table.insert(comments, comment)
+  end
+  local link = core.pr_link_fact(issue.comments, proposal_id)
+  if link == nil then
+    return comments, true
+  end
+  local pr = fetch_pr(repo, link.pr_number, proposal_id)
+  if pr == nil then
+    return comments, false
+  end
+  for _, comment in ipairs(pr.comments or {}) do
+    table.insert(comments, comment)
+  end
+  return comments, true
+end
+
 local function source_ref(repo, issue_number)
   return {
     kind = "external",
@@ -144,6 +178,11 @@ local function inspect_issue(repo, issue_number)
   end
   local ref = source_ref(repo, issue_number)
   issue.proposal_id = proposal_id
+  local comments, ok = entity_comments(repo, issue, proposal_id)
+  if not ok then
+    return
+  end
+  issue.comments = comments
   local assessment = core.stall_watch_assessment(issue)
   if assessment.action == "clear" then
     if core.has_label(issue.labels, core._stalled_label) then
@@ -172,6 +211,17 @@ function pipeline(event)
   core.log_entry(dept, event, "github-devloop/stall-watch", "tick")
   core.assert_trusted_bot_configured()
   local repo = require_repo()
+  local payload = event.payload or {}
+  if event.queue == "github-proxy.github_entity_changed" then
+    if not core.is_supported_issue(payload) then
+      log_skip("github-devloop/stall-watch", "unsupported-entity", "expected issue entity")
+      return
+    end
+    with_lock(core.observe_lock_key(payload.repo, payload.number), function()
+      inspect_issue(payload.repo, payload.number)
+    end)
+    return
+  end
   for _, issue_number in ipairs(sorted_issue_numbers(repo)) do
     with_lock(core.observe_lock_key(repo, issue_number), function()
       inspect_issue(repo, issue_number)

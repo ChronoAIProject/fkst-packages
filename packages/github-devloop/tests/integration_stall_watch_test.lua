@@ -22,6 +22,24 @@ local function run_stall_watch(name)
   }, opts(name or "stall-watch"))
 end
 
+local function run_stall_watch_issue(name)
+  return t.run_department("departments/stall_watch/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = "owner/repo",
+      number = 42,
+      title = "Issue",
+      updated_at = "2026-06-10T08:00:00Z",
+      source_ref = {
+        kind = "external",
+        ref = "owner/repo#issue/42",
+      },
+    },
+  }, opts(name or "stall-watch-issue"))
+end
+
 local function mock_env()
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
     stdout = "fkst-test-bot",
@@ -92,6 +110,22 @@ local function mock_issue_view(labels, comments)
   end
   t.mock_command("--json labels,state,comments", {
     stdout = '{"state":"OPEN","labels":[' .. table.concat(rendered_labels, ",") .. '],"comments":[' .. table.concat(rendered_comments, ",") .. "]}\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_pr_view(comments)
+  local rendered_comments = {}
+  for _, comment in ipairs(comments or {}) do
+    if type(comment) == "table" then
+      table.insert(rendered_comments, render_comment(comment.body, comment.author_login, comment.created_at))
+    else
+      table.insert(rendered_comments, render_comment(comment))
+    end
+  end
+  t.mock_command("--json headRefName,headRefOid,baseRefName,state,updatedAt,comments", {
+    stdout = '{"headRefName":"devloop-owner-repo-42","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-10T08:30:00Z","comments":[' .. table.concat(rendered_comments, ",") .. "]}\n",
     stderr = "",
     exit_code = 0,
   })
@@ -174,8 +208,31 @@ return {
     t.is_true(comment.body:find("fkst:github-devloop:stall-detected:v1", 1, true) ~= nil)
     t.is_true(comment.body:find('state="thinking"', 1, true) ~= nil)
     t.is_true(comment.body:find('version="' .. version .. '"', 1, true) ~= nil)
+    t.eq(comment.source_ref.kind, "external")
+    t.eq(comment.source_ref.ref, "owner/repo#issue/42")
     local label = find_raise(result, "github-proxy.github_issue_label_request").payload
     t.eq(label.add_labels[1], core._stalled_label)
+    t.eq(label.source_ref.kind, "external")
+    t.eq(label.source_ref.ref, "owner/repo#issue/42")
+  end,
+
+  test_entity_change_path_uses_stable_issue_source_ref = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "2026-06-10T06-00-00Z"
+    mock_env()
+    mock_issue_view({ "fkst-dev:thinking" }, {
+      core.state_marker(proposal_id, "thinking", version),
+    })
+
+    local result = run_stall_watch_issue("stall-entity-source-ref")
+
+    t.eq(result.exit_code, 0)
+    local comment = find_raise(result, "github-proxy.github_issue_comment_request").payload
+    t.eq(comment.source_ref.kind, "external")
+    t.eq(comment.source_ref.ref, "owner/repo#issue/42")
+    local label = find_raise(result, "github-proxy.github_issue_label_request").payload
+    t.eq(label.source_ref.kind, "external")
+    t.eq(label.source_ref.ref, "owner/repo#issue/42")
   end,
 
   test_repeated_pass_is_idempotent_for_same_state_version = function()
@@ -226,6 +283,27 @@ return {
     })
 
     local result = run_stall_watch("stall-dependency-held")
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+  end,
+
+  test_pr_local_reviewing_marker_prevents_stale_pr_open_alert = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local pr_open_version = "2026-06-10T06-00-00Z"
+    local reviewing_version = "2999-01-01T00-00-00Z"
+    mock_env()
+    mock_all_lists(core.state_label("pr-open"), { 42 })
+    mock_issue_view({ "fkst-dev:pr-open" }, {
+      core.state_marker(proposal_id, "pr-open", pr_open_version),
+      core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42", pr_open_version, "dev"),
+    })
+    mock_pr_view({
+      core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42", pr_open_version, "dev"),
+      core.state_marker(proposal_id, "reviewing", reviewing_version),
+    })
+
+    local result = run_stall_watch("stall-pr-local-reviewing")
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
