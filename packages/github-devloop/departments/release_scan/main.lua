@@ -89,7 +89,7 @@ function pipeline(event)
     local marker_view = run_cmd(core.gh_issue_list_release_markers_cmd(repo), 30, "gh release marker list")
     local comments = core.parse_release_marker_issue_list(marker_view.stdout)
     core.log_forged_markers("release_scan", proposal.proposal_id, comments)
-    local fact = core.release_published_fact(comments, repo, tag, head_sha)
+    local fact = core.release_fact(comments, repo, tag, head_sha)
     if fact ~= nil then
       core.log_cas_decision("release_scan", proposal.proposal_id, { state = fact.status, version = fact.dedup_key }, "tick", "proposal", "skip-idempotent(release-marker)", "release marker already covers this tag")
       return

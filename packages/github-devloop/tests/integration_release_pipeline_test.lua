@@ -182,7 +182,7 @@ return {
     t.eq(h.count_calls("gh issue list"), 0)
   end,
 
-  test_release_scan_pending_marker_reproposes_for_same_head = function()
+  test_release_scan_pending_marker_skips_rescan = function()
     mock_env("")
     mock_fetch_dev()
     mock_dev_head(head_a)
@@ -192,10 +192,8 @@ return {
 
     local result = run_scan()
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
-    local proposal = h.find_raise(result.raises, "consensus.proposal").payload
-    t.eq(proposal.proposal_id, core.release_proposal_id("owner/repo", "v0.2.0", head_a))
-    t.eq(proposal.dedup_key, core.release_dedup_key("owner/repo", "v0.2.0", head_a))
+    t.eq(#result.raises, 0)
+    t.eq(core.release_fact(core.parse_release_marker_issue_list(marker_issue("v0.2.0", head_a)), "owner/repo", "v0.2.0", head_a).status, "pending")
   end,
 
   test_release_scan_same_tag_marker_reproposes_after_dev_moves = function()
