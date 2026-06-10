@@ -44,10 +44,12 @@ local function review_result_fact_from_marker(M, marker, comment, issue_proposal
   local decision = marker_attr(marker, "decision")
   local review_dedup = marker_attr(marker, "dedup")
   local _, _, review_version, reviewed_head_sha = M.parse_pr_review_proposal_id(review_proposal)
+  local expected_dedup = review_proposal ~= nil and ("consensus:" .. tostring(review_proposal) .. "/review") or nil
   if marker_issue == tostring(issue_proposal_id)
     and (expected_decision == nil or decision == expected_decision)
     and (decision == "approve" or decision == "reject")
     and review_version == M.safe_version_segment(M._strip_latest_fix_version_suffix(issue_version))
+    and review_dedup == expected_dedup
     and M._is_bounded_string(review_dedup, M._max_dedup_len)
     and M._is_git_sha(reviewed_head_sha) then
     local fact = {
@@ -59,11 +61,16 @@ local function review_result_fact_from_marker(M, marker, comment, issue_proposal
       comment_created_at = M._comment_created_at(comment),
     }
     if decision == "reject" then
+      local marker_fix_round = valid_round(marker_attr(marker, "fix_round"))
+      if marker_fix_round == nil or marker_fix_round ~= M.version_fix_round(issue_version) then
+        return nil
+      end
       local gap = decode_marker_attr(marker_attr(marker, "gap"))
       if gap == nil or not M._is_bounded_string(gap, M._max_blocking_gap_len) then
         return nil
       end
       fact.blocking_gap = gap
+      fact.fix_round = marker_fix_round
     end
     return fact
   end
@@ -334,6 +341,20 @@ local function bounded_marker_line(M, value, limit)
   return text
 end
 
+local function highest_state_fix_round(M, body, issue_proposal_id)
+  local highest = nil
+  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  for marker in tostring(body or ""):gmatch(marker_pattern) do
+    if marker_attr(marker, "proposal") == tostring(issue_proposal_id) then
+      local round = M.version_fix_round(marker_attr(marker, "version"))
+      if highest == nil or round > highest then
+        highest = round
+      end
+    end
+  end
+  return highest
+end
+
 function M.review_prior_round_ledger(comments, issue_proposal_id, issue_version)
   if type(comments) ~= "table" then
     return nil
@@ -346,18 +367,23 @@ function M.review_prior_round_ledger(comments, issue_proposal_id, issue_version)
     local body = M._comment_body(comment)
     for marker in body:gmatch(marker_pattern) do
       local fact = review_result_fact_from_marker(M, marker, comment, issue_proposal_id, rejected_fix_version, "reject")
-      if fact ~= nil then
+      if fact ~= nil and (latest_reject == nil or fact.fix_round > latest_reject.fix_round) then
         latest_reject = {
           gap = fact.blocking_gap,
+          fix_round = fact.fix_round,
           created_at = M._comment_created_at(comment),
         }
       end
     end
     local fix_summary = body:match("\nFix%-round summary:%s*([^\n]+)") or body:match("^Fix%-round summary:%s*([^\n]+)")
     fix_summary = bounded_marker_line(M, fix_summary, M._max_review_ledger_len)
-    if fix_summary ~= nil then
+    local fix_summary_round = highest_state_fix_round(M, body, issue_proposal_id)
+    if fix_summary ~= nil
+      and fix_summary_round ~= nil
+      and (latest_fix == nil or fix_summary_round > latest_fix.fix_round) then
       latest_fix = {
         summary = fix_summary,
+        fix_round = fix_summary_round,
         created_at = M._comment_created_at(comment),
       }
     end
