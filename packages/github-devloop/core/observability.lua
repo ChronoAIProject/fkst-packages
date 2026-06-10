@@ -58,6 +58,7 @@ local function log_quota(dept, rate, threshold, decision, reason)
     "github-devloop",
     "dept=" .. tostring(dept or default_dept),
     "tag=GITHUB_QUOTA",
+    "scope=observability-only",
     "remaining=" .. tostring(rate and rate.remaining or ""),
     "threshold=" .. tostring(threshold),
     "decision=" .. tostring(decision),
@@ -77,7 +78,7 @@ local function log_quota(dept, rate, threshold, decision, reason)
   log.info(table.concat(fields, " "))
 end
 
-function M.refresh_github_quota_backpressure(dept)
+local function observability_quota_skip_for_tick(dept)
   local threshold = quota_threshold()
 
   -- Deferred: REST ETag conditional polling and adaptive idle cron intervals
@@ -105,7 +106,7 @@ function M.refresh_github_quota_backpressure(dept)
 end
 
 function M.observability_should_skip_for_quota()
-  return M.refresh_github_quota_backpressure(default_dept)
+  return observability_quota_skip_for_tick(default_dept)
 end
 
 local function sorted_numbers(items)

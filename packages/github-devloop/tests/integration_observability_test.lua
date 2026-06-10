@@ -348,6 +348,7 @@ return {
     local found = false
     for _, line in ipairs(logs) do
       if line:find("tag=GITHUB_QUOTA", 1, true) ~= nil
+        and line:find("scope=observability-only", 1, true) ~= nil
         and line:find("remaining=999", 1, true) ~= nil
         and line:find("threshold=1000", 1, true) ~= nil
         and line:find("decision=skip", 1, true) ~= nil then
@@ -357,15 +358,18 @@ return {
     t.eq(found, true)
   end,
 
-  test_graphql_quota_backpressure_is_per_tick_not_cached = function()
+  test_observability_quota_check_is_per_tick_not_cached = function()
     mock_env()
     mock_rate_limit(999)
     mock_rate_limit(999)
 
-    t.eq(core.refresh_github_quota_backpressure("observability"), true)
+    local first = run_observability()
+    t.eq(first.exit_code, 0)
     local calls_after_first = count_calls("gh api rate_limit")
 
-    t.eq(core.refresh_github_quota_backpressure("observability"), true)
+    mock_env()
+    local second = run_observability()
+    t.eq(second.exit_code, 0)
 
     t.eq(count_calls("gh api rate_limit"), calls_after_first + 1)
   end,
