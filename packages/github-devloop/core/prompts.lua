@@ -1,6 +1,33 @@
 local S = {}
 
 function S.install(M)
+function M.output_language(exec)
+  local lang = M._trim(M.read_env("FKST_OUTPUT_LANG", exec))
+  if lang == "zh" then
+    return "zh"
+  end
+  return "en"
+end
+
+function M.prompt_preamble(exec)
+  local language_line = "Write all output in English; quote code identifiers and cited originals verbatim."
+  if M.output_language(exec) == "zh" then
+    language_line = "Write all prose output in Simplified Chinese; quote code identifiers and cited originals verbatim."
+  end
+
+  -- Slots supersede GitHub issues #142 and #145: env-driven language selection plus
+  -- harness-first judgment are fixed context, not verdict/parser protocol.
+  return table.concat({
+    language_line,
+    "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
+    "Before judging, fetch and read the COMPLETE comment stream of the subject issue/PR via the source_ref (gh issue view --comments / gh pr view --comments). Prior review verdicts, fix notes, and convergence rounds recorded there are your memory of earlier rounds — judge what changed relative to them; do not re-litigate settled points.",
+  }, "\n")
+end
+
+function M.render_prompt_template(template, vars, exec)
+  return M.prompt_preamble(exec) .. "\n\n" .. M.render_template(template, vars)
+end
+
 local function bounded_framing(M, framing)
   local value = M.neutralize_untrusted_prompt_text(framing)
   if #value > M._max_framing_len then
@@ -41,7 +68,7 @@ end
 function M.build_implement_prompt(proposal_id, current, framing)
   local prompt = require("prompts.implement")
   local repo, issue_number = issue_ref_from_proposal_id(M, proposal_id)
-  return M.render_template(prompt.template, {
+  return M.render_prompt_template(prompt.template, {
     proposal_id = M.neutralize_untrusted_prompt_text(proposal_id),
     framing = bounded_framing(M, framing),
     title = M.neutralize_untrusted_prompt_text(current.title),
@@ -52,7 +79,7 @@ end
 function M.build_fix_prompt(fix, current_issue, review_reason, framing)
   local prompt = require("prompts.fix")
   local repo, issue_number = issue_ref_from_proposal_id(M, fix.proposal_id)
-  return M.render_template(prompt.template, {
+  return M.render_prompt_template(prompt.template, {
     proposal_id = M.neutralize_untrusted_prompt_text(fix.proposal_id),
     review_proposal_id = M.neutralize_untrusted_prompt_text(fix.review_proposal_id),
     reviewed_head_sha = M.neutralize_untrusted_prompt_text(fix.reviewed_head_sha),
@@ -65,7 +92,7 @@ end
 
 function M.build_sync_conflict_prompt(conflict)
   local prompt = require("prompts.sync_conflict")
-  return M.render_template(prompt.template, {
+  return M.render_prompt_template(prompt.template, {
     repo = M.neutralize_untrusted_prompt_text(conflict.repo),
     upstream_branch = M.neutralize_untrusted_prompt_text(conflict.upstream_branch),
     integration_branch = M.neutralize_untrusted_prompt_text(conflict.integration_branch),
@@ -82,7 +109,7 @@ function M.build_review_meta_prompt(review_meta, current_issue)
   end
   local repo, issue_number = issue_ref_from_proposal_id(M, review_meta.proposal_id)
 
-  return M.render_template(prompt.template, {
+  return M.render_prompt_template(prompt.template, {
     proposal_id = M.neutralize_untrusted_prompt_text(review_meta.proposal_id),
     review_proposal_id = M.neutralize_untrusted_prompt_text(review_meta.review_proposal_id),
     title = M.neutralize_untrusted_prompt_text(current_issue.title),
@@ -95,7 +122,7 @@ function M.build_intake_prompt(proposal_id, current)
   local prompt = require("prompts.intake")
   local comments = table.concat(M.comment_bodies(current.comments), "\n\n--- comment ---\n\n")
 
-  return M.render_template(prompt.template, {
+  return M.render_prompt_template(prompt.template, {
     proposal_id = M.neutralize_untrusted_prompt_text(proposal_id),
     title = M.quote_untrusted_prompt_text(current.title),
     body = M.quote_untrusted_prompt_text(current.body),
@@ -106,7 +133,7 @@ end
 function M.build_decompose_prompt(decompose, current_issue)
   local prompt = require("prompts.decompose")
   local repo, issue_number = issue_ref_from_proposal_id(M, decompose.proposal_id)
-  return M.render_template(prompt.template, {
+  return M.render_prompt_template(prompt.template, {
     proposal_id = M.neutralize_untrusted_prompt_text(decompose.proposal_id),
     pr_source_ref = M.neutralize_untrusted_prompt_text(decompose.source_ref and decompose.source_ref.ref or ""),
     round = M.neutralize_untrusted_prompt_text(decompose.round),
