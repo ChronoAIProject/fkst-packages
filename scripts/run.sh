@@ -138,21 +138,35 @@ bootstrap_bin_from_pin() {
 }
 
 resolve_bin() {
+  local bin_source=""
+  if [ -n "${BIN:-}" ]; then
+    bin_source="\$BIN"
+  fi
   if [ -z "${BIN:-}" ] && [ -f "$ROOT/.env" ]; then
     # `|| true`: no BIN= line is fine under set -o pipefail. Strip optional
     # surrounding quotes and a trailing ` # comment`.
     BIN="$(grep -E '^BIN=' "$ROOT/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
     BIN="${BIN%%[[:space:]]#*}"
     BIN="${BIN%\"}"; BIN="${BIN#\"}"; BIN="${BIN%\'}"; BIN="${BIN#\'}"
+    if [ -n "${BIN:-}" ]; then
+      bin_source=".env"
+    fi
   fi
   if [ -z "${BIN:-}" ]; then
     if command -v fkst-framework >/dev/null 2>&1; then
       BIN="$(command -v fkst-framework)"
+      bin_source="PATH"
     elif [ -x "$ROOT/../fkst-substrate/target/debug/fkst-framework" ]; then
       BIN="$ROOT/../fkst-substrate/target/debug/fkst-framework"
+      bin_source="../fkst-substrate"
     fi
   fi
-  if [ -z "${BIN:-}" ] || [ ! -x "$BIN" ]; then
+  if [ -n "${BIN:-}" ] && [ ! -x "$BIN" ]; then
+    echo "error: fkst-framework binary is not executable from $bin_source: $BIN" >&2
+    echo "  .fkst-substrate-ref fallback only runs when all BIN sources are unset or missing." >&2
+    exit 1
+  fi
+  if [ -z "${BIN:-}" ]; then
     if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
       echo "error: fkst-framework binary is not executable in CI: ${BIN:-<unset>}" >&2
       echo "  CI must build fkst-substrate and inject BIN; scripts/run.sh will not build in CI." >&2
@@ -229,6 +243,7 @@ usage() {
 cmd_check() {
   python3 "$ROOT/scripts/check_repo.py"
   python3 "$ROOT/scripts/check_repo_test.py"
+  python3 "$ROOT/scripts/run_sh_test.py"
 }
 
 check_test_file_coverage() {
