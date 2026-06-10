@@ -217,7 +217,7 @@ function M.parse_review_meta_action(stdout)
     index = index + 1
 
     if line:match("^%s*" .. M._action_label) ~= nil then
-      local token = line:match("^%s*" .. M._action_label .. "%s*(%a+)%s*$")
+      local token = line:match("^%s*" .. M._action_label .. "%s*([%a%-]+)%s*$")
       if token == nil or not M._is_review_meta_action(token:lower()) then
         return nil
       end
