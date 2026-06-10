@@ -563,6 +563,7 @@ return {
     t.eq(spec.reason, "The agreed framing requires unsafe behavior.")
     t.is_nil(spec.blocking_gap)
 
+    t.is_nil(core.parse_review_meta_action(meta_answer("spec-amendment", "The agreed framing requires unsafe behavior.") .. "\ngarbage"))
     t.is_nil(core.parse_review_meta_action(meta_answer("fix", "first") .. "\n" .. meta_answer("block", "second")))
     t.is_nil(core.parse_review_meta_action(clean .. "\n" .. action_label .. " accept this is malformed"))
     t.is_nil(core.parse_review_meta_action(action_label .. " accept\nnot adjacent\n" .. reason_label .. " Accept after manual review."))
