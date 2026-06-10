@@ -58,7 +58,7 @@ local function log_quota(dept, rate, threshold, decision, reason)
     "github-devloop",
     "dept=" .. tostring(dept or default_dept),
     "tag=GITHUB_QUOTA",
-    "scope=observability-only",
+    "scope=github-graphql",
     "remaining=" .. tostring(rate and rate.remaining or ""),
     "threshold=" .. tostring(threshold),
     "decision=" .. tostring(decision),
@@ -78,13 +78,11 @@ local function log_quota(dept, rate, threshold, decision, reason)
   log.info(table.concat(fields, " "))
 end
 
-local function observability_quota_skip_for_tick(dept)
+local function graphql_quota_skip_for_tick(dept)
   local threshold = quota_threshold()
 
   -- Deferred: REST ETag conditional polling and adaptive idle cron intervals
   -- need measured post-backpressure pressure before adding more moving parts.
-  -- This is an observability-only per-tick throttle. It does not coordinate the
-  -- shared GitHub GraphQL quota; that requires a host-level shared budget fact.
   local result = exec_sync({ cmd = M.gh_rate_limit_cmd(), timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
     log_quota(dept, nil, threshold, "skip", "quota-unavailable")
@@ -106,7 +104,11 @@ local function observability_quota_skip_for_tick(dept)
 end
 
 function M.observability_should_skip_for_quota()
-  return observability_quota_skip_for_tick(default_dept)
+  return M.github_graphql_should_skip_for_quota(default_dept)
+end
+
+function M.github_graphql_should_skip_for_quota(dept)
+  return graphql_quota_skip_for_tick(dept)
 end
 
 local function sorted_numbers(items)

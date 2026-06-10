@@ -64,6 +64,10 @@ function pipeline(event)
 
     local comment_request = core.build_result_comment_request(repo, issue_number, reached)
     local label_request = core.build_result_label_request(repo, issue_number, reached)
+    if core.github_graphql_should_skip_for_quota("consensus_result") then
+      core.log_cas_decision("consensus_result", reached.proposal_id, state, "ready", "implementing", "skip-quota-backpressure", "GitHub GraphQL quota below threshold")
+      return
+    end
     local gate = core.dependency_gate(repo, issue_number)
     local dependency_comment_request = nil
     local dependency_label_request = nil

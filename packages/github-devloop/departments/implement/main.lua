@@ -70,6 +70,10 @@ function pipeline(event)
     core.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
+  if core.github_graphql_should_skip_for_quota("implement") then
+    core.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "skip-quota-backpressure", "GitHub GraphQL quota below threshold")
+    return
+  end
   local gate = core.dependency_gate(repo, issue_number)
   if not gate.ok then
     core.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "hold-dependency-backstop", gate.reason)

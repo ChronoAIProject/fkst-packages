@@ -79,6 +79,10 @@ function pipeline(event)
           dedup_key = state.version,
           source_ref = issue.source_ref,
         })
+        if core.github_graphql_should_skip_for_quota("observe_issue") then
+          core.log_cas_decision("observe_issue", proposal_id, state, "ready", "implementing", "skip-quota-backpressure", "GitHub GraphQL quota below threshold")
+          return
+        end
         local gate = core.dependency_gate(issue.repo, issue.number)
         if not gate.ok then
           local marker = gate.kind == "cycle"

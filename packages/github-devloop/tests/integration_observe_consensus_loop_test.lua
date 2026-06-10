@@ -130,7 +130,7 @@ return {
     t.eq(count_calls("--json body"), 0)
   end,
 
-  test_observe_issue_ignores_observability_quota_skip_for_delivered_event = function()
+  test_observe_issue_unmanaged_path_does_not_spend_graphql_under_low_quota = function()
     local run_opts = opts("observe-quota-backpressure")
     run_low_quota_observability_tick(run_opts)
     local calls_after_refresh = count_calls("gh api rate_limit")
@@ -346,19 +346,25 @@ return {
     t.eq(ready_raise.payload.source_ref.ref, "owner/repo#issue/42")
   end,
 
-  test_consensus_result_ignores_observability_quota_skip_for_delivered_event = function()
+  test_consensus_result_low_quota_skips_delivered_event_before_dependency_graphql = function()
     local run_opts = opts("result-quota-backpressure")
     run_low_quota_observability_tick(run_opts)
-    local calls_after_refresh = count_calls("gh api rate_limit")
+    t.mock_command(core.gh_rate_limit_cmd(), {
+      stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
     mock_issue_result({ "fkst-dev:thinking" })
 
-    local result = run_result(reached(), run_opts)
+    local result = t.run_department("departments/consensus_result/main.lua", {
+      queue = "consensus.consensus_reached",
+      payload = reached(),
+    }, run_opts)
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "devloop_ready").payload.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.eq(count_calls("gh api rate_limit"), calls_after_refresh)
+    t.eq(#result.raises, 0)
     t.eq(count_calls("--json labels,comments"), 1)
-    t.eq(count_calls("gh api graphql"), 1)
+    t.eq(count_calls("gh api graphql"), 0)
   end,
 
   test_consensus_result_threads_framing_to_ready_and_implement_prompt = function()

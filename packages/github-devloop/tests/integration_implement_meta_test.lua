@@ -103,21 +103,24 @@ local function run_low_quota_observability_tick(run_opts)
 end
 
 return {
-  test_implement_ignores_observability_quota_skip_for_delivered_event = function()
+  test_implement_low_quota_skips_delivered_event_before_dependency_graphql = function()
     local run_opts = opts("implement-quota-backpressure")
     run_low_quota_observability_tick(run_opts)
-    local calls_after_refresh = count_calls("gh api rate_limit")
-    mock_issue_implement({ "fkst-dev:implementing" }, {
-      core.state_marker(ready().proposal_id, "implementing", ready().dedup_key),
+    t.mock_command(core.gh_rate_limit_cmd(), {
+      stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
+      stderr = "",
+      exit_code = 0,
     })
 
-    local result = run_implement(ready(), run_opts)
+    local result = t.run_department("departments/implement/main.lua", {
+      queue = "devloop_ready",
+      payload = ready(),
+    }, run_opts)
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("gh api rate_limit"), calls_after_refresh)
-    t.eq(count_calls("gh api graphql"), 1)
-    t.eq(count_calls("--json title,labels,comments"), 1)
+    t.eq(count_calls("gh api graphql"), 0)
+    t.eq(count_calls("--json title,labels,comments"), 0)
     t.eq(count_calls("codex exec"), 0)
     t.eq(count_calls("git -C"), 0)
   end,

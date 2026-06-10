@@ -348,7 +348,7 @@ return {
     local found = false
     for _, line in ipairs(logs) do
       if line:find("tag=GITHUB_QUOTA", 1, true) ~= nil
-        and line:find("scope=observability-only", 1, true) ~= nil
+        and line:find("scope=github-graphql", 1, true) ~= nil
         and line:find("remaining=999", 1, true) ~= nil
         and line:find("threshold=1000", 1, true) ~= nil
         and line:find("decision=skip", 1, true) ~= nil then

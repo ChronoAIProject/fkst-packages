@@ -169,6 +169,14 @@ local function mock_healthy_quota()
   })
 end
 
+local function mock_low_quota()
+  t.mock_command(core.gh_rate_limit_cmd(), {
+    stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function run_result()
   mock_healthy_quota()
   return t.run_department("departments/consensus_result/main.lua", {
@@ -210,6 +218,16 @@ local function has_marker(raises, marker_text)
   return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
     return tostring(payload.body or ""):find(marker_text, 1, true) ~= nil
   end) ~= nil
+end
+
+local function count_calls(needle)
+  local count = 0
+  for _, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or call.cmd or ""):find(needle, 1, true) ~= nil then
+      count = count + 1
+    end
+  end
+  return count
 end
 
 return {
@@ -354,6 +372,19 @@ return {
     t.is_true(has_queue(result.raises, "devloop_ready"))
   end,
 
+  test_consensus_result_low_quota_skips_dependency_graphql = function()
+    mock_result_issue()
+    mock_low_quota()
+    local result = t.run_department("departments/consensus_result/main.lua", {
+      queue = "consensus.consensus_reached",
+      payload = reached(),
+    }, h.opts("dependency-result-low-quota"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("gh api graphql"), 0)
+  end,
+
   test_observe_issue_ready_holds_then_cascades_when_satisfied = function()
     mock_observe_issue()
     mock_blocked_by(42, { { number = 7 } })
@@ -375,6 +406,19 @@ return {
       return h.has_value(payload.remove_labels, "fkst-dev:blocked-on-dependency")
     end)
     t.is_true(clear ~= nil)
+  end,
+
+  test_observe_issue_low_quota_skips_dependency_graphql = function()
+    mock_observe_issue()
+    mock_low_quota()
+    local result = t.run_department("departments/observe_issue/main.lua", {
+      queue = "github-proxy.github_entity_changed",
+      payload = h.issue(),
+    }, h.opts("dependency-observe-low-quota"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("gh api graphql"), 0)
   end,
 
   test_cycle_holds_with_cycle_marker = function()
@@ -404,6 +448,18 @@ return {
     local result = run_implement()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
+  end,
+
+  test_implement_low_quota_skips_dependency_graphql = function()
+    mock_low_quota()
+    local result = t.run_department("departments/implement/main.lua", {
+      queue = "devloop_ready",
+      payload = h.ready(),
+    }, h.opts("dependency-implement-low-quota"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("gh api graphql"), 0)
   end,
 
   test_no_blockers_unaffected = function()
