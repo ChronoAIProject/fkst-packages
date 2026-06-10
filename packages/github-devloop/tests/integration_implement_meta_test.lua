@@ -103,21 +103,21 @@ local function seed_quota_backpressure(run_opts)
 end
 
 return {
-  test_implement_quota_backpressure_skips_without_retry_or_probe = function()
+  test_implement_ignores_cached_quota_backpressure_for_delivered_event = function()
     local run_opts = opts("implement-quota-backpressure")
     seed_quota_backpressure(run_opts)
     local calls_after_refresh = count_calls("gh api rate_limit")
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(ready().proposal_id, "implementing", ready().dedup_key),
+    })
 
-    local result = t.run_department("departments/implement/main.lua", {
-      queue = "devloop_ready",
-      payload = ready(),
-    }, run_opts)
+    local result = run_implement(ready(), run_opts)
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("gh api rate_limit"), calls_after_refresh)
-    t.eq(count_calls("gh api graphql"), 0)
-    t.eq(count_calls("--json title,labels,comments"), 0)
+    t.eq(count_calls("gh api graphql"), 1)
+    t.eq(count_calls("--json title,labels,comments"), 1)
     t.eq(count_calls("codex exec"), 0)
     t.eq(count_calls("git -C"), 0)
   end,

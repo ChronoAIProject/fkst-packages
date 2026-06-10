@@ -175,15 +175,6 @@ function M.refresh_github_quota_backpressure(dept)
   return false
 end
 
-function M.github_quota_backpressure_active(dept)
-  local throttle = active_quota_throttle()
-  if throttle == nil then
-    return false
-  end
-  log_quota(dept, { remaining = throttle.remaining }, quota_threshold(), "skip", throttle.reason or "cached-backpressure")
-  return true
-end
-
 function M.observability_should_skip_for_quota()
   return M.refresh_github_quota_backpressure(default_dept)
 end

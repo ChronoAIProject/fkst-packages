@@ -26,10 +26,6 @@ function pipeline(event)
 
   local proposal_id = core.proposal_id(issue.repo, issue.number)
   core.log_entry("observe_issue", event, proposal_id, issue.dedup_key)
-  if core.github_quota_backpressure_active("observe_issue") then
-    core.log_cas_decision("observe_issue", proposal_id, { state = nil, version = nil }, "unmanaged", "thinking", "skip-quota-backpressure", "GitHub GraphQL quota is below the configured threshold")
-    return
-  end
   local lock_key = core.observe_lock_key(issue.repo, issue.number)
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()

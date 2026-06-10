@@ -130,20 +130,19 @@ return {
     t.eq(count_calls("--json body"), 0)
   end,
 
-  test_observe_issue_quota_backpressure_skips_state_fetch = function()
+  test_observe_issue_ignores_cached_quota_backpressure_for_delivered_event = function()
     local run_opts = opts("observe-quota-backpressure")
     seed_quota_backpressure(run_opts)
     local calls_after_refresh = count_calls("gh api rate_limit")
+    mock_issue_state({ "fkst-dev:enabled" })
 
-    local result = t.run_department("departments/observe_issue/main.lua", {
-      queue = "github-proxy.github_entity_changed",
-      payload = issue(),
-    }, run_opts)
+    local result = run_observe(issue(), run_opts)
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    t.eq(#result.raises, 3)
+    t.eq(find_raise(result.raises, "consensus.proposal").payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(count_calls("gh api rate_limit"), calls_after_refresh)
-    t.eq(count_calls("--json labels,state,comments"), 0)
+    t.eq(count_calls("--json labels,state,comments"), 1)
     t.eq(count_calls("gh api graphql"), 0)
   end,
 
@@ -347,21 +346,19 @@ return {
     t.eq(ready_raise.payload.source_ref.ref, "owner/repo#issue/42")
   end,
 
-  test_consensus_result_quota_backpressure_skips_without_retry_or_probe = function()
+  test_consensus_result_ignores_cached_quota_backpressure_for_delivered_event = function()
     local run_opts = opts("result-quota-backpressure")
     seed_quota_backpressure(run_opts)
     local calls_after_refresh = count_calls("gh api rate_limit")
+    mock_issue_result({ "fkst-dev:thinking" })
 
-    local result = t.run_department("departments/consensus_result/main.lua", {
-      queue = "consensus.consensus_reached",
-      payload = reached(),
-    }, run_opts)
+    local result = run_result(reached(), run_opts)
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    t.eq(find_raise(result.raises, "devloop_ready").payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(count_calls("gh api rate_limit"), calls_after_refresh)
-    t.eq(count_calls("--json labels,comments"), 0)
-    t.eq(count_calls("gh api graphql"), 0)
+    t.eq(count_calls("--json labels,comments"), 1)
+    t.eq(count_calls("gh api graphql"), 1)
   end,
 
   test_consensus_result_threads_framing_to_ready_and_implement_prompt = function()
