@@ -29,7 +29,7 @@ local function first_call_index(needle)
 end
 
 return {
-  test_review_result_approve_leaves_draft_pr_until_merge_ready_fact_is_visible = function()
+  test_review_result_approve_converts_draft_pr_ready = function()
     local event = review_reached()
     local impl_version = reviewing().version
     mock_pr_origin({
@@ -39,12 +39,15 @@ return {
     mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_pr_ready()
 
-    local result = run_review_result(event, opts("review-result-draft-stays-unready-on-approve", {
+    local result = run_review_result(event, opts("review-result-draft-ready-on-approve", {
       FKST_GITHUB_WRITE = "1",
     }))
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh pr ready"), 0)
+    t.eq(count_calls("gh pr ready '7' --repo 'owner/repo'"), 1)
     t.is_true(h.find_raise(result.raises, "devloop_merge_ready") ~= nil)
   end,
 

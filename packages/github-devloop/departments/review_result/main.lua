@@ -17,6 +17,41 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
+local function is_already_ready_error(stderr)
+  local lower = tostring(stderr or ""):lower()
+  return lower:find("already ready", 1, true) ~= nil
+    or lower:find("not a draft", 1, true) ~= nil
+end
+
+local function ensure_approved_pr_ready(repo, pr_number, current_pr, reached)
+  if current_pr == nil or current_pr.is_draft ~= true or reached.decision ~= "approve" then
+    return
+  end
+
+  if core.write_mode() ~= "real" then
+    core.log_line("info", "review_result", reached.proposal_id, "OUTBOUND", {
+      "mode=dry-run",
+      "cmd=gh pr ready",
+      "repo=" .. tostring(repo),
+      "pr=" .. tostring(pr_number),
+      "reason=review consensus approved draft PR",
+    })
+    return
+  end
+
+  local ready = exec_sync({ cmd = core.gh_pr_ready_cmd(repo, pr_number), timeout = 30 })
+  if ready.exit_code ~= 0 and not is_already_ready_error(ready.stderr) then
+    error("github-devloop: gh pr ready failed after review approve: " .. tostring(ready.stderr))
+  end
+  core.log_line("info", "review_result", reached.proposal_id, "OUTBOUND", {
+    "mode=real",
+    "cmd=gh pr ready",
+    "repo=" .. tostring(repo),
+    "pr=" .. tostring(pr_number),
+    "reason=review consensus approved draft PR",
+  })
+end
+
 function pipeline(event)
   local reached = event.payload or {}
   if not core.is_supported_review_result(reached) then
@@ -128,6 +163,7 @@ function pipeline(event)
       end
       issue_version = core.fix_version_from_review_version(state.version)
     end
+    ensure_approved_pr_ready(repo, pr_number, current_pr, reached)
     core.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, core.cas_outcome(state, transition, reached.dedup_key), "review decision=" .. tostring(reached.decision))
     local comment_request = core.build_review_result_comment_request(origin.repo, origin.issue_number, origin.proposal_id, issue_version, reached, pr_source_ref)
     local label_request = nil
