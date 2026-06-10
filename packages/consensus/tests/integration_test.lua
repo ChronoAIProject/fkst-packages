@@ -1,4 +1,5 @@
 local t = fkst.test
+require("tests.cache_seed_helpers")
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 
@@ -44,6 +45,16 @@ local function run_decide(event_payload, run_opts)
   return t.run_department("departments/decide/main.lua", {
     queue = "proposal",
     payload = event_payload,
+  }, run_opts)
+end
+
+local function seed_cache(key, value, run_opts)
+  return t.run_department("tests/cache_seed_helpers.lua", {
+    queue = "cache_seed",
+    payload = {
+      key = key,
+      value = value,
+    },
   }, run_opts)
 end
 
@@ -166,6 +177,26 @@ return {
     t.is_true(calls[1].stdin:find("Brief only.", 1, true) ~= nil)
     t.is_true(calls[1].stdin:find("fetch-source --ref demo/consensus/42 --full", 1, true) ~= nil)
     t.is_nil(calls[1].stdin:find(full_tail, 1, true))
+  end,
+
+  test_codex_stdin_resolves_runtime_cache_context_manifest = function()
+    mock_judgment_runtime()
+    mock_angle("approve", "Minimal angle approves.")
+    mock_angle("approve", "Structural angle approves.")
+    mock_angle("approve", "Delete angle approves.")
+    local run_opts = opts("stdin-runtime-cache-context")
+    seed_cache("consensus-test/context", "Issue JSON: /tmp/ctx/issue.json\nPR diff patch: /tmp/ctx/diff.patch", run_opts)
+
+    local result = run_decide(proposal({
+      content_fetch = "runtime-cache:consensus-test/context",
+    }), run_opts)
+
+    t.eq(result.exit_code, 0)
+    local calls = codex_calls()
+    t.eq(#calls, 3)
+    t.is_true(calls[1].stdin:find("/tmp/ctx/issue.json", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("/tmp/ctx/diff.patch", 1, true) ~= nil)
+    t.is_nil(calls[1].stdin:find("runtime-cache:consensus-test/context", 1, true))
   end,
 
   test_unanimous_abstain_raises_consensus_converge = function()
