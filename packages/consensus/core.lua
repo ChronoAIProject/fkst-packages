@@ -280,7 +280,7 @@ function M.prompt_preamble(exec)
   return table.concat({
     language_line,
     "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
-    "Before judging, fetch and read the COMPLETE comment stream of the subject issue/PR via the source_ref (gh issue view --comments / gh pr view --comments). Prior review verdicts, fix notes, and convergence rounds recorded there are your memory of earlier rounds — judge what changed relative to them; do not re-litigate settled points.",
+    "Before judging, fetch and read the complete prior history of this proposal via its source_ref; earlier rounds recorded there are your memory — judge what changed; do not re-litigate settled points.",
   }, "\n")
 end
 

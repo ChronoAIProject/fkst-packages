@@ -47,7 +47,9 @@ end
 local function assert_preamble_slots(prompt)
   t.is_true(prompt:find("Write all output in English; quote code identifiers and cited originals verbatim.", 1, true) ~= nil)
   t.is_true(prompt:find("Before judging, identify the established theory or industry best practice governing this problem class", 1, true) ~= nil)
-  t.is_true(prompt:find("Before judging, fetch and read the COMPLETE comment stream of the subject issue/PR via the source_ref", 1, true) ~= nil)
+  t.is_true(prompt:find("Before judging, fetch and read the complete prior history of this proposal via its source_ref", 1, true) ~= nil)
+  t.is_nil(prompt:find("gh issue view", 1, true))
+  t.is_nil(prompt:find("gh pr view", 1, true))
 end
 
 return {

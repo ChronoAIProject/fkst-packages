@@ -105,7 +105,7 @@ function M.board_digest_block(repo, tick)
   if tick == nil or tostring(tick) == "" then
     return ""
   end
-  local key = "github-devloop/board-digest/" .. M.safe_updated_at(tick)
+  local key = "github-devloop/board-digest/" .. M.safe_repo(repo) .. "/" .. M.safe_updated_at(tick)
   local cached = cache_get(key)
   if cached ~= nil and cached ~= "" then
     return cached
@@ -129,7 +129,31 @@ function M.append_board_digest_to_proposal(proposal, repo, tick)
   if block == "" then
     return proposal
   end
-  proposal.body = tostring(proposal.body or "") .. "\n\n" .. M.neutralize_untrusted_prompt_text(block)
+  local body = tostring(proposal.body or "")
+  local prefix = "\n\n"
+  local neutralized = M.neutralize_untrusted_prompt_text(block)
+  local remaining = M._max_body_len - #body - #prefix
+  if remaining <= 0 then
+    M.log_line("warn", "payloads", proposal.proposal_id, "BOARD_DIGEST", {
+      "outcome=drop",
+      "reason=body-budget-exhausted",
+      "repo=" .. tostring(repo or ""),
+      "tick=" .. tostring(tick or ""),
+    })
+    return proposal
+  end
+  if #neutralized > remaining then
+    M.log_line("warn", "payloads", proposal.proposal_id, "BOARD_DIGEST", {
+      "outcome=truncate",
+      "reason=body-budget",
+      "repo=" .. tostring(repo or ""),
+      "tick=" .. tostring(tick or ""),
+      "available=" .. tostring(remaining),
+      "needed=" .. tostring(#neutralized),
+    })
+    neutralized = neutralized:sub(1, remaining)
+  end
+  proposal.body = body .. prefix .. neutralized
   if #proposal.body > M._max_body_len then
     error("github-devloop: proposal board digest exceeds bounded body")
   end

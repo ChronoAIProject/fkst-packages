@@ -20,12 +20,19 @@ function M.prompt_preamble(exec)
   return table.concat({
     language_line,
     "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
-    "Before judging, fetch and read the COMPLETE comment stream of the subject issue/PR via the source_ref (gh issue view --comments / gh pr view --comments). Prior review verdicts, fix notes, and convergence rounds recorded there are your memory of earlier rounds — judge what changed relative to them; do not re-litigate settled points.",
   }, "\n")
 end
 
-function M.render_prompt_template(template, vars, exec)
-  return M.prompt_preamble(exec) .. "\n\n" .. M.render_template(template, vars)
+local function github_entity_history_line()
+  return "Before judging, fetch and read the COMPLETE GitHub comment stream of the subject issue/PR via the source_ref (gh issue view --comments / gh pr view --comments). Prior review verdicts, fix notes, and convergence rounds recorded there are your memory of earlier rounds; judge what changed relative to them; do not re-litigate settled points."
+end
+
+function M.render_prompt_template(template, vars, exec, opts)
+  local lines = { M.prompt_preamble(exec) }
+  if type(opts) == "table" and opts.entity_history == true then
+    table.insert(lines, github_entity_history_line())
+  end
+  return table.concat(lines, "\n") .. "\n\n" .. M.render_template(template, vars)
 end
 
 local function bounded_framing(M, framing)
@@ -73,7 +80,7 @@ function M.build_implement_prompt(proposal_id, current, framing)
     framing = bounded_framing(M, framing),
     title = M.neutralize_untrusted_prompt_text(current.title),
     content_fetch_block = issue_fetch_block(M, repo, issue_number, "stop and report the fetch failure without modifying files"),
-  })
+  }, nil, { entity_history = true })
 end
 
 function M.build_fix_prompt(fix, current_issue, review_reason, framing)
@@ -87,7 +94,7 @@ function M.build_fix_prompt(fix, current_issue, review_reason, framing)
     title = M.neutralize_untrusted_prompt_text(current_issue.title),
     content_fetch_block = issue_fetch_block(M, repo, issue_number, "stop and report the fetch failure without modifying files"),
     review_feedback = M.neutralize_untrusted_prompt_text(review_reason),
-  })
+  }, nil, { entity_history = true })
 end
 
 function M.build_sync_conflict_prompt(conflict)
@@ -115,7 +122,7 @@ function M.build_review_meta_prompt(review_meta, current_issue)
     title = M.neutralize_untrusted_prompt_text(current_issue.title),
     content_fetch_block = issue_fetch_block(M, repo, issue_number, "choose block and state the fetch failure"),
     comments = M.neutralize_untrusted_prompt_text(comments),
-  })
+  }, nil, { entity_history = true })
 end
 
 function M.build_intake_prompt(proposal_id, current)
@@ -127,7 +134,7 @@ function M.build_intake_prompt(proposal_id, current)
     title = M.quote_untrusted_prompt_text(current.title),
     body = M.quote_untrusted_prompt_text(current.body),
     comments = M.quote_untrusted_prompt_text(comments),
-  })
+  }, nil, { entity_history = true })
 end
 
 function M.build_decompose_prompt(decompose, current_issue)
@@ -139,7 +146,7 @@ function M.build_decompose_prompt(decompose, current_issue)
     round = M.neutralize_untrusted_prompt_text(decompose.round),
     title = M.quote_untrusted_prompt_text(current_issue.title),
     content_fetch_block = issue_fetch_block(M, repo, issue_number, "return a conservative single follow-up issue based only on the available PR failure context"),
-  })
+  }, nil, { entity_history = true })
 end
 
 local function is_intake_action(value)
