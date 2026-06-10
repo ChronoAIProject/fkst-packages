@@ -44,6 +44,7 @@ class RunShHarness:
         scripts = self.root / "scripts"
         scripts.mkdir()
         shutil.copy2(ROOT / "scripts" / "run.sh", scripts / "run.sh")
+        shutil.copy2(ROOT / "scripts" / "bootstrap_substrate.py", scripts / "bootstrap_substrate.py")
         shutil.copy2(ROOT / "scripts" / "resolve_substrate_ref.py", scripts / "resolve_substrate_ref.py")
         write_executable(
             scripts / "check_repo.py",
