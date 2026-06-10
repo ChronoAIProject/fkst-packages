@@ -40,6 +40,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/substrate_pin.sh"
 
 resolve_bin() {
   if [ -z "${BIN:-}" ] && [ -f "$ROOT/.env" ]; then
