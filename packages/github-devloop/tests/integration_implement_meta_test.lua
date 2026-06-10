@@ -78,7 +78,7 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
-local function seed_quota_backpressure(run_opts)
+local function run_low_quota_observability_tick(run_opts)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
     stdout = "fkst-test-bot",
     stderr = "",
@@ -103,9 +103,9 @@ local function seed_quota_backpressure(run_opts)
 end
 
 return {
-  test_implement_ignores_cached_quota_backpressure_for_delivered_event = function()
+  test_implement_ignores_observability_quota_skip_for_delivered_event = function()
     local run_opts = opts("implement-quota-backpressure")
-    seed_quota_backpressure(run_opts)
+    run_low_quota_observability_tick(run_opts)
     local calls_after_refresh = count_calls("gh api rate_limit")
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(ready().proposal_id, "implementing", ready().dedup_key),

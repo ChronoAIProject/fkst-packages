@@ -27,30 +27,6 @@ local function require_observe_bot()
   end
 end
 
-local function quota_cache_key()
-  local key = "github-devloop/quota/backpressure"
-  if not M._is_path_safe_key(key) then
-    error("github-devloop: invalid quota backpressure cache key")
-  end
-  return key
-end
-
-local function current_epoch()
-  return tonumber(now()) or 0
-end
-
-local function quota_short_skip_until()
-  return current_epoch() + 300
-end
-
-local function quota_skip_until(rate)
-  local reset = tonumber(rate and rate.reset)
-  if reset ~= nil and reset > current_epoch() then
-    return math.floor(reset)
-  end
-  return quota_short_skip_until()
-end
-
 local function quota_threshold()
   local configured = tonumber(M.read_env("FKST_DEVLOOP_GRAPHQL_MIN_REMAINING") or "")
   if configured == nil or configured < 0 then
@@ -101,76 +77,29 @@ local function log_quota(dept, rate, threshold, decision, reason)
   log.info(table.concat(fields, " "))
 end
 
-local function write_quota_throttle(decision, reason, remaining, until_epoch)
-  cache_set(quota_cache_key(), table.concat({
-    tostring(decision),
-    tostring(reason or ""),
-    tostring(remaining or ""),
-    tostring(until_epoch or ""),
-  }, "/"))
-end
-
-local function parse_quota_throttle(value)
-  if type(value) ~= "string" then
-    return nil
-  end
-  local decision, reason, remaining, until_epoch = value:match("^([^/]*)/([^/]*)/([^/]*)/([^/]*)$")
-  if decision == nil then
-    return nil
-  end
-  return {
-    decision = decision,
-    reason = reason ~= "" and reason or nil,
-    remaining = tonumber(remaining),
-    until_epoch = tonumber(until_epoch),
-  }
-end
-
-function M.github_quota_backpressure_cache_key()
-  return quota_cache_key()
-end
-
-local function active_quota_throttle()
-  local throttle = parse_quota_throttle(cache_get(quota_cache_key()))
-  if throttle == nil or throttle.decision ~= "skip" then
-    return nil
-  end
-  if throttle.until_epoch == nil or throttle.until_epoch <= current_epoch() then
-    return nil
-  end
-  return throttle
-end
-
 function M.refresh_github_quota_backpressure(dept)
   local threshold = quota_threshold()
-  local throttle = active_quota_throttle()
-  if throttle ~= nil then
-    log_quota(dept, { remaining = throttle.remaining }, threshold, "skip", throttle.reason or "cached-backpressure")
-    return true
-  end
 
   -- Deferred: REST ETag conditional polling and adaptive idle cron intervals
   -- need measured post-backpressure pressure before adding more moving parts.
+  -- This is an observability-only per-tick throttle. It does not coordinate the
+  -- shared GitHub GraphQL quota; that requires a host-level shared budget fact.
   local result = exec_sync({ cmd = M.gh_rate_limit_cmd(), timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
-    write_quota_throttle("skip", "quota-unavailable", nil, quota_short_skip_until())
     log_quota(dept, nil, threshold, "skip", "quota-unavailable")
     return true
   end
 
   local ok, rate = pcall(M.parse_gh_rate_limit, result.stdout)
   if not ok or type(rate) ~= "table" then
-    write_quota_throttle("skip", "quota-malformed", nil, quota_short_skip_until())
     log_quota(dept, nil, threshold, "skip", "quota-malformed")
     return true
   end
   if rate.remaining < threshold then
-    write_quota_throttle("skip", "low-remaining", rate.remaining, quota_skip_until(rate))
     log_quota(dept, rate, threshold, "skip", "low-remaining")
     return true
   end
 
-  write_quota_throttle("ok", "healthy", rate.remaining, quota_skip_until(rate))
   log_quota(dept, rate, threshold, "continue", nil)
   return false
 end

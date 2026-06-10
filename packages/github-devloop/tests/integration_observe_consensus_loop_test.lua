@@ -81,7 +81,7 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
-local function seed_quota_backpressure(run_opts)
+local function run_low_quota_observability_tick(run_opts)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
     stdout = "fkst-test-bot",
     stderr = "",
@@ -130,9 +130,9 @@ return {
     t.eq(count_calls("--json body"), 0)
   end,
 
-  test_observe_issue_ignores_cached_quota_backpressure_for_delivered_event = function()
+  test_observe_issue_ignores_observability_quota_skip_for_delivered_event = function()
     local run_opts = opts("observe-quota-backpressure")
-    seed_quota_backpressure(run_opts)
+    run_low_quota_observability_tick(run_opts)
     local calls_after_refresh = count_calls("gh api rate_limit")
     mock_issue_state({ "fkst-dev:enabled" })
 
@@ -346,9 +346,9 @@ return {
     t.eq(ready_raise.payload.source_ref.ref, "owner/repo#issue/42")
   end,
 
-  test_consensus_result_ignores_cached_quota_backpressure_for_delivered_event = function()
+  test_consensus_result_ignores_observability_quota_skip_for_delivered_event = function()
     local run_opts = opts("result-quota-backpressure")
-    seed_quota_backpressure(run_opts)
+    run_low_quota_observability_tick(run_opts)
     local calls_after_refresh = count_calls("gh api rate_limit")
     mock_issue_result({ "fkst-dev:thinking" })
 
