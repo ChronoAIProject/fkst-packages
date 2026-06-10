@@ -36,10 +36,106 @@
 #       from the current fkst-substrate working tree before running.
 #
 # fkst-framework binary resolution (priority): $BIN > repo .env `BIN=` > PATH >
-# sibling ../fkst-substrate/target/debug/fkst-framework.
+# sibling ../fkst-substrate/target/debug/fkst-framework > cached .fkst-substrate-ref
+# source checkout.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+read_substrate_pin() {
+  python3 "$ROOT/scripts/resolve_substrate_ref.py" --file "$ROOT/.fkst-substrate-ref"
+}
+
+substrate_cache_dir() {
+  local repository="$1"
+  local cache_base="${XDG_CACHE_HOME:-${HOME:-}/.cache}"
+  if [ "$cache_base" = "/.cache" ]; then
+    echo "error: fkst-substrate-cache-root-missing: set XDG_CACHE_HOME or HOME" >&2
+    return 1
+  fi
+  local cache_root="$cache_base/fkst/fkst-substrate"
+  printf '%s/%s\n' "$cache_root" "$repository"
+}
+
+ensure_command() {
+  local name="$1" code="$2"
+  if ! command -v "$name" >/dev/null 2>&1; then
+    echo "error: $code: required command not found: $name" >&2
+    return 1
+  fi
+}
+
+bootstrap_bin_from_pin() {
+  if [ -n "${FKST_NO_AUTOBUILD:-}" ]; then
+    echo "error: fkst-bin-unresolved-autobuild-disabled: fkst-framework binary not found and FKST_NO_AUTOBUILD is set" >&2
+    echo "  configure BIN, repo .env, PATH, or sibling ../fkst-substrate." >&2
+    return 1
+  fi
+
+  ensure_command git "fkst-substrate-bootstrap-git-missing" || return 1
+  ensure_command cargo "fkst-substrate-bootstrap-cargo-missing" || return 1
+
+  local pin_vars repository ref checkout remote_url
+  if ! pin_vars="$(read_substrate_pin)"; then
+    echo "error: fkst-substrate-pin-invalid: could not parse .fkst-substrate-ref" >&2
+    return 1
+  fi
+  eval "$pin_vars"
+  repository="$FKST_SUBSTRATE_REPOSITORY"
+  ref="$FKST_SUBSTRATE_REF"
+  checkout="$(substrate_cache_dir "$repository")" || return 1
+  remote_url="https://github.com/$repository.git"
+
+  mkdir -p "$(dirname "$checkout")" || {
+    echo "error: fkst-substrate-cache-create-failed: $(dirname "$checkout")" >&2
+    return 1
+  }
+
+  if [ -d "$checkout/.git" ]; then
+    echo "fetching fkst-substrate source pin: $repository@$ref" >&2
+    if ! git -C "$checkout" remote set-url origin "$remote_url" 1>&2; then
+      echo "error: fkst-substrate-remote-update-failed: $repository" >&2
+      return 1
+    fi
+    if ! git -C "$checkout" fetch --tags --prune origin 1>&2; then
+      echo "error: fkst-substrate-fetch-failed: $repository@$ref" >&2
+      return 1
+    fi
+  elif [ -e "$checkout" ]; then
+    echo "error: fkst-substrate-cache-not-git: $checkout" >&2
+    return 1
+  else
+    echo "cloning fkst-substrate source pin: $repository@$ref" >&2
+    if ! git clone "$remote_url" "$checkout" 1>&2; then
+      echo "error: fkst-substrate-clone-failed: $repository@$ref" >&2
+      return 1
+    fi
+  fi
+
+  if ! git -C "$checkout" remote set-url origin "$remote_url" 1>&2; then
+    echo "error: fkst-substrate-remote-update-failed: $repository" >&2
+    return 1
+  fi
+  local checkout_ref="$ref"
+  if git -C "$checkout" rev-parse --verify --quiet "refs/remotes/origin/$ref^{commit}" >/dev/null; then
+    checkout_ref="refs/remotes/origin/$ref"
+  elif git -C "$checkout" rev-parse --verify --quiet "refs/tags/$ref^{commit}" >/dev/null; then
+    checkout_ref="refs/tags/$ref"
+  fi
+  if ! git -C "$checkout" checkout --detach "$checkout_ref" 1>&2; then
+    echo "error: fkst-substrate-checkout-failed: $repository@$ref" >&2
+    return 1
+  fi
+
+  echo "building fkst-framework from source pin: $repository@$ref" >&2
+  if ! cargo build --manifest-path "$checkout/Cargo.toml" -p fkst-framework 1>&2; then
+    echo "error: fkst-substrate-build-failed: $repository@$ref" >&2
+    return 1
+  fi
+
+  BIN="$checkout/target/debug/fkst-framework"
+  FKST_BOOTSTRAPPED_BIN=1
+}
 
 resolve_bin() {
   if [ -z "${BIN:-}" ] && [ -f "$ROOT/.env" ]; then
@@ -62,9 +158,15 @@ resolve_bin() {
       echo "  CI must build fkst-substrate and inject BIN; scripts/run.sh will not build in CI." >&2
       exit 1
     fi
-    echo "error: fkst-framework binary not found (\$BIN, .env, PATH, ../fkst-substrate)." >&2
-    echo "  fix: cp env.example .env (set BIN=), or build the engine:" >&2
-    echo "       scripts/run.sh build" >&2
+    if ! bootstrap_bin_from_pin; then
+      echo "error: fkst-framework binary not found (\$BIN, .env, PATH, ../fkst-substrate, .fkst-substrate-ref fallback)." >&2
+      echo "  fix: cp env.example .env (set BIN=), ensure git/cargo are installed, or run:" >&2
+      echo "       scripts/run.sh build" >&2
+      exit 1
+    fi
+  fi
+  if [ ! -x "$BIN" ]; then
+    echo "error: fkst-substrate-bootstrap-bin-not-executable: $BIN" >&2
     exit 1
   fi
   export BIN
@@ -89,6 +191,9 @@ resolve_phys_path() {
 
 ensure_fresh_bin() {
   if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+    return 0
+  fi
+  if [ -n "${FKST_BOOTSTRAPPED_BIN:-}" ]; then
     return 0
   fi
   if [ -n "${FKST_NO_AUTOBUILD:-}" ]; then

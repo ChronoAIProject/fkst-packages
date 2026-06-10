@@ -25,13 +25,13 @@ fkst-framework run <department-main.lua> \
 
 引擎按 package-root 目录 basename 建命名空间。flat 包内队列写裸名；composed 包的 glue 队列按 `<pkg>.<queue>` 引用兄弟包。`composed.deps` 只是本仓测试组合的最小约定，不是版本解析、部署依赖或 override manifest。
 
-本机配置（`fkst-framework` 二进制路径等）放在库根的 `.env`（已 gitignore）。首次使用先从 `env.example` 复制并填好本机路径：
+本机配置（`fkst-framework` 二进制路径等）可放在库根的 `.env`（已 gitignore）。首次使用如需固定本机引擎路径，先从 `env.example` 复制并填好：
 
 ```sh
 cp env.example .env   # 然后编辑 .env，把 BIN 指向你的 fkst-framework
 ```
 
-通用脚本 `scripts/run.sh`（从库根运行；自动解析 `fkst-framework` 二进制：`$BIN` > `.env` 的 `BIN=` > PATH > 同级 `../fkst-substrate`）：
+通用脚本 `scripts/run.sh`（从库根运行；自动解析 `fkst-framework` 二进制：`$BIN` > `.env` 的 `BIN=` > PATH > 同级 `../fkst-substrate` > 按 `.fkst-substrate-ref` clone/build 到用户级缓存）：
 
 ```sh
 scripts/run.sh test                 # self-test，所有包测试；flat 跑单根 conformance，composed 跳单根 conformance；最后跑组合 conformance；等价 CI
@@ -46,8 +46,11 @@ FKST_GITHUB_REPO=ChronoAIProject/fkst-substrate scripts/run.sh run github-proxy 
 # 可用 FKST_PROJECT_ROOT 覆盖默认 project-root（packages/<pkg>）。
 FKST_GITHUB_REPO=owner/repo scripts/run.sh supervise github-proxy
 
-# 本地 test/run/supervise 会对可溯源到 ../fkst-substrate 的 BIN 做 freshness 自动构建；
-# CI 不自动 build，FKST_NO_AUTOBUILD=1 可跳过。显式 build 仍会 git pull && cargo build。
+# 本地 test/run/supervise 会对可溯源到 fkst-substrate checkout 的 BIN 做 freshness 自动构建；
+# 若前面所有 BIN 来源 miss，会按 .fkst-substrate-ref 自举源码 checkout 并 cargo build。
+# .fkst-substrate-ref 支持 <ref> 或 <owner/repo>@<ref>；短 ref 默认 ChronoAIProject/fkst-substrate。
+# CI 仍先 checkout/build 引擎再注入 BIN，FKST_NO_AUTOBUILD=1 可跳过本地自举和 freshness build。
+# 显式 build 仍会 git pull && cargo build。
 scripts/run.sh build
 ```
 

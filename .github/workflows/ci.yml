@@ -28,15 +28,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ref="${{ github.event.inputs.substrate_ref }}"
-          if [ -z "$ref" ]; then
-            ref="$(sed -n '1{s/[[:space:]]//g;p;q}' .fkst-substrate-ref 2>/dev/null || true)"
+          pin="${{ github.event.inputs.substrate_ref }}"
+          if [ -n "$pin" ]; then
+            python3 scripts/resolve_substrate_ref.py --pin "$pin" --format github-output >> "$GITHUB_OUTPUT"
+          else
+            python3 scripts/resolve_substrate_ref.py --file .fkst-substrate-ref --format github-output >> "$GITHUB_OUTPUT"
           fi
-          if [ -z "$ref" ]; then
-            ref="dev"
-          fi
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "fkst-substrate ref: $ref"
+          echo "fkst-substrate repository: $(grep '^repository=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
+          echo "fkst-substrate ref: $(grep '^ref=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
 
       # fkst-framework is built from the sibling engine source repo. A downstream
       # package repo should set .fkst-substrate-ref to a tag or SHA for a
@@ -44,7 +43,7 @@ jobs:
       - name: Checkout fkst-substrate
         uses: actions/checkout@v4
         with:
-          repository: ChronoAIProject/fkst-substrate
+          repository: ${{ steps.substrate_ref.outputs.repository }}
           ref: ${{ steps.substrate_ref.outputs.ref }}
           path: fkst-substrate
 
