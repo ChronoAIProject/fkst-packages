@@ -94,6 +94,10 @@ class SubstrateRefParseTest(unittest.TestCase):
             ("ChronoAIProject/fkst-substrate", "dev"),
         )
 
+    def test_other_repository_pin_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_substrate_ref.parse_pin("ExampleOrg/fkst-substrate@dev")
+
     def test_invalid_repository_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             resolve_substrate_ref.parse_pin("https://github.com/ChronoAIProject/fkst-substrate@dev")

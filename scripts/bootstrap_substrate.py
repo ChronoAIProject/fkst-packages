@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from resolve_substrate_ref import parse_pin, read_pin
+from resolve_substrate_ref import DEFAULT_REPOSITORY, parse_pin, read_pin
 
 
 def fail(code: str, detail: str | None = None) -> int:
@@ -27,13 +27,13 @@ def require_command(name: str, code: str) -> bool:
     return False
 
 
-def cache_checkout(repository: str) -> Path:
+def cache_checkout() -> Path:
     cache_base = os.environ.get("XDG_CACHE_HOME") or (
         str(Path(os.environ["HOME"]) / ".cache") if os.environ.get("HOME") else ""
     )
     if not cache_base:
         raise ValueError("fkst-substrate-cache-root-missing: set XDG_CACHE_HOME or HOME")
-    return Path(cache_base) / "fkst" / "fkst-substrate" / repository
+    return Path(cache_base) / "fkst" / "fkst-substrate"
 
 
 def run_checked(command: list[str], code: str, detail: str) -> None:
@@ -127,7 +127,9 @@ def main() -> int:
 
     try:
         repository, ref = parse_pin(read_pin(Path(args.pin_file)))
-        checkout = cache_checkout(repository)
+        if repository != DEFAULT_REPOSITORY:
+            raise ValueError("fkst-substrate-bootstrap-repository-not-allowed")
+        checkout = cache_checkout()
     except ValueError as exc:
         return fail("fkst-substrate-pin-invalid", str(exc))
 

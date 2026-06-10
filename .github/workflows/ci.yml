@@ -34,7 +34,6 @@ jobs:
           else
             python3 scripts/resolve_substrate_ref.py --file .fkst-substrate-ref --format github-output >> "$GITHUB_OUTPUT"
           fi
-          echo "fkst-substrate repository: $(grep '^repository=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
           echo "fkst-substrate ref: $(grep '^ref=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
 
       # fkst-framework is built from the sibling engine source repo. A downstream
@@ -43,7 +42,7 @@ jobs:
       - name: Checkout fkst-substrate
         uses: actions/checkout@v4
         with:
-          repository: ${{ steps.substrate_ref.outputs.repository }}
+          repository: ChronoAIProject/fkst-substrate
           ref: ${{ steps.substrate_ref.outputs.ref }}
           path: fkst-substrate
 

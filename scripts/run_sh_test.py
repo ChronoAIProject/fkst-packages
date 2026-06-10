@@ -149,9 +149,13 @@ ENGINE
             env.update(extra)
         return env
 
-    def run(self, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        extra_env: dict[str, str] | None = None,
+        args: list[str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["bash", "scripts/run.sh", "test"],
+            ["bash", "scripts/run.sh", *(args or ["test"])],
             cwd=self.root,
             env=self.env(extra_env),
             text=True,
@@ -167,36 +171,45 @@ ENGINE
 
 
 class RunShBootstrapTest(unittest.TestCase):
-    def test_all_miss_bootstraps_and_reuses_cached_checkout(self) -> None:
+    def test_all_miss_test_fails_without_bootstrap_side_effects(self) -> None:
         harness = RunShHarness(self)
         try:
-            first = harness.run()
+            result = harness.run()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("fkst-framework binary not found", result.stderr)
+            self.assertEqual(harness.log_text(), "")
+        finally:
+            harness.close()
+
+    def test_explicit_bootstrap_reuses_cached_checkout(self) -> None:
+        harness = RunShHarness(self)
+        try:
+            first = harness.run(args=["bootstrap"])
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-            second = harness.run()
+            second = harness.run(args=["bootstrap"])
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
             log = harness.log_text()
             self.assertEqual(log.count("git clone https://github.com/ChronoAIProject/fkst-substrate.git"), 1)
             self.assertGreaterEqual(log.count("git -C "), 2)
             self.assertGreaterEqual(log.count("cargo build --manifest-path"), 2)
-            self.assertIn("engine --self-test", log)
+            self.assertIn("BIN=", second.stdout)
         finally:
             harness.close()
 
-    def test_owner_repo_pin_controls_bootstrap_repository_and_ref(self) -> None:
+    def test_owner_repo_pin_is_rejected_by_explicit_bootstrap(self) -> None:
         harness = RunShHarness(self, pin="ExampleOrg/example-substrate@feature/ref")
         try:
-            result = harness.run()
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            log = harness.log_text()
-            self.assertIn("git clone https://github.com/ExampleOrg/example-substrate.git", log)
-            self.assertIn("checkout --detach refs/remotes/origin/feature/ref", log)
+            result = harness.run(args=["bootstrap"])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("fkst-substrate-pin-invalid: invalid-substrate-pin-repository", result.stderr)
+            self.assertEqual(harness.log_text(), "")
         finally:
             harness.close()
 
     def test_path_segment_repository_pin_is_rejected_before_bootstrap(self) -> None:
         harness = RunShHarness(self, pin="ExampleOrg/../fkst-substrate@dev")
         try:
-            result = harness.run()
+            result = harness.run(args=["bootstrap"])
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("fkst-substrate-pin-invalid", result.stderr)
             self.assertEqual(harness.log_text(), "")
@@ -206,7 +219,7 @@ class RunShBootstrapTest(unittest.TestCase):
     def test_autobuild_disabled_fails_without_git_or_cargo_calls(self) -> None:
         harness = RunShHarness(self)
         try:
-            result = harness.run({"FKST_NO_AUTOBUILD": "1"})
+            result = harness.run({"FKST_NO_AUTOBUILD": "1"}, args=["bootstrap"])
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("fkst-bin-unresolved-autobuild-disabled", result.stderr)
             self.assertEqual(harness.log_text(), "")

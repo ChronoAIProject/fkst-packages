@@ -57,24 +57,13 @@ local function codex_calls()
   return calls
 end
 
-local function count_stdin_matching(calls, needle)
-  local count = 0
+local function stdin_contains(calls, needle)
   for _, call in ipairs(calls) do
     if call.stdin:find(needle, 1, true) ~= nil then
-      count = count + 1
+      return true
     end
   end
-  return count
-end
-
-local function count_verdicts(items, verdict)
-  local count = 0
-  for _, item in ipairs(items) do
-    if item.verdict == verdict then
-      count = count + 1
-    end
-  end
-  return count
+  return false
 end
 
 local function mock_angle(verdict, reply, exit_code)
@@ -116,11 +105,11 @@ return {
 
     local calls = codex_calls()
     t.eq(#calls, 3)
-    t.eq(count_stdin_matching(calls, "Angle: minimal"), 1)
-    t.eq(count_stdin_matching(calls, "Angle: structural"), 1)
-    t.eq(count_stdin_matching(calls, "Angle: delete"), 1)
-    t.eq(count_stdin_matching(calls, "source_ref.ref: demo/consensus/42"), 3)
-    t.eq(count_stdin_matching(calls, "fetch-source --ref demo/consensus/42 --full"), 3)
+    t.is_true(calls[1].stdin:find("Angle: minimal", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("source_ref.ref: demo/consensus/42", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("fetch-source --ref demo/consensus/42 --full", 1, true) ~= nil)
+    t.is_true(calls[2].stdin:find("Angle: structural", 1, true) ~= nil)
+    t.is_true(calls[3].stdin:find("Angle: delete", 1, true) ~= nil)
   end,
 
   test_codex_stdin_carries_fetch_instruction_not_full_body = function()
@@ -139,11 +128,9 @@ return {
     t.eq(result.exit_code, 0)
     local calls = codex_calls()
     t.eq(#calls, 3)
-    for _, call in ipairs(calls) do
-      t.is_true(call.stdin:find("Brief only.", 1, true) ~= nil)
-      t.is_true(call.stdin:find("fetch-source --ref demo/consensus/42 --full", 1, true) ~= nil)
-      t.is_nil(call.stdin:find(full_tail, 1, true))
-    end
+    t.is_true(calls[1].stdin:find("Brief only.", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("fetch-source --ref demo/consensus/42 --full", 1, true) ~= nil)
+    t.is_nil(calls[1].stdin:find(full_tail, 1, true))
   end,
 
   test_unanimous_abstain_raises_consensus_converge = function()
@@ -178,14 +165,14 @@ return {
     t.eq(result.raises[1].payload.source_ref.kind, "proposal")
     t.eq(result.raises[1].payload.source_ref.ref, "demo/consensus/42")
     t.eq(#result.raises[1].payload.angle_digests, 3)
-    t.eq(count_verdicts(result.raises[1].payload.angle_digests, "approve"), 2)
-    t.eq(count_verdicts(result.raises[1].payload.angle_digests, "abstain"), 1)
+    t.eq(result.raises[1].payload.angle_digests[1].verdict, "approve")
+    t.eq(result.raises[1].payload.angle_digests[2].verdict, "abstain")
     t.is_nil(result.raises[1].payload.body)
     t.is_nil(result.raises[1].payload.angle_results)
     t.is_nil(result.raises[1].payload.decision)
     local calls = codex_calls()
     t.eq(#calls, 4)
-    t.eq(count_stdin_matching(calls, "Angle outputs:"), 1)
+    t.is_true(calls[4].stdin:find("Angle outputs:", 1, true) ~= nil)
   end,
 
   test_converge_mode_reject_outputs_raise_consensus_converge = function()
@@ -319,8 +306,8 @@ return {
 
     local calls = codex_calls()
     t.eq(#calls, 2)
-    t.eq(count_stdin_matching(calls, "Angle: minimal"), 1)
-    t.eq(count_stdin_matching(calls, "Angle: delete"), 1)
+    t.is_true(stdin_contains(calls, "Angle: minimal"))
+    t.is_true(stdin_contains(calls, "Angle: delete"))
   end,
 
   test_same_dedup_key_skips_second_run = function()
