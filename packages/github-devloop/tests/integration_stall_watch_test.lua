@@ -115,6 +115,13 @@ local function mock_issue_view(labels, comments)
   })
 end
 
+local function state_comment(proposal_id, state, version, created_at)
+  return {
+    body = core.state_marker(proposal_id, state, version),
+    created_at = created_at,
+  }
+end
+
 local function mock_pr_view(comments)
   local rendered_comments = {}
   for _, comment in ipairs(comments or {}) do
@@ -196,7 +203,7 @@ return {
     mock_env()
     mock_all_lists(core.state_label("thinking"), { 42 })
     mock_issue_view({ "fkst-dev:thinking" }, {
-      core.state_marker(proposal_id, "thinking", version),
+      state_comment(proposal_id, "thinking", version, "2026-06-10T06:00:00Z"),
     })
 
     local result = run_stall_watch("stall-breach")
@@ -221,7 +228,7 @@ return {
     local version = "2026-06-10T06-00-00Z"
     mock_env()
     mock_issue_view({ "fkst-dev:thinking" }, {
-      core.state_marker(proposal_id, "thinking", version),
+      state_comment(proposal_id, "thinking", version, "2026-06-10T06:00:00Z"),
     })
 
     local result = run_stall_watch_issue("stall-entity-source-ref")
@@ -241,7 +248,7 @@ return {
     mock_env()
     mock_all_lists(core.state_label("thinking"), { 42 })
     mock_issue_view({ "fkst-dev:thinking", core._stalled_label }, {
-      core.state_marker(proposal_id, "thinking", version),
+      state_comment(proposal_id, "thinking", version, "2026-06-10T06:00:00Z"),
       core.stall_detected_marker(proposal_id, "thinking", version, core.stall_watch_threshold_seconds("thinking")),
     })
 
@@ -258,9 +265,9 @@ return {
     mock_env()
     mock_all_lists(core._stalled_label, { 42 })
     mock_issue_view({ "fkst-dev:reviewing", core._stalled_label }, {
-      core.state_marker(proposal_id, "thinking", old_version),
+      state_comment(proposal_id, "thinking", old_version, "2026-06-10T06:00:00Z"),
       core.stall_detected_marker(proposal_id, "thinking", old_version, core.stall_watch_threshold_seconds("thinking")),
-      core.state_marker(proposal_id, "reviewing", new_version),
+      state_comment(proposal_id, "reviewing", new_version, "2026-06-10T08:45:00Z"),
     })
 
     local result = run_stall_watch("stall-clear")
@@ -278,7 +285,7 @@ return {
     mock_env()
     mock_all_lists(core.state_label("ready"), { 42 })
     mock_issue_view({ "fkst-dev:ready", core._blocked_on_dependency_label }, {
-      core.state_marker(proposal_id, "ready", version),
+      state_comment(proposal_id, "ready", version, "2026-06-10T06:00:00Z"),
       core.dependency_wait_marker(proposal_id, version, { 1 }),
     })
 
@@ -295,15 +302,30 @@ return {
     mock_env()
     mock_all_lists(core.state_label("pr-open"), { 42 })
     mock_issue_view({ "fkst-dev:pr-open" }, {
-      core.state_marker(proposal_id, "pr-open", pr_open_version),
+      state_comment(proposal_id, "pr-open", pr_open_version, "2026-06-10T06:00:00Z"),
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42", pr_open_version, "dev"),
     })
     mock_pr_view({
       core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42", pr_open_version, "dev"),
-      core.state_marker(proposal_id, "reviewing", reviewing_version),
+      state_comment(proposal_id, "reviewing", reviewing_version, "2999-01-01T00:00:00Z"),
     })
 
     local result = run_stall_watch("stall-pr-local-reviewing")
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+  end,
+
+  test_reused_old_version_does_not_alert_for_fresh_state_marker = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local reused_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-10T06-00-00Z"
+    mock_env()
+    mock_all_lists(core.state_label("pr-open"), { 42 })
+    mock_issue_view({ "fkst-dev:pr-open" }, {
+      state_comment(proposal_id, "pr-open", reused_version, "2999-01-01T00:00:00Z"),
+    })
+
+    local result = run_stall_watch("stall-reused-version-fresh-transition")
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)

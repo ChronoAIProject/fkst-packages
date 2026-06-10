@@ -73,8 +73,8 @@ local function timestamp_parts_to_epoch(year, month, day, hour, min, sec)
   return days_from_civil(year, month, day) * 86400 + hour * 3600 + min * 60 + sec
 end
 
-local function parse_version_epoch(version)
-  local text = tostring(version or "")
+local function parse_timestamp_epoch(timestamp)
+  local text = tostring(timestamp or "")
   local year, month, day, hour, min, sec = nil, nil, nil, nil, nil, nil
   for y, mo, d, h, mi, s in text:gmatch("(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d)[%-:](%d%d)[%-:](%d%d)Z") do
     year, month, day, hour, min, sec = y, mo, d, h, mi, s
@@ -97,7 +97,7 @@ local function current_epoch()
   if type(current) == "number" then
     return current
   end
-  return parse_version_epoch(current)
+  return parse_timestamp_epoch(current)
 end
 
 local function has_current_dependency_wait(comments, proposal_id, version)
@@ -188,12 +188,12 @@ function M.stall_watch_assessment(issue)
     return { action = "none", current = current, reason = "dependency-held" }
   end
   local threshold = thresholds[current.state]
-  local version_epoch = parse_version_epoch(current.version)
+  local transition_epoch = parse_timestamp_epoch(current.marker_created_at)
   local now_epoch = current_epoch()
-  if version_epoch == nil or now_epoch == nil then
-    return { action = "none", current = current, reason = "missing-version-timestamp" }
+  if transition_epoch == nil or now_epoch == nil then
+    return { action = "none", current = current, reason = "missing-transition-timestamp" }
   end
-  local age_seconds = now_epoch - version_epoch
+  local age_seconds = now_epoch - transition_epoch
   if age_seconds < threshold then
     return { action = "none", current = current, reason = "below-threshold", age_seconds = age_seconds, threshold_seconds = threshold }
   end
