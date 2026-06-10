@@ -39,6 +39,12 @@ local function existing_stdout(cmd, timeout, error_class)
   return stdout
 end
 
+local function read_release_markers(repo)
+  local marker_view = run_cmd(core.gh_issue_list_release_markers_cmd(repo), 30, "gh release marker list")
+  local comments = core.parse_release_marker_issue_list(marker_view.stdout)
+  return comments
+end
+
 local function draft_notes(repo, tag, base_ref, head_sha)
   core.log_codex_start("release_publish", core.release_proposal_id(repo, tag, head_sha), "release-notes")
   local result = spawn_codex_sync({
@@ -76,6 +82,25 @@ local function tag_exists_at_head(tag, proposed_head)
   return true
 end
 
+local function remote_tag_exists_at_head(tag, proposed_head)
+  local result = exec_sync({ cmd = core.git_remote_tag_head_cmd(tag), timeout = 30 })
+  if result.exit_code ~= 0 then
+    return false
+  end
+  local stdout = tostring(result.stdout or ""):gsub("%s+$", "")
+  if stdout == "" then
+    return false
+  end
+  local remote_head = stdout:match("^([0-9a-fA-F]+)%s+")
+  if remote_head == nil then
+    error("github-devloop: invalid remote release tag stdout")
+  end
+  if tostring(remote_head) ~= tostring(proposed_head) then
+    error("github-devloop: remote release tag does not match approved head")
+  end
+  return true
+end
+
 local function release_exists_for_verified_tag(repo, tag)
   local result = exec_sync({ cmd = core.gh_release_view_cmd(repo, tag), timeout = 30 })
   if result.exit_code ~= 0 then
@@ -107,6 +132,11 @@ function pipeline(event)
       return
     end
 
+    local comments = read_release_markers(repo)
+    core.log_forged_markers("release_publish", reached.proposal_id, comments)
+    local published_fact = core.release_published_fact(comments, repo, tag, proposed_head)
+    local pending_fact = core.release_pending_fact(comments, repo, tag, proposed_head, core.release_dedup_key(repo, tag, proposed_head))
+
     if core.write_mode() ~= "real" then
       core.log_line("info", "release_publish", reached.proposal_id, "OUTBOUND", {
         "mode=dry-run",
@@ -118,9 +148,16 @@ function pipeline(event)
       return
     end
 
+    core.assert_trusted_bot_configured()
+    if published_fact == nil and pending_fact == nil then
+      core.log_cas_decision("release_publish", reached.proposal_id, { state = nil, version = nil }, "approve", "published", "retry-pending(pending-release-marker)", "trusted pending release marker missing")
+      error("github-devloop: pending release marker missing; retrying")
+    end
+
     local tag_exists = tag_exists_at_head(tag, proposed_head)
+    local remote_tag_exists = remote_tag_exists_at_head(tag, proposed_head)
     local release_exists = release_exists_for_verified_tag(repo, tag)
-    if tag_exists and release_exists then
+    if remote_tag_exists and release_exists then
       local marker_request = published_marker_issue_create_request(repo, tag, proposed_head, core.release_dedup_key(repo, tag, proposed_head))
       core.log_raise("release_publish", reached.proposal_id, "github-proxy.github_issue_create_request", marker_request)
       core.log_cas_decision("release_publish", reached.proposal_id, { state = "approved", version = reached.dedup_key }, "approve", "published", "applied", "release already exists at approved head")
@@ -131,6 +168,9 @@ function pipeline(event)
 
     if not tag_exists then
       run_cmd(core.git_annotated_tag_cmd(tag, proposed_head, notes), 60, "git release tag")
+      tag_exists = true
+    end
+    if not remote_tag_exists then
       run_cmd(core.git_push_tag_cmd(tag), 60, "git release tag push")
     end
     if not release_exists then

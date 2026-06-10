@@ -154,6 +154,25 @@ function M.release_fact(comments, repo, tag, head_sha)
   return best
 end
 
+function M.release_pending_fact(comments, repo, tag, head_sha, dedup_key)
+  local fact = M.release_fact(comments, repo, tag, head_sha)
+  if fact == nil or fact.status ~= "pending" then
+    return nil
+  end
+  if dedup_key ~= nil and fact.dedup_key ~= tostring(dedup_key) then
+    return nil
+  end
+  return fact
+end
+
+function M.release_published_fact(comments, repo, tag, head_sha)
+  local fact = M.release_fact(comments, repo, tag, head_sha)
+  if fact ~= nil and fact.status == "published" then
+    return fact
+  end
+  return nil
+end
+
 function M.release_tag_fact(comments, repo, tag)
   if type(comments) ~= "table" then
     return nil
@@ -293,6 +312,10 @@ end
 
 function M.git_tag_head_cmd(tag)
   return "git rev-list -n 1 " .. M._shell_single_quote(require_release_tag(tag))
+end
+
+function M.git_remote_tag_head_cmd(tag)
+  return "git ls-remote --tags origin " .. M._shell_single_quote("refs/tags/" .. require_release_tag(tag) .. "^{}")
 end
 
 function M.git_annotated_tag_cmd(tag, head_sha, message)

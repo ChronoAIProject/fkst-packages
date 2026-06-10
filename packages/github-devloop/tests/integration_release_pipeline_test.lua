@@ -182,7 +182,7 @@ return {
     t.eq(h.count_calls("gh issue list"), 0)
   end,
 
-  test_release_scan_pending_marker_skips_rescan = function()
+  test_release_scan_pending_marker_reproposes_for_same_head = function()
     mock_env("")
     mock_fetch_dev()
     mock_dev_head(head_a)
@@ -192,7 +192,10 @@ return {
 
     local result = run_scan()
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    t.eq(#result.raises, 2)
+    local proposal = h.find_raise(result.raises, "consensus.proposal").payload
+    t.eq(proposal.proposal_id, core.release_proposal_id("owner/repo", "v0.2.0", head_a))
+    t.eq(proposal.dedup_key, core.release_dedup_key("owner/repo", "v0.2.0", head_a))
   end,
 
   test_release_scan_same_tag_marker_reproposes_after_dev_moves = function()
@@ -246,6 +249,7 @@ return {
     mock_env("")
     mock_fetch_dev()
     mock_dev_head(head_a)
+    mock_marker_list(marker_issue("v0.2.0", head_a))
     local result = run_publish(release_reached("v0.2.0", head_a))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("git tag -a"), 0)
@@ -257,7 +261,9 @@ return {
     mock_env("1")
     mock_fetch_dev()
     mock_dev_head(head_a)
+    mock_marker_list(marker_issue("v0.2.0", head_a))
     t.mock_command("git rev-parse --verify --quiet refs/tags/'v0.2.0'", { stdout = "", stderr = "", exit_code = 1 })
+    t.mock_command("git ls-remote --tags origin 'refs/tags/v0.2.0^{}'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("gh release view 'v0.2.0' --repo 'owner/repo'", { stdout = "", stderr = "", exit_code = 1 })
     t.mock_command("codex exec", {
       stdout = "## English\n- Ship release automation.\n\n## Chinese\n- Ship release automation.\n\n⟦AI:FKST⟧\n",
@@ -283,10 +289,56 @@ return {
     t.is_true(marker.body:find('status="published"', 1, true) ~= nil)
   end,
 
+  test_release_publish_requires_pending_marker_before_real_write = function()
+    mock_env("1")
+    mock_fetch_dev()
+    mock_dev_head(head_a)
+    mock_marker_list("[]\n")
+
+    local result = run_publish(release_reached("v0.2.0", head_a), opts("release-publish-no-marker", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    }))
+    t.is_true(result.exit_code ~= 0)
+    t.eq(h.count_calls("git rev-parse --verify --quiet refs/tags/'v0.2.0'"), 0)
+    t.eq(h.count_calls("git tag -a"), 0)
+    t.eq(h.count_calls("git push origin 'v0.2.0'"), 0)
+    t.eq(h.count_calls("gh release create"), 0)
+    t.eq(h.count_calls("codex"), 0)
+  end,
+
+  test_release_publish_retries_remote_tag_push_when_local_tag_exists = function()
+    mock_env("1")
+    mock_fetch_dev()
+    mock_dev_head(head_a)
+    mock_marker_list(marker_issue("v0.2.0", head_a))
+    t.mock_command("git rev-parse --verify --quiet refs/tags/'v0.2.0'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git rev-list -n 1 'v0.2.0'", { stdout = head_a .. "\n", stderr = "", exit_code = 0 })
+    t.mock_command("git ls-remote --tags origin 'refs/tags/v0.2.0^{}'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("gh release view 'v0.2.0' --repo 'owner/repo'", { stdout = "", stderr = "", exit_code = 1 })
+    t.mock_command("codex exec", {
+      stdout = "## English\n- Retry remote tag publication.\n\n## Chinese\n- Retry remote tag publication.\n\n⟦AI:FKST⟧\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git push origin 'v0.2.0'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("gh release create 'v0.2.0'", { stdout = "", stderr = "", exit_code = 0 })
+
+    local result = run_publish(release_reached("v0.2.0", head_a), opts("release-publish-retry-remote-tag", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("git tag -a"), 0)
+    t.eq(h.count_calls("git push origin 'v0.2.0'"), 1)
+    t.eq(h.count_calls("gh release create 'v0.2.0'"), 1)
+  end,
+
   test_release_publish_existing_tag_must_match_approved_head = function()
     mock_env("1")
     mock_fetch_dev()
     mock_dev_head(head_a)
+    mock_marker_list(marker_issue("v0.2.0", head_a))
     t.mock_command("git rev-parse --verify --quiet refs/tags/'v0.2.0'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("git rev-list -n 1 'v0.2.0'", { stdout = head_b .. "\n", stderr = "", exit_code = 0 })
 
@@ -304,8 +356,10 @@ return {
     mock_env("1")
     mock_fetch_dev()
     mock_dev_head(head_a)
+    mock_marker_list(marker_issue("v0.2.0", head_a, "published"))
     t.mock_command("git rev-parse --verify --quiet refs/tags/'v0.2.0'", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("git rev-list -n 1 'v0.2.0'", { stdout = head_a .. "\n", stderr = "", exit_code = 0 })
+    t.mock_command("git ls-remote --tags origin 'refs/tags/v0.2.0^{}'", { stdout = head_a .. "\trefs/tags/v0.2.0^{}\n", stderr = "", exit_code = 0 })
     t.mock_command("gh release view 'v0.2.0' --repo 'owner/repo'", { stdout = "v0.2.0\n", stderr = "", exit_code = 0 })
 
     local result = run_publish(release_reached("v0.2.0", head_a), opts("release-publish-existing", {
