@@ -8,7 +8,7 @@ M.spec = {
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_label_request",
   },
-  fanout = { "github-proxy.github_entity_changed" },
+  fanout = { "devloop_observe_tick", "github-proxy.github_entity_changed" },
   ephemeral = { "devloop_observe_tick" },
   retry = false,
   stall_window = "2m",
@@ -39,36 +39,20 @@ local function run_gh(cmd, timeout)
   return result, nil
 end
 
-local function issue_numbers_from_label(repo, label)
-  local result, err = run_gh(core.gh_issue_list_observe_cmd(repo, label), 60)
-  if result == nil then
-    log_skip("github-devloop/stall-watch", "issue-list-failed", err and err.stderr)
+local function sorted_issue_numbers(repo)
+  local ok, entities = pcall(core.scan_observe_devloop_entities, {
+    all_open_issues = true,
+    repo = repo,
+    trusted_bot_configured = true,
+  })
+  if not ok or type(entities) ~= "table" then
+    log_skip("github-devloop/stall-watch", "entity-scan-failed", entities)
     return {}
   end
-  local numbers = {}
-  for _, issue in ipairs(core.parse_issue_list_observe(result.stdout)) do
-    local number = tonumber(issue.number)
-    local state = tostring(issue.state or ""):lower()
-    if number ~= nil and number >= 1 and number % 1 == 0 and state == "open" then
-      numbers[number] = true
-    end
-  end
-  return numbers
-end
-
-local function sorted_issue_numbers(repo)
   local seen = {}
-  seen = issue_numbers_from_label(repo, core._stalled_label)
-  for state, _ in pairs({
-    thinking = true,
-    ready = true,
-    implementing = true,
-    ["pr-open"] = true,
-    reviewing = true,
-    fixing = true,
-    merging = true,
-  }) do
-    for number, _ in pairs(issue_numbers_from_label(repo, core.state_label(state))) do
+  for _, entity in ipairs(entities) do
+    local number = tonumber(entity and entity.issue_number)
+    if number ~= nil and number >= 1 and number % 1 == 0 and entity and entity.state ~= nil then
       seen[number] = true
     end
   end
@@ -188,19 +172,10 @@ local function inspect_issue(repo, issue_number)
   if assessment.action == "clear" then
     if core.has_label(issue.labels, core._stalled_label) then
       local version = assessment.current and assessment.current.version or "unmanaged"
-      clear_stalled_label(repo, issue_number, proposal_id, version, ref)
+      if assessment.reason == "advanced-past-stall" then
+        clear_stalled_label(repo, issue_number, proposal_id, version, ref)
+      end
     end
-    return
-  end
-  if core.has_label(issue.labels, core._stalled_label)
-    and assessment.current ~= nil
-    and not core.has_stall_detected_marker(
-      issue.comments,
-      proposal_id,
-      assessment.current.state,
-      assessment.current.version
-    ) then
-    clear_stalled_label(repo, issue_number, proposal_id, assessment.current.version, ref)
     return
   end
   if assessment.action == "alert" or assessment.action == "label-only" then

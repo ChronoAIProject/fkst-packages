@@ -87,12 +87,25 @@ local function mock_issue_list(label, numbers)
   })
 end
 
-local function mock_all_lists(match_label, numbers)
-  mock_issue_list(core._stalled_label, match_label == core._stalled_label and numbers or {})
-  for _, state in ipairs({ "thinking", "ready", "implementing", "pr-open", "reviewing", "fixing", "merging" }) do
-    local label = core.state_label(state)
-    mock_issue_list(label, match_label == label and numbers or {})
+local function mock_open_issue_list(numbers)
+  local rendered = {}
+  for _, number in ipairs(numbers or {}) do
+    table.insert(rendered, string.format('{"number":%d,"state":"open"}', number))
   end
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'", {
+    stdout = "[[" .. table.concat(rendered, ",") .. "]]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_all_lists(_match_label, numbers)
+  mock_open_issue_list(numbers)
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
+    stdout = "[[]]\n",
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function mock_issue_view(labels, comments)
@@ -113,6 +126,27 @@ local function mock_issue_view(labels, comments)
     stderr = "",
     exit_code = 0,
   })
+end
+
+local function mock_observe_issue_view(comments)
+  local rendered_comments = {}
+  for _, comment in ipairs(comments or {}) do
+    if type(comment) == "table" then
+      table.insert(rendered_comments, render_comment(comment.body, comment.author_login, comment.created_at))
+    else
+      table.insert(rendered_comments, render_comment(comment))
+    end
+  end
+  t.mock_command("--json comments,state", {
+    stdout = '{"state":"OPEN","comments":[' .. table.concat(rendered_comments, ",") .. "]}\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_issue_views(labels, comments)
+  mock_observe_issue_view(comments)
+  mock_issue_view(labels, comments)
 end
 
 local function state_comment(proposal_id, state, version, created_at)
@@ -201,8 +235,8 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "2026-06-10T06-00-00Z"
     mock_env()
-    mock_all_lists(core.state_label("thinking"), { 42 })
-    mock_issue_view({ "fkst-dev:thinking" }, {
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:thinking" }, {
       state_comment(proposal_id, "thinking", version, "2026-06-10T06:00:00Z"),
     })
 
@@ -246,8 +280,8 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "2026-06-10T06-00-00Z"
     mock_env()
-    mock_all_lists(core.state_label("thinking"), { 42 })
-    mock_issue_view({ "fkst-dev:thinking", core._stalled_label }, {
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:thinking", core._stalled_label }, {
       state_comment(proposal_id, "thinking", version, "2026-06-10T06:00:00Z"),
       core.stall_detected_marker(proposal_id, "thinking", version, core.stall_watch_threshold_seconds("thinking")),
     })
@@ -261,13 +295,13 @@ return {
   test_advanced_state_clears_stalled_label = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local old_version = "2026-06-10T06-00-00Z"
-    local new_version = "2026-06-10T08-45-00Z"
+    local new_version = "2999-01-01T00-00-00Z"
     mock_env()
-    mock_all_lists(core._stalled_label, { 42 })
-    mock_issue_view({ "fkst-dev:reviewing", core._stalled_label }, {
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:reviewing", core._stalled_label }, {
       state_comment(proposal_id, "thinking", old_version, "2026-06-10T06:00:00Z"),
       core.stall_detected_marker(proposal_id, "thinking", old_version, core.stall_watch_threshold_seconds("thinking")),
-      state_comment(proposal_id, "reviewing", new_version, "2026-06-10T08:45:00Z"),
+      state_comment(proposal_id, "reviewing", new_version, "2999-01-01T00:00:00Z"),
     })
 
     local result = run_stall_watch("stall-clear")
@@ -279,12 +313,34 @@ return {
     t.eq(label.remove_labels[1], core._stalled_label)
   end,
 
+  test_advanced_overdue_state_writes_new_marker_without_clearing_stalled_label = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local old_version = "2026-06-10T06-00-00Z"
+    local new_version = "2026-06-10T07-00-00Z"
+    mock_env()
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:reviewing", core._stalled_label }, {
+      state_comment(proposal_id, "thinking", old_version, "2026-06-10T06:00:00Z"),
+      core.stall_detected_marker(proposal_id, "thinking", old_version, core.stall_watch_threshold_seconds("thinking")),
+      state_comment(proposal_id, "reviewing", new_version, "2026-06-10T07:00:00Z"),
+    })
+
+    local result = run_stall_watch("stall-advanced-overdue")
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result, "github-proxy.github_issue_comment_request"), 1)
+    t.eq(count_raises(result, "github-proxy.github_issue_label_request"), 0)
+    local comment = find_raise(result, "github-proxy.github_issue_comment_request").payload
+    t.is_true(comment.body:find('state="reviewing"', 1, true) ~= nil)
+    t.is_true(comment.body:find('version="' .. new_version .. '"', 1, true) ~= nil)
+  end,
+
   test_dependency_held_ready_entity_does_not_alert = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "2026-06-10T06-00-00Z"
     mock_env()
-    mock_all_lists(core.state_label("ready"), { 42 })
-    mock_issue_view({ "fkst-dev:ready", core._blocked_on_dependency_label }, {
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:ready", core._blocked_on_dependency_label }, {
       state_comment(proposal_id, "ready", version, "2026-06-10T06:00:00Z"),
       core.dependency_wait_marker(proposal_id, version, { 1 }),
     })
@@ -300,10 +356,14 @@ return {
     local pr_open_version = "2026-06-10T06-00-00Z"
     local reviewing_version = "2999-01-01T00-00-00Z"
     mock_env()
-    mock_all_lists(core.state_label("pr-open"), { 42 })
-    mock_issue_view({ "fkst-dev:pr-open" }, {
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:pr-open" }, {
       state_comment(proposal_id, "pr-open", pr_open_version, "2026-06-10T06:00:00Z"),
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42", pr_open_version, "dev"),
+    })
+    mock_pr_view({
+      core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42", pr_open_version, "dev"),
+      state_comment(proposal_id, "reviewing", reviewing_version, "2999-01-01T00:00:00Z"),
     })
     mock_pr_view({
       core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42", pr_open_version, "dev"),
@@ -320,8 +380,8 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local reused_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-10T06-00-00Z"
     mock_env()
-    mock_all_lists(core.state_label("pr-open"), { 42 })
-    mock_issue_view({ "fkst-dev:pr-open" }, {
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:pr-open" }, {
       state_comment(proposal_id, "pr-open", reused_version, "2999-01-01T00:00:00Z"),
     })
 
@@ -333,7 +393,10 @@ return {
 
   test_gh_failure_skips_without_alert_and_logs = function()
     mock_env()
-    mock_all_lists(core.state_label("thinking"), { 42 })
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_observe_issue_view({
+      state_comment("github-devloop/issue/owner/repo/42", "thinking", "2026-06-10T06-00-00Z", "2026-06-10T06:00:00Z"),
+    })
     t.mock_command("--json labels,state,comments", {
       stdout = "",
       stderr = "forced view failure",

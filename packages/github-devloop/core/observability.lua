@@ -133,6 +133,17 @@ local function entity_sort_key(entity)
   return tostring(entity.proposal_id or "")
 end
 
+local function sorted_entity_list(entities)
+  local list = {}
+  for _, entity in pairs(entities) do
+    table.insert(list, entity)
+  end
+  table.sort(list, function(a, b)
+    return entity_sort_key(a) < entity_sort_key(b)
+  end)
+  return list
+end
+
 local function log_entity(entity)
   local state = entity.state or {}
   log.info(M.observe_entity_log_line(entity.proposal_id, {
@@ -174,18 +185,27 @@ function M.observe_entity_log_line(proposal_id, fields)
   }, " ")
 end
 
-function M.observe_devloop_entities()
-  require_observe_bot()
-  local repo = require_observe_repo()
-  local issue_candidates = {}
-  local labels = { M._enabled_label }
-  for _, state in ipairs(M._state_order) do
-    table.insert(labels, M.state_label(state))
+function M.scan_observe_devloop_entities(opts)
+  if not (opts and opts.trusted_bot_configured) then
+    require_observe_bot()
   end
-  for _, label in ipairs(labels) do
-    local issue_list = run_cmd(M.gh_issue_list_observe_cmd(repo, label), 60, "gh observability issue list")
+  local repo = opts and opts.repo or require_observe_repo()
+  local issue_candidates = {}
+  if opts and opts.all_open_issues then
+    local issue_list = run_cmd(M.gh_issue_list_open_observe_cmd(repo), 60, "gh observability issue list")
     for _, issue in ipairs(M.parse_issue_list_observe(issue_list.stdout)) do
       table.insert(issue_candidates, issue)
+    end
+  else
+    local labels = { M._enabled_label }
+    for _, state in ipairs(M._state_order) do
+      table.insert(labels, M.state_label(state))
+    end
+    for _, label in ipairs(labels) do
+      local issue_list = run_cmd(M.gh_issue_list_observe_cmd(repo, label), 60, "gh observability issue list")
+      for _, issue in ipairs(M.parse_issue_list_observe(issue_list.stdout)) do
+        table.insert(issue_candidates, issue)
+      end
     end
   end
   local pr_list = run_cmd(M.gh_pr_list_observe_cmd(repo), 60, "gh observability PR list")
@@ -197,13 +217,11 @@ function M.observe_devloop_entities()
   observe_issue_candidates(repo, issue_numbers, entities, seen_prs)
   observe_pr_candidates(repo, pr_numbers, entities, seen_prs)
 
-  local list = {}
-  for _, entity in pairs(entities) do
-    table.insert(list, entity)
-  end
-  table.sort(list, function(a, b)
-    return entity_sort_key(a) < entity_sort_key(b)
-  end)
+  return sorted_entity_list(entities)
+end
+
+function M.observe_devloop_entities()
+  local list = M.scan_observe_devloop_entities()
 
   local counts = {}
   for _, entity in ipairs(list) do

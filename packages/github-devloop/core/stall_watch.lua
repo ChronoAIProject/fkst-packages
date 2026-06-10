@@ -143,6 +143,26 @@ local function has_stall_marker(comments, proposal_id, state, version)
   return false
 end
 
+local function has_any_stall_marker_for_other_version(comments, proposal_id, state, version)
+  local core = root()
+  if type(comments) ~= "table" then
+    return false
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:stall%-detected:v1.-%-%->"
+  for _, comment in ipairs(core._trusted_marker_comments(comments)) do
+    for marker in core._comment_body(comment):gmatch(marker_pattern) do
+      if marker:match('proposal="([^"]+)"') == tostring(proposal_id) then
+        local marker_state = marker:match('state="([^"]+)"')
+        local marker_version = marker:match('version="([^"]*)"')
+        if marker_state ~= tostring(state) or marker_version ~= tostring(version) then
+          return true
+        end
+      end
+    end
+  end
+  return false
+end
+
 local function stall_marker(proposal_id, state, version, threshold_seconds)
   return '<!-- fkst:github-devloop:stall-detected:v1 proposal="' .. tostring(proposal_id)
     .. '" state="' .. tostring(state)
@@ -181,8 +201,14 @@ end
 function M.stall_watch_assessment(issue)
   local core = root()
   local current = core.current_state(issue.comments, issue.proposal_id)
-  if current == nil or not nonterminal_states[current.state] then
-    return { action = "clear", current = current }
+  if current == nil then
+    return { action = "none", current = current, reason = "unmanaged-or-terminal" }
+  end
+  if not nonterminal_states[current.state] then
+    if has_any_stall_marker_for_other_version(issue.comments, issue.proposal_id, current.state, current.version) then
+      return { action = "clear", current = current, reason = "advanced-past-stall" }
+    end
+    return { action = "none", current = current, reason = "unmanaged-or-terminal" }
   end
   if current.state == "ready" and has_current_dependency_wait(issue.comments, issue.proposal_id, current.version) then
     return { action = "none", current = current, reason = "dependency-held" }
@@ -195,6 +221,9 @@ function M.stall_watch_assessment(issue)
   end
   local age_seconds = now_epoch - transition_epoch
   if age_seconds < threshold then
+    if has_any_stall_marker_for_other_version(issue.comments, issue.proposal_id, current.state, current.version) then
+      return { action = "clear", current = current, reason = "advanced-past-stall" }
+    end
     return { action = "none", current = current, reason = "below-threshold", age_seconds = age_seconds, threshold_seconds = threshold }
   end
   if has_stall_marker(issue.comments, issue.proposal_id, current.state, current.version) then

@@ -19,6 +19,11 @@ function M.gh_issue_list_observe_cmd(repo, label)
     .. M._shell_single_quote("repos/" .. tostring(repo) .. "/issues?state=open&labels=" .. tostring(selected_label):gsub(":", "%%3A") .. "&per_page=100")
 end
 
+function M.gh_issue_list_open_observe_cmd(repo)
+  return "gh api --paginate --slurp "
+    .. M._shell_single_quote("repos/" .. tostring(repo) .. "/issues?state=open&per_page=100")
+end
+
 function M.gh_pr_list_observe_cmd(repo)
   return "gh api --paginate --slurp "
     .. M._shell_single_quote("repos/" .. tostring(repo) .. "/pulls?state=open&per_page=100")
