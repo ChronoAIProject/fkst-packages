@@ -27,13 +27,14 @@ def require_command(name: str, code: str) -> bool:
     return False
 
 
-def cache_checkout() -> Path:
+def cache_checkout(repository: str) -> Path:
     cache_base = os.environ.get("XDG_CACHE_HOME") or (
         str(Path(os.environ["HOME"]) / ".cache") if os.environ.get("HOME") else ""
     )
     if not cache_base:
         raise ValueError("fkst-substrate-cache-root-missing: set XDG_CACHE_HOME or HOME")
-    return Path(cache_base) / "fkst" / "fkst-substrate"
+    owner, name = repository.split("/", 1)
+    return Path(cache_base) / "fkst" / "substrate-sources" / owner / name
 
 
 def run_checked(command: list[str], code: str, detail: str) -> None:
@@ -132,7 +133,7 @@ def main() -> int:
 
     try:
         repository, ref = parse_pin(read_pin(Path(args.pin_file)))
-        checkout = cache_checkout()
+        checkout = cache_checkout(repository)
     except ValueError as exc:
         return fail("fkst-substrate-pin-invalid", str(exc))
 

@@ -169,6 +169,10 @@ ENGINE
             return ""
         return self.log.read_text(encoding="utf-8")
 
+    def checkout_path(self, repository: str) -> Path:
+        owner, name = repository.split("/", 1)
+        return self.xdg_cache / "fkst" / "substrate-sources" / owner / name
+
 
 class RunShBootstrapTest(unittest.TestCase):
     def test_all_miss_test_bootstraps_and_runs_package_tests(self) -> None:
@@ -207,6 +211,35 @@ class RunShBootstrapTest(unittest.TestCase):
             self.assertIn(
                 "git clone https://github.com/ExampleOrg/example-substrate.git",
                 harness.log_text(),
+            )
+        finally:
+            harness.close()
+
+    def test_owner_repo_pin_uses_repository_scoped_checkout(self) -> None:
+        harness = RunShHarness(self, pin="ExampleOrg/example-substrate@dev")
+        try:
+            result = harness.run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            (harness.root / ".fkst-substrate-ref").write_text(
+                "OtherOrg/other-substrate@dev\n",
+                encoding="utf-8",
+            )
+            result = harness.run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            log = harness.log_text()
+            self.assertIn(
+                f"git clone https://github.com/ExampleOrg/example-substrate.git {harness.checkout_path('ExampleOrg/example-substrate')}",
+                log,
+            )
+            self.assertIn(
+                f"git clone https://github.com/OtherOrg/other-substrate.git {harness.checkout_path('OtherOrg/other-substrate')}",
+                log,
+            )
+            self.assertNotIn(
+                str(harness.xdg_cache / "fkst" / "fkst-substrate"),
+                log,
             )
         finally:
             harness.close()
