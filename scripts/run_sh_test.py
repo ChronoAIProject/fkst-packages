@@ -192,6 +192,16 @@ class RunShBootstrapTest(unittest.TestCase):
         finally:
             harness.close()
 
+    def test_path_segment_repository_pin_is_rejected_before_bootstrap(self) -> None:
+        harness = RunShHarness(self, pin="ExampleOrg/../fkst-substrate@dev")
+        try:
+            result = harness.run()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("fkst-substrate-pin-invalid", result.stderr)
+            self.assertEqual(harness.log_text(), "")
+        finally:
+            harness.close()
+
     def test_autobuild_disabled_fails_without_git_or_cargo_calls(self) -> None:
         harness = RunShHarness(self)
         try:

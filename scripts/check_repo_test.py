@@ -98,6 +98,19 @@ class SubstrateRefParseTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_substrate_ref.parse_pin("https://github.com/ChronoAIProject/fkst-substrate@dev")
 
+    def test_path_segment_repository_is_rejected(self) -> None:
+        invalid_pins = [
+            "./fkst-substrate@dev",
+            "../fkst-substrate@dev",
+            "ChronoAIProject/.@dev",
+            "ChronoAIProject/..@dev",
+            "ChronoAIProject/../fkst-substrate@dev",
+        ]
+        for pin in invalid_pins:
+            with self.subTest(pin=pin):
+                with self.assertRaises(ValueError):
+                    resolve_substrate_ref.parse_pin(pin)
+
 
 if __name__ == "__main__":
     unittest.main()

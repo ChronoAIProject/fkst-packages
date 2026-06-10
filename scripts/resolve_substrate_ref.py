@@ -12,7 +12,18 @@ from pathlib import Path
 
 DEFAULT_REPOSITORY = "ChronoAIProject/fkst-substrate"
 DEFAULT_REF = "dev"
-REPOSITORY_RE = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+OWNER_RE = re.compile(r"\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\Z")
+REPOSITORY_NAME_RE = re.compile(r"\A[A-Za-z0-9_.-]+\Z")
+
+
+def valid_repository(repository: str) -> bool:
+    parts = repository.split("/")
+    if len(parts) != 2:
+        return False
+    owner, name = parts
+    if owner in {".", ".."} or name in {".", ".."}:
+        return False
+    return OWNER_RE.fullmatch(owner) is not None and REPOSITORY_NAME_RE.fullmatch(name) is not None
 
 
 def parse_pin(raw: str | None) -> tuple[str, str]:
@@ -27,7 +38,7 @@ def parse_pin(raw: str | None) -> tuple[str, str]:
         raise ValueError("invalid-substrate-pin-empty-part")
     if "@" in ref:
         raise ValueError("invalid-substrate-pin-too-many-at")
-    if not REPOSITORY_RE.fullmatch(repository):
+    if not valid_repository(repository):
         raise ValueError("invalid-substrate-pin-repository")
     return repository, ref
 
