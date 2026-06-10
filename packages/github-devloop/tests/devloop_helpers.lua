@@ -26,17 +26,28 @@ local function mock_empty_dependencies()
   })
 end
 
+local function mock_healthy_quota()
+  helpers.t.mock_command(helpers.core.gh_rate_limit_cmd(), {
+    stdout = '{"resources":{"graphql":{"limit":5000,"remaining":4000,"used":1000,"reset":1790000000}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 helpers.run_observe = function(...)
+  mock_healthy_quota()
   mock_empty_dependencies()
   return base_run_observe(...)
 end
 
 helpers.run_result = function(...)
+  mock_healthy_quota()
   mock_empty_dependencies()
   return base_run_result(...)
 end
 
 helpers.run_implement = function(...)
+  mock_healthy_quota()
   mock_empty_dependencies()
   return base_run_implement(...)
 end

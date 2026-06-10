@@ -79,6 +79,27 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 
 return {
+  test_implement_quota_backpressure_retries_before_dependency_gate = function()
+    t.mock_command(core.gh_rate_limit_cmd(), {
+      stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = t.run_department("departments/implement/main.lua", {
+      queue = "devloop_ready",
+      payload = ready(),
+    }, opts("implement-quota-backpressure"))
+
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("gh api graphql"), 0)
+    t.eq(count_calls("--json title,labels,comments"), 0)
+    t.eq(count_calls("codex exec"), 0)
+    t.eq(count_calls("git -C"), 0)
+  end,
+
   test_implement_ready_label_only_empty_comments_does_not_synthesize_marker = function()
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
 

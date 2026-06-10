@@ -70,6 +70,10 @@ function pipeline(event)
     core.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
+  if core.github_quota_backpressure_active("implement") then
+    core.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "hold-quota-backpressure", "GitHub GraphQL quota is below the configured threshold")
+    error("github-devloop: quota backpressure active for implement; retrying")
+  end
 
   local gate = core.dependency_gate(repo, issue_number)
   if not gate.ok then

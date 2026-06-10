@@ -106,6 +106,25 @@ return {
     t.eq(count_calls("--json body"), 0)
   end,
 
+  test_observe_issue_quota_backpressure_skips_state_fetch = function()
+    t.mock_command(core.gh_rate_limit_cmd(), {
+      stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = t.run_department("departments/observe_issue/main.lua", {
+      queue = "github-proxy.github_entity_changed",
+      payload = issue(),
+    }, opts("observe-quota-backpressure"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("--json labels,state,comments"), 0)
+    t.eq(count_calls("gh api graphql"), 0)
+  end,
+
   test_observe_skips_not_opt_in_and_already_stateful = function()
     mock_issue_state({ "bug" })
     local not_opted = run_observe(issue({ labels = { "bug" } }), opts("observe-no-label"))
@@ -304,6 +323,25 @@ return {
     t.eq(ready_raise.payload.schema, "github-devloop.ready.v1")
     t.eq(ready_raise.payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(ready_raise.payload.source_ref.ref, "owner/repo#issue/42")
+  end,
+
+  test_consensus_result_quota_backpressure_retries_before_dependency_gate = function()
+    t.mock_command(core.gh_rate_limit_cmd(), {
+      stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = t.run_department("departments/consensus_result/main.lua", {
+      queue = "consensus.consensus_reached",
+      payload = reached(),
+    }, opts("result-quota-backpressure"))
+
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("--json labels,comments"), 0)
+    t.eq(count_calls("gh api graphql"), 0)
   end,
 
   test_consensus_result_threads_framing_to_ready_and_implement_prompt = function()

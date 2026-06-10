@@ -161,7 +161,16 @@ local function reached()
   }
 end
 
+local function mock_healthy_quota()
+  t.mock_command(core.gh_rate_limit_cmd(), {
+    stdout = '{"resources":{"graphql":{"limit":5000,"remaining":4000,"used":1000,"reset":1790000000}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function run_result()
+  mock_healthy_quota()
   return t.run_department("departments/consensus_result/main.lua", {
     queue = "consensus.consensus_reached",
     payload = reached(),
@@ -169,6 +178,7 @@ local function run_result()
 end
 
 local function run_observe()
+  mock_healthy_quota()
   return t.run_department("departments/observe_issue/main.lua", {
     queue = "github-proxy.github_entity_changed",
     payload = h.issue(),
@@ -176,6 +186,7 @@ local function run_observe()
 end
 
 local function run_implement()
+  mock_healthy_quota()
   return t.run_department("departments/implement/main.lua", {
     queue = "devloop_ready",
     payload = h.ready(),

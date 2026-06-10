@@ -1,7 +1,7 @@
 local S = {}
 
 function S.install(M)
-local dept = "observability"
+local default_dept = "observability"
 local default_quota_threshold = 1000
 
 local function run_cmd(cmd, timeout, error_class)
@@ -28,9 +28,9 @@ local function require_observe_bot()
 end
 
 local function quota_cache_key()
-  local key = "github-devloop/observability/quota-backpressure"
+  local key = "github-devloop/quota/backpressure"
   if not M._is_path_safe_key(key) then
-    error("github-devloop: invalid observability quota cache key")
+    error("github-devloop: invalid quota backpressure cache key")
   end
   return key
 end
@@ -61,10 +61,10 @@ function M.parse_gh_rate_limit(stdout)
   }
 end
 
-local function log_quota(rate, threshold, decision, reason)
+local function log_quota(dept, rate, threshold, decision, reason)
   local fields = {
     "github-devloop",
-    "dept=" .. dept,
+    "dept=" .. tostring(dept or default_dept),
     "tag=GITHUB_QUOTA",
     "remaining=" .. tostring(rate and rate.remaining or ""),
     "threshold=" .. tostring(threshold),
@@ -85,32 +85,36 @@ local function log_quota(rate, threshold, decision, reason)
   log.info(table.concat(fields, " "))
 end
 
-function M.observability_should_skip_for_quota()
+function M.github_quota_backpressure_active(dept)
   local threshold = quota_threshold()
   -- Deferred: REST ETag conditional polling and adaptive idle cron intervals
   -- need measured post-backpressure pressure before adding more moving parts.
   local result = exec_sync({ cmd = M.gh_rate_limit_cmd(), timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
     cache_set(quota_cache_key(), "quota-unavailable")
-    log_quota(nil, threshold, "skip", "quota-unavailable")
+    log_quota(dept, nil, threshold, "skip", "quota-unavailable")
     return true
   end
 
   local ok, rate = pcall(M.parse_gh_rate_limit, result.stdout)
   if not ok or type(rate) ~= "table" then
     cache_set(quota_cache_key(), "quota-malformed")
-    log_quota(nil, threshold, "skip", "quota-malformed")
+    log_quota(dept, nil, threshold, "skip", "quota-malformed")
     return true
   end
   if rate.remaining < threshold then
     cache_set(quota_cache_key(), "low/" .. tostring(rate.remaining) .. "/" .. tostring(now()))
-    log_quota(rate, threshold, "skip", "low-remaining")
+    log_quota(dept, rate, threshold, "skip", "low-remaining")
     return true
   end
 
   cache_set(quota_cache_key(), "ok/" .. tostring(rate.remaining) .. "/" .. tostring(now()))
-  log_quota(rate, threshold, "continue", nil)
+  log_quota(dept, rate, threshold, "continue", nil)
   return false
+end
+
+function M.observability_should_skip_for_quota()
+  return M.github_quota_backpressure_active(default_dept)
 end
 
 local function sorted_numbers(items)
@@ -234,7 +238,7 @@ end
 local function log_summary(counts, total)
   local fields = {
     "github-devloop",
-    "dept=" .. dept,
+    "dept=" .. default_dept,
     "tag=OBSERVE_SUMMARY",
     "total=" .. tostring(total or 0),
   }
@@ -250,7 +254,7 @@ end
 function M.observe_entity_log_line(proposal_id, fields)
   return table.concat({
     "github-devloop",
-    "dept=" .. dept,
+    "dept=" .. default_dept,
     "tag=OBSERVE_ENTITY",
     "proposal_id=" .. tostring(proposal_id or "unknown"),
     "state=" .. tostring(fields and fields.state or "unmanaged"),
