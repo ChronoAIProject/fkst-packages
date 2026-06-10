@@ -214,7 +214,7 @@ function M.stall_watch_assessment(issue)
     return { action = "none", current = current, reason = "dependency-held" }
   end
   local threshold = thresholds[current.state]
-  local transition_epoch = parse_timestamp_epoch(current.version)
+  local transition_epoch = parse_timestamp_epoch(current.marker_created_at)
   local now_epoch = current_epoch()
   if transition_epoch == nil or now_epoch == nil then
     return { action = "none", current = current, reason = "missing-transition-timestamp" }

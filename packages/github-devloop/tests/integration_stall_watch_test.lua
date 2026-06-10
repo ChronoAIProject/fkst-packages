@@ -400,7 +400,7 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_reused_old_version_alerts_from_version_timestamp = function()
+  test_reused_old_version_fresh_transition_does_not_alert = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local reused_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-10T06-00-00Z"
     mock_env()
@@ -412,8 +412,7 @@ return {
     local result = run_stall_watch("stall-reused-version-fresh-transition")
 
     t.eq(result.exit_code, 0)
-    t.eq(count_raises(result, "github-proxy.github_issue_comment_request"), 1)
-    t.eq(count_raises(result, "github-proxy.github_issue_label_request"), 1)
+    t.eq(#result.raises, 0)
   end,
 
   test_gh_failure_skips_without_alert_and_logs = function()
