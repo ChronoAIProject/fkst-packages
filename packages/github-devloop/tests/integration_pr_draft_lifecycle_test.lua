@@ -21,7 +21,7 @@ local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 
 return {
-  test_review_result_approve_does_not_convert_pr_ready_before_merge_gate = function()
+  test_review_result_approve_converts_pr_ready_at_merge_ready_transition = function()
     local event = review_reached()
     local impl_version = reviewing().version
     mock_pr_origin({
@@ -29,16 +29,17 @@ return {
     })
     mock_bot_env()
     mock_write_env("1")
+    mock_write_env("1")
     mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
-    local ready_calls_before = count_calls("gh pr ready")
+    mock_pr_ready()
 
-    local result = run_review_result(event, opts("review-result-ready-no-early-ready", {
+    local result = run_review_result(event, opts("review-result-ready-on-approve", {
       FKST_GITHUB_WRITE = "1",
     }))
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh pr ready"), ready_calls_before)
+    t.eq(count_calls("gh pr ready '7' --repo 'owner/repo'"), 1)
     t.is_true(h.find_raise(result.raises, "devloop_merge_ready") ~= nil)
   end,
 

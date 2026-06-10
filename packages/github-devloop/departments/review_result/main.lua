@@ -17,6 +17,36 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
+local function is_already_ready_error(stderr)
+  local lower = tostring(stderr or ""):lower()
+  return lower:find("already ready", 1, true) ~= nil
+    or lower:find("not a draft", 1, true) ~= nil
+end
+
+local function convert_pr_ready(repo, pr_number, proposal_id)
+  if core.write_mode() ~= "real" then
+    core.log_line("info", "review_result", proposal_id, "OUTBOUND", {
+      "mode=dry-run",
+      "cmd=gh pr ready",
+      "repo=" .. tostring(repo),
+      "pr=" .. tostring(pr_number),
+      "reason=FKST_GITHUB_WRITE!=1",
+    })
+    return
+  end
+  local ready = exec_sync({ cmd = core.gh_pr_ready_cmd(repo, pr_number), timeout = 30 })
+  if ready.exit_code ~= 0 and not is_already_ready_error(ready.stderr) then
+    error("github-devloop: gh pr ready failed for approved review result: " .. tostring(ready.stderr))
+  end
+  core.log_line("info", "review_result", proposal_id, "OUTBOUND", {
+    "mode=real",
+    "cmd=gh pr ready",
+    "repo=" .. tostring(repo),
+    "pr=" .. tostring(pr_number),
+    "reason=review consensus approved merge-ready",
+  })
+end
+
 function pipeline(event)
   local reached = event.payload or {}
   if not core.is_supported_review_result(reached) then
@@ -153,6 +183,7 @@ function pipeline(event)
       }, pr_source_ref)
       table.insert(raised, "devloop_fixing")
     else
+      convert_pr_ready(origin.repo, pr_number, origin.proposal_id)
       merge_payload = core.build_devloop_merge_ready_payload(origin.proposal_id, pr_number, issue_version, {
         review_proposal_id = reached.proposal_id,
         review_dedup_key = reached.dedup_key,
