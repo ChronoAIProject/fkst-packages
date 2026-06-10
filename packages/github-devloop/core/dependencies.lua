@@ -2,6 +2,7 @@ local M = {}
 local root_ref = nil
 
 local max_dependency_depth = 32
+local merged_cache_value = "merged"
 
 local function root()
   return root_ref or M
@@ -85,6 +86,8 @@ end
 
 local function fetch_blocked_by(repo, issue_number)
   local core = root()
+  -- Batched blockedBy reads are deferred until post-cache telemetry shows the
+  -- mutable edge-query load still exceeds the API budget.
   local result = exec_sync({ cmd = core.gh_blocked_by_cmd(repo, issue_number), timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
     return nil, "gh-failed"
@@ -99,8 +102,22 @@ local function fetch_blocked_by(repo, issue_number)
   return blockers, nil
 end
 
+local function blocker_merged_cache_key(repo, blocker_number)
+  local core = root()
+  local key = "github-devloop/dependency/merged/" .. core.safe_repo(repo) .. "/issue/" .. core.safe_issue(blocker_number)
+  if not core._is_path_safe_key(key) then
+    error("github-devloop: invalid dependency merged cache key")
+  end
+  return key
+end
+
 local function blocker_merged(repo, blocker_number)
   local core = root()
+  local key = blocker_merged_cache_key(repo, blocker_number)
+  if cache_get(key) == merged_cache_value then
+    return true, nil
+  end
+
   local result = exec_sync({ cmd = core.gh_issue_view_observe_cmd(repo, blocker_number), timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
     return nil, "gh-failed"
@@ -113,7 +130,11 @@ local function blocker_merged(repo, blocker_number)
   if type(state) ~= "table" then
     return nil, "unknown-blocker"
   end
-  return state.state == "merged", nil
+  local merged = state.state == "merged"
+  if merged then
+    cache_set(key, merged_cache_value)
+  end
+  return merged, nil
 end
 
 local visit
@@ -182,6 +203,10 @@ function M.gh_blocked_by_cmd(repo, issue_number)
     .. '"){issue(number:' .. tostring(math.floor(tonumber(issue_number)))
     .. '){blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state repository{nameWithOwner}}}}}}'
   return "gh api graphql -f query=" .. core._shell_single_quote(query)
+end
+
+function M.dependency_blocker_merged_cache_key(repo, blocker_number)
+  return blocker_merged_cache_key(repo, blocker_number)
 end
 
 function M.dependency_gate(repo, issue_number)

@@ -221,22 +221,68 @@ return {
   end,
 
   test_dependency_gate_waiting_for_open_blocker = function()
-    mock_blocked_by(42, { { number = 7 } })
-    mock_blocked_by(7, {})
-    mock_blocker_issue(7, "ready")
+    mock_blocked_by(42, { { number = 8 } })
+    mock_blocked_by(8, {})
+    mock_blocker_issue(8, "ready")
     local gate = core.dependency_gate(repo, 42)
     t.eq(gate.ok, false)
     t.eq(gate.kind, "waiting")
-    t.eq(gate.unmet[1], 7)
+    t.eq(gate.unmet[1], 8)
   end,
 
   test_dependency_gate_satisfied_for_merged_blocker = function()
-    mock_blocked_by(42, { { number = 7 } })
-    mock_blocked_by(7, {})
-    mock_blocker_issue(7, "merged")
+    mock_blocked_by(42, { { number = 9 } })
+    mock_blocked_by(9, {})
+    mock_blocker_issue(9, "merged")
     local gate = core.dependency_gate(repo, 42)
     t.eq(gate.ok, true)
     t.eq(gate.kind, "satisfied")
+  end,
+
+  test_dependency_gate_caches_merged_blocker_terminal_fact = function()
+    local blocker_number = 100000 + tonumber(now())
+    local key = core.dependency_blocker_merged_cache_key(repo, blocker_number)
+    t.eq(cache_get(key), nil)
+    mock_blocked_by(42, { { number = blocker_number } })
+    mock_blocked_by(blocker_number, {})
+    mock_blocker_issue(blocker_number, "merged")
+
+    local first = core.dependency_gate(repo, 42)
+
+    t.eq(first.ok, true)
+    t.eq(cache_get(key), "merged")
+    local calls_after_first = #t.command_calls()
+
+    mock_blocked_by(42, { { number = blocker_number } })
+    mock_blocked_by(blocker_number, {})
+    local second = core.dependency_gate(repo, 42)
+
+    t.eq(second.ok, true)
+    t.eq(#t.command_calls(), calls_after_first + 2)
+  end,
+
+  test_dependency_gate_does_not_cache_waiting_blocker = function()
+    local key = core.dependency_blocker_merged_cache_key(repo, 11)
+    mock_blocked_by(42, { { number = 11 } })
+    mock_blocked_by(11, {})
+    mock_blocker_issue(11, "ready")
+
+    local first = core.dependency_gate(repo, 42)
+
+    t.eq(first.ok, false)
+    t.eq(first.kind, "waiting")
+    t.eq(cache_get(key), nil)
+    local calls_after_first = #t.command_calls()
+
+    mock_blocked_by(42, { { number = 11 } })
+    mock_blocked_by(11, {})
+    mock_blocker_issue(11, "ready")
+    local second = core.dependency_gate(repo, 42)
+
+    t.eq(second.ok, false)
+    t.eq(second.kind, "waiting")
+    t.eq(cache_get(key), nil)
+    t.eq(#t.command_calls(), calls_after_first + 3)
   end,
 
   test_dependency_gate_cycle = function()

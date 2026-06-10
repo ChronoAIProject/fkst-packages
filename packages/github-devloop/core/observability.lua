@@ -2,6 +2,7 @@ local S = {}
 
 function S.install(M)
 local dept = "observability"
+local default_quota_threshold = 1000
 
 local function run_cmd(cmd, timeout, error_class)
   local result = exec_sync({ cmd = cmd, timeout = timeout or 30 })
@@ -24,6 +25,92 @@ local function require_observe_bot()
   if login == nil or tostring(login) == "" then
     error("github-devloop: FKST_GITHUB_BOT_LOGIN is required for observability")
   end
+end
+
+local function quota_cache_key()
+  local key = "github-devloop/observability/quota-backpressure"
+  if not M._is_path_safe_key(key) then
+    error("github-devloop: invalid observability quota cache key")
+  end
+  return key
+end
+
+local function quota_threshold()
+  local configured = tonumber(M.read_env("FKST_DEVLOOP_GRAPHQL_MIN_REMAINING") or "")
+  if configured == nil or configured < 0 then
+    return default_quota_threshold
+  end
+  return math.floor(configured)
+end
+
+function M.parse_gh_rate_limit(stdout)
+  local decoded = json.decode(stdout or "{}")
+  local graphql = decoded.resources and decoded.resources.graphql
+  if type(graphql) ~= "table" then
+    return nil
+  end
+  local remaining = tonumber(graphql.remaining)
+  if remaining == nil then
+    return nil
+  end
+  return {
+    remaining = math.floor(remaining),
+    limit = tonumber(graphql.limit),
+    used = tonumber(graphql.used),
+    reset = graphql.reset,
+  }
+end
+
+local function log_quota(rate, threshold, decision, reason)
+  local fields = {
+    "github-devloop",
+    "dept=" .. dept,
+    "tag=GITHUB_QUOTA",
+    "remaining=" .. tostring(rate and rate.remaining or ""),
+    "threshold=" .. tostring(threshold),
+    "decision=" .. tostring(decision),
+  }
+  if rate and rate.limit ~= nil then
+    table.insert(fields, "limit=" .. tostring(rate.limit))
+  end
+  if rate and rate.used ~= nil then
+    table.insert(fields, "used=" .. tostring(rate.used))
+  end
+  if rate and rate.reset ~= nil then
+    table.insert(fields, "reset=" .. tostring(rate.reset))
+  end
+  if reason ~= nil then
+    table.insert(fields, "reason=" .. tostring(reason))
+  end
+  log.info(table.concat(fields, " "))
+end
+
+function M.observability_should_skip_for_quota()
+  local threshold = quota_threshold()
+  -- Deferred: REST ETag conditional polling and adaptive idle cron intervals
+  -- need measured post-backpressure pressure before adding more moving parts.
+  local result = exec_sync({ cmd = M.gh_rate_limit_cmd(), timeout = 30 })
+  if type(result) ~= "table" or result.exit_code ~= 0 then
+    cache_set(quota_cache_key(), "quota-unavailable")
+    log_quota(nil, threshold, "skip", "quota-unavailable")
+    return true
+  end
+
+  local ok, rate = pcall(M.parse_gh_rate_limit, result.stdout)
+  if not ok or type(rate) ~= "table" then
+    cache_set(quota_cache_key(), "quota-malformed")
+    log_quota(nil, threshold, "skip", "quota-malformed")
+    return true
+  end
+  if rate.remaining < threshold then
+    cache_set(quota_cache_key(), "low/" .. tostring(rate.remaining) .. "/" .. tostring(now()))
+    log_quota(rate, threshold, "skip", "low-remaining")
+    return true
+  end
+
+  cache_set(quota_cache_key(), "ok/" .. tostring(rate.remaining) .. "/" .. tostring(now()))
+  log_quota(rate, threshold, "continue", nil)
+  return false
 end
 
 local function sorted_numbers(items)
@@ -176,6 +263,15 @@ end
 
 function M.observe_devloop_entities()
   require_observe_bot()
+  if M.observability_should_skip_for_quota() then
+    return {
+      entity_count = 0,
+      counts = {},
+      skipped = true,
+      reason = "quota-backpressure",
+    }
+  end
+
   local repo = require_observe_repo()
   local issue_candidates = {}
   local labels = { M._enabled_label }

@@ -40,6 +40,19 @@ local function mock_env(bot_login)
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command('printf %s "$FKST_DEVLOOP_GRAPHQL_MIN_REMAINING"', {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_rate_limit(remaining)
+  t.mock_command(core.gh_rate_limit_cmd(), {
+    stdout = '{"resources":{"graphql":{"limit":5000,"remaining":' .. tostring(remaining) .. ',"used":' .. tostring(5000 - remaining) .. ',"reset":1790000000}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function json_string(value)
@@ -182,6 +195,7 @@ return {
   test_summary_logs_all_known_states_with_zero_defaults = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     mock_env()
+    mock_rate_limit(4000)
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
@@ -202,6 +216,7 @@ return {
   test_logs_issue_phase_state_from_trusted_marker_and_ignores_forged_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     mock_env()
+    mock_rate_limit(4000)
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
@@ -227,6 +242,7 @@ return {
   test_observe_summary_counts_only_open_list_entities = function()
     local open_proposal_id = "github-devloop/issue/owner/repo/42"
     mock_env()
+    mock_rate_limit(4000)
     mock_all_issue_lists({
       { number = 42, state = "open" },
       { number = 43, state = "closed" },
@@ -252,6 +268,7 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local impl_version = "2026-06-03T01-02-03Z"
     mock_env()
+    mock_rate_limit(4000)
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
@@ -282,6 +299,7 @@ return {
   test_pr_enumeration_reads_origin_fact_when_issue_side_is_absent = function()
     local proposal_id = "github-devloop/issue/owner/repo/43"
     mock_env()
+    mock_rate_limit(4000)
     mock_all_issue_lists({})
     mock_pr_list({ 8 })
     mock_pr_view({
@@ -306,6 +324,7 @@ return {
 
   test_enumeration_is_paginated_and_not_fixed_silent_100_cap = function()
     mock_env()
+    mock_rate_limit(4000)
     mock_all_issue_lists({})
     mock_pr_list({})
 
@@ -316,5 +335,25 @@ return {
     t.is_true(has_call("gh api --paginate --slurp 'repos/owner/repo/issues?state=open&labels=fkst-dev%3Aenabled&per_page=100'"))
     t.is_true(has_call("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'"))
     t.eq(call_contains_bad_limit(), false)
+  end,
+
+  test_low_graphql_quota_skips_observe_tick_with_structured_log = function()
+    mock_env()
+    mock_rate_limit(999)
+
+    local logs = capture_observability_logs()
+
+    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("gh api --paginate --slurp"), 0)
+    local found = false
+    for _, line in ipairs(logs) do
+      if line:find("tag=GITHUB_QUOTA", 1, true) ~= nil
+        and line:find("remaining=999", 1, true) ~= nil
+        and line:find("threshold=1000", 1, true) ~= nil
+        and line:find("decision=skip", 1, true) ~= nil then
+        found = true
+      end
+    end
+    t.eq(found, true)
   end,
 }

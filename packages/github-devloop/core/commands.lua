@@ -24,6 +24,10 @@ function M.gh_pr_list_observe_cmd(repo)
     .. M._shell_single_quote("repos/" .. tostring(repo) .. "/pulls?state=open&per_page=100")
 end
 
+function M.gh_rate_limit_cmd()
+  return "gh api rate_limit"
+end
+
 function M.gh_issue_view_cmd(repo, issue_number, fields)
   local selected_fields = tostring(fields or "")
   if selected_fields == "" or selected_fields:match("[^%w_,]") or selected_fields:match("^,") or selected_fields:match(",$") or selected_fields:match(",,") then
