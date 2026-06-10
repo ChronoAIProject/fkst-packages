@@ -225,7 +225,7 @@ function pipeline(event)
     end
 
     local commit_result = exec_sync({
-      cmd = core.git_commit_cmd(worktree, "Implement github-devloop ready state"),
+      cmd = core.git_commit_cmd(worktree, core.github_issue_commit_message("implement", repo, issue_number)),
       timeout = 60,
     })
     if commit_result.exit_code ~= 0 then

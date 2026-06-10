@@ -155,7 +155,16 @@ local function mock_existing_implement_branch(head)
   })
 end
 
-local function mock_git_commit(new_head, branch)
+local function mock_commit_title(title)
+  t.mock_command("--json title", {
+    stdout = '{"title":"' .. base.json_string(title or "Implement decision recorder") .. '"}' .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_git_commit(new_head, branch, title)
+  mock_commit_title(title)
   t.mock_command("git -C", {
     stdout = "",
     stderr = "",
@@ -177,6 +186,14 @@ local function mock_git_commit(new_head, branch)
     stdout = (new_head or "def456") .. "\n",
     stderr = "",
     exit_code = 0,
+  })
+end
+
+local function mock_commit_title_failure(stderr)
+  t.mock_command("--json title", {
+    stdout = "",
+    stderr = stderr or "forced title fetch failure",
+    exit_code = 1,
   })
 end
 
@@ -293,6 +310,8 @@ return {
   mock_existing_empty_implement_worktree_reuse = mock_existing_empty_implement_worktree_reuse,
   mock_existing_implement_branch = mock_existing_implement_branch,
   mock_git_commit = mock_git_commit,
+  mock_commit_title = mock_commit_title,
+  mock_commit_title_failure = mock_commit_title_failure,
   mock_git_push = mock_git_push,
   mock_existing_devloop_worktree = mock_existing_devloop_worktree,
   mock_implement_codex = mock_implement_codex,

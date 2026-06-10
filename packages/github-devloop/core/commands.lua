@@ -34,6 +34,10 @@ function M.gh_issue_view_cmd(repo, issue_number, fields)
     .. " --json " .. selected_fields
 end
 
+function M.gh_issue_view_title_cmd(repo, issue_number)
+  return M.gh_issue_view_cmd(repo, issue_number, "title")
+end
+
 function M.gh_issue_view_intake_scan_cmd(repo, issue_number)
   return M.gh_issue_view_cmd(repo, issue_number, "labels,comments,state")
 end

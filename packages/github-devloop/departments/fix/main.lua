@@ -339,7 +339,10 @@ function pipeline(event)
     if add_result.exit_code ~= 0 then
       error("github-devloop: git add failed: " .. tostring(add_result.stderr))
     end
-    local commit_result = exec_sync({ cmd = core.git_commit_cmd(worktree, "Fix github-devloop review feedback"), timeout = 60 })
+    local commit_result = exec_sync({
+      cmd = core.git_commit_cmd(worktree, core.github_issue_commit_message("fix", repo, issue_number)),
+      timeout = 60,
+    })
     if commit_result.exit_code ~= 0 then
       error("github-devloop: git commit failed: " .. tostring(commit_result.stderr))
     end
