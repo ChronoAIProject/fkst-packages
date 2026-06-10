@@ -195,7 +195,7 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_release_scan_same_tag_marker_skips_rescan_after_dev_moves = function()
+  test_release_scan_same_tag_marker_reproposes_after_dev_moves = function()
     mock_env("")
     mock_fetch_dev()
     mock_dev_head(head_b)
@@ -205,8 +205,11 @@ return {
 
     local result = run_scan()
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
-    t.eq(core.release_tag_fact(core.parse_release_marker_issue_list(marker_issue("v0.2.0", head_a)), "owner/repo", "v0.2.0").head_sha, head_a)
+    t.eq(#result.raises, 2)
+    local proposal = h.find_raise(result.raises, "consensus.proposal").payload
+    t.eq(proposal.proposal_id, core.release_proposal_id("owner/repo", "v0.2.0", head_b))
+    t.eq(proposal.dedup_key, core.release_dedup_key("owner/repo", "v0.2.0", head_b))
+    t.eq(core.release_fact(core.parse_release_marker_issue_list(marker_issue("v0.2.0", head_a)), "owner/repo", "v0.2.0", head_b), nil)
   end,
 
   test_release_scan_published_marker_skips_rescan = function()
@@ -271,10 +274,10 @@ return {
     }))
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("git tag -a"), 1)
-    t.is_true(h.has_call("git tag -a 'v0.2.0' '" .. head_a .. "' -F "))
+    t.is_true(h.has_call("git tag -a 'v0.2.0' '" .. head_a .. "' -m "))
     t.eq(h.count_calls("git push origin 'v0.2.0'"), 1)
     t.eq(h.count_calls("gh release create 'v0.2.0'"), 1)
-    t.is_true(h.has_call("--notes-file "))
+    t.is_true(h.has_call("--notes "))
     local marker = h.find_raise(result.raises, "github-proxy.github_issue_create_request").payload
     t.eq(marker.title, "Release published v0.2.0")
     t.is_true(marker.body:find('status="published"', 1, true) ~= nil)

@@ -295,13 +295,13 @@ function M.git_tag_head_cmd(tag)
   return "git rev-list -n 1 " .. M._shell_single_quote(require_release_tag(tag))
 end
 
-function M.git_annotated_tag_cmd(tag, head_sha, message_file)
+function M.git_annotated_tag_cmd(tag, head_sha, message)
   if not M._is_git_sha(head_sha) then
     error("github-devloop: invalid release tag head")
   end
   return "git tag -a " .. M._shell_single_quote(require_release_tag(tag))
     .. " " .. M._shell_single_quote(head_sha)
-    .. " -F " .. M._shell_single_quote(message_file)
+    .. " -m " .. M._shell_single_quote(bounded_text(message, max_release_notes_len))
 end
 
 function M.git_push_tag_cmd(tag)
@@ -313,12 +313,12 @@ function M.gh_release_view_cmd(repo, tag)
     .. " --repo " .. M._shell_single_quote(repo)
 end
 
-function M.gh_release_create_cmd(repo, tag, notes_file)
+function M.gh_release_create_cmd(repo, tag, notes)
   return "gh release create " .. M._shell_single_quote(require_release_tag(tag))
     .. " --repo " .. M._shell_single_quote(repo)
     .. " --target " .. M._shell_single_quote(tag)
     .. " --title " .. M._shell_single_quote(tag)
-    .. " --notes-file " .. M._shell_single_quote(notes_file)
+    .. " --notes " .. M._shell_single_quote(bounded_text(notes, max_release_notes_len))
 end
 
 function M.gh_issue_list_release_markers_cmd(repo)

@@ -22,12 +22,6 @@ local function trim_stdout(result)
   return stdout
 end
 
-local function temp_notes_file(repo, tag, head_sha)
-  return "/tmp/fkst-github-devloop-release-"
-    .. core._decimal_checksum(tostring(repo) .. "#" .. tostring(tag) .. "#" .. tostring(head_sha))
-    .. ".md"
-end
-
 local function existing_ok(cmd)
   local result = exec_sync({ cmd = cmd, timeout = 30 })
   return result.exit_code == 0
@@ -134,15 +128,13 @@ function pipeline(event)
     end
 
     local notes = draft_notes(repo, tag, base_ref, proposed_head)
-    local notes_file = temp_notes_file(repo, tag, proposed_head)
-    file.write(notes_file, notes)
 
     if not tag_exists then
-      run_cmd(core.git_annotated_tag_cmd(tag, proposed_head, notes_file), 60, "git release tag")
+      run_cmd(core.git_annotated_tag_cmd(tag, proposed_head, notes), 60, "git release tag")
       run_cmd(core.git_push_tag_cmd(tag), 60, "git release tag push")
     end
     if not release_exists then
-      run_cmd(core.gh_release_create_cmd(repo, tag, notes_file), 60, "gh release create")
+      run_cmd(core.gh_release_create_cmd(repo, tag, notes), 60, "gh release create")
     end
     local marker_request = published_marker_issue_create_request(repo, tag, proposed_head, core.release_dedup_key(repo, tag, proposed_head))
     core.log_raise("release_publish", reached.proposal_id, "github-proxy.github_issue_create_request", marker_request)
