@@ -97,7 +97,7 @@ end
 function M.gh_pr_view_origin_cmd(repo, pr_number)
   return "gh pr view " .. M._shell_single_quote(pr_number)
     .. " --repo " .. M._shell_single_quote(repo)
-    .. " --json headRefName,headRefOid,baseRefName,state,updatedAt,comments"
+    .. " --json headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,comments"
 end
 
 function M.gh_pr_view_observe_cmd(repo, pr_number)
@@ -113,7 +113,7 @@ end
 function M.gh_pr_view_merge_cmd(repo, pr_number)
   return "gh pr view " .. M._shell_single_quote(pr_number)
     .. " --repo " .. M._shell_single_quote(repo)
-    .. " --json headRefName,headRefOid,baseRefName,state,mergedAt,comments,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup"
+    .. " --json headRefName,headRefOid,baseRefName,state,isDraft,mergedAt,comments,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup"
 end
 
 function M.gh_pr_list_head_base_cmd(repo, head, base)
@@ -143,6 +143,11 @@ function M.gh_pr_create_cmd(repo, head, base, title, body_file)
     .. " --base " .. M._shell_single_quote(base)
     .. " --title " .. M._shell_single_quote(title)
     .. " --body-file " .. M._shell_single_quote(body_file)
+end
+
+function M.gh_pr_ready_cmd(repo, pr_number)
+  return "gh pr ready " .. M._shell_single_quote(pr_number)
+    .. " --repo " .. M._shell_single_quote(repo)
 end
 
 function M.gh_pr_merge_cmd(repo, pr_number, head_sha)

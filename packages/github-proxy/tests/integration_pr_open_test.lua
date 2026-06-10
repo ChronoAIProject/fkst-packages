@@ -75,6 +75,7 @@ return {
     local create = calls_matching("gh pr create")[1]
     t.eq(create.rendered:find("--json", 1, true), nil)
     t.is_true(create.rendered:find("--base 'dev'", 1, true) ~= nil)
+    t.is_true(create.rendered:find("--draft", 1, true) ~= nil)
 
     local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
     t.is_true(issue_written:find("github-devloop PR opened: #7", 1, true) ~= nil)

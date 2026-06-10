@@ -318,9 +318,9 @@ local function run_review_reconcile(payload, run_opts)
     for _, comment in ipairs(cached) do
       table.insert(rendered_comments, render_comment(comment))
     end
-    t.mock_command("--json headRefName,headRefOid,baseRefName,state,updatedAt,comments", {
+    t.mock_command("--json headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,comments", {
       stdout = string.format(
-        '{"headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
+        '{"headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","isDraft":false,"updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
         table.concat(rendered_comments, ",")
       ),
       stderr = "",
@@ -341,9 +341,9 @@ local function run_fix_reconcile(payload, run_opts)
     for _, comment in ipairs(cached) do
       table.insert(rendered_comments, render_comment(comment))
     end
-    t.mock_command("--json headRefName,headRefOid,baseRefName,state,updatedAt,comments", {
+    t.mock_command("--json headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,comments", {
       stdout = string.format(
-        '{"headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
+        '{"headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","isDraft":false,"updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
         table.concat(rendered_comments, ",")
       ),
       stderr = "",
@@ -670,9 +670,9 @@ mock_pr_origin_from_cached = function(payload, head_sha)
   for _, comment in ipairs(comments) do
     table.insert(rendered_comments, render_comment(comment))
   end
-  t.mock_command("--json headRefName,headRefOid,baseRefName,state,updatedAt,comments", {
+  t.mock_command("--json headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,comments", {
     stdout = string.format(
-      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"%s","state":"%s","updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
+      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"%s","state":"%s","isDraft":false,"updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
       json_string(head),
       json_string(effective_head_sha),
       json_string(base_branch),

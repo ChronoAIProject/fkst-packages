@@ -257,7 +257,7 @@ local function count_calls(needle)
   local count = 0
   local alternate = nil
   if needle == "--json headRefName,headRefOid,baseRefName,state,comments" then
-    alternate = "--json headRefName,headRefOid,baseRefName,state,updatedAt,comments"
+    alternate = "--json headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,comments"
   end
   for _, call in ipairs(t.command_calls()) do
     if call.rendered:find(needle, 1, true) ~= nil

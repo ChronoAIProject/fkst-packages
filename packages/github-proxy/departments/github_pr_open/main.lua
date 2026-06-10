@@ -231,7 +231,7 @@ function pipeline(event)
       local pr_body_path = temp_body_file(repo, payload.branch, "pr-body")
       file.write(pr_body_path, tostring(payload.body))
       local created = core.gh_exec(
-        core.gh_pr_create_cmd(repo, payload.branch, payload.base_branch, payload.title, pr_body_path),
+        core.gh_pr_create_cmd(repo, payload.branch, payload.base_branch, payload.title, pr_body_path, { draft = true }),
         60,
         "gh pr create"
       )

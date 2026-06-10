@@ -53,6 +53,33 @@ local function require_consensus_review_approve(comments, merge_ready)
   return false
 end
 
+local function is_already_ready_error(stderr)
+  local lower = tostring(stderr or ""):lower()
+  return lower:find("already ready", 1, true) ~= nil
+    or lower:find("not a draft", 1, true) ~= nil
+end
+
+local function ensure_pr_ready(repo, pr_number, pr, merge_ready, stage, ready_state)
+  if pr ~= nil and pr.is_draft == true then
+    if ready_state.done then
+      return
+    end
+    local ready = exec_sync({ cmd = core.gh_pr_ready_cmd(repo, pr_number), timeout = 30 })
+    if ready.exit_code ~= 0 and not is_already_ready_error(ready.stderr) then
+      error("github-devloop: gh pr ready failed before merge: " .. tostring(ready.stderr))
+    end
+    ready_state.done = true
+    core.log_line("info", "merge", merge_ready.proposal_id, "OUTBOUND", {
+      "mode=real",
+      "cmd=gh pr ready",
+      "repo=" .. tostring(repo),
+      "pr=" .. tostring(pr_number),
+      "stage=" .. tostring(stage),
+      "reason=draft PR cannot be merged",
+    })
+  end
+end
+
 local function raise_fixing(repo, issue_number, merge_ready, current_state, reason)
   local source_ref = core.pr_source_ref(repo, merge_ready.pr_number)
   local fix_version = core.fix_version_from_review_version(current_state.version)
@@ -169,6 +196,7 @@ function pipeline(event)
   end
 
   core.log_entry("merge", event, merge_ready.proposal_id, merge_ready.dedup_key)
+  local ready_state = { done = false }
   local entity = core.parse_entity_proposal_id(merge_ready.proposal_id)
   if entity == nil then
     core.log_cas_decision("merge", merge_ready.proposal_id, { state = nil, version = nil }, "merge-ready", "merged|fixing", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
@@ -321,6 +349,7 @@ function pipeline(event)
     if not require_consensus_review_approve(rechecked_pr_for_gate.comments, merge_ready) then
       return
     end
+    ensure_pr_ready(repo, merge_ready.pr_number, rechecked_pr_for_gate, merge_ready, "write-gate", ready_state)
     log_gate(merge_ready, "write-ready", "write-time FKST_GITHUB_WRITE=1 and trusted review-result approve")
     local rechecked_fact = core.merge_ready_fact(rechecked_pr_for_gate.comments, merge_ready.proposal_id, merge_ready.version, merge_ready.pr_number)
     local rechecked_approval_ok, rechecked_approval_reason = core.merge_ready_approval_matches_event(rechecked_fact, merge_ready)
@@ -352,7 +381,8 @@ function pipeline(event)
         end
         return true, "pr-origin-ok"
       end,
-      before_merge = function()
+      before_merge = function(final_pr)
+        ensure_pr_ready(repo, merge_ready.pr_number, final_pr, merge_ready, "before-merge", ready_state)
         write_merging_marker(repo, merge_ready, rechecked_pr_for_gate.comments)
       end,
     })

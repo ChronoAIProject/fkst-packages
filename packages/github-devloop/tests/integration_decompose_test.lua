@@ -18,8 +18,8 @@ local function mock_pr_view(event, comments, updated_at)
   for _, comment in ipairs(comments) do
     table.insert(rendered, h.render_comment(comment))
   end
-  t.mock_command("--json headRefName,headRefOid,baseRefName,state,updatedAt,comments", {
-    stdout = '{"headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"'
+  t.mock_command("--json headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,comments", {
+    stdout = '{"headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","isDraft":false,"updatedAt":"'
       .. tostring(updated_at or "2026-06-03T02:03:04Z") .. '","comments":[' .. table.concat(rendered, ",") .. "]}\n",
     stderr = "",
     exit_code = 0,

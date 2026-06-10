@@ -674,7 +674,7 @@ function M.parse_git_show_ref_head(stdout, branch)
   return nil
 end
 
-function M.gh_pr_create_cmd(repo, branch, base_branch, title, body_file)
+function M.gh_pr_create_cmd(repo, branch, base_branch, title, body_file, opts)
   if not is_git_ref_safe(branch) then
     error("github-proxy: invalid branch")
   end
@@ -685,9 +685,14 @@ function M.gh_pr_create_cmd(repo, branch, base_branch, title, body_file)
   if base_branch ~= nil then
     base_arg = " --base " .. shell_single_quote(base_branch)
   end
+  local draft_arg = ""
+  if type(opts) == "table" and opts.draft == true then
+    draft_arg = " --draft"
+  end
   return "gh pr create --repo " .. shell_single_quote(repo)
     .. " --head " .. shell_single_quote(branch)
     .. base_arg
+    .. draft_arg
     .. " --title " .. shell_single_quote(title)
     .. " --body-file " .. shell_single_quote(body_file)
 end

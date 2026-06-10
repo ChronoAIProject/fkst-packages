@@ -108,6 +108,7 @@ return {
     t.eq(h.count_calls("gh pr create"), 1)
     t.is_true(h.has_call("--head 'integration/dev'"))
     t.is_true(h.has_call("--base 'dev'"))
+    t.eq(h.has_call("--draft"), false)
   end,
 
   test_rollup_scan_ahead_without_content_diff_skips_pr = function()

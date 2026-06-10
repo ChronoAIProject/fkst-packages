@@ -278,6 +278,10 @@ return {
       core.gh_pr_create_cmd("owner/repo", "devloop-owner-repo-42-01HY", "dev", "Fix title", "/tmp/body.md"),
       "gh pr create --repo 'owner/repo' --head 'devloop-owner-repo-42-01HY' --base 'dev' --title 'Fix title' --body-file '/tmp/body.md'"
     )
+    t.eq(
+      core.gh_pr_create_cmd("owner/repo", "devloop-owner-repo-42-01HY", "dev", "Fix title", "/tmp/body.md", { draft = true }),
+      "gh pr create --repo 'owner/repo' --head 'devloop-owner-repo-42-01HY' --base 'dev' --draft --title 'Fix title' --body-file '/tmp/body.md'"
+    )
     local listed = core.parse_pr_list_for_head('[{"number":7,"headRefName":"devloop-owner-repo-42-01HY","baseRefName":"dev","state":"OPEN"}]', "devloop-owner-repo-42-01HY")
     t.eq(listed.number, 7)
     t.eq(listed.base_ref_name, "dev")
