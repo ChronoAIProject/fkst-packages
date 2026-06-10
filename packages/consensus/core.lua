@@ -122,6 +122,12 @@ local function has_source_ref(value)
     and is_bounded_string(value.ref, max_key_len)
 end
 
+local function has_content_fetch(proposal)
+  return type(proposal) == "table"
+    and type(proposal.content_fetch) == "string"
+    and proposal.content_fetch ~= ""
+end
+
 local function normalize_round(value)
   if value == nil then
     return 0
@@ -269,7 +275,7 @@ function M.output_language(exec)
   return "en"
 end
 
-function M.prompt_preamble(exec)
+function M.prompt_preamble(proposal, exec)
   local language_line = "Write all output in English; quote code identifiers and cited originals verbatim."
   if M.output_language(exec) == "zh" then
     language_line = "Write all prose output in Simplified Chinese; quote code identifiers and cited originals verbatim."
@@ -277,15 +283,20 @@ function M.prompt_preamble(exec)
 
   -- Slots supersede GitHub issues #142 and #145: env-driven language selection plus
   -- harness-first judgment are fixed context, not verdict/parser protocol.
-  return table.concat({
+  local lines = {
     language_line,
     "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
-    "Before judging, fetch and read the complete prior history of this proposal via its source_ref; earlier rounds recorded there are your memory — judge what changed; do not re-litigate settled points.",
-  }, "\n")
+  }
+
+  if has_content_fetch(proposal) then
+    table.insert(lines, "Before judging, fetch and read the complete prior history of this proposal via its source_ref; earlier rounds recorded there are your memory — judge what changed; do not re-litigate settled points.")
+  end
+
+  return table.concat(lines, "\n")
 end
 
-function M.render_prompt_template(template, vars, exec)
-  return M.prompt_preamble(exec) .. "\n\n" .. M.render_template(template, vars)
+function M.render_prompt_template(template, vars, proposal, exec)
+  return M.prompt_preamble(proposal, exec) .. "\n\n" .. M.render_template(template, vars)
 end
 
 -- Keyed by dedup_key (which versions the proposal), not proposal_id, so an updated
@@ -295,12 +306,6 @@ function M.reached_cache_key(dedup_key)
     error("consensus: invalid dedup_key")
   end
   return "consensus/reached/" .. tostring(dedup_key)
-end
-
-local function has_content_fetch(proposal)
-  return type(proposal) == "table"
-    and type(proposal.content_fetch) == "string"
-    and proposal.content_fetch ~= ""
 end
 
 local function render_content_fetch_block(proposal, verdict_mode)
@@ -366,7 +371,7 @@ function M.build_angle_prompt(proposal, angle)
     readiness_instruction = verdict_mode == "gate"
       and "If the proposal should not proceed as-is, reject and state the concrete reason in the reply; abstain only when you genuinely cannot judge."
       or "If this angle is not ready to approve, abstain and state the concrete concern in the reply.",
-  })
+  }, proposal)
 end
 
 -- Fail-closed parse. A genuine answer is an ADJACENT pair: exactly one clean verdict line
@@ -528,7 +533,7 @@ function M.build_meta_judge_prompt(proposal, angle_results)
     reached_options = verdict_mode == "gate"
       and "- reached:approve <short framing> when the angles support approving the current framing.\n- reached:reject <short framing> when the angles support rejecting the current framing."
       or "- reached:approve <short framing> when the angles support approving the current framing.",
-  })
+  }, proposal)
 end
 
 function M.parse_meta_judge_output(stdout, verdict_mode)
