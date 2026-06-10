@@ -55,6 +55,10 @@ local function cjk_char()
   return string.char(0xe6, 0xb5, 0x8b)
 end
 
+local function emoji_char()
+  return string.char(0xf0, 0x9f, 0x98, 0x80)
+end
+
 local function assert_valid_utf8(value)
   local ok, len = pcall(utf8.len, tostring(value or ""))
   t.is_true(ok and len ~= nil)
@@ -231,14 +235,21 @@ return {
   test_utf8_safe_truncate_handles_mixed_width_boundaries = function()
     local cjk = cjk_char()
     local mixed = "ab" .. cjk .. "cd"
+    local emoji = emoji_char()
 
     t.eq(core._utf8_safe_truncate(mixed, 2), "ab")
     t.eq(core._utf8_safe_truncate(mixed, 3), "ab")
     t.eq(core._utf8_safe_truncate(mixed, 4), "ab")
     t.eq(core._utf8_safe_truncate(mixed, 5), "ab" .. cjk)
     t.eq(core._utf8_safe_truncate(mixed, 6), "ab" .. cjk .. "c")
+    t.eq(core._utf8_safe_truncate("", 3), "")
+    t.eq(core._utf8_safe_truncate(cjk, 2), "")
+    t.eq(core._utf8_safe_truncate(emoji .. "x", 3), "")
+    t.eq(core._utf8_safe_truncate("ab" .. emoji .. "x", 6), "ab" .. emoji)
     assert_valid_utf8(core._utf8_safe_truncate(mixed, 1))
     assert_valid_utf8(core._utf8_safe_truncate(mixed, 7))
+    assert_valid_utf8(core._utf8_safe_truncate("ab" .. emoji .. "x", 5))
+    assert_valid_utf8(core._utf8_safe_truncate("ab" .. emoji .. "x", 6))
   end,
 
   test_board_digest_title_truncation_keeps_utf8_valid_before_cache_set = function()
