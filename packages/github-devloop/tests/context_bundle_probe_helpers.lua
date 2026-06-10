@@ -112,9 +112,9 @@ local function count_calls(calls, needle)
 end
 
 local function assert_readable_from_cwd(path, cwd)
-  local script = "local h=assert(io.open(" .. string.format("%q", path) .. ", 'r')); local content=h:read('*a'); h:close(); assert(content ~= nil)"
   local cmd = "cd " .. shell_single_quote(cwd)
-    .. " && lua -e " .. shell_single_quote(script)
+    .. " && test -r " .. shell_single_quote(path)
+    .. " && cat " .. shell_single_quote(path) .. " >/dev/null"
   local ok = os.execute(cmd)
   if not (ok == true or ok == 0) then
     error("cross-cwd read failed")
