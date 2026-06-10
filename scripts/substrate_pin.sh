@@ -72,5 +72,5 @@ fkst_substrate_cache_path() {
   sanitized_owner="$(fkst_sanitize_substrate_path_component "$owner")"
   sanitized_repo="$(fkst_sanitize_substrate_path_component "$repo")"
   sanitized_ref="$(fkst_sanitize_substrate_ref "$ref")"
-  printf '%s/.cache/fkst/substrate/%s-%s-%s\n' "${HOME:?HOME is required}" "$sanitized_owner" "$sanitized_repo" "$sanitized_ref"
+  printf '%s/.cache/fkst/substrate/owner/%s/repo/%s/ref/%s\n' "${HOME:?HOME is required}" "$sanitized_owner" "$sanitized_repo" "$sanitized_ref"
 }

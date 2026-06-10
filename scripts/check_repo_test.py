@@ -118,7 +118,7 @@ fkst_substrate_cache_path "$owner" "$repo" "$ref"
         lines = result.stdout.splitlines()
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0], lines[1])
-        self.assertEqual(lines[0], "/tmp/fkst-home/.cache/fkst/substrate/Owner-repo-refs-heads-dev")
+        self.assertEqual(lines[0], "/tmp/fkst-home/.cache/fkst/substrate/owner/Owner/repo/repo/ref/refs-heads-dev")
 
     def test_cache_path_sanitizes_owner_repo_and_ref_components(self) -> None:
         result = self.run_helper(
@@ -132,7 +132,7 @@ fkst_substrate_cache_path '../Owner' 'repo/../../x' 'refs/heads/dev'
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            "/tmp/fkst-home/.cache/fkst/substrate/..-Owner-repo-..-..-x-refs-heads-dev",
+            "/tmp/fkst-home/.cache/fkst/substrate/owner/..-Owner/repo/repo-..-..-x/ref/refs-heads-dev",
         )
 
     def test_empty_pin_defaults_to_dev(self) -> None:
