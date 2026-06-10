@@ -137,6 +137,10 @@ local function blocker_merged(repo, blocker_number)
   return merged, nil
 end
 
+local function blocker_cached_merged(repo, blocker_number)
+  return cache_get(blocker_merged_cache_key(repo, blocker_number)) == merged_cache_value
+end
+
 local visit
 visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth)
   if depth > max_dependency_depth then
@@ -168,10 +172,12 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth)
       return gate("unresolvable", "cross-repo-blocker", unmet)
     end
 
-    local nested = visit(repo, blocker.number, stack, visited, unmet, unmet_seen, depth + 1)
-    if nested.kind == "cycle" or nested.kind == "unresolvable" then
-      stack[key] = nil
-      return nested
+    if not blocker_cached_merged(repo, blocker.number) then
+      local nested = visit(repo, blocker.number, stack, visited, unmet, unmet_seen, depth + 1)
+      if nested.kind == "cycle" or nested.kind == "unresolvable" then
+        stack[key] = nil
+        return nested
+      end
     end
 
     local merged, merged_reason = blocker_merged(repo, blocker.number)

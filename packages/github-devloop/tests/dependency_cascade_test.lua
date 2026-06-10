@@ -254,11 +254,10 @@ return {
     local calls_after_first = #t.command_calls()
 
     mock_blocked_by(42, { { number = blocker_number } })
-    mock_blocked_by(blocker_number, {})
     local second = core.dependency_gate(repo, 42)
 
     t.eq(second.ok, true)
-    t.eq(#t.command_calls(), calls_after_first + 2)
+    t.eq(#t.command_calls(), calls_after_first + 1)
   end,
 
   test_dependency_gate_does_not_cache_waiting_blocker = function()
