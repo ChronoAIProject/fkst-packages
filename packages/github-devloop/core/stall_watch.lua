@@ -27,6 +27,52 @@ local function root()
   return root_ref or M
 end
 
+local function is_leap_year(year)
+  return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
+end
+
+local function days_in_month(year, month)
+  if month == 2 then
+    return is_leap_year(year) and 29 or 28
+  end
+  if month == 4 or month == 6 or month == 9 or month == 11 then
+    return 30
+  end
+  return 31
+end
+
+local function valid_timestamp_parts(year, month, day, hour, min, sec)
+  if year == nil or month == nil or day == nil or hour == nil or min == nil or sec == nil then
+    return false
+  end
+  if month < 1 or month > 12 then
+    return false
+  end
+  if day < 1 or day > days_in_month(year, month) then
+    return false
+  end
+  return hour >= 0 and hour <= 23 and min >= 0 and min <= 59 and sec >= 0 and sec <= 59
+end
+
+local function days_from_civil(year, month, day)
+  if month <= 2 then
+    year = year - 1
+  end
+  local era = math.floor(year / 400)
+  local year_of_era = year - era * 400
+  local shifted_month = month > 2 and month - 3 or month + 9
+  local day_of_year = math.floor((153 * shifted_month + 2) / 5) + day - 1
+  local day_of_era = year_of_era * 365 + math.floor(year_of_era / 4) - math.floor(year_of_era / 100) + day_of_year
+  return era * 146097 + day_of_era - 719468
+end
+
+local function timestamp_parts_to_epoch(year, month, day, hour, min, sec)
+  if not valid_timestamp_parts(year, month, day, hour, min, sec) then
+    return nil
+  end
+  return days_from_civil(year, month, day) * 86400 + hour * 3600 + min * 60 + sec
+end
+
 local function parse_version_epoch(version)
   local text = tostring(version or "")
   local year, month, day, hour, min, sec = nil, nil, nil, nil, nil, nil
@@ -36,17 +82,14 @@ local function parse_version_epoch(version)
   if year == nil then
     return nil
   end
-  local local_epoch = os.time({
-    year = tonumber(year),
-    month = tonumber(month),
-    day = tonumber(day),
-    hour = tonumber(hour),
-    min = tonumber(min),
-    sec = tonumber(sec),
-    isdst = false,
-  })
-  local offset = os.difftime(os.time(os.date("*t", local_epoch)), os.time(os.date("!*t", local_epoch)))
-  return local_epoch + offset
+  return timestamp_parts_to_epoch(
+    tonumber(year),
+    tonumber(month),
+    tonumber(day),
+    tonumber(hour),
+    tonumber(min),
+    tonumber(sec)
+  )
 end
 
 local function current_epoch()

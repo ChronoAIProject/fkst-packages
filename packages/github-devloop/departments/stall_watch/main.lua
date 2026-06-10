@@ -9,6 +9,7 @@ M.spec = {
     "github-proxy.github_issue_label_request",
   },
   fanout = { "github-proxy.github_entity_changed" },
+  ephemeral = { "devloop_observe_tick" },
   retry = false,
   stall_window = "2m",
 }
