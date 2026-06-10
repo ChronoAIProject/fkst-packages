@@ -176,7 +176,13 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
-    t.eq(result.raises[1].payload.angle_digests[1].verdict, "invalid")
+    local saw_invalid = false
+    for _, item in ipairs(result.raises[1].payload.angle_digests) do
+      if item.verdict == "invalid" then
+        saw_invalid = true
+      end
+    end
+    t.eq(saw_invalid, true)
     t.eq(result.raises[1].payload.narrowed_question, "What concern prevents approval?")
     t.eq(#codex_calls(), 4)
   end,

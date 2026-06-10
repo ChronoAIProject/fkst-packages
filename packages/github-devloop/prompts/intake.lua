@@ -10,6 +10,7 @@ Rules:
 - Enable every implementation request that does not hit one of the human-gate decline conditions above.
 
 Return exactly two lines and nothing else:
+Write all output in English; quote code identifiers and cited originals verbatim.
 ⟦FKST:INTAKE⟧ enable|decline
 ⟦FKST:REASON⟧ concise reason
 

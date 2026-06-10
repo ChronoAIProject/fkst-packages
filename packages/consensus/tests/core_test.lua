@@ -2,6 +2,7 @@ local core = require("core")
 local t = fkst.test
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
+local output_language_instruction = "Write all output in English; quote code identifiers and cited originals verbatim."
 
 local function answer(verdict, reply)
   return verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply
@@ -123,6 +124,7 @@ return {
     t.is_true(prompt:find("If you cannot fetch the source, abstain and state the fetch failure.", 1, true) ~= nil)
     t.is_true(prompt:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(prompt:find("The package must stay silent unless all angles agree.", 1, true) ~= nil)
+    t.is_true(prompt:find(output_language_instruction, 1, true) ~= nil)
     t.is_true(prompt:find(verdict_label, 1, true) ~= nil)
     t.is_true(prompt:find(reply_label, 1, true) ~= nil)
     t.is_nil(prompt:find("{{", 1, true))
@@ -523,6 +525,7 @@ return {
     t.is_nil(prompt:find("Body:", 1, true))
     t.is_true(prompt:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(prompt:find("Verdict: invalid", 1, true) ~= nil)
+    t.is_true(prompt:find(output_language_instruction, 1, true) ~= nil)
     t.is_nil(prompt:find(string.rep("s", 601), 1, true))
     t.is_nil(prompt:find("{{", 1, true))
   end,

@@ -7,6 +7,7 @@ Read the proposal and the three peer-invisible angle outputs. Decide exactly one
 
 Do not propose a new implementation plan. Arbitrate the angle outputs only.
 Respond with exactly one line and no other text.
+Write all output in English; quote code identifiers and cited originals verbatim.
 
 Proposal:
 Title: {{title}}
