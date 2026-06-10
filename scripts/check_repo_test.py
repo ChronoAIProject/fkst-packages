@@ -101,7 +101,7 @@ fkst_sanitize_substrate_ref 'feature/bootstrap part A+review'
 """
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "feature-bootstrap-part-A-review")
+        self.assertEqual(result.stdout.strip(), "feature%2Fbootstrap%20part%20A%2Breview")
 
     def test_cache_path_is_deterministic_per_pin(self) -> None:
         result = self.run_helper(
@@ -118,7 +118,7 @@ fkst_substrate_cache_path "$owner" "$repo" "$ref"
         lines = result.stdout.splitlines()
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[0], lines[1])
-        self.assertEqual(lines[0], "/tmp/fkst-home/.cache/fkst/substrate/Owner-repo-refs-heads-dev")
+        self.assertEqual(lines[0], "/tmp/fkst-home/.cache/fkst/substrate/Owner/repo/refs%2Fheads%2Fdev")
 
     def test_cache_path_sanitizes_owner_repo_and_ref_components(self) -> None:
         result = self.run_helper(
@@ -132,8 +132,39 @@ fkst_substrate_cache_path '../Owner' 'repo/../../x' 'refs/heads/dev'
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            "/tmp/fkst-home/.cache/fkst/substrate/..-Owner-repo-..-..-x-refs-heads-dev",
+            "/tmp/fkst-home/.cache/fkst/substrate/..%2FOwner/repo%2F..%2F..%2Fx/refs%2Fheads%2Fdev",
         )
+
+    def test_cache_path_encodes_exact_dot_segments(self) -> None:
+        result = self.run_helper(
+            """
+set -euo pipefail
+source scripts/substrate_pin.sh
+HOME=/tmp/fkst-home
+fkst_substrate_cache_path '.' '..' '.'
+"""
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "/tmp/fkst-home/.cache/fkst/substrate/%2E/%2E%2E/%2E",
+        )
+
+    def test_cache_path_distinguishes_pins_that_flat_sanitization_collides(self) -> None:
+        result = self.run_helper(
+            """
+set -euo pipefail
+source scripts/substrate_pin.sh
+HOME=/tmp/fkst-home
+fkst_substrate_cache_path 'Owner' 'repo' 'refs/heads/dev'
+fkst_substrate_cache_path 'Owner' 'repo-refs' 'heads/dev'
+fkst_substrate_cache_path 'Owner' 'repo' 'refs-heads-dev'
+"""
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(len(set(lines)), 3)
 
     def test_empty_pin_defaults_to_dev(self) -> None:
         result = self.run_helper(

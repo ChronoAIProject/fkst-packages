@@ -48,29 +48,45 @@ fkst_parse_substrate_pin() {
   printf '%s\t%s\t%s\n' "$owner" "$repo" "$ref"
 }
 
-fkst_sanitize_substrate_path_component() {
-  local value="$1"
-  value="$(printf '%s' "$value" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-')"
-  value="$(printf '%s' "$value" | sed -E 's/-+/-/g; s/^-//; s/-$//')"
+fkst_encode_substrate_path_component() {
+  local value="$1" out="" char hex i
   if [ -z "$value" ]; then
-    value="component"
+    printf '%%00\n'
+    return 0
   fi
-  printf '%s\n' "$value"
+
+  LC_ALL=C
+  for ((i = 0; i < ${#value}; i++)); do
+    char="${value:i:1}"
+    case "$char" in
+      [A-Za-z0-9._-])
+        out+="$char"
+        ;;
+      *)
+        hex="$(printf '%s' "$char" | od -An -tx1 | tr -d ' \n' | tr '[:lower:]' '[:upper:]')"
+        out+="%${hex}"
+        ;;
+    esac
+  done
+  case "$out" in
+    .) out="%2E" ;;
+    ..) out="%2E%2E" ;;
+  esac
+  printf '%s\n' "$out"
+}
+
+fkst_sanitize_substrate_path_component() {
+  fkst_encode_substrate_path_component "$1"
 }
 
 fkst_sanitize_substrate_ref() {
-  local ref
-  ref="$(fkst_sanitize_substrate_path_component "$1")"
-  if [ "$ref" = "component" ]; then
-    ref="ref"
-  fi
-  printf '%s\n' "$ref"
+  fkst_encode_substrate_path_component "$1"
 }
 
 fkst_substrate_cache_path() {
-  local owner="$1" repo="$2" ref="$3" sanitized_owner sanitized_repo sanitized_ref
-  sanitized_owner="$(fkst_sanitize_substrate_path_component "$owner")"
-  sanitized_repo="$(fkst_sanitize_substrate_path_component "$repo")"
-  sanitized_ref="$(fkst_sanitize_substrate_ref "$ref")"
-  printf '%s/.cache/fkst/substrate/%s-%s-%s\n' "${HOME:?HOME is required}" "$sanitized_owner" "$sanitized_repo" "$sanitized_ref"
+  local owner="$1" repo="$2" ref="$3" encoded_owner encoded_repo encoded_ref
+  encoded_owner="$(fkst_encode_substrate_path_component "$owner")"
+  encoded_repo="$(fkst_encode_substrate_path_component "$repo")"
+  encoded_ref="$(fkst_encode_substrate_path_component "$ref")"
+  printf '%s/.cache/fkst/substrate/%s/%s/%s\n' "${HOME:?HOME is required}" "$encoded_owner" "$encoded_repo" "$encoded_ref"
 }
