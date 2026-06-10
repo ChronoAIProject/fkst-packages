@@ -105,7 +105,7 @@ local function marker_issue(tag, head_sha, status)
 end
 
 local function mock_marker_list(stdout)
-  t.mock_command("gh issue list --repo 'owner/repo' --state open --limit 100 --json author,body,comments", {
+  t.mock_command("gh issue list --repo 'owner/repo' --state all --search 'fkst:github-devloop:release:v1' --limit 1000 --json author,body,comments", {
     stdout = stdout or "[]\n",
     stderr = "",
     exit_code = 0,
@@ -242,6 +242,43 @@ return {
     local marker = h.find_raise(result.raises, "github-proxy.github_issue_create_request").payload
     t.eq(marker.title, "Release published v0.2.0")
     t.is_true(marker.body:find('status="published"', 1, true) ~= nil)
+  end,
+
+  test_release_publish_existing_tag_must_match_approved_head = function()
+    mock_env("1")
+    mock_fetch_dev()
+    mock_dev_head(head_a)
+    t.mock_command("git rev-parse --verify --quiet refs/tags/'v0.2.0'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git rev-list -n 1 'v0.2.0'", { stdout = head_b .. "\n", stderr = "", exit_code = 0 })
+
+    local result = run_publish(release_reached("v0.2.0", head_a), opts("release-publish-stale-tag", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    }))
+    t.is_true(result.exit_code ~= 0)
+    t.eq(h.count_calls("codex"), 0)
+    t.eq(h.count_calls("git tag -a"), 0)
+    t.eq(h.count_calls("gh release create"), 0)
+  end,
+
+  test_release_publish_existing_tag_and_release_are_idempotent_only_at_head = function()
+    mock_env("1")
+    mock_fetch_dev()
+    mock_dev_head(head_a)
+    t.mock_command("git rev-parse --verify --quiet refs/tags/'v0.2.0'", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("git rev-list -n 1 'v0.2.0'", { stdout = head_a .. "\n", stderr = "", exit_code = 0 })
+    t.mock_command("gh release view 'v0.2.0' --repo 'owner/repo'", { stdout = "v0.2.0\n", stderr = "", exit_code = 0 })
+
+    local result = run_publish(release_reached("v0.2.0", head_a), opts("release-publish-existing", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(h.count_calls("codex"), 0)
+    t.eq(h.count_calls("git tag -a"), 0)
+    t.eq(h.count_calls("gh release create"), 0)
+    local marker = h.find_raise(result.raises, "github-proxy.github_issue_create_request").payload
+    t.eq(marker.title, "Release published v0.2.0")
   end,
 
   test_release_publish_moved_head_aborts_before_writes = function()

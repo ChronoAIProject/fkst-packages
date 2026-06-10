@@ -33,6 +33,18 @@ local function existing_ok(cmd)
   return result.exit_code == 0
 end
 
+local function existing_stdout(cmd, timeout, error_class)
+  local result = exec_sync({ cmd = cmd, timeout = timeout or 30 })
+  if result.exit_code ~= 0 then
+    return nil
+  end
+  local stdout = tostring(result.stdout or ""):gsub("%s+$", "")
+  if stdout == "" then
+    error("github-devloop: " .. error_class .. " returned empty stdout")
+  end
+  return stdout
+end
+
 local function draft_notes(repo, tag, base_ref, head_sha)
   core.log_codex_start("release_publish", core.release_proposal_id(repo, tag, head_sha), "release-notes")
   local result = spawn_codex_sync({
@@ -57,6 +69,25 @@ local function published_marker_issue_create_request(repo, tag, head_sha, dedup_
     dedup_key = core._dedup_key({ "release", "published-marker", repo, tag, head_sha }),
     source_ref = core.release_source_ref(repo),
   }
+end
+
+local function tag_exists_at_head(tag, proposed_head)
+  if not existing_ok(core.git_tag_exists_cmd(tag)) then
+    return false
+  end
+  local tag_head = existing_stdout(core.git_tag_head_cmd(tag), 30, "git release tag head")
+  if tostring(tag_head) ~= tostring(proposed_head) then
+    error("github-devloop: existing release tag does not match approved head")
+  end
+  return true
+end
+
+local function release_exists_for_verified_tag(repo, tag)
+  local result = exec_sync({ cmd = core.gh_release_view_cmd(repo, tag), timeout = 30 })
+  if result.exit_code ~= 0 then
+    return false
+  end
+  return true
 end
 
 function pipeline(event)
@@ -93,15 +124,24 @@ function pipeline(event)
       return
     end
 
+    local tag_exists = tag_exists_at_head(tag, proposed_head)
+    local release_exists = release_exists_for_verified_tag(repo, tag)
+    if tag_exists and release_exists then
+      local marker_request = published_marker_issue_create_request(repo, tag, proposed_head, core.release_dedup_key(repo, tag, proposed_head))
+      core.log_raise("release_publish", reached.proposal_id, "github-proxy.github_issue_create_request", marker_request)
+      core.log_cas_decision("release_publish", reached.proposal_id, { state = "approved", version = reached.dedup_key }, "approve", "published", "applied", "release already exists at approved head")
+      return
+    end
+
     local notes = draft_notes(repo, tag, base_ref, proposed_head)
     local notes_file = temp_notes_file(repo, tag, proposed_head)
     file.write(notes_file, notes)
 
-    if not existing_ok(core.git_tag_exists_cmd(tag)) then
+    if not tag_exists then
       run_cmd(core.git_annotated_tag_cmd(tag, proposed_head, notes_file), 60, "git release tag")
       run_cmd(core.git_push_tag_cmd(tag), 60, "git release tag push")
     end
-    if not existing_ok(core.gh_release_view_cmd(repo, tag)) then
+    if not release_exists then
       run_cmd(core.gh_release_create_cmd(repo, tag, notes_file), 60, "gh release create")
     end
     local marker_request = published_marker_issue_create_request(repo, tag, proposed_head, core.release_dedup_key(repo, tag, proposed_head))

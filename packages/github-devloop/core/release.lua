@@ -170,9 +170,9 @@ function M.build_release_proposal(repo, tag, head_sha, base_ref)
       .. "\nUse the source_ref and content_fetch commands to derive the current log and issue context.",
     content_fetch = "git log --oneline --decorate " .. M._shell_single_quote(range)
       .. "\n"
-      .. "gh issue list --repo " .. M._shell_single_quote(repo)
-      .. " --state closed --search " .. M._shell_single_quote("closed:" .. tostring(base_ref) .. ".." .. tostring(head_sha))
-      .. " --json number,title,closedAt",
+      .. "Extract referenced #<number> issues from the commit subjects above, then fetch each with: "
+      .. "gh issue view <number> --repo " .. M._shell_single_quote(repo)
+      .. " --json number,title,state,closedAt",
     dedup_key = M.release_dedup_key(repo, tag, head_sha),
     source_ref = M.release_source_ref(repo),
   }
@@ -214,9 +214,8 @@ function M.release_notes_prompt(repo, tag, base_ref, head_sha)
     "",
     "Fetch current source data yourself:",
     "git log --oneline " .. M._shell_single_quote(range),
-    "gh issue list --repo " .. M._shell_single_quote(repo)
-      .. " --state closed --search " .. M._shell_single_quote("closed:" .. tostring(base_ref) .. ".." .. tostring(head_sha))
-      .. " --json number,title,closedAt",
+    "Extract referenced #<number> issues from the commit subjects above, then fetch each with:",
+    "gh issue view <number> --repo " .. M._shell_single_quote(repo) .. " --json number,title,state,closedAt",
   }, "\n")
 end
 
@@ -257,6 +256,10 @@ function M.git_tag_exists_cmd(tag)
   return "git rev-parse --verify --quiet refs/tags/" .. M._shell_single_quote(require_release_tag(tag))
 end
 
+function M.git_tag_head_cmd(tag)
+  return "git rev-list -n 1 " .. M._shell_single_quote(require_release_tag(tag))
+end
+
 function M.git_annotated_tag_cmd(tag, head_sha, message_file)
   if not M._is_git_sha(head_sha) then
     error("github-devloop: invalid release tag head")
@@ -285,8 +288,9 @@ end
 
 function M.gh_issue_list_release_markers_cmd(repo)
   return "gh issue list --repo " .. M._shell_single_quote(repo)
-    .. " --state open"
-    .. " --limit 100"
+    .. " --state all"
+    .. " --search " .. M._shell_single_quote("fkst:github-devloop:release:v1")
+    .. " --limit 1000"
     .. " --json author,body,comments"
 end
 
@@ -318,6 +322,7 @@ function M.parse_release_marker_issue_list(stdout)
   end
   return comments
 end
+
 end
 
 return S
