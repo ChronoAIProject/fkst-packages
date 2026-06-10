@@ -72,6 +72,15 @@ local function manifest_paths(manifest)
   return paths
 end
 
+local function has_path_suffix(paths, suffix)
+  for _, path in ipairs(paths or {}) do
+    if tostring(path):sub(-#suffix) == suffix then
+      return true
+    end
+  end
+  return false
+end
+
 local function read_file(path)
   local handle = assert(io.open(path, "r"))
   local content = handle:read("*a")
@@ -103,8 +112,7 @@ local function count_calls(calls, needle)
 end
 
 local function assert_readable_from_cwd(path, cwd)
-  local script = "local h=assert(io.open(" .. string.format("%q", path) .. ", 'r')); local line=h:read('*l'); h:close(); assert(line == "
-    .. shell_single_quote(core._untrusted_issue_data_begin) .. ")"
+  local script = "local h=assert(io.open(" .. string.format("%q", path) .. ", 'r')); local content=h:read('*a'); h:close(); assert(content ~= nil)"
   local cmd = "cd " .. shell_single_quote(cwd)
     .. " && lua -e " .. shell_single_quote(script)
   local ok = os.execute(cmd)
@@ -127,6 +135,9 @@ local function run_round_trip(root)
   return {
     paths = paths,
     contents = contents,
+    manifest = core.context_bundle_manifest(bundle),
+    issue_content = read_file(bundle.issue_path),
+    notice_content = read_file(bundle.notice_path),
   }
 end
 
@@ -153,14 +164,68 @@ local function run_preexisting(root)
   local fixtures = {}
   local dir = root .. "/context/github-devloop-issue-owner-repo-42/2026-06-03T01-02-03Z"
   mkdir_p(dir)
-  write_file(dir .. "/issue.json", core._untrusted_issue_data_begin .. "\npreexisting issue\n")
-  write_file(dir .. "/board.txt", core._untrusted_issue_data_begin .. "\npreexisting board\n")
+  write_file(dir .. "/UNTRUSTED-NOTICE.txt", "BEGIN UNTRUSTED BUNDLE DATA\npreexisting notice\nEND UNTRUSTED BUNDLE DATA\n")
+  write_file(dir .. "/issue.json", "preexisting issue\n")
+  write_file(dir .. "/board.txt", "preexisting board\n")
   local bundle = core.build_context_bundle(build_args(root, fixtures))
   return {
     dir = bundle.dir,
     expected_dir = dir,
     issue_content = read_file(bundle.issue_path),
+    manifest = core.context_bundle_manifest(bundle),
     issue_fetch_count = count_calls(fixtures.calls, "gh issue view"),
+  }
+end
+
+local function run_publish_reuse(root)
+  local fixtures = {
+    issue_outputs = {
+      '{"title":"First publish","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"Second publish","body":"second","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[]}\n',
+    },
+  }
+  local args = build_args(root, fixtures)
+  local first = core.build_context_bundle(args)
+  local before_notice = read_file(first.notice_path)
+  local before_issue = read_file(first.issue_path)
+  local before_board = read_file(first.board_path)
+  local fetches_after_first = count_calls(fixtures.calls, "gh issue view")
+  local second = core.build_context_bundle(args)
+  return {
+    first_dir = first.dir,
+    second_dir = second.dir,
+    fetches_after_first = fetches_after_first,
+    fetches_after_second = count_calls(fixtures.calls, "gh issue view"),
+    notice_unchanged = before_notice == read_file(first.notice_path),
+    issue_unchanged = before_issue == read_file(first.issue_path),
+    board_unchanged = before_board == read_file(first.board_path),
+  }
+end
+
+local function run_publish_unique_on_invalid(root)
+  local fixtures = {
+    issue_outputs = {
+      '{"title":"First publish","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"Rebuilt issue","body":"rebuilt","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[]}\n',
+    },
+  }
+  local args = build_args(root, fixtures)
+  local first = core.build_context_bundle(args)
+  os.remove(first.notice_path)
+  write_file(first.issue_path, "invalid first issue remains\n")
+  local before_issue = read_file(first.issue_path)
+  local before_board = read_file(first.board_path)
+  local second = core.build_context_bundle(args)
+  return {
+    dir = second.dir,
+    original_dir = first.dir,
+    issue_fetch_count = count_calls(fixtures.calls, "gh issue view"),
+    original_notice_absent = io.open(first.notice_path, "r") == nil,
+    original_issue_unchanged = before_issue == read_file(first.issue_path),
+    original_board_unchanged = before_board == read_file(first.board_path),
+    rebuilt_issue = read_file(second.issue_path),
+    manifest = core.context_bundle_manifest(second),
+    has_notice = has_path_suffix(manifest_paths(core.context_bundle_manifest(second)), "/UNTRUSTED-NOTICE.txt"),
   }
 end
 
@@ -173,6 +238,10 @@ function pipeline(event)
     raise("context_bundle_probe_result", run_deleted_file(root))
   elseif payload.mode == "preexisting" then
     raise("context_bundle_probe_result", run_preexisting(root))
+  elseif payload.mode == "publish_reuse" then
+    raise("context_bundle_probe_result", run_publish_reuse(root))
+  elseif payload.mode == "publish_unique_on_invalid" then
+    raise("context_bundle_probe_result", run_publish_unique_on_invalid(root))
   else
     error("unknown context bundle probe mode")
   end

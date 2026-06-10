@@ -197,7 +197,10 @@ return {
     local diff = assert(io.open(root .. "/ctx/diff.patch", "w"))
     diff:write("diff")
     diff:close()
-    seed_cache("consensus-test/context", "Issue JSON: " .. root .. "/ctx/issue.json\nPR diff patch: " .. root .. "/ctx/diff.patch", run_opts)
+    local notice = assert(io.open(root .. "/ctx/UNTRUSTED-NOTICE.txt", "w"))
+    notice:write("notice")
+    notice:close()
+    seed_cache("consensus-test/context", "Untrusted notice: " .. root .. "/ctx/UNTRUSTED-NOTICE.txt\nIssue JSON: " .. root .. "/ctx/issue.json\nPR diff patch: " .. root .. "/ctx/diff.patch", run_opts)
 
     local result = run_decide(proposal({
       content_fetch = "runtime-cache:consensus-test/context",

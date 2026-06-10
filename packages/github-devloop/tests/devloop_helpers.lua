@@ -30,18 +30,20 @@ end
 
 local function mock_context_bundle()
   local ok = { stdout = "", stderr = "", exit_code = 0 }
-  for _ = 1, 4 do
+  for _ = 1, 8 do
     helpers.t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
       stderr = "",
       exit_code = 0,
     })
   end
-  helpers.t.mock_command("test -d", {
-    stdout = "",
-    stderr = "",
-    exit_code = 1,
-  })
+  for _ = 1, 3 do
+    helpers.t.mock_command("test -d", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
+  end
   helpers.t.mock_command("install -d -m 0755", ok)
   helpers.t.mock_command("mktemp -d", {
     stdout = "/tmp/fkst-packages-test/github-devloop/runtime/context/.bundle-tmp.mocked\n",
@@ -63,12 +65,19 @@ local function mock_context_bundle()
     stderr = "",
     exit_code = 0,
   })
-  for _ = 1, 4 do
+  for _ = 1, 5 do
     helpers.t.mock_command(" > ", ok)
   end
   helpers.t.mock_command("python3 -c", ok)
-  for _ = 1, 3 do
+  for _ = 1, 8 do
     helpers.t.mock_command("test -r", ok)
+  end
+  for _ = 1, 8 do
+    helpers.t.mock_command("wc -c < ", {
+      stdout = "1\n",
+      stderr = "",
+      exit_code = 0,
+    })
   end
 end
 

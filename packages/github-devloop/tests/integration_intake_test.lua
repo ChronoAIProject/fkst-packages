@@ -99,7 +99,9 @@ local function mock_intake_codex(stdout, exit_code, stderr)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
+  for _ = 1, 2 do
+    t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
+  end
   t.mock_command("install -d -m 0755", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("mktemp -d", {
     stdout = "/tmp/fkst-packages-test/github-devloop/runtime/context/.bundle-tmp.intake\n",
@@ -107,7 +109,7 @@ local function mock_intake_codex(stdout, exit_code, stderr)
     exit_code = 0,
   })
   mock_intake_judge_view({}, {})
-  for _ = 1, 2 do
+  for _ = 1, 3 do
     t.mock_command(" > ", { stdout = "", stderr = "", exit_code = 0 })
   end
   t.mock_command("python3 -c", {
@@ -116,6 +118,13 @@ local function mock_intake_codex(stdout, exit_code, stderr)
     exit_code = 0,
   })
   t.mock_command("test -r", { stdout = "", stderr = "", exit_code = 0 })
+  for _ = 1, 8 do
+    t.mock_command("wc -c < ", {
+      stdout = "1\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
     stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
     stderr = "",
