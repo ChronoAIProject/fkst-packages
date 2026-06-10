@@ -260,6 +260,66 @@ function M.review_reject_fact(comments, issue_proposal_id, issue_version)
   return nil
 end
 
+local function bounded_marker_line(M, value, limit)
+  local text = tostring(value or ""):gsub("%c", " "):gsub("%s+", " ")
+  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  if text == "" then
+    return nil
+  end
+  local cap = limit or M._max_blocking_gap_len
+  if #text > cap then
+    text = text:sub(1, cap)
+  end
+  return text
+end
+
+function M.review_prior_round_ledger(comments, issue_version)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local latest_reject = nil
+  local latest_fix = nil
+  local marker_pattern = "<!%-%- fkst:github%-devloop:review%-result:v1.-%-%->"
+  for _, comment in ipairs(M._trusted_marker_comments(comments)) do
+    local body = M._comment_body(comment)
+    for marker in body:gmatch(marker_pattern) do
+      local decision = marker:match('decision="([^"]+)"')
+      if decision == "reject" then
+        local gap = body:match("\nBlocking gap:%s*([^\n]+)") or body:match("^Blocking gap:%s*([^\n]+)")
+        gap = bounded_marker_line(M, gap, M._max_blocking_gap_len)
+        if gap ~= nil then
+          latest_reject = {
+            gap = gap,
+            created_at = M._comment_created_at(comment),
+          }
+        end
+      end
+    end
+    local fix_summary = body:match("\nFix%-round summary:%s*([^\n]+)") or body:match("^Fix%-round summary:%s*([^\n]+)")
+    fix_summary = bounded_marker_line(M, fix_summary, M._max_review_ledger_len)
+    if fix_summary ~= nil then
+      latest_fix = {
+        summary = fix_summary,
+        created_at = M._comment_created_at(comment),
+      }
+    end
+  end
+  if latest_reject == nil then
+    return nil
+  end
+  local lines = {
+    "Last named blocking gap: " .. latest_reject.gap,
+  }
+  if latest_fix ~= nil then
+    table.insert(lines, "Latest fix-round summary: " .. latest_fix.summary)
+  end
+  local ledger = table.concat(lines, "\n")
+  if #ledger > M._max_review_ledger_len then
+    ledger = ledger:sub(1, M._max_review_ledger_len)
+  end
+  return M.neutralize_untrusted_prompt_text(ledger)
+end
+
 function M.review_meta_fix_fact(comments, issue_proposal_id, issue_version)
   if type(comments) ~= "table" then
     return nil

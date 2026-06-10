@@ -31,6 +31,7 @@ local function reject_review_event(version)
   return review_reached({
     decision = "reject",
     body = "Review consensus rejects the diff.",
+    blocking_gap = "missing regression guard",
     framing = "Review feedback for " .. tostring(version),
     proposal_id = proposal_id,
     dedup_key = "consensus:" .. proposal_id .. "/review",

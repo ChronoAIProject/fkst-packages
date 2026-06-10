@@ -101,6 +101,22 @@ local function build_verdict_summary(angle_results)
   return summary
 end
 
+local function bounded_blocking_gap(M, reached)
+  local gap = reached and reached.blocking_gap
+  if gap == nil and type(reached and reached.blocking_gaps) == "table" then
+    gap = reached.blocking_gaps[1]
+  end
+  local text = tostring(gap or ""):gsub("%c", " "):gsub("%s+", " ")
+  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  if text == "" then
+    return nil
+  end
+  if #text > M._max_blocking_gap_len then
+    text = text:sub(1, M._max_blocking_gap_len)
+  end
+  return text
+end
+
 function M.build_label_request(repo, issue_number, add_labels, remove_labels, dedup_key, source_ref)
   return {
     schema = "github-proxy.label.v1",
@@ -638,10 +654,14 @@ function M.build_review_result_comment_request(repo, issue_number, issue_proposa
     merge_marker = "\n" .. M.merge_ready_marker(issue_proposal_id, pr_number, issue_version, reached.proposal_id, reached.dedup_key, reviewed_head_sha)
   end
   local body_text = M.neutralize_untrusted_comment_text(reached.body or "")
+  local blocking_gap = bounded_blocking_gap(M, reached)
   local verdict_summary = build_verdict_summary(reached.angle_results)
   local body = "github-devloop PR review decision: " .. tostring(reached.decision)
   if verdict_summary ~= nil then
     body = body .. "\n" .. verdict_summary
+  end
+  if reached.decision == "reject" and blocking_gap ~= nil then
+    body = body .. "\nBlocking gap: " .. M.neutralize_untrusted_comment_text(blocking_gap)
   end
   local _, pr_number = M.parse_pr_source_ref(source_ref)
   return M.build_entity_comment_request({
@@ -713,6 +733,10 @@ end
 function M.build_fix_reviewing_comment_request(repo, issue_number, fix, old_head_sha, new_head_sha, new_version)
   local state_marker = M.state_marker(fix.proposal_id, "reviewing", new_version or fix.version)
   local marker = M.fix_marker(fix.proposal_id, fix.review_proposal_id, fix.review_dedup_key, old_head_sha, new_head_sha)
+  local summary = ""
+  if fix.fix_summary ~= nil and tostring(fix.fix_summary) ~= "" then
+    summary = "\nFix-round summary: " .. M.neutralize_untrusted_comment_text(fix.fix_summary)
+  end
   return M.build_entity_comment_request({
     kind = "pr",
     repo = repo,
@@ -720,6 +744,7 @@ function M.build_fix_reviewing_comment_request(repo, issue_number, fix, old_head
   }, "github-devloop fix pushed for re-review"
     .. "\n\nPrevious reviewed head: " .. tostring(old_head_sha)
     .. "\nNew head: " .. tostring(new_head_sha)
+    .. summary
     .. "\n\n" .. state_marker
     .. "\n" .. marker, M._dedup_key({
     "fix",

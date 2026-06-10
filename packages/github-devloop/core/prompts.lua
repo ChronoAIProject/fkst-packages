@@ -43,6 +43,18 @@ local function bounded_framing(M, framing)
   return value
 end
 
+local function bounded_gap(M, gap)
+  local value = M.neutralize_untrusted_prompt_text(gap or "")
+  value = value:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+  if value == "" then
+    value = "the rejected review's named blocking gap"
+  end
+  if #value > M._max_blocking_gap_len then
+    value = value:sub(1, M._max_blocking_gap_len)
+  end
+  return value
+end
+
 local function issue_fetch_block(M, repo, issue_number, failure_action)
   if repo == nil or issue_number == nil then
     return "No backing GitHub issue is available; use only the PR/worktree context."
@@ -91,6 +103,7 @@ function M.build_fix_prompt(fix, current_issue, review_reason, framing)
     review_proposal_id = M.neutralize_untrusted_prompt_text(fix.review_proposal_id),
     reviewed_head_sha = M.neutralize_untrusted_prompt_text(fix.reviewed_head_sha),
     framing = bounded_framing(M, framing),
+    blocking_gap = bounded_gap(M, fix.blocking_gap),
     title = M.neutralize_untrusted_prompt_text(current_issue.title),
     content_fetch_block = issue_fetch_block(M, repo, issue_number, "stop and report the fetch failure without modifying files"),
     review_feedback = M.neutralize_untrusted_prompt_text(review_reason),

@@ -12,6 +12,22 @@ local function bounded_framing(M, framing)
   return value
 end
 
+local function bounded_control_text(M, value, limit)
+  if value == nil then
+    return nil
+  end
+  local text = tostring(value):gsub("%c", " "):gsub("%s+", " ")
+  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  if text == "" then
+    return nil
+  end
+  local cap = limit or M._max_blocking_gap_len
+  if #text > cap then
+    text = text:sub(1, cap)
+  end
+  return text
+end
+
 local function board_digest_issue_list_cmd(M, repo)
   return "gh issue list"
     .. " --repo " .. M._shell_single_quote(repo)
@@ -220,6 +236,10 @@ function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
   if framing ~= nil then
     payload.framing = framing
   end
+  local blocking_gap = bounded_control_text(M, review_fact.blocking_gap, M._max_blocking_gap_len)
+  if blocking_gap ~= nil then
+    payload.blocking_gap = blocking_gap
+  end
   return payload
 end
 
@@ -387,6 +407,13 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
     .. "\nReviewed PR head: " .. tostring(head_sha)
     .. "\nIssue title: " .. issue_title
     .. "\nFetch the current PR diff and backing issue content before judging."
+  local ledger = M.review_prior_round_ledger(current_issue and current_issue.comments, version)
+  if ledger ~= nil and ledger ~= "" then
+    body = body
+      .. "\nPrior review ledger:\n"
+      .. ledger
+      .. "\nJudge whether THE NAMED GAP is closed; new objections only for regressions introduced by the fix."
+  end
   if #body > M._max_body_len then
     error("github-devloop: PR review proposal exceeds bounded body")
   end

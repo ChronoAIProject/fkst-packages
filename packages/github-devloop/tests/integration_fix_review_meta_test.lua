@@ -94,6 +94,7 @@ return {
         proposal_id = event.review_proposal_id,
         decision = "reject",
         body = "Reject because parser must fail closed.",
+        blocking_gap = "missing regression guard",
         dedup_key = event.review_dedup_key,
         source_ref = { kind = "external", ref = "owner/repo#pr/7" },
       },
@@ -170,7 +171,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
 
@@ -227,7 +228,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
 
@@ -253,7 +254,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
     mock_bot_env()
@@ -276,7 +277,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
     mock_bot_env()
@@ -302,7 +303,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
@@ -374,6 +375,7 @@ return {
         proposal_id = second_event.review_proposal_id,
         decision = "reject",
         body = "Reject second round.",
+        blocking_gap = "missing regression guard",
         dedup_key = second_event.review_dedup_key,
         source_ref = { kind = "external", ref = "owner/repo#pr/7" },
       },
@@ -422,7 +424,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
@@ -459,7 +461,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
@@ -495,7 +497,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
     mock_bot_env()
@@ -538,7 +540,7 @@ return {
       "42",
       event.proposal_id,
       event.version,
-      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
+      { proposal_id = event.review_proposal_id, decision = "reject", body = "Reject.", blocking_gap = "missing regression guard", dedup_key = event.review_dedup_key, source_ref = { kind = "external", ref = "owner/repo#pr/7" } },
       event.source_ref
     ).body
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
