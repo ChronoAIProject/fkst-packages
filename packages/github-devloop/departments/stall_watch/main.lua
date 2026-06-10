@@ -147,7 +147,7 @@ local function raise_alert(repo, issue_number, proposal_id, assessment, ref, cur
     core.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", comment)
   end
   if not core.has_label(current_labels, core._stalled_label) then
-    local label = core.build_stalled_label_request(repo, issue_number, proposal_id, current.version, ref)
+    local label = core.build_stalled_label_request(repo, issue_number, proposal_id, current.state, current.version, ref)
     core.log_apply(dept, proposal_id, nil, nil, { add = { core._stalled_label }, remove = {} }, {
       "github-proxy.github_issue_label_request",
     })

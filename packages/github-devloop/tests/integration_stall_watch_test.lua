@@ -253,6 +253,7 @@ return {
     t.eq(comment.source_ref.ref, "owner/repo#issue/42")
     local label = find_raise(result, "github-proxy.github_issue_label_request").payload
     t.eq(label.add_labels[1], core._stalled_label)
+    t.is_true(label.dedup_key:find("/thinking/" .. version, 1, true) ~= nil)
     t.eq(label.source_ref.kind, "external")
     t.eq(label.source_ref.ref, "owner/repo#issue/42")
   end,
@@ -272,6 +273,8 @@ return {
     t.eq(comment.source_ref.kind, "external")
     t.eq(comment.source_ref.ref, "owner/repo#issue/42")
     local label = find_raise(result, "github-proxy.github_issue_label_request").payload
+    t.eq(label.add_labels[1], core._stalled_label)
+    t.is_true(label.dedup_key:find("/thinking/" .. version, 1, true) ~= nil)
     t.eq(label.source_ref.kind, "external")
     t.eq(label.source_ref.ref, "owner/repo#issue/42")
   end,
@@ -335,6 +338,27 @@ return {
     t.is_true(comment.body:find('version="' .. new_version .. '"', 1, true) ~= nil)
   end,
 
+  test_same_version_advanced_overdue_state_readds_stalled_label = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "2026-06-10T06-00-00Z"
+    mock_env()
+    mock_all_lists(core._enabled_label, { 42 })
+    mock_issue_views({ "fkst-dev:reviewing" }, {
+      state_comment(proposal_id, "thinking", version, "2026-06-10T06:00:00Z"),
+      core.stall_detected_marker(proposal_id, "thinking", version, core.stall_watch_threshold_seconds("thinking")),
+      state_comment(proposal_id, "reviewing", version, "2026-06-10T07:00:00Z"),
+    })
+
+    local result = run_stall_watch("stall-same-version-advanced-overdue")
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_raises(result, "github-proxy.github_issue_comment_request"), 1)
+    t.eq(count_raises(result, "github-proxy.github_issue_label_request"), 1)
+    local label = find_raise(result, "github-proxy.github_issue_label_request").payload
+    t.eq(label.add_labels[1], core._stalled_label)
+    t.is_true(label.dedup_key:find("/reviewing/" .. version, 1, true) ~= nil)
+  end,
+
   test_dependency_held_ready_entity_does_not_alert = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "2026-06-10T06-00-00Z"
@@ -376,7 +400,7 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_reused_old_version_does_not_alert_for_fresh_state_marker = function()
+  test_reused_old_version_alerts_from_version_timestamp = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local reused_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-10T06-00-00Z"
     mock_env()
@@ -388,7 +412,8 @@ return {
     local result = run_stall_watch("stall-reused-version-fresh-transition")
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    t.eq(count_raises(result, "github-proxy.github_issue_comment_request"), 1)
+    t.eq(count_raises(result, "github-proxy.github_issue_label_request"), 1)
   end,
 
   test_gh_failure_skips_without_alert_and_logs = function()

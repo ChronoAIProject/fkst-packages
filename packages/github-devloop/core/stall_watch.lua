@@ -214,7 +214,7 @@ function M.stall_watch_assessment(issue)
     return { action = "none", current = current, reason = "dependency-held" }
   end
   local threshold = thresholds[current.state]
-  local transition_epoch = parse_timestamp_epoch(current.marker_created_at)
+  local transition_epoch = parse_timestamp_epoch(current.version)
   local now_epoch = current_epoch()
   if transition_epoch == nil or now_epoch == nil then
     return { action = "none", current = current, reason = "missing-transition-timestamp" }
@@ -254,14 +254,14 @@ function M.build_stall_detected_comment_request(repo, issue_number, proposal_id,
   }
 end
 
-function M.build_stalled_label_request(repo, issue_number, proposal_id, version, source_ref)
+function M.build_stalled_label_request(repo, issue_number, proposal_id, state, version, source_ref)
   local core = root()
   return core.build_label_request(
     repo,
     issue_number,
     { stalled_label },
     {},
-    core._dedup_key({ "stall-detected", "label", "set", tostring(proposal_id), tostring(version) }),
+    core._dedup_key({ "stall-detected", "label", "set", tostring(proposal_id), tostring(state), tostring(version) }),
     source_ref or issue_source_ref(repo, issue_number)
   )
 end
