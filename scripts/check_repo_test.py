@@ -120,6 +120,21 @@ fkst_substrate_cache_path "$owner" "$repo" "$ref"
         self.assertEqual(lines[0], lines[1])
         self.assertEqual(lines[0], "/tmp/fkst-home/.cache/fkst/substrate/Owner-repo-refs-heads-dev")
 
+    def test_cache_path_sanitizes_owner_repo_and_ref_components(self) -> None:
+        result = self.run_helper(
+            """
+set -euo pipefail
+source scripts/substrate_pin.sh
+HOME=/tmp/fkst-home
+fkst_substrate_cache_path '../Owner' 'repo/../../x' 'refs/heads/dev'
+"""
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "/tmp/fkst-home/.cache/fkst/substrate/..-Owner-repo-..-..-x-refs-heads-dev",
+        )
+
     def test_empty_pin_defaults_to_dev(self) -> None:
         result = self.run_helper(
             """
@@ -132,15 +147,26 @@ fkst_parse_substrate_pin ''
         self.assertEqual(result.stdout.strip(), "ChronoAIProject\tfkst-substrate\tdev")
 
     def test_rejects_malformed_owner_repo_pin(self) -> None:
-        result = self.run_helper(
-            """
+        malformed_pins = [
+            "ChronoAIProject@dev",
+            "Owner/repo/extra@dev",
+            "/repo@dev",
+            "Owner/@dev",
+            "Owner/repo@",
+            "-Owner/repo@dev",
+            "Owner/repo name@dev",
+        ]
+        for pin in malformed_pins:
+            with self.subTest(pin=pin):
+                result = self.run_helper(
+                    f"""
 set -euo pipefail
 source scripts/substrate_pin.sh
-fkst_parse_substrate_pin 'ChronoAIProject@dev'
+fkst_parse_substrate_pin '{pin}'
 """
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("invalid fkst-substrate pin", result.stderr)
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("invalid fkst-substrate pin", result.stderr)
 
 
 if __name__ == "__main__":

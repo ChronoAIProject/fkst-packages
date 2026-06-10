@@ -123,6 +123,11 @@ usage() {
 }
 
 cmd_check() {
+  local pin parsed owner repo ref
+  pin="$(sed -n '1{s/^[[:space:]]*//;s/[[:space:]]*$//;p;q}' "$ROOT/.fkst-substrate-ref" 2>/dev/null || true)"
+  parsed="$(fkst_parse_substrate_pin "$pin")"
+  IFS=$'\t' read -r owner repo ref <<< "$parsed"
+  fkst_substrate_cache_path "$owner" "$repo" "$ref" >/dev/null
   python3 "$ROOT/scripts/check_repo.py"
   python3 "$ROOT/scripts/check_repo_test.py"
 }

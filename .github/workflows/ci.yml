@@ -33,7 +33,8 @@ jobs:
           if [ -z "$pin" ]; then
             pin="$(sed -n '1{s/^[[:space:]]*//;s/[[:space:]]*$//;p;q}' .fkst-substrate-ref 2>/dev/null || true)"
           fi
-          IFS=$'\t' read -r owner repo ref < <(fkst_parse_substrate_pin "$pin")
+          parsed="$(fkst_parse_substrate_pin "$pin")"
+          IFS=$'\t' read -r owner repo ref <<< "$parsed"
           echo "owner=$owner" >> "$GITHUB_OUTPUT"
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"

@@ -12,6 +12,16 @@ fkst_trim_substrate_pin() {
   printf '%s\n' "$value"
 }
 
+fkst_valid_substrate_owner() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]]
+}
+
+fkst_valid_substrate_repo() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$value" != "." ] && [ "$value" != ".." ]
+}
+
 fkst_parse_substrate_pin() {
   local pin owner repo ref repo_part
   pin="$(fkst_trim_substrate_pin "${1:-}")"
@@ -28,7 +38,8 @@ fkst_parse_substrate_pin() {
     ref="${pin#*@}"
     owner="${repo_part%%/*}"
     repo="${repo_part#*/}"
-    if [ "$owner" = "$repo_part" ] || [ -z "$owner" ] || [ -z "$repo" ] || [ -z "$ref" ]; then
+    if [ "$owner" = "$repo_part" ] || [[ "$repo" == */* ]] || [ -z "$ref" ] \
+      || ! fkst_valid_substrate_owner "$owner" || ! fkst_valid_substrate_repo "$repo"; then
       echo "error: invalid fkst-substrate pin: $pin" >&2
       return 1
     fi
@@ -37,18 +48,29 @@ fkst_parse_substrate_pin() {
   printf '%s\t%s\t%s\n' "$owner" "$repo" "$ref"
 }
 
+fkst_sanitize_substrate_path_component() {
+  local value="$1"
+  value="$(printf '%s' "$value" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-')"
+  value="$(printf '%s' "$value" | sed -E 's/-+/-/g; s/^-//; s/-$//')"
+  if [ -z "$value" ]; then
+    value="component"
+  fi
+  printf '%s\n' "$value"
+}
+
 fkst_sanitize_substrate_ref() {
-  local ref="$1"
-  ref="$(printf '%s' "$ref" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-')"
-  ref="$(printf '%s' "$ref" | sed -E 's/-+/-/g; s/^-//; s/-$//')"
-  if [ -z "$ref" ]; then
+  local ref
+  ref="$(fkst_sanitize_substrate_path_component "$1")"
+  if [ "$ref" = "component" ]; then
     ref="ref"
   fi
   printf '%s\n' "$ref"
 }
 
 fkst_substrate_cache_path() {
-  local owner="$1" repo="$2" ref="$3" sanitized_ref
+  local owner="$1" repo="$2" ref="$3" sanitized_owner sanitized_repo sanitized_ref
+  sanitized_owner="$(fkst_sanitize_substrate_path_component "$owner")"
+  sanitized_repo="$(fkst_sanitize_substrate_path_component "$repo")"
   sanitized_ref="$(fkst_sanitize_substrate_ref "$ref")"
-  printf '%s/.cache/fkst/substrate/%s-%s-%s\n' "${HOME:?HOME is required}" "$owner" "$repo" "$sanitized_ref"
+  printf '%s/.cache/fkst/substrate/%s-%s-%s\n' "${HOME:?HOME is required}" "$sanitized_owner" "$sanitized_repo" "$sanitized_ref"
 }
