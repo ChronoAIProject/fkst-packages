@@ -46,7 +46,8 @@ local function reject_marker(version, created_at)
       "github-devloop/issue/owner/repo/42",
       "reject",
       "consensus:" .. proposal_id .. "/review",
-      core.version_fix_round(version)
+      core.version_fix_round(version),
+      "missing regression guard"
     ),
     created_at = created_at,
   }

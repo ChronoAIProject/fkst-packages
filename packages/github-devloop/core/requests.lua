@@ -647,14 +647,14 @@ function M.build_review_result_comment_request(repo, issue_number, issue_proposa
   if reached.decision == "reject" then
     fix_round = M.version_fix_round(issue_version)
   end
-  local marker = M.review_result_marker(reached.proposal_id, issue_proposal_id, reached.decision, reached.dedup_key, fix_round)
+  local blocking_gap = bounded_blocking_gap(M, reached)
+  local marker = M.review_result_marker(reached.proposal_id, issue_proposal_id, reached.decision, reached.dedup_key, fix_round, blocking_gap)
   local merge_marker = ""
   if reached.decision == "approve" then
     local _, pr_number, _, reviewed_head_sha = M.parse_pr_review_proposal_id(reached.proposal_id)
     merge_marker = "\n" .. M.merge_ready_marker(issue_proposal_id, pr_number, issue_version, reached.proposal_id, reached.dedup_key, reviewed_head_sha)
   end
   local body_text = M.neutralize_untrusted_comment_text(reached.body or "")
-  local blocking_gap = bounded_blocking_gap(M, reached)
   local verdict_summary = build_verdict_summary(reached.angle_results)
   local body = "github-devloop PR review decision: " .. tostring(reached.decision)
   if verdict_summary ~= nil then
@@ -850,7 +850,7 @@ function M.build_review_meta_label_request(repo, issue_number, review_meta, acti
   )
 end
 
-function M.build_review_meta_comment_request(repo, issue_number, review_meta, action, reason, version)
+function M.build_review_meta_comment_request(repo, issue_number, review_meta, action, reason, version, blocking_gap)
   local to_state = action == "fix" and "fixing" or "blocked"
   local safe_reason = M.neutralize_untrusted_comment_text(reason or "")
   local state_version = version or review_meta.version
@@ -861,7 +861,7 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
   }, "github-devloop review-meta action: " .. tostring(action)
     .. "\n\nReason:\n" .. safe_reason
     .. "\n\n" .. M.state_marker(review_meta.proposal_id, to_state, state_version)
-    .. "\n" .. M.review_meta_marker(review_meta.proposal_id, review_meta.dedup_key, action, state_version), M._dedup_key({
+    .. "\n" .. M.review_meta_marker(review_meta.proposal_id, review_meta.dedup_key, action, state_version, blocking_gap), M._dedup_key({
     "review-meta",
     "comment",
     tostring(review_meta.dedup_key),

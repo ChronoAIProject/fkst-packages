@@ -905,6 +905,7 @@ return {
     t.eq(#fix_result.raises, 3)
     t.eq(find_raise(fix_result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
     t.eq(find_raise(fix_result.raises, "devloop_fixing").payload.schema, "github-devloop.fixing.v1")
+    t.eq(find_raise(fix_result.raises, "devloop_fixing").payload.blocking_gap, "missing retry guard")
 
     mock_issue_review_meta({ "fkst-dev:review-meta" }, {
       core.state_marker(event.proposal_id, "review-meta", event.version),
@@ -957,6 +958,7 @@ return {
     t.eq(current.version, meta_exit_version)
     local fix_event = find_raise(meta_result.raises, "devloop_fixing").payload
     t.eq(fix_event.version, meta_exit_version)
+    t.eq(fix_event.blocking_gap, "missing retry guard")
 
     local branch = core.implement_branch("owner/repo", "42", event.version)
     local recomputed_branch = core.implement_branch("owner/repo", "42", meta_exit_version)

@@ -37,13 +37,23 @@ local function review_truth_table_unapproved(unresolved)
   if type(unresolved.angle_digests) ~= "table" or #unresolved.angle_digests == 0 then
     return false
   end
+  local has_comment = false
   for _, item in ipairs(unresolved.angle_digests) do
     local verdict = type(item) == "table" and item.verdict or nil
     if verdict == "approve" or verdict == "reject" or verdict == "invalid" then
       return false
     end
+    if verdict == "comment" then
+      has_comment = true
+    elseif verdict == "abstain" then
+    else
+      return false
+    end
   end
-  return true
+  if not has_comment then
+    return true
+  end
+  return tostring(unresolved.dedup_key or ""):find("/loop/", 1, true) ~= nil
 end
 
 -- review_version is parse_pr_review_proposal_id's safe_version_segment form (truncated +
@@ -206,7 +216,7 @@ function pipeline(event)
     local proposal = core.build_board_pr_review_loop_proposal(repo, origin.issue_number, pr_number, state.version, current_pr.head_sha, current_issue, pr_source_ref, next_n, {
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
-    }, event.ts)
+    }, event.ts, current_pr.comments)
     if not core.validate_proposal(proposal) then
       log.warn("github-devloop dept=review_loop proposal_id=" .. tostring(origin.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-loop-proposal")
       return
