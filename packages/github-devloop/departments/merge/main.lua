@@ -80,14 +80,6 @@ local function ensure_pr_ready(repo, pr_number, pr, merge_ready, stage, ready_st
   end
 end
 
-local function refetch_pr_after_ready(repo, pr_number)
-  local pr_view = exec_sync({ cmd = core.gh_pr_view_merge_cmd(repo, pr_number), timeout = 30 })
-  if pr_view.exit_code ~= 0 then
-    error("github-devloop: gh pr merge view after ready failed: " .. tostring(pr_view.stderr))
-  end
-  return core.parse_pr_view_merge(pr_view.stdout)
-end
-
 local function raise_fixing(repo, issue_number, merge_ready, current_state, reason)
   local source_ref = core.pr_source_ref(repo, merge_ready.pr_number)
   local fix_version = core.fix_version_from_review_version(current_state.version)
@@ -315,31 +307,6 @@ function pipeline(event)
     if not require_consensus_review_approve(current_pr.comments, merge_ready) then
       return
     end
-    ensure_pr_ready(repo, merge_ready.pr_number, current_pr, merge_ready, "pre-merge-gates", ready_state)
-    if ready_state.done then
-      current_pr = refetch_pr_after_ready(repo, merge_ready.pr_number)
-      local ready_origin = core.pr_origin_fact(current_pr.comments)
-      if ready_origin == nil then
-        ready_origin = core.pr_native_origin(repo, merge_ready.pr_number, current_pr)
-      end
-      local ready_state_marker = core.current_entity_state(current_pr.comments, merge_ready.proposal_id)
-      if ready_origin.proposal_id ~= merge_ready.proposal_id
-        or ready_origin.repo ~= repo
-        or tostring(ready_origin.issue_number) ~= tostring(issue_number)
-        or tostring(ready_origin.branch) ~= tostring(origin.branch)
-        or tostring(ready_origin.impl_version) ~= tostring(origin.impl_version)
-        or tostring(ready_origin.base_branch) ~= tostring(origin.base_branch)
-        or tostring(current_pr.base_ref_name or "") ~= tostring(origin.base_branch)
-        or tostring(ready_origin.base_branch) ~= tostring(branches.integration) then
-        core.log_cas_decision("merge", merge_ready.proposal_id, ready_state_marker, "merge-ready", "merging", "skip-stale(ready-recheck-origin)", "post-ready PR origin changed")
-        return
-      end
-      local ready_pr_ok, ready_pr_reason = assert_open_same_repo_pr(merge_ready, current_pr, repo, origin.branch, merge_ready.reviewed_head_sha)
-      if not ready_pr_ok then
-        core.log_cas_decision("merge", merge_ready.proposal_id, ready_state_marker, "merge-ready", "merging", "skip-stale(" .. tostring(ready_pr_reason) .. ")", "post-ready PR fact failed")
-        return
-      end
-    end
     log_gate(merge_ready, "write-ready", "FKST_GITHUB_WRITE=1 and trusted review-result approve")
 
     local rollup_green, rollup_reason = core.pr_rollup_green(current_pr)
@@ -382,7 +349,6 @@ function pipeline(event)
     if not require_consensus_review_approve(rechecked_pr_for_gate.comments, merge_ready) then
       return
     end
-    ensure_pr_ready(repo, merge_ready.pr_number, rechecked_pr_for_gate, merge_ready, "write-gate", ready_state)
     log_gate(merge_ready, "write-ready", "write-time FKST_GITHUB_WRITE=1 and trusted review-result approve")
     local rechecked_fact = core.merge_ready_fact(rechecked_pr_for_gate.comments, merge_ready.proposal_id, merge_ready.version, merge_ready.pr_number)
     local rechecked_approval_ok, rechecked_approval_reason = core.merge_ready_approval_matches_event(rechecked_fact, merge_ready)
@@ -415,8 +381,8 @@ function pipeline(event)
         return true, "pr-origin-ok"
       end,
       before_merge = function(final_pr)
-        ensure_pr_ready(repo, merge_ready.pr_number, final_pr, merge_ready, "before-merge", ready_state)
         write_merging_marker(repo, merge_ready, rechecked_pr_for_gate.comments)
+        ensure_pr_ready(repo, merge_ready.pr_number, final_pr, merge_ready, "before-merge", ready_state)
       end,
     })
     if not merge_ok and merge_reason == "merge-confirmation-pending" then

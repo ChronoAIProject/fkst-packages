@@ -13,7 +13,6 @@ local merge_comments = h.merge_comments
 local mock_pr_origin = h.mock_pr_origin
 local mock_pr_merge = h.mock_pr_merge
 local mock_merging_comment = h.mock_merging_comment
-local mock_pr_merge_command = h.mock_pr_merge_command
 local mock_pr_ready = h.mock_pr_ready
 local mock_issue_close = h.mock_issue_close
 local mock_write_env = h.mock_write_env
@@ -21,27 +20,26 @@ local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 
 return {
-  test_review_result_approve_converts_draft_pr_ready = function()
+  test_review_result_approve_leaves_draft_pr_until_merge_ready_fact_is_visible = function()
     local event = review_reached()
     local impl_version = reviewing().version
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, nil, nil, nil, nil, true)
     mock_bot_env()
-    mock_write_env("1")
-    mock_pr_ready()
     mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
-    mock_write_env("1")
 
-    local result = run_review_result(event, opts("review-result-ready-on-approve"))
+    local result = run_review_result(event, opts("review-result-draft-stays-unready-on-approve", {
+      FKST_GITHUB_WRITE = "1",
+    }))
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh pr ready '7' --repo 'owner/repo'"), 1)
+    t.eq(count_calls("gh pr ready"), 0)
     t.is_true(h.find_raise(result.raises, "devloop_merge_ready") ~= nil)
   end,
 
-  test_review_result_approve_skips_ready_write_for_ready_pr = function()
+  test_review_result_approve_ready_pr_does_not_touch_ready_state = function()
     local event = review_reached()
     local impl_version = reviewing().version
     mock_pr_origin({
@@ -82,13 +80,17 @@ return {
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_pr_merge({ origin_marker }, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, true)
-    mock_pr_ready()
-    mock_pr_merge({ origin_marker })
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_write_env("1")
-    mock_pr_merge({ origin_marker })
+    mock_pr_merge({ origin_marker }, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, true)
+    mock_pr_merge({ origin_marker }, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, true)
     mock_merging_comment()
-    mock_pr_merge_command()
+    mock_pr_ready()
+    t.mock_command("gh pr merge '7' --repo 'owner/repo' --merge --match-head-commit 'def456'", {
+      stdout = "merged\n",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
     mock_issue_close()
 
@@ -99,27 +101,19 @@ return {
     t.eq(count_calls("gh issue close"), 1)
   end,
 
-  test_merge_converts_draft_before_mergeability_gate_and_refetches = function()
+  test_merge_keeps_draft_pr_draft_when_mergeability_gate_fails = function()
     local event = merge_ready()
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
-    mock_pr_merge({ origin_marker }, nil, nil, nil, nil, nil, "UNKNOWN", "DRAFT", nil, nil, nil, true)
-    mock_pr_ready()
-    mock_pr_merge({ origin_marker })
-    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_write_env("1")
-    mock_pr_merge({ origin_marker })
-    mock_merging_comment()
-    mock_pr_merge_command()
-    mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "MERGED", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "SUCCESS", "2026-06-03T02:03:04Z")
-    mock_issue_close()
+    mock_pr_merge({ origin_marker }, nil, nil, nil, nil, nil, "UNKNOWN", "DRAFT", nil, nil, nil, true)
 
-    local result = run_merge(event, opts("merge-draft-refetch-before-mergeability", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh pr ready '7' --repo 'owner/repo'"), 1)
-    t.eq(count_calls("gh pr merge"), 1)
-    t.eq(count_calls("gh issue close"), 1)
+    local result = run_merge(event, opts("merge-draft-not-ready-before-mergeability", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh pr ready"), 0)
+    t.eq(count_calls("gh pr merge"), 0)
+    t.eq(count_calls("gh issue close"), 0)
   end,
 }
