@@ -34,8 +34,8 @@ function pipeline(event)
     return
   end
   if core.github_quota_backpressure_active("consensus_result") then
-    core.log_cas_decision("consensus_result", reached.proposal_id, { state = nil, version = nil }, "thinking", "ready", "hold-quota-backpressure", "GitHub GraphQL quota is below the configured threshold")
-    error("github-devloop: quota backpressure active for consensus result; retrying")
+    core.log_cas_decision("consensus_result", reached.proposal_id, { state = nil, version = nil }, "thinking", "ready", "skip-quota-backpressure", "GitHub GraphQL quota is below the configured threshold")
+    return
   end
 
   local lock_key = core.result_lock_key(reached.proposal_id)

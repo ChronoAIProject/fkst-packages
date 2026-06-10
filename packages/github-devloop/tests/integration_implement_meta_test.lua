@@ -78,22 +78,44 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
+local function seed_quota_backpressure(run_opts)
+  t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+    stdout = "fkst-test-bot",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_GRAPHQL_MIN_REMAINING"', {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(core.gh_rate_limit_cmd(), {
+    stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  local seeded = t.run_department("departments/observability/main.lua", {
+    queue = "devloop_observe_tick",
+    payload = { schema = "github-devloop.observe-tick.v1" },
+  }, run_opts)
+  t.eq(seeded.exit_code, 0)
+  t.eq(#seeded.raises, 0)
+end
+
 return {
-  test_implement_quota_backpressure_retries_before_dependency_gate = function()
-    t.mock_command(core.gh_rate_limit_cmd(), {
-      stdout = '{"resources":{"graphql":{"limit":5000,"remaining":999,"used":4001,"reset":1790000000}}}\n',
-      stderr = "",
-      exit_code = 0,
-    })
+  test_implement_quota_backpressure_skips_without_retry_or_probe = function()
+    local run_opts = opts("implement-quota-backpressure")
+    seed_quota_backpressure(run_opts)
+    local calls_after_refresh = count_calls("gh api rate_limit")
 
     local result = t.run_department("departments/implement/main.lua", {
       queue = "devloop_ready",
       payload = ready(),
-    }, opts("implement-quota-backpressure"))
+    }, run_opts)
 
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("gh api rate_limit"), 1)
+    t.eq(count_calls("gh api rate_limit"), calls_after_refresh)
     t.eq(count_calls("gh api graphql"), 0)
     t.eq(count_calls("--json title,labels,comments"), 0)
     t.eq(count_calls("codex exec"), 0)

@@ -25,6 +25,7 @@ local function run_observability(run_opts)
 end
 
 local function mock_env(bot_login)
+  cache_set(core.github_quota_backpressure_cache_key(), "ok/test//0")
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
     stdout = bot_login == nil and "fkst-test-bot" or bot_login,
     stderr = "",
@@ -345,6 +346,8 @@ return {
 
     t.eq(count_calls("gh api rate_limit"), 1)
     t.eq(count_calls("gh api --paginate --slurp"), 0)
+    local throttle = cache_get(core.github_quota_backpressure_cache_key())
+    t.is_true(throttle:find("^skip/low%-remaining/999/") ~= nil)
     local found = false
     for _, line in ipairs(logs) do
       if line:find("tag=GITHUB_QUOTA", 1, true) ~= nil
@@ -355,5 +358,17 @@ return {
       end
     end
     t.eq(found, true)
+  end,
+
+  test_cached_graphql_quota_backpressure_skips_second_rate_limit_probe = function()
+    mock_env()
+    mock_rate_limit(999)
+
+    t.eq(core.refresh_github_quota_backpressure("observability"), true)
+    local calls_after_first = count_calls("gh api rate_limit")
+
+    t.eq(core.refresh_github_quota_backpressure("observability"), true)
+
+    t.eq(count_calls("gh api rate_limit"), calls_after_first)
   end,
 }
