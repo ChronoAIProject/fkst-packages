@@ -37,7 +37,17 @@ local function mock_context_bundle()
       exit_code = 0,
     })
   end
+  helpers.t.mock_command("test -d", {
+    stdout = "",
+    stderr = "",
+    exit_code = 1,
+  })
   helpers.t.mock_command("install -d -m 0755", ok)
+  helpers.t.mock_command("mktemp -d", {
+    stdout = "/tmp/fkst-packages-test/github-devloop/runtime/context/.bundle-tmp.mocked\n",
+    stderr = "",
+    exit_code = 0,
+  })
   helpers.t.mock_command("--json title,body,updatedAt,labels,comments,state", {
     stdout = bundle_json,
     stderr = "",
@@ -55,6 +65,10 @@ local function mock_context_bundle()
   })
   for _ = 1, 4 do
     helpers.t.mock_command(" > ", ok)
+  end
+  helpers.t.mock_command("python3 -c", ok)
+  for _ = 1, 3 do
+    helpers.t.mock_command("test -r", ok)
   end
 end
 

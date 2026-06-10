@@ -121,6 +121,31 @@ local function neutralize_untrusted_prompt_text(text)
   return table.concat(output)
 end
 
+local function manifest_paths(manifest)
+  local paths = {}
+  for line in (tostring(manifest or "") .. "\n"):gmatch("([^\n]*)\n") do
+    local path = line:match(":%s*(/.+)%s*$")
+    if path ~= nil then
+      table.insert(paths, path)
+    end
+  end
+  return paths
+end
+
+local function assert_manifest_files_readable(manifest)
+  local paths = manifest_paths(manifest)
+  if #paths == 0 then
+    error("consensus: runtime context manifest has no readable file paths")
+  end
+  for _, path in ipairs(paths) do
+    local handle = io.open(path, "r")
+    if handle == nil then
+      error("consensus: runtime context manifest file is unreadable")
+    end
+    handle:close()
+  end
+end
+
 local function has_source_ref(value)
   return type(value) == "table"
     and is_bounded_string(value.kind, max_key_len)
@@ -149,6 +174,7 @@ local function resolve_content_manifest(content_fetch)
   if #manifest > max_content_fetch_len then
     error("consensus: runtime context manifest is overlong")
   end
+  assert_manifest_files_readable(manifest)
   return manifest
 end
 

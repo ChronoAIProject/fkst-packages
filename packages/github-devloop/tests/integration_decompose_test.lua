@@ -77,7 +77,13 @@ local function mock_decompose_codex(stdout)
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
   t.mock_command("install -d -m 0755", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("mktemp -d", {
+    stdout = "/tmp/fkst-packages-test/github-devloop/runtime/context/.bundle-tmp.decompose\n",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command("--json title,body,updatedAt,labels,comments,state", {
     stdout = '{"title":"Original large issue","body":"Original body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:blocked"}],"comments":[]}\n',
     stderr = "",
@@ -96,6 +102,12 @@ local function mock_decompose_codex(stdout)
   for _ = 1, 4 do
     t.mock_command(" > ", { stdout = "", stderr = "", exit_code = 0 })
   end
+  t.mock_command("python3 -c", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("test -r", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
     stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
     stderr = "",
