@@ -10,6 +10,7 @@ local reached = h.reached
 local unresolved = h.unresolved
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
 local output_language_instruction = "Write all output in English; quote code identifiers and cited originals verbatim."
+local zh_output_language_instruction = "Write all output in Chinese; quote code identifiers and cited originals verbatim."
 local verdict_summary_label = string.char(
   228, 184, 137, 230, 150, 185, 232, 163, 129, 229, 134, 179, 58, 32
 )
@@ -56,6 +57,29 @@ return {
     t.raises(function()
       core.devloop_config(exec)
     end)
+  end,
+
+  test_output_language_defaults_and_validation = function()
+    local responses = {
+      ['printf %s "$FKST_OUTPUT_LANG"'] = { stdout = "", exit_code = 0 },
+    }
+    local function exec(cmd)
+      local rendered = type(cmd) == "table" and cmd.cmd or cmd
+      return responses[rendered] or { stdout = "", stderr = "unexpected " .. tostring(rendered), exit_code = 1 }
+    end
+
+    t.eq(core.output_language(exec), "en")
+    responses['printf %s "$FKST_OUTPUT_LANG"'] = { stdout = "en", exit_code = 0 }
+    t.eq(core.output_language(exec), "en")
+    responses['printf %s "$FKST_OUTPUT_LANG"'] = { stdout = "zh", exit_code = 0 }
+    t.eq(core.output_language(exec), "zh")
+    responses['printf %s "$FKST_OUTPUT_LANG"'] = { stdout = "fr", exit_code = 0 }
+    t.eq(core.output_language(exec), "en")
+
+    t.eq(core.output_language_instruction("en"), output_language_instruction)
+    t.eq(core.output_language_instruction(nil), output_language_instruction)
+    t.eq(core.output_language_instruction("fr"), output_language_instruction)
+    t.eq(core.output_language_instruction("zh"), zh_output_language_instruction)
   end,
 
   test_opt_in_detection = function()

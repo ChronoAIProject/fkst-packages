@@ -8,7 +8,7 @@ Choose the conservative next state. Pick exactly one action:
 Fetch the full source content yourself before deciding. If you cannot fetch the full source content (issue body / PR diff / comments) for ANY reason, choose `block`.
 
 Respond with exactly two lines and no other text.
-Write all output in English; quote code identifiers and cited originals verbatim.
+{{output_language_instruction}}
 Line one: the marker named ⟦FKST:ACTION⟧ followed by one word from fix or block.
 Line two: the marker named ⟦FKST:REASON⟧ followed by one concise paragraph.
 

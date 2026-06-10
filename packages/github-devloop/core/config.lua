@@ -8,6 +8,7 @@ local allowed_env = {
   FKST_DEVLOOP_UPSTREAM_BRANCH = true,
   FKST_DEVLOOP_INTEGRATION_BRANCH = true,
   FKST_DEVLOOP_ROLLUP_MERGE = true,
+  FKST_OUTPUT_LANG = true,
 }
 
 local function read_env_command(name)
@@ -35,6 +36,21 @@ end
 
 function M.write_mode(exec)
   return M.read_env("FKST_GITHUB_WRITE", exec) == "1" and "real" or "dry-run"
+end
+
+function M.output_language(exec)
+  local lang = M._trim(M.read_env("FKST_OUTPUT_LANG", exec))
+  if lang == "zh" then
+    return "zh"
+  end
+  return "en"
+end
+
+function M.output_language_instruction(lang)
+  if M._trim(lang) == "zh" then
+    return "Write all output in Chinese; quote code identifiers and cited originals verbatim."
+  end
+  return "Write all output in English; quote code identifiers and cited originals verbatim."
 end
 
 function M.max_fix_rounds()

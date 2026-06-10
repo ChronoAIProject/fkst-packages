@@ -42,6 +42,7 @@ function M.build_implement_prompt(proposal_id, current, framing)
   local prompt = require("prompts.implement")
   local repo, issue_number = issue_ref_from_proposal_id(M, proposal_id)
   return M.render_template(prompt.template, {
+    output_language_instruction = M.output_language_instruction(M.output_language()),
     proposal_id = M.neutralize_untrusted_prompt_text(proposal_id),
     framing = bounded_framing(M, framing),
     title = M.neutralize_untrusted_prompt_text(current.title),
@@ -53,6 +54,7 @@ function M.build_fix_prompt(fix, current_issue, review_reason, framing)
   local prompt = require("prompts.fix")
   local repo, issue_number = issue_ref_from_proposal_id(M, fix.proposal_id)
   return M.render_template(prompt.template, {
+    output_language_instruction = M.output_language_instruction(M.output_language()),
     proposal_id = M.neutralize_untrusted_prompt_text(fix.proposal_id),
     review_proposal_id = M.neutralize_untrusted_prompt_text(fix.review_proposal_id),
     reviewed_head_sha = M.neutralize_untrusted_prompt_text(fix.reviewed_head_sha),
@@ -66,6 +68,7 @@ end
 function M.build_sync_conflict_prompt(conflict)
   local prompt = require("prompts.sync_conflict")
   return M.render_template(prompt.template, {
+    output_language_instruction = M.output_language_instruction(M.output_language()),
     repo = M.neutralize_untrusted_prompt_text(conflict.repo),
     upstream_branch = M.neutralize_untrusted_prompt_text(conflict.upstream_branch),
     integration_branch = M.neutralize_untrusted_prompt_text(conflict.integration_branch),
@@ -83,6 +86,7 @@ function M.build_review_meta_prompt(review_meta, current_issue)
   local repo, issue_number = issue_ref_from_proposal_id(M, review_meta.proposal_id)
 
   return M.render_template(prompt.template, {
+    output_language_instruction = M.output_language_instruction(M.output_language()),
     proposal_id = M.neutralize_untrusted_prompt_text(review_meta.proposal_id),
     review_proposal_id = M.neutralize_untrusted_prompt_text(review_meta.review_proposal_id),
     title = M.neutralize_untrusted_prompt_text(current_issue.title),
@@ -96,6 +100,7 @@ function M.build_intake_prompt(proposal_id, current)
   local comments = table.concat(M.comment_bodies(current.comments), "\n\n--- comment ---\n\n")
 
   return M.render_template(prompt.template, {
+    output_language_instruction = M.output_language_instruction(M.output_language()),
     proposal_id = M.neutralize_untrusted_prompt_text(proposal_id),
     title = M.quote_untrusted_prompt_text(current.title),
     body = M.quote_untrusted_prompt_text(current.body),
@@ -107,6 +112,7 @@ function M.build_decompose_prompt(decompose, current_issue)
   local prompt = require("prompts.decompose")
   local repo, issue_number = issue_ref_from_proposal_id(M, decompose.proposal_id)
   return M.render_template(prompt.template, {
+    output_language_instruction = M.output_language_instruction(M.output_language()),
     proposal_id = M.neutralize_untrusted_prompt_text(decompose.proposal_id),
     pr_source_ref = M.neutralize_untrusted_prompt_text(decompose.source_ref and decompose.source_ref.ref or ""),
     round = M.neutralize_untrusted_prompt_text(decompose.round),

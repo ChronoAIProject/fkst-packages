@@ -3,7 +3,7 @@ return {
 {{bias}}
 
 Respond with exactly two lines and no other text.
-Write all output in English; quote code identifiers and cited originals verbatim.
+{{output_language_instruction}}
 Line one: the marker ⟦FKST:VERDICT⟧ followed by one word - {{verdict_options}}.
 Line two: the marker ⟦FKST:REPLY⟧ followed by one concise paragraph.
 {{readiness_instruction}}

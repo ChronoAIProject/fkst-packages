@@ -20,6 +20,7 @@ local max_digest_len = 600
 local max_prior_round_digests = 12
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
+local output_lang_cmd = 'printf %s "$FKST_OUTPUT_LANG"'
 
 function M.verdict_mode(proposal)
   if type(proposal) == "table" and proposal.verdict_mode == "gate" then
@@ -30,6 +31,28 @@ end
 
 local function trim(value)
   return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function current_output_language()
+  if type(exec_sync) ~= "function" then
+    return "en"
+  end
+  local ok, out = pcall(exec_sync, output_lang_cmd)
+  if not ok or type(out) ~= "table" or out.exit_code ~= 0 then
+    return "en"
+  end
+  local lang = trim(out.stdout)
+  if lang == "zh" then
+    return "zh"
+  end
+  return "en"
+end
+
+function M.output_language_instruction(lang)
+  if trim(lang) == "zh" then
+    return "Write all output in Chinese; quote code identifiers and cited originals verbatim."
+  end
+  return "Write all output in English; quote code identifiers and cited originals verbatim."
 end
 
 local function is_bounded_string(value, limit)
@@ -302,6 +325,7 @@ function M.build_angle_prompt(proposal, angle)
   local safe_angle = neutralize_untrusted_prompt_text(angle)
   return M.render_template(prompt.template, {
     bias = prompt.bias[angle] or ("Bias: " .. safe_angle .. ". Judge from this named perspective."),
+    output_language_instruction = M.output_language_instruction(current_output_language()),
     angle = safe_angle,
     title = neutralize_untrusted_prompt_text(proposal.title),
     body = neutralize_untrusted_prompt_text(proposal.body),
@@ -465,6 +489,7 @@ function M.build_meta_judge_prompt(proposal, angle_results)
   local verdict_mode = M.verdict_mode(proposal)
 
   return M.render_template(prompt.template, {
+    output_language_instruction = M.output_language_instruction(current_output_language()),
     title = neutralize_untrusted_prompt_text(proposal.title),
     body = neutralize_untrusted_prompt_text(proposal.body),
     content_fetch_block = render_content_fetch_block(proposal, verdict_mode),

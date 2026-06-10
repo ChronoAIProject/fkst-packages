@@ -9,6 +9,7 @@ local action_label = "⟦FKST:ACTION⟧"
 local reason_label = "⟦FKST:REASON⟧"
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
 local output_language_instruction = "Write all output in English; quote code identifiers and cited originals verbatim."
+local zh_output_language_instruction = "Write all output in Chinese; quote code identifiers and cited originals verbatim."
 
 local function review_unresolved(extra)
   local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -43,7 +44,80 @@ local function copy_table(value, extra)
   return copied
 end
 
+local function sample_fix()
+  return {
+    proposal_id = "github-devloop/issue/owner/repo/42",
+    review_proposal_id = core.pr_review_proposal_id("owner/repo", 7, "reviewing/v1", "abc123"),
+    reviewed_head_sha = "abc123",
+  }
+end
+
+local function prompt_sample_builders()
+  return {
+    function()
+      return core.build_implement_prompt("github-devloop/issue/owner/repo/42", {
+        title = "Fix parser",
+      }, "Keep the parser contract stable.")
+    end,
+    function()
+      return core.build_fix_prompt(sample_fix(), {
+        title = "Fix parser",
+      }, "Review feedback", "Keep the parser contract stable.")
+    end,
+    function()
+      return core.build_review_meta_prompt({
+        proposal_id = "github-devloop/issue/owner/repo/42",
+        review_proposal_id = core.pr_review_proposal_id("owner/repo", 7, "reviewing/v1", "def456"),
+      }, {
+        title = "PR #7",
+        comments = {},
+      })
+    end,
+    function()
+      return core.build_intake_prompt("github-devloop/issue/owner/repo/42", {
+        title = "Implement a bounded parser fix",
+        body = "Please update the parser.",
+        comments = {},
+      })
+    end,
+    function()
+      return core.build_decompose_prompt({
+        proposal_id = "github-devloop/issue/owner/repo/42",
+        source_ref = source_ref("owner/repo#pr/7"),
+        round = 5,
+      }, {
+        title = "Split blocked work",
+      })
+    end,
+    function()
+      return core.build_sync_conflict_prompt({
+        repo = "owner/repo",
+        upstream_branch = "dev",
+        integration_branch = "integration/dev",
+        upstream_sha = "abc123",
+        integration_sha = "def456",
+      })
+    end,
+  }
+end
+
 return {
+  test_prompt_builders_read_output_language_env = function()
+    for _, build_prompt in ipairs(prompt_sample_builders()) do
+      t.mock_command('printf %s "$FKST_OUTPUT_LANG"', { stdout = "zh", stderr = "", exit_code = 0 })
+      local prompt = build_prompt()
+      t.is_true(prompt:find(zh_output_language_instruction, 1, true) ~= nil)
+      t.is_nil(prompt:find(output_language_instruction, 1, true))
+    end
+
+    for _, build_prompt in ipairs(prompt_sample_builders()) do
+      t.mock_command('printf %s "$FKST_OUTPUT_LANG"', { stdout = "en", stderr = "", exit_code = 0 })
+      local prompt = build_prompt()
+      t.is_true(prompt:find(output_language_instruction, 1, true) ~= nil)
+      t.is_nil(prompt:find(zh_output_language_instruction, 1, true))
+    end
+  end,
+
   test_same_issue_transition_lock_key_is_shared = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local expected = "github-devloop/transition/owner/repo/issue/42"
