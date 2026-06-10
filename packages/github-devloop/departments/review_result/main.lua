@@ -17,6 +17,49 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
+local function is_already_ready_error(stderr)
+  local lower = tostring(stderr or ""):lower()
+  return lower:find("already ready", 1, true) ~= nil
+    or lower:find("not a draft", 1, true) ~= nil
+end
+
+local function convert_pr_ready_on_approve(repo, pr_number, reached, current_pr)
+  if reached.decision ~= "approve" then
+    return
+  end
+  if core.write_mode() ~= "real" then
+    core.log_line("info", "review_result", reached.proposal_id, "OUTBOUND", {
+      "mode=dry-run",
+      "cmd=gh pr ready",
+      "repo=" .. tostring(repo),
+      "pr=" .. tostring(pr_number),
+      "reason=FKST_GITHUB_WRITE!=1",
+    })
+    return
+  end
+  if current_pr ~= nil and current_pr.is_draft ~= true then
+    core.log_line("info", "review_result", reached.proposal_id, "OUTBOUND", {
+      "mode=skip",
+      "cmd=gh pr ready",
+      "repo=" .. tostring(repo),
+      "pr=" .. tostring(pr_number),
+      "reason=PR is already ready",
+    })
+    return
+  end
+  local ready = exec_sync({ cmd = core.gh_pr_ready_cmd(repo, pr_number), timeout = 30 })
+  if ready.exit_code ~= 0 and not is_already_ready_error(ready.stderr) then
+    error("github-devloop: gh pr ready failed for review approval: " .. tostring(ready.stderr))
+  end
+  core.log_line("info", "review_result", reached.proposal_id, "OUTBOUND", {
+    "mode=real",
+    "cmd=gh pr ready",
+    "repo=" .. tostring(repo),
+    "pr=" .. tostring(pr_number),
+    "reason=review consensus approve",
+  })
+end
+
 function pipeline(event)
   local reached = event.payload or {}
   if not core.is_supported_review_result(reached) then
@@ -158,6 +201,7 @@ function pipeline(event)
         review_dedup_key = reached.dedup_key,
         reviewed_head_sha = reviewed_head_sha,
       }, pr_source_ref)
+      convert_pr_ready_on_approve(origin.repo, pr_number, reached, current_pr)
       table.insert(raised, "devloop_merge_ready")
     end
     core.log_apply("review_result", origin.proposal_id, to_state, issue_version, { add = add_labels, remove = remove_labels }, raised)

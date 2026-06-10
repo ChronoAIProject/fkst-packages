@@ -88,6 +88,7 @@ local function mock_pr_origin(comments, head, head_sha, state, base_branch, is_d
       head_sha = head_sha or "def456",
       state = state or "OPEN",
       base_branch = base_branch or "dev",
+      is_draft = is_draft,
     })
     return
   end

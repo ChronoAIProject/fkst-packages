@@ -654,6 +654,7 @@ mock_pr_origin_from_cached = function(payload, head_sha)
   local head = pending and pending.head or "devloop-owner-repo-42-01HY"
   local base_branch = pending and pending.base_branch or "dev"
   local state = pending and pending.state or "OPEN"
+  local is_draft = pending and pending.is_draft == true
   local effective_head_sha = latest_fix_head_sha(cached) or (pending and pending.head_sha) or head_sha or "def456"
   local comments = {}
   if pending ~= nil then
@@ -672,11 +673,12 @@ mock_pr_origin_from_cached = function(payload, head_sha)
   end
   t.mock_command("--json headRefName,headRefOid,baseRefName,state,isDraft,updatedAt,comments", {
     stdout = string.format(
-      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"%s","state":"%s","isDraft":false,"updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
+      '{"headRefName":"%s","headRefOid":"%s","baseRefName":"%s","state":"%s","isDraft":%s,"updatedAt":"2026-06-03T02:03:04Z","comments":[%s]}\n',
       json_string(head),
       json_string(effective_head_sha),
       json_string(base_branch),
       json_string(state),
+      is_draft and "true" or "false",
       table.concat(rendered_comments, ",")
     ),
     stderr = "",
