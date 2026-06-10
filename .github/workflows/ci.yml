@@ -42,7 +42,7 @@ jobs:
       - name: Checkout fkst-substrate
         uses: actions/checkout@v4
         with:
-          repository: ChronoAIProject/fkst-substrate
+          repository: ${{ steps.substrate_ref.outputs.repository }}
           ref: ${{ steps.substrate_ref.outputs.ref }}
           path: fkst-substrate
 

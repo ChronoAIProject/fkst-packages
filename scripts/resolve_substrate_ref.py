@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -11,6 +12,15 @@ from pathlib import Path
 
 DEFAULT_REPOSITORY = "ChronoAIProject/fkst-substrate"
 DEFAULT_REF = "dev"
+REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def validate_repository(repository: str) -> None:
+    if not REPOSITORY_RE.fullmatch(repository):
+        raise ValueError("invalid-substrate-pin-repository")
+    for segment in repository.split("/"):
+        if segment in {"", ".", ".."}:
+            raise ValueError("invalid-substrate-pin-repository")
 
 
 def parse_pin(raw: str | None) -> tuple[str, str]:
@@ -25,8 +35,7 @@ def parse_pin(raw: str | None) -> tuple[str, str]:
         raise ValueError("invalid-substrate-pin-empty-part")
     if "@" in ref:
         raise ValueError("invalid-substrate-pin-too-many-at")
-    if repository != DEFAULT_REPOSITORY:
-        raise ValueError("invalid-substrate-pin-repository")
+    validate_repository(repository)
     return repository, ref
 
 

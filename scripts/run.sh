@@ -35,16 +35,29 @@
 #       fkst-framework. test/run/supervise ensure a traceable local BIN is built
 #       from the current fkst-substrate working tree before running.
 #
-#   scripts/run.sh bootstrap
-#       Explicitly clone or fetch the fixed fkst-substrate source repository at
-#       .fkst-substrate-ref and build fkst-framework in the user cache. Prints
-#       the resulting BIN path for manual .env configuration.
-#
 # fkst-framework binary resolution (priority): $BIN > repo .env `BIN=` > PATH >
-# sibling ../fkst-substrate/target/debug/fkst-framework.
+# sibling ../fkst-substrate/target/debug/fkst-framework > .fkst-substrate-ref
+# source checkout in the user cache.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+bootstrap_bin() {
+  local out bin_path
+  out="$(python3 "$ROOT/scripts/bootstrap_substrate.py" --pin-file "$ROOT/.fkst-substrate-ref" --bin-path-only 2>&1)" || {
+    printf '%s\n' "$out" >&2
+    exit 1
+  }
+  bin_path="$(printf '%s\n' "$out" | tail -1)"
+  if [ -z "$bin_path" ]; then
+    printf '%s\n' "$out" >&2
+    echo "error: fkst-substrate-bootstrap-no-bin: bootstrap did not report BIN" >&2
+    exit 1
+  fi
+  BIN="$bin_path"
+  bin_source=".fkst-substrate-ref"
+  printf '%s\n' "$out" | sed '$d' >&2
+}
 
 resolve_bin() {
   local bin_source=""
@@ -80,9 +93,10 @@ resolve_bin() {
       echo "  CI must build fkst-substrate and inject BIN; scripts/run.sh will not build in CI." >&2
       exit 1
     fi
-    echo "error: fkst-framework binary not found (\$BIN, .env, PATH, ../fkst-substrate)." >&2
-    echo "  fix: cp env.example .env (set BIN=), use scripts/run.sh bootstrap, or build the engine:" >&2
-    echo "       scripts/run.sh build" >&2
+    bootstrap_bin
+  fi
+  if [ -n "${BIN:-}" ] && [ ! -x "$BIN" ]; then
+    echo "error: fkst-framework binary is not executable from $bin_source: $BIN" >&2
     exit 1
   fi
   export BIN

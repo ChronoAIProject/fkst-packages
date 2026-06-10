@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from resolve_substrate_ref import DEFAULT_REPOSITORY, parse_pin, read_pin
+from resolve_substrate_ref import parse_pin, read_pin
 
 
 def fail(code: str, detail: str | None = None) -> int:
@@ -114,6 +114,11 @@ def build_framework(repository: str, ref: str, checkout: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pin-file", required=True, help="path to .fkst-substrate-ref")
+    parser.add_argument(
+        "--bin-path-only",
+        action="store_true",
+        help="print only the resolved fkst-framework path on stdout",
+    )
     args = parser.parse_args()
 
     if os.environ.get("FKST_NO_AUTOBUILD"):
@@ -127,8 +132,6 @@ def main() -> int:
 
     try:
         repository, ref = parse_pin(read_pin(Path(args.pin_file)))
-        if repository != DEFAULT_REPOSITORY:
-            raise ValueError("fkst-substrate-bootstrap-repository-not-allowed")
         checkout = cache_checkout()
     except ValueError as exc:
         return fail("fkst-substrate-pin-invalid", str(exc))
@@ -144,8 +147,11 @@ def main() -> int:
     except RuntimeError as exc:
         return fail(str(exc))
 
-    print(f"BIN={shlex.quote(str(bin_path))}")
-    print("FKST_BOOTSTRAPPED_BIN=1")
+    if args.bin_path_only:
+        print(bin_path)
+    else:
+        print(f"BIN={shlex.quote(str(bin_path))}")
+        print("FKST_BOOTSTRAPPED_BIN=1")
     return 0
 
 
