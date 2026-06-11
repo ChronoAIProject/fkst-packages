@@ -21,7 +21,11 @@ local function catalog_for(lang)
   if loaded_catalogs[normalized] ~= nil then
     return loaded_catalogs[normalized]
   end
-  local ok, catalog = pcall(require, "locales." .. normalized)
+  local ok, catalog = false, nil
+  local found, path = pcall(package.searchpath, "locales." .. normalized, package.path)
+  if found and path ~= nil then
+    ok, catalog = pcall(dofile, path)
+  end
   if not ok or type(catalog) ~= "table" then
     if normalized ~= "en" then
       return catalog_for("en")
