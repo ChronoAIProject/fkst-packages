@@ -596,6 +596,40 @@ return {
     t.is_true(input_path ~= "/tmp/fkst-github-devloop-dashboard-owner-repo.json")
   end,
 
+  test_dashboard_write_reuses_existing_trusted_issue_across_output_languages = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    mock_env("fkst-test-bot", "1")
+    mock_all_issue_lists({ 42 })
+    mock_pr_list({})
+    mock_issue_view({
+      render_comment(core.state_marker(proposal_id, "reviewing", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+    })
+    mock_dashboard_issue_list('[[{"number":99,"title":"fkst-dev board","user":{"login":"fkst-test-bot"},"body":"old\\n<!-- fkst:dashboard:v1 version=\\"2026-06-01T00:00:00Z\\" hash=\\"old\\" generated_at=\\"2026-06-01T00:00:00Z\\" -->"}]]\n')
+    t.mock_command("gh api --method GET --include 'repos/owner/repo/issues/99'", {
+      stdout = 'HTTP/2.0 200 OK\netag: "dashboard-old-etag"\n\n{"number":99,"title":"fkst-dev board","author":{"login":"fkst-test-bot"},"body":"old\\n<!-- fkst:dashboard:v1 version=\\"2026-06-01T00:00:00Z\\" hash=\\"old\\" generated_at=\\"2026-06-01T00:00:00Z\\" -->"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh api --method PATCH 'repos/owner/repo/issues/99' --header 'If-Match: \"dashboard-old-etag\"' --input '/tmp/fkst-github-devloop-dashboard-owner-repo-", {
+      stdout = '{"number":99}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_observability(opts("observability-dashboard-lang-switch-update", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_OUTPUT_LANG = "zh",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/repo/issues'"), 0)
+    t.eq(count_calls("gh api --method PATCH 'repos/owner/repo/issues/99' --header 'If-Match: \"dashboard-old-etag\"'"), 1)
+    local input_path = command_input_path(first_call("gh api --method PATCH 'repos/owner/repo/issues/99' --header 'If-Match: \"dashboard-old-etag\"'"))
+    t.is_true(input_path ~= nil)
+    local written = file.read(input_path)
+    t.is_true(written:find('"title":"fkst-dev 看板"', 1, true) ~= nil)
+  end,
+
   test_dashboard_write_skips_update_when_version_cas_mismatches = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     mock_env("fkst-test-bot", "1")
