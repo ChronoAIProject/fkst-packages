@@ -51,6 +51,11 @@ local function mock_env(bot_login, write_mode)
       exit_code = 0,
     })
   end
+  t.mock_command('printf %s "$FKST_DEVLOOP_OBSERVE_CODEX_STATUS"', {
+    stdout = "0",
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function json_string(value)
@@ -494,12 +499,98 @@ return {
 
     t.is_true(body:find("tag=DASHBOARD_DRY_RUN", 1, true) ~= nil)
     t.is_true(body:find("# fkst-dev board", 1, true) ~= nil)
+    t.is_true(body:find("## Topology", 1, true) ~= nil)
+    t.is_true(body:find("flowchart LR", 1, true) ~= nil)
+    t.is_true(body:find("subgraph github_proxy [github-proxy]", 1, true) ~= nil)
+    t.is_true(body:find("consensus(3+meta)", 1, true) ~= nil)
+    t.is_true(body:find("## Live overlay", 1, true) ~= nil)
     t.is_true(body:find("## Now working", 1, true) ~= nil)
+    t.is_true(body:find("## Pipeline census", 1, true) ~= nil)
     t.is_true(body:find("## Board by state", 1, true) ~= nil)
     t.is_true(body:find("#42 Observed issue - ready", 1, true) ~= nil)
     t.is_true(body:find("fkst:dashboard:v1", 1, true) ~= nil)
     t.eq(count_calls("gh api --method POST"), 0)
     t.eq(count_calls("gh api --method PATCH"), 0)
+  end,
+
+  test_dashboard_topology_map_validates_graph_json_departments = function()
+    local missing = core.dashboard_validate_graph({
+      departments = {
+        { name = "github_poll" },
+        { name = "observe_issue" },
+        { name = "decide" },
+      },
+    })
+    t.eq(#missing, 0)
+
+    local drift = core.dashboard_validate_graph({
+      departments = {
+        { name = "github_poll" },
+        { name = "new_unmapped_department" },
+      },
+    })
+    t.eq(#drift, 1)
+    t.eq(drift[1], "new_unmapped_department")
+  end,
+
+  test_dashboard_v2_renders_codex_registry_running_completed_and_resources = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local rendered = core.render_observability_dashboard({
+      entities = {
+        {
+          proposal_id = proposal_id,
+          issue_number = 42,
+          pr_number = 7,
+          title = "Observed issue",
+          dependency_wait = nil,
+          state = {
+            state = "reviewing",
+            version = "2026-06-03T01-02-03Z",
+          },
+        },
+      },
+      counts = { reviewing = 1 },
+      stalls = {},
+      now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T01:12:03Z"),
+      graph_status = "ok",
+      codex_status = {
+        running = {
+          {
+            role = "review:angle-2",
+            entity = "PR#7 (#42 Observed issue)",
+            started_at = "2026-06-03T01:08:51Z",
+          },
+        },
+        completed = {
+          {
+            role = "implement",
+            entity = "#42",
+            duration_seconds = 192,
+            outcome = "impl pushed abc123",
+            marker_url = "https://example.test/comment/1",
+          },
+        },
+        resources = {
+          codex_used = 1,
+          codex_total = 20,
+          gh_rate_pool = { remaining = 42, refill = "60/h" },
+          quota = { graphql_remaining = 4990, rest_remaining = 4988 },
+          redb_size = "12MiB",
+        },
+      },
+    })
+
+    local body = rendered.body
+    t.is_true(body:find("- review:angle-2 -> PR#7 (#42 Observed issue); elapsed=3m12s", 1, true) ~= nil)
+    t.is_true(body:find("### Recent codex completions", 1, true) ~= nil)
+    t.is_true(body:find("impl pushed abc123", 1, true) ~= nil)
+    t.is_true(body:find("- eligible=0; dependency-held=0; terminal=0", 1, true) ~= nil)
+    t.is_true(body:find("- codex queued=0; running=1", 1, true) ~= nil)
+    t.is_true(body:find("- rounds max: thinking=0; fix=0; review=0", 1, true) ~= nil)
+    t.is_true(body:find("- codex permits: 1/20", 1, true) ~= nil)
+    t.is_true(body:find("- gh rate pool: remaining=42, refill=60/h", 1, true) ~= nil)
+    t.is_true(body:find("- GraphQL/REST quota: GraphQL=4990, REST=4988", 1, true) ~= nil)
+    t.is_true(body:find("- redb size: 12MiB", 1, true) ~= nil)
   end,
 
   test_dashboard_write_creates_single_marker_issue_when_absent = function()
@@ -670,11 +761,14 @@ return {
 
   test_dashboard_write_skips_existing_trusted_issue_when_hash_matches = function()
     mock_env("fkst-test-bot", "1")
+    local graph, graph_status = core.dashboard_read_graph()
     local rendered = core.render_observability_dashboard({
       entities = {},
       counts = {},
       stalls = {},
       now_seconds = now(),
+      graph = graph,
+      graph_status = graph_status,
     })
     mock_env("fkst-test-bot", "1")
     mock_all_issue_lists({})

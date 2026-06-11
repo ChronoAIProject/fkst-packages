@@ -7,6 +7,7 @@ M.spec = {
   produces = {},
   ephemeral = { "devloop_observe_tick" },
   retry = false,
+  graph_json = true,
   stall_window = "2m",
 }
 

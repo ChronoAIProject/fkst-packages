@@ -5,9 +5,6 @@ local dept = "observability"
 local dashboard_title = "fkst-dev board"
 local dashboard_label = "fkst-dashboard"
 local dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
-local max_dashboard_body_len = 12000
-local max_dashboard_section_items = 40
-local max_dashboard_title_len = 80
 local stall_suspect_threshold_minutes = {
   thinking = 30,
   ready = 30,
@@ -319,91 +316,6 @@ local function entity_sort_key(entity)
   return tostring(entity.proposal_id or "")
 end
 
-local function entity_issue_ref(entity)
-  if tonumber(entity.issue_number) ~= nil then
-    return "#" .. tostring(entity.issue_number)
-  end
-  return tostring(entity.proposal_id or "unknown")
-end
-
-local function compact_title(value)
-  local title = tostring(value or ""):gsub("%c", " "):gsub("%s+", " ")
-  title = title:gsub("^%s+", ""):gsub("%s+$", "")
-  title = M.neutralize_untrusted_comment_text(title)
-  if title == "" then
-    title = "(untitled)"
-  end
-  if #title > max_dashboard_title_len then
-    title = M.truncate_utf8(title, max_dashboard_title_len - 3):gsub("%s+$", "") .. "..."
-  end
-  return title
-end
-
-local function entity_age_minutes(entity, now_seconds)
-  if entity == nil or entity.state == nil then
-    return nil
-  end
-  return M.stall_suspect_age_minutes(entity.state.version, now_seconds)
-end
-
-local function format_age(age_minutes)
-  if tonumber(age_minutes) == nil then
-    return "age unknown"
-  end
-  local minutes = tonumber(age_minutes)
-  if minutes < 60 then
-    return tostring(minutes) .. "m"
-  end
-  local hours = math.floor(minutes / 60)
-  local rest = minutes % 60
-  if hours < 48 then
-    return tostring(hours) .. "h " .. tostring(rest) .. "m"
-  end
-  local days = math.floor(hours / 24)
-  local day_hours = hours % 24
-  return tostring(days) .. "d " .. tostring(day_hours) .. "h"
-end
-
-local function entity_line(entity, now_seconds)
-  local state = entity.state and entity.state.state or "unmanaged"
-  local parts = {
-    "- " .. entity_issue_ref(entity),
-    compact_title(entity.title),
-    "-",
-    tostring(state) .. ",",
-    format_age(entity_age_minutes(entity, now_seconds)),
-  }
-  if tonumber(entity.pr_number) ~= nil then
-    table.insert(parts, "(PR #" .. tostring(entity.pr_number) .. ")")
-  end
-  if entity.dependency_wait ~= nil then
-    table.insert(parts, "[dependency-wait]")
-  end
-  return table.concat(parts, " ")
-end
-
-local function append_entity_lines(lines, entities, now_seconds)
-  if #entities == 0 then
-    table.insert(lines, "- None")
-    return
-  end
-  local shown = 0
-  for _, entity in ipairs(entities) do
-    if shown >= max_dashboard_section_items then
-      table.insert(lines, "- ... " .. tostring(#entities - shown) .. " more")
-      return
-    end
-    table.insert(lines, entity_line(entity, now_seconds))
-    shown = shown + 1
-  end
-end
-
-local function append_state_section(lines, title, state, by_state, now_seconds)
-  table.insert(lines, "")
-  table.insert(lines, "## " .. title)
-  append_entity_lines(lines, by_state[state] or {}, now_seconds)
-end
-
 local function log_entity(entity)
   local state = entity.state or {}
   log.info(M.observe_entity_log_line(entity.proposal_id, {
@@ -484,95 +396,6 @@ local function log_summary(counts, total)
     table.insert(fields, "unmanaged=" .. tostring(counts.unmanaged))
   end
   log.info(table.concat(fields, " "))
-end
-
-function M.render_observability_dashboard(args)
-  local list = args and args.entities or {}
-  local counts = args and args.counts or {}
-  local stalls = args and args.stalls or {}
-  local now_seconds = args and args.now_seconds or now()
-  local generated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now_seconds)
-  local instance = M.read_env("FKST_GITHUB_BOT_LOGIN") or "unknown"
-  local by_state = { unmanaged = {} }
-  for _, state in ipairs(M._state_order) do
-    by_state[state] = {}
-  end
-  for _, entity in ipairs(list) do
-    local state = entity.state and entity.state.state or "unmanaged"
-    by_state[state] = by_state[state] or {}
-    table.insert(by_state[state], entity)
-  end
-
-  local lines = {
-    "# " .. dashboard_title,
-    "",
-    "Live read-only dashboard generated from trusted fkst-dev markers. Chinese: &#27492;&#30475;&#26495;&#21482;&#26159;&#21487;&#20449; marker &#30340;&#21482;&#35835;&#27966;&#29983;&#35270;&#22270;&#65292;&#19981;&#26159;&#20107;&#23454;&#28304;&#12290;",
-    "",
-    "## Now working",
-  }
-  local working = {}
-  for _, state in ipairs({ "implementing", "pr-open", "reviewing", "fixing", "merge-ready", "merging" }) do
-    for _, entity in ipairs(by_state[state] or {}) do
-      table.insert(working, entity)
-    end
-  end
-  append_entity_lines(lines, working, now_seconds)
-
-  table.insert(lines, "")
-  table.insert(lines, "## Board by state")
-  table.insert(lines, "Total: " .. tostring(#list))
-  for _, state in ipairs(M._state_order) do
-    table.insert(lines, "- " .. tostring(state) .. ": " .. tostring(counts[state] or 0))
-  end
-  if counts.unmanaged ~= nil then
-    table.insert(lines, "- unmanaged: " .. tostring(counts.unmanaged))
-  end
-
-  append_state_section(lines, "Ready", "ready", by_state, now_seconds)
-  append_state_section(lines, "Blocked", "blocked", by_state, now_seconds)
-  append_state_section(lines, "Review meta", "review-meta", by_state, now_seconds)
-  append_state_section(lines, "Thinking", "thinking", by_state, now_seconds)
-
-  table.insert(lines, "")
-  table.insert(lines, "## Stall suspects")
-  if #stalls == 0 then
-    table.insert(lines, "- None")
-  else
-    local shown = 0
-    for _, stall in ipairs(stalls) do
-      if shown >= max_dashboard_section_items then
-        table.insert(lines, "- ... " .. tostring(#stalls - shown) .. " more")
-        break
-      end
-      table.insert(lines, entity_line(stall.entity, now_seconds)
-        .. " (threshold " .. tostring(stall.threshold_minutes) .. "m)")
-      shown = shown + 1
-    end
-  end
-
-  table.insert(lines, "")
-  table.insert(lines, "## Recent transitions")
-  table.insert(lines, "- Not rendered: no existing low-cost transition history source is available to this department.")
-  table.insert(lines, "")
-  table.insert(lines, "## Footer")
-  table.insert(lines, "- quota: not rendered")
-  table.insert(lines, "- instance: " .. tostring(instance))
-  table.insert(lines, "- generated-at: " .. generated_at)
-
-  local stable = table.concat(lines, "\n")
-  local hash = M._decimal_checksum(stable:gsub("%- generated%-at: [^\n]+", "- generated-at: <generated>"))
-  local marker = dashboard_marker(hash, generated_at)
-  local body = stable .. "\n\n" .. marker .. "\n"
-  if #body > max_dashboard_body_len then
-    local marker_suffix = "\n\n" .. marker .. "\n"
-    body = M.truncate_utf8(body, max_dashboard_body_len - #marker_suffix) .. marker_suffix
-  end
-  return {
-    body = body,
-    hash = hash,
-    version = generated_at,
-    generated_at = generated_at,
-  }
 end
 
 local function trusted_dashboard_issue(repo, bot_login)
@@ -759,11 +582,19 @@ function M.observe_devloop_entities()
     end
   end
   log_summary(counts, #list)
+  local graph, graph_status = M.dashboard_read_graph()
+  local codex_status = nil
+  if M.read_env("FKST_DEVLOOP_OBSERVE_CODEX_STATUS") ~= "0" then
+    codex_status = M.dashboard_read_codex_status()
+  end
   local dashboard = M.render_observability_dashboard({
     entities = list,
     counts = counts,
     stalls = stalls,
     now_seconds = now_seconds,
+    graph = graph,
+    graph_status = graph_status,
+    codex_status = codex_status,
   })
   M.publish_observability_dashboard(repo, dashboard)
 
