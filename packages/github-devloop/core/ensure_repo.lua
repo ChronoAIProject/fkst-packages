@@ -313,18 +313,6 @@ function M.dashboard_label()
   return dashboard_label
 end
 
-function M.dashboard_marker(hash, generated_at)
-  return dashboard_marker_prefix
-    .. ' version="' .. tostring(generated_at or "")
-    .. '" hash="' .. tostring(hash or "")
-    .. '" generated_at="' .. tostring(generated_at or "")
-    .. '" -->'
-end
-
-function M.dashboard_marker_prefix()
-  return dashboard_marker_prefix
-end
-
 function M.ensure_repo_label_specs()
   local copy = {}
   for _, label in ipairs(canonical_labels) do

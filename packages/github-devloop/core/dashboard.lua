@@ -2,6 +2,7 @@ local S = {}
 
 function S.install(M)
 local dashboard_title = "fkst-dev board"
+local dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
 local max_dashboard_body_len = 12000
 local max_dashboard_section_items = 40
 local max_dashboard_title_len = 80
@@ -578,6 +579,18 @@ end
 
 function M.dashboard_topology_nodes()
   return topology_nodes
+end
+
+function M.dashboard_marker(hash, generated_at)
+  return dashboard_marker_prefix
+    .. ' version="' .. tostring(generated_at or "")
+    .. '" hash="' .. tostring(hash or "")
+    .. '" generated_at="' .. tostring(generated_at or "")
+    .. '" -->'
+end
+
+function M.dashboard_marker_prefix()
+  return dashboard_marker_prefix
 end
 
 function M.dashboard_validate_graph(graph)
