@@ -73,6 +73,15 @@ local function mock_meta(line, exit_code)
   })
 end
 
+local function digest_for_angle(digests, angle)
+  for _, digest in ipairs(digests or {}) do
+    if digest.angle == angle then
+      return digest
+    end
+  end
+  return nil
+end
+
 return {
   test_all_angles_approve_raises_consensus_reached = function()
     mock_angle("approve", "Minimal angle approves.")
@@ -156,8 +165,8 @@ return {
     t.eq(result.raises[1].payload.source_ref.kind, "proposal")
     t.eq(result.raises[1].payload.source_ref.ref, "demo/consensus/42")
     t.eq(#result.raises[1].payload.angle_digests, 3)
-    t.eq(result.raises[1].payload.angle_digests[1].verdict, "approve")
-    t.eq(result.raises[1].payload.angle_digests[2].verdict, "abstain")
+    t.eq(digest_for_angle(result.raises[1].payload.angle_digests, "minimal").verdict, "approve")
+    t.eq(digest_for_angle(result.raises[1].payload.angle_digests, "structural").verdict, "abstain")
     t.is_nil(result.raises[1].payload.body)
     t.is_nil(result.raises[1].payload.angle_results)
     t.is_nil(result.raises[1].payload.decision)
