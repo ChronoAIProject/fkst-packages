@@ -18,6 +18,19 @@ local function decline_result(reason)
   }
 end
 
+local function judgment_worktree(role, identity)
+  local runtime = exec_sync({ cmd = core.read_runtime_root_cmd(), timeout = 30 })
+  if runtime.exit_code ~= 0 then
+    error("github-devloop: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime.stderr))
+  end
+  local worktree = core.judgment_worktree_path(runtime.stdout, role, identity)
+  local mkdir = exec_sync({ cmd = core.mkdir_p_cmd(worktree), timeout = 30 })
+  if mkdir.exit_code ~= 0 then
+    error("github-devloop: judgment scratch directory setup failed: " .. tostring(mkdir.stderr))
+  end
+  return worktree
+end
+
 function pipeline(event)
   local candidate = event.payload or {}
   if not core.is_supported_intake_candidate(candidate) then
@@ -36,7 +49,7 @@ function pipeline(event)
   with_lock(core.observe_lock_key(repo, issue_number), function()
     core.assert_trusted_bot_configured()
 
-    local view = exec_sync({ cmd = core.gh_issue_view_intake_judge_cmd(repo, issue_number), timeout = 30 })
+    local view = core.gh_exec({ cmd = core.gh_issue_view_intake_judge_cmd(repo, issue_number), timeout = 30 })
     if view.exit_code ~= 0 then
       error("github-devloop: gh issue intake judge view failed: " .. tostring(view.stderr))
     end
@@ -57,9 +70,18 @@ function pipeline(event)
     end
 
     core.log_codex_start("intake_judge", candidate.proposal_id, "intake")
-    local result = spawn_codex_sync({
-      prompt = core.build_intake_prompt(candidate.proposal_id, current),
+    local content_fetch = core.context_fetch_from_bundle({
+      dept = "intake_judge",
+      repo = repo,
+      issue_number = issue_number,
+      proposal_id = candidate.proposal_id,
+      version = candidate.dedup_key,
+      tick = event.ts,
     })
+    local result = spawn_codex_sync(core.judgment_codex_opts(
+      core.build_intake_prompt(candidate.proposal_id, current, content_fetch),
+      judgment_worktree("intake", candidate.dedup_key)
+    ))
     if type(result) ~= "table" or result.exit_code ~= 0 or result.stdout == nil then
       local stderr = type(result) == "table" and result.stderr or "nil result"
       core.log_codex_result("intake_judge", candidate.proposal_id, "intake", result, nil, stderr)

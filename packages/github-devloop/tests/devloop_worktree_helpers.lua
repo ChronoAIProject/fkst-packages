@@ -156,8 +156,8 @@ local function mock_existing_implement_branch(head)
 end
 
 local function mock_commit_title(title)
-  t.mock_command("--json title", {
-    stdout = '{"title":"' .. base.json_string(title or "Implement decision recorder") .. '"}' .. "\n",
+  t.mock_command("gh api 'repos/owner/repo/issues/42' --jq '.title'", {
+    stdout = tostring(title or "Implement decision recorder") .. "\n",
     stderr = "",
     exit_code = 0,
   })
@@ -190,7 +190,7 @@ local function mock_git_commit(new_head, branch, title)
 end
 
 local function mock_commit_title_failure(stderr)
-  t.mock_command("--json title", {
+  t.mock_command("gh api 'repos/owner/repo/issues/42' --jq '.title'", {
     stdout = "",
     stderr = stderr or "forced title fetch failure",
     exit_code = 1,
@@ -229,6 +229,84 @@ local function mock_git_status(stdout, exit_code, stderr)
     stderr = stderr or "",
     exit_code = exit_code or 0,
   })
+end
+
+local function mock_existing_fix_worktree(branch, head, path)
+  local worktree = path or "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/fix-worktree"
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
+      .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("[ -d '" .. worktree .. "' ]", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  return worktree
+end
+
+local function mock_missing_fix_worktree(branch, head, path)
+  local worktree = path or "/tmp/fkst-packages-test/github-devloop/old-runtime/worktrees/fix-worktree"
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
+      .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("[ -d '" .. worktree .. "' ]", {
+    stdout = "",
+    stderr = "",
+    exit_code = 1,
+  })
+  t.mock_command("git worktree prune", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree add --force -B", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  return worktree
+end
+
+local function mock_outside_runtime_fix_worktree(branch, head, path)
+  local worktree = path or "/tmp/fkst-packages-test/github-devloop/old-runtime/worktrees/fix-worktree"
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")
+      .. "\nbranch refs/heads/" .. tostring(branch) .. "\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("[ -d '" .. worktree .. "' ]", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree remove --force", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree add --force -B", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  return worktree
 end
 
 local function mock_write_env(value)
@@ -316,6 +394,9 @@ return {
   mock_existing_devloop_worktree = mock_existing_devloop_worktree,
   mock_implement_codex = mock_implement_codex,
   mock_git_status = mock_git_status,
+  mock_existing_fix_worktree = mock_existing_fix_worktree,
+  mock_missing_fix_worktree = mock_missing_fix_worktree,
+  mock_outside_runtime_fix_worktree = mock_outside_runtime_fix_worktree,
   mock_write_env = mock_write_env,
   mock_bot_env = mock_bot_env,
   mock_issue_view_failure = mock_issue_view_failure,

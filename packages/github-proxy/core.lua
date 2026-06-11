@@ -1,6 +1,7 @@
 local M = {}
 
 require("core.issue_create").install(M)
+require("core.gh_rate").install(M)
 
 local allowed_env = {
   FKST_GITHUB_REPO = true,
@@ -165,29 +166,13 @@ function M.gh_error(context, result)
   return {
     class = class,
     retryable = class == "gh-rate-limited",
+    result = result,
     message = prefix .. " failed: " .. class .. ": " .. command_result_stderr(result),
   }
 end
 
 function M.gh_error_message(context, result)
   return M.gh_error(context, result).message
-end
-
-function M.gh_exec_result(cmd, timeout, context, exec)
-  local run = exec or exec_sync
-  local result = run({ cmd = cmd, timeout = timeout or 30 })
-  if command_result_exit_code(result) ~= 0 then
-    return false, M.gh_error(context or "gh command", result)
-  end
-  return true, result
-end
-
-function M.gh_exec(cmd, timeout, context, exec)
-  local ok, result_or_error = M.gh_exec_result(cmd, timeout, context, exec)
-  if not ok then
-    error(result_or_error.message)
-  end
-  return result_or_error
 end
 
 function M.configure_trusted_bot_login(login)
@@ -796,10 +781,28 @@ function M.gh_label_list_cmd(repo)
   return "gh label list --repo " .. shell_single_quote(repo) .. " --limit 1000 --json name"
 end
 
+local fkst_dev_label_colors = {
+  ["fkst-dev:enabled"] = "1D76DB",
+  ["fkst-dev:thinking"] = "8250DF",
+  ["fkst-dev:ready"] = "0E8A16",
+  ["fkst-dev:implementing"] = "FBCA04",
+  ["fkst-dev:pr-open"] = "006B75",
+  ["fkst-dev:reviewing"] = "5319E7",
+  ["fkst-dev:fixing"] = "D93F0B",
+  ["fkst-dev:merge-ready"] = "2EA44F",
+  ["fkst-dev:merging"] = "C2E0C6",
+  ["fkst-dev:merged"] = "8957E5",
+  ["fkst-dev:impl-failed"] = "B60205",
+  ["fkst-dev:blocked"] = "1B1F23",
+  ["fkst-dev:blocked-on-dependency"] = "E99695",
+  ["fkst-dev:review-meta"] = "BFD4F2",
+}
+
 function M.gh_label_create_cmd(repo, label)
+  local color = fkst_dev_label_colors[label] or "ededed"
   return "gh label create " .. shell_single_quote(label)
     .. " --repo " .. shell_single_quote(repo)
-    .. " --color 'ededed'"
+    .. " --color " .. shell_single_quote(color)
 end
 
 function M.parse_issue_labels(gh_json_stdout)
@@ -860,9 +863,12 @@ function M.ensure_repo_label(repo, label, existing_labels)
     return true
   end
 
-  local result = exec_sync({ cmd = M.gh_label_create_cmd(repo, label), timeout = 30 })
-  if command_result_exit_code(result) ~= 0 and not M.is_gh_label_already_exists(result) then
-    error(M.gh_error_message("gh label create", result))
+  local ok, result_or_error = M.gh_exec_result(M.gh_label_create_cmd(repo, label), 30, "gh label create")
+  if not ok then
+    local raw_result = result_or_error.result
+    if raw_result == nil or not M.is_gh_label_already_exists(raw_result) then
+      error(result_or_error.message)
+    end
   end
   existing_labels[label] = true
   return true

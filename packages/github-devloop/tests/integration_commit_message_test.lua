@@ -30,7 +30,7 @@ end
 local function title_fetch_count()
   local count = 0
   for _, call in ipairs(t.command_calls()) do
-    if call.rendered == "gh issue view '42' --repo 'owner/repo' --json title" then
+    if call.rendered == "gh api 'repos/owner/repo/issues/42' --jq '.title'" then
       count = count + 1
     end
   end
@@ -110,6 +110,7 @@ local function run_fix_commit(title)
       decision = "reject",
       body = "Reject because parser must fail closed.",
       dedup_key = event.review_dedup_key,
+      blocking_gap = "Parser must fail closed.",
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     },
     event.source_ref
@@ -128,7 +129,12 @@ local function run_fix_commit(title)
     exit_code = 0,
   })
   t.mock_command("git worktree list --porcelain", {
-    stdout = "worktree /tmp/fix-worktree\nHEAD def456\nbranch refs/heads/" .. branch .. "\n\n",
+    stdout = "worktree /tmp/fkst-packages-test/github-devloop/runtime/worktrees/fix-worktree\nHEAD def456\nbranch refs/heads/" .. branch .. "\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("[ -d '/tmp/fkst-packages-test/github-devloop/runtime/worktrees/fix-worktree' ]", {
+    stdout = "",
     stderr = "",
     exit_code = 0,
   })

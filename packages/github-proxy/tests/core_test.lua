@@ -181,10 +181,21 @@ return {
     local result = core.gh_exec("gh issue list", 30, "gh issue list", function(spec)
       t.eq(spec.cmd, "gh issue list")
       t.eq(spec.timeout, 30)
+      t.eq(spec.rate_pool.name, "gh")
+      t.eq(spec.rate_pool.burst, nil)
+      t.eq(spec.rate_pool.refill_per_hour, nil)
       return { stdout = "[]\n", stderr = "", exit_code = 0 }
     end)
 
     t.eq(result.stdout, "[]\n")
+  end,
+
+  test_gh_exec_opts_preserves_options = function()
+    local spec = core.gh_exec_opts({ cmd = "gh pr list", timeout = 60, cwd = "/tmp" })
+    t.eq(spec.cmd, "gh pr list")
+    t.eq(spec.timeout, 60)
+    t.eq(spec.cwd, "/tmp")
+    t.eq(spec.rate_pool.name, "gh")
   end,
 
   test_gh_error_classifies_rate_limit_and_abuse = function()
@@ -311,6 +322,32 @@ return {
     t.eq(
       core.gh_issue_view_comments_cmd("owner/repo", 3),
       "gh issue view '3' --repo 'owner/repo' --json comments"
+    )
+    local expected_label_colors = {
+      ["fkst-dev:enabled"] = "1D76DB",
+      ["fkst-dev:thinking"] = "8250DF",
+      ["fkst-dev:ready"] = "0E8A16",
+      ["fkst-dev:implementing"] = "FBCA04",
+      ["fkst-dev:pr-open"] = "006B75",
+      ["fkst-dev:reviewing"] = "5319E7",
+      ["fkst-dev:fixing"] = "D93F0B",
+      ["fkst-dev:merge-ready"] = "2EA44F",
+      ["fkst-dev:merging"] = "C2E0C6",
+      ["fkst-dev:merged"] = "8957E5",
+      ["fkst-dev:impl-failed"] = "B60205",
+      ["fkst-dev:blocked"] = "1B1F23",
+      ["fkst-dev:blocked-on-dependency"] = "E99695",
+      ["fkst-dev:review-meta"] = "BFD4F2",
+    }
+    for label, color in pairs(expected_label_colors) do
+      t.eq(
+        core.gh_label_create_cmd("owner/repo", label),
+        "gh label create '" .. label .. "' --repo 'owner/repo' --color '" .. color .. "'"
+      )
+    end
+    t.eq(
+      core.gh_label_create_cmd("owner/repo", "custom'label"),
+      "gh label create 'custom'\\''label' --repo 'owner/repo' --color 'ededed'"
     )
     t.eq(
       core.gh_issue_comment_cmd("owner/repo", 3, "/tmp/body's.md"),

@@ -86,18 +86,20 @@ local function fetch_issue_title(repo, issue_number)
   if issue_number == nil then
     return nil
   end
-  local result = exec_sync({ cmd = core.gh_issue_view_title_cmd(repo, issue_number), timeout = 30 })
+  local ok, result = pcall(function()
+    return exec_sync({ cmd = core.gh_issue_view_title_cmd(repo, issue_number), timeout = 30 })
+  end)
+  if not ok then
+    return nil
+  end
   if type(result) ~= "table" or result.exit_code ~= 0 then
     return nil
   end
-  local ok, decoded = pcall(json.decode, result.stdout or "{}")
-  if not ok or type(decoded) ~= "table" then
+  local title = tostring(result.stdout or ""):gsub("%s+$", "")
+  if title == "" then
     return nil
   end
-  if type(decoded.title) ~= "string" then
-    return nil
-  end
-  return decoded.title
+  return title
 end
 
 function M.github_issue_commit_message(kind, repo, issue_number)

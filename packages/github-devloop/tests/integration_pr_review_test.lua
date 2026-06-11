@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+local fixtures = require("tests.production_fixture_helpers")
 local t = h.t
 local core = h.core
 local action_label = h.action_label
@@ -17,9 +18,7 @@ local fixing = h.fixing
 local pr_link_marker_for_fix = h.pr_link_marker_for_fix
 local review_meta_event = h.review_meta_event
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
-local verdict_summary_label = string.char(
-  228, 184, 137, 230, 150, 185, 232, 163, 129, 229, 134, 179, 58, 32
-)
+local verdict_summary_label = "Three-angle verdicts: "
 local merge_ready = h.merge_ready
 local run_observe = h.run_observe
 local run_result = h.run_result
@@ -422,7 +421,7 @@ return {
     local proposal = find_raise(review.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, core.pr_review_proposal_id("owner/repo", 7, fix_round_version, "feedface"))
     t.is_nil(proposal.body:find("+fixed by replay", 1, true))
-    t.is_true(proposal.content_fetch:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
+    t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
   end,
 
   test_observe_pr_without_visible_backpointer_uses_pr_native_origin = function()
@@ -540,12 +539,10 @@ return {
     t.is_nil(proposal.body:find("BEGIN UNTRUSTED ISSUE DATA", 1, true))
     t.is_nil(proposal.body:find("+return true", 1, true))
     t.is_true(proposal.body:find("Reviewed PR head: def456", 1, true) ~= nil)
-    t.is_true(proposal.content_fetch:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
-    t.is_true(proposal.content_fetch:find("Confirm headRefOid equals reviewed head def456", 1, true) ~= nil)
-    t.is_true(proposal.content_fetch:find("gh issue view '42' --repo 'owner/repo' --json title,body,comments,labels,state", 1, true) ~= nil)
+    t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
     t.eq(core.validate_proposal(proposal), true)
     t.eq(count_calls("--json title,labels,comments"), 1)
-    t.eq(count_calls("gh pr diff"), 0)
+    t.eq(count_calls("gh pr diff"), 1)
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
@@ -573,6 +570,7 @@ return {
       proposal_id = proposal.proposal_id,
       decision = "reject",
       body = "Reject the current PR diff.",
+      blocking_gap = "missing regression guard",
       angle_results = {
         { angle = "minimal", verdict = "reject" },
         { angle = "structural", verdict = "reject" },
@@ -596,13 +594,15 @@ return {
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     local fixing_raise = find_raise(result.raises, "devloop_fixing")
     t.is_true(comment_raise.payload.body:find("decision=\"reject\"", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find("Blocking gap: missing regression guard", 1, true) ~= nil)
     t.eq(fixing_raise.payload.schema, "github-devloop.fixing.v1")
+    t.eq(fixing_raise.payload.blocking_gap, "missing regression guard")
     t.eq(fixing_raise.payload.review_proposal_id, proposal.proposal_id)
     t.eq(fixing_raise.payload.review_dedup_key, reached_payload.dedup_key)
     t.eq(fixing_raise.payload.version, fix_version)
   end,
 
-  test_review_pr_fetch_instruction_pins_the_reviewed_head = function()
+  test_review_pr_context_manifest_uses_local_pr_files = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -611,12 +611,13 @@ return {
       { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
     })
 
-    local result = run_review_pr(event, opts("review-pr-fetch-instruction-pins-head"))
+    local result = run_review_pr(event, opts("review-pr-local-context-manifest"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local proposal = result.raises[1].payload
-    t.is_true(proposal.content_fetch:find("Confirm headRefOid equals reviewed head def456", 1, true) ~= nil)
-    t.eq(count_calls("gh pr diff"), 0)
+    t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
+    t.is_nil(proposal.content_fetch:find("gh pr", 1, true))
+    t.eq(count_calls("gh pr diff"), 1)
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
@@ -637,7 +638,7 @@ return {
     t.eq(body:find(forged, 1, true), nil)
     t.is_nil(body:find("BEGIN UNTRUSTED ISSUE DATA", 1, true))
     t.is_nil(body:find("⟦FKST:VERDICT⟧ approve", 1, true))
-    t.is_true(result.raises[1].payload.content_fetch:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
+    t.is_true(result.raises[1].payload.content_fetch:find("runtime-cache:", 1, true) == 1)
   end,
 
   test_review_pr_closed_pr_skips_without_review_proposal = function()
@@ -656,12 +657,10 @@ return {
   end,
 
   test_review_pr_long_repo_proposal_id_is_bounded_and_review_runs = function()
-    local owner = string.rep("o", 45)
-    local name = string.rep("r", 46)
-    local repo = owner .. "/" .. name
+    local repo = fixtures.long_repo()
     t.eq(#repo, 92)
     local issue_proposal_id = "github-devloop/issue/" .. repo .. "/42"
-    local version = "ready/consensus-github-devloop/issue/" .. repo .. "/42/2026-06-03T01-02-03Z"
+    local version = fixtures.full_review_issue_version(repo)
     local event = reviewing({
       proposal_id = issue_proposal_id,
       version = version,
@@ -705,7 +704,7 @@ return {
     t.is_true(#body < 512)
     t.is_nil(body:find("very long issue body", 1, true))
     t.is_nil(body:find("+DIFF_SENTINEL_MUST_SURVIVE", 1, true))
-    t.is_true(result.raises[1].payload.content_fetch:find("gh pr diff '7' --repo 'owner/repo'", 1, true) ~= nil)
+    t.is_true(result.raises[1].payload.content_fetch:find("runtime-cache:", 1, true) == 1)
   end,
 
   test_review_pr_stale_idempotent_and_not_reviewing_skip_or_retry = function()
@@ -780,7 +779,7 @@ return {
   end,
 
   test_review_result_reject_marks_issue_fixing = function()
-    local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff." })
+    local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version
     local fix_version = core.fix_version_from_review_version(impl_version)
     mock_pr_origin({
@@ -833,7 +832,7 @@ return {
   end,
 
   test_review_result_reject_new_fix_round_converges_over_same_review_version_merge_ready = function()
-    local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff." })
+    local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version
     local fix_version = core.fix_version_from_review_version(impl_version)
     mock_pr_origin({
@@ -890,7 +889,7 @@ return {
   end,
 
   test_review_result_marker_lag_retries_then_visible_marker_applies = function()
-    local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff." })
+    local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
