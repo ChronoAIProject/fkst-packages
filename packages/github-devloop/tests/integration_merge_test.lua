@@ -544,9 +544,13 @@ return {
     local comment_body = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body
     t.is_true(comment_body:find("fkst:github-devloop:merge-gate:v1", 1, true) ~= nil)
     t.is_true(comment_body:find("rollup-red: test: COMPLETED/FAILURE", 1, true) ~= nil)
+    t.is_true(comment_body:find("Fingerprint: merge-gate/rollup-red--test--COMPLETED-FAILURE", 1, true) ~= nil)
+    t.is_true(comment_body:find("Environment: remote gate=rollup-red: test: COMPLETED/FAILURE; local reproduction=scripts/run.sh test", 1, true) ~= nil)
     t.is_true(comment_body:find("Reproduce locally with `scripts/run.sh test`", 1, true) ~= nil)
     local fix_fact = core.merge_gate_fix_fact({ comment_body }, event.proposal_id, core.fix_version_from_review_version(event.version))
     t.is_true(fix_fact.review_reason:find("rollup-red: test: COMPLETED/FAILURE", 1, true) ~= nil)
+    t.is_true(fix_fact.review_reason:find("Fingerprint: merge-gate/rollup-red--test--COMPLETED-FAILURE", 1, true) ~= nil)
+    t.is_true(fix_fact.review_reason:find("Environment: remote gate=rollup-red: test: COMPLETED/FAILURE; local reproduction=scripts/run.sh test", 1, true) ~= nil)
     t.is_true(has_value(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.remove_labels, "fkst-dev:merge-ready"))
   end,
 
@@ -568,6 +572,7 @@ return {
     t.eq(result.exit_code, 0)
     local comment_body = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body
     t.is_true(comment_body:find("Reproduce locally with `cargo build && cargo test`", 1, true) ~= nil)
+    t.is_true(comment_body:find("Environment: remote gate=rollup-red: test: COMPLETED/FAILURE; local reproduction=cargo build && cargo test", 1, true) ~= nil)
     local fix_fact = core.merge_gate_fix_fact({ comment_body }, event.proposal_id, core.fix_version_from_review_version(event.version))
     t.is_true(fix_fact.review_reason:find("cargo build && cargo test", 1, true) ~= nil)
   end,

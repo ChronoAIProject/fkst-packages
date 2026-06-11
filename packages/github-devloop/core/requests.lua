@@ -715,6 +715,8 @@ function M.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready,
     display_reason = "gate-failed"
   end
   local test_command = M.neutralize_untrusted_comment_text(M.test_command())
+  local fingerprint = "merge-gate/" .. safe_reason
+  local environment = "remote gate=" .. display_reason .. "; local reproduction=" .. test_command
   local state_marker = M.state_marker(merge_ready.proposal_id, "fixing", fix_version)
   local marker = M.merge_gate_marker(
     merge_ready.proposal_id,
@@ -730,6 +732,8 @@ function M.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready,
     repo = repo,
     number = merge_ready.pr_number,
   }, M.comment_string("merge_gate_failed_prefix") .. display_reason
+    .. "\n" .. M.comment_string("merge_gate_fingerprint_label") .. fingerprint
+    .. "\n" .. M.comment_string("merge_gate_environment_label") .. environment
     .. "\n" .. M.comment_string("reproduce_locally_prefix") .. test_command .. M.comment_string("reproduce_locally_suffix")
     .. "\n\n" .. state_marker
     .. "\n" .. marker, M._dedup_key({
