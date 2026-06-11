@@ -248,7 +248,6 @@ end
 local function ensure_dashboard_anchor(repo, mode, issues, bot_login)
   for _, issue in ipairs(issues or {}) do
     if tostring(issue.author_login or "") == tostring(bot_login or "")
-      and tostring(issue.title or "") == dashboard_title()
       and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
       local label_added = ensure_dashboard_anchor_label(repo, mode, issue)
       log_ensure("dashboard-anchor", "unchanged", {

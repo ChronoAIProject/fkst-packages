@@ -221,6 +221,28 @@ return {
     t.eq(count_calls(dashboard_issue_list_command()), 1)
   end,
 
+  test_real_mode_reuses_dashboard_anchor_across_output_languages = function()
+    local labels = canonical_labels()
+    table.insert(labels, {
+      name = core.dashboard_label(),
+      color = "ededed",
+      description = "fkst observability dashboard singleton",
+    })
+    mock_env("1")
+    mock_labels(labels)
+    mock_dashboard_anchor(true)
+    mock_topology(0)
+
+    local result = run_ensure(opts("ensure-anchor-lang-switch-real", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_OUTPUT_LANG = "zh",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/repo/issues'"), 0)
+    t.eq(count_calls(dashboard_issue_list_command()), 1)
+  end,
+
   test_real_mode_creates_missing_labels_and_dashboard_anchor = function()
     local labels = canonical_labels()
     mock_env("1")
