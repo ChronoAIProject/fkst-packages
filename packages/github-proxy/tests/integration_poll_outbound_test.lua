@@ -135,33 +135,55 @@ return {
     t.eq(changed.raises[2].payload.dedup_key, "owner/x#pr#7@2026-06-04T06:07:08Z")
   end,
 
-  test_inbound_poll_orders_changed_entities_by_class_then_fifo = function()
+  test_inbound_poll_ignores_class_labels_and_raises_all_changed_entities_without_starvation = function()
     local event = { queue = "github_poll_tick", payload = {} }
-    local issues = "["
+    local first_issues = "["
       .. '{"number":40,"title":"Background","url":"https://github.example/owner/x/issues/40","updatedAt":"2026-06-03T01:00:00Z","state":"OPEN","labels":[{"name":"fkst-class:background"}]},'
       .. '{"number":41,"title":"Standard","url":"https://github.example/owner/x/issues/41","updatedAt":"2026-06-03T01:01:00Z","state":"OPEN","labels":[{"name":"fkst-class:standard"}]},'
       .. '{"number":42,"title":"Expedite late","url":"https://github.example/owner/x/issues/42","updatedAt":"2026-06-03T01:03:00Z","state":"OPEN","labels":[{"name":"fkst-class:expedite"}]}'
       .. "]\n"
-    local prs = "["
+    local first_prs = "["
       .. '{"number":8,"title":"Expedite early","url":"https://github.example/owner/x/pull/8","updatedAt":"2026-06-03T01:02:00Z","state":"OPEN","labels":[{"name":"fkst-class:expedite"}]}'
       .. "]\n"
+    local second_issues = "["
+      .. '{"number":40,"title":"Background","url":"https://github.example/owner/x/issues/40","updatedAt":"2026-06-03T01:00:00Z","state":"OPEN","labels":[{"name":"fkst-class:background"}]},'
+      .. '{"number":41,"title":"Standard","url":"https://github.example/owner/x/issues/41","updatedAt":"2026-06-03T01:04:00Z","state":"OPEN","labels":[{"name":"fkst-class:standard"}]},'
+      .. '{"number":42,"title":"Expedite late","url":"https://github.example/owner/x/issues/42","updatedAt":"2026-06-03T01:05:00Z","state":"OPEN","labels":[{"name":"fkst-class:expedite"}]}'
+      .. "]\n"
+    local second_prs = first_prs
 
+    local run_opts = opts("poll-labels-do-not-schedule")
     mock_repo_env()
-    mock_issue_list(issues)
-    mock_pr_list(prs)
+    mock_issue_list(first_issues)
+    mock_pr_list(first_prs)
 
-    local result = t.run_department("departments/github_poll/main.lua", event, opts("poll-class-order"))
+    local result = t.run_department("departments/github_poll/main.lua", event, run_opts)
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 4)
-    t.eq(result.raises[1].payload.type, "pr")
-    t.eq(result.raises[1].payload.number, 8)
+    t.eq(result.raises[1].payload.type, "issue")
+    t.eq(result.raises[1].payload.number, 40)
     t.eq(result.raises[2].payload.type, "issue")
-    t.eq(result.raises[2].payload.number, 42)
+    t.eq(result.raises[2].payload.number, 41)
     t.eq(result.raises[3].payload.type, "issue")
-    t.eq(result.raises[3].payload.number, 41)
-    t.eq(result.raises[4].payload.type, "issue")
-    t.eq(result.raises[4].payload.number, 40)
+    t.eq(result.raises[3].payload.number, 42)
+    t.eq(result.raises[4].payload.type, "pr")
+    t.eq(result.raises[4].payload.number, 8)
+
+    mock_repo_env()
+    mock_issue_list(second_issues)
+    mock_pr_list(second_prs)
+
+    local next_tick = t.run_department("departments/github_poll/main.lua", event, run_opts)
+
+    t.eq(next_tick.exit_code, 0)
+    t.eq(#next_tick.raises, 2)
+    t.eq(next_tick.raises[1].payload.type, "issue")
+    t.eq(next_tick.raises[1].payload.number, 41)
+    t.eq(next_tick.raises[1].payload.updated_at, "2026-06-03T01:04:00Z")
+    t.eq(next_tick.raises[2].payload.type, "issue")
+    t.eq(next_tick.raises[2].payload.number, 42)
+    t.eq(next_tick.raises[2].payload.updated_at, "2026-06-03T01:05:00Z")
   end,
 
   test_inbound_poll_does_not_re_raise_closed_lifecycle_state_when_updated_at_changes = function()

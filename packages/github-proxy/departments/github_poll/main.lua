@@ -39,7 +39,6 @@ function pipeline(_event)
     end
   end
 
-  core.sort_entities_by_class(items)
   for _, item in ipairs(items) do
     local entity = item.entity
     local entity_type = item.entity_type

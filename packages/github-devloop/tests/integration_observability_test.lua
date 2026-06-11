@@ -24,13 +24,6 @@ local function run_observability(run_opts)
   }, run_opts or opts("observability"))
 end
 
-local function run_observe_scan(run_opts)
-  return t.run_department("departments/observe_scan/main.lua", {
-    queue = "devloop_observe_tick",
-    payload = { schema = "github-devloop.observe-tick.v1" },
-  }, run_opts or opts("observe-scan"))
-end
-
 local function mock_env(bot_login, write_mode)
   for _ = 1, 4 do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -121,43 +114,6 @@ local function mock_pr_view(comments)
   t.mock_command("--json headRefName,headRefOid,baseRefName,state,updatedAt,comments", {
     stdout = '{"headRefName":"devloop-owner-repo-42","headRefOid":"def456","baseRefName":"integration/dev","state":"OPEN","updatedAt":"2026-06-03T02:03:04Z","comments":['
       .. table.concat(comments or {}, ",") .. "]}\n",
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
-local function mock_scan_issue_view(number, intake_class, updated_at)
-  local proposal_id = core.proposal_id("owner/repo", number)
-  t.mock_command("--json title,updatedAt,comments,state", {
-    stdout = '{"title":"Observed issue ' .. tostring(number)
-      .. '","updatedAt":"' .. json_string(updated_at or "2026-06-03T01:02:03Z")
-      .. '","state":"OPEN","comments":['
-      .. render_comment(core.intake_decision_marker(proposal_id, "enable", "intake/" .. proposal_id .. "/v1", intake_class))
-      .. "]}\n",
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
-local function mock_scan_origin_issue_view(issue_number, intake_class)
-  local proposal_id = core.proposal_id("owner/repo", issue_number)
-  t.mock_command("--json labels,comments", {
-    stdout = '{"labels":[{"name":"fkst-dev:enabled"}],"comments":['
-      .. render_comment(core.intake_decision_marker(proposal_id, "enable", "intake/" .. proposal_id .. "/v1", intake_class))
-      .. "]}\n",
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
-local function mock_scan_pr_view(pr_number, issue_number, updated_at)
-  local proposal_id = core.proposal_id("owner/repo", issue_number)
-  t.mock_command("--json headRefName,headRefOid,baseRefName,state,updatedAt,comments", {
-    stdout = '{"headRefName":"devloop-owner-repo-' .. tostring(issue_number)
-      .. '","headRefOid":"def456","baseRefName":"integration/dev","state":"OPEN","updatedAt":"'
-      .. json_string(updated_at or "2026-06-03T02:03:04Z") .. '","comments":['
-      .. render_comment(core.pr_origin_marker(proposal_id, tostring(issue_number), "devloop-owner-repo-" .. tostring(issue_number), "v1", "integration/dev"))
-      .. "]}\n",
     stderr = "",
     exit_code = 0,
   })
@@ -436,28 +392,6 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("gh pr view"), 1)
-  end,
-
-  test_observe_scan_raises_entities_by_class_then_fifo = function()
-    mock_env()
-    mock_all_issue_lists({ 40, 41 })
-    mock_pr_list({ 8 })
-    mock_scan_issue_view(40, "background", "2026-06-03T01:00:00Z")
-    mock_scan_issue_view(41, "expedite", "2026-06-03T01:01:00Z")
-    mock_scan_pr_view(8, 42, "2026-06-03T02:03:04Z")
-    mock_scan_origin_issue_view(42, "expedite")
-
-    local result = run_observe_scan(opts("observe-scan-class-order"))
-
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
-    t.eq(result.raises[1].queue, "github-proxy.github_entity_changed")
-    t.eq(result.raises[1].payload.type, "issue")
-    t.eq(result.raises[1].payload.number, 41)
-    t.eq(result.raises[2].payload.type, "pr")
-    t.eq(result.raises[2].payload.number, 8)
-    t.eq(result.raises[3].payload.type, "issue")
-    t.eq(result.raises[3].payload.number, 40)
   end,
 
   test_stall_suspect_logs_once_when_entity_exceeds_state_threshold = function()
