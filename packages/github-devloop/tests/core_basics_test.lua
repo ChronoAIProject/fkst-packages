@@ -834,6 +834,64 @@ return {
     t.eq(fact.proposal_id, proposal_id)
   end,
 
+  test_intake_class_batch_uses_trusted_marker_order_with_fifo_capacity_guard = function()
+    local function item(number, intake_class, updated_at, author_login)
+      local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
+      return {
+        number = number,
+        updated_at = updated_at,
+        labels = { "fkst-class:expedite" },
+        comments = {
+          {
+            body = core.intake_decision_marker(proposal_id, "enable", "intake/" .. proposal_id .. "/v1", intake_class),
+            author_login = author_login or core.trusted_bot_login(),
+          },
+        },
+      }
+    end
+
+    local items = {
+      item(40, "background", "2026-06-03T01:00:00Z"),
+      item(41, "standard", "2026-06-03T01:01:00Z"),
+      item(42, "expedite", "2026-06-03T01:02:00Z"),
+      item(43, "expedite", "2026-06-03T01:03:00Z"),
+    }
+    local function marker_class(value)
+      local fact = core.intake_decision_fact(value.comments, "github-devloop/issue/owner/repo/" .. tostring(value.number))
+      return fact and fact.class
+    end
+    local function fifo(value)
+      return tostring(value.updated_at or "") .. "/" .. tostring(value.number or "")
+    end
+
+    local sorted = core.sort_by_intake_class(items, marker_class, fifo)
+    t.eq(sorted[1].number, 42)
+    t.eq(sorted[2].number, 43)
+    t.eq(sorted[3].number, 41)
+    t.eq(sorted[4].number, 40)
+
+    local selected = core.select_intake_class_batch({
+      item(50, "background", "2026-06-03T01:00:00Z"),
+      item(51, "standard", "2026-06-03T01:01:00Z"),
+      item(52, "expedite", "2026-06-03T01:02:00Z"),
+      item(53, "expedite", "2026-06-03T01:03:00Z"),
+      item(54, "expedite", "2026-06-03T01:04:00Z"),
+    }, marker_class, fifo, 3)
+    t.eq(#selected, 3)
+    t.eq(selected[1].number, 52)
+    t.eq(selected[2].number, 53)
+    t.eq(selected[3].number, 51)
+
+    local forged = core.select_intake_class_batch({
+      item(60, "background", "2026-06-03T01:00:00Z"),
+      item(61, "expedite", "2026-06-03T01:01:00Z", "ordinary-user"),
+      item(62, "standard", "2026-06-03T01:02:00Z"),
+    }, marker_class, fifo, 3)
+    t.eq(forged[1].number, 61)
+    t.eq(forged[2].number, 62)
+    t.eq(forged[3].number, 60)
+  end,
+
   test_intake_prompt_neutralizes_sentinels_and_markers = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local long_body = string.rep("body-line-", core.max_body_len() + 1)

@@ -3,7 +3,7 @@ local core = require("core")
 local M = {}
 
 M.spec = {
-  consumes = { "github-proxy.github_entity_changed" },
+  consumes = { "github-proxy.github_entity_changed", "devloop_observe_tick" },
   produces = {
     "consensus.proposal",
     "github-proxy.github_issue_label_request",
@@ -14,9 +14,12 @@ M.spec = {
     "devloop_fixing",
     "devloop_merge_ready",
   },
-  fanout = { "github-proxy.github_entity_changed" },
+  fanout = { "github-proxy.github_entity_changed", "devloop_observe_tick" },
   stall_window = "30s",
 }
+
+local OBSERVE_LIMIT = 100
+local OBSERVE_BATCH_LIMIT = 3
 
 local function raise_pr_open_reviewing(issue, proposal_id, state, link, snapshot)
   if link == nil or snapshot == nil then
@@ -535,8 +538,7 @@ local function maybe_apply_issue_reready_command(issue, proposal_id, current, st
   return true
 end
 
-function pipeline(event)
-  local issue = event.payload or {}
+local function observe_one_issue(issue, event)
   if not core.is_supported_issue(issue) then
     core.log_entry("observe_issue", event, "unknown", issue.dedup_key)
     core.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "unmanaged", "thinking", "skip-foreign(proposal_id)", "unsupported event payload")
@@ -640,6 +642,104 @@ function pipeline(event)
     core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
     core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", label_request)
   end)
+end
+
+local function has_devloop_state_label(labels)
+  for _, label in ipairs(labels or {}) do
+    if core._state_labels[tostring(label)] then
+      return true
+    end
+  end
+  return false
+end
+
+local function observe_tick_repo()
+  local repo = core.devloop_config().repo
+  if repo == nil or not core.issue_ref_round_trips(repo, 1) then
+    return nil
+  end
+  return repo
+end
+
+local function issue_payload_from_tick_candidate(repo, issue, current)
+  local proposal_id = core.proposal_id(repo, issue.number)
+  return {
+    schema = "github-proxy.v1",
+    type = "issue",
+    repo = repo,
+    number = issue.number,
+    title = issue.title,
+    url = issue.url or "",
+    state = current.state,
+    labels = current.labels,
+    updated_at = issue.updated_at,
+    dedup_key = core.proposal_dedup_key(proposal_id, issue.updated_at),
+    source = "devloop-observe-tick",
+    source_ref = core.issue_source_ref(repo, issue.number),
+  }
+end
+
+local function observe_tick(event)
+  core.log_entry("observe_issue", event, "github-devloop/observe", "tick")
+  core.assert_trusted_bot_configured()
+
+  local repo = observe_tick_repo()
+  if repo == nil then
+    core.log_cas_decision("observe_issue", "github-devloop/observe", { state = nil, version = nil }, "tick", "observe", "skip-invalid-repo", "FKST_GITHUB_REPO is missing or invalid")
+    return
+  end
+
+  local list = core.gh_exec({ cmd = core.gh_issue_list_intake_cmd(repo, OBSERVE_LIMIT), timeout = 30 })
+  if list.exit_code ~= 0 then
+    error("github-devloop: gh issue observe list failed: " .. tostring(list.stderr))
+  end
+
+  local candidates = {}
+  for _, issue in ipairs(core.parse_issue_list_intake(list.stdout)) do
+    local issue_number = tostring(issue.number or "")
+    if core.issue_ref_round_trips(repo, issue_number)
+      and core.is_opted_in(issue.labels)
+      and not has_devloop_state_label(issue.labels) then
+      local proposal_id = core.proposal_id(repo, issue_number)
+      local view = core.gh_exec({ cmd = core.gh_issue_view_state_cmd(repo, issue_number), timeout = 30 })
+      if view.exit_code ~= 0 then
+        error("github-devloop: gh issue observe tick view failed: " .. tostring(view.stderr))
+      end
+      local current = core.parse_issue_view_state(view.stdout)
+      core.log_forged_markers("observe_issue", proposal_id, current.comments)
+      local intake = core.intake_decision_fact(current.comments, proposal_id)
+      if current.state == "OPEN"
+        and core.is_opted_in(current.labels)
+        and not has_devloop_state_label(current.labels)
+        and intake ~= nil
+        and intake.decision == "enable" then
+        table.insert(candidates, {
+          issue = issue,
+          current = current,
+          class = intake.class,
+        })
+      end
+    end
+  end
+
+  candidates = core.select_intake_class_batch(candidates, function(item)
+    return item.class
+  end, function(item)
+    local issue = item.issue or {}
+    return tostring(issue.updated_at or "") .. "/" .. tostring(issue.number or "")
+  end, OBSERVE_BATCH_LIMIT)
+
+  for _, item in ipairs(candidates) do
+    observe_one_issue(issue_payload_from_tick_candidate(repo, item.issue, item.current), event)
+  end
+end
+
+function pipeline(event)
+  if event ~= nil and event.queue == "devloop_observe_tick" then
+    observe_tick(event)
+    return
+  end
+  observe_one_issue(event.payload or {}, event)
 end
 
 return M

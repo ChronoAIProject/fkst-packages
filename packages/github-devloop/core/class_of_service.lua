@@ -55,6 +55,10 @@ function M.intake_class_rank(value)
 end
 
 function M.sort_by_intake_class(items, class_for_item, fifo_for_item)
+  local sequence = {}
+  for index, item in ipairs(items or {}) do
+    sequence[item] = index
+  end
   table.sort(items, function(a, b)
     local a_class = type(class_for_item) == "function" and class_for_item(a) or nil
     local b_class = type(class_for_item) == "function" and class_for_item(b) or nil
@@ -65,9 +69,49 @@ function M.sort_by_intake_class(items, class_for_item, fifo_for_item)
     end
     local a_fifo = type(fifo_for_item) == "function" and fifo_for_item(a) or nil
     local b_fifo = type(fifo_for_item) == "function" and fifo_for_item(b) or nil
-    return tostring(a_fifo or "") < tostring(b_fifo or "")
+    local a_key = tostring(a_fifo or "")
+    local b_key = tostring(b_fifo or "")
+    if a_key ~= b_key then
+      return a_key < b_key
+    end
+    return (sequence[a] or 0) < (sequence[b] or 0)
   end)
   return items
+end
+
+function M.select_intake_class_batch(items, class_for_item, fifo_for_item, limit)
+  local sorted = M.sort_by_intake_class(items, class_for_item, fifo_for_item)
+  local batch_limit = tonumber(limit)
+  if batch_limit == nil or batch_limit <= 0 or batch_limit >= #sorted then
+    return sorted
+  end
+
+  local selected = {}
+  local selected_items = {}
+  local non_expedite_index = nil
+  for index, item in ipairs(sorted) do
+    local item_class = type(class_for_item) == "function" and class_for_item(item) or nil
+    if M.normalize_intake_class(item_class) ~= "expedite" then
+      non_expedite_index = index
+      break
+    end
+  end
+
+  local reserve_non_expedite = non_expedite_index ~= nil and batch_limit > 1
+  local primary_limit = reserve_non_expedite and (batch_limit - 1) or batch_limit
+  for index, item in ipairs(sorted) do
+    if #selected >= primary_limit then
+      break
+    end
+    if not reserve_non_expedite or index ~= non_expedite_index then
+      table.insert(selected, item)
+      selected_items[item] = true
+    end
+  end
+  if reserve_non_expedite and selected_items[sorted[non_expedite_index]] ~= true then
+    table.insert(selected, sorted[non_expedite_index])
+  end
+  return selected
 end
 end
 

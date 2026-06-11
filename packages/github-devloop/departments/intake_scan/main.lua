@@ -68,9 +68,10 @@ function pipeline(event)
       end
     end
   end
-  table.sort(candidates, function(a, b)
-    return tostring(a.updated_at or "") .. "/" .. tostring(a.issue_number or "")
-      < tostring(b.updated_at or "") .. "/" .. tostring(b.issue_number or "")
+  core.select_intake_class_batch(candidates, function(item)
+    return item.class
+  end, function(item)
+    return tostring(item.updated_at or "") .. "/" .. tostring(item.issue_number or "")
   end)
   for _, item in ipairs(candidates) do
     local proposal_id = core.proposal_id(repo, item.issue_number)
