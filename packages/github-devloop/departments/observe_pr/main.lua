@@ -3,7 +3,7 @@ local core = require("core")
 local M = {}
 
 M.spec = {
-  consumes = { "github-proxy.github_entity_changed" },
+  consumes = { "github-proxy.github_entity_changed", "devloop_observe_tick" },
   produces = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
@@ -11,9 +11,12 @@ M.spec = {
     "devloop_fixing",
     "devloop_merge_ready",
   },
+  fanout = { "github-proxy.github_entity_changed", "devloop_observe_tick" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
+
+local OBSERVE_BATCH_LIMIT = 3
 
 local function pr_source_ref(repo, pr_number)
   return core.pr_source_ref(repo, pr_number)
@@ -45,6 +48,29 @@ local function origin_matches_pr(origin, current_pr, repo, branches, require_iss
     return false, "base"
   end
   return true, "ok"
+end
+
+local function observe_tick_repo()
+  local env = exec_sync([[printf %s "$FKST_GITHUB_REPO"]])
+  local repo = tostring(env.stdout or "")
+  if repo == "" then
+    return nil
+  end
+  return repo
+end
+
+local function pr_payload_from_tick_candidate(repo, pr)
+  return {
+    schema = "github-proxy.v1",
+    type = "pr",
+    repo = repo,
+    number = pr.number,
+    state = pr.state,
+    updated_at = pr.updated_at,
+    dedup_key = tostring(repo) .. "#pr#" .. tostring(pr.number) .. "@" .. tostring(pr.updated_at or ""),
+    source = "devloop-observe-tick",
+    source_ref = pr_source_ref(repo, pr.number),
+  }
 end
 
 local function maybe_label_hint(origin, state, source_ref)
@@ -240,8 +266,8 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
   return true
 end
 
-function pipeline(event)
-  local pr = event.payload or {}
+local function observe_one_pr(pr, event)
+  pr = pr or {}
   if not core.is_supported_pr(pr) then
     core.log_entry("observe_pr", event, "unknown", pr.dedup_key)
     core.log_cas_decision("observe_pr", "unknown", { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(pr)", "unsupported event payload")
@@ -311,6 +337,73 @@ function pipeline(event)
     core.log_raise("observe_pr", origin.proposal_id, "devloop_reviewing", reviewing_payload)
     maybe_label_hint(origin, { state = "reviewing", version = origin.impl_version }, core.issue_source_ref(origin.repo, origin.issue_number))
   end)
+end
+
+local function observe_tick(event)
+  core.log_entry("observe_pr", event, "github-devloop/observe", "tick")
+  core.assert_trusted_bot_configured()
+
+  local repo = observe_tick_repo()
+  if repo == nil then
+    core.log_cas_decision("observe_pr", "github-devloop/observe", { state = nil, version = nil }, "tick", "observe", "skip-invalid-repo", "FKST_GITHUB_REPO is missing or invalid")
+    return
+  end
+
+  local list = core.gh_exec({ cmd = core.gh_pr_list_observe_cmd(repo), timeout = 30 })
+  if list.exit_code ~= 0 then
+    error("github-devloop: gh pr observe list failed: " .. tostring(list.stderr))
+  end
+
+  local branches = core.branch_config()
+  local candidates = {}
+  for _, pr in ipairs(core.parse_pr_list_observe(list.stdout)) do
+    local pr_number = tostring(pr.number or "")
+    if pr_number ~= "" then
+      local view = core.gh_exec({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
+      if view.exit_code ~= 0 then
+        error("github-devloop: gh pr observe tick view failed: " .. tostring(view.stderr))
+      end
+      local current_pr = core.parse_pr_view_origin(view.stdout)
+      local origin = origin_from_pr(repo, pr_number, current_pr)
+      local ok = origin.branch ~= nil and origin.base_branch ~= nil
+      if ok then
+        ok = origin_matches_pr(origin, current_pr, repo, branches, true)
+      end
+      if ok and origin.issue_number ~= nil then
+        local issue_view = core.gh_exec({ cmd = core.gh_issue_view_result_cmd(repo, origin.issue_number), timeout = 30 })
+        if issue_view.exit_code ~= 0 then
+          error("github-devloop: gh issue result view failed: " .. tostring(issue_view.stderr))
+        end
+        local issue_comments = core.parse_issue_view_result(issue_view.stdout).comments
+        local intake = core.intake_decision_fact(issue_comments, origin.proposal_id)
+        if intake ~= nil and intake.decision == "enable" then
+          table.insert(candidates, {
+            pr = pr,
+            class = intake.class,
+          })
+        end
+      end
+    end
+  end
+
+  candidates = core.select_intake_class_batch(candidates, function(item)
+    return item.class
+  end, function(item)
+    local pr = item.pr or {}
+    return tostring(pr.updated_at or "") .. "/" .. tostring(pr.number or "")
+  end, OBSERVE_BATCH_LIMIT)
+
+  for _, item in ipairs(candidates) do
+    observe_one_pr(pr_payload_from_tick_candidate(repo, item.pr), event)
+  end
+end
+
+function pipeline(event)
+  if event ~= nil and event.queue == "devloop_observe_tick" then
+    observe_tick(event)
+    return
+  end
+  observe_one_pr(event.payload or {}, event)
 end
 
 return M
