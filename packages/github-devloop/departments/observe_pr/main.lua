@@ -3,7 +3,7 @@ local core = require("core")
 local M = {}
 
 M.spec = {
-  consumes = { "github-proxy.github_entity_changed", "devloop_observe_tick" },
+  consumes = { "github-proxy.github_entity_changed", "github-proxy.github_pr_opened", "devloop_observe_tick" },
   produces = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
@@ -11,7 +11,7 @@ M.spec = {
     "devloop_fixing",
     "devloop_merge_ready",
   },
-  fanout = { "github-proxy.github_entity_changed", "devloop_observe_tick" },
+  fanout = { "github-proxy.github_entity_changed", "github-proxy.github_pr_opened", "devloop_observe_tick" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
@@ -20,6 +20,24 @@ local OBSERVE_BATCH_LIMIT = 3
 
 local function pr_source_ref(repo, pr_number)
   return core.pr_source_ref(repo, pr_number)
+end
+
+local function pr_context(event)
+  local payload = event.payload or {}
+  if core.is_supported_pr(payload) then
+    return payload
+  end
+  if core.is_supported_pr_opened(payload) then
+    return {
+      schema = "github-proxy.v1",
+      type = "pr",
+      repo = payload.repo,
+      number = payload.pr_number,
+      dedup_key = payload.dedup_key,
+      source_ref = payload.source_ref,
+    }
+  end
+  return nil
 end
 
 local function origin_from_pr(repo, pr_number, current_pr)
@@ -115,37 +133,37 @@ local function raise_current_state(origin, pr_number, current_pr, state, source_
     end
     local issue_comments = issue_comments_for_origin(origin)
     local fact_comments = issue_comments or current_pr.comments
-    local reject_fact = core.review_reject_fact(fact_comments, origin.proposal_id, state.version)
-    if reject_fact == nil then
-      core.log_cas_decision("observe_pr", origin.proposal_id, state, "fixing", "fixing", "skip-stale(no-trusted-reject-fact)", "trusted reject review marker is not visible")
+    local feedback = core.fixing_replay_feedback_fact(fact_comments, origin.proposal_id, state.version)
+    if feedback == nil and issue_comments ~= nil then
+      feedback = core.fixing_replay_feedback_fact(current_pr.comments, origin.proposal_id, state.version)
+    end
+    if feedback == nil then
+      core.log_cas_decision("observe_pr", origin.proposal_id, state, "fixing", "fixing", "skip-stale(no-trusted-fix-feedback)", "trusted fix feedback marker is not visible")
       return
     end
-    if reject_fact ~= nil and reject_fact.review_proposal_id ~= nil and reject_fact.reviewed_head_sha ~= nil then
-      if tostring(current_pr.head_sha or "") ~= tostring(reject_fact.reviewed_head_sha or "") then
+    if feedback.review_proposal_id ~= nil and feedback.reviewed_head_sha ~= nil then
+      if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
         core.log_cas_decision("observe_pr", origin.proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
         return
       end
-      local reviewing_version = core.next_fix_version(state.version)
-      if not core.has_state_marker(fact_comments, origin.proposal_id, "reviewing", reviewing_version) then
-        local fix_payload = core.build_devloop_fixing_payload({
-          proposal_id = origin.proposal_id,
-          impl_version = state.version,
-        }, pr_number, {
-          review_proposal_id = reject_fact.review_proposal_id,
-          review_dedup_key = reject_fact.review_dedup_key,
-          reviewed_head_sha = reject_fact.reviewed_head_sha,
-          blocking_gap = reject_fact.blocking_gap,
-        }, source_ref)
-        core.log_line("info", "observe_pr", origin.proposal_id, "SELFHEAL", {
-          "state=fixing",
-          "queue=devloop_fixing",
-          "dedup_key=" .. tostring(fix_payload.dedup_key or ""),
-        })
-        core.log_apply("observe_pr", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
-          "devloop_fixing",
-        })
-        core.log_raise("observe_pr", origin.proposal_id, "devloop_fixing", fix_payload)
-      end
+      local fix_payload = core.build_devloop_fixing_payload({
+        proposal_id = origin.proposal_id,
+        impl_version = state.version,
+      }, pr_number, {
+        review_proposal_id = feedback.review_proposal_id,
+        review_dedup_key = feedback.review_dedup_key,
+        reviewed_head_sha = feedback.reviewed_head_sha,
+        blocking_gap = feedback.blocking_gap,
+      }, source_ref)
+      core.log_line("info", "observe_pr", origin.proposal_id, "SELFHEAL", {
+        "state=fixing",
+        "queue=devloop_fixing",
+        "dedup_key=" .. tostring(fix_payload.dedup_key or ""),
+      })
+      core.log_apply("observe_pr", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
+        "devloop_fixing",
+      })
+      core.log_raise("observe_pr", origin.proposal_id, "devloop_fixing", fix_payload)
     end
     return
   end
@@ -403,7 +421,7 @@ function pipeline(event)
     observe_tick(event)
     return
   end
-  observe_one_pr(event.payload or {}, event)
+  observe_one_pr(pr_context(event), event)
 end
 
 return M

@@ -817,6 +817,11 @@ return {
     t.eq(parsed.class, "expedite")
     t.eq(parsed.reason, "Clear bounded task.")
 
+    local escalated = core.parse_intake_action("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Third widget-sync recurrence; class-level retry policy is required.")
+    t.eq(escalated.action, "escalate-to-class")
+    t.eq(escalated.class, "standard")
+    t.eq(escalated.reason, "Third widget-sync recurrence; class-level retry policy is required.")
+
     t.is_nil(core.parse_intake_action("prefix\n⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
     t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable extra\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
     t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ urgent\n⟦FKST:REASON⟧ Clear bounded task."))
@@ -832,6 +837,10 @@ return {
     t.eq(fact.decision, "decline")
     t.eq(fact.class, "background")
     t.eq(fact.proposal_id, proposal_id)
+
+    local escalation_marker = core.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v2")
+    local escalation = core.intake_decision_fact({ { body = escalation_marker, author_login = core.trusted_bot_login() } }, proposal_id)
+    t.eq(escalation.decision, "escalate-to-class")
   end,
 
   test_intake_class_batch_uses_trusted_marker_order_with_fifo_capacity_guard = function()
@@ -931,6 +940,9 @@ return {
       comments = {},
     })
     t.is_true(prompt:find("Decline only when", 1, true) ~= nil)
+    t.is_true(prompt:find("Recurrence check is mandatory", 1, true) ~= nil)
+    t.is_true(prompt:find("escalate-to-class", 1, true) ~= nil)
+    t.is_true(prompt:find("Fowler's Rule of Three", 1, true) ~= nil)
     t.is_true(prompt:find("credentials", 1, true) ~= nil)
     t.is_true(prompt:find("destructive or irreversible", 1, true) ~= nil)
     t.is_true(prompt:find("Do NOT decline for unclear scope", 1, true) ~= nil)

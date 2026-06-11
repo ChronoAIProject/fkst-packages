@@ -44,6 +44,17 @@ local function board_digest_pr_list_cmd(M, repo)
     .. " --json number,title,labels"
 end
 
+local function recent_closed_issue_list_cmd(M, repo)
+  if type(M.gh_issue_list_recent_closed_cmd) == "function" then
+    return M.gh_issue_list_recent_closed_cmd(repo, 30)
+  end
+  return "gh issue list"
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --state closed"
+    .. " --limit 30"
+    .. " --json number,title,closedAt,labels"
+end
+
 local function label_names(labels_json)
   local labels = {}
   for _, label in ipairs(labels_json or {}) do
@@ -74,6 +85,33 @@ local function parse_board_list(stdout)
   return items
 end
 
+local function first_chars(M, value, limit)
+  local text = tostring(value or ""):gsub("[%s]+", " ")
+  if #text > limit then
+    return M.truncate_utf8(text, limit)
+  end
+  return text
+end
+
+local function recurrence_label_digest(M, labels)
+  local selected = {}
+  for _, label in ipairs(labels or {}) do
+    local text = tostring(label)
+    if text:find("^error%-class:", 1) ~= nil
+      or text:find("^fingerprint:", 1) ~= nil
+      or text:find("^fkst%-dev:", 1) ~= nil then
+      table.insert(selected, text)
+    end
+    if #selected >= 4 then
+      break
+    end
+  end
+  if #selected == 0 then
+    return "labels=none"
+  end
+  return "labels=" .. first_chars(M, table.concat(selected, ","), 120)
+end
+
 local function state_label(M, labels)
   for _, label in ipairs(labels or {}) do
     local text = tostring(label)
@@ -84,15 +122,14 @@ local function state_label(M, labels)
   return "open"
 end
 
-local function first_chars(M, value, limit)
-  local text = tostring(value or ""):gsub("[%s]+", " ")
-  if #text > limit then
-    return M.truncate_utf8(text, limit)
-  end
-  return text
+local function render_closed_issue_line(M, item)
+  return "#" .. tostring(item.number)
+    .. " [closed] "
+    .. first_chars(M, item.title, 80)
+    .. " (" .. recurrence_label_digest(M, item.labels) .. ")"
 end
 
-local function render_board_digest(M, issues, prs)
+local function render_board_digest(M, issues, prs, closed_issues)
   local lines = {
     M._untrusted_issue_data_begin,
     "Open items snapshot:",
@@ -113,6 +150,17 @@ local function render_board_digest(M, issues, prs)
       .. " [" .. state_label(M, item.labels) .. "] "
       .. first_chars(M, item.title, 60))
   end
+  table.insert(lines, "")
+  table.insert(lines, "Recent closed issues for recurrence judgment:")
+  for _, item in ipairs(closed_issues or {}) do
+    if #lines >= 84 then
+      break
+    end
+    table.insert(lines, render_closed_issue_line(M, item))
+  end
+  if type(closed_issues) ~= "table" or #closed_issues == 0 then
+    table.insert(lines, "(none fetched)")
+  end
   table.insert(lines, M._untrusted_issue_data_end)
   return table.concat(lines, "\n")
 end
@@ -129,13 +177,27 @@ function M.board_digest_block(repo, tick)
 
   local ok_issue, issue_result = pcall(M.gh_exec, { cmd = board_digest_issue_list_cmd(M, repo), timeout = 30 })
   local ok_pr, pr_result = pcall(M.gh_exec, { cmd = board_digest_pr_list_cmd(M, repo), timeout = 30 })
+  local ok_closed, closed_result = pcall(M.gh_exec, { cmd = recent_closed_issue_list_cmd(M, repo), timeout = 30 })
   if not ok_issue or not ok_pr
     or type(issue_result) ~= "table" or issue_result.exit_code ~= 0
     or type(pr_result) ~= "table" or pr_result.exit_code ~= 0 then
     return ""
   end
 
-  local block = render_board_digest(M, parse_board_list(issue_result.stdout), parse_board_list(pr_result.stdout))
+  local closed_issues = nil
+  if ok_closed and type(closed_result) == "table" and closed_result.exit_code == 0 then
+    local ok_parse, parsed = pcall(parse_board_list, closed_result.stdout)
+    if ok_parse then
+      closed_issues = parsed
+    end
+  end
+
+  local block = render_board_digest(
+    M,
+    parse_board_list(issue_result.stdout),
+    parse_board_list(pr_result.stdout),
+    closed_issues
+  )
   cache_set(key, block)
   return block
 end
@@ -210,6 +272,30 @@ function M.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
   }
 end
 
+function M.build_devloop_open_pr_payload(repo, issue_number, ready, branch, head_sha, base_branch)
+  local proposal_id = ready.proposal_id
+  if proposal_id == nil then
+    proposal_id = M.proposal_id(repo, issue_number)
+  end
+  return {
+    schema = "github-devloop.open-pr.v1",
+    proposal_id = proposal_id,
+    repo = repo,
+    issue_number = issue_number,
+    version = ready.dedup_key,
+    branch = branch,
+    head_sha = head_sha,
+    base_branch = base_branch,
+    dedup_key = M._dedup_key({
+      "open-pr-kickoff",
+      tostring(proposal_id),
+      tostring(ready.dedup_key),
+      tostring(branch),
+    }),
+    source_ref = M.normalize_source_ref(ready.source_ref),
+  }
+end
+
 function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_ref)
   local version = origin.impl_version
   if review_fact.fix_version ~= nil then
@@ -239,6 +325,16 @@ function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
   local blocking_gap = bounded_control_text(M, review_fact.blocking_gap, M._max_blocking_gap_len)
   if blocking_gap ~= nil then
     payload.blocking_gap = blocking_gap
+  end
+  if review_fact.gate_baseline_sha ~= nil then
+    if not M._is_git_sha(review_fact.gate_baseline_sha) then
+      error("github-devloop: invalid gate baseline sha")
+    end
+    payload.gate_baseline_sha = tostring(review_fact.gate_baseline_sha)
+  end
+  local gate_failure_excerpt = bounded_control_text(M, review_fact.gate_failure_excerpt, M._max_rollup_failure_summary_len)
+  if gate_failure_excerpt ~= nil then
+    payload.gate_failure_excerpt = gate_failure_excerpt
   end
   return payload
 end
@@ -308,6 +404,7 @@ function M.build_proposal(issue)
   end
   local body = "Judge the current GitHub issue from the full source content."
     .. "\nIssue: " .. tostring(issue.repo) .. "#" .. tostring(issue.number)
+    .. "\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver."
 
   return {
     schema = "consensus.proposal.v1",
