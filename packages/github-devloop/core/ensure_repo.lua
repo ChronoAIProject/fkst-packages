@@ -1,7 +1,6 @@
 local S = {}
 
 function S.install(M)
-local dashboard_title = "fkst-dev board"
 local dashboard_label = "fkst-dashboard"
 local dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
 
@@ -91,16 +90,20 @@ local function log_ensure(item, action, fields)
   M.log_line("info", "ensure_repo", "repo-management-plane", "ENSURE", parts)
 end
 
+local function dashboard_title()
+  return M.dashboard_string("title")
+end
+
 local function dashboard_anchor_body()
-  return "# " .. dashboard_title .. "\n\n"
-    .. "This issue is the fkst-dev dashboard anchor. The observability pipeline refreshes this body from trusted markers.\n\n"
+  return "# " .. dashboard_title() .. "\n\n"
+    .. M.dashboard_string("anchor_body") .. "\n\n"
     .. M.dashboard_marker("anchor", "1970-01-01T00:00:00Z") .. "\n"
 end
 
 local function write_dashboard_anchor_input(repo)
   local path = "/tmp/fkst-github-devloop-dashboard-anchor-" .. M.safe_repo(repo):gsub("/", "-") .. ".json"
   file.write(path, "{"
-    .. '"title":' .. json_string(dashboard_title)
+    .. '"title":' .. json_string(dashboard_title())
     .. ',"body":' .. json_string(dashboard_anchor_body())
     .. ',"labels":[' .. json_string(dashboard_label) .. "]"
     .. "}\n")
@@ -245,7 +248,7 @@ end
 local function ensure_dashboard_anchor(repo, mode, issues, bot_login)
   for _, issue in ipairs(issues or {}) do
     if tostring(issue.author_login or "") == tostring(bot_login or "")
-      and tostring(issue.title or "") == dashboard_title
+      and tostring(issue.title or "") == dashboard_title()
       and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
       local label_added = ensure_dashboard_anchor_label(repo, mode, issue)
       log_ensure("dashboard-anchor", "unchanged", {

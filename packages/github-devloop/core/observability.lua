@@ -2,7 +2,6 @@ local S = {}
 
 function S.install(M)
 local dept = "observability"
-local dashboard_title = "fkst-dev board"
 local dashboard_label = "fkst-dashboard"
 local dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
 local max_dashboard_body_len = 12000
@@ -67,6 +66,10 @@ local function command_indicates_already_exists(result)
     or stderr:find("name already exists", 1, true) ~= nil
     or stderr:find("422", 1, true) ~= nil
     or stderr:find("409", 1, true) ~= nil
+end
+
+local function dashboard_title()
+  return M.dashboard_string("title")
 end
 
 local function ensure_dashboard_label(repo)
@@ -331,7 +334,7 @@ local function compact_title(value)
   title = title:gsub("^%s+", ""):gsub("%s+$", "")
   title = M.neutralize_untrusted_comment_text(title)
   if title == "" then
-    title = "(untitled)"
+    title = M.dashboard_string("untitled")
   end
   if #title > max_dashboard_title_len then
     title = M.truncate_utf8(title, max_dashboard_title_len - 3):gsub("%s+$", "") .. "..."
@@ -348,7 +351,7 @@ end
 
 local function format_age(age_minutes)
   if tonumber(age_minutes) == nil then
-    return "age unknown"
+    return M.dashboard_string("age_unknown")
   end
   local minutes = tonumber(age_minutes)
   if minutes < 60 then
@@ -362,6 +365,10 @@ local function format_age(age_minutes)
   local days = math.floor(hours / 24)
   local day_hours = hours % 24
   return tostring(days) .. "d " .. tostring(day_hours) .. "h"
+end
+
+local function escape_pattern(value)
+  return tostring(value or ""):gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
 end
 
 local function entity_line(entity, now_seconds)
@@ -384,13 +391,13 @@ end
 
 local function append_entity_lines(lines, entities, now_seconds)
   if #entities == 0 then
-    table.insert(lines, "- None")
+    table.insert(lines, "- " .. M.dashboard_string("none"))
     return
   end
   local shown = 0
   for _, entity in ipairs(entities) do
     if shown >= max_dashboard_section_items then
-      table.insert(lines, "- ... " .. tostring(#entities - shown) .. " more")
+      table.insert(lines, "- ... " .. tostring(#entities - shown) .. M.dashboard_string("more_suffix"))
       return
     end
     table.insert(lines, entity_line(entity, now_seconds))
@@ -504,11 +511,11 @@ function M.render_observability_dashboard(args)
   end
 
   local lines = {
-    "# " .. dashboard_title,
+    "# " .. dashboard_title(),
     "",
-    "Live read-only dashboard generated from trusted fkst-dev markers. Chinese: &#27492;&#30475;&#26495;&#21482;&#26159;&#21487;&#20449; marker &#30340;&#21482;&#35835;&#27966;&#29983;&#35270;&#22270;&#65292;&#19981;&#26159;&#20107;&#23454;&#28304;&#12290;",
+    M.dashboard_string("description"),
     "",
-    "## Now working",
+    "## " .. M.dashboard_string("now_working"),
   }
   local working = {}
   for _, state in ipairs({ "implementing", "pr-open", "reviewing", "fixing", "merge-ready", "merging" }) do
@@ -519,8 +526,8 @@ function M.render_observability_dashboard(args)
   append_entity_lines(lines, working, now_seconds)
 
   table.insert(lines, "")
-  table.insert(lines, "## Board by state")
-  table.insert(lines, "Total: " .. tostring(#list))
+  table.insert(lines, "## " .. M.dashboard_string("board_by_state"))
+  table.insert(lines, M.dashboard_string("total_prefix") .. tostring(#list))
   for _, state in ipairs(M._state_order) do
     table.insert(lines, "- " .. tostring(state) .. ": " .. tostring(counts[state] or 0))
   end
@@ -528,39 +535,40 @@ function M.render_observability_dashboard(args)
     table.insert(lines, "- unmanaged: " .. tostring(counts.unmanaged))
   end
 
-  append_state_section(lines, "Ready", "ready", by_state, now_seconds)
-  append_state_section(lines, "Blocked", "blocked", by_state, now_seconds)
-  append_state_section(lines, "Review meta", "review-meta", by_state, now_seconds)
-  append_state_section(lines, "Thinking", "thinking", by_state, now_seconds)
+  append_state_section(lines, M.dashboard_string("ready"), "ready", by_state, now_seconds)
+  append_state_section(lines, M.dashboard_string("blocked"), "blocked", by_state, now_seconds)
+  append_state_section(lines, M.dashboard_string("review_meta"), "review-meta", by_state, now_seconds)
+  append_state_section(lines, M.dashboard_string("thinking"), "thinking", by_state, now_seconds)
 
   table.insert(lines, "")
-  table.insert(lines, "## Stall suspects")
+  table.insert(lines, "## " .. M.dashboard_string("stall_suspects"))
   if #stalls == 0 then
-    table.insert(lines, "- None")
+    table.insert(lines, "- " .. M.dashboard_string("none"))
   else
     local shown = 0
     for _, stall in ipairs(stalls) do
       if shown >= max_dashboard_section_items then
-        table.insert(lines, "- ... " .. tostring(#stalls - shown) .. " more")
+        table.insert(lines, "- ... " .. tostring(#stalls - shown) .. M.dashboard_string("more_suffix"))
         break
       end
       table.insert(lines, entity_line(stall.entity, now_seconds)
-        .. " (threshold " .. tostring(stall.threshold_minutes) .. "m)")
+        .. " (" .. M.dashboard_string("threshold_prefix") .. tostring(stall.threshold_minutes) .. "m)")
       shown = shown + 1
     end
   end
 
   table.insert(lines, "")
-  table.insert(lines, "## Recent transitions")
-  table.insert(lines, "- Not rendered: no existing low-cost transition history source is available to this department.")
+  table.insert(lines, "## " .. M.dashboard_string("recent_transitions"))
+  table.insert(lines, "- " .. M.dashboard_string("no_transition_source"))
   table.insert(lines, "")
-  table.insert(lines, "## Footer")
-  table.insert(lines, "- quota: not rendered")
-  table.insert(lines, "- instance: " .. tostring(instance))
-  table.insert(lines, "- generated-at: " .. generated_at)
+  table.insert(lines, "## " .. M.dashboard_string("footer"))
+  table.insert(lines, "- " .. M.dashboard_string("quota_not_rendered"))
+  table.insert(lines, "- " .. M.dashboard_string("instance_prefix") .. tostring(instance))
+  table.insert(lines, "- " .. M.dashboard_string("generated_at_prefix") .. generated_at)
 
   local stable = table.concat(lines, "\n")
-  local hash = M._decimal_checksum(stable:gsub("%- generated%-at: [^\n]+", "- generated-at: <generated>"))
+  local generated_at_line = M.dashboard_string("generated_at_prefix")
+  local hash = M._decimal_checksum(stable:gsub("%- " .. escape_pattern(generated_at_line) .. "[^\n]+", "- " .. generated_at_line .. "<generated>"))
   local marker = dashboard_marker(hash, generated_at)
   local body = stable .. "\n\n" .. marker .. "\n"
   if #body > max_dashboard_body_len then
@@ -635,7 +643,7 @@ function M.publish_observability_dashboard(repo, dashboard)
   end
 
   if current == nil then
-    local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
+    local path = write_dashboard_input(repo, dashboard_title(), dashboard.body)
     run_cmd(M.gh_dashboard_issue_create_cmd(repo, path), 30, "gh dashboard issue create")
     log.info("github-devloop dept=observability tag=DASHBOARD_CREATED hash=" .. tostring(dashboard.hash))
     return "created"
@@ -682,7 +690,7 @@ function M.publish_observability_dashboard(repo, dashboard)
     return "cas-mismatch"
   end
 
-  local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
+  local path = write_dashboard_input(repo, dashboard_title(), dashboard.body)
   local updated = M.gh_exec({ cmd = M.gh_dashboard_issue_update_cmd(repo, current.number, path, refreshed.etag), timeout = 30 })
   if updated.exit_code ~= 0 then
     local stderr = tostring(updated.stderr or "")

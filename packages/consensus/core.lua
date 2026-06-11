@@ -27,6 +27,7 @@ local gap_label = "⟦FKST:GAP⟧"
 local allowed_env = {
   FKST_OUTPUT_LANG = true,
 }
+local loaded_catalogs = {}
 
 local function read_env_command(name)
   if not allowed_env[name] then
@@ -60,6 +61,10 @@ end
 
 local function trim(value)
   return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function in_test_mode()
+  return type(_G.fkst) == "table" and type(_G.fkst.test) == "table"
 end
 
 local function is_bounded_string(value, limit)
@@ -367,28 +372,64 @@ function M.render_template(template, vars)
 end
 
 function M.output_language(exec)
+  if exec == nil and in_test_mode() then
+    return "en"
+  end
   local lang = trim(M.read_env("FKST_OUTPUT_LANG", exec))
-  if lang == "zh" then
+  if lang == "zh" or lang == "zh-CN" then
     return "zh"
   end
   return "en"
 end
 
-function M.prompt_preamble(proposal, exec)
-  local language_line = "Write all output in English; quote code identifiers and cited originals verbatim."
-  if M.output_language(exec) == "zh" then
-    language_line = "Write all prose output in Simplified Chinese; quote code identifiers and cited originals verbatim."
+local function catalog_for(lang)
+  local normalized = (lang == "zh" or lang == "zh-CN") and "zh" or "en"
+  if loaded_catalogs[normalized] ~= nil then
+    return loaded_catalogs[normalized]
   end
+  local ok, catalog = pcall(require, "locales." .. normalized)
+  if not ok or type(catalog) ~= "table" then
+    if normalized ~= "en" then
+      return catalog_for("en")
+    end
+    catalog = {}
+  end
+  loaded_catalogs[normalized] = catalog
+  return catalog
+end
 
+function M.catalog_string(key, proposal, exec)
+  local text = nil
+  local lang = M.output_language(exec)
+  if exec == nil and not in_test_mode() and type(_G.t) == "function" then
+    local ok, value = pcall(_G.t, key)
+    if ok and value ~= nil and value ~= "" and value ~= key then
+      text = value
+    end
+  end
+  if text == nil then
+    text = catalog_for(lang)[key]
+    if text == nil and lang ~= "en" then
+      text = catalog_for("en")[key]
+    end
+  end
+  return text ~= nil and tostring(text) or tostring(key)
+end
+
+function M.prompt_preamble_string(key, proposal, exec)
+  return M.catalog_string("prompt_preamble." .. tostring(key), proposal, exec)
+end
+
+function M.prompt_preamble(proposal, exec)
   -- Slots supersede GitHub issues #142 and #145: env-driven language selection plus
   -- harness-first judgment are fixed context, not verdict/parser protocol.
   local lines = {
-    language_line,
-    "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
+    M.prompt_preamble_string("language", proposal, exec),
+    M.prompt_preamble_string("harness", proposal, exec),
   }
 
   if has_content_fetch(proposal) then
-    table.insert(lines, "Before judging, use the producer-provided context manifest below as the complete prior history of this proposal; earlier rounds recorded there are your memory. Judge what changed; do not re-litigate settled points.")
+    table.insert(lines, M.prompt_preamble_string("content_history", proposal, exec))
   end
 
   return table.concat(lines, "\n")

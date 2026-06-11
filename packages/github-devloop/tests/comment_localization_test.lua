@@ -255,8 +255,8 @@ end
 
 return {
   test_comment_template_audit_has_complete_language_table = function()
-    local en = core.comment_strings("en")
-    local zh = core.comment_strings("zh")
+    local en = core.catalog_strings("en")
+    local zh = core.catalog_strings("zh")
     local human = 0
     for _, row in ipairs(core.comment_template_audit()) do
       if row.classification == "human" then
@@ -269,6 +269,26 @@ return {
       end
     end
     t.is_true(human >= #audited_english_skeletons - 2)
+  end,
+
+  test_catalog_has_non_comment_outward_text_keys = function()
+    local en = core.catalog_strings("en")
+    local zh = core.catalog_strings("zh")
+    for _, key in ipairs({
+      "operator_commands.accepted_rereview",
+      "operator_commands.accepted_reready",
+      "operator_commands.refused_prefix",
+      "dashboard.title",
+      "dashboard.now_working",
+      "dashboard.board_by_state",
+      "dashboard.stall_suspects",
+      "prompt_preamble.language",
+      "prompt_preamble.harness",
+      "prompt_preamble.entity_history",
+    }) do
+      t.is_true(en[key] ~= nil)
+      t.is_true(zh[key] ~= nil)
+    end
   end,
 
   test_zh_comments_localize_human_skeletons_and_keep_machine_tokens = function()

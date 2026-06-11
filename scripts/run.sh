@@ -274,7 +274,7 @@ cmd_test() {
       fi
     fi
     report_file="$report_dir/$name.json"
-    if ! "$BIN" test --project-root "$pkg" --package-root "$pkg" --report-json "$report_file"; then
+    if ! FKST_OUTPUT_LANG=en "$BIN" test --project-root "$pkg" --package-root "$pkg" --report-json "$report_file"; then
       fail=$((fail + 1))
     fi
   done

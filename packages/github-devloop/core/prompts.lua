@@ -10,21 +10,16 @@ function M.output_language(exec)
 end
 
 function M.prompt_preamble(exec)
-  local language_line = "Write all output in English; quote code identifiers and cited originals verbatim."
-  if M.output_language(exec) == "zh" then
-    language_line = "Write all prose output in Simplified Chinese; quote code identifiers and cited originals verbatim."
-  end
-
   -- Slots supersede GitHub issues #142 and #145: env-driven language selection plus
   -- harness-first judgment are fixed context, not verdict/parser protocol.
   return table.concat({
-    language_line,
-    "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
+    M.prompt_preamble_string("language", exec),
+    M.prompt_preamble_string("harness", exec),
   }, "\n")
 end
 
 local function github_entity_history_line()
-  return "Before judging, read the local context files named below. They may be large, so read them in segments as needed. They contain the complete fetched GitHub history for this delivery; prior review verdicts, fix notes, and convergence rounds recorded there are your memory of earlier rounds. Judge what changed relative to them; do not re-litigate settled points."
+  return M.prompt_preamble_string("entity_history")
 end
 
 function M.render_prompt_template(template, vars, exec, opts)

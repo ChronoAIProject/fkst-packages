@@ -502,6 +502,36 @@ return {
     t.eq(count_calls("gh api --method PATCH"), 0)
   end,
 
+  test_dashboard_zh_renders_catalog_skeletons = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    core.configure_output_lang("zh")
+    local dashboard = core.render_observability_dashboard({
+      entities = {
+        {
+          proposal_id = proposal_id,
+          issue_number = 42,
+          title = "Observed issue",
+          state = {
+            state = "ready",
+            version = "2026-06-03T01-02-03Z",
+          },
+        },
+      },
+      counts = { ready = 1 },
+      stalls = {},
+      now_seconds = 1780462923,
+    })
+    core.configure_output_lang(nil)
+
+    t.is_true(dashboard.body:find("# fkst-dev 看板", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("## 正在处理", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("## 按状态汇总", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("## 停滞嫌疑", 1, true) ~= nil)
+    t.eq(dashboard.body:find("## Now working", 1, true), nil)
+    t.eq(dashboard.body:find("## Board by state", 1, true), nil)
+    t.eq(dashboard.body:find("## Stall suspects", 1, true), nil)
+  end,
+
   test_dashboard_write_creates_single_marker_issue_when_absent = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     mock_env("fkst-test-bot", "1")

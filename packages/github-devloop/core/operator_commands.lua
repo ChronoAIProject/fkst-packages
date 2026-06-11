@@ -116,7 +116,7 @@ function M.build_operator_rereview_comment_request(repo, pr_number, proposal_id,
     kind = "pr",
     repo = repo,
     number = pr_number,
-  }, "github-devloop operator command accepted: rereview"
+  }, M.operator_command_string("accepted_rereview")
     .. "\n\n" .. state_marker
     .. "\n" .. marker
     .. "\n" .. ai_sentinel, M._dedup_key({
@@ -134,7 +134,7 @@ function M.build_operator_issue_rereview_comment_request(repo, issue_number, com
     kind = "issue",
     repo = repo,
     number = issue_number,
-  }, "github-devloop operator command accepted: rereview"
+  }, M.operator_command_string("accepted_rereview")
     .. "\n\n" .. marker
     .. "\n" .. ai_sentinel, M._dedup_key({
     "operator-command",
@@ -151,7 +151,7 @@ function M.build_operator_issue_reready_comment_request(repo, issue_number, comm
     kind = "issue",
     repo = repo,
     number = issue_number,
-  }, "github-devloop operator command accepted: reready"
+  }, M.operator_command_string("accepted_reready")
     .. "\n\n" .. marker
     .. "\n" .. ai_sentinel, M._dedup_key({
     "operator-command",
@@ -163,13 +163,13 @@ function M.build_operator_issue_reready_comment_request(repo, issue_number, comm
 end
 
 function M.build_operator_command_refusal_request(repo, pr_number, command, reason, source_ref)
-  local safe_reason = M.neutralize_untrusted_comment_text(reason or "invalid command state")
+  local safe_reason = M.neutralize_untrusted_comment_text(reason or M.operator_command_string("invalid_command_state"))
   local marker = M.operator_command_marker(command, "refused", reason)
   return M.build_entity_comment_request({
     kind = "pr",
     repo = repo,
     number = pr_number,
-  }, "github-devloop operator command refused: " .. safe_reason
+  }, M.operator_command_string("refused_prefix") .. safe_reason
     .. "\n\n" .. marker
     .. "\n" .. ai_sentinel, M._dedup_key({
     "operator-command",
@@ -181,13 +181,13 @@ function M.build_operator_command_refusal_request(repo, pr_number, command, reas
 end
 
 function M.build_operator_issue_command_refusal_request(repo, issue_number, command, reason, source_ref)
-  local safe_reason = M.neutralize_untrusted_comment_text(reason or "invalid command state")
+  local safe_reason = M.neutralize_untrusted_comment_text(reason or M.operator_command_string("invalid_command_state"))
   local marker = M.operator_command_marker(command, "refused", reason)
   return M.build_entity_comment_request({
     kind = "issue",
     repo = repo,
     number = issue_number,
-  }, "github-devloop operator command refused: " .. safe_reason
+  }, M.operator_command_string("refused_prefix") .. safe_reason
     .. "\n\n" .. marker
     .. "\n" .. ai_sentinel, M._dedup_key({
     "operator-command",
