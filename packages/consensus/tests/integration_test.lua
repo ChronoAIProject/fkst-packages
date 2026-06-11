@@ -197,12 +197,12 @@ return {
     assert_any_judgment_worktree(calls, "angle-structural")
     assert_any_judgment_worktree(calls, "angle-delete")
     assert_judgment_dir_read_only(3)
-    assert_any_codex_stdin_contains(calls, "Angle: minimal")
-    assert_any_codex_stdin_contains(calls, "source_ref.ref: demo/consensus/42")
-    assert_any_codex_stdin_contains(calls, "fetch-source --ref demo/consensus/42 --full")
-    assert_any_codex_stdin_contains(calls, "Do not clone, checkout, fetch with git")
-    assert_any_codex_stdin_contains(calls, "Angle: structural")
-    assert_any_codex_stdin_contains(calls, "Angle: delete")
+    t.is_true(calls[1].stdin:find("Angle: minimal", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("source_ref.ref: demo/consensus/42", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("fetch-source --ref demo/consensus/42 --full", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Do not clone, checkout, fetch with git", 1, true) ~= nil)
+    t.is_true(calls[2].stdin:find("Angle: structural", 1, true) ~= nil)
+    t.is_true(calls[3].stdin:find("Angle: delete", 1, true) ~= nil)
   end,
 
   test_codex_stdin_carries_fetch_instruction_not_full_body = function()
@@ -358,7 +358,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
-    t.eq(angle_digest_verdict(result.raises[1].payload, "minimal"), "invalid")
+    t.eq(result.raises[1].payload.angle_digests[1].verdict, "invalid")
     t.eq(result.raises[1].payload.narrowed_question, "What concern prevents approval?")
     t.eq(#codex_calls(), 4)
   end,
