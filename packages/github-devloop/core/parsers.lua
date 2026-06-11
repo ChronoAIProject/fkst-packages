@@ -222,6 +222,13 @@ function M.parse_issue_view_intake_judge(stdout)
   }
 end
 
+function M.parse_issue_rest_get(stdout)
+  local decoded = json.decode(stdout or "{}")
+  return {
+    issue_type = M.issue_type_from_json(type(decoded) == "table" and decoded.type or nil),
+  }
+end
+
 function M.parse_issue_view_meta(stdout)
   local decoded = json.decode(stdout or "{}")
   local result = M.parse_issue_view_result(stdout)

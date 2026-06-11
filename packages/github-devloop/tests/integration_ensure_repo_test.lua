@@ -254,6 +254,7 @@ return {
     t.eq(count_calls("gh api --method POST 'repos/owner/repo/issues'"), 1)
     local written = file.read(dashboard_anchor_input_path())
     t.is_true(written:find('"title":"fkst-dev board"', 1, true) ~= nil)
+    t.is_true(written:find('"type":"Task"', 1, true) ~= nil)
     t.is_true(written:find('"labels":["fkst-dashboard"]', 1, true) ~= nil)
     t.is_true(written:find('<!-- fkst:dashboard:v1 version=\\"1970-01-01T00:00:00Z\\" hash=\\"anchor\\"', 1, true) ~= nil)
   end,

@@ -523,6 +523,10 @@ return {
       core.gh_workflow_dispatch_ci_cmd("owner/repo", "devloop-owner-repo-42-01HY"),
       "gh workflow run 'ci.yml' --repo 'owner/repo' --ref 'devloop-owner-repo-42-01HY'"
     )
+    t.eq(
+      core.gh_issue_rest_get_cmd("owner/repo", 42),
+      "gh api --method GET 'repos/owner/repo/issues/42'"
+    )
   end,
 
   test_intake_judge_parse_keeps_full_issue_body = function()
@@ -538,6 +542,9 @@ return {
     t.eq(parsed.updated_at, "2026-06-03T01:02:03Z")
     t.eq(parsed.state, "OPEN")
     t.eq(parsed.labels[1], "bug")
+
+    local rest = core.parse_issue_rest_get('{"number":42,"type":{"name":"Bug"}}')
+    t.eq(rest.issue_type, "Bug")
   end,
 
   test_meta_parse_omits_issue_body_snapshot = function()

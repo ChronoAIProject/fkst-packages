@@ -4,9 +4,15 @@ function S.install(M)
 local max_title_len = 240
 local max_body_len = 12000
 local max_label_len = 80
+local max_issue_type_len = 40
 local max_dedup_len = 512
 local max_runtime_id_len = 180
 local max_issue_number_len = 32
+local known_issue_types = {
+  Bug = true,
+  Feature = true,
+  Task = true,
+}
 
 local function shell_single_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
@@ -54,6 +60,49 @@ local function labels_arg(labels)
     end
   end
   return args
+end
+
+local function json_string(value)
+  local controls = {
+    ["\b"] = "\\b",
+    ["\f"] = "\\f",
+    ["\n"] = "\\n",
+    ["\r"] = "\\r",
+    ["\t"] = "\\t",
+  }
+  return '"' .. tostring(value or "")
+    :gsub("\\", "\\\\")
+    :gsub('"', '\\"')
+    :gsub("[%z\1-\31]", function(char)
+      return controls[char] or string.format("\\u%04x", string.byte(char))
+    end)
+    .. '"'
+end
+
+local function issue_create_input_path(dedup_key)
+  return "/tmp/fkst-github-proxy-" .. issue_create_runtime_identity(dedup_key) .. ".json"
+end
+
+local function write_issue_create_input(payload, body)
+  local parts = {
+    '"title":' .. json_string(payload.title),
+    '"body":' .. json_string(body),
+  }
+  if payload.issue_type ~= nil then
+    table.insert(parts, '"type":' .. json_string(payload.issue_type))
+  end
+  if type(payload.labels) == "table" and #payload.labels > 0 then
+    local labels = {}
+    for _, label in ipairs(payload.labels) do
+      if is_bounded_string(label, max_label_len) then
+        table.insert(labels, json_string(label))
+      end
+    end
+    table.insert(parts, '"labels":[' .. table.concat(labels, ",") .. "]")
+  end
+  local path = issue_create_input_path(payload.dedup_key)
+  file.write(path, "{" .. table.concat(parts, ",") .. "}\n")
+  return path
 end
 
 local function issue_author_login(issue)
@@ -112,11 +161,10 @@ function M.gh_issue_create_search_cmd(repo, dedup_key)
     .. " --json number,title,state,author,body,url"
 end
 
-function M.gh_issue_create_cmd(repo, title, body_file, labels)
-  return "gh issue create --repo " .. shell_single_quote(repo)
-    .. " --title " .. shell_single_quote(title)
-    .. " --body-file " .. shell_single_quote(body_file)
-    .. labels_arg(labels)
+function M.gh_issue_create_cmd(repo, input_file)
+  return "gh api --method POST "
+    .. shell_single_quote("repos/" .. tostring(repo) .. "/issues")
+    .. " --input " .. shell_single_quote(input_file)
 end
 
 local function normalize_parent_comment_target(target)
@@ -235,6 +283,10 @@ end
 
 function M.parse_created_issue_number(stdout)
   local text = tostring(stdout or "")
+  local ok, decoded = pcall(json.decode, text)
+  if ok and type(decoded) == "table" and decoded.number ~= nil then
+    return tostring(decoded.number)
+  end
   local number = text:match("/issues/(%d+)")
   if number ~= nil then
     return number
@@ -283,6 +335,11 @@ function M.validate_issue_create_payload(payload)
         return false
       end
     end
+  end
+  if payload.issue_type ~= nil
+    and (not is_bounded_string(payload.issue_type, max_issue_type_len)
+      or not known_issue_types[tostring(payload.issue_type)]) then
+    return false
   end
   local parent = normalize_parent_comment_target(payload.parent_comment_target)
   if parent == false then
@@ -341,9 +398,8 @@ function M.write_issue_create_request(payload)
       end
 
       local body = tostring(payload.body) .. "\n\n" .. M.issue_create_marker(payload.dedup_key) .. "\n"
-      local path = "/tmp/fkst-github-proxy-" .. issue_create_runtime_identity(payload.dedup_key) .. ".md"
-      file.write(path, body)
-      local created = M.gh_exec(M.gh_issue_create_cmd(repo, payload.title, path, payload.labels), 30, "gh issue create")
+      local path = write_issue_create_input(payload, body)
+      local created = M.gh_exec(M.gh_issue_create_cmd(repo, path), 30, "gh issue create")
       if parent ~= nil then
         local issue_number = M.parse_created_issue_number(created.stdout) or "unknown"
         local marker_path = issue_created_marker_body_file(payload.dedup_key)

@@ -55,10 +55,22 @@ function pipeline(event)
     end
 
     local current = core.parse_issue_view_intake_judge(view.stdout)
+    local type_view = core.gh_exec({ cmd = core.gh_issue_rest_get_cmd(repo, issue_number), timeout = 30 })
+    if type_view.exit_code ~= 0 then
+      error("github-devloop: gh issue type view failed: " .. tostring(type_view.stderr))
+    end
+    current.issue_type = core.parse_issue_rest_get(type_view.stdout).issue_type
     core.log_forged_markers("intake_judge", candidate.proposal_id, current.comments)
     if current.state ~= "OPEN" then
       core.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|decline|escalate-to-class", "skip-closed", "issue is not open")
       return
+    end
+    if current.issue_type == nil and core.read_env("FKST_GITHUB_WRITE") == "1" then
+      local issue_type = core.classify_issue_type(current)
+      local typed = core.gh_exec({ cmd = core.issue_type_patch_cmd(repo, issue_number, issue_type), timeout = 30 })
+      if typed.exit_code ~= 0 then
+        error("github-devloop: gh issue type patch failed: " .. tostring(typed.stderr))
+      end
     end
     if core.is_opted_in(current.labels) then
       core.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|decline|escalate-to-class", "skip-enabled", "fkst-dev:enabled is already present")

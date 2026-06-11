@@ -740,6 +740,7 @@ return {
     t.is_true(input_path ~= "/tmp/fkst-github-devloop-dashboard-owner-repo.json")
     local written = file.read(input_path)
     t.is_true(written:find('"title":"fkst-dev board"', 1, true) ~= nil)
+    t.is_true(written:find('"type":"Task"', 1, true) ~= nil)
     t.is_true(written:find('"labels":["fkst-dashboard"]', 1, true) ~= nil)
     t.is_true(written:find("fkst:dashboard:v1", 1, true) ~= nil)
     t.is_true(written:find("implementing", 1, true) ~= nil)

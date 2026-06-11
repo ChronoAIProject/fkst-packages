@@ -124,6 +124,7 @@ return {
     local create = find_raise(result.raises, "github-proxy.github_issue_create_request")
     t.eq(create.payload.schema, "github-proxy.issue-create.v1")
     t.eq(create.payload.title, "Spec amendment needed: Implement decision recorder")
+    t.eq(create.payload.issue_type, "Feature")
     t.is_true(create.payload.body:find("Spec flaw statement:", 1, true) ~= nil)
     t.is_true(create.payload.body:find(flaw, 1, true) ~= nil)
     t.is_true(create.payload.body:find("Evidence digest:", 1, true) ~= nil)

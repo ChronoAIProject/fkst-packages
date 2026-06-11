@@ -13,6 +13,7 @@ local function event(extra)
     title = "Split blocked PR into smaller work",
     body = "Parent: #42\n\nScope: implement the smallest viable slice.",
     labels = { "triage" },
+    issue_type = "Task",
     dedup_key = "decompose/github-devloop/issue/owner/x/42/v1/1/123",
     parent_comment_target = {
       repo = "owner/x",
@@ -41,8 +42,8 @@ local function mock_issue_create_search(stdout)
 end
 
 local function mock_issue_create()
-  t.mock_command("gh issue create", {
-    stdout = "https://github.example/owner/x/issues/99\n",
+  t.mock_command("gh api --method POST 'repos/owner/x/issues'", {
+    stdout = '{"number":99,"html_url":"https://github.example/owner/x/issues/99"}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -73,7 +74,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue list"), 0)
-    t.eq(count_calls("gh issue create"), 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 0)
   end,
 
   test_issue_create_request_missing_fields_fail_closed = function()
@@ -88,7 +89,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue list"), 0)
-    t.eq(count_calls("gh issue create"), 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 0)
   end,
 
   test_issue_create_request_trusted_marker_skips_create = function()
@@ -112,7 +113,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh pr view"), 0)
     t.eq(count_calls("gh issue list"), 1)
-    t.eq(count_calls("gh issue create"), 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 0)
   end,
 
   test_issue_create_request_parent_ledger_marker_skips_create = function()
@@ -138,7 +139,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh pr view"), 1)
     t.eq(count_calls("gh issue list"), 0)
-    t.eq(count_calls("gh issue create"), 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 0)
   end,
 
   test_issue_create_request_parent_intent_marker_skips_create = function()
@@ -165,7 +166,7 @@ return {
     t.eq(count_calls("gh pr view"), 1)
     t.eq(count_calls("gh pr comment"), 0)
     t.eq(count_calls("gh issue list"), 0)
-    t.eq(count_calls("gh issue create"), 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 0)
   end,
 
   test_issue_create_request_real_write_calls_gh_issue_create = function()
@@ -193,9 +194,15 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh pr view"), 2)
     t.eq(count_calls("gh issue list"), 0)
-    t.eq(count_calls("gh issue create"), 1)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 1)
     t.eq(count_calls("gh pr comment"), 2)
-    t.is_true(first_call_index("gh pr comment") < first_call_index("gh issue create"))
+    t.is_true(first_call_index("gh pr comment") < first_call_index("gh api --method POST 'repos/owner/x/issues'"))
+    local create_call = t.command_calls()[first_call_index("gh api --method POST 'repos/owner/x/issues'")]
+    local input_path = create_call.rendered:match("%-%-input '([^']+)'")
+    t.is_true(input_path ~= nil)
+    local input = file.read(input_path)
+    t.is_true(input:find('"type":"Task"', 1, true) ~= nil)
+    t.is_true(input:find('"labels":["triage"]', 1, true) ~= nil)
   end,
 
   test_issue_create_request_real_write_records_parent_ledger_marker = function()
@@ -221,7 +228,7 @@ return {
     }))
 
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh issue create"), 1)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 1)
     t.eq(count_calls("gh pr comment"), 2)
     t.eq(count_calls("fkst-github-proxy-intent"), 1)
     t.eq(count_calls("fkst-github-proxy-created"), 1)
@@ -276,7 +283,7 @@ return {
     t.eq(second.exit_code, 0)
     t.eq(count_calls("gh pr view"), 3)
     t.eq(count_calls("gh issue list"), 0)
-    t.eq(count_calls("gh issue create"), 1)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 1)
   end,
 
   test_issue_create_request_without_parent_uses_issue_search_fallback = function()
@@ -300,6 +307,6 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh pr view"), 0)
     t.eq(count_calls("gh issue list"), 1)
-    t.eq(count_calls("gh issue create"), 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues'"), 0)
   end,
 }

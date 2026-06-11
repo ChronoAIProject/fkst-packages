@@ -162,6 +162,11 @@ function M.gh_issue_view_intake_judge_cmd(repo, issue_number)
   return M.gh_issue_view_cmd(repo, issue_number, "title,body,updatedAt,labels,comments,state")
 end
 
+function M.gh_issue_rest_get_cmd(repo, issue_number)
+  return "gh api --method GET "
+    .. M._shell_single_quote("repos/" .. tostring(repo) .. "/issues/" .. tostring(issue_number))
+end
+
 function M.gh_issue_view_state_cmd(repo, issue_number)
   return M.gh_issue_view_cmd(repo, issue_number, "labels,state,comments")
 end

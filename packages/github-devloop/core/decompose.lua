@@ -225,6 +225,7 @@ function M.build_issue_create_request(repo, decompose, issue, index)
     title = safe_title,
     body = body,
     labels = json.decode("[]"),
+    issue_type = "Task",
     dedup_key = M._dedup_key({
       "decompose",
       tostring(decompose.proposal_id),

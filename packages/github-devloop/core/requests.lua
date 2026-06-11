@@ -942,6 +942,7 @@ function M.build_spec_amendment_issue_create_request(repo, issue_number, review_
     title = title,
     body = body,
     labels = json.decode("[]"),
+    issue_type = "Feature",
     dedup_key = M._dedup_key({
       "spec-amendment",
       tostring(review_meta.proposal_id),

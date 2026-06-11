@@ -116,6 +116,7 @@ engine-PR backlog：
 - `FKST_GITHUB_REPO=owner/repo` 必填；缺失时 fail-closed。
 - `FKST_RUNTIME_ROOT=/path/to/runtime` 必填；引擎用它管理 cache / lock 状态，缺失时入站 poll fail-closed。
 - `FKST_GITHUB_WRITE=1` 是唯一写入姿态开关；未设置或不等于 `1` 时只 dry-run，不调用 mutate GitHub 的 `gh` 命令；设为 `1` 时 `github-devloop` 直接自治执行真实写入。
+- GitHub native issue `type` carries issue kind only (`Bug` / `Feature` / `Task`); state remains marker-as-fact with `fkst-dev:*` labels as UI hints.
 - `gh` traffic from `github-proxy` and `github-devloop` is tagged with the engine named rate pool `gh`; host posture owns sizing via `FKST_RATE_POOL_GH=<burst>,<refill_per_minute>`. Real supervise runs fail closed unless `FKST_RATE_POOL_ROOT` is an absolute host-stable shared path, so package and website supervisors spend one GitHub budget instead of separate local budgets. 中文补充：这是集中令牌桶/共享速率池治理，不是 package 侧 sleep。
 - `gh` auth、PATH、权限和 repo 当前 git 工作区都是 host 责任。
 

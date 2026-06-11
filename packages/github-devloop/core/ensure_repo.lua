@@ -102,6 +102,7 @@ local function write_dashboard_anchor_input(repo)
   file.write(path, "{"
     .. '"title":' .. json_string(dashboard_title)
     .. ',"body":' .. json_string(dashboard_anchor_body())
+    .. ',"type":"Task"'
     .. ',"labels":[' .. json_string(dashboard_label) .. "]"
     .. "}\n")
   return path

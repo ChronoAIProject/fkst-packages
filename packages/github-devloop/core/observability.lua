@@ -781,6 +781,7 @@ local function write_dashboard_input(repo, title, body)
   file.write(path, "{"
     .. '"title":' .. json_string(title)
     .. ',"body":' .. json_string(body)
+    .. ',"type":"Task"'
     .. ',"labels":[' .. json_string(dashboard_label) .. "]"
     .. "}\n")
   return path

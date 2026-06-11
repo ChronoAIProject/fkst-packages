@@ -181,6 +181,7 @@ return {
     t.eq(first.title, "Extract a minimal retry helper")
     t.eq(second.title, "Wire retry helper into one call site")
     t.is_true(first.dedup_key:find("decompose/github-devloop/issue/owner/repo/42/", 1, true) ~= nil)
+    t.eq(first.issue_type, "Task")
     t.eq(first.parent_comment_target.repo, "owner/repo")
     t.eq(first.parent_comment_target.pr_number, 7)
     t.is_true(first.body:find("Parent PR: #7", 1, true) ~= nil)

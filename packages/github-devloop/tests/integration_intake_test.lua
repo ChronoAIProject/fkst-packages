@@ -17,6 +17,16 @@ local function mock_bot_env(value)
   h.mock_bot_env(value)
 end
 
+local function mock_write_env(value)
+  for _ = 1, 4 do
+    t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
+      stdout = value or "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
 local function json_string(value)
   return h.json_string(value)
 end
@@ -91,6 +101,28 @@ local function mock_intake_judge_view(labels, comments, extra)
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command("gh api --method GET 'repos/owner/repo/issues/42'", {
+    stdout = string.format('{"number":42,"type":%s}\n', fields.issue_type_json or '{"name":"Task"}'),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_context_issue_view(labels, comments, extra)
+  local fields = extra or {}
+  t.mock_command("--json title,body,updatedAt,labels,comments,state", {
+    stdout = string.format(
+      '{"title":"%s","body":"%s","updatedAt":"%s","state":"%s","labels":[%s],"comments":[%s]}\n',
+      json_string(fields.title or "Add retry backoff to failed widget sync"),
+      json_string(fields.body or "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries."),
+      json_string(fields.updated_at or "2026-06-03T01:02:03Z"),
+      json_string(fields.state or "OPEN"),
+      labels_json(labels or {}),
+      comments_json(comments or {})
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function mock_intake_codex(stdout, exit_code, stderr)
@@ -108,7 +140,7 @@ local function mock_intake_codex(stdout, exit_code, stderr)
     stderr = "",
     exit_code = 0,
   })
-  mock_intake_judge_view({}, {})
+  mock_context_issue_view({}, {})
   t.mock_command("--state open --limit 100 --json number,title,labels", {
     stdout = "[]\n",
     stderr = "",
@@ -157,6 +189,14 @@ local function mock_intake_codex(stdout, exit_code, stderr)
   })
 end
 
+local function mock_issue_type_patch()
+  t.mock_command("gh api --method PATCH 'repos/owner/repo/issues/42'", {
+    stdout = '{"number":42,"type":{"name":"Bug"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function codex_calls()
   local calls = {}
   for _, call in ipairs(t.command_calls()) do
@@ -165,6 +205,15 @@ local function codex_calls()
     end
   end
   return calls
+end
+
+local function first_call_index(needle)
+  for index, call in ipairs(t.command_calls()) do
+    if call.rendered:find(needle, 1, true) ~= nil then
+      return index
+    end
+  end
+  return nil
 end
 
 local function assert_intake_judgment_call()
@@ -258,6 +307,32 @@ return {
     t.eq(label.add_labels[1], "fkst-dev:enabled")
     t.eq(#label.remove_labels, 0)
     assert_intake_judgment_call()
+  end,
+
+  test_judge_classifies_untyped_issue_before_intake_decision = function()
+    local payload = candidate()
+    mock_bot_env()
+    mock_intake_judge_view({}, {}, {
+      title = "Dashboard crashes on refresh",
+      body = "The board crashes with an error after refresh.",
+      issue_type_json = "null",
+    })
+    mock_issue_type_patch()
+    mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded bug fix.")
+    mock_write_env("1")
+
+    local result = run_judge(payload, opts("intake-type-untyped", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    local calls = t.command_calls()
+    local patch_index = first_call_index("gh api --method PATCH 'repos/owner/repo/issues/42'")
+    local codex_index = first_call_index("codex exec")
+    t.is_true(patch_index ~= nil)
+    t.is_true(codex_index ~= nil)
+    t.is_true(patch_index < codex_index)
+    t.is_true(calls[patch_index].rendered:find("-f 'type=Bug'", 1, true) ~= nil)
   end,
 
   test_judge_negative_and_malformed_codex_write_comment_only = function()
