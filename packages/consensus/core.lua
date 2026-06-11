@@ -28,6 +28,14 @@ local allowed_env = {
   FKST_OUTPUT_LANG = true,
 }
 local loaded_catalogs = {}
+local catalog_root = nil
+
+do
+  local source = package.searchpath("core", package.path)
+  if type(source) == "string" then
+    catalog_root = source:match("(.+)/core%.lua$")
+  end
+end
 
 local function read_env_command(name)
   if not allowed_env[name] then
@@ -382,14 +390,21 @@ function M.output_language(exec)
   return "en"
 end
 
+local function catalog_path(normalized)
+  if type(catalog_root) ~= "string" then
+    return nil
+  end
+  return catalog_root .. "/locales/" .. normalized .. ".lua"
+end
+
 local function catalog_for(lang)
   local normalized = (lang == "zh" or lang == "zh-CN") and "zh" or "en"
   if loaded_catalogs[normalized] ~= nil then
     return loaded_catalogs[normalized]
   end
   local ok, catalog = false, nil
-  local found, path = pcall(package.searchpath, "locales." .. normalized, package.path)
-  if found and path ~= nil then
+  local path = catalog_path(normalized)
+  if path ~= nil then
     ok, catalog = pcall(dofile, path)
   end
   if not ok or type(catalog) ~= "table" then

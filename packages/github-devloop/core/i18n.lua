@@ -3,6 +3,14 @@ local S = {}
 function S.install(M)
 local configured_output_lang = nil
 local loaded_catalogs = {}
+local catalog_root = nil
+
+do
+  local source = package.searchpath("core.i18n", package.path)
+  if type(source) == "string" then
+    catalog_root = source:match("(.+)/core/i18n%.lua$")
+  end
+end
 
 local function in_test_mode()
   return type(_G.fkst) == "table" and type(_G.fkst.test) == "table"
@@ -16,14 +24,21 @@ local function normalize_output_lang(value)
   return "en"
 end
 
+local function catalog_path(normalized)
+  if type(catalog_root) ~= "string" then
+    return nil
+  end
+  return catalog_root .. "/locales/" .. normalized .. ".lua"
+end
+
 local function catalog_for(lang)
   local normalized = normalize_output_lang(lang)
   if loaded_catalogs[normalized] ~= nil then
     return loaded_catalogs[normalized]
   end
   local ok, catalog = false, nil
-  local found, path = pcall(package.searchpath, "locales." .. normalized, package.path)
-  if found and path ~= nil then
+  local path = catalog_path(normalized)
+  if path ~= nil then
     ok, catalog = pcall(dofile, path)
   end
   if not ok or type(catalog) ~= "table" then
