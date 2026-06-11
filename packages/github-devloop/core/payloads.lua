@@ -272,6 +272,30 @@ function M.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
   }
 end
 
+function M.build_devloop_open_pr_payload(repo, issue_number, ready, branch, head_sha, base_branch)
+  local proposal_id = ready.proposal_id
+  if proposal_id == nil then
+    proposal_id = M.proposal_id(repo, issue_number)
+  end
+  return {
+    schema = "github-devloop.open-pr.v1",
+    proposal_id = proposal_id,
+    repo = repo,
+    issue_number = issue_number,
+    version = ready.dedup_key,
+    branch = branch,
+    head_sha = head_sha,
+    base_branch = base_branch,
+    dedup_key = M._dedup_key({
+      "open-pr-kickoff",
+      tostring(proposal_id),
+      tostring(ready.dedup_key),
+      tostring(branch),
+    }),
+    source_ref = M.normalize_source_ref(ready.source_ref),
+  }
+end
+
 function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_ref)
   local version = origin.impl_version
   if review_fact.fix_version ~= nil then
@@ -301,6 +325,16 @@ function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
   local blocking_gap = bounded_control_text(M, review_fact.blocking_gap, M._max_blocking_gap_len)
   if blocking_gap ~= nil then
     payload.blocking_gap = blocking_gap
+  end
+  if review_fact.gate_baseline_sha ~= nil then
+    if not M._is_git_sha(review_fact.gate_baseline_sha) then
+      error("github-devloop: invalid gate baseline sha")
+    end
+    payload.gate_baseline_sha = tostring(review_fact.gate_baseline_sha)
+  end
+  local gate_failure_excerpt = bounded_control_text(M, review_fact.gate_failure_excerpt, M._max_rollup_failure_summary_len)
+  if gate_failure_excerpt ~= nil then
+    payload.gate_failure_excerpt = gate_failure_excerpt
   end
   return payload
 end

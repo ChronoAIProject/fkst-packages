@@ -2,6 +2,7 @@ local t = fkst.test
 require("tests.cache_seed_helpers")
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
+local angle_roles = { minimal = true, structural = true, delete = true }
 
 local function nonce()
   return tostring({}):gsub("[^%w._-]", "_")
@@ -134,7 +135,7 @@ end
 
 local function mock_meta(line, exit_code)
   mock_judgment_dir()
-  t.mock_command("codex exec", {
+  t.mock_command("meta-judge", {
     stdout = tostring(line or "") .. "\n",
     stderr = "",
     exit_code = exit_code or 0,
@@ -168,6 +169,9 @@ return {
     local minimal_call = judgment_call("angle-minimal")
     local structural_call = judgment_call("angle-structural")
     local delete_call = judgment_call("angle-delete")
+    t.is_true(minimal_call ~= nil)
+    t.is_true(structural_call ~= nil)
+    t.is_true(delete_call ~= nil)
     assert_judgment_worktree(minimal_call, "angle-minimal")
     assert_judgment_worktree(structural_call, "angle-structural")
     assert_judgment_worktree(delete_call, "angle-delete")
@@ -282,16 +286,21 @@ return {
     t.eq(result.raises[1].payload.source_ref.kind, "proposal")
     t.eq(result.raises[1].payload.source_ref.ref, "demo/consensus/42")
     t.eq(#result.raises[1].payload.angle_digests, 3)
-    t.eq(result.raises[1].payload.angle_digests[1].verdict, "approve")
-    t.eq(result.raises[1].payload.angle_digests[2].verdict, "abstain")
+    local verdict_counts = {}
+    for _, digest in ipairs(result.raises[1].payload.angle_digests) do
+      verdict_counts[digest.verdict] = (verdict_counts[digest.verdict] or 0) + 1
+    end
+    t.eq(verdict_counts.approve, 2)
+    t.eq(verdict_counts.abstain, 1)
     t.is_nil(result.raises[1].payload.body)
     t.is_nil(result.raises[1].payload.angle_results)
     t.is_nil(result.raises[1].payload.decision)
     local calls = codex_calls()
     t.eq(#calls, 4)
-    assert_judgment_worktree(calls[4], "meta-judge")
-    t.is_true(calls[4].stdin:find("Angle outputs:", 1, true) ~= nil)
-    t.is_true(calls[4].stdin:find("You are running in an empty runtime scratch directory", 1, true) ~= nil)
+    local meta_call = judgment_call("meta-judge")
+    assert_judgment_worktree(meta_call, "meta-judge")
+    t.is_true(meta_call.stdin:find("Angle outputs:", 1, true) ~= nil)
+    t.is_true(meta_call.stdin:find("You are running in an empty runtime scratch directory", 1, true) ~= nil)
   end,
 
   test_meta_plan_flows_into_next_converge_round = function()
