@@ -60,6 +60,16 @@ local function pr_list_many_json(count, target_number, target_updated_at)
   return "[" .. table.concat(parts, ",") .. "]\n"
 end
 
+local function find_raised_entity(raises, entity_type, number)
+  for _, raise in ipairs(raises or {}) do
+    local payload = raise.payload or {}
+    if payload.type == entity_type and payload.number == number then
+      return raise
+    end
+  end
+  return nil
+end
+
 return {
   test_inbound_poll_raises_issue_and_pr_then_cache_hit = function()
     local event = { queue = "github_poll_tick", payload = {} }
@@ -125,6 +135,35 @@ return {
     t.eq(changed.raises[2].payload.dedup_key, "owner/x#pr#7@2026-06-04T06:07:08Z")
   end,
 
+  test_inbound_poll_orders_changed_entities_by_class_then_fifo = function()
+    local event = { queue = "github_poll_tick", payload = {} }
+    local issues = "["
+      .. '{"number":40,"title":"Background","url":"https://github.example/owner/x/issues/40","updatedAt":"2026-06-03T01:00:00Z","state":"OPEN","labels":[{"name":"fkst-class:background"}]},'
+      .. '{"number":41,"title":"Standard","url":"https://github.example/owner/x/issues/41","updatedAt":"2026-06-03T01:01:00Z","state":"OPEN","labels":[{"name":"fkst-class:standard"}]},'
+      .. '{"number":42,"title":"Expedite late","url":"https://github.example/owner/x/issues/42","updatedAt":"2026-06-03T01:03:00Z","state":"OPEN","labels":[{"name":"fkst-class:expedite"}]}'
+      .. "]\n"
+    local prs = "["
+      .. '{"number":8,"title":"Expedite early","url":"https://github.example/owner/x/pull/8","updatedAt":"2026-06-03T01:02:00Z","state":"OPEN","labels":[{"name":"fkst-class:expedite"}]}'
+      .. "]\n"
+
+    mock_repo_env()
+    mock_issue_list(issues)
+    mock_pr_list(prs)
+
+    local result = t.run_department("departments/github_poll/main.lua", event, opts("poll-class-order"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 4)
+    t.eq(result.raises[1].payload.type, "pr")
+    t.eq(result.raises[1].payload.number, 8)
+    t.eq(result.raises[2].payload.type, "issue")
+    t.eq(result.raises[2].payload.number, 42)
+    t.eq(result.raises[3].payload.type, "issue")
+    t.eq(result.raises[3].payload.number, 41)
+    t.eq(result.raises[4].payload.type, "issue")
+    t.eq(result.raises[4].payload.number, 40)
+  end,
+
   test_inbound_poll_does_not_re_raise_closed_lifecycle_state_when_updated_at_changes = function()
     local event = { queue = "github_poll_tick", payload = {} }
     local run_opts = opts("inbound-closed-change")
@@ -156,11 +195,10 @@ return {
     local result = t.run_department("departments/github_poll/main.lua", event, opts("open-pr-coverage"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 36)
-    t.eq(result.raises[36].queue, "github_entity_changed")
-    t.eq(result.raises[36].payload.type, "pr")
-    t.eq(result.raises[36].payload.number, 12)
-    t.eq(result.raises[36].payload.updated_at, "2026-06-02T00:00:00Z")
-    t.eq(result.raises[36].payload.dedup_key, "owner/x#pr#12@2026-06-02T00:00:00Z")
+    local target = find_raised_entity(result.raises, "pr", 12)
+    t.eq(target.queue, "github_entity_changed")
+    t.eq(target.payload.updated_at, "2026-06-02T00:00:00Z")
+    t.eq(target.payload.dedup_key, "owner/x#pr#12@2026-06-02T00:00:00Z")
     t.eq(core.gh_pr_list_cmd("owner/x"), "gh pr list --repo 'owner/x' --state open --limit 1000 --json number,title,updatedAt,url,state,labels")
     t.is_true(core.gh_pr_list_cmd("owner/x"):find("--state open", 1, true) ~= nil)
     t.is_true(core.gh_pr_list_cmd("owner/x"):find("--limit 1000", 1, true) ~= nil)

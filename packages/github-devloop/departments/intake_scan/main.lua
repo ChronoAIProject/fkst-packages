@@ -47,6 +47,7 @@ function pipeline(event)
     error("github-devloop: gh issue intake list failed: " .. tostring(list.stderr))
   end
 
+  local candidates = {}
   for _, issue in ipairs(core.parse_issue_list_intake(list.stdout)) do
     local issue_number = tostring(issue.number or "")
     if core.issue_ref_round_trips(repo, issue_number) and not should_skip_known(issue.labels) then
@@ -60,13 +61,24 @@ function pipeline(event)
       if current.state == "OPEN"
         and not should_skip_known(current.labels)
         and not core.has_intake_decision_marker(current.comments, proposal_id) then
-        local payload = core.build_devloop_intake_candidate_payload(repo, issue_number, issue.updated_at)
-        core.log_apply("intake_scan", proposal_id, nil, nil, { add = {}, remove = {} }, {
-          "devloop_intake_candidate",
+        table.insert(candidates, {
+          issue_number = issue_number,
+          updated_at = issue.updated_at,
         })
-        core.log_raise("intake_scan", proposal_id, "devloop_intake_candidate", payload)
       end
     end
+  end
+  table.sort(candidates, function(a, b)
+    return tostring(a.updated_at or "") .. "/" .. tostring(a.issue_number or "")
+      < tostring(b.updated_at or "") .. "/" .. tostring(b.issue_number or "")
+  end)
+  for _, item in ipairs(candidates) do
+    local proposal_id = core.proposal_id(repo, item.issue_number)
+    local payload = core.build_devloop_intake_candidate_payload(repo, item.issue_number, item.updated_at)
+    core.log_apply("intake_scan", proposal_id, nil, nil, { add = {}, remove = {} }, {
+      "devloop_intake_candidate",
+    })
+    core.log_raise("intake_scan", proposal_id, "devloop_intake_candidate", payload)
   end
 end
 

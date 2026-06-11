@@ -385,8 +385,9 @@ function M.build_review_reconcile_comment_request(repo, issue_number, review_rec
   }), review_reconcile.source_ref)
 end
 
-function M.build_intake_decision_comment_request(repo, issue_number, candidate, decision, reason)
-  local marker = M.intake_decision_marker(candidate.proposal_id, decision, candidate.dedup_key)
+function M.build_intake_decision_comment_request(repo, issue_number, candidate, decision, reason, intake_class)
+  local normalized_class = M.normalize_intake_class(intake_class)
+  local marker = M.intake_decision_marker(candidate.proposal_id, decision, candidate.dedup_key, normalized_class)
   local safe_reason = M.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
     safe_reason = M.comment_string("no_reason_provided")
@@ -399,6 +400,7 @@ function M.build_intake_decision_comment_request(repo, issue_number, candidate, 
     repo = repo,
     issue_number = issue_number,
     body = M.comment_string("intake_decision_prefix") .. tostring(decision)
+      .. "\nClass: " .. normalized_class
       .. "\n\n" .. M.comment_string("reason_block_label") .. "\n" .. safe_reason
       .. "\n\n" .. marker,
     dedup_key = M._dedup_key({
@@ -412,11 +414,12 @@ function M.build_intake_decision_comment_request(repo, issue_number, candidate, 
 end
 
 function M.build_intake_enabled_label_request(repo, issue_number, candidate)
+  local normalized_class = M.normalize_intake_class(candidate.class)
   return M.build_label_request(
     repo,
     issue_number,
-    { M._enabled_label },
-    {},
+    { M._enabled_label, M.intake_class_label(normalized_class) },
+    M.intake_class_labels_except(normalized_class),
     M._dedup_key({
       "intake",
       "label",

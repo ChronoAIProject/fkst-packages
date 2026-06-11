@@ -171,14 +171,20 @@ function M.parse_intake_action(stdout)
   while #lines > 0 and M._trim(lines[#lines]) == "" do
     table.remove(lines)
   end
-  if #lines ~= 2 then
+  if #lines ~= 3 then
     return nil
   end
 
   local action = lines[1]:match("^" .. M._intake_label .. " (enable)$")
     or lines[1]:match("^" .. M._intake_label .. " (decline)$")
-  local reason = lines[2]:match("^" .. M._reason_label .. " (.+)$")
+  local class = lines[2]:match("^" .. M._class_label .. " (expedite)$")
+    or lines[2]:match("^" .. M._class_label .. " (standard)$")
+    or lines[2]:match("^" .. M._class_label .. " (background)$")
+  local reason = lines[3]:match("^" .. M._reason_label .. " (.+)$")
   if action == nil or not is_intake_action(action) then
+    return nil
+  end
+  if class == nil or not M.is_intake_class(class) then
     return nil
   end
   if reason == nil or M._trim(reason) == "" then
@@ -189,6 +195,7 @@ function M.parse_intake_action(stdout)
   end
   return {
     action = action,
+    class = class,
     reason = M._trim(reason),
   }
 end

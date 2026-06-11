@@ -14,6 +14,7 @@ M.spec = {
 local function decline_result(reason)
   return {
     action = "decline",
+    class = "standard",
     reason = reason or "The intake decision output was malformed.",
   }
 end
@@ -93,10 +94,11 @@ function pipeline(event)
       parsed = decline_result()
       core.log_codex_result("intake_judge", candidate.proposal_id, "intake", result, "action=decline reason=parse-failed", nil)
     else
-      core.log_codex_result("intake_judge", candidate.proposal_id, "intake", result, "action=" .. tostring(parsed.action) .. " reason=" .. tostring(parsed.reason), nil)
+      core.log_codex_result("intake_judge", candidate.proposal_id, "intake", result, "action=" .. tostring(parsed.action) .. " class=" .. tostring(parsed.class) .. " reason=" .. tostring(parsed.reason), nil)
     end
 
-    local comment_request = core.build_intake_decision_comment_request(repo, issue_number, candidate, parsed.action, parsed.reason)
+    candidate.class = core.normalize_intake_class(parsed.class)
+    local comment_request = core.build_intake_decision_comment_request(repo, issue_number, candidate, parsed.action, parsed.reason, candidate.class)
     core.log_apply("intake_judge", candidate.proposal_id, parsed.action, candidate.dedup_key, {
       add = parsed.action == "enable" and { core._enabled_label } or {},
       remove = {},

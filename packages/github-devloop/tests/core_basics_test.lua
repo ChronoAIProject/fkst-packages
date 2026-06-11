@@ -513,7 +513,7 @@ return {
       { core.gh_issue_view_fix_cmd, "title,labels,comments" },
       { core.gh_issue_view_review_loop_cmd, "title,labels,comments" },
       { core.gh_issue_view_merge_cmd, "title,labels,comments,state" },
-      { core.gh_issue_view_observe_cmd, "title,comments,state" },
+      { core.gh_issue_view_observe_cmd, "title,updatedAt,comments,state" },
     }
 
     for _, case in ipairs(cases) do
@@ -812,22 +812,25 @@ return {
   end,
 
   test_intake_parser_is_strict_and_conservative = function()
-    local parsed = core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded task.")
+    local parsed = core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Clear bounded task.")
     t.eq(parsed.action, "enable")
+    t.eq(parsed.class, "expedite")
     t.eq(parsed.reason, "Clear bounded task.")
 
-    t.is_nil(core.parse_intake_action("prefix\n⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded task."))
-    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable extra\n⟦FKST:REASON⟧ Clear bounded task."))
-    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n\n⟦FKST:REASON⟧ Clear bounded task."))
-    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded task.\n⟦FKST:INTAKE⟧ decline"))
+    t.is_nil(core.parse_intake_action("prefix\n⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
+    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable extra\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
+    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ urgent\n⟦FKST:REASON⟧ Clear bounded task."))
+    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
+    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task.\n⟦FKST:INTAKE⟧ decline"))
   end,
 
   test_intake_marker_fact_trusts_only_bot_comments = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
-    local marker = core.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1")
+    local marker = core.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "background")
     t.eq(core.has_intake_decision_marker({ { body = marker, author_login = "ordinary-user" } }, proposal_id), false)
     local fact = core.intake_decision_fact({ { body = marker, author_login = core.trusted_bot_login() } }, proposal_id)
     t.eq(fact.decision, "decline")
+    t.eq(fact.class, "background")
     t.eq(fact.proposal_id, proposal_id)
   end,
 

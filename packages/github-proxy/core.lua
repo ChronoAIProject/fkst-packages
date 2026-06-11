@@ -2,6 +2,7 @@ local M = {}
 
 require("core.issue_create").install(M)
 require("core.gh_rate").install(M)
+require("core.class_of_service").install(M)
 
 local allowed_env = {
   FKST_GITHUB_REPO = true,
