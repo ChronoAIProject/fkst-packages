@@ -97,7 +97,44 @@ return {
   test_merge_gate_reason_class_controls_pr_merge_ref_verification = function()
     t.eq(core.merge_gate_reason_requires_pr_merge_product("rollup-red"), true)
     t.eq(core.merge_gate_reason_requires_pr_merge_product("rollup-red: test: COMPLETED/FAILURE"), true)
+    t.eq(core.merge_gate_reason_class("merge-state-unstable-with-failing-checks"), "rollup-red")
+    t.eq(core.merge_gate_reason_requires_pr_merge_product("merge-state-unstable-with-failing-checks"), true)
     t.eq(core.merge_gate_reason_requires_pr_merge_product("mergeable-conflicting"), false)
+    t.eq(core.merge_gate_reason_requires_pr_merge_product("rollup-pending"), false)
+  end,
+
+  test_unstable_with_completed_failure_routes_to_ci_red = function()
+    local ok, reason = core.evaluate_ci_merge_gate(pr({
+      merge_state_status = "UNSTABLE",
+      status_check_rollup = {
+        { name = "verify", state = "COMPLETED", conclusion = "FAILURE" },
+      },
+    }))
+    t.eq(ok, false)
+    t.eq(reason, "rollup-red")
+  end,
+
+  test_unstable_with_pending_check_remains_transient_wait = function()
+    local ok, reason = core.evaluate_ci_merge_gate(pr({
+      merge_state_status = "UNSTABLE",
+      status_check_rollup = {
+        { name = "verify", state = "IN_PROGRESS", conclusion = "" },
+      },
+    }))
+    t.eq(ok, false)
+    t.eq(reason, "rollup-pending")
+  end,
+
+  test_unstable_without_rollup_remains_merge_state_wait = function()
+    local ok, reason = core.evaluate_ci_merge_gate(pr({
+      merge_state_status = "UNSTABLE",
+      status_check_rollup = {},
+    }), {
+      repo = "owner/repo",
+    })
+    t.eq(ok, false)
+    t.eq(reason, "merge-state-unstable")
+    t.eq(#t.command_calls(), 0)
   end,
 
   test_rollup_failure_gate_sha_comes_from_failed_checks = function()

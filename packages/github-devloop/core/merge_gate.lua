@@ -75,11 +75,35 @@ function M.evaluate_ci_merge_gate(pr, opts)
   return true, "merge-gate-ok"
 end
 
-function M.merge_gate_reason_class(reason)
+local merge_gate_reason_classes = {
+  ["rollup-red"] = {
+    class = "rollup-red",
+    requires_pr_merge_product = true,
+  },
+  ["merge-state-unstable-with-failing-checks"] = {
+    class = "rollup-red",
+    requires_pr_merge_product = true,
+  },
+  ["mergeable-conflicting"] = {
+    class = "mergeable-conflicting",
+    requires_pr_merge_product = false,
+  },
+}
+
+local function merge_gate_reason_row(reason)
   local text = tostring(reason or "")
-  if M.is_ci_red_reason(text) or text:find("^rollup%-red:", 1) ~= nil then
-    return "rollup-red"
+  if text:find("^rollup%-red:", 1) ~= nil then
+    return merge_gate_reason_classes["rollup-red"]
   end
+  return merge_gate_reason_classes[text]
+end
+
+function M.merge_gate_reason_class(reason)
+  local row = merge_gate_reason_row(reason)
+  if row ~= nil then
+    return row.class
+  end
+  local text = tostring(reason or "")
   if M.is_not_mergeable_reason(text) then
     return text
   end
@@ -87,6 +111,10 @@ function M.merge_gate_reason_class(reason)
 end
 
 function M.merge_gate_reason_requires_pr_merge_product(reason)
+  local row = merge_gate_reason_row(reason)
+  if row ~= nil then
+    return row.requires_pr_merge_product == true
+  end
   return M.merge_gate_reason_class(reason) == "rollup-red"
 end
 
