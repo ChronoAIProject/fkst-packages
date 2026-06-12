@@ -156,13 +156,12 @@ function pipeline(event)
     if origin.issue_number ~= nil then
       label_request = core.build_review_result_label_request(origin.repo, origin.issue_number, origin.proposal_id, comment_reached, core.issue_source_ref(origin.repo, origin.issue_number))
     end
+    local pr_label_request = core.build_pr_review_result_label_request(origin.repo, pr_number, origin.proposal_id, comment_reached, pr_source_ref, issue_version)
     local add_labels, remove_labels = core.state_label_changes(to_state)
     local raised = {
       "github-proxy.github_pr_comment_request",
+      "github-proxy.github_issue_label_request",
     }
-    if label_request ~= nil then
-      table.insert(raised, "github-proxy.github_issue_label_request")
-    end
     local fix_payload = nil
     local merge_payload = nil
     if effective_decision == "reject" then
@@ -188,6 +187,7 @@ function pipeline(event)
     if origin.issue_number ~= nil then
       core.log_raise("review_result", origin.proposal_id, "github-proxy.github_issue_label_request", label_request)
     end
+    core.log_raise("review_result", origin.proposal_id, "github-proxy.github_issue_label_request", pr_label_request)
     if fix_payload ~= nil then
       core.log_raise("review_result", origin.proposal_id, "devloop_fixing", fix_payload)
     end

@@ -177,10 +177,13 @@ local default_repo_labels = {
   "fkst-dev:pr-open",
   "fkst-dev:reviewing",
   "fkst-dev:merge-ready",
+  "fkst-dev:merging",
+  "fkst-dev:merged",
   "fkst-dev:fixing",
   "fkst-dev:blocked",
   "fkst-dev:blocked-on-dependency",
   "fkst-dev:impl-failed",
+  "fkst-dev:review-meta",
 }
 
 local function mock_repo_label_list(labels)
@@ -398,10 +401,12 @@ local function pr_open_event()
       head_sha = "abc123",
       title = "Implement decision recorder",
       base_branch = "dev",
-      body = 'github-devloop implementation PR for issue #42\n\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/owner/x/42" issue="42" branch="devloop-owner-x-42-01HY" impl_version="v1" base_branch="dev" -->',
+      body = 'github-devloop implementation PR for issue #42\n\n<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/x/42" state="pr-open" version="v1" stage_rank="650" -->\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/owner/x/42" issue="42" branch="devloop-owner-x-42-01HY" impl_version="v1" base_branch="dev" -->',
       issue_comment_body_template = 'github-devloop PR opened: #{{pr_number}}\n\n<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/x/42" state="pr-open" version="v1" stage_rank="650" -->\n<!-- fkst:github-devloop:pr-link:v1 proposal="github-devloop/issue/owner/x/42" pr="{{pr_number}}" branch="devloop-owner-x-42-01HY" impl_version="v1" base_branch="dev" -->',
       issue_label_add = { "fkst-dev:pr-open" },
       issue_label_remove = { "fkst-dev:implementing" },
+      pr_label_add = { "fkst-dev:pr-open" },
+      pr_label_remove = { "fkst-dev:implementing" },
       dedup_key = "open-pr/github-devloop/issue/owner/x/42/v1/devloop-owner-x-42-01HY",
       source_ref = {
         kind = "external",

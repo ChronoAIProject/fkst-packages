@@ -4,7 +4,7 @@ local M = {}
 
 M.spec = {
   consumes = { "github_pr_open_request" },
-  produces = { "github_entity_changed", "github_pr_opened" },
+  produces = { "github_entity_changed", "github_pr_opened", "github_issue_label_request" },
   stall_window = "2m",
 }
 
@@ -325,7 +325,12 @@ function pipeline(event)
       30,
       "gh pr view after PR open"
     )
-    if not core.has_trusted_comment_fragment(core.parse_issue_comments(pr_view.stdout), tostring(payload.body), bot_login) then
+    local pr_comments = core.parse_issue_comments(pr_view.stdout)
+    local pr_state = core.current_devloop_state(pr_comments, payload.proposal_id, bot_login)
+    local can_write_pr_open_tail = can_apply_pr_open_labels(guard.state, payload.impl_version) and (pr_state.state == nil
+      or (pr_state.state == "pr-open" and tostring(pr_state.version or "") == tostring(payload.impl_version or ""))
+    )
+    if can_write_pr_open_tail and not core.has_trusted_comment_fragment(pr_comments, tostring(payload.body), bot_login) then
       local pr_body = tostring(payload.body) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
       local pr_body_path = temp_body_file(repo, payload.branch, "pr-comment")
       file.write(pr_body_path, pr_body)
@@ -334,6 +339,24 @@ function pipeline(event)
         30,
         "gh pr comment"
       )
+    end
+
+    local pr_label_add = normalize_labels(payload.pr_label_add)
+    local pr_label_remove = normalize_labels(payload.pr_label_remove)
+    if can_write_pr_open_tail and (#pr_label_add > 0 or #pr_label_remove > 0) then
+      raise("github_issue_label_request", {
+        schema = "github-proxy.label.v1",
+        repo = repo,
+        issue_number = pr.number,
+        target_kind = "pr",
+        proposal_id = payload.proposal_id,
+        expected_state = "pr-open",
+        expected_version = payload.impl_version,
+        add_labels = pr_label_add,
+        remove_labels = pr_label_remove,
+        dedup_key = tostring(payload.dedup_key or "") .. "/pr-label/" .. tostring(pr.number),
+        source_ref = core.entity_source_ref(repo, "pr", pr.number),
+      })
     end
 
     local add_labels = normalize_labels(payload.issue_label_add)

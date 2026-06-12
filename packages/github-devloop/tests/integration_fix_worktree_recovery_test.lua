@@ -82,7 +82,7 @@ return {
 
     local result = run_fix(event, opts("fix-rebuild-missing-worktree", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
     t.eq(count_calls("git worktree prune"), 1)
@@ -125,7 +125,7 @@ return {
 
     local result = run_fix(event, opts("fix-rebuild-outside-runtime-worktree", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(count_calls("git worktree remove --force"), 1)
     t.eq(count_calls("git worktree prune"), 0)
     t.eq(count_calls("git fetch 'origin' '" .. branch .. "'"), 1)

@@ -12,18 +12,31 @@ M.spec = {
   stall_window = "2m",
 }
 
-local function emit_blocked_reconcile(kind, proposal_id, state, version, action, reason, comment_request, label_request, comment_queue)
+local function emit_blocked_reconcile(kind, proposal_id, state, version, action, reason, comment_request, label_requests, comment_queue)
   local add_labels, remove_labels = core.state_label_changes("blocked")
   local queue = comment_queue or "github-proxy.github_issue_comment_request"
+  if label_requests ~= nil and label_requests.schema ~= nil then
+    label_requests = { label_requests }
+  end
   core.log_cas_decision("reconcile", proposal_id, state, kind, "blocked", "applied", reason)
   core.log_apply("reconcile", proposal_id, "blocked", version, { add = add_labels, remove = remove_labels }, {
     queue,
     "github-proxy.github_issue_label_request",
   })
   core.log_raise("reconcile", proposal_id, queue, comment_request)
-  if label_request ~= nil then
+  for _, label_request in ipairs(label_requests or {}) do
     core.log_raise("reconcile", proposal_id, "github-proxy.github_issue_label_request", label_request)
   end
+end
+
+local function compact_label_requests(...)
+  local requests = {}
+  for _, request in ipairs({ ... }) do
+    if request ~= nil then
+      table.insert(requests, request)
+    end
+  end
+  return requests
 end
 
 local function pipeline_thinking(event)
@@ -154,7 +167,8 @@ local function pipeline_review(event)
     local reason = "no-actionable-framing-after-" .. tostring(reconcile.round) .. "-review-rounds"
     local comment_request = core.build_review_reconcile_comment_request(repo, issue_number, reconcile, action, reason)
     local label_request = issue_number ~= nil and core.build_review_reconcile_label_request(repo, issue_number, reconcile) or nil
-    emit_blocked_reconcile("reviewing", reconcile.proposal_id, state, version, action, reason, comment_request, label_request, "github-proxy.github_pr_comment_request")
+    local pr_label_request = core.build_pr_reconcile_state_label_request(repo, pr_number, reconcile.proposal_id, "blocked", version, reconcile.source_ref)
+    emit_blocked_reconcile("reviewing", reconcile.proposal_id, state, version, action, reason, comment_request, compact_label_requests(label_request, pr_label_request), "github-proxy.github_pr_comment_request")
   end)
 end
 
@@ -225,7 +239,8 @@ local function pipeline_fix(event)
     local reason = "fix-loop-max-rounds-after-" .. tostring(reconcile.round) .. "-rounds"
     local comment_request = core.build_fix_reconcile_comment_request(repo, issue_number, reconcile, action, reason)
     local label_request = issue_number ~= nil and core.build_fix_reconcile_label_request(repo, issue_number, reconcile) or nil
-    emit_blocked_reconcile("reviewing", reconcile.proposal_id, state, version, action, reason, comment_request, label_request, "github-proxy.github_pr_comment_request")
+    local pr_label_request = core.build_pr_reconcile_state_label_request(repo, pr_number, reconcile.proposal_id, "blocked", version, reconcile.source_ref)
+    emit_blocked_reconcile("reviewing", reconcile.proposal_id, state, version, action, reason, comment_request, compact_label_requests(label_request, pr_label_request), "github-proxy.github_pr_comment_request")
   end)
 end
 

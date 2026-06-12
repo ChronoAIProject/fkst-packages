@@ -68,7 +68,7 @@ return {
 
     local result = run_fix(event, opts("fix-merge-product-before-codex", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
 
     local merge_index = nil

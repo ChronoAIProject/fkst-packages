@@ -110,6 +110,10 @@ local function build_comment_evidence_digest(M, comments)
   return text
 end
 
+M.build_comment_evidence_digest = function(comments)
+  return build_comment_evidence_digest(M, comments)
+end
+
 local function bounded_blocking_gap(M, reached)
   local gap = reached and reached.blocking_gap
   if gap == nil and type(reached and reached.blocking_gaps) == "table" then
@@ -126,8 +130,9 @@ local function bounded_blocking_gap(M, reached)
   return text
 end
 
-function M.build_label_request(repo, issue_number, add_labels, remove_labels, dedup_key, source_ref)
-  return {
+function M.build_label_request(repo, issue_number, add_labels, remove_labels, dedup_key, source_ref, opts)
+  opts = opts or {}
+  local request = {
     schema = "github-proxy.label.v1",
     repo = repo,
     issue_number = issue_number,
@@ -136,6 +141,19 @@ function M.build_label_request(repo, issue_number, add_labels, remove_labels, de
     dedup_key = dedup_key,
     source_ref = M.normalize_source_ref(source_ref),
   }
+  if opts.target_kind ~= nil then
+    request.target_kind = opts.target_kind
+  end
+  if opts.proposal_id ~= nil then
+    request.proposal_id = opts.proposal_id
+  end
+  if opts.expected_state ~= nil then
+    request.expected_state = opts.expected_state
+  end
+  if opts.expected_version ~= nil then
+    request.expected_version = opts.expected_version
+  end
+  return request
 end
 
 function M.build_state_label_request(repo, issue_number, to_state, dedup_key_value, source_ref)
@@ -548,7 +566,8 @@ function M.build_pr_open_request(repo, issue_number, proposal_id, current, title
     bounded_title = M.truncate_utf8(bounded_title, M._max_pr_title_len)
   end
   local body = "github-devloop implementation PR for issue #" .. tostring(issue_number)
-    .. "\n\n" .. M.pr_origin_marker(proposal_id, issue_number, branch, current.version, base_branch)
+    .. "\n\n" .. M.state_marker(proposal_id, "pr-open", current.version)
+    .. "\n" .. M.pr_origin_marker(proposal_id, issue_number, branch, current.version, base_branch)
   local add_labels, remove_labels = M.state_label_changes("pr-open")
   return {
     schema = "github-proxy.pr-open.v1",
@@ -568,6 +587,8 @@ function M.build_pr_open_request(repo, issue_number, proposal_id, current, title
       .. "\n" .. M.pr_link_marker_template(proposal_id, branch, current.version, base_branch),
     issue_label_add = add_labels,
     issue_label_remove = remove_labels,
+    pr_label_add = add_labels,
+    pr_label_remove = remove_labels,
     dedup_key = M._dedup_key({
       "open-pr",
       tostring(proposal_id),
@@ -804,7 +825,8 @@ function M.raise_fix_reviewing(opts)
 
   M.log_cas_decision(dept, fix.proposal_id, current_state, "fixing", "reviewing", "applied", reason)
   local comment_request = M.build_fix_reviewing_comment_request(repo, issue_number, fix, old_head_sha, new_head_sha, new_version)
-  local label_request = M.build_fix_reviewing_label_request(repo, issue_number, fix, new_head_sha, new_version)
+  local label_request = issue_number ~= nil and M.build_fix_reviewing_label_request(repo, issue_number, fix, new_head_sha, new_version) or nil
+  local pr_label_request = M.build_pr_fix_reviewing_label_request(repo, fix.pr_number, fix, new_head_sha, new_version)
   local add_labels, remove_labels = M.state_label_changes("reviewing")
   local reviewing_payload = M.build_devloop_reviewing_payload({
     proposal_id = fix.proposal_id,
@@ -819,6 +841,7 @@ function M.raise_fix_reviewing(opts)
   if issue_number ~= nil then
     M.log_raise(dept, fix.proposal_id, "github-proxy.github_issue_label_request", label_request)
   end
+  M.log_raise(dept, fix.proposal_id, "github-proxy.github_issue_label_request", pr_label_request)
   M.log_raise(dept, fix.proposal_id, "devloop_reviewing", reviewing_payload)
 end
 
@@ -955,40 +978,6 @@ function M.build_merged_comment_body(merge_ready)
     .. "\n" .. M.merged_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
 end
 
-function M.build_spec_amendment_issue_create_request(repo, issue_number, review_meta, title_brief, reason, comments)
-  local title = "Spec amendment needed: " .. tostring(title_brief or ("Issue #" .. tostring(issue_number or "unknown")))
-  if #title > M._max_title_len then
-    title = M.truncate_utf8(title, M._max_title_len)
-  end
-  local evidence = build_comment_evidence_digest(M, comments)
-  local body = "Spec flaw statement:\n" .. M.neutralize_untrusted_comment_text(reason or "")
-    .. "\n\nEvidence digest:\n" .. M.neutralize_untrusted_comment_text(evidence)
-    .. "\n\nParent issue: #" .. tostring(issue_number or "unknown")
-    .. "\nParent PR: #" .. tostring(review_meta.pr_number)
-    .. "\nReview proposal: " .. tostring(review_meta.review_proposal_id)
-    .. "\nReview dedup: " .. tostring(review_meta.dedup_key)
-    .. "\n\nThis issue requests a spec revision only. Do not edit the human-authored parent issue text."
-  if #body > M._max_body_len then
-    body = M.truncate_utf8(body, M._max_body_len)
-  end
-  return {
-    schema = "github-proxy.issue-create.v1",
-    repo = repo,
-    title = title,
-    body = body,
-    labels = json.decode("[]"),
-    dedup_key = M._dedup_key({
-      "spec-amendment",
-      tostring(review_meta.proposal_id),
-      tostring(review_meta.dedup_key),
-    }),
-    parent_comment_target = {
-      repo = repo,
-      pr_number = review_meta.pr_number,
-    },
-    source_ref = M.normalize_source_ref(review_meta.source_ref),
-  }
-end
 end
 
 return S

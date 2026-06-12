@@ -60,6 +60,38 @@ local function pr_list_many_json(count, target_number, target_updated_at)
   return "[[" .. table.concat(parts, ",") .. "]]\n"
 end
 
+local function pr_label_event(state, version)
+  return {
+    queue = "github_issue_label_request",
+    payload = {
+      schema = "github-proxy.label.v1",
+      repo = "owner/x",
+      issue_number = 7,
+      target_kind = "pr",
+      proposal_id = "github-devloop/issue/owner/x/42",
+      expected_state = state or "reviewing",
+      expected_version = version or "v1",
+      add_labels = { "fkst-dev:" .. (state or "reviewing") },
+      remove_labels = { "fkst-dev:pr-open", "fkst-dev:fixing" },
+      dedup_key = "github-devloop/issue/owner/x/42/pr-label/" .. (state or "reviewing"),
+      source_ref = {
+        kind = "external",
+        ref = "owner/x#pr/7",
+      },
+    },
+  }
+end
+
+local function mock_pr_label_guard(state, version)
+  t.mock_command("gh pr view", {
+    stdout = '{"comments":['
+      .. comment_json('<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/x/42" state="' .. tostring(state or "reviewing") .. '" version="' .. tostring(version or "v1") .. '" stage_rank="675" -->', "fkst-test-bot")
+      .. "]}\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 return {
   test_inbound_poll_raises_issue_and_pr_then_cache_hit = function()
     local event = { queue = "github_poll_tick", payload = {} }
@@ -778,6 +810,77 @@ return {
     local edit = calls_matching("gh issue edit")[1]
     t.is_true(edit.rendered:find("--add-label 'fkst-dev:blocked'", 1, true) ~= nil)
     t.is_true(edit.rendered:find("--remove-label 'fkst-dev:ready'", 1, true) ~= nil)
+  end,
+
+  test_pr_label_request_rederives_pr_stream_before_write = function()
+    local event = pr_label_event("reviewing", "v1")
+
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_label_guard("reviewing", "v1")
+    mock_label_write()
+    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("pr-label-write", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh pr view"), 1)
+    t.eq(count_calls("gh issue edit"), 1)
+    local edit = calls_matching("gh issue edit")[1]
+    t.is_true(edit.rendered:find("gh issue edit '7'", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--add-label 'fkst-dev:reviewing'", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--remove-label 'fkst-dev:pr-open'", 1, true) ~= nil)
+  end,
+
+  test_pr_label_request_skips_stale_pr_stream = function()
+    local event = pr_label_event("reviewing", "v1")
+
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_label_guard("fixing", "v1/fix/1")
+    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("pr-label-stale", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh pr view"), 1)
+    t.eq(count_calls("gh label list"), 0)
+    t.eq(count_calls("gh issue edit"), 0)
+  end,
+
+  test_pr_label_request_retries_when_pr_stream_has_not_caught_up = function()
+    local event = pr_label_event("reviewing", "v1")
+
+    mock_write_env("1")
+    mock_bot_env()
+    t.mock_command("gh pr view", {
+      stdout = '{"comments":[]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("pr-label-pending", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    }))
+
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh pr view"), 1)
+    t.eq(count_calls("gh label list"), 0)
+    t.eq(count_calls("gh issue edit"), 0)
+  end,
+
+  test_pr_label_request_dry_run_does_not_rederive_or_write = function()
+    local event = pr_label_event("reviewing", "v1")
+
+    mock_write_env("")
+    mock_bot_env()
+    local result = t.run_department("departments/github_issue_label/main.lua", event, opts("pr-label-dry-run"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh pr view"), 0)
+    t.eq(count_calls("gh issue edit"), 0)
   end,
 
 }

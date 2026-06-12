@@ -125,7 +125,7 @@ return {
 
     local result = run_fix(event, opts("fix-write", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
 	    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
 	    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
 	    local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
@@ -205,7 +205,7 @@ return {
 
     local visible = run_fix(event, opts("fix-marker-visible", { FKST_GITHUB_WRITE = "1" }))
     t.eq(visible.exit_code, 0)
-    t.eq(#visible.raises, 3)
+    t.eq(#visible.raises, 4)
     t.eq(find_raise(visible.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
   end,
 
@@ -334,7 +334,7 @@ return {
 
     local with_write = run_fix(event, opts("fix-write-later-second", { FKST_GITHUB_WRITE = "1" }))
     t.eq(with_write.exit_code, 0)
-    t.eq(#with_write.raises, 3)
+    t.eq(#with_write.raises, 4)
     t.eq(find_raise(with_write.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(find_raise(with_write.raises, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
     t.eq(count_calls("git push origin"), 1)
@@ -393,7 +393,7 @@ return {
 
     local result = run_fix(second_event, opts("fix-second-round-origin-branch", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.version, core.next_fix_version(second_version))
     t.eq(count_calls("git push origin"), 1)
@@ -429,7 +429,7 @@ return {
 
     local result = run_fix(event, opts("fix-push-crash-self-heal", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(core.current_state({ find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body }, event.proposal_id).version, core.next_fix_version(event.version))
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
@@ -557,7 +557,7 @@ return {
 
     local result = run_fix(event, opts("fix-clean-ahead-reuse", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(core.current_state({ find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body }, event.proposal_id).version, core.next_fix_version(event.version))
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
@@ -834,7 +834,7 @@ return {
 
     local result = run_review_reconcile(event, opts("review-reconcile-drop"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
     local version = core.review_reconcile_state_version(event.issue_version, event.round)
@@ -990,7 +990,7 @@ return {
 
     local fix_result = run_fix(fix_event, opts("fix-from-review-meta-feedback", { FKST_GITHUB_WRITE = "1" }))
     t.eq(fix_result.exit_code, 0)
-    t.eq(#fix_result.raises, 3)
+    t.eq(#fix_result.raises, 4)
     t.eq(find_raise(fix_result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(find_raise(fix_result.raises, "devloop_reviewing").payload.version, core.next_fix_version(meta_exit_version))
   end,

@@ -115,6 +115,15 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
     merge_ready.dedup_key .. "/label/fixing",
     core.issue_source_ref(repo, issue_number)
   ) or nil
+  local pr_label_request = core.build_pr_state_label_request(
+    repo,
+    merge_ready.pr_number,
+    merge_ready.proposal_id,
+    "fixing",
+    fix_version,
+    merge_ready.dedup_key .. "/pr-label/fixing",
+    source_ref
+  )
   local fix_payload = core.build_devloop_fixing_payload({
     proposal_id = merge_ready.proposal_id,
     impl_version = fix_version,
@@ -136,6 +145,7 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
   if label_request ~= nil then
     core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
   end
+  core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", pr_label_request)
   core.log_raise("merge", merge_ready.proposal_id, "devloop_fixing", fix_payload)
 end
 
@@ -164,6 +174,14 @@ local function raise_reviewing_for_current_head(repo, issue_number, merge_ready,
     review_version,
     core.issue_source_ref(repo, issue_number)
   ) or nil
+  local pr_label_request = core.build_pr_merge_head_reviewing_label_request(
+    repo,
+    merge_ready.pr_number,
+    merge_ready,
+    current_head_sha,
+    review_version,
+    source_ref
+  )
   local reviewing_payload = core.build_devloop_reviewing_payload({
     proposal_id = merge_ready.proposal_id,
     impl_version = review_version,
@@ -179,6 +197,7 @@ local function raise_reviewing_for_current_head(repo, issue_number, merge_ready,
   if label_request ~= nil then
     core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
   end
+  core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", pr_label_request)
   core.log_raise("merge", merge_ready.proposal_id, "devloop_reviewing", reviewing_payload)
 end
 
@@ -282,7 +301,16 @@ local function build_merged_requests(repo, issue_number, merge_ready)
     merge_ready.dedup_key .. "/label/merged",
     core.issue_source_ref(repo, issue_number)
   ) or nil
-  return comment_request, label_request
+  local pr_label_request = core.build_pr_state_label_request(
+    repo,
+    merge_ready.pr_number,
+    merge_ready.proposal_id,
+    "merged",
+    merge_ready.version,
+    merge_ready.dedup_key .. "/pr-label/merged",
+    merged_source_ref
+  )
+  return comment_request, label_request, pr_label_request
 end
 
 local function finalize_merged(repo, issue_number, merge_ready, current_state, reason)
@@ -293,7 +321,7 @@ local function finalize_merged(repo, issue_number, merge_ready, current_state, r
     end
   end
 
-  local comment_request, label_request = build_merged_requests(repo, issue_number, merge_ready)
+  local comment_request, label_request, pr_label_request = build_merged_requests(repo, issue_number, merge_ready)
   local add_labels, remove_labels = core.state_label_changes("merged")
   core.log_cas_decision("merge", merge_ready.proposal_id, current_state, "merge-ready", "merged", "applied", reason)
   core.log_apply("merge", merge_ready.proposal_id, "merged", merge_ready.version, { add = add_labels, remove = remove_labels }, {
@@ -304,6 +332,7 @@ local function finalize_merged(repo, issue_number, merge_ready, current_state, r
   if label_request ~= nil then
     core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
   end
+  core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", pr_label_request)
 end
 
 function pipeline(event)
@@ -332,6 +361,7 @@ function pipeline(event)
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()
     local branches = core.branch_config()
+    local pr_source_ref = core.pr_source_ref(repo, merge_ready.pr_number)
 
     local pr_view = core.gh_exec({ cmd = core.gh_pr_view_merge_cmd(repo, merge_ready.pr_number), timeout = 30 })
     if pr_view.exit_code ~= 0 then
@@ -500,6 +530,15 @@ function pipeline(event)
     end
     log_gate(merge_ready, "write-ready", "write-time FKST_GITHUB_WRITE=1 and trusted review-result approve")
     core.log_cas_decision("merge", merge_ready.proposal_id, rechecked_state, "merge-ready", "merging", "applied", "all merge gates satisfied; invoking gh pr merge")
+    local merging_label_request = core.build_pr_state_label_request(
+      repo,
+      merge_ready.pr_number,
+      merge_ready.proposal_id,
+      "merging",
+      merge_ready.version,
+      merge_ready.dedup_key .. "/pr-label/merging",
+      pr_source_ref
+    )
     local merge_ok, merge_reason, merge_rechecked_pr = core.run_verified_pr_merge({
       repo = repo,
       pr_number = merge_ready.pr_number,
@@ -527,6 +566,7 @@ function pipeline(event)
       end,
       before_merge = function()
         write_merging_marker(repo, merge_ready, rechecked_pr_for_gate.comments)
+        core.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_issue_label_request", merging_label_request)
       end,
     })
     if not merge_ok and merge_reason == "merge-confirmation-pending" then

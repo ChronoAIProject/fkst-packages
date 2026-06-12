@@ -4,6 +4,7 @@ local core = h.core
 local opts = h.opts
 local mock_pr_origin = h.mock_pr_origin
 local find_raise = h.find_raise
+local find_raise_matching = h.find_raise_matching
 
 local function pr_opened_event(extra)
   local value = {
@@ -52,10 +53,18 @@ return {
     }, opts("pr-opened-direct-reviewing"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    local label_raise = find_raise_matching(result.raises, "github-proxy.github_issue_label_request", function(raised)
+      return raised.payload.target_kind == "pr"
+    end)
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.eq(comment_raise.payload.pr_number, 7)
+    t.eq(label_raise.payload.target_kind, "pr")
+    t.eq(label_raise.payload.issue_number, 7)
+    t.eq(label_raise.payload.expected_state, "reviewing")
+    t.eq(label_raise.payload.expected_version, event.impl_version)
+    t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(reviewing_raise.payload.proposal_id, event.proposal_id)
     t.eq(reviewing_raise.payload.pr_number, 7)
     t.eq(reviewing_raise.payload.version, event.impl_version)

@@ -419,6 +419,15 @@ local function find_raise(raises, queue)
   return nil
 end
 
+local function find_raise_matching(raises, queue, predicate)
+  for _, raised in ipairs(raises or {}) do
+    if raised.queue == queue and (predicate == nil or predicate(raised)) then
+      return raised
+    end
+  end
+  return nil
+end
+
 
 return {
   mock_setup_worktree = mock_setup_worktree,
@@ -440,4 +449,5 @@ return {
   mock_issue_view_failure = mock_issue_view_failure,
   count_calls = count_calls,
   find_raise = find_raise,
+  find_raise_matching = find_raise_matching,
 }
