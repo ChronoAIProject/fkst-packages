@@ -41,13 +41,39 @@ local function comments_json(comments)
   return table.concat(rendered, ",")
 end
 
+local function trusted_reintake_command(id)
+  return {
+    id = id or "IC_reintake_1",
+    body = "fkst: reintake",
+    author_login = core.trusted_bot_login(),
+    created_at = "2026-06-04T03:00:00Z",
+  }
+end
+
+local function untrusted_reintake_command(id)
+  local command = trusted_reintake_command(id or "IC_reintake_untrusted")
+  command.author_login = "ordinary-user"
+  return command
+end
+
+local function find_comment_body(raises, needle)
+  for _, raised in ipairs(raises or {}) do
+    if raised.queue == "github-proxy.github_issue_comment_request"
+      and raised.payload.body:find(needle, 1, true) ~= nil then
+      return raised.payload
+    end
+  end
+  return nil
+end
+
 local function issue_list_json(issues)
   local rendered = {}
   for _, issue in ipairs(issues or {}) do
     table.insert(rendered, string.format(
-      '{"number":%d,"title":"%s","updatedAt":"%s","labels":[%s]}',
+      '{"number":%d,"title":"%s","body":"%s","updatedAt":"%s","labels":[%s]}',
       issue.number,
       json_string(issue.title or "Issue"),
+      json_string(issue.body or ""),
       json_string(issue.updated_at or "2026-06-03T01:02:03Z"),
       labels_json(issue.labels or {})
     ))
@@ -56,7 +82,7 @@ local function issue_list_json(issues)
 end
 
 local function mock_issue_list(issues)
-  t.mock_command("--state open --limit 100 --json number,title,updatedAt,labels", {
+  t.mock_command(core.gh_issue_list_intake_cmd("owner/repo", 100), {
     stdout = issue_list_json(issues) .. "\n",
     stderr = "",
     exit_code = 0,
@@ -93,7 +119,7 @@ local function mock_intake_judge_view(labels, comments, extra)
   })
 end
 
-local function mock_intake_codex(stdout, exit_code, stderr)
+local function mock_intake_codex_with_closed_issues(stdout, closed_issues, exit_code, stderr)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
     stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
     stderr = "",
@@ -115,7 +141,11 @@ local function mock_intake_codex(stdout, exit_code, stderr)
     exit_code = 0,
   })
   t.mock_command("--state closed --limit 30 --json number,title,closedAt,labels", {
-    stdout = '[{"number":80,"title":"Widget sync retry patch","closedAt":"2026-06-01T01:02:03Z","labels":[{"name":"fingerprint:widget-sync"}]},{"number":81,"title":"Widget sync retry overflow fix","closedAt":"2026-06-02T01:02:03Z","labels":[{"name":"fingerprint:widget-sync"}]}]\n',
+    stdout = issue_list_json(closed_issues or {
+      { number = 80, title = "Widget sync retry patch", labels = { "fingerprint:widget-sync" } },
+      { number = 81, title = "Widget sync retry overflow fix", labels = { "fingerprint:widget-sync" } },
+      { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
+    }) .. "\n",
     stderr = "",
     exit_code = 0,
   })
@@ -157,6 +187,30 @@ local function mock_intake_codex(stdout, exit_code, stderr)
   })
 end
 
+local function mock_intake_codex(stdout, exit_code, stderr)
+  mock_intake_codex_with_closed_issues(stdout, nil, exit_code, stderr)
+end
+
+local function mock_intake_class_lookup(issues)
+  t.mock_command("--state open --limit 100 --json number,title,body,updatedAt,labels", {
+    stdout = issue_list_json(issues or {}) .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_recent_closed_class_siblings(issues)
+  t.mock_command("--state closed --limit 30 --json number,title,closedAt,labels", {
+    stdout = issue_list_json(issues or {
+      { number = 80, title = "Widget sync retry patch", labels = { "fingerprint:widget-sync" } },
+      { number = 81, title = "Widget sync retry overflow fix", labels = { "fingerprint:widget-sync" } },
+      { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
+    }) .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function codex_calls()
   local calls = {}
   for _, call in ipairs(t.command_calls()) do
@@ -186,6 +240,12 @@ local function candidate(extra)
   return value
 end
 
+local function reintake_candidate(command)
+  return candidate({
+    dedup_key = core.build_devloop_intake_candidate_payload("owner/repo", 42, command.created_at).dedup_key,
+  })
+end
+
 local function run_scan(run_opts)
   return t.run_department("departments/intake_scan/main.lua", {
     queue = "devloop_intake_tick",
@@ -211,6 +271,8 @@ return {
       { number = 43, labels = {} },
       { number = 44, labels = {} },
     })
+    mock_intake_scan_view({ "fkst-dev:enabled" }, {}, "OPEN")
+    mock_intake_scan_view({ "fkst-dev:thinking" }, {}, "OPEN")
     mock_intake_scan_view({}, {}, "OPEN")
     mock_intake_scan_view({}, {}, "CLOSED")
     mock_intake_scan_view({}, {
@@ -246,6 +308,77 @@ return {
     t.eq(result.raises[2].payload.issue_number, "41")
     t.eq(result.raises[3].payload.issue_number, "42")
     t.eq(result.raises[4].payload.issue_number, "43")
+  end,
+
+  test_scan_reintake_requeues_issue_with_trusted_intake_marker = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local command = trusted_reintake_command("IC_reintake_scan")
+    mock_bot_env()
+    mock_repo_env()
+    mock_issue_list({ { number = 42, labels = {} } })
+    mock_intake_scan_view({}, {
+      core.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v1"),
+      command,
+    }, "OPEN")
+
+    local result = run_scan(opts("intake-scan-reintake"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "devloop_intake_candidate")
+    t.eq(result.raises[1].payload.issue_number, "42")
+    t.eq(result.raises[1].payload.dedup_key, core.intake_dedup_key(proposal_id, command.created_at))
+    t.is_true(result.raises[1].payload.dedup_key ~= core.intake_dedup_key(proposal_id, "2026-06-03T01:02:03Z"))
+  end,
+
+  test_scan_reintake_without_prior_intake_marker_refuses = function()
+    mock_bot_env()
+    mock_repo_env()
+    mock_issue_list({ { number = 42, labels = {} } })
+    mock_intake_scan_view({}, {
+      trusted_reintake_command("IC_reintake_no_marker"),
+    }, "OPEN")
+
+    local result = run_scan(opts("intake-scan-reintake-no-marker"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local refusal = find_comment_body(result.raises, "operator command refused")
+    t.is_true(refusal ~= nil)
+    t.is_true(refusal.body:find("reintake requires an existing intake decision", 1, true) ~= nil)
+    t.is_true(refusal.body:find('outcome="refused"', 1, true) ~= nil)
+  end,
+
+  test_scan_reintake_mid_pipeline_refuses = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    mock_bot_env()
+    mock_repo_env()
+    mock_issue_list({ { number = 42, labels = { "fkst-dev:thinking" } } })
+    mock_intake_scan_view({ "fkst-dev:thinking" }, {
+      core.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1"),
+      trusted_reintake_command("IC_reintake_active"),
+    }, "OPEN")
+
+    local result = run_scan(opts("intake-scan-reintake-active-state"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local refusal = find_comment_body(result.raises, "operator command refused")
+    t.is_true(refusal ~= nil)
+    t.is_true(refusal.body:find("reintake requires no active devloop state", 1, true) ~= nil)
+    t.is_true(refusal.body:find('outcome="refused"', 1, true) ~= nil)
+  end,
+
+  test_scan_reintake_forged_command_is_ignored = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    mock_bot_env()
+    mock_repo_env()
+    mock_issue_list({ { number = 42, labels = {} } })
+    mock_intake_scan_view({}, {
+      core.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1"),
+      untrusted_reintake_command("IC_reintake_forged"),
+    }, "OPEN")
+
+    local result = run_scan(opts("intake-scan-reintake-forged"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
   end,
 
   test_scan_ignores_forged_marker = function()
@@ -310,7 +443,7 @@ return {
     t.is_nil(find_raise(malformed.raises, "github-proxy.github_issue_label_request"))
   end,
 
-  test_judge_escalate_to_class_writes_comment_without_enabled_label = function()
+  test_judge_escalate_to_class_creates_carrier_links_and_folds_instance = function()
     local payload = candidate()
     mock_bot_env()
     mock_intake_judge_view({}, {}, {
@@ -318,34 +451,200 @@ return {
       body = "Third recurrence after #80 and #81; decide whether this needs a class-level retry policy.",
     })
     mock_intake_codex("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Cites #80 and #81 as prior siblings; Rule of Three requires class-level retry policy.")
+    mock_recent_closed_class_siblings()
+    mock_intake_class_lookup({})
 
     local result = run_judge(payload, opts("intake-escalate-class"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
+    t.eq(#result.raises, 4)
+    local comment = find_comment_body(result.raises, 'decision="escalate-to-class"')
+    local followup = find_comment_body(result.raises, "intake class follow-up: folded")
+    local create = find_raise(result.raises, "github-proxy.github_issue_create_request").payload
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
     t.is_true(comment.body:find('decision="escalate-to-class"', 1, true) ~= nil)
     t.is_true(comment.body:find('class="expedite"', 1, true) ~= nil)
     t.is_true(comment.body:find("Rule of Three", 1, true) ~= nil)
-    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_label_request"))
+    t.is_true(followup.body:find('outcome="folded"', 1, true) ~= nil)
+    t.is_true(followup.body:find('carrier="pending-create"', 1, true) ~= nil)
+    t.eq(label.add_labels[1], "fkst-dev:blocked")
+    t.eq(create.schema, "github-proxy.issue-create.v1")
+    t.eq(create.parent_comment_target.issue_number, "42")
+    t.is_true(create.title:find("Class fix needed:", 1, true) == 1)
+    t.is_true(create.body:find("intent-before-create", 1, true) ~= nil)
+    t.eq(count_calls("codex exec"), 1)
   end,
 
-  test_judge_declines_umbrella_tracker_through_codex_policy = function()
+  test_judge_escalate_to_class_reuses_existing_carrier_without_create = function()
+    local payload = candidate()
+    mock_bot_env()
+    mock_intake_judge_view({}, {}, {
+      title = "Fix widget sync retry overflow again",
+      body = "Third recurrence after #80 and #81; decide whether this needs a class-level retry policy.",
+    })
+    mock_intake_codex("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Cites #80 and #81 as prior siblings; Rule of Three requires class-level retry policy.")
+    mock_recent_closed_class_siblings()
+    mock_intake_class_lookup({
+      {
+        number = 77,
+        title = "Class fix needed: recurring class widget sync",
+        body = core.intake_class_carrier_marker("fingerprint:widget-sync"),
+        labels = {},
+      },
+    })
+
+    local result = run_judge(payload, opts("intake-escalate-class-reuse"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 3)
+    local followup = find_comment_body(result.raises, "intake class follow-up: folded")
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
+    t.is_true(followup.body:find("Class carrier: #77", 1, true) ~= nil)
+    t.is_true(followup.body:find('carrier="77"', 1, true) ~= nil)
+    t.eq(label.add_labels[1], "fkst-dev:blocked")
+    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_create_request"))
+  end,
+
+  test_judge_escalate_to_class_reuses_carrier_by_recurring_class_identity = function()
+    local payload = candidate()
+    mock_bot_env()
+    mock_intake_judge_view({}, {}, {
+      title = "Repair widget sync timeout residual",
+      body = "Another instance after #80 and #81; this title differs from the class carrier.",
+    })
+    local class_key = core.intake_class_identity(
+      "Cites #80 and #81 as prior siblings; Rule of Three requires class-level retry policy.",
+      { title = "Earlier instance" },
+      99,
+      {
+        { number = 80, title = "Widget sync retry patch", labels = { "fingerprint:widget-sync" } },
+        { number = 81, title = "Widget sync retry overflow fix", labels = { "fingerprint:widget-sync" } },
+        { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
+      }
+    )
+    mock_intake_codex("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Prior occurrences #80 and #82 share the widget-sync failure fingerprint; open a broader timeout/backoff fix.")
+    mock_recent_closed_class_siblings()
+    mock_intake_class_lookup({
+      {
+        number = 77,
+        title = "Class fix needed: recurring class retry policy",
+        body = core.intake_class_carrier_marker(class_key),
+        labels = {},
+      },
+    })
+    t.eq(class_key, core.intake_class_identity(
+      "Cites #80 and #82 as prior siblings; Rule of Three requires class-level retry policy.",
+      { title = "Current instance" },
+      42,
+      {
+        { number = 80, title = "Widget sync retry patch", labels = { "fingerprint:widget-sync" } },
+        { number = 81, title = "Widget sync retry overflow fix", labels = { "fingerprint:widget-sync" } },
+        { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
+      }
+    ))
+    t.eq(class_key, core.intake_class_identity(
+      "Prior occurrences #80 and #82 share the widget-sync failure fingerprint; open a broader timeout/backoff fix.",
+      { title = "Current instance" },
+      42,
+      {
+        { number = 80, title = "Widget sync retry patch", labels = { "fingerprint:widget-sync" } },
+        { number = 81, title = "Widget sync retry overflow fix", labels = { "fingerprint:widget-sync" } },
+        { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
+      }
+    ))
+
+    local result = run_judge(payload, opts("intake-escalate-class-reuse-by-class-key"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 3)
+    local followup = find_comment_body(result.raises, "intake class follow-up: folded")
+    t.is_true(followup.body:find("Class carrier: #77", 1, true) ~= nil)
+    t.is_true(followup.body:find('carrier="77"', 1, true) ~= nil)
+    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_create_request"))
+  end,
+
+  test_judge_escalate_to_class_without_stable_identity_enables_instead_of_title_carrier = function()
+    local payload = candidate()
+    mock_bot_env()
+    mock_intake_judge_view({}, {}, {
+      title = "Repair widget sync timeout residual",
+      body = "Another instance after #80 and #81, but the siblings have no stable recurrence label.",
+    })
+    local sibling_issues = {
+      { number = 80, title = "Widget sync retry patch", labels = { "fkst-dev:merged" } },
+      { number = 81, title = "Widget sync timeout fix", labels = { "fkst-dev:merged" } },
+    }
+    mock_intake_codex_with_closed_issues(
+      "⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Prior occurrences #80 and #81 look related, but no structured fingerprint is available.",
+      sibling_issues
+    )
+    mock_recent_closed_class_siblings(sibling_issues)
+    t.is_nil(core.intake_class_identity(
+      "Prior occurrences #80 and #81 look related, but no structured fingerprint is available.",
+      { title = "Repair widget sync timeout residual" },
+      42,
+      sibling_issues
+    ))
+
+    local result = run_judge(payload, opts("intake-escalate-class-no-stable-key"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
+    t.is_true(comment.body:find('decision="enable"', 1, true) ~= nil)
+    t.is_true(comment.body:find("No stable recurring-class identity was found", 1, true) ~= nil)
+    t.eq(label.add_labels[1], "fkst-dev:enabled")
+    t.is_nil(find_comment_body(result.raises, "intake class follow-up: folded"))
+    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_create_request"))
+  end,
+
+  test_judge_class_carrier_enables_without_escalation_followup = function()
+    local payload = candidate()
+    mock_bot_env()
+    mock_intake_judge_view({}, {}, {
+      title = "Recurrence-aware widget sync policy",
+      body = "This issue cites #80 and #81 and proposes the class-level retry policy.",
+    })
+    mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ This issue is the class carrier, so Rule of Three is satisfied in-pipeline.")
+
+    local result = run_judge(payload, opts("intake-class-carrier-enable"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    t.is_true(find_raise(result.raises, "github-proxy.github_issue_comment_request").payload.body:find('decision="enable"', 1, true) ~= nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:enabled")
+    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_create_request"))
+  end,
+
+  test_judge_tracks_umbrella_tracker_through_codex_policy = function()
     local payload = candidate()
     mock_bot_env()
     mock_intake_judge_view({}, {}, {
       title = "[umbrella] Fold the babysitter into the system",
       body = "Tracks independent waves.\n\n- wave-1 stall watchdog\n- wave-2 DLQ triage\n\nSplit into independent wave proposals.",
     })
-    mock_intake_codex("⟦FKST:INTAKE⟧ decline\n⟦FKST:CLASS⟧ background\n⟦FKST:REASON⟧ Umbrella tracker issues must be split into independent proposals.")
+    mock_intake_codex("⟦FKST:INTAKE⟧ track\n⟦FKST:CLASS⟧ background\n⟦FKST:REASON⟧ Umbrella tracker issue; individual waves should be separate proposals.")
 
-    local result = run_judge(payload, opts("intake-umbrella-codex-decline"))
+    local result = run_judge(payload, opts("intake-umbrella-codex-track"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
+    t.eq(#result.raises, 2)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
-    t.is_true(comment.body:find('decision="decline"', 1, true) ~= nil)
-    t.is_true(comment.body:find("independent proposals", 1, true) ~= nil)
-    t.is_nil(find_raise(result.raises, "github-proxy.github_issue_label_request"))
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
+    t.is_true(comment.body:find('decision="track"', 1, true) ~= nil)
+    t.is_true(comment.body:find("Acknowledged as a tracking umbrella", 1, true) ~= nil)
+    t.is_true(comment.body:find("individual waves", 1, true) ~= nil)
+    t.eq(label.add_labels[1], "fkst-dev:tracking")
+    t.eq(#label.remove_labels, 0)
     t.eq(count_calls("codex exec"), 1)
+  end,
+
+  test_judge_track_idempotent_skips_trusted_marker = function()
+    local payload = candidate()
+    mock_bot_env()
+    mock_intake_judge_view({ "fkst-dev:tracking" }, {
+      core.intake_decision_marker(payload.proposal_id, "track", payload.dedup_key),
+    })
+
+    local result = run_judge(payload, opts("intake-track-idempotent"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("codex exec"), 0)
   end,
 
   test_judge_enables_ambiguous_cross_repo_and_insufficient_detail_tasks = function()
@@ -400,6 +699,61 @@ return {
     local result = run_judge(payload, opts("intake-idempotent"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
+    t.eq(count_calls("codex exec"), 0)
+  end,
+
+  test_judge_reintake_rejudges_after_trusted_intake_marker = function()
+    local command = trusted_reintake_command("IC_reintake_judge")
+    local payload = reintake_candidate(command)
+    mock_bot_env()
+    mock_intake_judge_view({}, {
+      core.intake_decision_marker(payload.proposal_id, "escalate-to-class", payload.dedup_key),
+      command,
+    })
+    mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Class-level carrier; reintake enables after calibration.")
+
+    local result = run_judge(payload, opts("intake-reintake"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 3)
+    local command_comment = find_comment_body(result.raises, "operator command accepted: reintake")
+    local intake_comment = find_comment_body(result.raises, 'decision="enable"')
+    t.is_true(command_comment ~= nil)
+    t.is_true(intake_comment ~= nil)
+    t.is_true(command_comment.body:find('command="reintake"', 1, true) ~= nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:enabled")
+    t.eq(count_calls("codex exec"), 1)
+  end,
+
+  test_judge_reintake_stale_candidate_is_skipped = function()
+    local payload = candidate()
+    local command = trusted_reintake_command("IC_reintake_stale")
+    mock_bot_env()
+    mock_intake_judge_view({}, {
+      core.intake_decision_marker(payload.proposal_id, "decline", payload.dedup_key),
+      command,
+    })
+
+    local result = run_judge(payload, opts("intake-reintake-stale-candidate"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("codex exec"), 0)
+  end,
+
+  test_judge_reintake_mid_pipeline_refuses = function()
+    local command = trusted_reintake_command("IC_reintake_judge_active")
+    local payload = reintake_candidate(command)
+    mock_bot_env()
+    mock_intake_judge_view({ "fkst-dev:thinking" }, {
+      core.intake_decision_marker(payload.proposal_id, "decline", payload.dedup_key),
+      command,
+    })
+
+    local result = run_judge(payload, opts("intake-reintake-judge-active-state"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local refusal = find_comment_body(result.raises, "operator command refused")
+    t.is_true(refusal ~= nil)
+    t.is_true(refusal.body:find("reintake requires no active devloop state", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 0)
   end,
 

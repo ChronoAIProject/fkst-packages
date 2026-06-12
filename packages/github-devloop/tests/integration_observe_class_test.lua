@@ -44,7 +44,7 @@ local function mock_repo_env()
 end
 
 local function mock_issue_list(issues)
-  t.mock_command("--state open --limit 100 --json number,title,updatedAt,labels", {
+  t.mock_command("--state open --limit 100 --json number,title,body,updatedAt,labels", {
     stdout = issue_list_json(issues) .. "\n",
     stderr = "",
     exit_code = 0,
@@ -53,7 +53,7 @@ end
 
 local function issue_view_json(labels, comments, state)
   return string.format(
-    '{"state":"%s","labels":[%s],"comments":[%s]}\n',
+    '{"title":"Issue","body":"","updatedAt":"2026-06-03T01:02:00Z","state":"%s","labels":[%s],"comments":[%s]}\n',
     json_string(state or "OPEN"),
     labels_json(labels or { "fkst-dev:enabled" }),
     comments_json(comments or {})
@@ -62,6 +62,11 @@ end
 
 local function mock_issue_view(labels, comments, state)
   t.mock_command("--json labels,state,comments", {
+    stdout = issue_view_json(labels, comments, state),
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("--json title,body,comments,labels,state,updatedAt", {
     stdout = issue_view_json(labels, comments, state),
     stderr = "",
     exit_code = 0,

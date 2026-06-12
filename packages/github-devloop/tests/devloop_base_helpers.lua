@@ -37,8 +37,7 @@ end
 
 local render_comment
 local take_pr_phase_comments
-local json_string
-local take_pending_pr_origin
+local json_string, take_pending_pr_origin
 local mock_pr_origin_from_cached
 
 local function source_ref()
@@ -54,7 +53,6 @@ local function pr_source_ref()
     ref = "owner/repo#pr/7",
   }
 end
-
 local function issue(extra)
   local value = {
     schema = "github-proxy.v1",
@@ -67,6 +65,7 @@ local function issue(extra)
     updated_at = "2026-06-03T01:02:03Z",
     labels = { "fkst-dev:enabled" },
     dedup_key = "owner/repo#issue#42@2026-06-03T01:02:03Z",
+    view_cache_key = "github-proxy/view/owner/repo/issue/42/2026-06-03T01-02-03Z",
     source_ref = source_ref(),
   }
   for key, field in pairs(extra or {}) do
@@ -365,10 +364,10 @@ local function run_decompose(payload, run_opts)
   }, run_opts)
 end
 
-local function run_implement(payload, run_opts)
+local function run_implement(payload, run_opts, queue)
   mock_branch_config_env()
   return t.run_department("departments/implement/main.lua", {
-    queue = "devloop_ready",
+    queue = queue or "devloop_ready",
     payload = payload,
   }, run_opts)
 end
@@ -541,8 +540,8 @@ local function mock_issue_state(labels, state, comments)
       table.insert(rendered_comments, render_comment(state_marker))
     end
   end
-  t.mock_command("--json labels,state,comments", {
-    stdout = string.format('{"state":"%s","labels":[%s],"comments":[%s]}\n',
+  t.mock_command("--json title,body,comments,labels,state", {
+    stdout = string.format('{"title":"Implement decision recorder","body":"","state":"%s","labels":[%s],"comments":[%s]}\n',
       json_string(state or "OPEN"),
       table.concat(rendered_labels, ","),
       table.concat(rendered_comments, ",")),
@@ -740,35 +739,31 @@ local function mock_issue_reconcile(labels, comments, extra)
   mock_issue_loop(labels or { "fkst-dev:thinking" }, comments, extra)
 end
 
-local function mock_issue_implement(labels, comments, extra)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or { "fkst-dev:ready" }) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
+local function mock_issue_commit_subject_title(fields)
+  local subject_cmd = "gh issue view '42' --repo 'owner/repo' --json number,title"
+  if fields.commit_title_error ~= nil then
+    t.mock_command(subject_cmd, { stdout = "", stderr = tostring(fields.commit_title_error), exit_code = 1 })
+    return
   end
-  local rendered_comments = {}
-  for _, comment in ipairs(with_default_state_marker(labels or { "fkst-dev:ready" }, comments)) do
-    table.insert(rendered_comments, render_comment(comment))
-  end
-  local fields = extra or {}
-  t.mock_command("--json title,labels,comments", {
-    stdout = string.format(
-      '{"title":"%s","labels":[%s],"comments":[%s]}\n',
-      json_string(fields.title or "Implement decision recorder"),
-      table.concat(rendered_labels, ","),
-      table.concat(rendered_comments, ",")
-    ),
+  t.mock_command(subject_cmd, {
+    stdout = string.format('{"number":42,"title":"%s"}\n', json_string(fields.commit_title or fields.title or "Implement decision recorder")),
     stderr = "",
     exit_code = 0,
   })
 end
 
-local function mock_issue_implement_raw(labels, comments, extra)
+local function mock_issue_title_labels_comments(labels, comments, extra, default_label, include_default_marker)
   local rendered_labels = {}
-  for _, label in ipairs(labels or {}) do
+  local selected_labels = labels or { default_label }
+  for _, label in ipairs(selected_labels) do
     table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
   end
   local rendered_comments = {}
-  for _, comment in ipairs(comments or {}) do
+  local selected_comments = comments or {}
+  if include_default_marker then
+    selected_comments = with_default_state_marker(selected_labels, selected_comments)
+  end
+  for _, comment in ipairs(selected_comments) do
     table.insert(rendered_comments, render_comment(comment))
   end
   local fields = extra or {}
@@ -782,6 +777,15 @@ local function mock_issue_implement_raw(labels, comments, extra)
     stderr = "",
     exit_code = 0,
   })
+  mock_issue_commit_subject_title(fields)
+end
+
+local function mock_issue_implement(labels, comments, extra)
+  mock_issue_title_labels_comments(labels, comments, extra, "fkst-dev:ready", true)
+end
+
+local function mock_issue_implement_raw(labels, comments, extra)
+  mock_issue_title_labels_comments(labels or {}, comments, extra, nil, false)
 end
 
 local function mock_issue_open_pr(labels, comments, extra)
@@ -794,10 +798,12 @@ local function mock_issue_open_pr(labels, comments, extra)
     table.insert(rendered_comments, render_comment(comment))
   end
   local fields = extra or {}
-  t.mock_command("--json title,labels,comments", {
+  t.mock_command("--json title,body,comments,labels,state", {
     stdout = string.format(
-      '{"title":"%s","labels":[%s],"comments":[%s]}\n',
+      '{"title":"%s","body":"%s","state":"%s","labels":[%s],"comments":[%s]}\n',
       json_string(fields.title or "Implement decision recorder"),
+      json_string(fields.body or ""),
+      json_string(fields.state or "OPEN"),
       table.concat(rendered_labels, ","),
       table.concat(rendered_comments, ",")
     ),
@@ -872,25 +878,7 @@ end
 
 local function mock_issue_fix(labels, comments, extra)
   set_pr_phase_comments(labels or { "fkst-dev:fixing" }, comments)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or { "fkst-dev:fixing" }) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
-  end
-  local rendered_comments = {}
-  for _, comment in ipairs(with_default_state_marker(labels or { "fkst-dev:fixing" }, comments)) do
-    table.insert(rendered_comments, render_comment(comment))
-  end
-  local fields = extra or {}
-  t.mock_command("--json title,labels,comments", {
-    stdout = string.format(
-      '{"title":"%s","labels":[%s],"comments":[%s]}\n',
-      json_string(fields.title or "Implement decision recorder"),
-      table.concat(rendered_labels, ","),
-      table.concat(rendered_comments, ",")
-    ),
-    stderr = "",
-    exit_code = 0,
-  })
+  mock_issue_title_labels_comments(labels, comments, extra, "fkst-dev:fixing", true)
 end
 
 local function mock_issue_fix_for_event(fix, labels, comments, branch, impl_version, extra)
@@ -931,7 +919,6 @@ local function mock_issue_merge(labels, comments, extra)
     exit_code = 0,
   })
 end
-
 
 return {
   t = t,

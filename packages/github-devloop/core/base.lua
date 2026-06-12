@@ -33,6 +33,7 @@ local untrusted_issue_data_end = "END UNTRUSTED ISSUE DATA"
 local test_bot_login = "fkst-test-bot"
 
 local enabled_label = "fkst-dev:enabled"
+local tracking_label = "fkst-dev:tracking"
 local thinking_label = "fkst-dev:thinking"
 local ready_label = "fkst-dev:ready"
 local implementing_label = "fkst-dev:implementing"
@@ -94,7 +95,7 @@ local state_graph = {
   merged = {},
   fixing = { "reviewing", "review-meta" },
   ["review-meta"] = { "fixing", "blocked" },
-  ["impl-failed"] = {},
+  ["impl-failed"] = { "implementing" },
   blocked = {},
 }
 
@@ -168,7 +169,15 @@ local function has_value(values, expected)
 end
 
 local function is_review_meta_action(value)
-  return value == "fix" or value == "block" or value == "spec-amendment"
+  return value == "fix"
+    or value == "block"
+    or value == "spec-amendment"
+    or value == "continue"
+    or value == "spec-gap"
+end
+
+local function fix_reflection_checkpoint_round()
+  return 3
 end
 
 local function is_path_safe_key(value, limit)
@@ -915,6 +924,7 @@ M._untrusted_issue_data_begin = untrusted_issue_data_begin
 M._untrusted_issue_data_end = untrusted_issue_data_end
 M._test_bot_login = test_bot_login
 M._enabled_label = enabled_label
+M._tracking_label = tracking_label
 M._thinking_label = thinking_label
 M._ready_label = ready_label
 M._implementing_label = implementing_label
@@ -942,6 +952,7 @@ M._is_bounded_string = is_bounded_string
 M.truncate_utf8 = sdk_truncate_utf8
 M._has_value = has_value
 M._is_review_meta_action = is_review_meta_action
+M.fix_reflection_checkpoint_round = fix_reflection_checkpoint_round
 M._is_path_safe_key = is_path_safe_key
 M._is_git_ref_safe = is_git_ref_safe
 M._is_git_sha = is_git_sha

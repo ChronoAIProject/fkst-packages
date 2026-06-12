@@ -5,10 +5,16 @@
 #       Run fkst-framework --self-test once, then conformance + test for flat
 #       packages. Composed packages skip single-package conformance and still
 #       run tests. Full test also runs composed graph conformance. This is the
-#       single CI and local test entrypoint.
+#       single CI and local test entrypoint. Test mode is hermetic: ambient
+#       FKST_RUNTIME_ROOT and FKST_DURABLE_ROOT are overridden with fresh temp
+#       directories, and FKST_GITHUB_WRITE is cleared, so local runs predict CI.
 #
 #   scripts/run.sh check
 #       Run hermetic repository checks only. Does not resolve or execute BIN.
+#
+#   scripts/run.sh doctor
+#       Run read-only preflight checks for git/cargo/rustc, fkst-framework BIN,
+#       codex, gh auth, and relevant FKST_* host facts.
 #
 #   scripts/run.sh test-composed
 #       Run only composed graph conformance for packages with composed.deps.
@@ -38,37 +44,24 @@
 #       from the current fkst-substrate working tree before running.
 #
 # fkst-framework binary resolution (priority): $BIN > repo .env `BIN=` > PATH >
-# sibling ../fkst-substrate/target/debug/fkst-framework.
+# sibling ../fkst-substrate/target/debug/fkst-framework > pinned source cache
+# clone/build fallback.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# shellcheck source=scripts/bin_bootstrap.sh
+. "$ROOT/scripts/bin_bootstrap.sh"
+
 resolve_bin() {
-  if [ -z "${BIN:-}" ] && [ -f "$ROOT/.env" ]; then
-    # `|| true`: no BIN= line is fine under set -o pipefail. Strip optional
-    # surrounding quotes and a trailing ` # comment`.
-    BIN="$(grep -E '^BIN=' "$ROOT/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
-    BIN="${BIN%%[[:space:]]#*}"
-    BIN="${BIN%\"}"; BIN="${BIN#\"}"; BIN="${BIN%\'}"; BIN="${BIN#\'}"
-  fi
-  if [ -z "${BIN:-}" ]; then
-    if command -v fkst-framework >/dev/null 2>&1; then
-      BIN="$(command -v fkst-framework)"
-    elif [ -x "$ROOT/../fkst-substrate/target/debug/fkst-framework" ]; then
-      BIN="$ROOT/../fkst-substrate/target/debug/fkst-framework"
-    fi
-  fi
-  if [ -z "${BIN:-}" ] || [ ! -x "$BIN" ]; then
+  if ! resolve_bin_contract "$ROOT" "bootstrap"; then
+    echo "error: $RESOLVE_BIN_ERROR" >&2
     if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-      echo "error: fkst-framework binary is not executable in CI: ${BIN:-<unset>}" >&2
       echo "  CI must build fkst-substrate and inject BIN; scripts/run.sh will not build in CI." >&2
-      exit 1
     fi
-    echo "error: fkst-framework binary not found (\$BIN, .env, PATH, ../fkst-substrate)." >&2
-    echo "  fix: cp env.example .env (set BIN=), or build the engine:" >&2
-    echo "       scripts/run.sh build" >&2
     exit 1
   fi
+  BIN="$RESOLVED_BIN"
   export BIN
 }
 
@@ -120,13 +113,15 @@ ensure_fresh_bin() {
 }
 
 usage() {
-  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd_check() {
   python3 -B "$ROOT/scripts/check_repo.py"
   python3 -B "$ROOT/scripts/check_repo_test.py"
   python3 -B "$ROOT/scripts/bin_cache_test.py"
+  python3 -B "$ROOT/scripts/bin_bootstrap_test.py"
+  python3 -B "$ROOT/scripts/doctor_test.py"
 }
 
 check_test_file_coverage() {
@@ -238,20 +233,21 @@ LUA
 
 cmd_test() {
   local target="${1:-}" ran=0 fail=0 pkg name
-  local self_rt report_dir report_file
+  local report_dir report_file
+
+  trap 'rm -rf "${TEST_HERMETIC_RUNTIME_ROOT:-}" "${TEST_HERMETIC_DURABLE_ROOT:-}"' EXIT
+  TEST_HERMETIC_RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-rt.XXXXXX")"
+  TEST_HERMETIC_DURABLE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-durable.XXXXXX")"
+  export FKST_RUNTIME_ROOT="$TEST_HERMETIC_RUNTIME_ROOT"
+  export FKST_DURABLE_ROOT="$TEST_HERMETIC_DURABLE_ROOT"
+  unset FKST_GITHUB_WRITE
+  echo "test hermetic: FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT (ambient overridden)"
 
   report_dir="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-reports.XXXXXX")"
 
   echo "=== self-test ==="
-  if [ -n "${FKST_RUNTIME_ROOT:-}" ]; then
-    if ! "$BIN" --self-test; then
-      fail=$((fail + 1))
-    fi
-  else
-    self_rt="$(mktemp -d "${TMPDIR:-/tmp}/fkst-self-test.XXXXXX")"
-    if ! FKST_RUNTIME_ROOT="$self_rt" "$BIN" --self-test; then
-      fail=$((fail + 1))
-    fi
+  if ! "$BIN" --self-test; then
+    fail=$((fail + 1))
   fi
 
   echo "=== sdk-primitives ==="
@@ -514,13 +510,20 @@ cmd_build() {
   echo "OK: built $substrate/target/debug/fkst-framework"
 }
 
-case "${1:-}" in
-  check) shift; cmd_check "$@" ;;
-  test) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;
-  test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
-  run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
-  supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
-  build) shift; cmd_build "$@" ;;
-  -h|--help|help|"") usage ;;
-  *) echo "unknown subcommand: $1" >&2; usage; exit 1 ;;
-esac
+main() {
+  case "${1:-}" in
+    check) shift; cmd_check "$@" ;;
+    doctor) shift; "$BASH" "$ROOT/scripts/doctor.sh" "$@" ;;
+    test) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;
+    test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
+    run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
+    supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
+    build) shift; cmd_build "$@" ;;
+    -h|--help|help|"") usage ;;
+    *) echo "unknown subcommand: $1" >&2; usage; exit 1 ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

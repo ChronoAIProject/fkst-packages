@@ -124,6 +124,13 @@ function M.is_supported_ready(payload)
     and payload.schema == "github-devloop.ready.v1"
     and M.is_safe_proposal_ref(payload.proposal_id, payload.dedup_key)
     and (payload.framing == nil or M._is_bounded_string(payload.framing, M._max_framing_len))
+    and (payload.ready_hand_off == nil
+      or (payload.impl_retry_attempt == nil and M.is_ready_hand_off(payload.ready_hand_off, payload)))
+    and (payload.impl_retry_attempt == nil
+      or (tonumber(payload.impl_retry_attempt) ~= nil
+        and tonumber(payload.impl_retry_attempt) >= 1
+        and tonumber(payload.impl_retry_attempt) == math.floor(tonumber(payload.impl_retry_attempt))
+        and tonumber(payload.impl_retry_attempt) <= M._max_impl_retry_attempts))
     and M._has_bounded_source_ref(payload.source_ref)
 end
 
@@ -156,28 +163,59 @@ function M.is_supported_open_pr(payload)
 end
 
 function M.is_supported_fixing(payload)
-  return type(payload) == "table"
-    and payload.schema == "github-devloop.fixing.v1"
-    and M.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key)
-    and M.is_safe_pr_number(payload.pr_number)
-    and M._is_bounded_string(payload.version, M._max_dedup_len)
-    and M.is_safe_pr_review_result_ref(payload.review_proposal_id, payload.review_dedup_key)
-    and M._is_git_sha(payload.reviewed_head_sha)
-    and (payload.gate_baseline_sha == nil or M._is_git_sha(payload.gate_baseline_sha))
-    and (payload.gate_failure_excerpt == nil or M._is_bounded_string(payload.gate_failure_excerpt, M._max_rollup_failure_summary_len))
-    and (payload.framing == nil or M._is_bounded_string(payload.framing, M._max_framing_len))
-    and (payload.blocking_gap == nil or M._is_bounded_string(payload.blocking_gap, M._max_blocking_gap_len))
-    and M._has_bounded_source_ref(payload.source_ref)
+  if type(payload) ~= "table"
+    or payload.schema ~= "github-devloop.fixing.v1"
+    or not M.is_safe_pr_number(payload.pr_number)
+    or not M._is_bounded_string(payload.version, M._max_dedup_len)
+    or not M.is_safe_pr_review_result_ref(payload.review_proposal_id, payload.review_dedup_key)
+    or not M._is_git_sha(payload.reviewed_head_sha)
+    or (payload.gate_baseline_sha ~= nil and not M._is_git_sha(payload.gate_baseline_sha))
+    or (payload.gate_failure_excerpt ~= nil and not M._is_bounded_string(payload.gate_failure_excerpt, M._max_rollup_failure_summary_len))
+    or (payload.framing ~= nil and not M._is_bounded_string(payload.framing, M._max_framing_len))
+    or (payload.blocking_gap ~= nil and not M._is_bounded_string(payload.blocking_gap, M._max_blocking_gap_len))
+    or not M._has_bounded_source_ref(payload.source_ref) then
+    return false
+  end
+
+  if not M.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key) then
+    return false
+  end
+  if tostring(payload.dedup_key):sub(1, #"fixing/replay/") ~= "fixing/replay/" then
+    return true
+  end
+
+  local replay_dedup = M._dedup_key({
+    "fixing",
+    "replay",
+    tostring(payload.proposal_id),
+    tostring(payload.version),
+    tostring(payload.pr_number),
+    tostring(payload.review_dedup_key),
+    tostring(payload.gate_baseline_sha or "nobase"),
+    tostring(payload.reviewed_head_sha),
+  })
+  return tostring(payload.dedup_key) == replay_dedup
 end
 
 function M.is_supported_review_meta(payload)
-  return type(payload) == "table"
-    and payload.schema == "github-devloop.review-meta.v1"
-    and M.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key)
-    and M.is_safe_pr_review_result_ref(payload.review_proposal_id, payload.review_dedup_key)
+  if type(payload) ~= "table"
+    or payload.schema ~= "github-devloop.review-meta.v1"
+    or not M.is_safe_pr_review_result_ref(payload.review_proposal_id, payload.review_dedup_key) then
+    return false
+  end
+  local has_valid_identity = payload.mode == "fix-reflection"
+    and M.parse_entity_proposal_id(payload.proposal_id) ~= nil
+    and M._is_path_safe_key(payload.dedup_key, M._max_dedup_len)
+  if payload.mode ~= "fix-reflection" then
+    has_valid_identity = M.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key)
+  end
+  return has_valid_identity
     and M._is_bounded_string(payload.version, M._max_dedup_len)
     and M.is_safe_pr_number(payload.pr_number)
     and tonumber(payload.n) ~= nil
+    and (payload.mode == nil or payload.mode == "fix-reflection")
+    and (payload.fix_round == nil or tonumber(payload.fix_round) ~= nil)
+    and (payload.blocking_gap == nil or M._is_bounded_string(payload.blocking_gap, M._max_blocking_gap_len))
     and M._has_bounded_source_ref(payload.source_ref)
 end
 

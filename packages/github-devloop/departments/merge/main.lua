@@ -63,8 +63,7 @@ local function gate_baseline_sha_from_pr(pr)
 end
 
 local function is_rollup_red_fix_reason(reason)
-  local text = tostring(reason or "")
-  return core.is_ci_red_reason(text) or text:find("^rollup%-red:", 1) ~= nil
+  return core.merge_gate_reason_class(reason) == "rollup-red"
 end
 
 local function fetch_pr_merge_product_sha(pr_number)
@@ -83,11 +82,16 @@ local function fetch_pr_merge_product_sha(pr_number)
   return merge_product_sha
 end
 
-local function gate_baseline_sha_for_reason(pr_number, pr, reason)
+local function gate_baseline_sha_for_reason(proposal_id, pr_number, pr, reason)
   if is_rollup_red_fix_reason(reason) then
     local gate_sha = tostring(core.rollup_failure_gate_sha(pr) or "")
     if not core.is_safe_head_sha(gate_sha) then
-      error("github-devloop: unsafe merge-gate rollup sha")
+      core.log_line("info", "merge", proposal_id, "GATE", {
+        "outcome=degrade",
+        "reason=rollup gate sha underivable from statusCheckRollup; fix will merge current integration",
+        "pr=" .. tostring(pr_number),
+      })
+      return nil
     end
     local merge_product_sha = fetch_pr_merge_product_sha(pr_number)
     if merge_product_sha ~= gate_sha then
@@ -101,7 +105,7 @@ end
 local function raise_fixing(repo, issue_number, merge_ready, current_state, current_pr, reason)
   local source_ref = core.pr_source_ref(repo, merge_ready.pr_number)
   local fix_version = core.fix_version_from_review_version(current_state.version)
-  local gate_baseline_sha = gate_baseline_sha_for_reason(merge_ready.pr_number, current_pr, reason)
+  local gate_baseline_sha = gate_baseline_sha_for_reason(merge_ready.proposal_id, merge_ready.pr_number, current_pr, reason)
   local comment_request = core.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready, fix_version, reason, gate_baseline_sha, source_ref)
   local label_request = issue_number ~= nil and core.build_state_label_request(
     repo,
@@ -434,6 +438,17 @@ function pipeline(event)
       error("github-devloop: PR fact changed after ready conversion")
     end
 
+    local mergeable, mergeable_reason = core.pr_mergeable(current_pr)
+    if not mergeable then
+      if not core.is_not_mergeable_reason(mergeable_reason) then
+        log_gate(merge_ready, "dry-run", mergeable_reason)
+        error("github-devloop: merge wait on " .. tostring(mergeable_reason) .. "; retrying")
+      end
+      log_gate(merge_ready, "fixing", mergeable_reason)
+      raise_fixing(repo, issue_number, merge_ready, state, current_pr, mergeable_reason)
+      return
+    end
+
     local rollup_green, rollup_reason = core.evaluate_ci_status_gate(current_pr, {
       repo = repo,
       dept = "merge",
@@ -461,16 +476,6 @@ function pipeline(event)
       local fix_reason = core.rollup_red_fix_reason(current_pr, rollup_reason)
       log_gate(merge_ready, "fixing", fix_reason)
       raise_fixing(repo, issue_number, merge_ready, state, current_pr, fix_reason)
-      return
-    end
-    local mergeable, mergeable_reason = core.pr_mergeable(current_pr)
-    if not mergeable then
-      if not core.is_not_mergeable_reason(mergeable_reason) then
-        log_gate(merge_ready, "dry-run", mergeable_reason)
-        error("github-devloop: merge wait on " .. tostring(mergeable_reason) .. "; retrying")
-      end
-      log_gate(merge_ready, "fixing", mergeable_reason)
-      raise_fixing(repo, issue_number, merge_ready, state, current_pr, mergeable_reason)
       return
     end
 

@@ -341,6 +341,15 @@ return {
     local thinking_marker = core.state_marker(proposal_id, "thinking", "v1")
     t.is_true(thinking_marker:find('fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="thinking" version="v1"', 1, true) ~= nil)
     t.is_true(thinking_marker:find('stage_rank="100"', 1, true) ~= nil)
+    local ready_effects_marker = core.state_marker(proposal_id, "ready", "v2", "result-marker,ready-label,devloop-ready")
+    t.eq(
+      ready_effects_marker,
+      '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="ready" version="v2" stage_rank="500" effects="result-marker,ready-label,devloop-ready" -->'
+    )
+    local ready_effects_state = core.current_state({ ready_effects_marker }, proposal_id)
+    t.eq(ready_effects_state.state, "ready")
+    t.eq(ready_effects_state.version, "v2")
+    t.eq(ready_effects_state.stage_rank, core.stage_rank("ready"))
     local comments = {
       core.state_marker(proposal_id, "thinking", "v1"),
       core.state_marker(proposal_id, "ready", "v2"),
@@ -446,6 +455,8 @@ return {
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
     t.is_true(comment.body:find('fkst:github-devloop:result:v1 proposal="github-devloop/issue/owner/repo/42"', 1, true) ~= nil)
     t.is_true(comment.body:find('fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="ready"', 1, true) ~= nil)
+    t.is_true(comment.body:find('effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
+    t.is_true(comment.body:find('stage_rank="500" effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
     local comment_version = tostring(completed.dedup_key):gsub(":", "-")
     t.eq(
       comment.dedup_key,
@@ -470,6 +481,32 @@ return {
   end,
 
   test_gh_issue_view_state_command_and_parse = function()
+    t.eq(
+      core.gh_issue_list_intake_cmd("owner/repo", 50),
+      "gh issue list --repo 'owner/repo' --state open --limit 50 --json number,title,body,updatedAt,labels"
+    )
+    t.eq(
+      core.gh_pr_list_head_base_cmd("owner/repo", "integration/dev", "dev"),
+      "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Aintegration%2Fdev&base=dev&per_page=100'"
+    )
+    local intake = core.parse_issue_list_intake('[[{"number":42,"title":"Fix","updated_at":"2026-06-03T01:02:03Z","labels":[{"name":"bug"}]}]]')
+    t.eq(intake[1].number, 42)
+    t.eq(intake[1].body, "")
+    t.eq(intake[1].updated_at, "2026-06-03T01:02:03Z")
+    t.eq(intake[1].labels[1], "bug")
+    local mixed = core.parse_issue_list_intake('[[{"number":1,"pull_request":{"url":"https://api.example.test/pulls/1"}}],[{"number":2,"title":"Issue","updated_at":"2026-06-03T01:02:04Z","labels":[]}]]', 1)
+    t.eq(#mixed, 1)
+    t.eq(mixed[1].number, 2)
+    t.eq(#core.parse_issue_list_intake("[[]]"), 0)
+    t.eq(#core.parse_issue_list_observe("[[]]"), 0)
+    t.eq(#core.parse_pr_list_observe("[[]]"), 0)
+    t.eq(#core.parse_pr_list_head_base("[[]]"), 0)
+    local rollup_prs = core.parse_pr_list_head_base('[[{"number":9,"head":{"sha":"abc123","ref":"integration/dev"},"base":{"ref":"dev"},"state":"open"}]]')
+    t.eq(rollup_prs[1].number, 9)
+    t.eq(rollup_prs[1].head_sha, "abc123")
+    t.eq(rollup_prs[1].head_ref_name, "integration/dev")
+    t.eq(rollup_prs[1].base_ref_name, "dev")
+
     t.eq(
       core.gh_issue_view_state_cmd("owner/repo", 42),
       "gh issue view '42' --repo 'owner/repo' --json labels,state,comments"
@@ -513,7 +550,7 @@ return {
       { core.gh_issue_view_fix_cmd, "title,labels,comments" },
       { core.gh_issue_view_review_loop_cmd, "title,labels,comments" },
       { core.gh_issue_view_merge_cmd, "title,labels,comments,state" },
-      { core.gh_issue_view_observe_cmd, "title,updatedAt,comments,state" },
+      { core.gh_issue_view_observe_cmd, "title,updatedAt,comments,state,stateReason" },
     }
 
     for _, case in ipairs(cases) do
@@ -522,6 +559,10 @@ return {
     t.eq(
       core.gh_workflow_dispatch_ci_cmd("owner/repo", "devloop-owner-repo-42-01HY"),
       "gh workflow run 'ci.yml' --repo 'owner/repo' --ref 'devloop-owner-repo-42-01HY'"
+    )
+    t.eq(
+      core.gh_issue_list_decompose_children_cmd("owner/repo", "github-devloop/issue/owner/repo/42"),
+      "gh issue list --repo 'owner/repo' --state all --limit 100 --search 'fkst:github-devloop:decompose-child:v1 github-devloop/issue/owner/repo/42' --json number,title,state,author,body,url"
     )
   end,
 
@@ -649,6 +690,17 @@ return {
     -- round must still be visible even though it is no longer the final segment.
     t.eq(core.version_loop_round(base .. "/loop/2/fix/1"), 2)
     t.eq(core.version_loop_round(base .. "/fix/1"), 0)
+  end,
+
+  test_fixing_version_matches_link_normalized_lineage = function()
+    local base = "ready/consensus-github-devloop/issue/owner/repo/42/185/2026-06-10T13-45-26Z"
+    local issue_version = base .. "/fix/1/fix/2/fix/3/fix/4/fix/5"
+    local link_version = base .. "/fix/1/review-loop/2/rereview/2/feedface"
+    t.eq(core.strip_transition_version_suffixes(issue_version), base)
+    t.eq(core.strip_transition_version_suffixes(link_version), base)
+    t.eq(core.fixing_version_matches_link(issue_version, link_version), true)
+    t.eq(core.fixing_version_matches_link(issue_version, ""), false)
+    t.eq(core.fixing_version_matches_link(issue_version, base:gsub("/42/", "/43/")), false)
   end,
 
   test_fixing_after_no_consensus_loop_outranks_reviewing = function()
@@ -811,96 +863,6 @@ return {
     t.eq(current.version, base_version .. "/loop/3")
   end,
 
-  test_intake_parser_is_strict_and_conservative = function()
-    local parsed = core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Clear bounded task.")
-    t.eq(parsed.action, "enable")
-    t.eq(parsed.class, "expedite")
-    t.eq(parsed.reason, "Clear bounded task.")
-
-    local escalated = core.parse_intake_action("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Third widget-sync recurrence; class-level retry policy is required.")
-    t.eq(escalated.action, "escalate-to-class")
-    t.eq(escalated.class, "standard")
-    t.eq(escalated.reason, "Third widget-sync recurrence; class-level retry policy is required.")
-
-    t.is_nil(core.parse_intake_action("prefix\n⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
-    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable extra\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
-    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ urgent\n⟦FKST:REASON⟧ Clear bounded task."))
-    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
-    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task.\n⟦FKST:INTAKE⟧ decline"))
-  end,
-
-  test_intake_marker_fact_trusts_only_bot_comments = function()
-    local proposal_id = "github-devloop/issue/owner/repo/42"
-    local marker = core.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "background")
-    t.eq(core.has_intake_decision_marker({ { body = marker, author_login = "ordinary-user" } }, proposal_id), false)
-    local fact = core.intake_decision_fact({ { body = marker, author_login = core.trusted_bot_login() } }, proposal_id)
-    t.eq(fact.decision, "decline")
-    t.eq(fact.class, "background")
-    t.eq(fact.proposal_id, proposal_id)
-
-    local escalation_marker = core.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v2")
-    local escalation = core.intake_decision_fact({ { body = escalation_marker, author_login = core.trusted_bot_login() } }, proposal_id)
-    t.eq(escalation.decision, "escalate-to-class")
-  end,
-
-  test_intake_class_batch_uses_trusted_marker_order_with_fifo_capacity_guard = function()
-    local function item(number, intake_class, updated_at, author_login)
-      local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
-      return {
-        number = number,
-        updated_at = updated_at,
-        labels = { "fkst-class:expedite" },
-        comments = {
-          {
-            body = core.intake_decision_marker(proposal_id, "enable", "intake/" .. proposal_id .. "/v1", intake_class),
-            author_login = author_login or core.trusted_bot_login(),
-          },
-        },
-      }
-    end
-
-    local items = {
-      item(40, "background", "2026-06-03T01:00:00Z"),
-      item(41, "standard", "2026-06-03T01:01:00Z"),
-      item(42, "expedite", "2026-06-03T01:02:00Z"),
-      item(43, "expedite", "2026-06-03T01:03:00Z"),
-    }
-    local function marker_class(value)
-      local fact = core.intake_decision_fact(value.comments, "github-devloop/issue/owner/repo/" .. tostring(value.number))
-      return fact and fact.class
-    end
-    local function fifo(value)
-      return tostring(value.updated_at or "") .. "/" .. tostring(value.number or "")
-    end
-
-    local sorted = core.sort_by_intake_class(items, marker_class, fifo)
-    t.eq(sorted[1].number, 42)
-    t.eq(sorted[2].number, 43)
-    t.eq(sorted[3].number, 41)
-    t.eq(sorted[4].number, 40)
-
-    local selected = core.select_intake_class_batch({
-      item(50, "background", "2026-06-03T01:00:00Z"),
-      item(51, "standard", "2026-06-03T01:01:00Z"),
-      item(52, "expedite", "2026-06-03T01:02:00Z"),
-      item(53, "expedite", "2026-06-03T01:03:00Z"),
-      item(54, "expedite", "2026-06-03T01:04:00Z"),
-    }, marker_class, fifo, 3)
-    t.eq(#selected, 3)
-    t.eq(selected[1].number, 52)
-    t.eq(selected[2].number, 53)
-    t.eq(selected[3].number, 51)
-
-    local forged = core.select_intake_class_batch({
-      item(60, "background", "2026-06-03T01:00:00Z"),
-      item(61, "expedite", "2026-06-03T01:01:00Z", "ordinary-user"),
-      item(62, "standard", "2026-06-03T01:02:00Z"),
-    }, marker_class, fifo, 3)
-    t.eq(forged[1].number, 61)
-    t.eq(forged[2].number, 62)
-    t.eq(forged[3].number, 60)
-  end,
-
   test_intake_prompt_neutralizes_sentinels_and_markers = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local long_body = string.rep("body-line-", core.max_body_len() + 1)
@@ -943,6 +905,10 @@ return {
     t.is_true(prompt:find("Recurrence check is mandatory", 1, true) ~= nil)
     t.is_true(prompt:find("escalate-to-class", 1, true) ~= nil)
     t.is_true(prompt:find("Fowler's Rule of Three", 1, true) ~= nil)
+    t.is_true(prompt:find("Use escalate-to-class ONLY when this issue is an instance", 1, true) ~= nil)
+    t.is_true(prompt:find("at least two identifiable sibling issues", 1, true) ~= nil)
+    t.is_true(prompt:find("ENABLE that issue because it is the class carrier", 1, true) ~= nil)
+    t.is_true(prompt:find("must never leave an escalation parked with no follow-through", 1, true) ~= nil)
     t.is_true(prompt:find("credentials", 1, true) ~= nil)
     t.is_true(prompt:find("destructive or irreversible", 1, true) ~= nil)
     t.is_true(prompt:find("Do NOT decline for unclear scope", 1, true) ~= nil)

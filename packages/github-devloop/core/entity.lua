@@ -22,7 +22,7 @@ function M.issue_source_ref(repo, issue_number)
   }
 end
 
-function M.build_entity_comment_request(target, body, dedup_key, source_ref)
+function M.build_entity_comment_request(target, body, dedup_key, source_ref, opts)
   if type(target) ~= "table" then
     error("github-devloop: invalid entity comment target")
   end
@@ -33,6 +33,9 @@ function M.build_entity_comment_request(target, body, dedup_key, source_ref)
     dedup_key = dedup_key,
     source_ref = M.normalize_source_ref(source_ref),
   }
+  if type(opts) == "table" and opts.replace_marker ~= nil then
+    request.replace_marker = tostring(opts.replace_marker)
+  end
   if target.kind == "issue" then
     request.issue_number = target.number
   elseif target.kind == "pr" then
@@ -105,6 +108,9 @@ function M.linked_entity_snapshot(repo, proposal_id, issue_comments)
     copy_comments(snapshot.comments, current_pr.comments)
   end
   snapshot.state = M.current_entity_state(snapshot.comments, proposal_id)
+  snapshot.fetch_before_compare = {
+    ["pr-head"] = true,
+  }
   return snapshot
 end
 

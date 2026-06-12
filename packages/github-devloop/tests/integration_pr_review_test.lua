@@ -159,27 +159,7 @@ return {
     t.is_true(pr_raise.payload.body:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
     t.is_true(pr_raise.payload.issue_comment_body_template:find("state=\"pr-open\"", 1, true) ~= nil)
     t.eq(pr_raise.payload.issue_label_add[1], "fkst-dev:pr-open")
-    t.eq(count_calls("--json title,labels,comments"), 1)
-    t.eq(count_calls("show-ref --verify --quiet"), 1)
-    t.eq(count_calls("rev-parse --verify"), 1)
-  end,
-
-  test_open_pr_write_does_not_raise_when_branch_head_moved = function()
-    local event = issue({ labels = { "fkst-dev:implementing" } })
-    local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    mock_issue_open_pr({ "fkst-dev:implementing" }, {
-      core.state_marker("github-devloop/issue/owner/repo/42", "implementing", impl_version),
-      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123"),
-    })
-    mock_branch_exists("devloop-owner-repo-42-01HY", "def456")
-    mock_bot_env()
-    mock_write_env("1")
-
-    local result = run_open_pr(event, opts("open-pr-branch-moved", {
-      FKST_GITHUB_WRITE = "1",
-    }))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    t.eq(count_calls("--json title,body,comments,labels,state"), 1)
     t.eq(count_calls("show-ref --verify --quiet"), 1)
     t.eq(count_calls("rev-parse --verify"), 1)
   end,

@@ -3,7 +3,8 @@ local core = require("core")
 local M = {}
 
 M.spec = {
-  consumes = { "devloop_ready" },
+  consumes = { "devloop_ready", "devloop_ready_session" },
+  ephemeral = { "devloop_ready_session" },
   produces = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
@@ -12,8 +13,8 @@ M.spec = {
   stall_window = "10m",
 }
 
-local function raise_impl_failed(repo, issue_number, ready, reason, detail)
-  local comment_request = core.build_impl_failure_comment_request(repo, issue_number, ready, reason, detail)
+local function raise_impl_failed(repo, issue_number, ready, reason, detail, attempt)
+  local comment_request = core.build_impl_failure_comment_request(repo, issue_number, ready, reason, detail, attempt)
   local label_request = core.build_impl_failed_label_request(repo, issue_number, ready, reason)
   local add_labels, remove_labels = core.state_label_changes("impl-failed")
   core.log_apply("implement", ready.proposal_id, "impl-failed", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
@@ -43,6 +44,33 @@ local function raise_implementing(repo, issue_number, ready, worktree, branch, h
     head_sha,
     base_branch
   ))
+end
+
+local function ready_for_implementation_version(ready, version)
+  local copy = {}
+  for key, value in pairs(ready or {}) do
+    copy[key] = value
+  end
+  copy.dedup_key = version
+  return copy
+end
+
+local function raise_work_card(repo, issue_number, ready, card)
+  local request = core.build_work_card_comment_request({
+    kind = "issue",
+    repo = repo,
+    number = issue_number,
+  }, {
+    proposal_id = ready.proposal_id,
+    role = "implement",
+    version = ready.dedup_key,
+    started_at = card.started_at,
+    finished_at = card.finished_at,
+    outcome = card.outcome,
+    base_sha = card.base_sha,
+    source_ref = ready.source_ref,
+  })
+  core.log_work_card("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", request)
 end
 
 local function implemented_branch_head(base_head, branch)
@@ -99,12 +127,6 @@ function pipeline(event)
     return
   end
 
-  local gate = core.dependency_gate(repo, issue_number)
-  if not gate.ok then
-    core.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "hold-dependency-backstop", gate.reason)
-    return
-  end
-
   local lock_key = core.implement_lock_key(ready.proposal_id)
   if lock_key == nil then
     core.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "skip-foreign(proposal_id)", "no transition lock key")
@@ -113,7 +135,6 @@ function pipeline(event)
 
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()
-    local branches = core.branch_config()
 
     local view = core.gh_exec({ cmd = core.gh_issue_view_implement_cmd(repo, issue_number), timeout = 30 })
     if view.exit_code ~= 0 then
@@ -123,23 +144,54 @@ function pipeline(event)
     local current = core.parse_issue_view_implement(view.stdout)
     core.log_forged_markers("implement", ready.proposal_id, current.comments)
     local state = core.current_state(current.comments, ready.proposal_id)
-    if state.state == "implementing" or state.state == "impl-failed" then
+    local gate = core.dependency_gate(repo, issue_number, {
+      proposal_id = ready.proposal_id,
+      version = ready.dedup_key,
+      comments = current.comments,
+    })
+    if not gate.ok then
+      core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "hold-dependency-backstop", gate.reason)
+      return
+    end
+    local retry_failure = nil
+    if state.state == "impl-failed" and ready.impl_retry_attempt ~= nil and state.version == ready.dedup_key then
+      retry_failure = core.impl_failure_fact(current.comments, ready.proposal_id, ready.dedup_key)
+      if retry_failure ~= nil and tonumber(ready.impl_retry_attempt) <= tonumber(retry_failure.attempt or 1) then
+        core.log_cas_decision("implement", ready.proposal_id, state, "impl-failed", "implementing", "skip-idempotent(retry-not-advanced)", "implementation retry event does not advance the failure attempt")
+        return
+      end
+    elseif state.state == "implementing" or state.state == "impl-failed" then
       core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation fact marker already visible")
       return
     end
-    local transition = core.versioned_transition_status(state, { "ready" }, "implementing", ready.dedup_key)
+    local expected_states = retry_failure ~= nil and { "impl-failed" } or { "ready" }
+    local transition = core.versioned_transition_status(state, expected_states, "implementing", ready.dedup_key)
     if transition == "idempotent" or transition == "stale" then
       core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", core.cas_outcome(state, transition, ready.dedup_key), "ready event cannot advance current marker")
       return
     end
+    local accepts_ready_hand_off = event.queue == "devloop_ready_session"
     if transition == "pending" then
-      core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", core.cas_outcome(state, transition, ready.dedup_key), "ready state marker not yet visible")
-      error("github-devloop: ready state marker not yet visible for implement; retrying")
+      if accepts_ready_hand_off and retry_failure == nil and ready.impl_retry_attempt == nil and core.is_ready_hand_off(ready.ready_hand_off, ready) then
+        core.log_cas_decision("implement", ready.proposal_id, {
+          state = "ready",
+          version = ready.dedup_key,
+          stage_rank = core.stage_rank("ready"),
+        }, "ready", "implementing", "apply(own-ready-hand-off)", "ready marker was written by the same in-band generation")
+      else
+        core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", core.cas_outcome(state, transition, ready.dedup_key), "ready state marker not yet visible")
+        error("github-devloop: ready state marker not yet visible for implement; retrying")
+      end
+    else
+      core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", core.cas_outcome(state, transition, ready.dedup_key), "ready marker visible; attempting implementation")
     end
-    core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", core.cas_outcome(state, transition, ready.dedup_key), "ready marker visible; attempting implementation")
 
+    local branches = core.branch_config()
     local issue_slug = core.safe_issue_slug(repo, issue_number)
-    local branch = core.implement_branch(repo, issue_number, ready.dedup_key)
+    local implementation_version = core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt)
+    local branch_version = core.implementation_base_version(ready.dedup_key)
+    local marker_ready = ready_for_implementation_version(ready, implementation_version)
+    local branch = core.implement_branch(repo, issue_number, branch_version)
     core.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
       "issue_slug=" .. tostring(issue_slug),
       "branch=" .. tostring(branch),
@@ -169,7 +221,7 @@ function pipeline(event)
     if runtime_result.exit_code ~= 0 then
       error("github-devloop: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
     end
-    local worktree = core.implement_worktree_path(runtime_result.stdout, repo, issue_number, ready.dedup_key)
+    local worktree = core.implement_worktree_path(runtime_result.stdout, repo, issue_number, branch_version)
     if branch_exists then
       local list_result = exec_sync({ cmd = core.git_worktree_list_cmd(), timeout = 30 })
       if list_result.exit_code ~= 0 then
@@ -198,6 +250,11 @@ function pipeline(event)
 
     merge_integration_for_implementation(worktree, branches.integration, base_head)
 
+    local codex_started_at = now()
+    raise_work_card(repo, issue_number, marker_ready, {
+      started_at = codex_started_at,
+      base_sha = base_head,
+    })
     core.log_codex_start("implement", ready.proposal_id, "implement")
     local content_fetch = core.context_fetch_from_bundle({
       dept = "implement",
@@ -215,7 +272,13 @@ function pipeline(event)
     if type(result) ~= "table" or result.exit_code ~= 0 then
       local stderr = type(result) == "table" and result.stderr or "nil result"
       core.log_codex_result("implement", ready.proposal_id, "implement", result, nil, stderr)
-      raise_impl_failed(repo, issue_number, ready, "codex-failed", stderr)
+      raise_work_card(repo, issue_number, marker_ready, {
+        started_at = codex_started_at,
+        finished_at = now(),
+        outcome = "failed: codex-failed",
+        base_sha = base_head,
+      })
+      raise_impl_failed(repo, issue_number, marker_ready, "codex-failed", stderr, ready.impl_retry_attempt or 1)
       return
     end
     core.log_codex_result("implement", ready.proposal_id, "implement", result, "result=completed", nil)
@@ -233,7 +296,13 @@ function pipeline(event)
           "head_sha=" .. tostring(head_sha),
           "reason=reusing clean ahead implementation branch",
         })
-        raise_implementing(repo, issue_number, ready, worktree, branch, head_sha, branches.integration, base_head)
+        raise_work_card(repo, issue_number, marker_ready, {
+          started_at = codex_started_at,
+          finished_at = now(),
+          outcome = "completed",
+          base_sha = base_head,
+        })
+        raise_implementing(repo, issue_number, marker_ready, worktree, branch, head_sha, branches.integration, base_head)
         return
       end
 
@@ -242,7 +311,13 @@ function pipeline(event)
         detail = tostring(result.stderr or "")
       end
       core.log_codex_result("implement", ready.proposal_id, "implement", result, nil, "no-changes")
-      raise_impl_failed(repo, issue_number, ready, "no-changes", detail)
+      raise_work_card(repo, issue_number, marker_ready, {
+        started_at = codex_started_at,
+        finished_at = now(),
+        outcome = "failed: no-changes",
+        base_sha = base_head,
+      })
+      raise_impl_failed(repo, issue_number, marker_ready, "no-changes", detail)
       return
     end
 
@@ -252,7 +327,10 @@ function pipeline(event)
     end
 
     local commit_result = exec_sync({
-      cmd = core.git_commit_cmd(worktree, "Implement github-devloop ready state"),
+      cmd = core.git_commit_cmd(worktree, core.implement_commit_subject(
+        issue_number,
+        core.commit_issue_subject_snapshot(repo, issue_number)
+      )),
       timeout = 60,
     })
     if commit_result.exit_code ~= 0 then
@@ -280,7 +358,13 @@ function pipeline(event)
       error("github-devloop: unsafe implementing head_sha")
     end
 
-    raise_implementing(repo, issue_number, ready, worktree, branch, head_sha, branches.integration, base_head)
+    raise_work_card(repo, issue_number, marker_ready, {
+      started_at = codex_started_at,
+      finished_at = now(),
+      outcome = "completed",
+      base_sha = base_head,
+    })
+    raise_implementing(repo, issue_number, marker_ready, worktree, branch, head_sha, branches.integration, base_head)
   end)
 end
 
