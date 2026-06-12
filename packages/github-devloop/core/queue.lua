@@ -16,6 +16,28 @@ local merge_queue_lane_states = {
   merging = true,
 }
 
+local function merge_queue_headship_allowed(M, repo, pr_number, pr, state)
+  if state == "merging" then
+    return true
+  end
+  if state ~= "merge-ready" then
+    return false
+  end
+  local mergeable, mergeable_reason = M.pr_mergeable(pr)
+  if not mergeable then
+    return false, mergeable_reason
+  end
+  local ci_green, ci_reason = M.evaluate_ci_status_gate(pr, {
+    repo = repo,
+    dept = "merge",
+    proposal_id = "merge-queue/pr/" .. tostring(pr_number),
+  })
+  if not ci_green then
+    return false, ci_reason
+  end
+  return true, "merge-queue-headship-ok"
+end
+
 local function compare_merge_queue_entries(left, right)
   local left_created = tostring(left.merge_ready_created_at or "")
   local right_created = tostring(right.merge_ready_created_at or "")
@@ -55,7 +77,7 @@ local function merge_ready_version_for_lane_state(M, state)
   return version
 end
 
-local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base)
+local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base, opts)
   if type(pr) ~= "table" or tostring(pr.state or ""):upper() ~= "OPEN" then
     return nil
   end
@@ -64,6 +86,11 @@ local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base)
   end
   local state = current_any_entity_state(M, pr.comments)
   if not merge_queue_lane_states[state.state] then
+    return nil
+  end
+  if type(opts) == "table"
+    and opts.require_headship == true
+    and not merge_queue_headship_allowed(M, repo, pr_number, pr, state.state) then
     return nil
   end
   local fact = M.merge_ready_fact(pr.comments, state.proposal_id or "", merge_ready_version_for_lane_state(M, state), pr_number)
@@ -76,6 +103,11 @@ local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base)
           local merge_ready_version = merge_ready_version_for_lane_state(M, candidate_state)
           if merge_queue_lane_states[candidate_state.state]
             and tostring(merge_ready_version or "") == tostring(marker:match('version="([^"]*)"') or "") then
+            if type(opts) == "table"
+              and opts.require_headship == true
+              and not merge_queue_headship_allowed(M, repo, pr_number, pr, candidate_state.state) then
+              break
+            end
             fact = M.merge_ready_fact(pr.comments, marker_issue, merge_ready_version, pr_number)
             state = candidate_state
             break
@@ -102,11 +134,11 @@ local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base)
   }
 end
 
-function M.merge_queue_head(repo, base_branch, current)
+function M.merge_queue_head(repo, base_branch, current, opts)
   local entries = {}
   local seen = {}
   if type(current) == "table" and current.pr_number ~= nil and type(current.pr) == "table" then
-    local entry = merge_queue_entry_from_pr(M, repo, current.pr_number, current.pr, base_branch)
+    local entry = merge_queue_entry_from_pr(M, repo, current.pr_number, current.pr, base_branch, opts)
     if entry ~= nil then
       table.insert(entries, entry)
       seen[tostring(entry.pr_number)] = true
@@ -125,7 +157,7 @@ function M.merge_queue_head(repo, base_branch, current)
         error("github-devloop: merge queue PR view failed: " .. tostring(view.stderr))
       end
       local pr = M.parse_pr_view_merge(view.stdout)
-      local entry = merge_queue_entry_from_pr(M, repo, pr_number, pr, base_branch)
+      local entry = merge_queue_entry_from_pr(M, repo, pr_number, pr, base_branch, opts)
       if entry ~= nil then
         table.insert(entries, entry)
         seen[tostring(entry.pr_number)] = true

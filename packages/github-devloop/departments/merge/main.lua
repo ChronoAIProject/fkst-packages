@@ -605,7 +605,9 @@ local function process_merge_queue_tick(event)
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()
     local branches = core.branch_config()
-    local head = core.merge_queue_head(repo, branches.integration)
+    local head = core.merge_queue_head(repo, branches.integration, nil, {
+      require_headship = true,
+    })
     if head == nil then
       core.log_line("info", "merge", "unknown", "GATE", {
         "outcome=skip",
