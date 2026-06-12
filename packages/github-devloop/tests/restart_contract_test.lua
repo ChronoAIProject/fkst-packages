@@ -61,6 +61,7 @@ local function marker_builder_paths()
   return {
     "packages/github-devloop/core/state.lua",
     "packages/github-devloop/core/markers.lua",
+    "packages/github-devloop/core/impl_failure.lua",
     "packages/github-devloop/core/convergence.lua",
     "packages/github-devloop/core/dependencies.lua",
     "packages/github-devloop/core/decompose.lua",
@@ -97,6 +98,7 @@ return {
       "thinking",
       "ready",
       "implementing",
+      "impl-failed",
       "pr-open",
       "reviewing",
       "merge-ready",
@@ -132,6 +134,7 @@ return {
       thinking = true,
       ready = true,
       implementing = true,
+      ["impl-failed"] = true,
       ["pr-open"] = true,
       reviewing = true,
       ["merge-ready"] = true,
