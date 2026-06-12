@@ -341,6 +341,15 @@ return {
     local thinking_marker = core.state_marker(proposal_id, "thinking", "v1")
     t.is_true(thinking_marker:find('fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="thinking" version="v1"', 1, true) ~= nil)
     t.is_true(thinking_marker:find('stage_rank="100"', 1, true) ~= nil)
+    local ready_effects_marker = core.state_marker(proposal_id, "ready", "v2", "result-marker,ready-label,devloop-ready")
+    t.eq(
+      ready_effects_marker,
+      '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="ready" version="v2" stage_rank="500" effects="result-marker,ready-label,devloop-ready" -->'
+    )
+    local ready_effects_state = core.current_state({ ready_effects_marker }, proposal_id)
+    t.eq(ready_effects_state.state, "ready")
+    t.eq(ready_effects_state.version, "v2")
+    t.eq(ready_effects_state.stage_rank, core.stage_rank("ready"))
     local comments = {
       core.state_marker(proposal_id, "thinking", "v1"),
       core.state_marker(proposal_id, "ready", "v2"),
@@ -446,6 +455,8 @@ return {
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
     t.is_true(comment.body:find('fkst:github-devloop:result:v1 proposal="github-devloop/issue/owner/repo/42"', 1, true) ~= nil)
     t.is_true(comment.body:find('fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="ready"', 1, true) ~= nil)
+    t.is_true(comment.body:find('effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
+    t.is_true(comment.body:find('stage_rank="500" effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
     local comment_version = tostring(completed.dedup_key):gsub(":", "-")
     t.eq(
       comment.dedup_key,
@@ -548,6 +559,10 @@ return {
     t.eq(
       core.gh_workflow_dispatch_ci_cmd("owner/repo", "devloop-owner-repo-42-01HY"),
       "gh workflow run 'ci.yml' --repo 'owner/repo' --ref 'devloop-owner-repo-42-01HY'"
+    )
+    t.eq(
+      core.gh_issue_list_decompose_children_cmd("owner/repo", "github-devloop/issue/owner/repo/42"),
+      "gh issue list --repo 'owner/repo' --state all --limit 100 --search 'fkst:github-devloop:decompose-child:v1 github-devloop/issue/owner/repo/42' --json number,title,state,author,body,url"
     )
   end,
 
@@ -853,12 +868,17 @@ return {
     t.eq(parsed.action, "enable")
     t.eq(parsed.reason, "Clear bounded task.")
 
+    local tracked = core.parse_intake_action("⟦FKST:INTAKE⟧ track\n⟦FKST:REASON⟧ Umbrella tracking issue with independent waves.")
+    t.eq(tracked.action, "track")
+    t.eq(tracked.reason, "Umbrella tracking issue with independent waves.")
+
     local escalated = core.parse_intake_action("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:REASON⟧ Third widget-sync recurrence; class-level retry policy is required.")
     t.eq(escalated.action, "escalate-to-class")
     t.eq(escalated.reason, "Third widget-sync recurrence; class-level retry policy is required.")
 
     t.is_nil(core.parse_intake_action("prefix\n⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded task."))
     t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable extra\n⟦FKST:REASON⟧ Clear bounded task."))
+    t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ park\n⟦FKST:REASON⟧ Unknown values must fail closed."))
     t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n\n⟦FKST:REASON⟧ Clear bounded task."))
     t.is_nil(core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:REASON⟧ Clear bounded task.\n⟦FKST:INTAKE⟧ decline"))
   end,
@@ -870,6 +890,10 @@ return {
     local fact = core.intake_decision_fact({ { body = marker, author_login = core.trusted_bot_login() } }, proposal_id)
     t.eq(fact.decision, "decline")
     t.eq(fact.proposal_id, proposal_id)
+
+    local track_marker = core.intake_decision_marker(proposal_id, "track", "intake/github-devloop/issue/owner/repo/42/v-track")
+    local tracked = core.intake_decision_fact({ { body = track_marker, author_login = core.trusted_bot_login() } }, proposal_id)
+    t.eq(tracked.decision, "track")
 
     local escalation_marker = core.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v2")
     local escalation = core.intake_decision_fact({ { body = escalation_marker, author_login = core.trusted_bot_login() } }, proposal_id)

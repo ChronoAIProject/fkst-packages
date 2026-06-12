@@ -97,23 +97,6 @@ local function build_verdict_summary(angle_results)
   return summary
 end
 
-local function build_comment_evidence_digest(M, comments)
-  local text = table.concat(M.comment_bodies(comments), "\n\n")
-  text = text:gsub("%c", " "):gsub("%s+", " ")
-  text = text:gsub("^%s+", ""):gsub("%s+$", "")
-  if text == "" then
-    return M.comment_string("comment_evidence_empty")
-  end
-  if #text > max_verdict_summary_len then
-    text = M.truncate_utf8(text, max_verdict_summary_len)
-  end
-  return text
-end
-
-M.build_comment_evidence_digest = function(comments)
-  return build_comment_evidence_digest(M, comments)
-end
-
 local function bounded_blocking_gap(M, reached)
   local gap = reached and reached.blocking_gap
   if gap == nil and type(reached and reached.blocking_gaps) == "table" then
@@ -200,7 +183,7 @@ end
 
 function M.build_result_comment_request(repo, issue_number, reached)
   local marker = M.result_marker(reached.proposal_id, reached.decision, reached.dedup_key)
-  local state_marker = M.state_marker(reached.proposal_id, "ready", reached.dedup_key)
+  local state_marker = M.state_marker(reached.proposal_id, "ready", reached.dedup_key, "result-marker,ready-label,devloop-ready")
   local body_text = M.neutralize_untrusted_comment_text(reached.body or "")
   local verdict_summary = build_verdict_summary(reached.angle_results)
   local body = M.comment_string("decision_prefix") .. tostring(reached.decision)
@@ -223,6 +206,14 @@ function M.build_result_comment_request(repo, issue_number, reached)
       .. "/" .. (tostring(reached.dedup_key):gsub(":", "-")),
     source_ref = M.normalize_source_ref(reached.source_ref),
   }
+end
+
+function M.result_effects_complete(current, reached)
+  if type(current) ~= "table" or type(reached) ~= "table" then
+    return false
+  end
+  return M.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key)
+    and M.state_label_hint_matches(current.labels, "ready")
 end
 
 function M.build_converge_round_comment_request(repo, issue_number, unresolved, round, marker_body)
@@ -412,11 +403,16 @@ function M.build_intake_decision_comment_request(repo, issue_number, candidate, 
   if #safe_reason > M._max_meta_reason_len then
     safe_reason = M.truncate_utf8(safe_reason, M._max_meta_reason_len)
   end
+  local detail = ""
+  if decision == "track" then
+    detail = "\n\n" .. M.comment_string("intake_tracking_ack")
+  end
   return {
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
     body = M.comment_string("intake_decision_prefix") .. tostring(decision)
+      .. detail
       .. "\n\n" .. M.comment_string("reason_block_label") .. "\n" .. safe_reason
       .. "\n\n" .. marker,
     dedup_key = M._dedup_key({
@@ -438,6 +434,23 @@ function M.build_intake_enabled_label_request(repo, issue_number, candidate)
     M._dedup_key({
       "intake",
       "label",
+      tostring(candidate.proposal_id),
+      tostring(candidate.dedup_key),
+    }),
+    candidate.source_ref
+  )
+end
+
+function M.build_intake_tracking_label_request(repo, issue_number, candidate)
+  return M.build_label_request(
+    repo,
+    issue_number,
+    { M._tracking_label },
+    {},
+    M._dedup_key({
+      "intake",
+      "label",
+      "tracking",
       tostring(candidate.proposal_id),
       tostring(candidate.dedup_key),
     }),
@@ -671,7 +684,9 @@ function M.build_reviewing_label_request(repo, issue_number, origin, pr_number, 
 end
 
 function M.build_review_result_label_request(repo, issue_number, issue_proposal_id, reached, source_ref)
-  local to_state = reached.decision == "approve" and "merge-ready" or "fixing"
+  local to_state = reached.reflection_checkpoint and "review-meta"
+    or reached.decision == "approve" and "merge-ready"
+    or "fixing"
   return M.build_state_label_request(
     repo,
     issue_number,
@@ -688,7 +703,9 @@ function M.build_review_result_label_request(repo, issue_number, issue_proposal_
 end
 
 function M.build_review_result_comment_request(repo, issue_number, issue_proposal_id, issue_version, reached, source_ref)
-  local to_state = reached.decision == "approve" and "merge-ready" or "fixing"
+  local to_state = reached.reflection_checkpoint and "review-meta"
+    or reached.decision == "approve" and "merge-ready"
+    or "fixing"
   local state_marker = M.state_marker(issue_proposal_id, to_state, issue_version)
   local fix_round = nil
   if reached.decision == "reject" then
@@ -696,6 +713,10 @@ function M.build_review_result_comment_request(repo, issue_number, issue_proposa
   end
   local blocking_gap = bounded_blocking_gap(M, reached)
   local marker = M.review_result_marker(reached.proposal_id, issue_proposal_id, reached.decision, reached.dedup_key, fix_round, blocking_gap)
+  local reflection_marker = ""
+  if reached.reflection_checkpoint then
+    reflection_marker = "\n" .. M.fix_reflection_marker(issue_proposal_id, reached.dedup_key, "checkpoint", issue_version, fix_round)
+  end
   local merge_marker = ""
   if reached.decision == "approve" then
     local _, pr_number, _, reviewed_head_sha = M.parse_pr_review_proposal_id(reached.proposal_id)
@@ -719,6 +740,7 @@ function M.build_review_result_comment_request(repo, issue_number, issue_proposa
     .. "\n\n" .. body_text
     .. "\n\n" .. state_marker
     .. "\n" .. marker
+    .. reflection_marker
     .. merge_marker
     .. "\n" .. ai_sentinel, M._dedup_key({
     "review-result",
@@ -881,87 +903,42 @@ function M.build_merge_head_reviewing_comment_request(repo, issue_number, merge_
   }), source_ref)
 end
 
-function M.build_fix_review_meta_label_request(repo, issue_number, fix, reason)
-  return M.build_state_label_request(
-    repo,
-    issue_number,
-    "review-meta",
-    M._dedup_key({
-      "fix",
-      "label",
-      "review-meta",
-      tostring(reason or "no-fix"),
-      tostring(fix.review_dedup_key),
-    }),
-    fix.source_ref
+function M.build_review_carry_over_comment_request(repo, pr_number, issue_proposal_id, version, carry, source_ref)
+  local state_marker = M.state_marker(issue_proposal_id, "merge-ready", version)
+  local review_marker = M.review_result_marker(carry.new_review_proposal_id, issue_proposal_id, "approve", carry.new_review_dedup_key)
+  local merge_marker = M.merge_ready_marker(issue_proposal_id, pr_number, version, carry.new_review_proposal_id, carry.new_review_dedup_key, carry.new_head_sha)
+  local carry_marker = M.review_carry_over_marker(
+    issue_proposal_id,
+    version,
+    carry.old_review_proposal_id,
+    carry.old_review_dedup_key,
+    carry.approved_head_sha,
+    carry.new_review_proposal_id,
+    carry.new_review_dedup_key,
+    carry.new_head_sha,
+    carry.base_head_sha
   )
-end
-
-function M.build_fix_review_meta_comment_request(repo, issue_number, fix, reason, detail)
-  local safe_reason = M.sanitize_key(reason or "no-fix"):gsub("/", "-")
-  local text = tostring(detail or "")
-  if #text > M._max_impl_output_len then
-    text = M.truncate_utf8(text, M._max_impl_output_len)
-  end
-  if text == "" then
-    text = M.comment_string("no_fix_output")
-  end
-  text = M.neutralize_untrusted_comment_text(text)
-  local state_marker = M.state_marker(fix.proposal_id, "review-meta", fix.version)
   return M.build_entity_comment_request({
     kind = "pr",
     repo = repo,
-    number = fix.pr_number,
-  }, M.comment_string("fix_escalated_to_review_meta_prefix") .. safe_reason
-    .. "\n\n" .. text
+    number = pr_number,
+  }, "github-devloop PR review approval carried over"
+    .. "\nResolution delta proof: merge-tree-empty-delta"
+    .. "\nApproved head: " .. tostring(carry.approved_head_sha)
+    .. "\nNew head: " .. tostring(carry.new_head_sha)
+    .. "\nBase head: " .. tostring(carry.base_head_sha)
     .. "\n\n" .. state_marker
-    .. "\n" .. M.review_meta_marker(fix.proposal_id, fix.review_dedup_key), M._dedup_key({
-    "fix",
+    .. "\n" .. review_marker
+    .. "\n" .. merge_marker
+    .. "\n" .. carry_marker
+    .. "\n" .. ai_sentinel, M._dedup_key({
+    "review-carry-over",
     "comment",
-    "review-meta",
-    safe_reason,
-    tostring(fix.dedup_key),
-  }), fix.source_ref)
-end
-
-function M.build_review_meta_label_request(repo, issue_number, review_meta, action, version)
-  local to_state = action == "fix" and "fixing" or "blocked"
-  return M.build_state_label_request(
-    repo,
-    issue_number,
-    to_state,
-    M._dedup_key({
-      "review-meta",
-      "label",
-      tostring(action),
-      tostring(review_meta.dedup_key),
-      tostring(version or review_meta.version),
-    }),
-    review_meta.source_ref
-  )
-end
-
-function M.build_review_meta_comment_request(repo, issue_number, review_meta, action, reason, version, blocking_gap)
-  local to_state = action == "fix" and "fixing" or "blocked"
-  local safe_reason = M.neutralize_untrusted_comment_text(reason or "")
-  local state_version = version or review_meta.version
-  local action_text = tostring(action)
-  if action == "spec-amendment" then
-    action_text = "blocked-pending-spec"
-  end
-  return M.build_entity_comment_request({
-    kind = "pr",
-    repo = repo,
-    number = review_meta.pr_number,
-  }, M.comment_string("review_meta_action_prefix") .. action_text
-    .. "\n\n" .. M.comment_string("reason_block_label") .. "\n" .. safe_reason
-    .. "\n\n" .. M.state_marker(review_meta.proposal_id, to_state, state_version)
-    .. "\n" .. M.review_meta_marker(review_meta.proposal_id, review_meta.dedup_key, action, state_version, blocking_gap, reason), M._dedup_key({
-    "review-meta",
-    "comment",
-    tostring(review_meta.dedup_key),
-    tostring(state_version),
-  }), review_meta.source_ref)
+    tostring(issue_proposal_id),
+    tostring(version),
+    tostring(carry.approved_head_sha),
+    tostring(carry.new_head_sha),
+  }), source_ref)
 end
 
 function M.build_merging_comment_body(merge_ready)

@@ -1,9 +1,14 @@
 local M = {}
 
+function M.persistence_class()
+  return "stateless_adapter"
+end
+
 require("core.issue_create").install(M)
 require("core.entity_view").install(M)
 require("core.gh_rate").install(M)
 require("core.labels").install(M)
+require("core.comment").install(M)
 
 local allowed_env = {
   FKST_GITHUB_REPO = true,
@@ -42,9 +47,7 @@ end
 
 local function repo_owner(repo) return tostring(repo or ""):match("^([^/]+)/") end
 
-local function is_bounded_string(value, limit)
-  return type(value) == "string" and value ~= "" and #value <= limit
-end
+local function is_bounded_string(value, limit) return type(value) == "string" and value ~= "" and #value <= limit end
 
 local function is_git_ref_safe(value)
   if not is_bounded_string(value, max_branch_len) then
@@ -244,73 +247,6 @@ function M.issue_label_lock_key(repo, issue_number)
   return "github-proxy/label-lock/" .. id
 end
 
-function M.comment_marker(dedup_key)
-  return "<!-- fkst:github-proxy:comment:" .. tostring(dedup_key) .. " -->"
-end
-
-function M.has_marker(comments_text, dedup_key)
-  if comments_text == nil or comments_text == "" then
-    return false
-  end
-  return tostring(comments_text):find(M.comment_marker(dedup_key), 1, true) ~= nil
-end
-
-local function comment_body(comment)
-  if type(comment) == "table" then
-    return tostring(comment.body or "")
-  end
-  return tostring(comment or "")
-end
-
-local function comment_author_login(comment)
-  if type(comment) == "table" then
-    if comment.author_login ~= nil then
-      return tostring(comment.author_login)
-    end
-    if type(comment.author) == "table" and comment.author.login ~= nil then
-      return tostring(comment.author.login)
-    end
-  end
-  return nil
-end
-
-function M.parse_issue_comments(gh_json_stdout)
-  local decoded = json.decode(gh_json_stdout or "{}")
-  local comments = {}
-  for _, comment in ipairs(decoded.comments or {}) do
-    table.insert(comments, {
-      body = comment_body(comment),
-      author_login = comment_author_login(comment),
-    })
-  end
-  return comments
-end
-
-function M.has_trusted_marker(comments, dedup_key, bot_login)
-  if type(comments) ~= "table" then
-    return false
-  end
-  local marker = M.comment_marker(dedup_key)
-  for _, comment in ipairs(comments) do
-    if comment_author_login(comment) == bot_login and comment_body(comment):find(marker, 1, true) ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
-function M.has_trusted_comment_fragment(comments, fragment, bot_login)
-  if type(comments) ~= "table" or type(fragment) ~= "string" or fragment == "" then
-    return false
-  end
-  for _, comment in ipairs(comments) do
-    if comment_author_login(comment) == bot_login and comment_body(comment):find(fragment, 1, true) ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
 function M.is_safe_branch(branch) return is_git_ref_safe(branch) end
 
 function M.is_safe_pr_number(pr_number) return is_positive_number(pr_number) end
@@ -385,7 +321,7 @@ local function trusted_comments(comments, bot_login)
     return result
   end
   for _, comment in ipairs(comments) do
-    if comment_author_login(comment) == bot_login then
+    if M._comment_author_login(comment) == bot_login then
       table.insert(result, comment)
     end
   end
@@ -553,7 +489,7 @@ function M.current_devloop_state(comments, proposal_id, bot_login)
   local current = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(trusted_comments(comments, bot_login)) do
-    for marker in comment_body(comment):gmatch(marker_pattern) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
       local marker_state = marker:match('state="([^"]+)"')
       local marker_version = marker:match('version="([^"]*)"')
@@ -578,7 +514,7 @@ function M.devloop_implementing_fact(comments, proposal_id, impl_version, bot_lo
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:implementing:v1.-%-%->"
   for _, comment in ipairs(trusted_comments(comments, bot_login)) do
-    for marker in comment_body(comment):gmatch(marker_pattern) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
       local marker_dedup = marker:match('dedup="([^"]*)"')
       local marker_branch = marker:match('branch="([^"]+)"')
@@ -611,7 +547,7 @@ function M.has_devloop_pr_open_marker(comments, proposal_id, impl_version, bot_l
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(trusted_comments(comments, bot_login)) do
-    for marker in comment_body(comment):gmatch(marker_pattern) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
       if marker:match('proposal="([^"]+)"') == proposal_id
         and marker:match('state="([^"]+)"') == "pr-open"
         and marker:match('version="([^"]*)"') == tostring(impl_version) then
@@ -702,6 +638,19 @@ function M.git_show_ref_branch_cmd(branch)
   return "git show-ref --verify refs/heads/" .. shell_single_quote(branch)
 end
 
+function M.git_is_ancestor_cmd(maybe_ancestor_sha, descendant_sha)
+  if not is_git_sha(maybe_ancestor_sha) then
+    error("github-proxy: invalid ancestor sha")
+  end
+  if not is_git_sha(descendant_sha) then
+    error("github-proxy: invalid descendant sha")
+  end
+  return "git merge-base --is-ancestor "
+    .. shell_single_quote(maybe_ancestor_sha)
+    .. " "
+    .. shell_single_quote(descendant_sha)
+end
+
 function M.parse_git_show_ref_head(stdout, branch)
   local head_sha, ref = tostring(stdout or ""):match("^%s*([0-9a-fA-F]+)%s+(%S+)")
   if is_git_sha(head_sha) and ref == "refs/heads/" .. tostring(branch) then
@@ -738,12 +687,6 @@ function M.parse_pr_create(stdout)
     }
   end
   return nil
-end
-
-function M.gh_pr_comment_cmd(repo, pr_number, body_file)
-  return "gh pr comment " .. shell_single_quote(pr_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --body-file " .. shell_single_quote(body_file)
 end
 
 function M.gh_pr_view_head_oid_cmd(repo, pr_number)
@@ -810,81 +753,10 @@ function M.parse_pr_view_head_state(gh_json_stdout, target_repo)
   return nil
 end
 
-function M.gh_pr_view_comments_cmd(repo, pr_number)
-  return "gh pr view " .. shell_single_quote(pr_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --json comments"
-end
-
-function M.gh_issue_view_comments_cmd(repo, issue_number)
-  return "gh issue view " .. shell_single_quote(issue_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --json comments"
-end
-
 function M.gh_issue_view_labels_cmd(repo, issue_number)
   return "gh issue view " .. shell_single_quote(issue_number)
     .. " --repo " .. shell_single_quote(repo)
     .. " --json labels"
-end
-
-function M.gh_issue_comment_cmd(repo, issue_number, body_file)
-  return "gh issue comment " .. shell_single_quote(issue_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --body-file " .. shell_single_quote(body_file)
-end
-
-local max_runtime_id_len = 180
-
-local function safe_runtime_segment(value)
-  local safe = tostring(value or ""):gsub("[^%w._-]", "_")
-  safe = safe:gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
-  return safe == "" and "empty" or safe
-end
-
-local function comment_runtime_identity(repo, kind, number)
-  local id = "comment-" .. safe_runtime_segment(repo)
-    .. "-" .. safe_runtime_segment(kind)
-    .. "-" .. safe_runtime_segment(number)
-  if #id > max_runtime_id_len then
-    return id:sub(1, max_runtime_id_len)
-  end
-  return id
-end
-
-function M.write_comment_request(payload, target)
-  local repo = payload.repo
-  if repo == nil or repo == "" then
-    repo = M.read_env("FKST_GITHUB_REPO")
-  end
-  if repo == nil or repo == "" then
-    log.warn("github-proxy: comment request missing repo")
-    return
-  end
-  if target.number == nil or payload.body == nil or payload.dedup_key == nil then
-    log.warn("github-proxy: comment request missing " .. tostring(target.number_field) .. ", body, or dedup_key")
-    return
-  end
-
-  if M.read_env("FKST_GITHUB_WRITE") ~= "1" then
-    log.info("github-proxy dry-run: would comment on " .. repo .. "#" .. tostring(target.number))
-    return
-  end
-  local bot_login = M.assert_trusted_bot_configured()
-
-  local runtime_id = comment_runtime_identity(repo, target.kind, target.number)
-  with_lock("github-proxy/" .. runtime_id, function()
-    local view = M.gh_exec(target.view_comments_cmd(repo, target.number), 30, target.view_label)
-    if M.has_trusted_marker(M.parse_issue_comments(view.stdout), payload.dedup_key, bot_login) then
-      log.info("github-proxy: comment marker already present")
-      return
-    end
-
-    local body = tostring(payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
-    local path = "/tmp/fkst-github-proxy-" .. runtime_id .. ".md"
-    file.write(path, body)
-    M.gh_exec(target.comment_cmd(repo, target.number, path), 30, target.comment_label)
-  end)
 end
 
 return M

@@ -83,8 +83,16 @@ local function json_string(value)
     :gsub("\n", "\\n")
 end
 
-local function comment_json(body, author)
-  return string.format('{"body":"%s","author":{"login":"%s"}}', json_string(body), json_string(author or "fkst-test-bot"))
+local function comment_json(body, author, id, database_id)
+  local id_field = ""
+  if id ~= nil then
+    id_field = '"id":"' .. json_string(id) .. '",'
+  end
+  local database_id_field = ""
+  if database_id ~= nil then
+    database_id_field = '"databaseId":' .. tostring(database_id) .. ","
+  end
+  return string.format('{%s%s"body":"%s","author":{"login":"%s"}}', id_field, database_id_field, json_string(body), json_string(author or "fkst-test-bot"))
 end
 
 local function mock_comment_view(comments, author)
@@ -92,7 +100,7 @@ local function mock_comment_view(comments, author)
   if type(comments) == "table" then
     local parts = {}
     for _, comment in ipairs(comments) do
-      table.insert(parts, comment_json(comment.body, comment.author_login or comment.author))
+      table.insert(parts, comment_json(comment.body, comment.author_login or comment.author, comment.id, comment.databaseId or comment.database_id))
     end
     rendered_comments = table.concat(parts, ",")
   else
@@ -146,6 +154,14 @@ local function mock_branch_head(head_sha)
     stdout = tostring(head_sha or "abc123") .. " refs/heads/devloop-owner-x-42-01HY\n",
     stderr = "",
     exit_code = 0,
+  })
+end
+
+local function mock_branch_head_descends(descends)
+  t.mock_command("merge-base --is-ancestor", {
+    stdout = "",
+    stderr = "",
+    exit_code = descends == false and 1 or 0,
   })
 end
 
@@ -263,7 +279,7 @@ local function mock_pr_comment_view(comments, author)
   if type(comments) == "table" then
     local parts = {}
     for _, comment in ipairs(comments) do
-      table.insert(parts, comment_json(comment.body, comment.author_login or comment.author))
+      table.insert(parts, comment_json(comment.body, comment.author_login or comment.author, comment.id, comment.databaseId or comment.database_id))
     end
     rendered_comments = table.concat(parts, ",")
   else
@@ -462,6 +478,7 @@ return {
   mock_label_view = mock_label_view,
   mock_pr_open_guard = mock_pr_open_guard,
   mock_branch_head = mock_branch_head,
+  mock_branch_head_descends = mock_branch_head_descends,
   mock_non_branch_ref_head = mock_non_branch_ref_head,
   mock_comment_write = mock_comment_write,
   mock_repo_label_list = mock_repo_label_list,

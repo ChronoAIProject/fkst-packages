@@ -72,6 +72,29 @@ local implementation_gap_patterns = {
   "logic",
 }
 
+local out_of_contract_gap_patterns = {
+  "beyond%s+the%s+issue",
+  "beyond%s+issue",
+  "outside%s+the%s+issue",
+  "outside%s+issue",
+  "outside%s+the%s+stated%s+scope",
+  "outside%s+stated%s+scope",
+  "beyond%s+the%s+stated%s+scope",
+  "beyond%s+stated%s+scope",
+  "outside%s+the%s+acceptance%s+bound",
+  "outside%s+acceptance%s+bound",
+  "beyond%s+the%s+acceptance%s+bound",
+  "beyond%s+acceptance%s+bound",
+  "not%s+in%s+the%s+issue",
+  "not%s+part%s+of%s+the%s+issue",
+  "not%s+stated%s+in%s+the%s+issue",
+  "not%s+an%s+issue%s+requirement",
+  "unstated%s+requirement",
+  "new%s+requirement",
+  "spec%s+amendment",
+  "spec%-amendment",
+}
+
 function M.is_gate_owned_review_gap(gap)
   local text = tostring(gap or ""):lower():gsub("[_%-%/]+", " "):gsub("%s+", " ")
   if text == "" then
@@ -93,6 +116,19 @@ function M.is_gate_owned_review_gap(gap)
     end
   end
   return true
+end
+
+function M.is_out_of_contract_review_gap(gap)
+  local text = tostring(gap or ""):lower():gsub("[_%-%/]+", " "):gsub("%s+", " ")
+  if text == "" then
+    return false
+  end
+  for _, pattern in ipairs(out_of_contract_gap_patterns) do
+    if text:find(pattern) ~= nil then
+      return true
+    end
+  end
+  return false
 end
 
 local function commit_subject_title(M, current)
@@ -373,6 +409,17 @@ function M.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
   }
 end
 
+function M.build_current_head_reviewing_payload(origin, pr_number, current_pr, state, source_ref)
+  local review_proposal_id = M.pr_review_proposal_id(origin.repo, pr_number, state.version, current_pr.head_sha)
+  if M.has_any_review_result_marker(current_pr.comments, review_proposal_id, origin.proposal_id) then
+    return nil
+  end
+  return M.build_devloop_reviewing_payload({
+    proposal_id = origin.proposal_id,
+    impl_version = state.version,
+  }, pr_number, source_ref, state.version)
+end
+
 function M.build_devloop_open_pr_payload(repo, issue_number, ready, branch, head_sha, base_branch)
   local proposal_id = ready.proposal_id
   if proposal_id == nil then
@@ -440,6 +487,38 @@ function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
   return payload
 end
 
+local function replay_fact_sha(value, fallback)
+  if value ~= nil then
+    if not M._is_git_sha(value) then
+      error("github-devloop: invalid replay fact sha")
+    end
+    return tostring(value)
+  end
+  return fallback
+end
+
+function M.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref)
+  local payload = M.build_devloop_fixing_payload(origin, pr_number, {
+    review_proposal_id = feedback.review_proposal_id,
+    review_dedup_key = feedback.review_dedup_key,
+    reviewed_head_sha = feedback.reviewed_head_sha,
+    blocking_gap = feedback.blocking_gap,
+    gate_baseline_sha = feedback.gate_baseline_sha,
+    gate_failure_excerpt = feedback.review_reason,
+  }, source_ref)
+  payload.dedup_key = M._dedup_key({
+    "fixing",
+    "replay",
+    tostring(origin.proposal_id),
+    tostring(payload.version),
+    tostring(pr_number),
+    tostring(feedback.review_dedup_key),
+    replay_fact_sha(feedback.gate_baseline_sha, "nobase"),
+    replay_fact_sha(feedback.reviewed_head_sha, "nohead"),
+  })
+  return payload
+end
+
 function M.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
   return {
     schema = "github-devloop.review-meta.v1",
@@ -459,6 +538,30 @@ function M.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issu
     }),
     source_ref = M.normalize_source_ref(source_ref or unresolved.source_ref),
   }
+end
+
+function M.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
+  return M._dedup_key({
+    "fix-reflection",
+    tostring(issue_proposal_id),
+    tostring(issue_version),
+    tostring(pr_number),
+    tostring(fix_round),
+    tostring(review_dedup_key),
+  })
+end
+
+function M.build_devloop_fix_reflection_payload(unresolved, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
+  local review_dedup_key = unresolved.review_dedup_key or unresolved.dedup_key
+  local payload = M.build_devloop_review_meta_payload({
+    proposal_id = unresolved.proposal_id,
+    dedup_key = review_dedup_key,
+    source_ref = unresolved.source_ref,
+  }, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
+  payload.mode = "fix-reflection"
+  payload.fix_round = fix_round
+  payload.dedup_key = M.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
+  return payload
 end
 
 function M.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, version, review_fact, source_ref)
@@ -583,6 +686,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
     .. "\nReviewed PR head: " .. tostring(head_sha)
     .. "\nIssue title: " .. issue_title
     .. "\n" .. M.short_review_observation_boundary_clause()
+    .. "\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment."
     .. "\nRead the local context bundle before judging."
   local issue_proposal_id = tostring(issue_number ~= nil and M.proposal_id(repo, issue_number) or M.pr_proposal_id(repo, pr_number))
   local ledger = M.review_prior_round_ledger(pr_comments, issue_proposal_id, version)
@@ -590,7 +694,7 @@ function M.build_pr_review_proposal(repo, issue_number, pr_number, version, head
     body = body
       .. "\nPrior review ledger:\n"
       .. ledger
-      .. "\nJudge whether THE NAMED GAP is closed; new objections only for regressions introduced by the fix. For rollup-red or failing-check re-review, scope the question to the diff change and the named failing check, not to restoration of gate state."
+      .. "\nJudge whether THE NAMED GAP is closed; new objections only for fix regressions inside the issue's stated bounds. For rollup-red or failing-check re-review, scope the question to the diff change and the named failing check, not to restoration of gate state."
   end
   if #body > M._max_body_len then
     error("github-devloop: PR review proposal exceeds bounded body")
