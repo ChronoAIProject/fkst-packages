@@ -94,6 +94,12 @@ return {
     t.eq(reason, "mergeable-conflicting")
   end,
 
+  test_merge_gate_reason_class_controls_pr_merge_ref_verification = function()
+    t.eq(core.merge_gate_reason_requires_pr_merge_product("rollup-red"), true)
+    t.eq(core.merge_gate_reason_requires_pr_merge_product("rollup-red: test: COMPLETED/FAILURE"), true)
+    t.eq(core.merge_gate_reason_requires_pr_merge_product("mergeable-conflicting"), false)
+  end,
+
   test_rollup_failure_gate_sha_comes_from_failed_checks = function()
     local sha = "abc123"
     t.eq(core.rollup_failure_gate_sha(pr({
