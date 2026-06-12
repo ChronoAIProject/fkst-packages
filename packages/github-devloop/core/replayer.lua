@@ -18,7 +18,8 @@ end
 function M.merge_gate_reason_requires_pr_merge_product(reason)
   local row = transition_row("fixing")
   local classes = type(row) == "table" and row.merge_gate_reason_classes or nil
-  local class = type(classes) == "table" and classes[tostring(reason or "")] or nil
+  local reason_class = M.merge_gate_reason_class(reason)
+  local class = type(classes) == "table" and classes[tostring(reason_class or "")] or nil
   return type(class) == "table" and class.verify_pr_merge_product == true
 end
 
