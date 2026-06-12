@@ -65,10 +65,46 @@ local function assert_no_history_directive(prompt)
   t.is_nil(prompt:find(history_directive, 1, true))
 end
 
+local function catalog()
+  return {
+    ["prompt_preamble.language"] = "Write all output in English; quote code identifiers and cited originals verbatim.",
+    ["prompt_preamble.harness"] = "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
+    ["prompt_preamble.history"] = history_directive .. ". Judge what changed; do not re-litigate settled points.",
+  }
+end
+
+local function with_i18n(catalog_table, fn)
+  local previous = _G.t
+  _G.t = function(key)
+    local value = catalog_table[key]
+    if value == nil then
+      error("t missing locale key `" .. tostring(key) .. "`")
+    end
+    return value
+  end
+  local ok, result = pcall(fn)
+  _G.t = previous
+  if not ok then
+    error(result)
+  end
+  return result
+end
+
+_G.t = function(key)
+  local value = catalog()[key]
+  if value == nil then
+    error("t missing locale key `" .. tostring(key) .. "`")
+  end
+  return value
+end
+
 return {
   test_prompt_preamble_catalogs_cover_all_keys = function()
-    local en = require("locales.en")
-    local zh = require("locales.zh")
+    local source = package.searchpath("core", package.path)
+    local root = source:gsub("/core%.lua$", "")
+    local en = dofile(root .. "/locales/en.lua")
+    local zh = dofile(root .. "/locales/zh.lua")
+    local zh_cn = dofile(root .. "/locales/zh-CN.lua")
     local keys = {
       "prompt_preamble.language",
       "prompt_preamble.harness",
@@ -78,51 +114,37 @@ return {
     for _, key in ipairs(keys) do
       t.is_true(en[key] ~= nil and en[key] ~= "")
       t.is_true(zh[key] ~= nil and zh[key] ~= "")
+      t.eq(zh_cn[key], zh[key])
     end
   end,
 
-  test_prompt_preamble_zh_cn_reuses_zh_catalog = function()
-    local source = package.searchpath("locales.zh-CN", package.path)
-    t.is_nil(source)
-
-    t.eq(
-      core.catalog_string("prompt_preamble.language", function(_cmd)
-        return { stdout = "zh-CN", stderr = "", exit_code = 0 }
-      end),
-      require("locales.zh")["prompt_preamble.language"]
-    )
-  end,
-
-  test_prompt_preamble_language_env = function()
-    t.eq(core.read_env_command("FKST_OUTPUT_LANG"), 'printf %s "$FKST_OUTPUT_LANG"')
-    t.eq(core.output_language(function(_cmd)
-      return { stdout = "zh", stderr = "", exit_code = 0 }
-    end), "zh")
-    t.eq(core.output_language(function(_cmd)
-      return { stdout = "zh-CN", stderr = "", exit_code = 0 }
-    end), "zh")
-    t.eq(core.output_language(function(_cmd)
-      return { stdout = "fr", stderr = "", exit_code = 0 }
-    end), "en")
-    t.is_true(core.prompt_preamble(nil, function(_cmd)
-      return { stdout = "zh", stderr = "", exit_code = 0 }
-    end):find("Write all prose output in Simplified Chinese", 1, true) ~= nil)
-    t.eq(
-      core.prompt_preamble(nil, function(_cmd)
-        return { stdout = "zh", stderr = "", exit_code = 0 }
-      end),
-      core.prompt_preamble(nil, function(_cmd)
-        return { stdout = "zh-CN", stderr = "", exit_code = 0 }
-      end)
-    )
+  test_prompt_preamble_uses_engine_i18n_keys = function()
+    local seen = {}
+    with_i18n(catalog(), function()
+      local previous = _G.t
+      _G.t = function(key)
+        table.insert(seen, key)
+        return previous(key)
+      end
+      local preamble = core.prompt_preamble(proposal())
+      t.is_true(preamble:find("Write all output in English", 1, true) ~= nil)
+    end)
+    t.eq(seen[1], "prompt_preamble.language")
+    t.eq(seen[2], "prompt_preamble.harness")
+    t.eq(seen[3], "prompt_preamble.history")
+    t.eq(#seen, 3)
   end,
 
   test_prompt_preamble_catalog_missing_key_fails_closed = function()
-    local ok, err = pcall(core.catalog_string, "prompt_preamble.missing", function(_cmd)
-      return { stdout = "en", stderr = "", exit_code = 0 }
+    local values = catalog()
+    values["prompt_preamble.history"] = nil
+    local ok, err = pcall(function()
+      with_i18n(values, function()
+        return core.prompt_preamble(proposal())
+      end)
     end)
     t.eq(ok, false)
-    t.is_true(tostring(err):find("missing i18n key prompt_preamble.missing", 1, true) ~= nil)
+    t.is_true(tostring(err):find("t missing locale key `prompt_preamble.history`", 1, true) ~= nil)
   end,
 
   test_prompt_preamble_does_not_use_dynamic_locale_require = function()
@@ -133,14 +155,19 @@ return {
     handle:close()
     t.is_nil(text:find('require("locales." .. normalized)', 1, true))
     t.is_nil(text:find("require('locales.' .. normalized)", 1, true))
+    t.is_nil(text:find("dofile", 1, true))
   end,
 
   test_consensus_angle_and_meta_prompts_with_content_fetch_include_judgment_preamble = function()
-    local angle_prompt = core.build_angle_prompt(proposal(), "minimal")
-    local meta_prompt = core.build_meta_judge_prompt(proposal(), {
-      result("minimal", "approve"),
-      result("structural", "abstain"),
-    })
+    local angle_prompt = with_i18n(catalog(), function()
+      return core.build_angle_prompt(proposal(), "minimal")
+    end)
+    local meta_prompt = with_i18n(catalog(), function()
+      return core.build_meta_judge_prompt(proposal(), {
+        result("minimal", "approve"),
+        result("structural", "abstain"),
+      })
+    end)
 
     assert_common_preamble_slots(angle_prompt)
     assert_common_preamble_slots(meta_prompt)
@@ -151,11 +178,15 @@ return {
   end,
 
   test_consensus_angle_and_meta_prompts_without_content_fetch_skip_history_directive = function()
-    local angle_prompt = core.build_angle_prompt(proposal_without_content_fetch(), "minimal")
-    local meta_prompt = core.build_meta_judge_prompt(proposal_without_content_fetch(), {
-      result("minimal", "approve"),
-      result("structural", "abstain"),
-    })
+    local angle_prompt = with_i18n(catalog(), function()
+      return core.build_angle_prompt(proposal_without_content_fetch(), "minimal")
+    end)
+    local meta_prompt = with_i18n(catalog(), function()
+      return core.build_meta_judge_prompt(proposal_without_content_fetch(), {
+        result("minimal", "approve"),
+        result("structural", "abstain"),
+      })
+    end)
 
     assert_common_preamble_slots(angle_prompt)
     assert_common_preamble_slots(meta_prompt)

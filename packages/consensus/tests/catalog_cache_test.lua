@@ -10,11 +10,11 @@ local core = require("core")
 local t = fkst.test
 
 return {
-  test_catalog_loader_ignores_global_require_cache_and_package_path = function()
+  test_engine_i18n_ignores_global_require_cache_and_package_path = function()
     package.path = sibling_root .. "/?.lua;" .. sibling_root .. "/?/init.lua;" .. original_package_path
     local preamble = core.prompt_preamble(nil)
     package.path = original_package_path
     t.is_nil(preamble:find("polluted consensus locale", 1, true))
-    t.is_true(preamble:find("Write all output in English", 1, true) ~= nil)
+    t.is_true(preamble:find("Before judging, identify the established theory", 1, true) ~= nil)
   end,
 }

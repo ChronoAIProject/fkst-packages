@@ -16,11 +16,15 @@ local function shell_single_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
-local function opts(name)
+local function opts(name, extra_env)
+  local env = {
+    FKST_RUNTIME_ROOT = runtime_root(name),
+  }
+  for key, value in pairs(extra_env or {}) do
+    env[key] = value
+  end
   return {
-    env = {
-      FKST_RUNTIME_ROOT = runtime_root(name),
-    },
+    env = env,
   }
 end
 
@@ -88,6 +92,16 @@ local function judgment_call(role)
   return nil
 end
 
+local function latest_judgment_call(role)
+  local found = nil
+  for _, call in ipairs(codex_calls()) do
+    if call.rendered:find("/judgment-worktrees/consensus-" .. role, 1, true) ~= nil then
+      found = call
+    end
+  end
+  return found
+end
+
 local function assert_judgment_dir_read_only(count)
   local seen = 0
   for _, call in ipairs(t.command_calls()) do
@@ -143,6 +157,33 @@ local function mock_meta(line, exit_code)
 end
 
 return {
+  test_engine_i18n_renders_prompt_preamble_for_zh_and_zh_cn = function()
+    mock_judgment_runtime()
+    mock_angle("minimal", "approve", "Minimal angle approves.")
+    mock_angle("structural", "approve", "Structural angle approves.")
+    mock_angle("delete", "approve", "Delete angle approves.")
+
+    local zh = run_decide(proposal({
+      dedup_key = "proposal-42-i18n-zh",
+    }), opts("i18n-zh", { FKST_OUTPUT_LANG = "zh" }))
+    t.eq(zh.exit_code, 0)
+    local zh_stdin = latest_judgment_call("angle-minimal").stdin
+
+    mock_judgment_runtime()
+    mock_angle("minimal", "approve", "Minimal angle approves.")
+    mock_angle("structural", "approve", "Structural angle approves.")
+    mock_angle("delete", "approve", "Delete angle approves.")
+
+    local zh_cn = run_decide(proposal({
+      dedup_key = "proposal-42-i18n-zh-cn",
+    }), opts("i18n-zh-cn", { FKST_OUTPUT_LANG = "zh-CN" }))
+    t.eq(zh_cn.exit_code, 0)
+    local zh_cn_stdin = latest_judgment_call("angle-minimal").stdin
+
+    t.is_true(zh_stdin:find("Write all prose output in Simplified Chinese", 1, true) ~= nil)
+    t.is_true(zh_cn_stdin:find("Write all prose output in Simplified Chinese", 1, true) ~= nil)
+  end,
+
   test_all_angles_approve_raises_consensus_reached = function()
     mock_judgment_runtime()
     mock_angle("minimal", "approve", "Minimal angle approves.")

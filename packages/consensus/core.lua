@@ -28,41 +28,6 @@ local max_scratch_slug_len = 120
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 local gap_label = "⟦FKST:GAP⟧"
-local allowed_env = {
-  FKST_OUTPUT_LANG = true,
-}
-local loaded_catalogs = {}
-local catalog_root = nil
-
-do
-  local source = package.searchpath("core", package.path)
-  if type(source) == "string" then
-    catalog_root = source:match("(.+)/core%.lua$")
-  end
-end
-
-local function read_env_command(name)
-  if not allowed_env[name] then
-    error("consensus: env name is not allowed")
-  end
-  return 'printf %s "$' .. name .. '"'
-end
-
-function M.read_env_command(name)
-  return read_env_command(name)
-end
-
-function M.read_env(name, exec)
-  local run = exec or exec_sync
-  if type(run) ~= "function" then
-    return nil
-  end
-  local ok, out = pcall(run, read_env_command(name))
-  if not ok or type(out) ~= "table" or out.exit_code ~= 0 or out.stdout == "" then
-    return nil
-  end
-  return out.stdout
-end
 
 function M.verdict_mode(proposal)
   if type(proposal) == "table" and proposal.verdict_mode == "gate" then
@@ -379,74 +344,34 @@ function M.render_template(template, vars)
   end))
 end
 
-local function normalize_output_language(lang)
-  if lang == "zh" or lang == "zh-CN" then
-    return "zh"
+function M.catalog_string(key)
+  if type(t) ~= "function" then
+    error("consensus: engine i18n primitive is unavailable")
   end
-  return "en"
+  return t(key)
 end
 
-function M.output_language(exec)
-  return normalize_output_language(trim(M.read_env("FKST_OUTPUT_LANG", exec)))
+function M.prompt_preamble_string(key)
+  return M.catalog_string("prompt_preamble." .. tostring(key))
 end
 
-local function catalog_path(normalized)
-  if type(catalog_root) ~= "string" then
-    return nil
-  end
-  return catalog_root .. "/locales/" .. normalized .. ".lua"
-end
-
-local function catalog_for(lang)
-  local normalized = normalize_output_language(lang)
-  if loaded_catalogs[normalized] ~= nil then
-    return loaded_catalogs[normalized]
-  end
-
-  local ok, catalog = false, nil
-  local path = catalog_path(normalized)
-  if path ~= nil then
-    ok, catalog = pcall(dofile, path)
-  end
-  if not ok or type(catalog) ~= "table" then
-    error("consensus: i18n catalog load failed for " .. normalized)
-  end
-
-  loaded_catalogs[normalized] = catalog
-  return catalog
-end
-
-function M.catalog_string(key, exec)
-  local lang = M.output_language(exec)
-  local catalog = catalog_for(lang)
-  local text = catalog[key]
-  if text == nil then
-    error("consensus: missing i18n key " .. tostring(key))
-  end
-  return tostring(text)
-end
-
-function M.prompt_preamble_string(key, exec)
-  return M.catalog_string("prompt_preamble." .. tostring(key), exec)
-end
-
-function M.prompt_preamble(proposal, exec)
+function M.prompt_preamble(proposal)
   -- Slots supersede GitHub issues #142 and #145: env-driven language selection plus
   -- harness-first judgment are fixed context, not verdict/parser protocol.
   local lines = {
-    M.prompt_preamble_string("language", exec),
-    M.prompt_preamble_string("harness", exec),
+    M.prompt_preamble_string("language"),
+    M.prompt_preamble_string("harness"),
   }
 
   if has_content_fetch(proposal) then
-    table.insert(lines, M.prompt_preamble_string("history", exec))
+    table.insert(lines, M.prompt_preamble_string("history"))
   end
 
   return table.concat(lines, "\n")
 end
 
-function M.render_prompt_template(template, vars, proposal, exec)
-  return M.prompt_preamble(proposal, exec) .. "\n\n" .. M.render_template(template, vars)
+function M.render_prompt_template(template, vars, proposal)
+  return M.prompt_preamble(proposal) .. "\n\n" .. M.render_template(template, vars)
 end
 
 -- Keyed by dedup_key (which versions the proposal), not proposal_id, so an updated
