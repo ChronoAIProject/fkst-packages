@@ -242,8 +242,17 @@ local transition_table = {
       review_dedup_key = "marker:merge-gate.review_dedup",
       reviewed_head_sha = "marker:merge-gate.head_sha",
       gate_baseline_sha = "marker:merge-gate.gate_baseline_sha",
+      reason = "marker:merge-gate.reason",
       blocking_gap = "marker:review-result.gap",
       source_ref = "source_ref:pr",
+    },
+    merge_gate_reason_classes = {
+      ["rollup-red"] = {
+        verify_pr_merge_product = true,
+      },
+      ["mergeable-conflicting"] = {
+        verify_pr_merge_product = false,
+      },
     },
     version_identity = "strip_transition_version_suffixes(state.version)",
     effects = effect({ "devloop_fixing" }, "fixing replay is complete only when trusted feedback marker fields are copied into devloop_fixing"),

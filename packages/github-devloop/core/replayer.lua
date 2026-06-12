@@ -15,6 +15,13 @@ function M.restart_transition_row(state_name)
   return transition_row(state_name)
 end
 
+function M.merge_gate_reason_requires_pr_merge_product(reason)
+  local row = transition_row("fixing")
+  local classes = type(row) == "table" and row.merge_gate_reason_classes or nil
+  local class = type(classes) == "table" and classes[tostring(reason or "")] or nil
+  return type(class) == "table" and class.verify_pr_merge_product == true
+end
+
 local marker_aliases = {
   ["pr-link"] = {
     pr = "pr_number",

@@ -75,6 +75,17 @@ function M.evaluate_ci_merge_gate(pr, opts)
   return true, "merge-gate-ok"
 end
 
+function M.merge_gate_reason_class(reason)
+  local text = tostring(reason or "")
+  if M.is_ci_red_reason(text) or text:find("^rollup%-red:", 1) ~= nil then
+    return "rollup-red"
+  end
+  if M.is_not_mergeable_reason(text) then
+    return text
+  end
+  return M.sanitize_key(text ~= "" and text or "gate-failed", false):gsub("/", "-")
+end
+
 function M.ci_missing_status_dispatch_eligible(pr, now_seconds, first_observed_seconds, grace_seconds)
   local green, green_reason = M.pr_rollup_green(pr)
   if green or green_reason ~= "missing-status-rollup" then
