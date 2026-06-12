@@ -124,12 +124,18 @@ return {
     local result = run_observe_pr(pr_event(), opts("operator-rereview"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:operator-command:v1", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('state="reviewing"', 1, true) ~= nil)
     t.eq(reviewing_raise.payload.version, impl_version .. "/review-loop/3/review-loop/4/rereview/4/feedface")
     t.eq(reviewing_raise.payload.source_ref.ref, "owner/repo#pr/7")
+    t.eq(label_raise.payload.target_kind, "pr")
+    t.eq(label_raise.payload.issue_number, 7)
+    t.eq(label_raise.payload.expected_state, "reviewing")
+    t.eq(label_raise.payload.expected_version, reviewing_raise.payload.version)
+    t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
 
     mock_issue_review({ "fkst-dev:reviewing" }, {
       comment_raise.payload.body,
@@ -232,9 +238,14 @@ return {
     local result = run_observe_pr(pr_event(), opts("operator-rereview-stalled-reviewing"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.eq(reviewing_raise.payload.version, impl_version .. "/review-loop/1/rereview/1/feedface")
+    t.eq(label_raise.payload.target_kind, "pr")
+    t.eq(label_raise.payload.issue_number, 7)
+    t.eq(label_raise.payload.expected_state, "reviewing")
+    t.eq(label_raise.payload.expected_version, reviewing_raise.payload.version)
   end,
 
   test_rereview_command_duplicate_response_is_idempotent = function()

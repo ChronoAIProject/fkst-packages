@@ -314,12 +314,22 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     proposal_id = origin.proposal_id,
     impl_version = new_version,
   }, pr_number, source_ref, new_version)
+  local pr_label_request = core.build_pr_reconcile_state_label_request(
+    origin.repo,
+    pr_number,
+    origin.proposal_id,
+    "reviewing",
+    new_version,
+    source_ref
+  )
   core.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "applied(operator-rereview)", "trusted operator command requested rereview")
   core.log_apply("observe_pr", origin.proposal_id, "reviewing", new_version, { add = {}, remove = {} }, {
     "github-proxy.github_pr_comment_request",
+    "github-proxy.github_issue_label_request",
     "devloop_reviewing",
   })
   core.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+  core.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_issue_label_request", pr_label_request)
   core.log_raise("observe_pr", origin.proposal_id, "devloop_reviewing", reviewing_payload)
   maybe_label_hint(origin, { state = "reviewing", version = new_version }, core.issue_source_ref(origin.repo, origin.issue_number))
   return true
