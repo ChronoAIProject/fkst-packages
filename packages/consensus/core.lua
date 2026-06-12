@@ -379,12 +379,15 @@ function M.render_template(template, vars)
   end))
 end
 
-function M.output_language(exec)
-  local lang = trim(M.read_env("FKST_OUTPUT_LANG", exec))
+local function normalize_output_language(lang)
   if lang == "zh" or lang == "zh-CN" then
     return "zh"
   end
   return "en"
+end
+
+function M.output_language(exec)
+  return normalize_output_language(trim(M.read_env("FKST_OUTPUT_LANG", exec)))
 end
 
 local function catalog_path(normalized)
@@ -395,7 +398,7 @@ local function catalog_path(normalized)
 end
 
 local function catalog_for(lang)
-  local normalized = (lang == "zh" or lang == "zh-CN") and "zh" or "en"
+  local normalized = normalize_output_language(lang)
   if loaded_catalogs[normalized] ~= nil then
     return loaded_catalogs[normalized]
   end

@@ -81,6 +81,18 @@ return {
     end
   end,
 
+  test_prompt_preamble_zh_cn_reuses_zh_catalog = function()
+    local source = package.searchpath("locales.zh-CN", package.path)
+    t.is_nil(source)
+
+    t.eq(
+      core.catalog_string("prompt_preamble.language", function(_cmd)
+        return { stdout = "zh-CN", stderr = "", exit_code = 0 }
+      end),
+      require("locales.zh")["prompt_preamble.language"]
+    )
+  end,
+
   test_prompt_preamble_language_env = function()
     t.eq(core.read_env_command("FKST_OUTPUT_LANG"), 'printf %s "$FKST_OUTPUT_LANG"')
     t.eq(core.output_language(function(_cmd)
