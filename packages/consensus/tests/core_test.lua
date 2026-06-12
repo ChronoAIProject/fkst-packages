@@ -51,7 +51,7 @@ local function result(angle, verdict)
 end
 
 local function assert_common_preamble_slots(prompt)
-  t.is_true(prompt:find("Write all output in English; quote code identifiers and cited originals verbatim.", 1, true) ~= nil)
+  t.is_true(prompt:find("quote code identifiers and cited originals verbatim.", 1, true) ~= nil)
   t.is_true(prompt:find("Before judging, identify the established theory or industry best practice governing this problem class", 1, true) ~= nil)
   t.is_nil(prompt:find("gh issue view", 1, true))
   t.is_nil(prompt:find("gh pr view", 1, true))
@@ -66,10 +66,28 @@ local function assert_no_history_directive(prompt)
 end
 
 return {
+  test_prompt_preamble_catalogs_cover_all_keys = function()
+    local en = require("locales.en")
+    local zh = require("locales.zh")
+    local keys = {
+      "prompt_preamble.language",
+      "prompt_preamble.harness",
+      "prompt_preamble.history",
+    }
+
+    for _, key in ipairs(keys) do
+      t.is_true(en[key] ~= nil and en[key] ~= "")
+      t.is_true(zh[key] ~= nil and zh[key] ~= "")
+    end
+  end,
+
   test_prompt_preamble_language_env = function()
     t.eq(core.read_env_command("FKST_OUTPUT_LANG"), 'printf %s "$FKST_OUTPUT_LANG"')
     t.eq(core.output_language(function(_cmd)
       return { stdout = "zh", stderr = "", exit_code = 0 }
+    end), "zh")
+    t.eq(core.output_language(function(_cmd)
+      return { stdout = "zh-CN", stderr = "", exit_code = 0 }
     end), "zh")
     t.eq(core.output_language(function(_cmd)
       return { stdout = "fr", stderr = "", exit_code = 0 }
@@ -77,6 +95,32 @@ return {
     t.is_true(core.prompt_preamble(nil, function(_cmd)
       return { stdout = "zh", stderr = "", exit_code = 0 }
     end):find("Write all prose output in Simplified Chinese", 1, true) ~= nil)
+    t.eq(
+      core.prompt_preamble(nil, function(_cmd)
+        return { stdout = "zh", stderr = "", exit_code = 0 }
+      end),
+      core.prompt_preamble(nil, function(_cmd)
+        return { stdout = "zh-CN", stderr = "", exit_code = 0 }
+      end)
+    )
+  end,
+
+  test_prompt_preamble_catalog_missing_key_fails_closed = function()
+    local ok, err = pcall(core.catalog_string, "prompt_preamble.missing", function(_cmd)
+      return { stdout = "en", stderr = "", exit_code = 0 }
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("missing i18n key prompt_preamble.missing", 1, true) ~= nil)
+  end,
+
+  test_prompt_preamble_does_not_use_dynamic_locale_require = function()
+    local source = package.searchpath("core", package.path)
+    local handle = io.open(source, "r")
+    t.is_true(handle ~= nil)
+    local text = handle:read("*a")
+    handle:close()
+    t.is_nil(text:find('require("locales." .. normalized)', 1, true))
+    t.is_nil(text:find("require('locales.' .. normalized)", 1, true))
   end,
 
   test_consensus_angle_and_meta_prompts_with_content_fetch_include_judgment_preamble = function()

@@ -31,6 +31,15 @@ local gap_label = "⟦FKST:GAP⟧"
 local allowed_env = {
   FKST_OUTPUT_LANG = true,
 }
+local loaded_catalogs = {}
+local catalog_root = nil
+
+do
+  local source = package.searchpath("core", package.path)
+  if type(source) == "string" then
+    catalog_root = source:match("(.+)/core%.lua$")
+  end
+end
 
 local function read_env_command(name)
   if not allowed_env[name] then
@@ -372,27 +381,62 @@ end
 
 function M.output_language(exec)
   local lang = trim(M.read_env("FKST_OUTPUT_LANG", exec))
-  if lang == "zh" then
+  if lang == "zh" or lang == "zh-CN" then
     return "zh"
   end
   return "en"
 end
 
-function M.prompt_preamble(proposal, exec)
-  local language_line = "Write all output in English; quote code identifiers and cited originals verbatim."
-  if M.output_language(exec) == "zh" then
-    language_line = "Write all prose output in Simplified Chinese; quote code identifiers and cited originals verbatim."
+local function catalog_path(normalized)
+  if type(catalog_root) ~= "string" then
+    return nil
+  end
+  return catalog_root .. "/locales/" .. normalized .. ".lua"
+end
+
+local function catalog_for(lang)
+  local normalized = (lang == "zh" or lang == "zh-CN") and "zh" or "en"
+  if loaded_catalogs[normalized] ~= nil then
+    return loaded_catalogs[normalized]
   end
 
+  local ok, catalog = false, nil
+  local path = catalog_path(normalized)
+  if path ~= nil then
+    ok, catalog = pcall(dofile, path)
+  end
+  if not ok or type(catalog) ~= "table" then
+    error("consensus: i18n catalog load failed for " .. normalized)
+  end
+
+  loaded_catalogs[normalized] = catalog
+  return catalog
+end
+
+function M.catalog_string(key, exec)
+  local lang = M.output_language(exec)
+  local catalog = catalog_for(lang)
+  local text = catalog[key]
+  if text == nil then
+    error("consensus: missing i18n key " .. tostring(key))
+  end
+  return tostring(text)
+end
+
+function M.prompt_preamble_string(key, exec)
+  return M.catalog_string("prompt_preamble." .. tostring(key), exec)
+end
+
+function M.prompt_preamble(proposal, exec)
   -- Slots supersede GitHub issues #142 and #145: env-driven language selection plus
   -- harness-first judgment are fixed context, not verdict/parser protocol.
   local lines = {
-    language_line,
-    "Before judging, identify the established theory or industry best practice governing this problem class; treat unjustified deviation from established practice as grounds for rejection or narrowing; require proof that existing practice does not apply before accepting novelty.",
+    M.prompt_preamble_string("language", exec),
+    M.prompt_preamble_string("harness", exec),
   }
 
   if has_content_fetch(proposal) then
-    table.insert(lines, "Before judging, use the producer-provided context manifest below as the complete prior history of this proposal; earlier rounds recorded there are your memory. Judge what changed; do not re-litigate settled points.")
+    table.insert(lines, M.prompt_preamble_string("history", exec))
   end
 
   return table.concat(lines, "\n")
