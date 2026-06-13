@@ -33,7 +33,8 @@ local function current_window()
   return os.date("!%Y-%m-%dT%HZ", math.floor(now() / 3600) * 3600)
 end
 
-local function mock_env()
+local function mock_env(extra)
+  extra = extra or {}
   local snapshot_dir = "/tmp/fkst-packages-test/github-devloop/runtime/watchdog-incidents/" .. current_window()
   os.execute("mkdir -p " .. shell_single_quote(snapshot_dir))
   for _ = 1, 8 do
@@ -65,6 +66,13 @@ local function mock_env()
   for _ = 1, 8 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 8 do
+    t.mock_command('printf %s "$FKST_DEVLOOP_SUPERVISE_LOG"', {
+      stdout = extra.supervise_log or "",
       stderr = "",
       exit_code = 0,
     })
@@ -242,5 +250,39 @@ return {
     t.is_true(raised.payload.body:find("state=reviewing", 1, true) ~= nil)
     t.is_true(raised.payload.body:find("timeout_attempt=3", 1, true) ~= nil)
     t.is_true(raised.payload.body:find("escalate_after_attempts=3", 1, true) ~= nil)
+  end,
+
+  test_watchdog_snapshots_generation_log_before_filing_alert = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local supervise_log = "/tmp/fkst-packages-test/github-devloop/supervise-20260613T010203Z.log"
+    mock_env({ supervise_log = supervise_log })
+    t.mock_command("tail -c 12000", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_all_issue_lists({ 42 })
+    mock_pr_list({})
+    mock_issue_view({
+      render_comment(core.state_marker(proposal_id, "merge-ready", version_minutes_ago(11)), "fkst-test-bot"),
+    })
+
+    local result = run_observability("watchdog-log-snapshot")
+
+    t.eq(result.exit_code, 0)
+    local raised = find_raise(result, "github-proxy.github_issue_create_request", function(payload)
+      return payload.title == "Self-diagnosis watchdog: merge queue starvation"
+    end)
+    t.is_true(raised ~= nil)
+    t.is_true(raised.payload.body:find("%.supervise%.log", 1, false) ~= nil)
+    local has_tail = false
+    for _, call in ipairs(t.command_calls()) do
+      if call.rendered:find("tail -c 12000", 1, true) ~= nil
+        and call.rendered:find(supervise_log, 1, true) ~= nil
+        and call.rendered:find(".supervise.log", 1, true) ~= nil then
+        has_tail = true
+      end
+    end
+    t.is_true(has_tail)
   end,
 }

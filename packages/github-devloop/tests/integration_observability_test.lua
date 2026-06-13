@@ -44,6 +44,13 @@ local function mock_env(bot_login, write_mode)
       exit_code = 0,
     })
   end
+  for _ = 1, 8 do
+    t.mock_command('printf %s "$FKST_DEVLOOP_SUPERVISE_LOG"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
   for _, name in ipairs({ "GH_TOKEN", "GITHUB_TOKEN" }) do
     t.mock_command('if [ -n "${' .. name .. ':-}" ]; then printf present; fi', {
       stdout = "",

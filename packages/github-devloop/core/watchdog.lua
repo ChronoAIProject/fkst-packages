@@ -8,6 +8,7 @@ local queue_starvation_threshold_minutes = 10
 local intake_silence_threshold_minutes = 10
 local snapshot_root_dir = "watchdog-incidents"
 local snapshot_file_limit = 20000
+local snapshot_log_tail_bytes = 12000
 
 local detector_titles = {
   ["queue-starvation"] = "Self-diagnosis watchdog: merge queue starvation",
@@ -112,6 +113,23 @@ local function snapshot_path(root, alert)
   return snapshot_dir(root, alert and alert._watchdog_window) .. "/" .. detector .. "-" .. M._decimal_checksum(dedup) .. ".md"
 end
 
+local function snapshot_log_path(root, alert)
+  local detector = snapshot_segment(alert and alert._watchdog_detector, "detector", 80)
+  local dedup = tostring(alert and alert.dedup_key or "")
+  return snapshot_dir(root, alert and alert._watchdog_window) .. "/" .. detector .. "-" .. M._decimal_checksum(dedup) .. ".supervise.log"
+end
+
+local function bounded_supervise_log_path(path)
+  local value = tostring(path or "")
+  if value == "" or value:find("[%z\r\n]") ~= nil then
+    return nil
+  end
+  if value:sub(1, 1) ~= "/" then
+    return nil
+  end
+  return value
+end
+
 local function detector_body(detector, evidence, window)
   local lines = {
     "The self-diagnosis watchdog detected a deterministic anomaly.",
@@ -172,6 +190,24 @@ local function snapshot_body(repo, alert)
   return body
 end
 
+local function copy_supervise_log_snapshot(path, target)
+  local source = bounded_supervise_log_path(path)
+  if source == nil then
+    return nil
+  end
+  local cmd = "tail -c " .. tostring(snapshot_log_tail_bytes)
+    .. " " .. M._shell_single_quote(source)
+    .. " > " .. M._shell_single_quote(target)
+  local result = exec_sync({ cmd = cmd, timeout = 30 })
+  if type(result) == "table" and result.exit_code == 0 then
+    return target
+  end
+  log.warn("github-devloop dept=observability tag=WATCHDOG_LOG_SNAPSHOT_SKIPPED"
+    .. " path=" .. M._one_line(source)
+    .. " reason=" .. M._one_line(result and result.stderr or "copy-failed"))
+  return nil
+end
+
 local function ensure_snapshot_written(repo, alert)
   local root = read_runtime_root()
   local dir = snapshot_dir(root, alert and alert._watchdog_window)
@@ -181,6 +217,10 @@ local function ensure_snapshot_written(repo, alert)
     error("github-devloop: watchdog snapshot directory setup failed")
   end
   file.write(path, snapshot_body(repo, alert))
+  local log_path = copy_supervise_log_snapshot(M.read_env("FKST_DEVLOOP_SUPERVISE_LOG"), snapshot_log_path(root, alert))
+  if log_path ~= nil then
+    alert._watchdog_log_snapshot = log_path
+  end
   return path
 end
 
@@ -329,10 +369,14 @@ function M.raise_watchdog_alerts(repo, alerts)
   for _, alert in ipairs(alerts or {}) do
     local path = ensure_snapshot_written(repo, alert)
     alert.body = append_snapshot_path(alert.body, path)
+    if alert._watchdog_log_snapshot ~= nil then
+      alert.body = append_snapshot_path(alert.body, alert._watchdog_log_snapshot)
+    end
     alert._watchdog_detector = nil
     alert._watchdog_identity = nil
     alert._watchdog_window = nil
     alert._watchdog_evidence = nil
+    alert._watchdog_log_snapshot = nil
     log.info("github-devloop dept=observability tag=WATCHDOG_ALERT"
       .. " repo=" .. tostring(repo or "")
       .. " dedup_key=" .. tostring(alert.dedup_key or "")
