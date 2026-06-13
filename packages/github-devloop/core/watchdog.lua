@@ -6,6 +6,8 @@ local watchdog_label = "fkst-watchdog"
 local watchdog_window_seconds = 3600
 local queue_starvation_threshold_minutes = 10
 local intake_silence_threshold_minutes = 10
+local snapshot_root_dir = "watchdog-incidents"
+local snapshot_file_limit = 20000
 
 local detector_titles = {
   ["queue-starvation"] = "Self-diagnosis watchdog: merge queue starvation",
@@ -71,6 +73,45 @@ local function detector_dedup_key(detector, identity, window)
   })
 end
 
+local function read_runtime_root()
+  local result = exec_sync({ cmd = M.read_runtime_root_cmd(), timeout = 30 })
+  if type(result) ~= "table" or result.exit_code ~= 0 then
+    error("github-devloop: watchdog snapshot runtime root read failed")
+  end
+  local root = M._trim(result.stdout)
+  if root == "" or root:find("[\r\n]") ~= nil then
+    error("github-devloop: invalid FKST_RUNTIME_ROOT for watchdog snapshot")
+  end
+  return root:gsub("/+$", "")
+end
+
+local function snapshot_segment(value, fallback, limit)
+  local segment = M.sanitize_key(tostring(value or ""), false):gsub("[/#]", "-"):gsub("%-+", "-")
+  segment = segment:gsub("^%-+", ""):gsub("%-+$", ""):gsub("%.+$", "")
+  if segment == "" then
+    segment = fallback or "snapshot"
+  end
+  local max_len = tonumber(limit or 120)
+  if #segment > max_len then
+    local suffix = "-" .. M._decimal_checksum(segment)
+    segment = M.truncate_utf8(segment, max_len - #suffix):gsub("%-+$", "") .. suffix
+  end
+  if segment == "" then
+    return fallback or "snapshot"
+  end
+  return segment
+end
+
+local function snapshot_dir(root, window)
+  return root .. "/" .. snapshot_root_dir .. "/" .. snapshot_segment(window, "window", 80)
+end
+
+local function snapshot_path(root, alert)
+  local detector = snapshot_segment(alert and alert._watchdog_detector, "detector", 80)
+  local dedup = tostring(alert and alert.dedup_key or "")
+  return snapshot_dir(root, alert and alert._watchdog_window) .. "/" .. detector .. "-" .. M._decimal_checksum(dedup) .. ".md"
+end
+
 local function detector_body(detector, evidence, window)
   local lines = {
     "The self-diagnosis watchdog detected a deterministic anomaly.",
@@ -96,8 +137,55 @@ local function detector_body(detector, evidence, window)
   return body
 end
 
+local function append_snapshot_path(body, path)
+  local suffix = "\n\nEvidence snapshot: " .. tostring(path or "") .. "\n"
+  local next_body = tostring(body or "") .. suffix
+  if #next_body > M._max_body_len then
+    return M.truncate_utf8(tostring(body or ""), M._max_body_len - #suffix) .. suffix
+  end
+  return next_body
+end
+
+local function snapshot_body(repo, alert)
+  local lines = {
+    "# Self-diagnosis watchdog evidence snapshot",
+    "",
+    "This file is a local evidence snapshot written before the watchdog filed the alert.",
+    "",
+    "repo: " .. tostring(repo or ""),
+    "detector: " .. tostring(alert and alert._watchdog_detector or ""),
+    "window: " .. tostring(alert and alert._watchdog_window or ""),
+    "dedup_key: " .. tostring(alert and alert.dedup_key or ""),
+    "source_ref: " .. tostring(alert and alert.source_ref and alert.source_ref.kind or "")
+      .. ":" .. tostring(alert and alert.source_ref and alert.source_ref.ref or ""),
+    "",
+    "evidence:",
+  }
+  for _, line in ipairs(alert and alert._watchdog_evidence or {}) do
+    table.insert(lines, "- " .. M.neutralize_untrusted_comment_text(line))
+  end
+  table.insert(lines, "")
+  local body = table.concat(lines, "\n")
+  if #body > snapshot_file_limit then
+    body = M.truncate_utf8(body, snapshot_file_limit)
+  end
+  return body
+end
+
+local function ensure_snapshot_written(repo, alert)
+  local root = read_runtime_root()
+  local dir = snapshot_dir(root, alert and alert._watchdog_window)
+  local path = snapshot_path(root, alert)
+  local mkdir = exec_sync({ cmd = "install -d -m 0755 " .. M._shell_single_quote(dir), timeout = 30 })
+  if type(mkdir) ~= "table" or mkdir.exit_code ~= 0 then
+    error("github-devloop: watchdog snapshot directory setup failed")
+  end
+  file.write(path, snapshot_body(repo, alert))
+  return path
+end
+
 local function build_alert(repo, detector, identity, evidence, source_ref, window)
-  return {
+  local alert = {
     schema = "github-proxy.issue-create.v1",
     repo = repo,
     title = detector_titles[detector] or "Self-diagnosis watchdog alert",
@@ -106,6 +194,11 @@ local function build_alert(repo, detector, identity, evidence, source_ref, windo
     dedup_key = detector_dedup_key(detector, identity, window),
     source_ref = M.normalize_source_ref(source_ref or watchdog_source_ref(repo, detector)),
   }
+  alert._watchdog_detector = detector
+  alert._watchdog_identity = identity
+  alert._watchdog_window = window
+  alert._watchdog_evidence = evidence
+  return alert
 end
 
 local function latest_marker_seconds(entity)
@@ -234,9 +327,16 @@ end
 
 function M.raise_watchdog_alerts(repo, alerts)
   for _, alert in ipairs(alerts or {}) do
+    local path = ensure_snapshot_written(repo, alert)
+    alert.body = append_snapshot_path(alert.body, path)
+    alert._watchdog_detector = nil
+    alert._watchdog_identity = nil
+    alert._watchdog_window = nil
+    alert._watchdog_evidence = nil
     log.info("github-devloop dept=observability tag=WATCHDOG_ALERT"
       .. " repo=" .. tostring(repo or "")
       .. " dedup_key=" .. tostring(alert.dedup_key or "")
+      .. " snapshot=" .. M._one_line(path)
       .. " title=" .. M._one_line(alert.title))
     M.log_raise("observability", "watchdog", "github-proxy.github_issue_create_request", alert)
   end

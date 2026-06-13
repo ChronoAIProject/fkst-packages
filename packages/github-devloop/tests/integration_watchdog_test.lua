@@ -3,26 +3,39 @@ local t = h.t
 local core = h.core
 
 local function opts(name)
+  local runtime = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name)
   return {
     env = {
-      FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/github-devloop/" .. tostring(now()) .. "/" .. tostring(name),
+      FKST_RUNTIME_ROOT = runtime,
       FKST_GITHUB_REPO = "owner/repo",
       FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
       FKST_GITHUB_WRITE = "",
       FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
       FKST_DEVLOOP_INTEGRATION_BRANCH = "integration/dev",
     },
+    runtime = runtime,
   }
 end
 
 local function run_observability(name)
+  local run_opts = opts(name or "watchdog")
   return t.run_department("departments/observability/main.lua", {
     queue = "devloop_observe_tick",
     payload = { schema = "github-devloop.observe-tick.v1" },
-  }, opts(name or "watchdog"))
+  }, run_opts)
+end
+
+local function shell_single_quote(value)
+  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function current_window()
+  return os.date("!%Y-%m-%dT%HZ", math.floor(now() / 3600) * 3600)
 end
 
 local function mock_env()
+  local snapshot_dir = "/tmp/fkst-packages-test/github-devloop/runtime/watchdog-incidents/" .. current_window()
+  os.execute("mkdir -p " .. shell_single_quote(snapshot_dir))
   for _ = 1, 8 do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
       stdout = "fkst-test-bot",
@@ -44,6 +57,20 @@ local function mock_env()
   end
   for _, name in ipairs({ "GH_TOKEN", "GITHUB_TOKEN" }) do
     t.mock_command('if [ -n "${' .. name .. ':-}" ]; then printf present; fi', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 8 do
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+      stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 8 do
+    t.mock_command("install -d -m 0755", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -121,10 +148,6 @@ local function version_minutes_ago(minutes)
   return os.date("!%Y-%m-%dT%H-%M-%SZ", now() - (tonumber(minutes) or 0) * 60)
 end
 
-local function current_window()
-  return os.date("!%Y-%m-%dT%HZ", math.floor(now() / 3600) * 3600)
-end
-
 return {
   test_watchdog_files_merge_ready_queue_starvation_alert = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -149,9 +172,16 @@ return {
     t.eq(payload.labels[1], "fkst-watchdog")
     t.eq(payload.source_ref.kind, "external")
     t.eq(payload.source_ref.ref, "owner/repo#watchdog/queue-starvation")
+    t.eq(payload._watchdog_detector, nil)
     t.is_true(payload.body:find("Detector: queue-starvation", 1, true) ~= nil)
     t.is_true(payload.body:find("queue_head=#42", 1, true) ~= nil)
+    t.is_true(payload.body:find("Evidence snapshot: /tmp/fkst-packages-test/github-devloop/runtime/watchdog-incidents/", 1, true) ~= nil)
     t.is_true(payload.body:find("Do not repair runtime state in place", 1, true) ~= nil)
+    local snapshot = payload.body:match("Evidence snapshot: ([^\n]+)")
+    local snapshot_body = file.read(snapshot)
+    t.is_true(snapshot_body:find("detector: queue-starvation", 1, true) ~= nil)
+    t.is_true(snapshot_body:find("dedup_key: " .. payload.dedup_key, 1, true) ~= nil)
+    t.is_true(snapshot_body:find("queue_head=#42", 1, true) ~= nil)
   end,
 
   test_watchdog_files_intake_silence_for_enabled_issue_without_decision = function()
