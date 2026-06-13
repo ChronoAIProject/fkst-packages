@@ -96,8 +96,8 @@ local function mock_pr_list(numbers)
 end
 
 local function mock_issue_view(comments)
-  t.mock_command("--json title,comments,state", {
-    stdout = '{"title":"Observed issue","state":"OPEN","comments":[' .. table.concat(comments or {}, ",") .. "]}\n",
+  t.mock_command("--json title,updatedAt,comments,state", {
+    stdout = '{"title":"Observed issue","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","comments":[' .. table.concat(comments or {}, ",") .. "]}\n",
     stderr = "",
     exit_code = 0,
   })

@@ -934,6 +934,8 @@ function M.observe_devloop_entities()
   end
   reap_orphan_prs(repo, list)
   local conflict_hotspot = M.observe_conflict_hotspots(repo)
+  local watchdog_alerts = M.watchdog_alerts(repo, list, counts, stalls, now_seconds)
+  M.raise_watchdog_alerts(repo, watchdog_alerts)
   local dashboard = M.render_observability_dashboard({
     entities = list,
     counts = counts,
@@ -948,6 +950,7 @@ function M.observe_devloop_entities()
     counts = counts,
     conflict_hotspot = conflict_hotspot,
     state_gap_report = state_gap_report,
+    watchdog_alert_count = #watchdog_alerts,
     dashboard_hash = dashboard.hash,
   }
 end

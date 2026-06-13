@@ -317,6 +317,7 @@ function M.parse_issue_view_observe(stdout)
   local decoded = json.decode(stdout or "{}")
   return {
     title = tostring(decoded.title or ""),
+    updated_at = decoded.updatedAt or decoded.updated_at,
     state = decoded.state,
     state_reason = decoded.stateReason or decoded.state_reason,
     comments = M.comments_from_json(decoded.comments),

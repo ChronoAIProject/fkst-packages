@@ -37,6 +37,20 @@ local pr_open_guard_comments = h.pr_open_guard_comments
 local pr_open_visible_comments = h.pr_open_visible_comments
 local reviewing_marker = h.reviewing_marker
 
+local function first_body_file(needle)
+  local call = calls_matching(needle)[1]
+  if call == nil then
+    return nil
+  end
+  return call.rendered:match("%-%-body%-file '([^']+)'")
+end
+
+local function read_first_body_file(needle)
+  local path = first_body_file(needle)
+  t.is_true(path ~= nil)
+  return file.read(path)
+end
+
 return {
   test_pr_open_request_dry_run_does_not_push_or_create = function()
     mock_write_env("")
@@ -100,12 +114,12 @@ return {
     t.eq(create.rendered:find("--json", 1, true), nil)
     t.is_true(create.rendered:find("--base 'dev'", 1, true) ~= nil)
 
-    local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
+    local issue_written = read_first_body_file("gh issue comment")
     t.is_true(issue_written:find("github-devloop PR opened: #7", 1, true) ~= nil)
     t.is_true(issue_written:find('state="pr-open"', 1, true) ~= nil)
     t.is_true(issue_written:find('pr="7"', 1, true) ~= nil)
 
-    local pr_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md")
+    local pr_written = read_first_body_file("gh pr comment")
     t.is_true(pr_written:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
   end,
 
@@ -409,7 +423,7 @@ return {
     t.eq(result.raises[1].payload.number, 11)
     t.eq(result.raises[2].queue, "github_pr_opened")
     t.eq(result.raises[2].payload.pr_number, 11)
-    local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
+    local issue_written = read_first_body_file("gh issue comment")
     t.is_true(issue_written:find("github-devloop PR opened: #11", 1, true) ~= nil)
   end,
 
@@ -504,7 +518,7 @@ return {
     t.eq(result.raises[1].payload.number, 9)
     t.eq(result.raises[2].queue, "github_pr_opened")
     t.eq(result.raises[2].payload.pr_number, 9)
-    local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
+    local issue_written = read_first_body_file("gh issue comment")
     t.is_true(issue_written:find("github-devloop PR opened: #9", 1, true) ~= nil)
   end,
 
@@ -568,7 +582,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 1)
     t.eq(count_calls("gh pr create"), 1)
-    local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
+    local issue_written = read_first_body_file("gh issue comment")
     t.is_true(issue_written:find("github-devloop PR opened: #10", 1, true) ~= nil)
   end,
 
@@ -601,7 +615,7 @@ return {
     t.eq(result.raises[2].queue, "github_pr_opened")
     t.eq(result.raises[2].payload.pr_number, 9)
 
-    local pr_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md")
+    local pr_written = read_first_body_file("gh pr comment")
     t.is_true(pr_written:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
     local edit = calls_matching("gh issue edit")[1]
     t.is_true(edit.rendered:find("--add-label 'fkst-dev:pr-open'", 1, true) ~= nil)

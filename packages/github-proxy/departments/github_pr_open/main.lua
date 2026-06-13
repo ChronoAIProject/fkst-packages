@@ -19,16 +19,19 @@ local function safe_segment(value)
   return safe
 end
 
-local function runtime_identity(repo, branch)
+local function runtime_identity(repo, branch, dedup_key)
   local id = "pr-open-" .. safe_segment(repo) .. "-" .. safe_segment(branch)
+  if dedup_key ~= nil and tostring(dedup_key) ~= "" then
+    id = id .. "-" .. safe_segment(dedup_key)
+  end
   if #id > MAX_RUNTIME_ID_LEN then
     return id:sub(1, MAX_RUNTIME_ID_LEN)
   end
   return id
 end
 
-local function temp_body_file(repo, branch, kind)
-  return "/tmp/fkst-github-proxy-" .. runtime_identity(repo, branch) .. "-" .. kind .. ".md"
+local function temp_body_file(repo, branch, dedup_key, kind)
+  return "/tmp/fkst-github-proxy-" .. runtime_identity(repo, branch, dedup_key) .. "-" .. kind .. ".md"
 end
 
 local function lock_name(repo, branch)
@@ -281,7 +284,7 @@ function pipeline(event)
         error("github-proxy: git push failed: " .. tostring(push.stderr))
       end
 
-      local pr_body_path = temp_body_file(repo, payload.branch, "pr-body")
+      local pr_body_path = temp_body_file(repo, payload.branch, payload.dedup_key, "pr-body")
       file.write(pr_body_path, tostring(payload.body))
       local created = core.gh_exec(
         core.gh_pr_create_cmd(repo, payload.branch, payload.base_branch, payload.title, pr_body_path),
@@ -320,7 +323,7 @@ function pipeline(event)
       local issue_body = render_pr_number_template(payload.issue_comment_body_template, pr.number)
         .. "\n\n" .. core.comment_marker(payload.dedup_key)
         .. "\n"
-      local issue_body_path = temp_body_file(repo, payload.branch, "issue-comment")
+      local issue_body_path = temp_body_file(repo, payload.branch, payload.dedup_key, "issue-comment")
       file.write(issue_body_path, issue_body)
       core.gh_exec(
         core.gh_issue_comment_cmd(repo, payload.issue_number, issue_body_path),
@@ -336,7 +339,7 @@ function pipeline(event)
     )
     if not core.has_trusted_comment_fragment(core.parse_issue_comments(pr_view.stdout), tostring(payload.body), bot_login) then
       local pr_body = tostring(payload.body) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
-      local pr_body_path = temp_body_file(repo, payload.branch, "pr-comment")
+      local pr_body_path = temp_body_file(repo, payload.branch, payload.dedup_key, "pr-comment")
       file.write(pr_body_path, pr_body)
       core.gh_exec(
         core.gh_pr_comment_cmd(repo, pr.number, pr_body_path),

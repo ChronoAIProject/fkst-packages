@@ -103,8 +103,8 @@ local function mock_pr_list(items)
 end
 
 local function mock_issue_view(comments, state)
-  t.mock_command("--json title,comments,state", {
-    stdout = '{"title":"Observed issue","state":"' .. json_string(state or "OPEN") .. '","comments":[' .. table.concat(comments or {}, ",") .. "]}\n",
+  t.mock_command("--json title,updatedAt,comments,state", {
+    stdout = '{"title":"Observed issue","updatedAt":"2026-06-03T01:02:03Z","state":"' .. json_string(state or "OPEN") .. '","comments":[' .. table.concat(comments or {}, ",") .. "]}\n",
     stderr = "",
     exit_code = 0,
   })
@@ -427,7 +427,7 @@ return {
     mock_pr_list({ 8 })
     mock_pr_view({
       render_comment(core.pr_origin_marker(proposal_id, "43", "devloop-owner-repo-43", "v1", "integration/dev")),
-      render_comment(core.state_marker(proposal_id, "merge-ready", "v1"), "fkst-test-bot", "2026-06-03T03:03:04Z"),
+      render_comment(core.state_marker(proposal_id, "reviewing", "v1"), "fkst-test-bot", "2026-06-03T03:03:04Z"),
     })
 
     local result = run_observability()

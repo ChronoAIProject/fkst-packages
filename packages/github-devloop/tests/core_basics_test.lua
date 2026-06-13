@@ -645,7 +645,7 @@ return {
       { core.gh_issue_view_fix_cmd, "title,labels,comments" },
       { core.gh_issue_view_review_loop_cmd, "title,labels,comments" },
       { core.gh_issue_view_merge_cmd, "title,labels,comments,state,assignees" },
-      { core.gh_issue_view_observe_cmd, "title,comments,state,stateReason" },
+      { core.gh_issue_view_observe_cmd, "title,updatedAt,comments,state,stateReason" },
     }
 
     for _, case in ipairs(cases) do
