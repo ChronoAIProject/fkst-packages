@@ -29,23 +29,37 @@ local function label_list(labels)
 end
 
 local function target_kind(payload)
-  return payload.target_kind == "pr" and "pr" or "issue"
+  local kind = tostring(payload.target_kind or "issue")
+  if kind ~= "issue" and kind ~= "pr" then
+    return nil
+  end
+  return kind
 end
 
-local function target_number(payload)
-  return payload.issue_number
+local function target_number(payload, kind)
+  if kind == "pr" then
+    return payload.target_number or payload.pr_number or payload.issue_number
+  end
+  return payload.target_number or payload.issue_number
 end
 
 local function log_outbound(payload, repo, add_labels, remove_labels, write_env)
   local mode = write_env == "1" and "real" or "dry-run"
+  local kind = target_kind(payload) or "issue"
+  local number = target_number(payload, kind)
   local fields = {
     "mode=" .. mode,
     "repo=" .. tostring(repo),
-    target_kind(payload) .. "=" .. tostring(target_number(payload)),
     "add=" .. label_list(add_labels),
     "remove=" .. label_list(remove_labels),
     "dedup_key=" .. tostring(payload.dedup_key),
   }
+  if kind == "pr" then
+    table.insert(fields, 3, "target_kind=pr")
+    table.insert(fields, 4, "target_number=" .. tostring(number))
+  else
+    table.insert(fields, 3, "issue=" .. tostring(number))
+  end
   if mode == "dry-run" then
     table.insert(fields, "reason=FKST_GITHUB_WRITE!=1")
   end
@@ -53,35 +67,44 @@ local function log_outbound(payload, repo, add_labels, remove_labels, write_env)
 end
 
 local function log_skip(payload, repo, add_labels, remove_labels, reason)
-  core.log_line("info", "github_issue_label", "SKIP", {
+  local kind = target_kind(payload) or "issue"
+  local number = target_number(payload, kind)
+  local fields = {
     "reason=" .. tostring(reason),
     "repo=" .. tostring(repo),
-    target_kind(payload) .. "=" .. tostring(target_number(payload)),
     "add=" .. label_list(add_labels),
     "remove=" .. label_list(remove_labels),
     "dedup_key=" .. tostring(payload.dedup_key),
-  })
+  }
+  if kind == "pr" then
+    table.insert(fields, 3, "target_kind=pr")
+    table.insert(fields, 4, "target_number=" .. tostring(number))
+  else
+    table.insert(fields, 3, "issue=" .. tostring(number))
+  end
+  core.log_line("info", "github_issue_label", "SKIP", fields)
 end
 
-local function guard_pr_label_write(repo, payload, bot_login)
-  if payload.proposal_id == nil or payload.expected_state == nil or payload.expected_version == nil then
-    log.warn("github-proxy: PR label request missing write-time guard facts")
-    return false
+local function guarded_pr_label_view(repo, pr_number, payload)
+  if payload.expected_proposal_id == nil
+    or payload.expected_state == nil
+    or payload.expected_version == nil then
+    log_skip(payload, repo, {}, {}, "missing-pr-state-guard")
+    return nil
   end
-  local view = core.gh_exec(
-    core.gh_pr_view_comments_cmd(repo, payload.issue_number),
-    30,
-    "gh pr view before PR label edit"
-  )
-  local state = core.current_devloop_state(core.parse_issue_comments(view.stdout), payload.proposal_id, bot_login)
-  if state.state ~= payload.expected_state or tostring(state.version or "") ~= tostring(payload.expected_version) then
-    if core.compare_devloop_state_order(state, payload.expected_state, payload.expected_version) < 0 then
-      error("github-proxy: PR label request target marker is not visible yet")
-    end
-    log_skip(payload, repo, normalize_labels(payload.add_labels), normalize_labels(payload.remove_labels), "stale-pr-state")
-    return false
+  local bot_login = core.assert_trusted_bot_configured()
+  local view = core.gh_exec(core.gh_pr_view_label_guard_cmd(repo, pr_number), 30, "gh pr view label guard")
+  local current = core.parse_entity_label_view(view.stdout)
+  local state = core.current_devloop_state(current.comments, tostring(payload.expected_proposal_id), bot_login)
+  if state.state == nil then
+    error("github-proxy: PR state marker not yet visible for label guard")
   end
-  return true
+  if tostring(state.state or "") ~= tostring(payload.expected_state)
+    or tostring(state.version or "") ~= tostring(payload.expected_version) then
+    log_skip(payload, repo, {}, {}, "pr-state-guard-mismatch")
+    return nil
+  end
+  return current
 end
 
 function pipeline(event)
@@ -90,8 +113,14 @@ function pipeline(event)
     log.warn("github-proxy: unsupported label request schema")
     return
   end
-  if payload.issue_number == nil or payload.dedup_key == nil then
-    log.warn("github-proxy: label request missing issue_number or dedup_key")
+  local kind = target_kind(payload)
+  if kind == nil then
+    log.warn("github-proxy: label request has invalid target_kind")
+    return
+  end
+  local number = target_number(payload, kind)
+  if number == nil or payload.dedup_key == nil then
+    log.warn("github-proxy: label request missing target number or dedup_key")
     return
   end
 
@@ -108,34 +137,38 @@ function pipeline(event)
     return
   end
 
-  local kind = target_kind(payload)
-  if payload.target_kind ~= nil and payload.target_kind ~= "issue" and payload.target_kind ~= "pr" then
-    log.warn("github-proxy: label request has unsupported target_kind")
-    return
-  end
-
-  with_lock(core.issue_label_lock_key(repo, target_number(payload)), function()
+  with_lock(core.entity_label_lock_key(repo, kind, number), function()
     local write_env = core.read_env("FKST_GITHUB_WRITE")
     log_outbound(payload, repo, add_labels, remove_labels, write_env)
     if write_env ~= "1" then
-      log.info("github-proxy dry-run: would set labels on "
-        .. tostring(repo) .. "#" .. tostring(target_number(payload)) .. " "
+      log.info("github-proxy dry-run: would set labels on " .. tostring(kind)
+        .. " " .. tostring(repo) .. "#" .. tostring(number) .. " "
         .. describe_labels(add_labels, remove_labels))
       return
     end
-
+    if kind == "issue"
+      and not core.verify_issue_claim_before_write(payload, repo, number, "github_issue_label") then
+      return
+    end
     if kind == "pr" then
-      local bot_login = core.assert_trusted_bot_configured()
-      if not guard_pr_label_write(repo, payload, bot_login) then
+      if guarded_pr_label_view(repo, number, payload) == nil then
+        return
+      end
+      if payload.issue_number ~= nil
+        and not core.verify_issue_claim_before_write(payload, repo, payload.issue_number, "github_issue_label") then
         return
       end
     end
 
-    local changed = core.apply_issue_labels(repo, target_number(payload), add_labels, remove_labels)
+    local changed = kind == "pr"
+      and core.apply_entity_labels(repo, kind, number, add_labels, remove_labels)
+      or core.apply_issue_labels(repo, number, add_labels, remove_labels)
     if changed ~= true then
       log_skip(payload, repo, add_labels, remove_labels, "no-effective-label-change")
     end
   end)
 end
+
+pipeline = core.wrap_pipeline_failure("github_issue_label", pipeline)
 
 return M

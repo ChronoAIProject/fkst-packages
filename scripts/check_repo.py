@@ -53,6 +53,8 @@ GRAPHQL_FIRST_CONNECTION_RE = re.compile(
 LONG_STRING_CHAR_RE = re.compile(r"\bstring\s*\.\s*char\s*\((?P<args>[^)]*)\)", re.DOTALL)
 NUMERIC_ARG_RE = re.compile(r"(?:^|,)\s*(?:0x[0-9A-Fa-f]+|\d+)\s*(?=,|\Z)")
 HIDDEN_TEXT_STRING_CHAR_ARG_MIN = 6
+ERROR_CALL_STRING_RE = re.compile(r"\berror\s*\(\s*(?P<quote>['\"])(?P<message>[^'\"]*)(?P=quote)")
+ERROR_CLASS_PREFIX_RE = re.compile(r"^[a-z0-9][a-z0-9-]*: [a-z0-9][a-z0-9-]*:")
 HELPER_STRING_ARG_RE = re.compile(
     r"\b(?P<func>(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?[A-Za-z_][A-Za-z0-9_]*)"
     r"\s*\(\s*(?P<quote>[\"'])"
@@ -97,11 +99,20 @@ def repo_root() -> Path:
 
 
 def rel(root: Path, path: Path) -> str:
+    packages_view = packages_root(root)
+    try:
+        return "packages/" + path.relative_to(packages_view).as_posix()
+    except ValueError:
+        pass
     return path.relative_to(root).as_posix()
 
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def packages_root(root: Path) -> Path:
+    return root / ".fkst" / "packages"
 
 
 def line_count(path: Path) -> int:
@@ -364,6 +375,18 @@ def hidden_text_string_char_lines(text: str) -> list[int]:
     return lines
 
 
+def unclassified_error_call_lines(text: str) -> list[int]:
+    stripped = strip_lua_comments_and_strings(text)
+    lines: list[int] = []
+    for match in ERROR_CALL_STRING_RE.finditer(text):
+        if not is_unmasked_range(text, stripped, match.start(), match.start("quote")):
+            continue
+        message = match.group("message")
+        if not ERROR_CLASS_PREFIX_RE.match(message):
+            lines.append(text.count("\n", 0, match.start()) + 1)
+    return lines
+
+
 def helper_name(value: str) -> str:
     return re.sub(r"\s+", "", value).lower()
 
@@ -445,8 +468,7 @@ def hidden_text_encoded_literal_lines(text: str) -> list[int]:
 
 
 def check_line_limit(root: Path, violations: list[str]) -> None:
-    for scan_root_name in ("packages", "scripts"):
-        scan_root = root / scan_root_name
+    for scan_root in (packages_root(root), root / "scripts"):
         if not scan_root.exists():
             continue
         for path in sorted(scan_root.rglob("*")):
@@ -462,7 +484,7 @@ def check_line_limit(root: Path, violations: list[str]) -> None:
 
 
 def package_dirs(root: Path) -> list[Path]:
-    packages = root / "packages"
+    packages = packages_root(root)
     if not packages.exists():
         return []
     return [path for path in sorted(packages.iterdir()) if path.is_dir()]
@@ -707,7 +729,7 @@ def check_helper_reachability(root: Path, violations: list[str]) -> None:
 
 
 def check_graphql_connection_guards(root: Path, warnings: list[str]) -> None:
-    packages = root / "packages"
+    packages = packages_root(root)
     if not packages.exists():
         return
     for path in sorted(packages.rglob("*.lua")):
@@ -722,7 +744,7 @@ def check_graphql_connection_guards(root: Path, warnings: list[str]) -> None:
 
 
 def check_rest_pagination_guards(root: Path, warnings: list[str]) -> None:
-    packages = root / "packages"
+    packages = packages_root(root)
     if not packages.exists():
         return
     for path in sorted(packages.rglob("*.lua")):
@@ -737,7 +759,7 @@ def check_rest_pagination_guards(root: Path, warnings: list[str]) -> None:
 
 
 def check_hidden_text_encoded_literals(root: Path, violations: list[str]) -> None:
-    packages = root / "packages"
+    packages = packages_root(root)
     if not packages.exists():
         return
     for path in sorted(packages.rglob("*.lua")):
@@ -768,7 +790,7 @@ def gh_rate_pool_sizing_lines(text: str) -> list[int]:
 
 
 def check_gh_rate_pool_sizing(root: Path, violations: list[str]) -> None:
-    packages = root / "packages"
+    packages = packages_root(root)
     if not packages.exists():
         return
     for path in sorted(packages.rglob("*.lua")):
@@ -779,6 +801,21 @@ def check_gh_rate_pool_sizing(root: Path, violations: list[str]) -> None:
                 violations,
                 "G7",
                 f"{rel(root, path)}:{line} gh rate pool sizing belongs to FKST_RATE_POOL_GH host posture; package code may declare only the pool name",
+            )
+
+
+def check_error_class_prefixes(root: Path, warnings: list[str]) -> None:
+    packages = root / "packages"
+    if not packages.exists():
+        return
+    for path in sorted(packages.rglob("*.lua")):
+        if not path.is_file() or "tests" in path.relative_to(packages).parts:
+            continue
+        for line in unclassified_error_call_lines(read_text(path)):
+            add(
+                warnings,
+                "G7",
+                f"{rel(root, path)}:{line} production error(...) string lacks a greppable class prefix",
             )
 
 
@@ -835,6 +872,7 @@ def main() -> int:
     check_rest_pagination_guards(root, warnings)
     check_hidden_text_encoded_literals(root, violations)
     check_gh_rate_pool_sizing(root, violations)
+    check_error_class_prefixes(root, warnings)
     check_persistence_classes(root, violations)
 
     for warning in warnings:

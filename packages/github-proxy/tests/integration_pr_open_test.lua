@@ -59,7 +59,12 @@ return {
   test_pr_open_request_pushes_creates_comments_and_labels = function()
     mock_write_env("1")
     mock_bot_env()
-    mock_pr_open_guard(nil, pr_open_guard_comments())
+    local event = pr_open_event()
+    event.payload.claim = {
+      owner = "fkst-test-bot",
+      source_ref = event.payload.source_ref,
+    }
+    mock_pr_open_guard(nil, pr_open_guard_comments(), { "fkst-test-bot" })
     mock_branch_head("abc123")
     mock_pr_head_list("[]\n")
     mock_git_push()
@@ -72,7 +77,7 @@ return {
     mock_pr_open_guard({ "fkst-dev:implementing" }, pr_open_visible_comments())
     mock_label_write()
 
-    local result = t.run_department("departments/github_pr_open/main.lua", pr_open_event(), opts("pr-open-write", {
+    local result = t.run_department("departments/github_pr_open/main.lua", event, opts("pr-open-write", {
       FKST_GITHUB_WRITE = "1",
     }))
     t.eq(result.exit_code, 0)
@@ -118,6 +123,26 @@ return {
     local pr_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md")
     t.is_true(pr_written:find('state="pr-open"', 1, true) ~= nil)
     t.is_true(pr_written:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
+  end,
+
+  test_pr_open_request_skips_when_issue_claim_is_lost = function()
+    mock_write_env("1")
+    mock_bot_env()
+    local event = pr_open_event()
+    event.payload.claim = {
+      owner = "fkst-test-bot",
+      source_ref = event.payload.source_ref,
+    }
+    mock_pr_open_guard(nil, pr_open_guard_comments(), { "other-bot" })
+
+    local result = t.run_department("departments/github_pr_open/main.lua", event, opts("pr-open-claim-lost", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("git push -u origin"), 0)
+    t.eq(count_calls("gh pr create"), 0)
+    t.eq(count_calls("gh issue comment"), 0)
+    t.eq(count_calls("gh pr comment"), 0)
   end,
 
   test_pr_open_request_read_after_write_lag_skips_tail_label_update = function()
@@ -205,6 +230,11 @@ return {
     mock_bot_env()
     t.mock_command("--json title,body,comments,labels,state", {
       stdout = '{"title":"Cached","body":"","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(core.gh_entity_updated_at_cmd("owner/x", "issue", 42), {
+      stdout = "2026-06-03T01:02:03Z\n",
       stderr = "",
       exit_code = 0,
     })

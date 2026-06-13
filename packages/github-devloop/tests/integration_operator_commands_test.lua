@@ -111,6 +111,12 @@ local function find_issue_comment_raise(raises, needle)
   return nil
 end
 
+local function find_pr_label_raise(raises)
+  return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
+    return payload.target_kind == "pr"
+  end)
+end
+
 return {
   test_trusted_rereview_command_reenters_reviewing = function()
     local impl_version = reviewing().version
@@ -124,7 +130,7 @@ return {
     local result = run_observe_pr(pr_event(), opts("operator-rereview"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    local label_raise = find_pr_label_raise(result.raises)
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:operator-command:v1", 1, true) ~= nil)
@@ -132,7 +138,7 @@ return {
     t.eq(reviewing_raise.payload.version, impl_version .. "/review-loop/3/review-loop/4/rereview/4/feedface")
     t.eq(reviewing_raise.payload.source_ref.ref, "owner/repo#pr/7")
     t.eq(label_raise.payload.target_kind, "pr")
-    t.eq(label_raise.payload.issue_number, 7)
+    t.eq(tostring(label_raise.payload.issue_number), "42")
     t.eq(label_raise.payload.expected_state, "reviewing")
     t.eq(label_raise.payload.expected_version, reviewing_raise.payload.version)
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
@@ -238,12 +244,12 @@ return {
     local result = run_observe_pr(pr_event(), opts("operator-rereview-stalled-reviewing"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    local label_raise = find_pr_label_raise(result.raises)
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.eq(reviewing_raise.payload.version, impl_version .. "/review-loop/1/rereview/1/feedface")
     t.eq(label_raise.payload.target_kind, "pr")
-    t.eq(label_raise.payload.issue_number, 7)
+    t.eq(tostring(label_raise.payload.issue_number), "42")
     t.eq(label_raise.payload.expected_state, "reviewing")
     t.eq(label_raise.payload.expected_version, reviewing_raise.payload.version)
   end,
@@ -306,12 +312,37 @@ return {
     t.eq(proposal_raise.payload.prior_round_digests[1].digest, "digest-7")
   end,
 
+  test_issue_rereview_command_reenters_stalled_plain_thinking = function()
+    local event = issue({
+      updated_at = "2026-06-03T04:05:06Z",
+      view_cache_key = "github-proxy/view/owner/repo/issue/42/2026-06-03T04-05-06Z",
+    })
+    local command = trusted_issue_command("rereview", "IC_issue_rereview_plain_stalled")
+    local base_version = core.build_proposal(event).dedup_key
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
+      core.state_marker(core.proposal_id(event.repo, event.number), "thinking", base_version),
+      command,
+    })
+
+    local result = run_observe(event, opts("operator-issue-rereview-plain-stalled"))
+    t.eq(result.exit_code, 0)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    local proposal_raise = find_raise(result.raises, "consensus.proposal")
+    t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
+    t.eq(proposal_raise.payload.dedup_key, base_version .. "/replay")
+    t.eq(proposal_raise.payload.round, nil)
+    t.eq(proposal_raise.payload.source_ref.ref, "owner/repo#issue/42")
+  end,
+
   test_issue_rereview_command_active_thinking_refuses_once = function()
     local event = issue()
     local command = trusted_issue_command("rereview", "IC_issue_rereview_active")
     local base_version = core.build_proposal(event).dedup_key
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
-      core.state_marker(core.proposal_id(event.repo, event.number), "thinking", base_version),
+      {
+        body = core.state_marker(core.proposal_id(event.repo, event.number), "thinking", base_version),
+        created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
+      },
       command,
     })
 
@@ -319,12 +350,15 @@ return {
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment_raise.payload.body:find("operator command refused", 1, true) ~= nil)
-    t.is_true(comment_raise.payload.body:find("thinking converge state", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find("stalled thinking state", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('outcome="refused"', 1, true) ~= nil)
     t.eq(find_raise(result.raises, "consensus.proposal"), nil)
 
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
-      core.state_marker(core.proposal_id(event.repo, event.number), "thinking", base_version),
+      {
+        body = core.state_marker(core.proposal_id(event.repo, event.number), "thinking", base_version),
+        created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
+      },
       command,
       comment_raise.payload.body,
     })
@@ -366,5 +400,25 @@ return {
     t.is_true(comment_raise.payload.body:find("operator command refused", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("reready requires ready state", 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
+  end,
+
+  test_issue_reimplement_command_reenters_impl_failed = function()
+    local event = reached()
+    local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
+      core.state_marker(event.proposal_id, "impl-failed", event.dedup_key),
+      core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed"),
+      command,
+    })
+
+    local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }), opts("operator-issue-reimplement"))
+    t.eq(result.exit_code, 0)
+    local command_response = find_issue_comment_raise(result.raises, "operator command accepted: reimplement")
+    local ready_raise = find_raise(result.raises, "devloop_ready")
+    t.is_true(command_response ~= nil)
+    t.is_true(command_response.payload.body:find('command="reimplement"', 1, true) ~= nil)
+    t.is_true(ready_raise ~= nil)
+    t.eq(ready_raise.payload.proposal_id, event.proposal_id)
+    t.eq(ready_raise.payload.impl_retry_attempt, 2)
   end,
 }

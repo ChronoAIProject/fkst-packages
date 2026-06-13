@@ -4,6 +4,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
+import subprocess
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -57,6 +61,30 @@ local query = 'query { repository(owner:"o", name:"r") { issues(first:10) { page
         source = """
 -- query { repository(owner:"o", name:"r") { issues(first:10) { nodes { number } } } }
 local query = 'query { repository(owner:"o", name:"r") { issues(first:10) { totalCount nodes { number } } } }'
+"""
+        self.assertEqual(self.warning_lines(source), [])
+
+
+class ErrorClassPrefixGuardTest(unittest.TestCase):
+    def warning_lines(self, source: str) -> list[int]:
+        return check_repo.unclassified_error_call_lines(source)
+
+    def test_warns_error_without_class_prefix(self) -> None:
+        source = """
+error("github-devloop: failed without narrow class")
+"""
+        self.assertEqual(self.warning_lines(source), [2])
+
+    def test_allows_error_with_class_prefix(self) -> None:
+        source = """
+error("github-devloop: gh-view-failed: details")
+"""
+        self.assertEqual(self.warning_lines(source), [])
+
+    def test_ignores_comments_and_dynamic_messages(self) -> None:
+        source = """
+-- error("github-devloop: failed without narrow class")
+error(prefix .. detail)
 """
         self.assertEqual(self.warning_lines(source), [])
 
@@ -179,10 +207,66 @@ class RunScriptContractTest(unittest.TestCase):
         self.assertIn('python3 -B "$ROOT/scripts/check_repo_test.py"', source)
         self.assertIn('python3 -B "$ROOT/scripts/bin_cache_test.py"', source)
         self.assertIn('python3 -B "$ROOT/scripts/bin_bootstrap_test.py"', source)
+        self.assertIn('python3 -B "$ROOT/scripts/doctor_test.py"', source)
         self.assertNotIn('python3 "$ROOT/scripts/check_repo.py"', source)
         self.assertNotIn('python3 "$ROOT/scripts/check_repo_test.py"', source)
         self.assertNotIn('python3 "$ROOT/scripts/bin_cache_test.py"', source)
         self.assertNotIn('python3 "$ROOT/scripts/bin_bootstrap_test.py"', source)
+        self.assertNotIn('python3 "$ROOT/scripts/doctor_test.py"', source)
+
+    def test_full_test_blocks_on_repository_check_before_engine_resolution(self) -> None:
+        source = self.source()
+
+        self.assertIn("elif ! _chk_out=\"$(cmd_check 2>&1)\"; then", source)
+        self.assertIn("printf '%s\\n' \"$_chk_out\"; exit 1", source)
+        self.assertLess(source.index("cmd_check"), source.index("resolve_bin; ensure_fresh_bin; cmd_test"))
+
+    def test_full_test_fails_on_g1_before_bin_resolution(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = Path(tmp) / "repo"
+            scripts = probe / "scripts"
+            pkg = probe / ".fkst" / "packages" / "oversized"
+            scripts.mkdir(parents=True)
+            pkg.mkdir(parents=True)
+
+            for name in ("run.sh", "bin_bootstrap.sh", "check_repo.py"):
+                shutil.copy2(root / "scripts" / name, scripts / name)
+            for name in ("check_repo_test.py", "bin_cache_test.py", "bin_bootstrap_test.py", "doctor_test.py"):
+                (scripts / name).write_text("#!/usr/bin/env python3\nraise SystemExit(0)\n", encoding="utf-8")
+
+            core_lines = [
+                "local M = {}",
+                "function M.persistence_class() return \"stateless_adapter\" end",
+                "return M",
+            ]
+            core_lines.extend("-- filler" for _ in range(check_repo.LINE_LIMIT + 1 - len(core_lines)))
+            (pkg / "core.lua").write_text("\n".join(core_lines) + "\n", encoding="utf-8")
+
+            env = os.environ.copy()
+            env["BIN"] = str(probe / "missing-fkst-framework")
+            result = subprocess.run(
+                ["/bin/bash", "scripts/run.sh", "test"],
+                cwd=probe,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        combined = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("repository check failed:", combined)
+        self.assertIn("G1: packages/oversized/core.lua has 1001 lines; limit is 1000", combined)
+        self.assertNotIn("explicit BIN is not executable", combined)
+
+
+class RepositoryInterfaceContractTest(unittest.TestCase):
+    def test_repository_checks_scan_fkst_packages_view(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+
+        self.assertEqual(check_repo.packages_root(root), root / ".fkst" / "packages")
 
 
 if __name__ == "__main__":

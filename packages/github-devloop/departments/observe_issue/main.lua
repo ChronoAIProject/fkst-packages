@@ -14,6 +14,9 @@ M.spec = {
     "devloop_fixing",
     "devloop_decompose",
     "devloop_merge_ready",
+    "devloop_reconcile",
+    "devloop_review_reconcile",
+    "devloop_timeout_reconcile",
   },
   fanout = { "github-proxy.github_entity_changed" },
   stall_window = "30s",
@@ -22,11 +25,87 @@ M.spec = {
 local observe_replay_states = {
   thinking = true,
   ready = true,
+  implementing = true,
   ["pr-open"] = true,
   fixing = true,
   ["review-meta"] = true,
   blocked = true,
+  ["impl-failed"] = true,
 }
+
+local function thinking_state_budget_exceeded(state)
+  local threshold = core.stall_suspect_threshold_minutes("thinking")
+  local marker_seconds = core.iso_timestamp_epoch_seconds(state and state.marker_created_at)
+  if threshold == nil or marker_seconds == nil then
+    return false
+  end
+  return now() - marker_seconds >= threshold * 60
+end
+
+local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state)
+  local row = core.restart_transition_row(state.state)
+  local facts = {
+    proposal_id = proposal_id,
+    current = current,
+    link = link,
+    snapshot = snapshot,
+    event_ts = event_ts,
+  }
+  if issue.source == "liveness-scan"
+    and state.state == "pr-open"
+    and issue_state ~= nil
+    and issue_state.state == state.state
+    and tostring(issue_state.version or "") == tostring(state.version or "")
+    and core.liveness_timeout_due(row, state, now()) then
+    local timeout_state = {
+      state = state.state,
+      version = core.next_liveness_timeout_version(row, state),
+      proposal_id = state.proposal_id,
+      stage_rank = state.stage_rank,
+      marker_created_at = state.marker_created_at,
+    }
+    return core.replay_from_table("observe_issue", issue, timeout_state, row, facts)
+  end
+  if observe_replay_states[state.state] and state.state == "thinking" then
+    if issue_state ~= nil
+      and issue_state.state == state.state
+      and tostring(issue_state.version or "") == tostring(state.version or "")
+      and core.liveness_timeout_due(row, state, now()) then
+      if core.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts) then
+        return true
+      end
+    end
+    return core.replay_from_table("observe_issue", issue, state, row, facts)
+  end
+  if observe_replay_states[state.state]
+    and core.replay_from_table("observe_issue", issue, state, row, facts) then
+    return true
+  end
+  if observe_replay_states[state.state] and state.state ~= "thinking" then
+    return false
+  end
+  if issue_state == nil
+    or issue_state.state ~= state.state
+    or tostring(issue_state.version or "") ~= tostring(state.version or "") then
+    return false
+  end
+  return core.maybe_timeout_redrive_from_table("observe_issue", issue, state, row, facts)
+end
+
+local function ensure_managed_issue_claim(issue, proposal_id, current, state)
+  local claim_state = core.issue_claim_state(current.assignees, core.claim_owner())
+  if claim_state == "other" then
+    core.log_cas_decision("observe_issue", proposal_id, state, state.state, state.state, "skip-claim-lost", "CLAIM lost before managed issue handling")
+    return false
+  end
+  if core.maybe_release_stale_self_claim("observe_issue", issue.repo, issue.number, current, proposal_id, state) then
+    return core.claim_issue_for_management("observe_issue", issue.repo, issue.number, { assignees = {} }, proposal_id)
+  end
+  if claim_state == "self" then
+    return true
+  end
+  return core.claim_issue_for_management("observe_issue", issue.repo, issue.number, current, proposal_id)
+end
 
 local function maybe_apply_issue_rereview_command(issue, proposal_id, current, state, event_ts)
   local command = core.operator_command_fact(current.comments, "rereview")
@@ -37,13 +116,26 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
     core.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
-  if state.state ~= "thinking" or not core.has_thinking_converge_replay(current, proposal_id, state, issue.source_ref) then
-    core.log_cas_decision("observe_issue", proposal_id, state, "thinking-converge", "thinking", "refused(invalid-state)", "operator rereview requires thinking converge")
+  if state.state ~= "thinking" then
+    core.log_cas_decision("observe_issue", proposal_id, state, "thinking", "thinking", "refused(invalid-state)", "operator rereview requires thinking")
     local refusal = core.build_operator_issue_command_refusal_request(
       issue.repo,
       issue.number,
       command,
-      "rereview requires thinking converge state",
+      "rereview requires thinking state",
+      issue.source_ref
+    )
+    core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
+    return true
+  end
+  if not core.has_thinking_converge_replay(current, proposal_id, state, issue.source_ref)
+    and not thinking_state_budget_exceeded(state) then
+    core.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "refused(active-thinking)", "operator rereview requires stalled thinking")
+    local refusal = core.build_operator_issue_command_refusal_request(
+      issue.repo,
+      issue.number,
+      command,
+      "rereview requires stalled thinking state",
       issue.source_ref
     )
     core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
@@ -128,10 +220,139 @@ local function maybe_apply_issue_reready_command(issue, proposal_id, current, st
   return true
 end
 
+local function has_unmet_blocker(gate, blocker_number)
+  if type(gate) ~= "table" or type(gate.unmet) ~= "table" then
+    return false
+  end
+  for _, number in ipairs(gate.unmet) do
+    if tonumber(number) == tonumber(blocker_number) then
+      return true
+    end
+  end
+  return false
+end
+
+local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, current, state)
+  local command = core.operator_command_fact(current.comments, "dependency-waiver")
+  if command == nil then
+    return false
+  end
+  if core.has_operator_command_response(current.comments, command) then
+    core.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
+    return false
+  end
+  if state.state ~= "ready" then
+    core.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "refused(invalid-state)", "operator dependency waiver requires ready state")
+    local refusal = core.build_operator_issue_command_refusal_request(
+      issue.repo,
+      issue.number,
+      command,
+      "dependency-waiver requires ready state",
+      issue.source_ref
+    )
+    core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
+    return true
+  end
+
+  local blocker_number = command.blocker_number
+  local gate = core.dependency_gate(issue.repo, issue.number, {
+    proposal_id = proposal_id,
+    version = state.version,
+    comments = current.comments,
+  })
+  if gate.kind ~= "waiting"
+    or gate.reason ~= "dependency-waiver-required"
+    or not has_unmet_blocker(gate, blocker_number) then
+    core.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "refused(invalid-dependency-waiver)", "operator dependency waiver requires a matching completed blocker without merged marker")
+    local refusal = core.build_operator_issue_command_refusal_request(
+      issue.repo,
+      issue.number,
+      command,
+      "dependency-waiver requires a matching completed blocker without merged marker",
+      issue.source_ref
+    )
+    core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
+    return true
+  end
+
+  local comment_request = core.build_operator_issue_dependency_waiver_comment_request(
+    issue.repo,
+    issue.number,
+    command,
+    proposal_id,
+    state.version,
+    blocker_number,
+    issue.source_ref
+  )
+  local payload = core.build_devloop_ready_payload({
+    proposal_id = proposal_id,
+    dedup_key = state.version,
+    source_ref = issue.source_ref,
+  })
+  core.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "applied(operator-dependency-waiver)", "trusted operator command created dependency waiver")
+  core.log_apply("observe_issue", proposal_id, nil, nil, { add = {}, remove = {} }, {
+    "github-proxy.github_issue_comment_request",
+    "devloop_ready",
+  })
+  core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+  core.log_raise("observe_issue", proposal_id, "devloop_ready", payload)
+  return true
+end
+
+local function maybe_apply_issue_reimplement_command(issue, proposal_id, current, state)
+  local command = core.operator_command_fact(current.comments, "reimplement")
+  if command == nil then
+    return false
+  end
+  if core.has_operator_command_response(current.comments, command) then
+    core.log_cas_decision("observe_issue", proposal_id, state, "impl-failed", "implementing", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
+    return false
+  end
+  if state.state ~= "impl-failed" then
+    core.log_cas_decision("observe_issue", proposal_id, state, "impl-failed", "implementing", "refused(invalid-state)", "operator reimplement requires impl-failed state")
+    local refusal = core.build_operator_issue_command_refusal_request(
+      issue.repo,
+      issue.number,
+      command,
+      "reimplement requires impl-failed state",
+      issue.source_ref
+    )
+    core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
+    return true
+  end
+
+  local attempt = 1
+  local failure = core.impl_failure_fact(current.comments, proposal_id, state.version)
+  if failure ~= nil then
+    attempt = tonumber(failure.attempt or 1) + 1
+  end
+  local payload = core.build_devloop_ready_payload({
+    proposal_id = proposal_id,
+    dedup_key = state.version,
+    source_ref = issue.source_ref,
+    impl_retry_attempt = attempt,
+  })
+  local comment_request = core.build_operator_issue_reimplement_comment_request(
+    issue.repo,
+    issue.number,
+    command,
+    attempt,
+    issue.source_ref
+  )
+  core.log_cas_decision("observe_issue", proposal_id, state, "impl-failed", "implementing", "applied(operator-reimplement)", "trusted operator command requested implementation retry")
+  core.log_apply("observe_issue", proposal_id, nil, nil, { add = {}, remove = {} }, {
+    "github-proxy.github_issue_comment_request",
+    "devloop_ready",
+  })
+  core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+  core.log_raise("observe_issue", proposal_id, "devloop_ready", payload)
+  return true
+end
+
 function pipeline(event)
   local issue = event.payload or {}
   if not core.is_supported_issue(issue) then
-    core.log_entry("observe_issue", event, "unknown", issue.dedup_key)
+    core.log_entry("observe_issue", event, "unknown", core.payload_field(issue, "dedup_key"))
     core.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "unmanaged", "thinking", "skip-foreign(proposal_id)", "unsupported event payload")
     return
   end
@@ -161,11 +382,21 @@ function pipeline(event)
     local snapshot = core.linked_entity_snapshot(issue.repo, proposal_id, current.comments)
     snapshot.fresh = true
     local state = snapshot.state
+    local issue_state = core.current_state(current.comments, proposal_id)
     if state.state ~= nil then
+      if not ensure_managed_issue_claim(issue, proposal_id, current, state) then
+        return
+      end
       if maybe_apply_issue_rereview_command(issue, proposal_id, current, state, event.ts) then
         return
       end
       if maybe_apply_issue_reready_command(issue, proposal_id, current, state) then
+        return
+      end
+      if maybe_apply_issue_dependency_waiver_command(issue, proposal_id, current, state) then
+        return
+      end
+      if maybe_apply_issue_reimplement_command(issue, proposal_id, current, state) then
         return
       end
       if not core.state_label_hint_matches(current.labels, state.state) then
@@ -177,14 +408,7 @@ function pipeline(event)
         core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", label_request)
       end
       raise_stale_dependency_label_clear(issue, proposal_id, state, current.labels)
-      if observe_replay_states[state.state] then
-        core.replay_from_table("observe_issue", issue, state, core.restart_transition_row(state.state), {
-          proposal_id = proposal_id,
-          current = current,
-          link = link,
-          snapshot = snapshot,
-          event_ts = event.ts,
-        })
+      if replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event.ts, issue_state) then
         return
       end
     end
@@ -196,6 +420,9 @@ function pipeline(event)
     if transition == "pending" then
       core.log_cas_decision("observe_issue", proposal_id, state, "unmanaged", "thinking", core.cas_outcome(state, transition, issue.dedup_key), "unmanaged state marker pending for observe")
       error("github-devloop: unmanaged state marker pending for observe; retrying")
+    end
+    if not core.claim_issue_for_management("observe_issue", issue.repo, issue.number, current, proposal_id) then
+      return
     end
     core.log_cas_decision("observe_issue", proposal_id, state, "unmanaged", "thinking", core.cas_outcome(state, transition, issue.dedup_key), "starting consensus for opted-in issue")
 
@@ -226,5 +453,7 @@ function pipeline(event)
     core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", label_request)
   end)
 end
+
+pipeline = core.wrap_pipeline_failure("observe_issue", pipeline)
 
 return M

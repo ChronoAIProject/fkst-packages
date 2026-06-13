@@ -151,7 +151,7 @@ return {
     local label_raise = find_issue_label_raise(result.raises)
     local pr_label_raise = find_pr_label_raise(result.raises, "merged")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:merged")
-    t.eq(pr_label_raise.payload.issue_number, event.pr_number)
+    t.eq(tostring(pr_label_raise.payload.issue_number), "42")
     t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:merged")
     t.is_true(comment_raise.payload.body:find('state="merging"', 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('state="merged"', 1, true) ~= nil)

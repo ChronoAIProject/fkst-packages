@@ -325,15 +325,17 @@ function M.merging_marker(issue_proposal_id, pr_number, version, head_sha)
     .. '" -->'
 end
 
-function M.intake_decision_marker(issue_proposal_id, decision, dedup_key)
+function M.intake_decision_marker(issue_proposal_id, decision, dedup_key, service_class)
   if decision ~= "enable" and decision ~= "track" and decision ~= "decline" and decision ~= "escalate-to-class" then
     error("github-devloop: invalid intake decision")
   end
   if not M._is_bounded_string(dedup_key, M._max_dedup_len) then
     error("github-devloop: invalid intake dedup")
   end
+  local normalized_class = M.normalize_intake_service_class(service_class)
   return '<!-- fkst:github-devloop:intake-decision:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" decision="' .. tostring(decision)
+    .. '" class="' .. normalized_class
     .. '" dedup="' .. tostring(dedup_key)
     .. '" -->'
 end
@@ -347,6 +349,7 @@ function M.intake_decision_fact(comments, issue_proposal_id)
     for marker in M._comment_body(comment):gmatch(marker_pattern) do
       local marker_issue = marker:match('proposal="([^"]+)"')
       local decision = marker:match('decision="([^"]+)"')
+      local service_class = M.normalize_intake_service_class(marker:match('class="([^"]+)"'))
       local dedup = marker:match('dedup="([^"]*)"')
       if marker_issue == tostring(issue_proposal_id)
         and (decision == "enable" or decision == "track" or decision == "decline" or decision == "escalate-to-class")
@@ -354,6 +357,7 @@ function M.intake_decision_fact(comments, issue_proposal_id)
         return {
           proposal_id = marker_issue,
           decision = decision,
+          service_class = service_class,
           dedup_key = dedup,
           comment_created_at = M._comment_created_at(comment),
         }
@@ -516,10 +520,12 @@ function M.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
       local marker_review_dedup = marker:match('review_dedup="([^"]*)"')
       local marker_head_sha = marker:match('head_sha="([^"]+)"')
       local marker_gate_baseline_sha = marker:match('gate_baseline_sha="([^"]+)"')
+      local marker_reason = marker:match('reason="([^"]+)"')
       if marker_issue == tostring(issue_proposal_id)
         and marker_version == tostring(issue_version)
         and M._is_bounded_string(marker_review_proposal, M._max_key_len)
         and M._is_bounded_string(marker_review_dedup, M._max_dedup_len)
+        and M._is_bounded_string(marker_reason, M._max_key_len)
         and M._is_git_sha(marker_head_sha)
         and (marker_gate_baseline_sha == nil or M._is_git_sha(marker_gate_baseline_sha)) then
         local fact = {
@@ -527,6 +533,7 @@ function M.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
           review_dedup_key = marker_review_dedup,
           reviewed_head_sha = marker_head_sha,
           gate_baseline_sha = marker_gate_baseline_sha,
+          reason = marker_reason,
           review_reason = M._comment_body(comment),
         }
         if first_fact == nil then
@@ -709,14 +716,6 @@ end
 function M.has_merged_marker(comments, issue_proposal_id, pr_number, version, head_sha)
   local fact = M.merged_fact(comments, issue_proposal_id, pr_number, version)
   return fact ~= nil and tostring(fact.head_sha) == tostring(head_sha)
-end
-
-function M.impl_failure_marker(proposal_id, dedup_key, reason)
-  local safe_reason = M.sanitize_key(reason or "failed"):gsub("/", "-")
-  return '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. tostring(proposal_id)
-    .. '" reason="' .. safe_reason
-    .. '" dedup="' .. tostring(dedup_key)
-    .. '" -->'
 end
 
 function M.has_review_result_marker(comments, review_proposal_id, issue_proposal_id, decision, dedup_key)
@@ -963,27 +962,6 @@ function M.has_orphan_reaped_marker(comments, proposal_id, pr_number)
     end
   end
   return false
-end
-
-function M.has_impl_failure_marker(comments, proposal_id, dedup_key)
-  if type(comments) ~= "table" then
-    return false
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:impl%-failure:v1.-%-%->"
-  for _, comment in ipairs(M._trusted_marker_comments(comments)) do
-    for marker in M._comment_body(comment):gmatch(marker_pattern) do
-      local marker_proposal = marker:match('proposal="([^"]+)"')
-      local marker_dedup = marker:match('dedup="([^"]*)"')
-      if marker_proposal == proposal_id and marker_dedup == tostring(dedup_key) then
-        return true
-      end
-    end
-  end
-  return false
-end
-function M.has_implementation_fact_marker(comments, proposal_id, dedup_key)
-  return M.has_implementing_marker(comments, proposal_id, dedup_key)
-    or M.has_impl_failure_marker(comments, proposal_id, dedup_key)
 end
 
 function M.result_marker(proposal_id, decision, dedup_key)

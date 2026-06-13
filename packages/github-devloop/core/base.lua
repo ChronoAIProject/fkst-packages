@@ -24,6 +24,7 @@ local max_pr_title_len = 240
 local max_judgment_prefix_len = 120
 local action_label = "⟦FKST:ACTION⟧"
 local intake_label = "⟦FKST:INTAKE⟧"
+local class_label = "⟦FKST:CLASS⟧"
 local reason_label = "⟦FKST:REASON⟧"
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -94,7 +95,7 @@ local state_graph = {
   merged = {},
   fixing = { "reviewing", "review-meta" },
   ["review-meta"] = { "fixing", "blocked" },
-  ["impl-failed"] = {},
+  ["impl-failed"] = { "implementing" },
   blocked = {},
 }
 
@@ -567,6 +568,31 @@ function M.intake_dedup_key(proposal_id, updated_at)
   })
 end
 
+function M.intake_candidate_delivery_dedup_key(proposal_id, effect_id, delivery_version)
+  return M._dedup_key({
+    "intake-candidate",
+    tostring(proposal_id),
+    tostring(effect_id),
+    M.safe_updated_at(delivery_version or "unknown"),
+  })
+end
+
+function M.intake_decision_dedup_key(proposal_id, current, reintake_command)
+  local reintake_created_at = "none"
+  if reintake_command ~= nil then
+    reintake_created_at = tostring(reintake_command.created_at or "unknown")
+  end
+  return M._dedup_key({
+    tostring(proposal_id),
+    "intake",
+    decimal_checksum(table.concat({
+      "title=" .. tostring(current and current.title or ""),
+      "body=" .. tostring(current and current.body or ""),
+      "reintake_created_at=" .. reintake_created_at,
+    }, "\n")),
+  })
+end
+
 function M.ci_dispatch_once_key(repo, pr_number, head_sha)
   return M._dedup_key({
     "github-devloop",
@@ -784,6 +810,7 @@ function M.neutralize_untrusted_prompt_text(text)
     if sentinel_line:match("^%s*" .. action_label) ~= nil
       or sentinel_line:match("^%s*" .. reason_label) ~= nil
       or sentinel_line:match("^%s*" .. intake_label) ~= nil
+      or sentinel_line:match("^%s*" .. class_label) ~= nil
       or sentinel_line:match("^%s*" .. verdict_label) ~= nil
       or sentinel_line:match("^%s*" .. reply_label) ~= nil
       or trim(line) == untrusted_issue_data_begin
@@ -915,6 +942,7 @@ M._max_pr_issue_context_len = max_pr_issue_context_len
 M._max_pr_title_len = max_pr_title_len
 M._action_label = action_label
 M._intake_label = intake_label
+M._class_label = class_label
 M._reason_label = reason_label
 M._verdict_label = verdict_label
 M._reply_label = reply_label

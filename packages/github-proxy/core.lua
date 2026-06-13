@@ -1,5 +1,7 @@
 local M = {}
 
+require("core.error_facts").install(M)
+
 function M.persistence_class()
   return "stateless_adapter"
 end
@@ -7,13 +9,14 @@ end
 require("core.issue_create").install(M)
 require("core.entity_view").install(M)
 require("core.gh_rate").install(M)
-require("core.labels").install(M)
 require("core.comment").install(M)
+require("core.claims").install(M)
 
 local allowed_env = {
   FKST_GITHUB_REPO = true,
   FKST_GITHUB_BOT_LOGIN = true,
   FKST_GITHUB_WRITE = true,
+  FKST_DEVLOOP_REPLAY_BUDGET = true,
 }
 local trusted_bot_login = nil
 local max_branch_len = 160
@@ -32,10 +35,6 @@ local state_stage_rank = {
   blocked = 800,
   merged = 900,
 }
-
-function M.stage_rank(state)
-  return state_stage_rank[state] or 0
-end
 
 local function shell_single_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
@@ -109,6 +108,22 @@ function M.read_env(name, exec)
     return nil
   end
   return out.stdout
+end
+
+function M.devloop_replay_budget(exec)
+  local ok, value = pcall(M.read_env, "FKST_DEVLOOP_REPLAY_BUDGET", exec)
+  if not ok then
+    return 10
+  end
+  if value == nil then
+    return 10
+  end
+  value = tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+  local parsed = tonumber(value)
+  if parsed == nil or parsed ~= math.floor(parsed) or parsed < 1 or parsed > 100 then
+    error("github-proxy: invalid FKST_DEVLOOP_REPLAY_BUDGET")
+  end
+  return parsed
 end
 
 function M.log_line(level, dept, tag, fields)
@@ -247,6 +262,18 @@ function M.issue_label_lock_key(repo, issue_number)
   return "github-proxy/label-lock/" .. id
 end
 
+function M.entity_label_lock_key(repo, target_kind, number)
+  local kind = tostring(target_kind or "issue")
+  if kind ~= "issue" and kind ~= "pr" then
+    kind = "issue"
+  end
+  local id = sanitize_runtime_segment(repo) .. "/" .. kind .. "/" .. sanitize_runtime_segment(number)
+  if #id > 180 then
+    id = id:sub(1, 180)
+  end
+  return "github-proxy/label-lock/" .. id
+end
+
 function M.is_safe_branch(branch) return is_git_ref_safe(branch) end
 
 function M.is_safe_pr_number(pr_number) return is_positive_number(pr_number) end
@@ -312,6 +339,7 @@ function M.parse_issue_state(gh_json_stdout)
   return {
     labels = labels,
     comments = M.parse_issue_comments(gh_json_stdout),
+    assignees = M.assignee_logins(decoded.assignees),
   }
 end
 
@@ -369,15 +397,6 @@ local function version_review_meta_action_round(version)
   return max_n
 end
 
-local function version_review_loop_round(version)
-  local max_n = 0
-  for n in tostring(version or ""):gmatch("/review%-loop/(%d+)") do
-    local parsed = tonumber(n) or 0
-    if parsed > max_n then max_n = parsed end
-  end
-  return max_n
-end
-
 local function version_order_key(version)
   local text = tostring(version or "")
   local rest = text
@@ -415,7 +434,6 @@ local function version_sort_key(version, stage_rank)
     loop_n = version_loop_round(version),
     fix_n = version_fix_round(version),
     review_meta_action_n = version_review_meta_action_round(version),
-    review_loop_n = version_review_loop_round(version),
     stage_rank = tonumber(stage_rank) or 0,
   }
 end
@@ -442,9 +460,6 @@ local function compare_state_marker(current, candidate)
   if candidate_key.review_meta_action_n ~= current_key.review_meta_action_n then
     return candidate_key.review_meta_action_n > current_key.review_meta_action_n
   end
-  if candidate_key.review_loop_n ~= current_key.review_loop_n then
-    return candidate_key.review_loop_n > current_key.review_loop_n
-  end
   if candidate.version == current.version
     and ((current.state == "ready" and candidate.state == "blocked") or (current.state == "blocked" and candidate.state == "ready")) then
     return candidate.state == "blocked"
@@ -453,33 +468,6 @@ local function compare_state_marker(current, candidate)
     return candidate_key.stage_rank > current_key.stage_rank
   end
   return false
-end
-
-function M.compare_devloop_state_order(current, target_state, target_version)
-  if current == nil or current.version == nil then
-    return -1
-  end
-  local current_key = version_sort_key(current.version, current.stage_rank)
-  local target_key = version_sort_key(target_version, M.stage_rank(target_state))
-  if current_key.primary ~= target_key.primary then
-    return current_key.primary > target_key.primary and 1 or -1
-  end
-  if current_key.loop_n ~= target_key.loop_n then
-    return current_key.loop_n > target_key.loop_n and 1 or -1
-  end
-  if current_key.fix_n ~= target_key.fix_n then
-    return current_key.fix_n > target_key.fix_n and 1 or -1
-  end
-  if current_key.review_meta_action_n ~= target_key.review_meta_action_n then
-    return current_key.review_meta_action_n > target_key.review_meta_action_n and 1 or -1
-  end
-  if current_key.review_loop_n ~= target_key.review_loop_n then
-    return current_key.review_loop_n > target_key.review_loop_n and 1 or -1
-  end
-  if current_key.stage_rank ~= target_key.stage_rank then
-    return current_key.stage_rank > target_key.stage_rank and 1 or -1
-  end
-  return 0
 end
 
 function M.current_devloop_state(comments, proposal_id, bot_login)
@@ -588,7 +576,7 @@ end
 function M.gh_issue_view_pr_open_guard_cmd(repo, issue_number)
   return "gh issue view " .. shell_single_quote(issue_number)
     .. " --repo " .. shell_single_quote(repo)
-    .. " --json labels,comments"
+    .. " --json labels,comments,assignees"
 end
 
 function M.parse_pr_list_for_head(gh_json_stdout, branch)
@@ -757,6 +745,202 @@ function M.gh_issue_view_labels_cmd(repo, issue_number)
   return "gh issue view " .. shell_single_quote(issue_number)
     .. " --repo " .. shell_single_quote(repo)
     .. " --json labels"
+end
+
+function M.gh_pr_view_labels_cmd(repo, pr_number)
+  return "gh pr view " .. shell_single_quote(pr_number)
+    .. " --repo " .. shell_single_quote(repo)
+    .. " --json labels"
+end
+
+function M.gh_pr_view_label_guard_cmd(repo, pr_number)
+  return "gh pr view " .. shell_single_quote(pr_number)
+    .. " --repo " .. shell_single_quote(repo)
+    .. " --json labels,comments"
+end
+
+function M.gh_label_list_cmd(repo)
+  return "gh label list --repo " .. shell_single_quote(repo) .. " --limit 1000 --json name"
+end
+
+local fkst_dev_label_colors = {
+  ["fkst-dev:enabled"] = "1D76DB",
+  ["fkst-dev:tracking"] = "C5DEF5",
+  ["fkst-dev:thinking"] = "8250DF",
+  ["fkst-dev:ready"] = "0E8A16",
+  ["fkst-dev:implementing"] = "FBCA04",
+  ["fkst-dev:pr-open"] = "006B75",
+  ["fkst-dev:reviewing"] = "5319E7",
+  ["fkst-dev:fixing"] = "D93F0B",
+  ["fkst-dev:merge-ready"] = "2EA44F",
+  ["fkst-dev:merging"] = "C2E0C6",
+  ["fkst-dev:merged"] = "8957E5",
+  ["fkst-dev:impl-failed"] = "B60205",
+  ["fkst-dev:blocked"] = "1B1F23",
+  ["fkst-dev:blocked-on-dependency"] = "E99695",
+  ["fkst-dev:review-meta"] = "BFD4F2",
+}
+
+function M.gh_label_create_cmd(repo, label)
+  local color = fkst_dev_label_colors[label] or "ededed"
+  return "gh label create " .. shell_single_quote(label)
+    .. " --repo " .. shell_single_quote(repo)
+    .. " --color " .. shell_single_quote(color)
+end
+
+function M.parse_issue_labels(gh_json_stdout)
+  local decoded = json.decode(gh_json_stdout or "{}")
+  local labels = {}
+  for _, label in ipairs(decoded.labels or {}) do
+    if type(label) == "table" and label.name ~= nil then
+      table.insert(labels, tostring(label.name))
+    elseif type(label) == "string" then
+      table.insert(labels, label)
+    end
+  end
+  return labels
+end
+
+function M.parse_entity_label_view(gh_json_stdout)
+  local decoded = json.decode(gh_json_stdout or "{}")
+  return {
+    labels = M.parse_issue_labels(gh_json_stdout),
+    comments = M.parse_issue_comments(gh_json_stdout),
+    raw = decoded,
+  }
+end
+
+function M.parse_repo_labels(gh_json_stdout)
+  local decoded = json.decode(gh_json_stdout or "[]")
+  local labels = {}
+  for _, label in ipairs(decoded or {}) do
+    if type(label) == "table" and label.name ~= nil then
+      table.insert(labels, tostring(label.name))
+    elseif type(label) == "string" then
+      table.insert(labels, label)
+    end
+  end
+  return labels
+end
+
+local function label_set(labels)
+  local set = {}
+  for _, label in ipairs(labels or {}) do
+    set[tostring(label)] = true
+  end
+  return set
+end
+
+local function normalized_unique_labels(labels)
+  local unique = {}
+  local seen = {}
+  for _, label in ipairs(labels or {}) do
+    local text = tostring(label)
+    if text ~= "" and not seen[text] then
+      seen[text] = true
+      table.insert(unique, text)
+    end
+  end
+  return unique
+end
+
+function M.is_gh_label_already_exists(result)
+  local lower = command_result_stderr(result):lower()
+  return lower:find("already exists", 1, true) ~= nil
+    or lower:find("name already exists", 1, true) ~= nil
+end
+
+function M.ensure_repo_label(repo, label, existing_labels)
+  if existing_labels[label] then
+    return true
+  end
+
+  local ok, result_or_error = M.gh_exec_result(M.gh_label_create_cmd(repo, label), 30, "gh label create")
+  if not ok then
+    local raw_result = result_or_error.result
+    if raw_result == nil or not M.is_gh_label_already_exists(raw_result) then
+      error(result_or_error.message)
+    end
+  end
+  existing_labels[label] = true
+  return true
+end
+
+function M.gh_issue_edit_labels_cmd(repo, issue_number, add_labels, remove_labels)
+  local cmd = "gh issue edit " .. shell_single_quote(issue_number)
+    .. " --repo " .. shell_single_quote(repo)
+  for _, label in ipairs(add_labels or {}) do
+    cmd = cmd .. " --add-label " .. shell_single_quote(label)
+  end
+  for _, label in ipairs(remove_labels or {}) do
+    cmd = cmd .. " --remove-label " .. shell_single_quote(label)
+  end
+  return cmd
+end
+
+function M.gh_pr_edit_labels_cmd(repo, pr_number, add_labels, remove_labels)
+  local cmd = "gh pr edit " .. shell_single_quote(pr_number)
+    .. " --repo " .. shell_single_quote(repo)
+  for _, label in ipairs(add_labels or {}) do
+    cmd = cmd .. " --add-label " .. shell_single_quote(label)
+  end
+  for _, label in ipairs(remove_labels or {}) do
+    cmd = cmd .. " --remove-label " .. shell_single_quote(label)
+  end
+  return cmd
+end
+
+function M.apply_entity_labels(repo, target_kind, number, add_labels, remove_labels)
+  local add = normalized_unique_labels(add_labels)
+  local remove = normalized_unique_labels(remove_labels)
+  if #add == 0 and #remove == 0 then
+    return false
+  end
+
+  local listed = M.gh_exec(M.gh_label_list_cmd(repo), 30, "gh label list")
+  local existing = label_set(M.parse_repo_labels(listed.stdout))
+
+  for _, label in ipairs(add) do
+    M.ensure_repo_label(repo, label, existing)
+  end
+
+  local safe_remove = {}
+  for _, label in ipairs(remove) do
+    if existing[label] then
+      table.insert(safe_remove, label)
+    else
+      log.info("github-proxy: label remove skipped because repo label is missing: " .. label)
+    end
+  end
+
+  if #add == 0 and #safe_remove == 0 then
+    return false
+  end
+
+  local kind = tostring(target_kind or "issue")
+  local edit_cmd = nil
+  local edit_context = nil
+  if kind == "issue" then
+    edit_cmd = M.gh_issue_edit_labels_cmd(repo, number, add, safe_remove)
+    edit_context = "gh issue edit"
+  elseif kind == "pr" then
+    edit_cmd = M.gh_pr_edit_labels_cmd(repo, number, add, safe_remove)
+    edit_context = "gh pr edit"
+  else
+    error("github-proxy: invalid label target kind")
+  end
+
+  M.gh_exec(
+    edit_cmd,
+    30,
+    edit_context
+  )
+  M.invalidate_entity_after_write(repo, kind, number)
+  return true
+end
+
+function M.apply_issue_labels(repo, issue_number, add_labels, remove_labels)
+  return M.apply_entity_labels(repo, "issue", issue_number, add_labels, remove_labels)
 end
 
 return M

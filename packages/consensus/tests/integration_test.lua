@@ -73,6 +73,25 @@ local function codex_calls()
   return calls
 end
 
+local function assert_call_contains(calls, expected)
+  for _, call in ipairs(calls) do
+    if tostring(call.stdin or ""):find(expected, 1, true) ~= nil then
+      return
+    end
+  end
+  error("missing codex stdin fragment: " .. expected)
+end
+
+local function count_verdicts(items, verdict)
+  local count = 0
+  for _, item in ipairs(items or {}) do
+    if item.verdict == verdict then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function assert_judgment_worktree(call, role)
   t.is_true(call.rendered:find(" -C ", 1, true) ~= nil)
   t.is_true(call.rendered:find("/judgment-worktrees/consensus-" .. role, 1, true) ~= nil)
@@ -166,6 +185,11 @@ return {
 
     local calls = codex_calls()
     t.eq(#calls, 3)
+    assert_call_contains(calls, "Angle: minimal")
+    assert_call_contains(calls, "Angle: structural")
+    assert_call_contains(calls, "Angle: delete")
+    assert_call_contains(calls, "source_ref.ref: demo/consensus/42")
+    assert_call_contains(calls, "fetch-source --ref demo/consensus/42 --full")
     local minimal_call = judgment_call("angle-minimal")
     local structural_call = judgment_call("angle-structural")
     local delete_call = judgment_call("angle-delete")
@@ -239,7 +263,7 @@ return {
     t.is_nil(minimal_call.stdin:find("runtime-cache:consensus-test/context", 1, true))
   end,
 
-  test_runtime_cache_context_manifest_missing_file_fails_closed = function()
+  test_runtime_cache_context_manifest_missing_file_ack_drops_without_judgment = function()
     mock_judgment_runtime()
     local run_opts = opts("stdin-runtime-cache-missing-file")
     seed_cache("consensus-test/missing-context", "Issue JSON: /tmp/fkst-packages-test/consensus/missing-file.json", run_opts)
@@ -248,7 +272,43 @@ return {
       content_fetch = "runtime-cache:consensus-test/missing-context",
     }), run_opts)
 
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(#codex_calls(), 0)
+  end,
+
+  test_runtime_cache_context_cache_miss_is_terminal_ack_drop = function()
+    mock_judgment_runtime()
+
+    local result = run_decide(proposal({
+      content_fetch = "runtime-cache:consensus-test/stale-missing-context",
+    }), opts("stdin-runtime-cache-stale-miss"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(#codex_calls(), 0)
+  end,
+
+  test_runtime_cache_context_unreadable_manifest_file_is_terminal_ack_drop = function()
+    mock_judgment_runtime()
+    local run_opts = opts("stdin-runtime-cache-stale-file")
+    local root = run_opts.env.FKST_RUNTIME_ROOT
+    os.execute("mkdir -p " .. shell_single_quote(root .. "/ctx"))
+    local issue = assert(io.open(root .. "/ctx/issue.json", "w"))
+    issue:write("issue")
+    issue:close()
+    local notice = assert(io.open(root .. "/ctx/UNTRUSTED-NOTICE.txt", "w"))
+    notice:write("notice")
+    notice:close()
+    seed_cache("consensus-test/stale-file", "Untrusted notice: " .. root .. "/ctx/UNTRUSTED-NOTICE.txt\nIssue JSON: " .. root .. "/ctx/issue.json", run_opts)
+    os.remove(root .. "/ctx/issue.json")
+
+    local result = run_decide(proposal({
+      content_fetch = "runtime-cache:consensus-test/stale-file",
+    }), run_opts)
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
     t.eq(#codex_calls(), 0)
   end,
 
@@ -286,12 +346,8 @@ return {
     t.eq(result.raises[1].payload.source_ref.kind, "proposal")
     t.eq(result.raises[1].payload.source_ref.ref, "demo/consensus/42")
     t.eq(#result.raises[1].payload.angle_digests, 3)
-    local verdict_counts = {}
-    for _, digest in ipairs(result.raises[1].payload.angle_digests) do
-      verdict_counts[digest.verdict] = (verdict_counts[digest.verdict] or 0) + 1
-    end
-    t.eq(verdict_counts.approve, 2)
-    t.eq(verdict_counts.abstain, 1)
+    t.eq(count_verdicts(result.raises[1].payload.angle_digests, "approve"), 2)
+    t.eq(count_verdicts(result.raises[1].payload.angle_digests, "abstain"), 1)
     t.is_nil(result.raises[1].payload.body)
     t.is_nil(result.raises[1].payload.angle_results)
     t.is_nil(result.raises[1].payload.decision)
@@ -344,7 +400,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
-    t.eq(result.raises[1].payload.angle_digests[1].verdict, "invalid")
+    t.eq(count_verdicts(result.raises[1].payload.angle_digests, "invalid"), 1)
     t.eq(result.raises[1].payload.narrowed_question, "What concern prevents approval?")
     t.eq(#codex_calls(), 4)
   end,
@@ -475,6 +531,8 @@ return {
 
     local calls = codex_calls()
     t.eq(#calls, 2)
+    assert_call_contains(calls, "Angle: minimal")
+    assert_call_contains(calls, "Angle: delete")
     t.is_true(judgment_call("angle-minimal").stdin:find("Angle: minimal", 1, true) ~= nil)
     t.is_true(judgment_call("angle-delete").stdin:find("Angle: delete", 1, true) ~= nil)
   end,
@@ -492,6 +550,31 @@ return {
 
     -- identical dedup_key -> idempotent skip, no new codex calls
     local second = run_decide(proposal(), run_opts)
+    t.eq(second.exit_code, 0)
+    t.eq(#second.raises, 0)
+    t.eq(#codex_calls(), 3)
+  end,
+
+  test_same_decision_dedup_key_skips_updated_effect_version_refire = function()
+    local run_opts = opts("effect-version-refire")
+    mock_judgment_runtime()
+    mock_angle("minimal", "approve", "Minimal angle approves.")
+    mock_angle("structural", "approve", "Structural angle approves.")
+    mock_angle("delete", "approve", "Delete angle approves.")
+
+    local first = run_decide(proposal({
+      dedup_key = "proposal-42/intake/1234567890",
+      effect_version = "intake/proposal-42/2026-06-03T01-02-03Z",
+    }), run_opts)
+    t.eq(first.exit_code, 0)
+    t.eq(#first.raises, 1)
+    t.eq(first.raises[1].payload.dedup_key, "consensus:proposal-42/intake/1234567890")
+    t.eq(first.raises[1].payload.effect_version, "intake/proposal-42/2026-06-03T01-02-03Z")
+
+    local second = run_decide(proposal({
+      dedup_key = "proposal-42/intake/1234567890",
+      effect_version = "intake/proposal-42/2026-06-03T01-22-03Z",
+    }), run_opts)
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 0)
     t.eq(#codex_calls(), 3)

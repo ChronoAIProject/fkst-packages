@@ -46,6 +46,10 @@ local function mock_repo_env(value)
   t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = value or "owner/x" })
 end
 
+local function mock_replay_budget_env(value)
+  t.mock_command('printf %s "$FKST_DEVLOOP_REPLAY_BUDGET"', { stdout = value or "" })
+end
+
 local function mock_write_env(value)
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = value or "" })
 end
@@ -129,9 +133,9 @@ local function mock_label_view(labels)
   })
 end
 
-local function mock_pr_open_guard(labels, comments)
+local function mock_pr_label_guard(labels, comments)
   local rendered_labels = {}
-  for _, label in ipairs(labels or { "fkst-dev:implementing" }) do
+  for _, label in ipairs(labels or {}) do
     table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
   end
   local rendered_comments = {}
@@ -144,6 +148,34 @@ local function mock_pr_open_guard(labels, comments)
   end
   t.mock_command("--json labels,comments", {
     stdout = '{"labels":[' .. table.concat(rendered_labels, ",") .. '],"comments":[' .. table.concat(rendered_comments, ",") .. "]}\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function assignees_json(assignees)
+  local rendered = {}
+  for _, assignee in ipairs(assignees or { "fkst-test-bot" }) do
+    table.insert(rendered, string.format('{"login":"%s"}', json_string(assignee)))
+  end
+  return table.concat(rendered, ",")
+end
+
+local function mock_pr_open_guard(labels, comments, assignees)
+  local rendered_labels = {}
+  for _, label in ipairs(labels or { "fkst-dev:implementing" }) do
+    table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
+  end
+  local rendered_comments = {}
+  for _, comment in ipairs(comments or {}) do
+    if type(comment) == "table" then
+      table.insert(rendered_comments, comment_json(comment.body, comment.author_login or comment.author))
+    else
+      table.insert(rendered_comments, comment_json(comment, "fkst-test-bot"))
+    end
+  end
+  t.mock_command("--json labels,comments,assignees", {
+    stdout = '{"labels":[' .. table.concat(rendered_labels, ",") .. '],"comments":[' .. table.concat(rendered_comments, ",") .. '],"assignees":[' .. assignees_json(assignees) .. "]}\n",
     stderr = "",
     exit_code = 0,
   })
@@ -466,6 +498,7 @@ return {
   runtime_root = runtime_root,
   opts = opts,
   mock_repo_env = mock_repo_env,
+  mock_replay_budget_env = mock_replay_budget_env,
   mock_write_env = mock_write_env,
   mock_bot_env = mock_bot_env,
   mock_issue_list = mock_issue_list,
@@ -476,6 +509,7 @@ return {
   mock_comment_view = mock_comment_view,
   mock_comment_view_failure = mock_comment_view_failure,
   mock_label_view = mock_label_view,
+  mock_pr_label_guard = mock_pr_label_guard,
   mock_pr_open_guard = mock_pr_open_guard,
   mock_branch_head = mock_branch_head,
   mock_branch_head_descends = mock_branch_head_descends,
