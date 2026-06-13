@@ -106,6 +106,14 @@ return {
     t.eq(count_calls("--json title,labels,comments"), 0)
   end,
 
+  test_review_pr_marker_visibility_retry_is_bounded_by_spec = function()
+    local mod = require("departments.review_pr.main")
+
+    t.eq(mod.spec.retry.max_attempts, 12)
+    t.eq(mod.spec.retry.base, "5s")
+    t.eq(mod.spec.retry.cap, "30s")
+  end,
+
   test_merge_remains_the_ci_status_gate = function()
     local event = merge_ready()
     mock_bot_env()

@@ -10,6 +10,7 @@ M.spec = {
     "github-proxy.github_issue_label_request",
   },
   stall_window = "2m",
+  retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
 local function emit_blocked_reconcile(kind, proposal_id, state, version, action, reason, comment_request, label_request, comment_queue)

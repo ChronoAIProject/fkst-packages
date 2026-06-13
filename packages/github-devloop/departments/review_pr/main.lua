@@ -12,30 +12,6 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
-local function reviewing_transition_status(state, reviewing_version)
-  if state == nil or state.version == nil then
-    return "pending"
-  end
-
-  local state_base = core.strip_transition_version_suffixes(state.version)
-  local reviewing_base = core.strip_transition_version_suffixes(reviewing_version)
-  if state.state == "reviewing" then
-    if tostring(state_base) == tostring(reviewing_base) then
-      return "apply"
-    end
-    return "version-mismatch"
-  end
-
-  local canonical_order = core.compare_state_marker_order({
-    state = state.state,
-    version = state_base,
-  }, "reviewing", reviewing_base)
-  if canonical_order < 0 then
-    return "pending"
-  end
-  return "stale"
-end
-
 function pipeline(event)
   local reviewing = event.payload or {}
   if not core.is_supported_reviewing(reviewing) then
@@ -69,7 +45,7 @@ function pipeline(event)
     local current_pr = core.parse_pr_view_origin(pr_view.stdout)
     core.log_forged_markers("review_pr", reviewing.proposal_id, current_pr.comments)
     local state = core.current_entity_state(current_pr.comments, reviewing.proposal_id)
-    local transition = reviewing_transition_status(state, reviewing.version)
+    local transition = core.reviewing_version_transition_status(state, reviewing.version)
     if transition == "pending" then
       core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "retry-pending(reviewing marker not yet visible)", "reviewing state marker not yet visible")
       error("github-devloop: reviewing state marker not yet visible for PR review; retrying")

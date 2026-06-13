@@ -340,6 +340,31 @@ function M.compare_state_marker_order(current, target_state, target_version)
   return sign_order(M.stage_rank(current.state) - M.stage_rank(target_state))
 end
 
+function M.reviewing_version_transition_status(state, reviewing_version)
+  if state == nil or state.version == nil then
+    return "pending"
+  end
+
+  local state_base = strip_transition_version_suffixes(state.version)
+  local reviewing_base = strip_transition_version_suffixes(reviewing_version)
+  if state.state == "reviewing" then
+    if tostring(state_base) == tostring(reviewing_base)
+      or tostring(M.safe_version_segment(state_base)) == tostring(M.safe_version_segment(reviewing_base)) then
+      return "apply"
+    end
+    return "version-mismatch"
+  end
+
+  local canonical_order = M.compare_state_marker_order({
+    state = state.state,
+    version = state_base,
+  }, "reviewing", reviewing_base)
+  if canonical_order < 0 then
+    return "pending"
+  end
+  return "stale"
+end
+
 local function compare_state_marker(a, b)
   if a == nil then
     return true
