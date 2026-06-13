@@ -41,7 +41,7 @@ local function issue_view_json(labels, comments, state)
     table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
   end
   return string.format(
-    '{"title":"Implement dependency cascade","state":"%s","labels":[%s],"comments":[%s]}\n',
+    '{"title":"Implement dependency cascade","state":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}]}\n',
     json_string(state or "OPEN"),
     table.concat(rendered_labels, ","),
     issue_comments_json(comments)
@@ -54,7 +54,7 @@ local function observe_issue_state_json(labels, comments, state)
     table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
   end
   return string.format(
-    '{"state":"%s","labels":[%s],"comments":[%s]}\n',
+    '{"state":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}]}\n',
     json_string(state or "OPEN"),
     table.concat(rendered_labels, ","),
     issue_comments_json(comments)
@@ -477,6 +477,11 @@ return {
   end,
 
   test_dependency_gate_cross_repo_and_failures_unresolvable = function()
+    t.mock_command(core.read_env_command("FKST_DEVLOOP_MANAGED_SIBLING_REPOS"), {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_blocked_by(42, { { number = 41, repo = "other/repo" } })
     local cross_repo = core.dependency_gate(repo, 42)
     t.eq(cross_repo.ok, false)
