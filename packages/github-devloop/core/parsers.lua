@@ -141,6 +141,23 @@ function M.parse_issue_list_observe(stdout)
   return parse_numbered_list(stdout)
 end
 
+function M.parse_issue_list_recent_closed(stdout)
+  local decoded = json.decode(stdout or "[]")
+  local issues = {}
+  each_paginated_item(decoded, function(issue)
+    local number = type(issue) == "table" and tonumber(issue.number) or nil
+    if number ~= nil then
+      table.insert(issues, {
+        number = number,
+        title = tostring(issue.title or ""),
+        closed_at = issue.closedAt or issue.closed_at,
+        labels = label_names(issue.labels),
+      })
+    end
+  end)
+  return issues
+end
+
 function M.parse_dashboard_issue_list(stdout)
   local decoded = json.decode(stdout or "[]")
   local items = {}

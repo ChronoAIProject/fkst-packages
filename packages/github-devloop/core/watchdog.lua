@@ -286,10 +286,84 @@ local function has_intake_decision(entity)
   return false
 end
 
-local function add_queue_starvation_alert(alerts, repo, list, counts, now_seconds, window)
-  if tonumber(counts and counts.merged or 0) > 0 then
-    return
+local function merged_marker_seconds_from_comments(comments)
+  local latest = nil
+  local marker_pattern = "<!%-%- fkst:github%-devloop:merged:v1.-%-%->"
+  for _, comment in ipairs(M._trusted_marker_comments(comments or {})) do
+    if M._comment_body(comment):find(marker_pattern) ~= nil then
+      local seconds = M.iso_timestamp_epoch_seconds(M._comment_created_at(comment))
+      if seconds ~= nil and (latest == nil or seconds > latest) then
+        latest = seconds
+      end
+    end
   end
+  return latest
+end
+
+local function comment_has_merged_marker(comment)
+  return M._comment_body(comment):find("<!%-%- fkst:github%-devloop:merged:v1.-%-%->") ~= nil
+end
+
+local function has_merged_marker_comment(comments)
+  for _, comment in ipairs(M._trusted_marker_comments(comments or {})) do
+    if comment_has_merged_marker(comment) then
+      return true
+    end
+  end
+  return false
+end
+
+local function consider_merged_event(candidate, entity, fallback_timestamp)
+  local seconds = merged_marker_seconds_from_comments(entity and entity.parent_issue and entity.parent_issue.comments)
+  if seconds == nil and fallback_timestamp ~= nil and has_merged_marker_comment(entity and entity.parent_issue and entity.parent_issue.comments) then
+    seconds = M.iso_timestamp_epoch_seconds(fallback_timestamp)
+  end
+  if seconds ~= nil and (candidate.seconds == nil or seconds > candidate.seconds) then
+    candidate.seconds = seconds
+    candidate.issue = format_entity_ref(entity)
+  end
+end
+
+local function fetch_recent_merged_issues(repo)
+  local listed = M.gh_exec({ cmd = M.gh_issue_list_recent_closed_cmd(repo, 30), timeout = 30 })
+  if listed.exit_code ~= 0 then
+    error("github-devloop: gh watchdog recent closed issue list failed: " .. tostring(listed.stderr))
+  end
+  local merged = {}
+  for _, issue in ipairs(M.parse_issue_list_recent_closed(listed.stdout)) do
+    if M.has_label(issue.labels, M._merged_label) then
+      table.insert(merged, issue)
+    end
+  end
+  table.sort(merged, function(a, b)
+    return tostring(a.closed_at or "") > tostring(b.closed_at or "")
+  end)
+  return merged
+end
+
+local function fetch_issue(repo, issue_number)
+  local view = M.gh_exec({ cmd = M.gh_issue_view_observe_cmd(repo, issue_number), timeout = 30 })
+  if view.exit_code ~= 0 then
+    error("github-devloop: gh watchdog merged issue view failed: " .. tostring(view.stderr))
+  end
+  return M.parse_issue_view_observe(view.stdout)
+end
+
+local function latest_merged_event(repo, list)
+  local candidate = {}
+  for _, entity in ipairs(list or {}) do
+    consider_merged_event(candidate, entity)
+  end
+  for _, issue in ipairs(fetch_recent_merged_issues(repo)) do
+    consider_merged_event(candidate, {
+      issue_number = issue.number,
+      parent_issue = fetch_issue(repo, issue.number),
+    }, issue.closed_at)
+  end
+  return candidate
+end
+
+local function add_queue_starvation_alert(alerts, repo, list, now_seconds, window, facts)
   local candidates = {}
   for _, entity in ipairs(list or {}) do
     if entity.state ~= nil and entity.state.state == "merge-ready" then
@@ -302,13 +376,23 @@ local function add_queue_starvation_alert(alerts, repo, list, counts, now_second
   if #candidates == 0 then
     return
   end
+  facts = facts or latest_merged_event(repo, list)
+  local merge_age = minutes_since(facts and facts.seconds, now_seconds)
+  if merge_age ~= nil and merge_age <= queue_starvation_threshold_minutes then
+    return
+  end
   table.sort(candidates, function(a, b)
     return tostring(a.entity.proposal_id or "") < tostring(b.entity.proposal_id or "")
   end)
   local head = candidates[1]
+  local merge_fact = "last_merge_age_minutes=unknown"
+  if merge_age ~= nil then
+    merge_fact = "last_merge_age_minutes=" .. tostring(merge_age)
+  end
   table.insert(alerts, build_alert(repo, "queue-starvation", "merge-ready", {
     "merge_ready_count=" .. tostring(#candidates),
-    "merged_count=0",
+    merge_fact,
+    "last_merge_issue=" .. tostring(facts and facts.issue or ""),
     "threshold_minutes=" .. tostring(queue_starvation_threshold_minutes),
     "queue_head=" .. format_entity_ref(head.entity),
     "queue_head_age_minutes=" .. tostring(head.age_minutes),
@@ -356,7 +440,7 @@ end
 function M.watchdog_alerts(repo, list, counts, stalls, now_seconds)
   local window = window_id(now_seconds)
   local alerts = {}
-  add_queue_starvation_alert(alerts, repo, list, counts, now_seconds, window)
+  add_queue_starvation_alert(alerts, repo, list, now_seconds, window)
   add_intake_silence_alerts(alerts, repo, list, now_seconds, window)
   add_budget_breach_alerts(alerts, repo, stalls, window)
   table.sort(alerts, function(a, b)

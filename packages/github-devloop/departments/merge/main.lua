@@ -16,7 +16,6 @@ M.spec = {
 }
 
 local MAX_RUNTIME_ID_LEN = 180
-
 local function safe_segment(value)
   local safe = tostring(value or ""):gsub("[^%w._-]", "_")
   safe = safe:gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
@@ -25,7 +24,6 @@ local function safe_segment(value)
   end
   return safe
 end
-
 local function runtime_identity(repo, issue_number)
   local id = "merge-" .. safe_segment(repo) .. "-issue-" .. safe_segment(issue_number)
   if #id > MAX_RUNTIME_ID_LEN then
@@ -33,11 +31,9 @@ local function runtime_identity(repo, issue_number)
   end
   return id
 end
-
 local function temp_body_file(repo, issue_number)
   return "/tmp/fkst-github-devloop-" .. runtime_identity(repo, issue_number) .. ".md"
 end
-
 local function log_gate(merge_ready, outcome, reason)
   local pass = merge_ready and merge_ready._merge_pass
   local fields = {

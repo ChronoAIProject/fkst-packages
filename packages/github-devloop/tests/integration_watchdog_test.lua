@@ -143,6 +143,28 @@ local function mock_issue_view(comments, updated_at)
   })
 end
 
+local function mock_recent_closed_issues(items)
+  local rendered = {}
+  for _, item in ipairs(items or {}) do
+    local labels = {}
+    for _, label in ipairs(item.labels or {}) do
+      table.insert(labels, '{"name":"' .. json_string(label):sub(2, -2) .. '"}')
+    end
+    table.insert(rendered, string.format(
+      '{"number":%d,"title":"%s","closedAt":"%s","labels":[%s]}',
+      tonumber(item.number),
+      json_string(item.title or "Closed issue"):sub(2, -2),
+      json_string(item.closed_at or "2026-06-03T01:02:03Z"):sub(2, -2),
+      table.concat(labels, ",")
+    ))
+  end
+  t.mock_command("--state closed --limit 30 --json number,title,closedAt,labels", {
+    stdout = "[" .. table.concat(rendered, ",") .. "]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function find_raise(result, queue, predicate)
   for _, raised in ipairs(result.raises or {}) do
     if raised.queue == queue and (predicate == nil or predicate(raised.payload)) then
@@ -162,6 +184,7 @@ return {
     mock_env()
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
+    mock_recent_closed_issues({})
     mock_issue_view({
       render_comment(core.state_marker(proposal_id, "merge-ready", version_minutes_ago(11)), "fkst-test-bot"),
     })
@@ -183,6 +206,7 @@ return {
     t.eq(payload._watchdog_detector, nil)
     t.is_true(payload.body:find("Detector: queue-starvation", 1, true) ~= nil)
     t.is_true(payload.body:find("queue_head=#42", 1, true) ~= nil)
+    t.is_true(payload.body:find("last_merge_age_minutes=unknown", 1, true) ~= nil)
     t.is_true(payload.body:find("Evidence snapshot: /tmp/fkst-packages-test/github-devloop/runtime/watchdog-incidents/", 1, true) ~= nil)
     t.is_true(payload.body:find("Do not repair runtime state in place", 1, true) ~= nil)
     local snapshot = payload.body:match("Evidence snapshot: ([^\n]+)")
@@ -196,6 +220,7 @@ return {
     mock_env()
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
+    mock_recent_closed_issues({})
     mock_issue_view({}, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 11 * 60))
 
     local result = run_observability("watchdog-intake-silence")
@@ -216,6 +241,7 @@ return {
     mock_env()
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
+    mock_recent_closed_issues({})
     mock_issue_view({
       render_comment('<!-- fkst:github-devloop:intake-decision:v1 proposal="' .. proposal_id .. '" decision="enable" class="standard" dedup="intake/42" -->', "fkst-test-bot"),
     }, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 11 * 60))
@@ -234,6 +260,7 @@ return {
     mock_env()
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
+    mock_recent_closed_issues({})
     mock_issue_view({
       render_comment(core.state_marker(proposal_id, "reviewing", version), "fkst-test-bot"),
     })
@@ -263,6 +290,7 @@ return {
     })
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
+    mock_recent_closed_issues({})
     mock_issue_view({
       render_comment(core.state_marker(proposal_id, "merge-ready", version_minutes_ago(11)), "fkst-test-bot"),
     })
@@ -284,5 +312,28 @@ return {
       end
     end
     t.is_true(has_tail)
+  end,
+
+  test_watchdog_skips_queue_starvation_when_recent_merge_event_exists = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local merged_proposal_id = "github-devloop/issue/owner/repo/41"
+    mock_env()
+    mock_all_issue_lists({ 41, 42 })
+    mock_pr_list({})
+    mock_recent_closed_issues({})
+    mock_issue_view({
+      render_comment(core.state_marker(merged_proposal_id, "merged", version_minutes_ago(2)), "fkst-test-bot", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 2 * 60)),
+      render_comment(core.merged_marker(merged_proposal_id, 7, version_minutes_ago(2), "def456"), "fkst-test-bot", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 2 * 60)),
+    })
+    mock_issue_view({
+      render_comment(core.state_marker(proposal_id, "merge-ready", version_minutes_ago(11)), "fkst-test-bot"),
+    })
+
+    local result = run_observability("watchdog-recent-merge")
+
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "github-proxy.github_issue_create_request", function(payload)
+      return payload.title == "Self-diagnosis watchdog: merge queue starvation"
+    end), nil)
   end,
 }
