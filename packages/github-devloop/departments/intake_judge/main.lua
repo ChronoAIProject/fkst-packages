@@ -3,6 +3,12 @@ local core = require("core")
 local M = {}
 
 M.spec = {
+  -- devloop_intake_candidate stays RELIABLE: it is the source_ref parent for the
+  -- reliable consensus.proposal this dept raises (an all-ephemeral consumer cannot
+  -- propagate a source_ref to a reliable raised event — composed conformance enforces
+  -- this). Issue #512's intake strand was consumer STARVATION caused by the durable
+  -- observe-tick storm, not the candidate's durability; making the tick queues
+  -- ephemeral (this PR) unblocks the intake consumer so due candidates get re-leased.
   consumes = { "devloop_intake_candidate" },
   produces = {
     "consensus.proposal",

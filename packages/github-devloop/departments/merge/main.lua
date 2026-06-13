@@ -12,6 +12,7 @@ M.spec = {
     "devloop_fixing",
     "devloop_merge_queue_tick",
   },
+  ephemeral = { "devloop_merge_queue_tick" },
   fanout = { "devloop_merge_queue_tick" },
   stall_window = "2m",
 }

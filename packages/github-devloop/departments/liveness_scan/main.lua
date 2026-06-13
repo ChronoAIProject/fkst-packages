@@ -7,6 +7,10 @@ M.spec = {
   consumes = { "devloop_liveness_tick" },
   produces = { "github-proxy.github_entity_changed" },
   fanout = { "devloop_liveness_tick" },
+  -- Level signal: a 5m cron re-fires the sweep, which re-derives every non-terminal
+  -- entity from GitHub. Ephemeral so accumulated ticks cannot thundering-herd the
+  -- sweep on restart.
+  ephemeral = { "devloop_liveness_tick" },
   stall_window = "30s",
 }
 

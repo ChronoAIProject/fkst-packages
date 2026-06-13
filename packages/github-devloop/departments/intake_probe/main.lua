@@ -5,6 +5,7 @@ local M = {}
 M.spec = {
   consumes = { "devloop_intake_probe_tick" },
   produces = { "devloop_intake_candidate" },
+  ephemeral = { "devloop_intake_probe_tick" },
   fanout = { "devloop_intake_probe_tick" },
   stall_window = "30s",
 }

@@ -8,6 +8,7 @@ M.spec = {
     "devloop_intake_candidate",
     "github-proxy.github_issue_comment_request",
   },
+  ephemeral = { "devloop_intake_tick" },
   fanout = { "devloop_intake_tick" },
   stall_window = "30s",
 }
