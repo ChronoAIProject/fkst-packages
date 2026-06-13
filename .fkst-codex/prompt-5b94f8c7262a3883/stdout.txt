@@ -1,0 +1,6 @@
+Closed the named gap: missing `gh_issue_list_recent_closed_cmd` command definition. After the target merge, the definition is present in [commands.lua](/private/tmp/devloop-sv-rt.IPD0tj/worktrees/devloop-ChronoAIProject-fkst-packages-482-3917224915/packages/github-devloop/core/commands.lua:50), so no additional source edit was needed.
+
+Established practice applied: SRE/Prometheus-style watchdogs require executable deterministic predicates over observed facts; this command boundary now exists for the recent closed issue signal used by `queue-starvation`.
+
+Verification: `scripts/run.sh test` exits 0:
+`OK: 5 package(s)` and all package tests passed.
