@@ -65,6 +65,7 @@ local function marker_builder_paths()
     "packages/github-devloop/core/convergence.lua",
     "packages/github-devloop/core/dependencies.lua",
     "packages/github-devloop/core/decompose.lua",
+    "packages/github-devloop/core/work_card.lua",
   }
 end
 
@@ -392,6 +393,19 @@ return {
     t.eq(by_state.blocked.effects.intent_count, 2)
     t.eq(by_state.blocked.effects.completeness_derivation, "decompose_children_complete")
     t.eq(#core.restart_effect_contract_errors(), 0)
+  end,
+
+  test_pr_side_rows_declare_pr_state_label_projection = function()
+    local by_state = table_by_state()
+    for _, state in ipairs({ "pr-open", "reviewing", "merge-ready", "merging", "fixing" }) do
+      local row = by_state[state]
+      t.is_true(row ~= nil)
+      t.is_true(has_value(row.effects.kinds, "pr-state-label"), state .. " missing pr-state-label effect")
+      t.is_true(
+        tostring(row.effects.completeness or ""):find("PR-local state label projection", 1, true) ~= nil,
+        state .. " missing PR-local label completeness text"
+      )
+    end
   end,
 
   test_multi_effect_contract_rejects_marker_only_rows = function()

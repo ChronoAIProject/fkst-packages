@@ -1,4 +1,5 @@
 local S = {}
+local registry = require("core.registry")
 
 function S.install(M)
 local function is_open_pr(pr)
@@ -75,20 +76,7 @@ function M.evaluate_ci_merge_gate(pr, opts)
   return true, "merge-gate-ok"
 end
 
-local merge_gate_reason_classes = {
-  ["rollup-red"] = {
-    class = "rollup-red",
-    requires_pr_merge_product = true,
-  },
-  ["merge-state-unstable-with-failing-checks"] = {
-    class = "rollup-red",
-    requires_pr_merge_product = true,
-  },
-  ["mergeable-conflicting"] = {
-    class = "mergeable-conflicting",
-    requires_pr_merge_product = false,
-  },
-}
+local merge_gate_reason_classes = registry.load_indexed_map("core.merge_gate.reason_classes.index", "reason")
 
 local function merge_gate_reason_row(reason)
   local text = tostring(reason or "")
@@ -226,6 +214,7 @@ function M.run_verified_pr_merge(request)
   if merge_result.exit_code ~= 0 then
     error("github-devloop: gh pr merge failed: " .. tostring(merge_result.stderr))
   end
+  M.invalidate_entity_after_write(repo, "pr", pr_number)
 
   local merged_view = M.gh_exec({ cmd = M.gh_pr_view_merge_cmd(repo, pr_number), timeout = 30 })
   if merged_view.exit_code ~= 0 then

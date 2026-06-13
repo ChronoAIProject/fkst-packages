@@ -290,13 +290,13 @@ return {
     local result = run_observe_pr_tick(opts("observe-pr-class-order"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 9)
+    t.eq(#result.raises, 12)
     t.eq(result.raises[2].queue, "devloop_reviewing")
     t.eq(result.raises[2].payload.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.eq(result.raises[5].queue, "devloop_reviewing")
-    t.eq(result.raises[5].payload.proposal_id, "github-devloop/issue/owner/repo/41")
-    t.eq(result.raises[8].queue, "devloop_reviewing")
-    t.eq(result.raises[8].payload.proposal_id, "github-devloop/issue/owner/repo/40")
+    t.eq(result.raises[6].queue, "devloop_reviewing")
+    t.eq(result.raises[6].payload.proposal_id, "github-devloop/issue/owner/repo/41")
+    t.eq(result.raises[10].queue, "devloop_reviewing")
+    t.eq(result.raises[10].payload.proposal_id, "github-devloop/issue/owner/repo/40")
   end,
 
   test_observe_pr_tick_keeps_non_expedite_capacity_under_expedite_pressure = function()
@@ -326,9 +326,9 @@ return {
     local result = run_observe_pr_tick(opts("observe-pr-class-capacity"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 9)
+    t.eq(#result.raises, 12)
     t.eq(result.raises[2].payload.proposal_id, "github-devloop/issue/owner/repo/52")
-    t.eq(result.raises[5].payload.proposal_id, "github-devloop/issue/owner/repo/53")
-    t.eq(result.raises[8].payload.proposal_id, "github-devloop/issue/owner/repo/51")
+    t.eq(result.raises[6].payload.proposal_id, "github-devloop/issue/owner/repo/53")
+    t.eq(result.raises[10].payload.proposal_id, "github-devloop/issue/owner/repo/51")
   end,
 }

@@ -47,6 +47,75 @@ local function raise_converge(proposal, angle_results, narrowed_question)
   )
 end
 
+local function decide(proposal)
+  local runtime_root = read_runtime_root()
+
+  local angle_results = {}
+  local handles = {}
+  local angles = core.angles(proposal)
+  local verdict_mode = core.verdict_mode(proposal)
+  for _, angle in ipairs(angles) do
+    table.insert(handles, spawn_angle(proposal, angle, runtime_root))
+  end
+
+  local results = await_all(handles)
+  for index, angle in ipairs(angles) do
+    local parsed = nil
+    local result = results[index]
+    if type(result) == "table" and result.exit_code == 0 then
+      parsed = core.parse_angle_output(result.stdout, verdict_mode)
+    end
+    table.insert(angle_results, {
+      angle = angle,
+      verdict = parsed and parsed.verdict or nil,
+      reply = parsed and parsed.reply or nil,
+      blocking_gap = parsed and parsed.blocking_gap or nil,
+      stdout = type(result) == "table" and result.stdout or nil,
+      exit_code = type(result) == "table" and result.exit_code or nil,
+    })
+  end
+
+  local decision = core.aggregate(angle_results, verdict_mode)
+  if decision ~= nil then
+    return {
+      queue = "consensus_reached",
+      payload = core.build_reached_payload(proposal, decision, angle_results),
+      cache = true,
+    }
+  end
+
+  local meta_result = spawn_meta_judge(proposal, angle_results, runtime_root)
+  local parsed = nil
+  if type(meta_result) == "table" and meta_result.exit_code == 0 then
+    parsed = core.parse_meta_judge_output(meta_result.stdout, verdict_mode)
+  end
+  if parsed ~= nil and parsed.kind == "reached" then
+    return {
+      queue = "consensus_reached",
+      payload = core.build_reached_payload(
+        proposal,
+        parsed.decision,
+        angle_results,
+        parsed.framing
+      ),
+      cache = true,
+    }
+  end
+  if parsed ~= nil and (parsed.kind == "converge" or parsed.kind == "plan") then
+    return {
+      queue = "consensus_converge",
+      angle_results = angle_results,
+      narrowed_question = parsed.narrowed_question,
+    }
+  end
+
+  return {
+    queue = "consensus_converge",
+    angle_results = angle_results,
+    narrowed_question = core.default_narrowed_question(proposal, angle_results),
+  }
+end
+
 function pipeline(event)
   local proposal = event.payload or {}
   if proposal.schema ~= "consensus.proposal.v1" then
@@ -58,66 +127,47 @@ function pipeline(event)
   end
 
   local cache_key = core.reached_cache_key(proposal.dedup_key)
+  local already_reached = false
+  with_lock(cache_key, function()
+    already_reached = cache_get(cache_key) ~= nil
+  end)
+  if already_reached then
+    return
+  end
+
+  local ok, result = pcall(decide, proposal)
+  if not ok then
+    if core.is_stale_generation_context_error(result) then
+      log.warn(
+        "consensus dept=decide tag=STALE_GENERATION_CONTEXT"
+          .. " proposal_id=" .. tostring(proposal.proposal_id)
+          .. " dedup_key=" .. tostring(proposal.dedup_key)
+          .. " error_class=" .. core.stale_generation_context_error_class()
+      )
+      return
+    end
+    error(result)
+  end
+
   with_lock(cache_key, function()
     if cache_get(cache_key) then
       return
     end
-    local runtime_root = read_runtime_root()
-
-    local angle_results = {}
-    local handles = {}
-    local angles = core.angles(proposal)
-    local verdict_mode = core.verdict_mode(proposal)
-    for _, angle in ipairs(angles) do
-      table.insert(handles, spawn_angle(proposal, angle, runtime_root))
-    end
-
-    local results = await_all(handles)
-    for index, angle in ipairs(angles) do
-      local parsed = nil
-      local result = results[index]
-      if type(result) == "table" and result.exit_code == 0 then
-        parsed = core.parse_angle_output(result.stdout, verdict_mode)
+    if result.queue == "consensus_reached" then
+      raise("consensus_reached", result.payload)
+      if result.cache then
+        cache_set(cache_key, proposal.dedup_key)
       end
-      table.insert(angle_results, {
-        angle = angle,
-        verdict = parsed and parsed.verdict or nil,
-        reply = parsed and parsed.reply or nil,
-        blocking_gap = parsed and parsed.blocking_gap or nil,
-        stdout = type(result) == "table" and result.stdout or nil,
-        exit_code = type(result) == "table" and result.exit_code or nil,
-      })
-    end
-
-    local decision = core.aggregate(angle_results, verdict_mode)
-    if decision ~= nil then
-      raise("consensus_reached", core.build_reached_payload(proposal, decision, angle_results))
-      cache_set(cache_key, proposal.dedup_key)
       return
     end
-
-    local meta_result = spawn_meta_judge(proposal, angle_results, runtime_root)
-    local parsed = nil
-    if type(meta_result) == "table" and meta_result.exit_code == 0 then
-      parsed = core.parse_meta_judge_output(meta_result.stdout, verdict_mode)
-    end
-    if parsed ~= nil and parsed.kind == "reached" then
-      raise("consensus_reached", core.build_reached_payload(
-        proposal,
-        parsed.decision,
-        angle_results,
-        parsed.framing
-      ))
-      cache_set(cache_key, proposal.dedup_key)
+    if result.queue == "consensus_converge" then
+      raise_converge(proposal, result.angle_results, result.narrowed_question)
       return
     end
-    if parsed ~= nil and (parsed.kind == "converge" or parsed.kind == "plan") then
-      raise_converge(proposal, angle_results, parsed.narrowed_question)
-      return
-    end
-
-    raise_converge(proposal, angle_results, core.default_narrowed_question(proposal, angle_results))
+    error("consensus: unknown decision result")
   end)
 end
+
+pipeline = core.wrap_pipeline_failure("decide", pipeline)
 
 return M

@@ -214,14 +214,14 @@ function M.parse_intake_action(stdout)
     or lines[1]:match("^" .. M._intake_label .. " (track)$")
     or lines[1]:match("^" .. M._intake_label .. " (decline)$")
     or lines[1]:match("^" .. M._intake_label .. " (escalate%-to%-class)$")
-  local class = lines[2]:match("^" .. M._class_label .. " (expedite)$")
+  local service_class = lines[2]:match("^" .. M._class_label .. " (expedite)$")
     or lines[2]:match("^" .. M._class_label .. " (standard)$")
     or lines[2]:match("^" .. M._class_label .. " (background)$")
   local reason = lines[3]:match("^" .. M._reason_label .. " (.+)$")
   if action == nil or not is_intake_action(action) then
     return nil
   end
-  if class == nil or not M.is_intake_class(class) then
+  if service_class == nil or not M.is_intake_service_class(service_class) then
     return nil
   end
   if reason == nil or M._trim(reason) == "" then
@@ -232,7 +232,7 @@ function M.parse_intake_action(stdout)
   end
   return {
     action = action,
-    class = class,
+    service_class = service_class,
     reason = M._trim(reason),
   }
 end

@@ -20,7 +20,7 @@ M.spec = {
 function pipeline(event)
   local reached = event.payload or {}
   if not core.is_supported_review_result(reached) then
-    core.log_entry("review_result", event, "unknown", reached.dedup_key)
+    core.log_entry("review_result", event, "unknown", core.payload_field(reached, "dedup_key"))
     core.log_cas_decision("review_result", "unknown", { state = nil, version = nil }, "reviewing", "merge-ready|fixing", "skip-foreign(proposal_id)", "unsupported event payload")
     return
   end
@@ -178,6 +178,7 @@ function pipeline(event)
     }, {
       proposal_id = origin.proposal_id,
       role = "review",
+      run_id = core.work_card_run_id({ "review", reached.proposal_id, reached.dedup_key }),
       version = issue_version,
       round = core.version_fix_round(issue_version),
       started_at = event.ts or now(),
@@ -225,6 +226,7 @@ function pipeline(event)
         review_proposal_id = reached.proposal_id,
         review_dedup_key = reached.dedup_key,
         reviewed_head_sha = reviewed_head_sha,
+        current_head_sha = current_pr.head_sha,
       }, pr_source_ref)
       table.insert(raised, "devloop_merge_ready")
     end
@@ -245,5 +247,7 @@ function pipeline(event)
     end
   end)
 end
+
+pipeline = core.wrap_pipeline_failure("review_result", pipeline)
 
 return M

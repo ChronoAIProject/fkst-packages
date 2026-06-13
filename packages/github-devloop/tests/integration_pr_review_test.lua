@@ -82,6 +82,18 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
+local function find_label_raise(raises, target_kind)
+  return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
+    return tostring(payload.target_kind or "issue") == tostring(target_kind or "issue")
+  end)
+end
+
+local function find_comment_with(raises, text)
+  return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
+    return tostring(payload.body or ""):find(text, 1, true) ~= nil
+  end)
+end
+
 return {
   test_implement_ready_runs_codex_in_worktree_and_marks_implementing = function()
     local event = ready()
@@ -94,9 +106,14 @@ return {
 
     local result = run_implement(event, opts("implement-success"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 5)
+    local attempt_raise = find_comment_with(result.raises, "fkst:github-devloop:implement-attempt:v1")
+    t.is_true(attempt_raise.payload.body:find('proposal="' .. event.proposal_id .. '"', 1, true) ~= nil)
+    t.is_true(attempt_raise.payload.body:find('dedup="' .. event.dedup_key .. '"', 1, true) ~= nil)
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation started", 1, true) ~= nil
+    end)
     local open_pr_raise = find_raise(result.raises, "devloop_open_pr")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:implementing")
     t.is_true(#label_raise.payload.remove_labels >= 10)
@@ -122,8 +139,8 @@ return {
     end
     t.eq(saw_worktree_prefix, true)
     t.eq(saw_prompt, true)
-    t.eq(count_calls("--json title,labels,comments"), 1)
-    t.eq(count_calls("git -C"), 6)
+    t.eq(count_calls("--json title,labels,comments"), 2)
+    t.eq(count_calls("git -C"), 8)
     t.eq(count_calls("git worktree add -b"), 1)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("status --porcelain"), 1)
@@ -159,7 +176,7 @@ return {
     t.is_true(pr_raise.payload.body:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
     t.is_true(pr_raise.payload.issue_comment_body_template:find("state=\"pr-open\"", 1, true) ~= nil)
     t.eq(pr_raise.payload.issue_label_add[1], "fkst-dev:pr-open")
-    t.eq(count_calls("--json title,body,comments,labels,state"), 1)
+    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("show-ref --verify --quiet"), 1)
     t.eq(count_calls("rev-parse --verify"), 1)
   end,
@@ -222,12 +239,17 @@ return {
       },
     }, opts("observe-pr-reviewing"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 4)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    local label_raise = find_label_raise(result.raises, "issue")
+    local pr_label_raise = find_label_raise(result.raises, "pr")
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.is_true(comment_raise.payload.body:find("state=\"reviewing\"", 1, true) ~= nil)
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(pr_label_raise.payload.target_kind, "pr")
+    t.eq(pr_label_raise.payload.target_number, 7)
+    t.eq(pr_label_raise.payload.expected_state, "reviewing")
+    t.eq(pr_label_raise.payload.expected_version, impl_version)
     t.eq(reviewing_raise.payload.schema, "github-devloop.reviewing.v1")
     t.eq(reviewing_raise.payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(reviewing_raise.payload.pr_number, 7)
@@ -255,9 +277,12 @@ return {
       },
     }, opts("observe-pr-reconcile-reviewing"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.eq(#result.raises, 3)
+    local label_raise = find_label_raise(result.raises, "issue")
+    local pr_label_raise = find_label_raise(result.raises, "pr")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(pr_label_raise.payload.target_number, 7)
     t.eq(label_raise.payload.remove_labels[1], "fkst-dev:thinking")
     t.is_true(#label_raise.payload.remove_labels >= 10)
     t.eq(count_calls("--json labels,comments"), 0)
@@ -282,8 +307,9 @@ return {
       },
     }, opts("observe-pr-merge-ready-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     local merge_raise = find_raise(result.raises, "devloop_merge_ready")
+    t.eq(find_label_raise(result.raises, "pr").payload.add_labels[1], "fkst-dev:merge-ready")
     t.eq(merge_raise.payload.schema, "github-devloop.merge-ready.v1")
     t.eq(merge_raise.payload.proposal_id, event.proposal_id)
     t.eq(merge_raise.payload.pr_number, event.pr_number)
@@ -312,8 +338,9 @@ return {
       },
     }, opts("observe-pr-merging-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     local merge_raise = find_raise(result.raises, "devloop_merge_ready")
+    t.eq(find_label_raise(result.raises, "pr").payload.add_labels[1], "fkst-dev:merging")
     t.eq(merge_raise.payload.schema, "github-devloop.merge-ready.v1")
     t.eq(merge_raise.payload.proposal_id, event.proposal_id)
     t.eq(merge_raise.payload.pr_number, event.pr_number)
@@ -343,8 +370,9 @@ return {
       },
     }, opts("observe-pr-reviewing-self-heal"))
     t.eq(first.exit_code, 0)
-    t.eq(#first.raises, 2)
+    t.eq(#first.raises, 3)
     local reviewing_raise = find_raise(first.raises, "devloop_reviewing")
+    t.eq(find_label_raise(first.raises, "pr").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(reviewing_raise.payload.version, impl_version)
 
     mock_pr_origin({
@@ -366,7 +394,8 @@ return {
       },
     }, opts("observe-pr-reviewing-reviewed"))
     t.eq(reviewed.exit_code, 0)
-    t.eq(#reviewed.raises, 1)
+    t.eq(#reviewed.raises, 2)
+    t.eq(find_label_raise(reviewed.raises, "pr").payload.add_labels[1], "fkst-dev:reviewing")
   end,
 
   test_observe_pr_reviewing_self_heal_uses_canonical_fix_round_version = function()
@@ -391,8 +420,9 @@ return {
       },
     }, opts("observe-pr-reviewing-fix-round-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
+    t.eq(find_label_raise(result.raises, "pr").payload.expected_version, fix_round_version)
     t.eq(reviewing_raise.payload.version, fix_round_version)
 
     mock_bot_env()
@@ -428,8 +458,9 @@ return {
       },
     }, opts("observe-pr-backpointer-pending"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.proposal_id, core.pr_proposal_id("owner/repo", 7))
+    t.eq(find_label_raise(result.raises, "pr").payload.issue_number, nil)
     t.eq(count_calls("--json labels,comments"), 0)
   end,
 
@@ -448,8 +479,9 @@ return {
       },
     }, opts("observe-pr-backpointer-foreign"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.proposal_id, core.pr_proposal_id("owner/repo", 7))
+    t.eq(find_label_raise(result.raises, "pr").payload.issue_number, nil)
     t.eq(count_calls("--json labels,comments"), 0)
   end,
 
@@ -497,8 +529,9 @@ return {
       },
     }, opts("observe-pr-forged"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.proposal_id, core.pr_proposal_id("owner/repo", 7))
+    t.eq(find_label_raise(result.raises, "pr").payload.issue_number, nil)
     t.eq(count_calls("--json labels,comments"), 0)
   end,
 

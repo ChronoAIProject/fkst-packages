@@ -98,10 +98,17 @@ return {
     mock_implement_codex(0, "implemented")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit(nil, core.implement_branch("owner/repo", "42", ready.dedup_key))
+    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, {
+      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
+      core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
+    })
 
     local result = run_implement(ready, opts("implement-retry-success"))
     t.eq(result.exit_code, 0)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation started", 1, true) ~= nil
+    end)
+    t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
   end,
 }

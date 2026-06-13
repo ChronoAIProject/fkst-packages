@@ -6,17 +6,17 @@ return {
   test_intake_parser_is_strict_and_conservative = function()
     local parsed = core.parse_intake_action("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Clear bounded task.")
     t.eq(parsed.action, "enable")
-    t.eq(parsed.class, "expedite")
+    t.eq(parsed.service_class, "expedite")
     t.eq(parsed.reason, "Clear bounded task.")
 
     local tracked = core.parse_intake_action("⟦FKST:INTAKE⟧ track\n⟦FKST:CLASS⟧ background\n⟦FKST:REASON⟧ Umbrella tracking issue with independent waves.")
     t.eq(tracked.action, "track")
-    t.eq(tracked.class, "background")
+    t.eq(tracked.service_class, "background")
     t.eq(tracked.reason, "Umbrella tracking issue with independent waves.")
 
     local escalated = core.parse_intake_action("⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Third widget-sync recurrence; class-level retry policy is required.")
     t.eq(escalated.action, "escalate-to-class")
-    t.eq(escalated.class, "standard")
+    t.eq(escalated.service_class, "standard")
     t.eq(escalated.reason, "Third widget-sync recurrence; class-level retry policy is required.")
 
     t.is_nil(core.parse_intake_action("prefix\n⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Clear bounded task."))
@@ -33,13 +33,13 @@ return {
     t.eq(core.has_intake_decision_marker({ { body = marker, author_login = "ordinary-user" } }, proposal_id), false)
     local fact = core.intake_decision_fact({ { body = marker, author_login = core.trusted_bot_login() } }, proposal_id)
     t.eq(fact.decision, "decline")
-    t.eq(fact.class, "background")
+    t.eq(fact.service_class, "background")
     t.eq(fact.proposal_id, proposal_id)
 
     local track_marker = core.intake_decision_marker(proposal_id, "track", "intake/github-devloop/issue/owner/repo/42/v-track")
     local tracked = core.intake_decision_fact({ { body = track_marker, author_login = core.trusted_bot_login() } }, proposal_id)
     t.eq(tracked.decision, "track")
-    t.eq(tracked.class, "standard")
+    t.eq(tracked.service_class, "standard")
 
     local escalation_marker = core.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v2")
     local escalation = core.intake_decision_fact({ { body = escalation_marker, author_login = core.trusted_bot_login() } }, proposal_id)
@@ -63,7 +63,7 @@ return {
     end
     local function marker_class(value)
       local fact = core.intake_decision_fact(value.comments, "github-devloop/issue/owner/repo/" .. tostring(value.number))
-      return fact and fact.class
+      return fact and fact.service_class
     end
     local function fifo(value)
       return tostring(value.updated_at or "") .. "/" .. tostring(value.number or "")

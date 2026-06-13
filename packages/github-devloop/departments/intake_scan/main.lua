@@ -14,36 +14,6 @@ M.spec = {
 
 local INTAKE_LIMIT = 100
 
-local function has_devloop_state_label(labels)
-  for _, label in ipairs(labels or {}) do
-    if core._state_labels[tostring(label)] then
-      return true
-    end
-  end
-  return false
-end
-
-local function should_skip_known(labels)
-  return core.is_opted_in(labels) or has_devloop_state_label(labels)
-end
-
-local function pending_reintake_command(comments)
-  local command = core.operator_command_fact(comments, "reintake")
-  if command ~= nil and not core.has_operator_command_response(comments, command) then
-    return command
-  end
-  return nil
-end
-
-local function reintake_dedup_updated_at(issue, command)
-  return command.created_at or issue.updated_at
-end
-
-local function build_candidate(repo, issue, command)
-  local updated_at = command ~= nil and reintake_dedup_updated_at(issue, command) or issue.updated_at
-  return core.build_devloop_intake_candidate_payload(repo, tostring(issue.number), updated_at)
-end
-
 local function raise_reintake_refusal(repo, issue_number, proposal_id, command, reason)
   local source_ref = {
     kind = "external",
@@ -61,7 +31,7 @@ local function raise_reintake_refusal(repo, issue_number, proposal_id, command, 
 end
 
 local function handle_pending_reintake(repo, issue, current, proposal_id)
-  local command = pending_reintake_command(current.comments)
+  local command = core.pending_reintake_command(current.comments)
   if command == nil then
     return false
   end
@@ -73,11 +43,14 @@ local function handle_pending_reintake(repo, issue, current, proposal_id)
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an existing intake decision")
     return true
   end
-  if should_skip_known(current.labels) then
+  if core.should_skip_known_intake_issue(current.labels) then
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires no active devloop state")
     return true
   end
-  local payload = build_candidate(repo, issue, command)
+  if not core.claim_issue_for_management("intake_scan", repo, issue.number, current, proposal_id) then
+    return true
+  end
+  local payload = core.build_intake_scan_candidate(repo, issue, command, now())
   core.log_apply("intake_scan", proposal_id, nil, nil, { add = {}, remove = {} }, {
     "devloop_intake_candidate",
   })
@@ -85,19 +58,11 @@ local function handle_pending_reintake(repo, issue, current, proposal_id)
   return true
 end
 
-local function read_repo()
-  local repo = core.devloop_config().repo
-  if repo == nil or not core.issue_ref_round_trips(repo, 1) then
-    return nil
-  end
-  return repo
-end
-
 function pipeline(event)
   core.log_entry("intake_scan", event, "github-devloop/intake", "tick")
   core.assert_trusted_bot_configured()
 
-  local repo = read_repo()
+  local repo = core.read_intake_repo()
   if repo == nil then
     core.log_cas_decision("intake_scan", "github-devloop/intake", { state = nil, version = nil }, "tick", "candidate", "skip-invalid-repo", "FKST_GITHUB_REPO is missing or invalid")
     return
@@ -121,28 +86,32 @@ function pipeline(event)
       core.log_forged_markers("intake_scan", proposal_id, current.comments)
       if not handle_pending_reintake(repo, issue, current, proposal_id)
         and current.state == "OPEN"
-        and not should_skip_known(current.labels)
-        and not core.has_intake_decision_marker(current.comments, proposal_id) then
+        and not core.should_skip_known_intake_issue(current.labels)
+        and not core.has_intake_decision_marker(current.comments, proposal_id)
+        and core.claim_issue_for_management("intake_scan", repo, issue_number, current, proposal_id) then
         table.insert(candidates, {
-          issue_number = issue_number,
-          updated_at = issue.updated_at,
+          issue = issue,
+          proposal_id = proposal_id,
+          service_class = "standard",
         })
       end
     end
   end
   core.select_intake_class_batch(candidates, function(item)
-    return item.class
+    return item.service_class
   end, function(item)
-    return tostring(item.updated_at or "") .. "/" .. tostring(item.issue_number or "")
+    local issue = item.issue or {}
+    return tostring(issue.updated_at or "") .. "/" .. tostring(issue.number or "")
   end)
   for _, item in ipairs(candidates) do
-    local proposal_id = core.proposal_id(repo, item.issue_number)
-    local payload = core.build_devloop_intake_candidate_payload(repo, item.issue_number, item.updated_at)
-    core.log_apply("intake_scan", proposal_id, nil, nil, { add = {}, remove = {} }, {
+    local payload = core.build_intake_scan_candidate(repo, item.issue, nil, now())
+    core.log_apply("intake_scan", item.proposal_id, nil, nil, { add = {}, remove = {} }, {
       "devloop_intake_candidate",
     })
-    core.log_raise("intake_scan", proposal_id, "devloop_intake_candidate", payload)
+    core.log_raise("intake_scan", item.proposal_id, "devloop_intake_candidate", payload)
   end
 end
+
+pipeline = core.wrap_pipeline_failure("intake_scan", pipeline)
 
 return M

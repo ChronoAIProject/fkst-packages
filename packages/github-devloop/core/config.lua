@@ -7,7 +7,11 @@ local allowed_env = {
   FKST_GITHUB_WRITE = true,
   FKST_DEVLOOP_UPSTREAM_BRANCH = true,
   FKST_DEVLOOP_INTEGRATION_BRANCH = true,
+  FKST_DEVLOOP_MAX_INFLIGHT = true,
+  FKST_DEVLOOP_MANAGED_SIBLING_REPOS = true,
   FKST_DEVLOOP_ROLLUP_MERGE = true,
+  FKST_DEVLOOP_CONFLICT_LOG_CMD = true,
+  FKST_DEVLOOP_INTAKE_PROBE_PROOF = true,
   FKST_DEVLOOP_TEST_COMMAND = true,
   FKST_OUTPUT_LANG = true,
 }
@@ -64,6 +68,37 @@ function M.write_mode(exec)
   return M.read_env("FKST_GITHUB_WRITE", exec) == "1" and "real" or "dry-run"
 end
 
+function M.max_inflight(exec)
+  local value = M.read_env("FKST_DEVLOOP_MAX_INFLIGHT", exec)
+  if value == nil then
+    return nil
+  end
+  value = M._trim(value)
+  if value == "" then
+    return nil
+  end
+  local parsed = tonumber(value)
+  if parsed == nil or parsed ~= math.floor(parsed) or parsed < 1 or parsed > 100 then
+    error("github-devloop: invalid FKST_DEVLOOP_MAX_INFLIGHT")
+  end
+  return parsed
+end
+
+function M.managed_sibling_repos(exec)
+  local raw = M.read_env("FKST_DEVLOOP_MANAGED_SIBLING_REPOS", exec)
+  local repos = {}
+  if raw == nil then
+    return repos
+  end
+  for entry in tostring(raw):gmatch("[^,%s]+") do
+    local repo = tostring(entry)
+    if M.issue_ref_round_trips(repo, 1) then
+      repos[repo] = true
+    end
+  end
+  return repos
+end
+
 function M.max_fix_rounds()
   return 12
 end
@@ -82,6 +117,24 @@ function M.test_command(exec)
     return M.default_test_command()
   end
   return command
+end
+
+function M.intake_probe_gate(exec)
+  local proof = M.read_env("FKST_DEVLOOP_INTAKE_PROBE_PROOF", exec)
+  proof = M._trim(proof or "")
+  if proof == "" then
+    return {
+      enabled = false,
+      reason = "missing event-fast-path insufficiency proof",
+    }
+  end
+  if proof ~= "event-fast-path-insufficient" then
+    error("github-devloop: invalid FKST_DEVLOOP_INTAKE_PROBE_PROOF")
+  end
+  return {
+    enabled = true,
+    reason = proof,
+  }
 end
 
 local function current_checkout_branch(exec)

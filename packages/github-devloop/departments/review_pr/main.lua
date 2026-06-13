@@ -15,7 +15,7 @@ M.spec = {
 function pipeline(event)
   local reviewing = event.payload or {}
   if not core.is_supported_reviewing(reviewing) then
-    core.log_entry("review_pr", event, "unknown", reviewing.dedup_key)
+    core.log_entry("review_pr", event, "unknown", core.payload_field(reviewing, "dedup_key"))
     core.log_cas_decision("review_pr", "unknown", { state = nil, version = nil }, "reviewing", "review-proposal", "skip-foreign(payload)", "unsupported event payload")
     return
   end
@@ -55,7 +55,7 @@ function pipeline(event)
       return
     end
 
-    if tostring(state.version or "") ~= tostring(reviewing.version) then
+    if core.strip_transition_version_suffixes(state.version) ~= core.strip_transition_version_suffixes(reviewing.version) then
       core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale(version-mismatch)", "reviewing event version does not match canonical issue marker")
       return
     end
@@ -82,13 +82,14 @@ function pipeline(event)
       current_issue = core.parse_issue_view_review(issue_view.stdout)
     end
     local review_id = core.pr_review_proposal_id(repo, reviewing.pr_number, reviewing.version, current_pr.head_sha)
+    local review_dedup_key = core._dedup_key({ review_id, "review" })
     local content_fetch = core.context_fetch_ref_from_bundle({
       dept = "review_pr",
       repo = repo,
       issue_number = issue_number,
       pr_number = reviewing.pr_number,
       proposal_id = review_id,
-      version = core._dedup_key({ review_id, "review" }),
+      version = review_dedup_key,
       tick = event.ts,
     })
     local proposal = core.build_board_pr_review_proposal(repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch)
@@ -105,6 +106,7 @@ function pipeline(event)
     }, {
       proposal_id = reviewing.proposal_id,
       role = "review",
+      run_id = core.work_card_run_id({ "review", review_id, review_dedup_key }),
       version = reviewing.version,
       round = core.version_fix_round(reviewing.version),
       started_at = now(),
@@ -119,5 +121,7 @@ function pipeline(event)
     core.log_raise("review_pr", reviewing.proposal_id, "consensus.proposal", proposal)
   end)
 end
+
+pipeline = core.wrap_pipeline_failure("review_pr", pipeline)
 
 return M
