@@ -112,16 +112,7 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
     merge_ready.dedup_key .. "/label/fixing",
     core.issue_source_ref(repo, issue_number)
   ) or nil
-  local pr_label_request = core.build_pr_state_label_request(
-    repo,
-    issue_number,
-    merge_ready.pr_number,
-    merge_ready.proposal_id,
-    "fixing",
-    fix_version,
-    merge_ready.dedup_key .. "/pr-label/fixing",
-    source_ref
-  )
+  local pr_label_request = core.build_pr_merge_fixing_label_request(repo, issue_number, merge_ready, fix_version, source_ref)
   local fix_payload = core.build_devloop_fixing_payload({
     proposal_id = merge_ready.proposal_id,
     impl_version = fix_version,
@@ -281,16 +272,7 @@ local function build_merged_requests(repo, issue_number, merge_ready)
     merge_ready.dedup_key .. "/label/merged",
     core.issue_source_ref(repo, issue_number)
   ) or nil
-  local pr_label_request = core.build_pr_state_label_request(
-    repo,
-    issue_number,
-    merge_ready.pr_number,
-    merge_ready.proposal_id,
-    "merged",
-    merge_ready.version,
-    merge_ready.dedup_key .. "/pr-label/merged",
-    merged_source_ref
-  )
+  local pr_label_request = core.build_pr_merged_label_request(repo, issue_number, merge_ready, merged_source_ref)
   return comment_request, label_request, pr_label_request
 end
 
@@ -552,16 +534,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
   end
   log_gate(merge_ready, "write-ready", "write-time FKST_GITHUB_WRITE=1 and trusted review-result approve")
   core.log_cas_decision("merge", merge_ready.proposal_id, rechecked_state, "merge-ready", "merging", "applied", "all merge gates satisfied; invoking gh pr merge")
-  local merging_label_request = core.build_pr_state_label_request(
-    repo,
-    issue_number,
-    merge_ready.pr_number,
-    merge_ready.proposal_id,
-    "merging",
-    merge_ready.version,
-    merge_ready.dedup_key .. "/pr-label/merging",
-    core.pr_source_ref(repo, merge_ready.pr_number)
-  )
+  local merging_label_request = core.build_pr_merging_label_request(repo, issue_number, merge_ready)
   local merge_ok, merge_reason, merge_rechecked_pr = core.run_verified_pr_merge({
     repo = repo,
     pr_number = merge_ready.pr_number,

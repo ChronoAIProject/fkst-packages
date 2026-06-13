@@ -122,6 +122,18 @@ function M.build_pr_merge_head_reviewing_label_request(repo, issue_number, pr_nu
     source_ref
   )
 end
+
+function M.build_pr_merge_fixing_label_request(repo, issue_number, merge_ready, fix_version, source_ref)
+  return M.build_pr_state_label_request(repo, issue_number, merge_ready.pr_number, merge_ready.proposal_id, "fixing", fix_version, merge_ready.dedup_key .. "/pr-label/fixing", source_ref)
+end
+
+function M.build_pr_merged_label_request(repo, issue_number, merge_ready, source_ref)
+  return M.build_pr_state_label_request(repo, issue_number, merge_ready.pr_number, merge_ready.proposal_id, "merged", merge_ready.version, merge_ready.dedup_key .. "/pr-label/merged", source_ref)
+end
+
+function M.build_pr_merging_label_request(repo, issue_number, merge_ready)
+  return M.build_pr_state_label_request(repo, issue_number, merge_ready.pr_number, merge_ready.proposal_id, "merging", merge_ready.version, merge_ready.dedup_key .. "/pr-label/merging", M.pr_source_ref(repo, merge_ready.pr_number))
+end
 end
 
 return S
