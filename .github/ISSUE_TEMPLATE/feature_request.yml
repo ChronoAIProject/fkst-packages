@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a scoped improvement to fkst-packages.
+title: "feat: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first. A good request explains the established practice or prior art that should govern the solution.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: practice
+    attributes:
+      label: Established practice
+      description: What existing theory, industry practice, or prior implementation applies?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What change do you want?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How should maintainers know the change is complete?
+      value: |
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What simpler or established alternatives were considered?
+    validations:
+      required: false
