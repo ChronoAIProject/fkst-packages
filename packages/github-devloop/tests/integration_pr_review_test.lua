@@ -536,6 +536,35 @@ return {
     t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
+  test_review_pr_single_flight_skips_duplicate_review_proposal = function()
+    local event = reviewing()
+    local run_opts = opts("review-pr-single-flight")
+
+    mock_issue_review({ "fkst-dev:reviewing" }, {
+      core.state_marker(event.proposal_id, "reviewing", event.version),
+    })
+    mock_pr_origin_sequence({
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+    })
+
+    local first = run_review_pr(event, run_opts)
+    t.eq(first.exit_code, 0)
+    t.eq(#first.raises, 1)
+    t.eq(first.raises[1].queue, "consensus.proposal")
+
+    mock_issue_review({ "fkst-dev:reviewing" }, {
+      core.state_marker(event.proposal_id, "reviewing", event.version),
+    })
+    mock_pr_origin_sequence({
+      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+    })
+
+    local duplicate = run_review_pr(event, run_opts)
+    t.eq(duplicate.exit_code, 0)
+    t.eq(#duplicate.raises, 0)
+    t.eq(count_calls("gh pr diff"), 1)
+  end,
+
   test_review_pr_gate_reject_reached_routes_to_fixing = function()
     local event = reviewing()
     mock_issue_review({ "fkst-dev:reviewing" }, {

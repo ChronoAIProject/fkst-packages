@@ -90,6 +90,25 @@ return {
     t.eq(count_calls(pr_comment_create), 1)
   end,
 
+  test_replace_marker_exposes_stable_dedup_and_target_lock_keys = function()
+    t.eq(core.comment_dedup_lock_key(event().payload.dedup_key), "github-proxy/comment-dedup/dedup-work-card_github-devloop_issue_owner_x_42_fix_v1_running")
+    t.eq(core.comment_lock_key("owner/x", "pr", 7), "github-proxy/comment-owner_x-pr-7")
+  end,
+
+  test_replace_marker_create_still_uses_single_upsert_path = function()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_comment_view({})
+    mock_pr_comment_write()
+
+    local result = t.run_department("departments/github_pr_comment/main.lua", event(), opts("comment-replace-dedup-create", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls(pr_comment_create), 1)
+  end,
+
   test_replace_marker_falls_back_to_create_when_edit_target_is_stale = function()
     t.eq(core.stale_comment_target_error_class(), "stale-comment-target")
     mock_write_env("1")

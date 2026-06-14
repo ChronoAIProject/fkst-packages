@@ -24,6 +24,14 @@ local function comment_runtime_identity(repo, kind, number)
   return id
 end
 
+local function comment_dedup_runtime_identity(dedup_key)
+  local id = "dedup-" .. safe_runtime_segment(dedup_key)
+  if #id > max_runtime_id_len then
+    return id:sub(1, max_runtime_id_len)
+  end
+  return id
+end
+
 local function comment_body(comment)
   if type(comment) == "table" then
     return tostring(comment.body or "")
@@ -82,6 +90,14 @@ end
 
 function M.comment_marker(dedup_key)
   return "<!-- fkst:github-proxy:comment:" .. tostring(dedup_key) .. " -->"
+end
+
+function M.comment_lock_key(repo, kind, number)
+  return "github-proxy/" .. comment_runtime_identity(repo, kind, number)
+end
+
+function M.comment_dedup_lock_key(dedup_key)
+  return "github-proxy/comment-dedup/" .. comment_dedup_runtime_identity(dedup_key)
 end
 
 function M.has_marker(comments_text, dedup_key)
@@ -314,9 +330,9 @@ function M.write_comment_request(payload, target)
   end
   local bot_login = M.assert_trusted_bot_configured()
 
-  local runtime_id = comment_runtime_identity(repo, target.kind, target.number)
   local written_comment = nil
-  with_lock("github-proxy/" .. runtime_id, function()
+  with_lock(M.comment_dedup_lock_key(payload.dedup_key), function()
+  with_lock(M.comment_lock_key(repo, target.kind, target.number), function()
     local comments = load_comments(M, target, repo)
     local replace_marker = payload.replace_marker
     local existing = nil
@@ -336,7 +352,7 @@ function M.write_comment_request(payload, target)
     end
 
     local body = tostring(payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
-    local path = "/tmp/fkst-github-proxy-" .. runtime_id .. ".md"
+    local path = "/tmp/fkst-github-proxy-" .. comment_runtime_identity(repo, target.kind, target.number) .. ".md"
     file.write(path, body)
     local edited, edit_status, edited_comment = edit_existing_comment(M, repo, target, path, existing, tostring(replace_marker or ""), bot_login)
     if edited then
@@ -356,6 +372,7 @@ function M.write_comment_request(payload, target)
     end
     written_comment = written
     M.invalidate_entity_after_write(repo, target.kind, target.number)
+  end)
   end)
   return written_comment
 end

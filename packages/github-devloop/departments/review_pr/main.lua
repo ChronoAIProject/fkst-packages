@@ -136,6 +136,13 @@ function pipeline(event)
     end
     local review_id = core.pr_review_proposal_id(repo, reviewing.pr_number, reviewing.version, current_pr.head_sha)
     local review_dedup_key = core._dedup_key({ review_id, "review" })
+    local admitted = once(core._dedup_key({ "github-devloop", "review-pr", "single-flight", review_id }), function()
+      return true
+    end)
+    if not admitted then
+      core.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-idempotent(review-proposal-in-flight)", "review proposal already admitted for this PR head")
+      return
+    end
     local content_fetch = core.context_fetch_ref_from_bundle({
       dept = "review_pr",
       repo = repo,
