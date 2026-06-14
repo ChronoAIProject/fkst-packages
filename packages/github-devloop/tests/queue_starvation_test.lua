@@ -35,12 +35,12 @@ local function render_comment(body, author, created_at)
   )
 end
 
-local function version_minutes_ago(minutes)
-  return os.date("!%Y-%m-%dT%H-%M-%SZ", now() - (tonumber(minutes) or 0) * 60)
+local function version_minutes_ago(minutes, base_seconds)
+  return os.date("!%Y-%m-%dT%H-%M-%SZ", (tonumber(base_seconds) or now()) - (tonumber(minutes) or 0) * 60)
 end
 
-local function closed_at_minutes_ago(minutes)
-  return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (tonumber(minutes) or 0) * 60)
+local function closed_at_minutes_ago(minutes, base_seconds)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", (tonumber(base_seconds) or now()) - (tonumber(minutes) or 0) * 60)
 end
 
 local function mock_env()
@@ -111,11 +111,11 @@ local function mock_observe_lists(issue_number)
   })
 end
 
-local function mock_queue_head(age_minutes)
+local function mock_queue_head(age_minutes, base_seconds)
   local proposal_id = "github-devloop/issue/owner/repo/42"
   t.mock_command("--json title,comments,state,stateReason", {
     stdout = '{"title":"Merge-ready head","state":"OPEN","comments":['
-      .. render_comment(core.state_marker(proposal_id, "merge-ready", version_minutes_ago(age_minutes or 90)))
+      .. render_comment(core.state_marker(proposal_id, "merge-ready", version_minutes_ago(age_minutes or 90, base_seconds)))
       .. "]}\n",
     stderr = "",
     exit_code = 0,
@@ -134,9 +134,9 @@ local function mock_merge_queue_list(pr_numbers)
   })
 end
 
-local function mock_merge_queue_pr(pr_number, issue_number, age_minutes, head_sha)
+local function mock_merge_queue_pr(pr_number, issue_number, age_minutes, head_sha, base_seconds)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(issue_number)
-  local version = version_minutes_ago(age_minutes or 90)
+  local version = version_minutes_ago(age_minutes or 90, base_seconds)
   local review_proposal_id = core.pr_review_proposal_id("owner/repo", pr_number, version, head_sha or "abcdef123456")
   local comments = {
     core.state_marker(proposal_id, "merge-ready", version),
@@ -144,7 +144,7 @@ local function mock_merge_queue_pr(pr_number, issue_number, age_minutes, head_sh
   }
   local rendered = {}
   for _, comment in ipairs(comments) do
-    table.insert(rendered, render_comment(comment, "fkst-test-bot", closed_at_minutes_ago(age_minutes or 90)))
+    table.insert(rendered, render_comment(comment, "fkst-test-bot", closed_at_minutes_ago(age_minutes or 90, base_seconds)))
   end
   t.mock_command("--json headRefName,headRefOid,baseRefName,baseRefOid,state,updatedAt,isDraft,mergedAt,comments,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup", {
     stdout = string.format(
@@ -177,9 +177,9 @@ local function mock_recent_closed(stdout, exit_code, stderr)
   })
 end
 
-local function mock_closed_merged_issue(number, closed_minutes_ago, trusted)
+local function mock_closed_merged_issue(number, closed_minutes_ago, trusted, base_seconds)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
-  mock_recent_closed("[" .. recent_closed_item(number, closed_at_minutes_ago(closed_minutes_ago), { core._merged_label }) .. "]\n")
+  mock_recent_closed("[" .. recent_closed_item(number, closed_at_minutes_ago(closed_minutes_ago, base_seconds), { core._merged_label }) .. "]\n")
   t.mock_command("--json title,comments,state,stateReason", {
     stdout = '{"title":"Merged issue","state":"CLOSED","comments":['
       .. render_comment(core.merged_marker(proposal_id, 9, "v1", "abcdef123456"), trusted == false and "mallory" or "fkst-test-bot")
@@ -208,11 +208,11 @@ local function count_calls(needle)
   return count
 end
 
-local function prepare_stale_head()
+local function prepare_stale_head(base_seconds)
   mock_env()
   mock_merge_queue_list({})
   mock_observe_lists(42)
-  mock_queue_head(90)
+  mock_queue_head(90, base_seconds)
 end
 
 return {
@@ -229,7 +229,8 @@ return {
   end,
 
   test_queue_starvation_fires_for_stale_merge_ready_with_no_recent_merge = function()
-    prepare_stale_head()
+    local base_seconds = now()
+    prepare_stale_head(base_seconds)
     mock_recent_closed("[]\n")
 
     local result = run_observability("queue-starvation-fire")
@@ -240,7 +241,7 @@ return {
     local payload = create.payload
     t.eq(payload.schema, "github-proxy.issue-create.v1")
     t.eq(payload.repo, "owner/repo")
-    t.eq(payload.dedup_key, core.queue_starvation_dedup_key("owner/repo", "merge-ready/proposal/github-devloop/issue/owner/repo/42/version/" .. version_minutes_ago(90)))
+    t.eq(payload.dedup_key, core.queue_starvation_dedup_key("owner/repo", "merge-ready/proposal/github-devloop/issue/owner/repo/42/version/" .. version_minutes_ago(90, base_seconds)))
     t.eq(payload.parent_comment_target.issue_number, "42")
     t.is_true(payload.body:find("Queue head: #42 Merge-ready head", 1, true) ~= nil)
     t.is_true(payload.body:find("Evidence snapshot: `/tmp/fkst-github-devloop-queue-starvation-owner-repo-", 1, true) ~= nil)

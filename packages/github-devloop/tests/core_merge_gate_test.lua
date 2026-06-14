@@ -37,6 +37,52 @@ local function mock_check_runs(json)
   })
 end
 
+local function capture_dispatch(exec_result)
+  local old_now = now
+  local old_once = once
+  local old_cache_get = cache_get
+  local old_cache_set = cache_set
+  local old_exec_sync = exec_sync
+  local old_log = log
+  local cache = {}
+  cache[core.ci_missing_status_first_observed_key("owner/repo", 7, "def456")] = "240"
+  local calls = 0
+  now = function()
+    return 600
+  end
+  once = function(_, fn)
+    fn()
+    return true
+  end
+  cache_get = function(key)
+    return cache[key]
+  end
+  cache_set = function(key, value)
+    cache[key] = value
+  end
+  exec_sync = function()
+    calls = calls + 1
+    return exec_result
+  end
+  log = {
+    info = function() end,
+    warn = function() end,
+    error = function() end,
+  }
+
+  local results = { pcall(function()
+    return core.dispatch_ci_selfheal_once("owner/repo", 7, pr({ status_check_rollup = {} }), "proposal", 300)
+  end) }
+
+  now = old_now
+  once = old_once
+  cache_get = old_cache_get
+  cache_set = old_cache_set
+  exec_sync = old_exec_sync
+  log = old_log
+  return results, calls
+end
+
 return {
   test_pr_identity_matches_true = function()
     local ok, reason = core.pr_identity_matches(pr(), expected)
@@ -240,5 +286,43 @@ return {
     }), 600, 240, 300)
     t.eq(eligible, false)
     t.eq(reason, "rollup-pending")
+  end,
+
+  test_workflow_dispatch_unavailable_error_is_narrowly_classified = function()
+    t.eq(core.is_workflow_dispatch_unavailable_error(
+      "could not create workflow dispatch event: HTTP 422:\n"
+        .. "Workflow does not have 'workflow_dispatch' trigger"
+    ), true)
+    t.eq(core.is_workflow_dispatch_unavailable_error(
+      "could not create workflow dispatch event: HTTP 422:\nValidation Failed"
+    ), false)
+    t.eq(core.is_workflow_dispatch_unavailable_error(
+      "could not create workflow dispatch event: HTTP 500:\n"
+        .. "Workflow does not have 'workflow_dispatch' trigger"
+    ), false)
+  end,
+
+  test_dispatch_ci_selfheal_degrades_when_workflow_dispatch_is_unavailable = function()
+    local results, calls = capture_dispatch({
+      stdout = "",
+      stderr = "could not create workflow dispatch event: HTTP 422:\n"
+        .. "Workflow does not have 'workflow_dispatch' trigger",
+      exit_code = 1,
+    })
+    t.eq(results[1], true)
+    t.eq(results[2], false)
+    t.eq(results[3], "ci-dispatch-selfheal-unavailable:no-workflow_dispatch-trigger")
+    t.eq(calls, 1)
+  end,
+
+  test_dispatch_ci_selfheal_fails_closed_for_unrelated_dispatch_failure = function()
+    local results, calls = capture_dispatch({
+      stdout = "",
+      stderr = "could not create workflow dispatch event: HTTP 403: Resource not accessible by integration",
+      exit_code = 1,
+    })
+    t.eq(results[1], false)
+    t.is_true(tostring(results[2]):find("github%-devloop: ci workflow dispatch failed:") ~= nil)
+    t.eq(calls, 1)
   end,
 }

@@ -114,6 +114,62 @@ return {
     t.eq(count_calls("gh pr merge"), 0)
   end,
 
+  test_missing_status_without_workflow_dispatch_degrades_to_status_gate_wait = function()
+    local event = merge_ready()
+    local run_opts = opts("merge-missing-status-no-workflow-dispatch", { FKST_GITHUB_WRITE = "1" })
+    local observed_key = core.ci_missing_status_first_observed_key("owner/repo", event.pr_number, event.reviewed_head_sha)
+    local seeded = seed_cache(observed_key, now() - 301, run_opts)
+    t.eq(seeded.exit_code, 0)
+
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge_rollup({ origin_marker(event) }, "[]")
+    mock_absent_check_runs()
+    t.mock_command(dispatch_cmd, {
+      stdout = "",
+      stderr = "could not create workflow dispatch event: HTTP 422:\n"
+        .. "Workflow does not have 'workflow_dispatch' trigger\n"
+        .. "(https://api.github.com/repos/owner/repo/actions/workflows/ci.yml/dispatches)",
+      exit_code = 1,
+    })
+
+    local result = run_merge(event, run_opts)
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls(dispatch_cmd), 1)
+    t.eq(count_calls(check_runs_cmd), 1)
+    t.eq(count_calls("gh pr merge"), 0)
+  end,
+
+  test_missing_status_unrelated_dispatch_failure_still_fails_closed = function()
+    local event = merge_ready()
+    local run_opts = opts("merge-missing-status-dispatch-unexpected-failure", { FKST_GITHUB_WRITE = "1" })
+    local observed_key = core.ci_missing_status_first_observed_key("owner/repo", event.pr_number, event.reviewed_head_sha)
+    local seeded = seed_cache(observed_key, now() - 301, run_opts)
+    t.eq(seeded.exit_code, 0)
+
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge_rollup({ origin_marker(event) }, "[]")
+    mock_absent_check_runs()
+    t.mock_command(dispatch_cmd, {
+      stdout = "",
+      stderr = "could not create workflow dispatch event: HTTP 403: Resource not accessible by integration",
+      exit_code = 1,
+    })
+
+    local result = run_merge(event, run_opts)
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls(dispatch_cmd), 1)
+    t.eq(count_calls(check_runs_cmd), 1)
+    t.eq(count_calls("gh pr merge"), 0)
+  end,
+
   test_unstable_completed_failure_rollup_moves_back_to_fixing = function()
     local event = merge_ready()
     local rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/verify","name":"verify","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci"}]'

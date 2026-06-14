@@ -124,6 +124,12 @@ function M.ci_missing_status_dispatch_eligible(pr, now_seconds, first_observed_s
   return true, "missing-status-rollup", age_seconds
 end
 
+function M.is_workflow_dispatch_unavailable_error(stderr)
+  local text = tostring(stderr or "")
+  return text:find("HTTP 422", 1, true) ~= nil
+    and text:find("Workflow does not have 'workflow_dispatch' trigger", 1, true) ~= nil
+end
+
 function M.dispatch_ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_seconds)
   local green, green_reason = M.pr_rollup_green(pr)
   if green or green_reason ~= "missing-status-rollup" then
@@ -148,9 +154,25 @@ function M.dispatch_ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_sec
     return false, reason
   end
   local key = M.ci_dispatch_once_key(repo, pr_number, head_sha)
+  local dispatch_unavailable = false
   local ran = once(key, function()
     local result = M.gh_exec({ cmd = M.gh_workflow_dispatch_ci_cmd(repo, head_ref), timeout = 30 })
     if result.exit_code ~= 0 then
+      if M.is_workflow_dispatch_unavailable_error(result.stderr) then
+        dispatch_unavailable = true
+        M.log_line("info", "merge", proposal_id, "ci-dispatch-selfheal", {
+          "repo=" .. tostring(repo),
+          "pr=" .. tostring(pr_number),
+          "head_sha=" .. head_sha,
+          "head_ref=" .. head_ref,
+          "first_observed_seconds=" .. tostring(first_observed_seconds),
+          "age_seconds=" .. tostring(age_seconds or ""),
+          "once_key=" .. key,
+          "ci_selfheal=unavailable",
+          "reason=no-workflow_dispatch-trigger",
+        })
+        return
+      end
       error("github-devloop: ci workflow dispatch failed: " .. tostring(result.stderr))
     end
     M.log_line("info", "merge", proposal_id, "ci-dispatch-selfheal", {
@@ -165,6 +187,9 @@ function M.dispatch_ci_selfheal_once(repo, pr_number, pr, proposal_id, grace_sec
   end)
   if not ran then
     return false, "ci-dispatch-selfheal-already-ran"
+  end
+  if dispatch_unavailable then
+    return false, "ci-dispatch-selfheal-unavailable:no-workflow_dispatch-trigger"
   end
   return true, "ci-dispatch-selfheal-dispatched"
 end
