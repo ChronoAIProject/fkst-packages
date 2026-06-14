@@ -40,6 +40,24 @@ local function files_disjoint_from_window(files, merged_files)
   return true, "disjoint", nil
 end
 
+local function files_disjoint_from_entries(repo, candidate, entries)
+  local candidate_files, file_reason = M.merge_queue_changed_files(repo, candidate)
+  if candidate_files == nil then
+    return false, file_reason, nil
+  end
+  for _, entry in ipairs(entries or {}) do
+    local files, entry_reason = M.merge_queue_changed_files(repo, entry)
+    if files == nil then
+      return false, entry_reason, entry
+    end
+    local disjoint, path = M.merge_queue_files_disjoint(candidate_files, files)
+    if not disjoint then
+      return false, "file-overlap:" .. tostring(path), entry
+    end
+  end
+  return true, "disjoint", nil
+end
+
 local function current_base_head(branches)
   local base_head, reason = M.current_base_head(branches.integration)
   if base_head == nil then
@@ -237,6 +255,48 @@ function M.run_merge_batch_window(repo, branches, first_merge_ready, queue_entri
     "size=" .. tostring(merged_count),
   })
   return last_merged_pr_number
+end
+
+function M.merge_queue_skip_blocked_head_candidate(repo, branches, entries, blocked_head, reason)
+  if type(blocked_head) ~= "table" or blocked_head.state ~= "merge-ready" then
+    return nil, "blocked-head-not-skippable"
+  end
+  local required_base_head, base_reason = current_base_head(branches)
+  if required_base_head == nil then
+    return nil, base_reason
+  end
+  local skipped = { blocked_head }
+  for index = 2, #(entries or {}) do
+    local entry = entries[index]
+    if entry.state ~= "merge-ready" then
+      return nil, "lane-state-" .. tostring(entry.state)
+    end
+    local base_ok, base_ok_reason = head_contains_base(required_base_head, entry)
+    if not base_ok then
+      return nil, base_ok_reason
+    end
+    local disjoint, disjoint_reason, conflicting = files_disjoint_from_entries(repo, entry, skipped)
+    if disjoint then
+      log_batch_window(entry.proposal_id, {
+        "action=try",
+        "mode=skip-blocked-head",
+        "pr=" .. tostring(entry.pr_number),
+        "blocked_pr=" .. tostring(blocked_head.pr_number),
+        "reason=" .. tostring(reason or "blocked-head"),
+      })
+      return entry, "skip-blocked-head"
+    end
+    log_batch_window(entry.proposal_id, {
+      "action=skip",
+      "mode=skip-blocked-head",
+      "pr=" .. tostring(entry.pr_number),
+      "blocked_pr=" .. tostring(blocked_head.pr_number),
+      "reason=" .. tostring(disjoint_reason),
+      "conflicting_pr=" .. tostring(conflicting and conflicting.pr_number or ""),
+    })
+    table.insert(skipped, entry)
+  end
+  return nil, "no-safe-later-candidate"
 end
 end
 

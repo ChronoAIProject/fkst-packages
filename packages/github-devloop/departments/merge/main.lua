@@ -777,6 +777,41 @@ local function synthesize_merge_ready_from_queue_head(repo, head)
   }, core.pr_source_ref(repo, head.pr_number))
 end
 
+local function try_merge_queue_entry(repo, branches, entry, event, write_mode)
+  local merge_ready = synthesize_merge_ready_from_queue_head(repo, entry)
+  if merge_ready == nil or not core.is_supported_merge_ready(merge_ready) then
+    core.log_line("info", "merge", entry.proposal_id, "GATE", {
+      "pr=" .. tostring(entry.pr_number),
+      "version=" .. tostring(entry.version),
+      "outcome=skip",
+      "reason=merge-queue-head-missing-merge-ready-fact",
+      "pass=poll",
+    })
+    return nil, nil, nil
+  end
+  merge_ready._merge_pass = "poll"
+  core.log_entry("merge", event, merge_ready.proposal_id, merge_ready.dedup_key)
+  local entity = core.parse_entity_proposal_id(merge_ready.proposal_id)
+  if entity == nil then
+    core.log_cas_decision("merge", merge_ready.proposal_id, { state = nil, version = nil }, "merge-ready", "merged|fixing", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
+    return merge_ready, nil, nil
+  end
+  local ok, outcome = pcall(process_merge_ready_locked, repo, entity.issue_number, merge_ready, branches, nil, {
+    enforce_queue = false,
+    write_mode = write_mode,
+  })
+  if not ok then
+    return merge_ready, nil, outcome
+  end
+  return merge_ready, outcome, nil
+end
+
+local function is_retryable_merge_wait_error(err)
+  local text = tostring(err or "")
+  return text:find("github%-devloop: merge wait on ", 1) ~= nil
+    or text:find("github%-devloop: merge confirmation pending; retrying", 1) ~= nil
+end
+
 local function merge_queue_head_all(repo, base_branch)
   local head, entries = core.merge_queue_head(repo, base_branch)
   return head, entries or {}
@@ -838,32 +873,22 @@ local function process_merge_queue_tick(event)
       })
       return
     end
-    local merge_ready = synthesize_merge_ready_from_queue_head(repo, head)
-    if merge_ready == nil or not core.is_supported_merge_ready(merge_ready) then
-      core.log_line("info", "merge", head.proposal_id, "GATE", {
-        "pr=" .. tostring(head.pr_number),
-        "version=" .. tostring(head.version),
-        "outcome=skip",
-        "reason=merge-queue-head-missing-merge-ready-fact",
-        "pass=poll",
-      })
-      return
-    end
-    merge_ready._merge_pass = "poll"
-    core.log_entry("merge", event, merge_ready.proposal_id, merge_ready.dedup_key)
-    local entity = core.parse_entity_proposal_id(merge_ready.proposal_id)
-    if entity == nil then
-      core.log_cas_decision("merge", merge_ready.proposal_id, { state = nil, version = nil }, "merge-ready", "merged|fixing", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
-      return
-    end
     local write_mode = core.write_mode()
-    local outcome = process_merge_ready_locked(repo, entity.issue_number, merge_ready, branches, nil, {
-      enforce_queue = false,
-      write_mode = write_mode,
-    })
+    local merge_ready, outcome, merge_error = try_merge_queue_entry(repo, branches, head, event, write_mode)
+    if merge_ready == nil then
+      return
+    end
+    if outcome == nil and (merge_error == nil or is_retryable_merge_wait_error(merge_error)) then
+      local next_entry = core.merge_queue_skip_blocked_head_candidate(repo, branches, entries, head, "head-held")
+      if next_entry ~= nil then
+        merge_ready, outcome = try_merge_queue_entry(repo, branches, next_entry, event, write_mode)
+      end
+    end
     if outcome ~= nil and outcome.status == "merged" then
       local last_merged_pr_number = core.run_merge_batch_window(repo, branches, merge_ready, entries, { write_mode = write_mode }, process_merge_ready_locked)
       chain_merge_queue_if_non_empty(repo, branches, last_merged_pr_number or outcome.pr_number)
+    elseif merge_error ~= nil then
+      error(merge_error)
     end
   end)
 end
