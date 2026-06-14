@@ -793,6 +793,37 @@ return {
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:merged")
   end,
 
+  test_merge_queue_poll_preserves_skipped_candidate_retry_error = function()
+    local blocked = event_for_pr(7, 42, "2026-06-03T00-00-00Z", "def456")
+    local next = event_for_pr(8, 43, "2026-06-03T00-01-00Z", "fed789")
+    mock_bot_env()
+    mock_write_env_many(64)
+    mock_repo_env()
+    mock_queue_list({ 7, 8 })
+    mock_queue_pr(blocked, "2026-06-03T01:00:00Z")
+    mock_queue_pr(next, "2026-06-03T01:01:00Z")
+    mock_merge_pr_view(blocked, "OPEN", "MERGEABLE", "DIRTY")
+    mock_current_base_head("aaa000")
+    t.mock_command("git merge-base --is-ancestor 'aaa000' 'def456'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_current_base_head("aaa000")
+    mock_candidate_head_contains_base(next, true)
+    mock_diff_name_only(8, { "packages/next.lua" })
+    mock_diff_name_only(7, { "packages/blocked.lua" })
+    mock_merge_pr_view(next, "OPEN", "MERGEABLE", "CLEAN", "IN_PROGRESS", "")
+
+    local result = run_merge_queue_tick(opts("merge-queue-skip-candidate-retry-error", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_REPO = "owner/repo",
+    }))
+    t.eq(result.exit_code, 1)
+    t.eq(count_calls("gh pr merge"), 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+  end,
+
   test_merge_batch_window_stops_on_overlapping_files = function()
     local first = event_for_pr(7, 42, "2026-06-03T00-00-00Z", "def456")
     local second = event_for_pr(8, 43, "2026-06-03T00-01-00Z", "fed789")

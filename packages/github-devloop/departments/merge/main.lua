@@ -881,7 +881,7 @@ local function process_merge_queue_tick(event)
     if outcome == nil and (merge_error == nil or is_retryable_merge_wait_error(merge_error)) then
       local next_entry = core.merge_queue_skip_blocked_head_candidate(repo, branches, entries, head, "head-held")
       if next_entry ~= nil then
-        merge_ready, outcome = try_merge_queue_entry(repo, branches, next_entry, event, write_mode)
+        merge_ready, outcome, merge_error = try_merge_queue_entry(repo, branches, next_entry, event, write_mode)
       end
     end
     if outcome ~= nil and outcome.status == "merged" then
