@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+require("tests.cache_seed_helpers")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -16,32 +17,20 @@ local count_calls = h.count_calls
 local render_comment = h.render_comment
 local run_observe = h.run_observe
 local find_raise = h.find_raise
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local function full_issue_view(labels, comments, extra)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or {}) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', h.json_string(label)))
-  end
-  local rendered_comments = {}
-  for _, comment in ipairs(comments or {}) do
-    table.insert(rendered_comments, render_comment(comment))
-  end
   local fields = extra or {}
-  t.mock_command("--json title,body,comments,labels,state,updatedAt,assignees", {
-    stdout = string.format(
-      '{"title":"%s","body":"%s","state":"%s","updatedAt":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"%s"}],"author":{"login":"%s"}}\n',
-      h.json_string(fields.title or "Implement decision recorder"),
-      h.json_string(fields.body or ""),
-      h.json_string(fields.state or "OPEN"),
-      h.json_string(fields.updated_at or "2026-06-03T01:02:03Z"),
-      table.concat(rendered_labels, ","),
-      table.concat(rendered_comments, ","),
-      h.json_string(fields.assignee_login or "fkst-test-bot"),
-      h.json_string(fields.author_login or "fkst-test-bot")
-    ),
-    stderr = "",
-    exit_code = 0,
-  })
+  entity_read_mocks.mock_issue_view_selector(t, {
+    title = fields.title or "Implement decision recorder",
+    body = fields.body or "",
+    state = fields.state or "OPEN",
+    updated_at = fields.updated_at or "2026-06-03T01:02:03Z",
+    labels = labels,
+    comments = comments,
+    assignees = { fields.assignee_login or "fkst-test-bot" },
+    author_login = fields.author_login or "fkst-test-bot",
+  }, "title,body,comments,labels,state,updatedAt,assignees")
 end
 
 local function issue_updated_at(value)
@@ -54,6 +43,34 @@ end
 
 local function shared_opts(name)
   return opts("entity-view-cache-" .. name)
+end
+
+local function json_string(value)
+  return tostring(value or "")
+    :gsub("\\", "\\\\")
+    :gsub('"', '\\"')
+    :gsub("\b", "\\b")
+    :gsub("\f", "\\f")
+    :gsub("\n", "\\n")
+    :gsub("\r", "\\r")
+    :gsub("\t", "\\t")
+end
+
+local function seed_cached_issue_view(repo, issue_number, stdout, updated_at, producer)
+  return {
+    key = core.entity_view_cache_key(repo, "issue", issue_number),
+    value = '{"updated_at":"' .. json_string(updated_at)
+    .. '","producer":"' .. json_string(producer or "seed")
+    .. '","stdout":"' .. json_string(stdout)
+    .. '"}',
+  }
+end
+
+local function seed_cache(entry, run_opts)
+  return t.run_department("tests/cache_seed_helpers.lua", {
+    queue = "cache_seed",
+    payload = entry,
+  }, run_opts)
 end
 
 local function assert_clean_open_pr_skip(result)
@@ -143,7 +160,7 @@ return {
     t.eq(count_calls("merge-base --is-ancestor"), 1)
   end,
 
-  test_open_pr_redrive_repairs_stale_blocked_state_label = function()
+  test_open_pr_redrive_leaves_pr_open_state_label_to_observe_issue = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1"
     mock_issue_open_pr({ "fkst-dev:blocked" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
@@ -156,13 +173,8 @@ return {
     }), opts("open-pr-redrive-stale-blocked-label"))
 
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    t.eq(label_raise.payload.add_labels[1], "fkst-dev:pr-open")
-    t.is_true(h.has_value(label_raise.payload.remove_labels, "fkst-dev:blocked"))
-    t.is_true(h.has_value(label_raise.payload.remove_labels, "fkst-dev:impl-failed"))
-    t.is_true(h.has_value(label_raise.payload.remove_labels, "fkst-dev:merged"))
-    t.eq(h.has_value(label_raise.payload.remove_labels, "fkst-dev:pr-open"), false)
+    t.eq(#result.raises, 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     t.eq(count_calls("show-ref --verify --quiet"), 0)
     t.eq(count_calls("rev-parse --verify"), 0)
   end,
@@ -209,7 +221,117 @@ return {
     t.eq(count_calls("rev-parse --verify"), 0)
   end,
 
-  test_marker_bearing_issue_view_is_fresh_across_event_driven_departments = function()
+  test_observe_claim_acquire_read_bypasses_same_validator_cache = function()
+    local run_opts = shared_opts("observe-claim-force-fresh")
+    local updated_at = "2026-06-03T01:02:03Z"
+    local view_command = core.gh_issue_view_entity_cmd("owner/repo", 42)
+    seed_cache(seed_cached_issue_view("owner/repo", 42, entity_read_mocks.issue_view_stdout({
+      repo = "owner/repo",
+      number = 42,
+      labels = { "fkst-dev:enabled" },
+      updated_at = updated_at,
+      assignees = { "other-bot" },
+      author_login = "fkst-test-bot",
+    }), updated_at, "stale-claim"), run_opts)
+    entity_read_mocks.mock_issue_read_forms(t, {
+      repo = "owner/repo",
+      number = 42,
+      labels = { "fkst-dev:enabled" },
+      comments = {},
+      updated_at = updated_at,
+      assignees = {},
+      author_login = "fkst-test-bot",
+      register_all_views = true,
+      times = 1,
+    })
+
+    local result = run_observe(issue({
+      labels = { "fkst-dev:enabled" },
+      updated_at = updated_at,
+    }), run_opts)
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls(view_command), 1)
+  end,
+
+  test_observe_marker_idempotency_read_bypasses_same_validator_cache = function()
+    local run_opts = shared_opts("observe-marker-force-fresh")
+    local updated_at = "2026-06-03T01:02:03Z"
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local view_command = core.gh_issue_view_entity_cmd("owner/repo", 42)
+    seed_cache(seed_cached_issue_view("owner/repo", 42, entity_read_mocks.issue_view_stdout({
+      repo = "owner/repo",
+      number = 42,
+      labels = { "fkst-dev:enabled" },
+      comments = {},
+      updated_at = updated_at,
+      assignees = { "fkst-test-bot" },
+      author_login = "fkst-test-bot",
+    }), updated_at, "stale-marker"), run_opts)
+    entity_read_mocks.mock_issue_read_forms(t, {
+      repo = "owner/repo",
+      number = 42,
+      labels = { "fkst-dev:thinking" },
+      comments = {
+        core.state_marker(proposal_id, "thinking", "owner/repo#issue#42@2026-06-03T01:02:03Z"),
+      },
+      updated_at = updated_at,
+      assignees = { "fkst-test-bot" },
+      author_login = "fkst-test-bot",
+      register_all_views = true,
+      times = 1,
+    })
+
+    local result = run_observe(issue({
+      labels = { "fkst-dev:enabled" },
+      updated_at = updated_at,
+    }), run_opts)
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls(view_command), 1)
+  end,
+
+  test_open_pr_write_gate_claim_read_bypasses_same_validator_cache = function()
+    local run_opts = opts("entity-view-cache-open-pr-gate-force-fresh", {
+      FKST_GITHUB_WRITE = "1",
+    })
+    local updated_at = "2026-06-03T01:02:03Z"
+    local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local view_command = core.gh_issue_view_entity_cmd("owner/repo", 42)
+    seed_cache(seed_cached_issue_view("owner/repo", 42, entity_read_mocks.issue_view_stdout({
+      repo = "owner/repo",
+      number = 42,
+      labels = { "fkst-dev:implementing" },
+      comments = {
+        core.state_marker("github-devloop/issue/owner/repo/42", "implementing", impl_version),
+        core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123"),
+      },
+      updated_at = updated_at,
+      assignees = { "other-bot" },
+      author_login = "fkst-test-bot",
+    }), updated_at, "stale-open-pr"), run_opts)
+    mock_issue_open_pr({ "fkst-dev:implementing" }, {
+      core.state_marker("github-devloop/issue/owner/repo/42", "implementing", impl_version),
+      core.implementing_marker("github-devloop/issue/owner/repo/42", impl_version, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123"),
+    }, {
+      updated_at = updated_at,
+      assignees = { "fkst-test-bot" },
+      author_login = "fkst-test-bot",
+    })
+    mock_branch_exists("devloop-owner-repo-42-01HY", "abc123")
+    mock_bot_env()
+    mock_write_env("1")
+
+    local result = run_open_pr(issue({
+      labels = { "fkst-dev:implementing" },
+      updated_at = updated_at,
+    }), run_opts)
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls(view_command), 1)
+  end,
+
+  test_validated_issue_view_is_fresh_across_event_driven_departments = function()
     full_issue_view({ "fkst-dev:ready" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "ready", "ready/version"),
     })
@@ -224,7 +346,6 @@ return {
 
     t.eq(observed.exit_code, 0)
     t.eq(opened.exit_code, 0)
-    t.eq(count_calls("gh issue view"), 2)
   end,
 
   test_cross_consumer_delayed_retry_refetches_current_issue_truth = function()
@@ -246,7 +367,6 @@ return {
 
     t.eq(observed.exit_code, 0)
     t.eq(opened.exit_code, 0)
-    t.eq(count_calls("gh issue view"), 2)
     t.eq(#opened.raises, 0)
   end,
 
@@ -268,7 +388,6 @@ return {
 
     t.eq(first.exit_code, 0)
     t.eq(retry.exit_code, 0)
-    t.eq(count_calls("gh issue view"), 2)
     t.eq(#retry.raises, 0)
   end,
 
@@ -289,7 +408,6 @@ return {
 
     t.eq(first.exit_code, 0)
     t.eq(second.exit_code, 0)
-    t.eq(count_calls("gh issue view"), 2)
   end,
 
   test_pr_entity_view_refetches_same_consumer_retry = function()
@@ -322,6 +440,5 @@ return {
 
     t.eq(first.exit_code, 0)
     t.eq(second.exit_code, 0)
-    t.eq(count_calls("gh pr view"), 2)
   end,
 }

@@ -67,6 +67,17 @@ fkst-packages 是 fkst 的**包库**（"库 B"），承载跑在 **fkst-substrat
 
 参考案例：#550（根因）/ #551（harness 硬化）。这是「先找 harness」doctrine 的硬化：安全网已成熟,活性网才是自驱系统反复栽跟头的盲区。
 
+## 全状态转移强制 saga 化（无例外、可审计、harness 化）
+
+**每一次状态转移——无论内部程序态（marker / version / round 计数 / durable 投递 / CAS）还是外部 forge 态（issue / PR / label / comment）——都是一个 saga step，强制按 saga 处理，禁止例外。** 没有「这个 loop 简单」「这条快路径不需要」「这是内部计数不算转移」的豁免。这是「活性 ⟂ 安全双检测」的结构性收口：安全网抓「发生的坏事」，saga 预算 + 保证终止抓「该终止而没终止」。saga step 的硬契约：
+
+- **每个非终止态必有不可击败的硬预算 + 保证到达枚举内带 WHY 的终止态**：任何 bounded loop（convergence / fix / redrive / retry / 任意重试或收敛）必须有 round / attempt / wall-clock 预算；预算耗尽**必然**终止到一个枚举内的终止态并带可读 WHY。预算必须**鲁棒、不可被击败**——不得被 key 漂移（如按 `(base_version, source_ref_digest)` 过滤导致计数 reset）、文本变化（如每轮变化的 `narrowed_question` 击败「N 轮不变」式 stall 检测）、或 filter 失配绕过。round/attempt 计数要从**稳定事实流**派生（稳定 producer key / 可见 marker 流），绝不从会漂移的派生键计数。活样本 #586：convergence round 33+ livelock——cap=8 因 `(base_version,sr_digest)` 漂移拖到 33 才偶发触发、true-stall 被变化的问题文本击败、reconcile 又因 graphql 耗尽写不进 `blocked`，三重失效叠加成无界 livelock。
+- **终止必然可达**：终止动作（`reconcile → blocked` 等）必须对暂态失败鲁棒（可靠投递 + 重试，绝不因一次读失败 fail-closed 就永久搁浅）；终止是「终将发生的好事」，受活性契约约束（#413：每个非终止态 budget + on_timeout 终止兜底）。
+- **可审计**：每次转移落结构化、可 grep 的事实——entry / CAS 决策 + 原因 / 预算与 round / apply / 终止 WHY，带 `proposal_id`；只看日志即可重建整条 saga 轨迹与终止理由。这些程序态只由程序产生，永不手改（见「纪律」与永不手改程序状态）。
+- **harness 化（机械不变式，非逐 dept 手写）**：saga 契约由 conformance 不变式**机械强制覆盖整类**，不是每个 loop/dept 手写一遍——每个非终止态在 `restart_transition_table` 必有 budget + on_timeout 终止行（缺一即 conformance 失败）；每个 bounded loop 的预算计数必须从稳定键派生（机械检查禁止从漂移键计数、禁止把可被表面变化击败的 stall 检测当唯一终止条件）。这是「先找 harness」「让问题都在测试解决」的落地：新增任何状态 / loop 若缺鲁棒预算或保证终止行，**CI 直接拦下**，而不是等 dogfood 发现 livelock。
+
+saga-mandatory umbrella = #375；budget-exhaustion liveness class = #558 / #568 / #535 / #586。与「先止血再根因」一致：livelock 先止血（停掉烧资源的循环），再按本条根因（补鲁棒预算 + 保证终止 + 机械不变式）。
+
 ## 异常向上暴露,直到懂根因的 handler 接手（expose, don't swallow）
 
 非正常路径（异常/错误）的纪律:**异常必须被暴露** —— fail-loud、向上传播、落结构化日志（`error_class`/`fingerprint`/`source_ref`/`attempt`/`terminal`）—— **直到遇到一个实证地懂其根因、且懂正确处置的 handler 把它处理掉**。不得在不理解根因的情况下静默 `skip` / `return` / `catch` 把异常吞掉。被吞的异常既不报错（safety 盲）又常表现为静默缺席（liveness 盲），是自驱系统反复栽跟头的根。
@@ -84,6 +95,17 @@ fkst-packages 是 fkst 的**包库**（"库 B"），承载跑在 **fkst-substrat
 prior art:Erlang/OTP「let it crash」(不防御式 catch,交给懂恢复策略的 supervisor)、Go 显式 error（handle 或 propagate,`_ = err` 是 smell）、「不要 catch 你处理不了的异常」。与三级错误模型一致(L1 暴露、L2 是懂根因的 handler),与「活性 ⟂ 安全」互补(被吞的异常两面皆盲)。#551 的 conformance 不变式(每个 consumed 队列必须路由或 fail-closed、不得静默 skip-foreign fallthrough)是这条纪律的机械执行;审查存量 `skip-foreign`/`skip-stale`/benign-return 是否「实证合法」还是「吞未知」是持续工作。
 
 参考案例：#550 / #558 / #556。
+
+## 先止血,再根因（dogfood 事故响应）
+
+dogfood 中发现**运行的系统在流血**（storm / 资源耗尽 / churn / 卡死 / 数据无界增长）时，响应分两步、顺序不可颠倒、也不可只做一半——这是 SRE 事故响应的成熟形态（先 mitigate / stop-the-bleeding 恢复 liveness，再 RCA 根治）：
+
+- **先止血（stabilize，分钟级，恢复活性优先）**：立刻止住正在发生的伤害——杀失控/泄漏进程、清掉已损坏的运行态（如 wipe 撑爆的 durable）、重启到已知良好态、节流/背压/退避。止血只求**让系统重新流动**、争来做根因的时间，可以是一次性手动运维操作；但它**不是修复、不是终点**，且仍守「永不手改程序状态」——止血是运维面动作（杀进程 / 清运行态 / 重启 / 节流），**绝不**手写 marker 或业务状态。
+- **再根因（root-cause fix，经正规管线）**：止血后冷静诊断真根（harness-first 锚定成熟实践），经 sshx → PR → review → merge 做**根因修复**，让同类伤害不再发生；修复要讲清：止血掩盖了什么、真根是什么、为何这次改动根治它。
+
+两个反模式都禁：① **只止血不根因**（反复重启 / wipe 当救命、真根不动 → 必复发）；② **系统流血时却埋头追根因**（放任活性违例持续扩大）。止血手法若**反复需要**（如「定期 fresh durable」），那本身就是根因未除的信号，应立项根治、而非固化成运维仪式。
+
+参考案例：durable backlog 风暴——先 wipe 撑爆的 durable + 重启**止血**，再 substrate#67（reliable raised delivery-id 改 entity-stable 折叠）**根因修复**。
 
 ## 先找 harness 再执行（harness-first）
 
@@ -121,6 +143,7 @@ prior art:Erlang/OTP「let it crash」(不防御式 catch,交给懂恢复策略�
 - **标准测试**：`scripts/run.sh test [pkg]` 是本地和 CI 的单一入口：先跑一次 `"$BIN" --self-test`（脚本未设时用 `.fkst/runtime` / `.fkst/durable`）。flat 包跑 `"$BIN" conformance --project-root .fkst/packages/<pkg> --package-root .fkst/packages/<pkg>` 和 `"$BIN" test --project-root .fkst/packages/<pkg> --package-root .fkst/packages/<pkg>`；composed 包跳过单根 conformance，但仍跑 `"$BIN" test --project-root .fkst/packages/<pkg> --package-root .fkst/packages/<pkg>`。无参全包测试收尾会按所有 `composed.deps` 递归收集 composed 包及其依赖，以仓库根为 `--project-root` 跑一次组合 conformance；`scripts/run.sh test-composed` 可单独跑这一步。test 模式含 `*_test.lua` 单测 + `fkst.test.run_department` 集成测，**不经 router**，故 test 模式不强制 source_ref；`gh`、`codex exec` 等外部 CLI 用引擎 mock，未 mock fail-closed。
 - **dogfood / 真跑一次部门**：`scripts/run.sh run <pkg> <dept> [event-json]` 一次性调用 `fkst-framework run`，解码 stdout 上的 `RAISED: <base64(JSON 数组)>` 并 dump `<RT>`。脚本用 `.fkst/runtime`（或复用已设的 `FKST_RUNTIME_ROOT`），**绝不设置 `FKST_GITHUB_WRITE`**。
 - **真实 supervise**：`scripts/run.sh supervise <pkg>` 是薄封装真实事件循环，未设置时使用 `.fkst/runtime` 和独立 `.fkst/durable`，默认 `--project-root .fkst/packages/<pkg>`（可用 `FKST_PROJECT_ROOT` 覆盖），并显式传 `--package-root .fkst/packages/<pkg>` 与 `--framework-bin "$BIN"`。前台运行，`Ctrl-C` 退出；不搭 host harness、不模拟事件、不注入 fake `gh`；host 提供的 topology env 会原样透传，脚本**不推导**集成分支，`github-devloop` dogfood 由 host 明确设置 `FKST_DEVLOOP_INTEGRATION_BRANCH=integration-<device>`。
+- **Operational health check**: `scripts/run.sh health` prints a first-line verdict from `fkst-framework observe --json`: `HEALTHY` or `N ANOMALIES NEEDING ATTENTION`. This follows SRE health-check practice: the command aggregates producer-owned structured facts (`terminal`, `error_class`, `fingerprint`, `outcome=retry-pending`, `tag=DEAD_LETTER`, queue DLQ counts, and explicit `disposition` when present) and keeps expected transients informational instead of attention-worthy. The renderer must stay a thin consumer of generic observe data; it must not become the semantic authority for new department or engine disposition contracts.
 - **本地 build / freshness**：`test/run/supervise` 在解析 `$BIN` 后，若 `$BIN` 可溯源到 `<fkst-substrate>/target/debug/fkst-framework`，会先 `cargo build -p fkst-framework` 确保与该 checkout 当前工作树一致；不 `git pull`、CI 不自动 build、无法溯源仅 warn 跳过，`FKST_NO_AUTOBUILD=1` 可跳过。`scripts/run.sh build` 仍是显式 `git pull && cargo build` 的更新命令。
 - **CI**：`.github/workflows/ci.yml` 从 `fkst-substrate@dev` 构建 fkst-framework，然后调用 `scripts/run.sh test`。改包后 push `dev`/`main` 触发。
 

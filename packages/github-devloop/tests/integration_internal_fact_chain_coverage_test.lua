@@ -1,6 +1,7 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local opts = h.opts
 local issue = h.issue
 local reviewing = h.reviewing
@@ -16,6 +17,7 @@ local mock_issue_result = h.mock_issue_result
 local mock_issue_fix_for_event = h.mock_issue_fix_for_event
 local mock_issue_merge = h.mock_issue_merge
 local mock_pr_origin = h.mock_pr_origin
+local mock_pr_origin_for = h.mock_pr_origin_for
 local mock_pr_fix = h.mock_pr_fix
 local mock_pr_merge = h.mock_pr_merge
 local mock_pr_merge_rollup = h.mock_pr_merge_rollup
@@ -63,25 +65,18 @@ local function review_origin_marker(version, head_sha)
   return core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
 end
 
-local function mock_issue_result_view(labels, comments)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or {}) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', h.json_string(label)))
-  end
-  local rendered_comments = {}
-  for _, comment in ipairs(comments or {}) do
-    table.insert(rendered_comments, h.render_comment(comment))
-  end
-  t.mock_command("--json labels,comments", {
-    stdout = string.format('{"labels":[%s],"comments":[%s]}\n', table.concat(rendered_labels, ","), table.concat(rendered_comments, ",")),
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("--json assignees,author", {
-    stdout = '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
-    stderr = "",
-    exit_code = 0,
-  })
+local function mock_issue_result_view(labels, comments, extra)
+  local fields = extra or {}
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = fields.repo,
+    number = fields.number,
+    labels = labels,
+    comments = comments,
+  }, "labels,comments")
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = fields.repo,
+    number = fields.number,
+  }, "assignees,author")
 end
 
 local function mock_decompose_child_issue_list(event, indexes)
@@ -452,7 +447,15 @@ return {
     local direct_merge = find_raise(approved.raises, "devloop_merge_ready")
     t.eq(direct_merge.payload.schema, "github-devloop.merge-ready.v1")
 
-    mock_pr_origin({ review_origin_marker(impl_version) })
+    mock_pr_origin({
+      review_origin_marker(impl_version),
+      core.review_result_marker(
+        direct_merge.payload.review_proposal_id,
+        "github-devloop/issue/owner/repo/42",
+        "approve",
+        direct_merge.payload.review_dedup_key
+      ),
+    })
     h.set_pr_phase_comments({ "fkst-dev:merge-ready" }, merge_comments(direct_merge.payload))
     local recovered_merge = h.run_observe_pr({
       schema = "github-proxy.v1",
@@ -463,7 +466,7 @@ return {
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     }, opts("internal-chain-review-approve-recovery"))
     t.eq(recovered_merge.exit_code, 0)
-    t.eq(find_raise(recovered_merge.raises, "devloop_merge_ready").payload.dedup_key, direct_merge.payload.dedup_key)
+    t.is_true(find_raise(recovered_merge.raises, "devloop_reviewing") ~= nil)
 
     local reject = review_reached({
       decision = "reject",
@@ -499,10 +502,8 @@ return {
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     }, opts("internal-chain-review-reject-recovery"))
     t.eq(recovered_fix.exit_code, 0)
-    local replay_fix = find_raise(recovered_fix.raises, "devloop_fixing").payload
-    t.is_true(replay_fix.dedup_key ~= direct_fix.payload.dedup_key)
-    t.is_true(replay_fix.dedup_key:find("/nobase/nopred/" .. tostring(direct_fix.payload.reviewed_head_sha), 1, true) ~= nil)
-    t.eq(replay_fix.review_dedup_key, direct_fix.payload.review_dedup_key)
+    t.eq(find_raise(recovered_fix.raises, "devloop_fixing"), nil)
+    t.is_true(find_raise(recovered_fix.raises, "devloop_reviewing") ~= nil)
   end,
 
   test_merge_direct_cascade_and_poll_recovery_cover_terminal_and_repair_paths = function()
@@ -523,7 +524,11 @@ return {
 
     local merge_gate_comment = find_raise(red.raises, "github-proxy.github_pr_comment_request").payload.body
     t.is_true(merge_gate_comment:find("gate_baseline_sha", 1, true) == nil)
-    mock_pr_origin({ origin_marker, merge_gate_comment })
+    mock_pr_origin({
+      origin_marker,
+      core.state_marker(event.proposal_id, "fixing", direct_fix.payload.version),
+      merge_gate_comment,
+    })
     mock_issue_result_view({ "fkst-dev:fixing" }, {
       core.state_marker(event.proposal_id, "fixing", direct_fix.payload.version),
       merge_gate_comment,
@@ -537,10 +542,8 @@ return {
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     }, opts("internal-chain-merge-red-recovery"))
     t.eq(recovered_fix.exit_code, 0)
-    local replay_fix = find_raise(recovered_fix.raises, "devloop_fixing").payload
-    t.is_true(replay_fix.dedup_key ~= direct_fix.payload.dedup_key)
-    t.is_true(replay_fix.dedup_key:find("/nobase/none/" .. tostring(direct_fix.payload.reviewed_head_sha), 1, true) ~= nil)
-    t.eq(replay_fix.review_dedup_key, direct_fix.payload.review_dedup_key)
+    local replay_merge = find_raise(recovered_fix.raises, "devloop_merge_ready").payload
+    t.eq(replay_merge.review_dedup_key, event.review_dedup_key)
 
     mock_bot_env()
     mock_write_env("1")
@@ -634,10 +637,17 @@ return {
     event.head_sha = nil
     local fixture = live_308_decompose_reconcile_marker_substream(event)
     mock_bot_env()
-    mock_pr_origin(fixture.comments, fixture.branch, fixture.head_sha)
+    mock_pr_origin_for({
+      repo = fixture.repo,
+      number = fixture.pr_number,
+      comments = fixture.comments,
+      head = fixture.branch,
+      head_sha = fixture.head_sha,
+      updated_at = fixture.updated_at,
+    })
     mock_issue_result_view({ "fkst-dev:blocked" }, {
       core.state_marker(event.proposal_id, "blocked", event.version),
-    })
+    }, { repo = fixture.repo, number = 285 })
     mock_decompose_child_issue_list(event, {})
 
     local result = run_observe_pr_payload({
@@ -661,10 +671,17 @@ return {
     t.eq(decompose.payload.source_ref.ref, "ChronoAIProject/fkst-packages#pr/308")
 
     mock_bot_env()
-    mock_pr_origin(with_non_marker_comments(fixture.comments, "pr-308"), fixture.branch, fixture.head_sha)
+    mock_pr_origin_for({
+      repo = fixture.repo,
+      number = fixture.pr_number,
+      comments = with_non_marker_comments(fixture.comments, "pr-308"),
+      head = fixture.branch,
+      head_sha = fixture.head_sha,
+      updated_at = fixture.updated_at,
+    })
     mock_issue_result_view({ "fkst-dev:blocked" }, {
       core.state_marker(event.proposal_id, "blocked", event.version),
-    })
+    }, { repo = fixture.repo, number = 285 })
     mock_decompose_child_issue_list(event, {})
 
     local noisy = run_observe_pr_payload({
@@ -684,8 +701,15 @@ return {
     local event = merge_ready()
     local fixture = live_305_merge_gate_fix_marker_substream(event)
     mock_bot_env()
-    mock_pr_origin(fixture.pr_comments, fixture.branch, fixture.head_sha)
-    mock_issue_result_view({ "fkst-dev:fixing" }, fixture.issue_comments)
+    mock_pr_origin_for({
+      repo = fixture.repo,
+      number = fixture.pr_number,
+      comments = fixture.pr_comments,
+      head = fixture.branch,
+      head_sha = fixture.head_sha,
+      updated_at = fixture.updated_at,
+    })
+    mock_issue_result_view({ "fkst-dev:fixing" }, fixture.issue_comments, { repo = fixture.repo, number = 300 })
 
     local result = run_observe_pr_payload({
       schema = "github-proxy.v1",
@@ -728,8 +752,15 @@ return {
     t.eq(matching_fact.gate_baseline_sha, fixing_raise.payload.gate_baseline_sha)
 
     mock_bot_env()
-    mock_pr_origin(with_non_marker_comments(fixture.pr_comments, "pr-305"), fixture.branch, fixture.head_sha)
-    mock_issue_result_view({ "fkst-dev:fixing" }, with_non_marker_comments(fixture.issue_comments, "issue-300"))
+    mock_pr_origin_for({
+      repo = fixture.repo,
+      number = fixture.pr_number,
+      comments = with_non_marker_comments(fixture.pr_comments, "pr-305"),
+      head = fixture.branch,
+      head_sha = fixture.head_sha,
+      updated_at = fixture.updated_at,
+    })
+    mock_issue_result_view({ "fkst-dev:fixing" }, with_non_marker_comments(fixture.issue_comments, "issue-300"), { repo = fixture.repo, number = 300 })
 
     local noisy = run_observe_pr_payload({
       schema = "github-proxy.v1",

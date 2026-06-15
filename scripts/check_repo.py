@@ -9,7 +9,6 @@ import os, base64, binascii, subprocess, check_repo_gh_git_adapter as gh_git_ada
 from dataclasses import dataclass
 from pathlib import Path
 
-
 LINE_LIMIT = 1000
 LINE_WARNING_MARGIN = 50
 SOURCE_SUFFIXES = {".lua", ".sh", ".py", ".rs"}
@@ -63,8 +62,7 @@ SAGA_RECOVERY_TOKENS = ("fkst:github-devloop:state:v1", "current_entity_state", 
 HEX_LITERAL_RE = re.compile(r"[0-9A-Fa-f]+\Z")
 BASE64_LITERAL_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}\Z")
 BYTE_ESCAPE_RE = re.compile(r"\\x[0-9A-Fa-f]{2}|\\[0-9]{1,3}|\\u\{[0-9A-Fa-f]+\}")
-ENCODED_LITERAL_MIN_BYTES = 6
-
+ENCODED_LITERAL_MIN_BYTES = 6; ENTITY_READ_COUNT_RE = re.compile(r"count_calls\s*\([^)\n]*(?:[\"']gh (?:issue|pr) view\b|core\.gh_(?:issue|pr)_view_|[\"']--json (?:headRefName|title|labels,comments|assignees,author))")
 
 @dataclass(frozen=True)
 class LuaStringLiteral:
@@ -74,7 +72,6 @@ class LuaStringLiteral:
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
-
 
 def rel(root: Path, path: Path) -> str:
     packages_view = packages_root(root)
@@ -90,7 +87,6 @@ def add(violations: list[str], rule: str, message: str) -> None: violations.appe
 def allowlist_lines(path: Path) -> set[str]:
     return set() if not path.exists() else {line.strip() for line in read_text(path).splitlines() if line.strip() and not line.lstrip().startswith("#")}
 
-
 def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
     if index >= len(text) or text[index] != "[":
         return None
@@ -101,7 +97,6 @@ def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
         return None
     level = cursor - index - 1
     return cursor - index + 1, "]" + ("=" * level) + "]"
-
 
 def mask_span(chars: list[str], start: int, end: int) -> None:
     for index in range(start, end):
@@ -890,7 +885,6 @@ def cross_package_require_names(
             hits.add(top)
     return sorted(hits)
 
-
 def check_cross_package_require(root: Path, violations: list[str]) -> None:
     pkgs = package_dirs(root)
     names = {pkg.name for pkg in pkgs}
@@ -910,11 +904,18 @@ def check_cross_package_require(root: Path, violations: list[str]) -> None:
                     f"share via std/ (peer cross-package require is forbidden)",
                 )
 
+def check_entity_read_count_assertions(root: Path, violations: list[str]) -> None:
+    base = packages_root(root) / "github-devloop" / "tests"
+    if not base.exists(): return
+    for path in sorted(base.glob("*.lua")):
+        if path.name.endswith("_helpers.lua") or path.name == "devloop_helpers.lua": continue
+        for index, line in enumerate(read_text(path).splitlines(), start=1):
+            if ENTITY_READ_COUNT_RE.search(line):
+                add(violations, "G11", f"{rel(root, path)}:{index} asserts entity-read command counts; assert outcomes instead")
 
 def check_gh_git_adapter_ratchet(root: Path, violations: list[str]) -> None:
     sources = gh_git_adapter.sources(root, packages_root(root), read_text, rel)
     for message in gh_git_adapter.ratchet_messages(sources, gh_git_adapter.load_allowlist(root / gh_git_adapter.ALLOWLIST), lua_string_literals): add(violations, "G-ADAPTER", message)
-
 
 def is_saga_handler_source(source: str) -> bool:
     return SAGA_REQUIRE_RE.search(source) is not None and SAGA_DEPARTMENT_RE.search(strip_lua_comments_and_strings(source)) is not None
@@ -963,7 +964,6 @@ def check_saga_handler_ratchet(root: Path, violations: list[str], warnings: list
     if base_status == "unresolved": violations.append("G10: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     violations.extend(saga_handler_ratchet_violations(sources, allowlist, base_allowlist))
 
-
 def main() -> int:
     root = repo_root()
     violations: list[str] = []
@@ -981,6 +981,7 @@ def main() -> int:
     check_persistence_classes(root, violations)
     check_cross_package_require(root, violations)
     check_gh_git_adapter_ratchet(root, violations)
+    check_entity_read_count_assertions(root, violations)
     check_saga_handler_ratchet(root, violations, warnings)
 
     for warning in warnings:

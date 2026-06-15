@@ -45,9 +45,6 @@ packages/github-devloop/core/commands.lua:
 packages/github-devloop/core/config.lua:
   - git rev-parse
 
-packages/github-devloop/core/dependencies.lua:
-  - gh api
-
 packages/github-devloop/core/ensure_repo.lua:
   - gh dashboard
   - gh label
@@ -62,12 +59,14 @@ packages/github-devloop/core/github_proxy_entity_view.lua:
   - gh issue
   - gh pr
 
+packages/github-devloop/core/github_graphql.lua:
+  - gh api
+
 packages/github-devloop/core/observability_bounds.lua:
   - gh observability
 
 packages/github-devloop/core/payloads.lua:
   - gh issue
-  - gh pr
 
 packages/github-devloop/core/queue_starvation.lua:
   - gh recent
@@ -129,7 +128,6 @@ packages/github-proxy/core.lua:
 
 packages/github-proxy/core/blocked_by.lua:
   - gh addBlockedBy
-  - gh api
   - gh blocked
   - gh blocked-by
   - gh blockedBy
@@ -151,6 +149,9 @@ packages/github-proxy/core/entity_view.lua:
 packages/github-proxy/core/gh_rate.lua:
   - gh
   - gh command
+
+packages/github-proxy/core/github_graphql.lua:
+  - gh api
 
 packages/github-proxy/core/issue_create.lua:
   - gh issue
@@ -175,6 +176,9 @@ packages/github-proxy/departments/github_pr_open/main.lua:
   - gh PR
   - gh issue
   - gh pr
+
+std/github_debug_stamp.lua:
+  - git rev-parse
 
 std/saga_conformance.lua:
   - gh api

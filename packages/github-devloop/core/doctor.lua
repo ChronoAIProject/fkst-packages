@@ -175,7 +175,6 @@ end
 local function fetch_issue_entity(repo, issue)
   local view = M.fetch_issue_view_state(repo, issue.number, issue.updated_at, {
     consumer = "saga_doctor",
-    fresh = true,
   })
   if view.exit_code ~= 0 then
     error("github-devloop: saga-doctor-issue-view-failed: " .. tostring(view.stderr))
@@ -197,7 +196,6 @@ end
 local function fetch_pr_entity(repo, pr)
   local view = M.fetch_pr_view_origin(repo, pr.number, pr.updated_at, {
     consumer = "saga_doctor",
-    fresh = true,
   })
   if view.exit_code ~= 0 then
     error("github-devloop: saga-doctor-pr-view-failed: " .. tostring(view.stderr))
@@ -217,16 +215,22 @@ local function fetch_pr_entity(repo, pr)
   }
 end
 
-local function list_open_issues(repo)
-  local result = M.gh_exec({ cmd = M.gh_issue_list_observe_cmd(repo), timeout = 60 })
+local function list_open_issues(repo, poll_key)
+  local result = M.fetch_shared_issue_observe_list(repo, {
+    timeout = 60,
+    poll_key = poll_key,
+  })
   if result.exit_code ~= 0 then
     error("github-devloop: saga-doctor-issue-list-failed: " .. tostring(result.stderr))
   end
   return M.parse_issue_list_observe(result.stdout)
 end
 
-local function list_open_prs(repo)
-  local result = M.gh_exec({ cmd = M.gh_pr_list_observe_cmd(repo), timeout = 60 })
+local function list_open_prs(repo, poll_key)
+  local result = M.fetch_shared_pr_observe_list(repo, {
+    timeout = 60,
+    poll_key = poll_key,
+  })
   if result.exit_code ~= 0 then
     error("github-devloop: saga-doctor-pr-list-failed: " .. tostring(result.stderr))
   end
@@ -260,9 +264,10 @@ function M.saga_doctor_collect(opts)
   local options = opts or {}
   local repo = options.repo or read_repo()
   M.assert_trusted_bot_configured()
+  local poll_key = options.poll_key
 
-  local issues = options.issues or list_open_issues(repo)
-  local prs = options.prs or list_open_prs(repo)
+  local issues = options.issues or list_open_issues(repo, poll_key)
+  local prs = options.prs or list_open_prs(repo, poll_key)
   local pr_numbers = open_pr_number_set(prs)
   local entities = {}
   for _, issue in ipairs(sort_by_number(issues)) do

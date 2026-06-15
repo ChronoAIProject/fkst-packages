@@ -515,7 +515,6 @@ function M.build_pr_open_request(repo, issue_number, proposal_id, current, title
   end
   local body = "github-devloop implementation PR for issue #" .. tostring(issue_number)
     .. "\n\n" .. M.pr_origin_marker(proposal_id, issue_number, branch, current.version, base_branch)
-  local add_labels, remove_labels = M.state_label_changes("pr-open")
   return M.attach_issue_claim({
     schema = "github-proxy.pr-open.v1",
     repo = repo,
@@ -532,8 +531,8 @@ function M.build_pr_open_request(repo, issue_number, proposal_id, current, title
     issue_comment_body_template = M.comment_string("pr_opened_prefix") .. "{{pr_number}}"
       .. "\n\n" .. M.state_marker(proposal_id, "pr-open", current.version)
       .. "\n" .. M.pr_link_marker_template(proposal_id, branch, current.version, base_branch),
-    issue_label_add = add_labels,
-    issue_label_remove = remove_labels,
+    issue_label_add = {},
+    issue_label_remove = {},
     dedup_key = M._dedup_key({
       "open-pr",
       tostring(proposal_id),
@@ -568,20 +567,6 @@ function M.build_pr_open_comment_request(repo, issue_number, proposal_id, curren
   }, source_ref)
 end
 
-function M.build_pr_open_label_request(repo, issue_number, proposal_id, current, source_ref)
-  return M.build_state_label_request(
-    repo,
-    issue_number,
-    "pr-open",
-    M._dedup_key({
-      "open-pr",
-      "label",
-      tostring(proposal_id),
-      tostring(current.version),
-    }),
-    source_ref
-  )
-end
 function M.build_reviewing_comment_request(repo, issue_number, origin, pr_number, source_ref)
   local state_marker = M.state_marker(origin.proposal_id, "reviewing", origin.impl_version)
   local request = M.build_entity_comment_request({
@@ -616,6 +601,55 @@ function M.build_reviewing_label_request(repo, issue_number, origin, pr_number, 
       tostring(origin.proposal_id),
       tostring(origin.impl_version),
       tostring(pr_number),
+    }),
+    source_ref
+  )
+end
+
+function M.pr_base_unmanaged_blocked_version(version)
+  return tostring(version or "") .. "/blocked/pr-base-unmanaged"
+end
+
+function M.build_pr_base_unmanaged_comment_request(repo, pr_number, origin, integration_branch, source_ref)
+  local blocked_version = M.pr_base_unmanaged_blocked_version(origin.impl_version)
+  local state_marker = M.state_marker(origin.proposal_id, "blocked", blocked_version)
+  local reason_marker = M.pr_base_unmanaged_marker(origin.proposal_id, pr_number, origin.base_branch, integration_branch)
+  return M.build_entity_comment_request({
+    kind = "pr",
+    repo = repo,
+    number = pr_number,
+  }, "github-devloop blocked PR because its base branch is not managed by this instance."
+    .. "\n\nReason: pr-base-unmanaged"
+    .. "\nPR base: " .. tostring(origin.base_branch)
+    .. "\nConfigured integration branch: " .. tostring(integration_branch)
+    .. "\n\n" .. state_marker
+    .. "\n" .. reason_marker
+    .. "\n" .. ai_sentinel, M._dedup_key({
+    "observe-pr",
+    "blocked",
+    "pr-base-unmanaged",
+    tostring(origin.proposal_id),
+    tostring(origin.impl_version),
+    tostring(pr_number),
+    tostring(origin.base_branch),
+    tostring(integration_branch),
+  }), source_ref)
+end
+
+function M.build_pr_base_unmanaged_label_request(repo, issue_number, origin, pr_number, integration_branch, source_ref)
+  return M.build_state_label_request(
+    repo,
+    issue_number,
+    "blocked",
+    M._dedup_key({
+      "observe-pr",
+      "label",
+      "pr-base-unmanaged",
+      tostring(origin.proposal_id),
+      tostring(origin.impl_version),
+      tostring(pr_number),
+      tostring(origin.base_branch),
+      tostring(integration_branch),
     }),
     source_ref
   )

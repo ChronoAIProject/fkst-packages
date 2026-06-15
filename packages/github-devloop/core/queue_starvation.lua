@@ -3,7 +3,6 @@ local S = {}
 function S.install(M)
 local detector = "queue-starvation"
 local merge_recent_threshold_minutes = 360
-local merge_ready_stale_threshold_minutes = 60
 local recent_closed_limit = 30
 
 local function format_timestamp(seconds)
@@ -134,6 +133,9 @@ function M.queue_starvation_recent_closed_merged_issues(repo, limits, deadline)
     deadline,
     "gh recent closed merged issue list"
   )
+  if M.observability_result_deferred(listed) then
+    return nil, nil, "deadline"
+  end
   local issues = M.parse_issue_list_recent_closed(listed.stdout)
   local merged = {}
   for _, issue in ipairs(issues) do
@@ -145,6 +147,9 @@ function M.queue_starvation_recent_closed_merged_issues(repo, limits, deadline)
         deadline,
         "gh recent closed merged issue view"
       )
+      if M.observability_result_deferred(view) then
+        return nil, nil, "deadline"
+      end
       local current = M.parse_issue_view_observe(view.stdout)
       current.closed_at = issue.closed_at
       current.number = issue.number
@@ -196,7 +201,7 @@ local function merge_ready_queue_head(entities, now_seconds)
     local age = M.stall_suspect_age_minutes(entity.state and entity.state.version or nil, now_seconds)
     if state == "merge-ready"
       and tonumber(age) ~= nil
-      and tonumber(age) > merge_ready_stale_threshold_minutes
+      and tonumber(age) > M._merge_ready_starvation_threshold_minutes
       and (selected == nil
         or tonumber(age) > tonumber(selected.age_minutes)
         or (tonumber(age) == tonumber(selected.age_minutes)
@@ -205,7 +210,7 @@ local function merge_ready_queue_head(entities, now_seconds)
         entity = entity,
         state = state,
         age_minutes = age,
-        threshold_minutes = merge_ready_stale_threshold_minutes,
+        threshold_minutes = M._merge_ready_starvation_threshold_minutes,
       }
     end
   end
@@ -214,16 +219,13 @@ end
 
 local function merge_queue_head_entity(repo, now_seconds)
   local branches = M.branch_config()
-  local head = M.merge_queue_head(repo, branches.integration)
-  if head == nil or tostring(head.state or "") ~= "merge-ready" then
+  local _, entries = M.merge_queue_head(repo, branches.integration)
+  local head, age = M.merge_queue_starvation_candidate(entries, M._merge_ready_starvation_threshold_minutes, now_seconds)
+  if head == nil then
     return nil
   end
   local repo_from_proposal, issue_number = M.parse_proposal_id(head.proposal_id)
   if repo_from_proposal == nil then
-    return nil
-  end
-  local age = M.stall_suspect_age_minutes(head.version, now_seconds)
-  if tonumber(age) == nil or tonumber(age) <= merge_ready_stale_threshold_minutes then
     return nil
   end
   return {
@@ -241,7 +243,7 @@ local function merge_queue_head_entity(repo, now_seconds)
     },
     state = "merge-ready",
     age_minutes = age,
-    threshold_minutes = merge_ready_stale_threshold_minutes,
+    threshold_minutes = M._merge_ready_starvation_threshold_minutes,
   }
 end
 
@@ -296,6 +298,37 @@ local function stable_incident_identity(queue_head)
     table.insert(parts, M.safe_head_segment(entity.head_sha))
   end
   return table.concat(parts, "/")
+end
+
+local function queue_head_entity(queue_head)
+  if type(queue_head) ~= "table" then
+    return nil
+  end
+  if type(queue_head.entity) == "table" then
+    return queue_head.entity
+  end
+  return queue_head
+end
+
+function M.queue_starvation_redrive_payload(repo, evidence)
+  local head = queue_head_entity(evidence and evidence.queue_head or nil)
+  if type(head) ~= "table" or head.pr_number == nil then
+    return nil
+  end
+  return M.merge_queue_starvation_tick_payload(repo, evidence.incident_identity, {
+    pr_number = head.pr_number,
+    proposal_id = head.proposal_id,
+    version = head.state and head.state.version or nil,
+    head_sha = head.head_sha,
+  }, evidence.window_key)
+end
+
+local function raise_redrive(redrive)
+  if redrive == nil then
+    return
+  end
+  M.log_raise("observability", detector .. "/merge-ready", "devloop_merge_queue_tick", redrive)
+  raise("devloop_merge_queue_tick", redrive)
 end
 
 function M.queue_starvation_dedup_key(repo, identity)
@@ -365,56 +398,51 @@ function M.observe_queue_starvation(repo, entities, limits, deadline, now_second
     return { action = "no-op", reason = "no-stale-merge-ready" }
   end
 
-  local ok, recent_closed, merged = pcall(function()
-    local issues, merged_issues = M.queue_starvation_recent_closed_merged_issues(repo, limits, deadline)
-    return issues, merged_issues
+  local ok, recent_closed, merged, source_status = pcall(function()
+    return M.queue_starvation_recent_closed_merged_issues(repo, limits, deadline)
   end)
-  if not ok then
-    log.warn("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=recent-merge-source-failed")
-    return { action = "no-op", reason = "recent-merge-source-failed" }
+  if not ok or recent_closed == nil then
+    local reason = source_status == "deadline" and "recent-merge-source-deferred" or "recent-merge-source-failed"
+    log.warn("github-devloop dept=observability tag=QUEUE_STARVATION action=no-op reason=" .. reason)
+    return { action = "no-op", reason = reason }
   end
 
   local current_seconds = tonumber(now_seconds) or now()
   local newest = newest_recent_merge(merged, current_seconds)
-  if newest ~= nil and newest.age_minutes <= merge_recent_threshold_minutes then
-    log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=suppress"
-      .. " reason=recent-merge"
-      .. " last_merge_age_minutes=" .. tostring(newest.age_minutes)
-      .. " threshold_minutes=" .. tostring(merge_recent_threshold_minutes))
-    return { action = "suppress", reason = "recent-merge", last_merge_age_minutes = newest.age_minutes }
-  end
-
   local evidence = {
     now_seconds = current_seconds,
     window_key = M.queue_starvation_window_key(current_seconds),
     queue_head = queue_head.entity,
     queue_head_age_minutes = queue_head.age_minutes,
-    threshold_minutes = merge_ready_stale_threshold_minutes,
+    threshold_minutes = M._merge_ready_starvation_threshold_minutes,
     last_merge_age_minutes = newest and newest.age_minutes or nil,
     recent_closed = recent_closed,
   }
   evidence.incident_identity = stable_incident_identity(queue_head)
+  local redrive = M.queue_starvation_redrive_payload(repo, evidence)
+  if newest ~= nil and newest.age_minutes <= merge_recent_threshold_minutes then
+    raise_redrive(redrive)
+    log.info("github-devloop dept=observability tag=QUEUE_STARVATION action=suppress"
+      .. " reason=recent-merge"
+      .. " last_merge_age_minutes=" .. tostring(newest.age_minutes)
+      .. " threshold_minutes=" .. tostring(merge_recent_threshold_minutes)
+      .. " redrive=" .. tostring(redrive ~= nil))
+    return {
+      action = "suppress",
+      reason = "recent-merge",
+      last_merge_age_minutes = newest.age_minutes,
+      redrive = redrive,
+    }
+  end
   local snapshot = write_snapshot(repo, evidence.window_key, evidence)
   local request = M.build_queue_starvation_issue_create_request(repo, evidence, snapshot)
-  local redrive = nil
-  if queue_head.entity ~= nil and queue_head.entity.pr_number ~= nil then
-    redrive = M.merge_queue_starvation_tick_payload(repo, evidence.incident_identity, {
-      pr_number = queue_head.entity.pr_number,
-      proposal_id = queue_head.entity.proposal_id,
-      version = queue_head.entity.state and queue_head.entity.state.version or nil,
-      head_sha = queue_head.entity.head_sha,
-    }, evidence.window_key)
-  end
   M.log_raise("observability", detector .. "/merge-ready", "github-proxy.github_issue_create_request", request)
-  if redrive ~= nil then
-    M.log_raise("observability", detector .. "/merge-ready", "devloop_merge_queue_tick", redrive)
-    raise("devloop_merge_queue_tick", redrive)
-  end
+  raise_redrive(redrive)
   log.info("github-devloop dept=observability tag=QUEUE_STARVATION"
     .. " action=raise"
     .. " queue_head=" .. tostring(queue_head.entity and queue_head.entity.proposal_id or "")
     .. " age_minutes=" .. tostring(queue_head.age_minutes)
-    .. " threshold_minutes=" .. tostring(merge_ready_stale_threshold_minutes)
+    .. " threshold_minutes=" .. tostring(M._merge_ready_starvation_threshold_minutes)
     .. " last_merge_age_minutes=" .. tostring(evidence.last_merge_age_minutes or "none")
     .. " snapshot_path=" .. tostring(snapshot)
     .. " dedup_key=" .. tostring(request.dedup_key))

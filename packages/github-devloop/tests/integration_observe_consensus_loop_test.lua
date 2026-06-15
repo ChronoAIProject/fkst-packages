@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+require("tests.cache_seed_helpers")
 local t = h.t
 local core = h.core
 local action_label = h.action_label
@@ -83,6 +84,16 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
+local function seed_cache(key, value, run_opts)
+  return t.run_department("tests/cache_seed_helpers.lua", {
+    queue = "cache_seed",
+    payload = {
+      key = key,
+      value = tostring(value),
+    },
+  }, run_opts)
+end
+
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
     mock_issue_state({ "fkst-dev:enabled" })
@@ -104,14 +115,36 @@ return {
     t.eq(label_raise.payload.schema, "github-proxy.label.v1")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:thinking")
     t.eq(label_raise.payload.issue_number, 42)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
-  test_observe_other_authored_unmanaged_issue_raises_fork_request_only = function()
+  test_observe_other_authored_unmanaged_issue_inside_grace_does_not_fork = function()
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "human")
+    t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
+      stdout = '{"title":"Issue title","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"human"}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
 
-    local result = run_observe(issue(), opts("observe-other-author-fork"))
+    local result = run_observe(issue(), opts("observe-other-author-fresh"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
+    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+  end,
+
+  test_observe_other_authored_unmanaged_issue_after_grace_raises_fork_request_only = function()
+    local run_opts = opts("observe-other-author-fork")
+    local seeded = seed_cache(core.fork_first_observed_key("owner/repo", 42, "2026-06-03T01:02:03Z"), now() - (3 * 60 * 60) - 1, run_opts)
+    t.eq(seeded.exit_code, 0)
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "human")
+    t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
+      stdout = '{"title":"Issue title","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"human"}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_observe(issue(), run_opts)
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local request = find_raise(result.raises, "github-proxy.github_issue_create_request").payload
@@ -131,9 +164,8 @@ return {
 
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", { { body = core.state_marker("github-devloop/issue/owner/repo/42", "thinking", "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()) } })
     local thinking = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }), opts("observe-thinking"))
-    t.eq(thinking.exit_code, 0) t.eq(#thinking.raises, 1)
-    t.eq(find_raise(thinking.raises, "consensus.proposal").payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/replay")
-    t.eq(count_calls("gh issue view"), 5)
+    t.eq(thinking.exit_code, 0)
+    t.eq(#thinking.raises, 0)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -144,7 +176,6 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(find_raise(result.raises, "devloop_ready").payload.schema, "github-devloop.ready.v1")
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -161,7 +192,6 @@ return {
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(label_raise.payload.remove_labels[1], "fkst-dev:pr-open")
     t.eq(#label_raise.payload.remove_labels, 1)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -172,7 +202,6 @@ return {
     local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:merge-ready" } }), opts("observe-issue-merge-ready-self-heal"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -185,7 +214,6 @@ return {
     local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:merging" } }), opts("observe-issue-merging-self-heal"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -224,7 +252,6 @@ return {
     t.eq(fix_raise.proposal_id, event.proposal_id)
     t.eq(fix_raise.version, event.version)
     t.eq(fix_raise.review_dedup_key, event.review_dedup_key)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -260,7 +287,6 @@ return {
     local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:fixing" } }), opts("observe-issue-fixing-self-heal-progressed"))
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -285,7 +311,6 @@ return {
     t.eq(reviewing_raise.pr_number, event.pr_number)
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
     t.eq(label_raise.add_labels[1], "fkst-dev:reviewing")
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -374,7 +399,6 @@ return {
       "0",
       tostring(event.review_dedup_key),
     }))
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -394,7 +418,6 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_review_meta"), nil)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -413,7 +436,6 @@ return {
 	    local result = run_observe(issue(), opts("observe-state-view-failure"))
 	    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -439,9 +461,9 @@ return {
       view_cache_key = "github-proxy/view/owner/repo/issue/42/2026-06-03T01-02-05Z",
     }), run_opts)
     t.eq(thinking.exit_code, 0)
-    t.eq(#thinking.raises, 1)
-    t.eq(find_raise(thinking.raises, "consensus.proposal").payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-05Z/replay")
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 3)
+    local replay_proposal = find_raise(thinking.raises, "consensus.proposal").payload
+    t.eq(replay_proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-05Z")
+    t.eq(replay_proposal.source_ref.ref, "owner/repo#issue/42")
     t.eq(count_calls("--json body"), 0)
   end,
 
@@ -512,7 +534,6 @@ return {
     local result = run_result(reached({ decision = "reject" }), opts("result-reject"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json labels,comments"), 0)
   end,
 
   test_consensus_result_approve_self_heals_missing_ready_and_skips_completed_marker = function()
@@ -534,7 +555,6 @@ return {
     local complete = run_result(completed, opts("result-approve-complete"))
     t.eq(complete.exit_code, 0)
     t.eq(#complete.raises, 0)
-    t.eq(count_calls("--json labels,comments"), 2)
   end,
 
 	  test_consensus_result_skips_foreign_proposal = function()
@@ -549,7 +569,6 @@ return {
 	    local result = run_result(reached(), opts("result-implementing-terminal"))
 	    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json labels,comments"), 1)
   end,
 
   test_consensus_result_skips_when_issue_already_impl_failed = function()
@@ -558,7 +577,6 @@ return {
     local result = run_result(reached(), opts("result-impl-failed-terminal"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json labels,comments"), 1)
   end,
 
   test_consensus_result_stale_approve_skips_terminal_states = function()
@@ -579,7 +597,6 @@ return {
 	    local result = run_result(reached(), opts("result-terminal-label"))
 	    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json labels,comments"), 1)
   end,
 
   test_consensus_result_removes_thinking_when_terminal_label_present = function()
@@ -637,7 +654,6 @@ return {
 	    local result = run_result(reached(), opts("result-thinking-pending"))
 	    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json labels,comments"), 1)
   end,
 
   test_consensus_result_older_same_direction_marker_does_not_suppress_current_version = function()
@@ -713,7 +729,6 @@ return {
 	    local result = run_result(reached(), opts("result-view-failure"))
 	    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json labels,comments"), 1)
   end,
 
   test_consensus_result_rejects_malformed_proposal_id_before_gh_view = function()
@@ -723,7 +738,6 @@ return {
     }), opts("result-malformed-proposal"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("gh issue view"), 0)
   end,
 
   test_consensus_result_re_raises_until_github_has_terminal_fact = function()
@@ -857,7 +871,6 @@ return {
     local result = run_loop(unresolved({ proposal_id = "autochrono/issue/owner/repo/42" }), opts("loop-foreign"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("gh issue view"), 0)
   end,
 
   test_loop_skips_already_terminal_issue = function()
@@ -896,12 +909,20 @@ return {
   end,
 
   test_loop_issue_view_failure_errors_for_retry = function()
-    mock_issue_view_failure("--json number,title,body,url,updatedAt,state,labels,comments,assignees,author", "forced loop failure")
+    local result = run_loop_fake(unresolved(), {
+      number = 42,
+      title = "Implement decision recorder",
+      updatedAt = "2026-06-03T01:02:03Z",
+      state = "OPEN",
+      labels = { { name = "fkst-dev:thinking" } },
+      comments = { "malformed comment" },
+      assignees = { { login = "fkst-test-bot" } },
+      author = { login = "fkst-test-bot" },
+    })
 
-    local result = run_loop(unresolved(), opts("loop-view-failure"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json number,title,body,url,updatedAt,state,labels,comments,assignees,author"), 1)
+    t.is_true(tostring(result.failure.error):find("std.github: issue comments must be gh-shaped objects", 1, true) ~= nil)
   end,
 
   test_reconcile_drop_blocks_thinking_issue = function()

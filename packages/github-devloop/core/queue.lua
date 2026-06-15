@@ -59,13 +59,53 @@ local merge_queue_lane_states = {
   merging = true,
 }
 
+M._merge_ready_starvation_threshold_minutes = 60
+
+local function has_merge_ready_created_at(entry)
+  local created = tostring(entry and entry.merge_ready_created_at or "")
+  return created ~= ""
+end
+
 local function compare_merge_queue_entries(left, right)
-  local left_created = tostring(left.merge_ready_created_at or "")
-  local right_created = tostring(right.merge_ready_created_at or "")
-  if left_created ~= right_created then
+  local left_has_created = has_merge_ready_created_at(left)
+  local right_has_created = has_merge_ready_created_at(right)
+  if left_has_created ~= right_has_created then
+    return left_has_created
+  end
+  local left_created = tostring(left and left.merge_ready_created_at or "")
+  local right_created = tostring(right and right.merge_ready_created_at or "")
+  if left_has_created and left_created ~= right_created then
     return left_created < right_created
   end
   return tonumber(left.pr_number or 0) < tonumber(right.pr_number or 0)
+end
+
+local function entry_age_minutes(entry, now_seconds)
+  local version = tostring(entry and entry.version or "")
+  local updated_at = M.version_updated_at(version)
+  if updated_at == "" then
+    return nil
+  end
+  local marker_seconds = M.iso_timestamp_epoch_seconds(updated_at)
+  local current_seconds = tonumber(now_seconds)
+  if marker_seconds == nil or current_seconds == nil or current_seconds < marker_seconds then
+    return nil
+  end
+  return math.floor((current_seconds - marker_seconds) / 60)
+end
+
+local function compare_starvation_age(left, right)
+  local left_age = tonumber(left and left.age_minutes)
+  local right_age = tonumber(right and right.age_minutes)
+  if left_age ~= right_age then
+    return left_age > right_age
+  end
+  local left_created = tostring(left and left.entry and left.entry.merge_ready_created_at or "")
+  local right_created = tostring(right and right.entry and right.entry.merge_ready_created_at or "")
+  if left_created ~= "" and right_created ~= "" and left_created ~= right_created then
+    return left_created < right_created
+  end
+  return tonumber(left and left.entry and left.entry.pr_number or 0) < tonumber(right and right.entry and right.entry.pr_number or 0)
 end
 
 local function predecessor_identity(entry)
@@ -218,6 +258,28 @@ function M.merge_queue_head(repo, base_branch, current)
   end
   table.sort(entries, compare_merge_queue_entries)
   return entries[1], entries
+end
+
+function M.merge_queue_starvation_candidate(entries, threshold_minutes, now_seconds)
+  local threshold = tonumber(threshold_minutes)
+  local current_seconds = tonumber(now_seconds) or now()
+  if threshold == nil or threshold < 0 then
+    return nil
+  end
+  local selected = nil
+  for _, entry in ipairs(entries or {}) do
+    local age = entry_age_minutes(entry, current_seconds)
+    if entry.state == "merge-ready" and age ~= nil and age > threshold then
+      local candidate = {
+        entry = entry,
+        age_minutes = age,
+      }
+      if selected == nil or compare_starvation_age(candidate, selected) then
+        selected = candidate
+      end
+    end
+  end
+  return selected and selected.entry or nil, selected and selected.age_minutes or nil
 end
 
 function M.merge_queue_predecessors(repo, base_branch, current)
@@ -460,6 +522,8 @@ function M.wip_capacity_allows_start(repo, current_issue_number)
     return true, "wip-cap-disabled", 0, nil
   end
 
+  local integration_branch = M.branch_config().integration
+
   local list = M.gh_exec({ cmd = M.gh_issue_list_wip_cmd(repo), timeout = 30 })
   if list.exit_code ~= 0 then
     error("github-devloop: WIP issue list failed: " .. tostring(list.stderr))
@@ -477,7 +541,26 @@ function M.wip_capacity_allows_start(repo, current_issue_number)
       local proposal_id = M.proposal_id(repo, issue_number)
       local state = M.current_state(current.comments, proposal_id)
       if active_wip_states[state.state] then
-        count = count + 1
+        -- Admission control must not be deadlockable by un-progressable holders.
+        -- A PR-bound active holder whose pr-link base branch is not this instance's
+        -- integration branch (e.g. a PR stranded on a retired integration branch after
+        -- a topology migration) can never be advanced by this instance's observe_pr
+        -- (it skips base-mismatched PRs). Counting it would let a permanently stuck
+        -- holder pin a MAX_INFLIGHT slot and starve all new work. It is not this
+        -- instance's in-flight work, so exclude it from the cap. Log every exclusion so
+        -- the admission cap is never silently narrowed.
+        local link = M.pr_link_fact(current.comments, proposal_id)
+        if link ~= nil and tostring(link.base_branch or "") ~= tostring(integration_branch or "") then
+          M.log_line("info", "wip", proposal_id, "WIP_EXCLUDE", {
+            "reason=base-unmanaged",
+            "state=" .. tostring(state.state),
+            "pr=" .. tostring(link.pr_number),
+            "pr_base=" .. tostring(link.base_branch),
+            "integration=" .. tostring(integration_branch),
+          })
+        else
+          count = count + 1
+        end
       end
     end
   end

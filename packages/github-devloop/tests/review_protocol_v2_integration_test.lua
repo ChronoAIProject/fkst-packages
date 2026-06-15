@@ -16,21 +16,13 @@ local mock_issue_review_meta = h.mock_issue_review_meta
 local mock_bot_env = h.mock_bot_env
 local mock_pr_origin = h.mock_pr_origin
 local find_raise = h.find_raise
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local function mock_issue_result_view(labels, comments)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or {}) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', h.json_string(label)))
-  end
-  local rendered_comments = {}
-  for _, comment in ipairs(comments or {}) do
-    table.insert(rendered_comments, h.render_comment(comment))
-  end
-  t.mock_command("--json labels,comments", {
-    stdout = string.format('{"labels":[%s],"comments":[%s]}\n', table.concat(rendered_labels, ","), table.concat(rendered_comments, ",")),
-    stderr = "",
-    exit_code = 0,
-  })
+  entity_read_mocks.mock_issue_view_selector(t, {
+    labels = labels,
+    comments = comments,
+  }, "labels,comments")
 end
 
 local function pr_event(updated_at)
@@ -212,6 +204,14 @@ return {
     h.mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "fixing", original_fixing.payload.version),
+      core.review_result_marker(
+        original_fixing.payload.review_proposal_id,
+        "github-devloop/issue/owner/repo/42",
+        "reject",
+        original_fixing.payload.review_dedup_key,
+        1,
+        original_fixing.payload.blocking_gap
+      ),
     })
     mock_issue_result_view({ "fkst-dev:fixing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "fixing", original_fixing.payload.version),
@@ -227,11 +227,8 @@ return {
     local healed = run_observe_pr(pr_event(), opts("review-v2-fixing-self-heal-dedup"))
     t.eq(healed.exit_code, 0)
     local healed_fixing = find_raise(healed.raises, "devloop_fixing")
-    t.is_true(healed_fixing ~= nil)
-    t.is_true(healed_fixing.payload.dedup_key ~= original_fixing.payload.dedup_key)
-    t.is_true(healed_fixing.payload.dedup_key:find("/nobase/nopred/" .. tostring(original_fixing.payload.reviewed_head_sha), 1, true) ~= nil)
-    t.eq(healed_fixing.payload.review_dedup_key, original_fixing.payload.review_dedup_key)
-    t.eq(healed_fixing.payload.reviewed_head_sha, original_fixing.payload.reviewed_head_sha)
+    t.eq(healed_fixing, nil)
+    t.is_true(find_raise(healed.raises, "devloop_reviewing") ~= nil)
   end,
 
   test_observe_pr_fixing_self_heal_fails_closed_without_reject_fact = function()

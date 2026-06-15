@@ -1,6 +1,7 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -198,6 +199,15 @@ local function mock_result_issue(labels, comments)
 end
 
 local function mock_observe_issue(labels, comments)
+  entity_read_mocks.mock_issue_read_forms(t, {
+    repo = repo,
+    number = 42,
+    labels = labels or { "fkst-dev:enabled", "fkst-dev:ready" },
+    comments = comments or {
+      core.state_marker(proposal_id, "ready", version),
+    },
+    times = 1,
+  })
   t.mock_command(core.gh_issue_view_entity_cmd(repo, 42), {
     stdout = issue_view_json(labels or { "fkst-dev:enabled", "fkst-dev:ready" }, comments or {
       core.state_marker(proposal_id, "ready", version),
@@ -339,6 +349,24 @@ local function count_calls(needle)
 end
 
 return {
+  test_dependency_graphql_contract_is_named = function()
+    local operations = core.github_graphql_queries
+
+    t.eq(type(operations), "table")
+    t.eq(core.github_graphql_command_templates.graphql_query, "gh api graphql -f query=")
+    t.eq(type(operations.dependency_blocked_by), "string")
+    t.eq(operations.dependency_blocked_by:find("blockedBy(first:50)", 1, true) ~= nil, true)
+    t.eq(operations.dependency_blocked_by:find("nodes{number state stateReason repository{nameWithOwner}}", 1, true) ~= nil, true)
+    t.eq(
+      core.render_github_graphql_query("dependency_blocked_by", {
+        owner = "owner",
+        name = "repo",
+        issue_number = 42,
+      }),
+      '{repository(owner:"owner",name:"repo"){issue(number:42){blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner}}}}}}'
+    )
+  end,
+
   test_dependency_gate_satisfied_without_blockers = function()
     mock_blocked_by(42, {})
     local gate = core.dependency_gate(repo, 42)
@@ -421,7 +449,6 @@ return {
 
   test_dependency_gate_does_not_cache_waiting_blocker = function()
     local graphql_calls_before = count_calls("gh api graphql")
-    local issue_view_calls_before = count_calls(core.gh_issue_view_observe_cmd(repo, 27))
     mock_blocked_by(42, { { number = 27 } })
     mock_blocked_by(27, {})
     mock_blocker_issue(27, "ready")
@@ -438,7 +465,6 @@ return {
     t.eq(second.kind, "waiting")
     t.eq(second.unmet[1], 27)
     t.eq(count_calls("gh api graphql"), graphql_calls_before + 4)
-    t.eq(count_calls(core.gh_issue_view_observe_cmd(repo, 27)), issue_view_calls_before + 2)
   end,
 
   test_dependency_gate_satisfied_for_pr_stream_merged_blocker = function()

@@ -3,6 +3,7 @@ local fixtures = require("tests.production_fixture_helpers")
 require("tests.board_digest_probe_helpers")
 local core = h.core
 local t = h.t
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local function assert_preamble_slots(prompt)
   t.is_true(prompt:find("Write all output in English; quote code identifiers and cited originals verbatim.", 1, true) ~= nil)
@@ -77,39 +78,29 @@ end
 
 local function mock_board_lists(issue_count, pr_count, repo)
   repo = repo or "owner/repo"
-  t.mock_command("gh issue list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
+  entity_read_mocks.mock_issue_board_digest_list_raw(t, repo, {
     stdout = issue_list_json(issue_count),
-    stderr = "",
-    exit_code = 0,
   })
-  t.mock_command("gh pr list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
+  entity_read_mocks.mock_pr_board_digest_list_raw(t, repo, {
     stdout = pr_list_json(pr_count),
-    stderr = "",
-    exit_code = 0,
   })
-  t.mock_command("gh issue list --repo '" .. repo .. "' --state closed --limit 30 --json number,title,closedAt,labels", {
+  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), {
     stdout = closed_issue_list_json({
       { number = 80, title = "Closed recurring widget sync retry fix", labels = { "error-class:retry", "fingerprint:widget-sync" } },
       { number = 81, title = "Closed widget sync backoff patch", labels = { "fingerprint:widget-sync" } },
     }),
-    stderr = "",
-    exit_code = 0,
   })
 end
 
 local function mock_board_lists_closed_failure(issue_count, pr_count, repo)
   repo = repo or "owner/repo"
-  t.mock_command("gh issue list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
+  entity_read_mocks.mock_issue_board_digest_list_raw(t, repo, {
     stdout = issue_list_json(issue_count),
-    stderr = "",
-    exit_code = 0,
   })
-  t.mock_command("gh pr list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
+  entity_read_mocks.mock_pr_board_digest_list_raw(t, repo, {
     stdout = pr_list_json(pr_count),
-    stderr = "",
-    exit_code = 0,
   })
-  t.mock_command("gh issue list --repo '" .. repo .. "' --state closed --limit 30 --json number,title,closedAt,labels", {
+  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), {
     stdout = "",
     stderr = "closed issue query failed",
     exit_code = 1,
@@ -118,20 +109,14 @@ end
 
 local function mock_board_title(title, repo)
   repo = repo or "owner/repo"
-  t.mock_command("gh issue list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
+  entity_read_mocks.mock_issue_board_digest_list_raw(t, repo, {
     stdout = '[{"number":1,"title":"' .. json_string(title) .. '","labels":[{"name":"fkst-dev:thinking"}]}]',
-    stderr = "",
-    exit_code = 0,
   })
-  t.mock_command("gh pr list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
+  entity_read_mocks.mock_pr_board_digest_list_raw(t, repo, {
     stdout = "[]",
-    stderr = "",
-    exit_code = 0,
   })
-  t.mock_command("gh issue list --repo '" .. repo .. "' --state closed --limit 30 --json number,title,closedAt,labels", {
+  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), {
     stdout = "[]",
-    stderr = "",
-    exit_code = 0,
   })
 end
 
@@ -247,8 +232,8 @@ return {
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
     t.is_true(proposal.body:find("GitHub issue", 1, true) ~= nil)
     t.is_nil(proposal.body:find("#101 ", 1, true))
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
-    t.eq(count_calls("gh pr list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
+    t.eq(count_calls(core.gh_issue_list_board_digest_cmd("owner/repo")), 0)
+    t.eq(count_calls(core.gh_pr_list_board_digest_cmd("owner/repo")), 0)
     t.eq(count_calls("gh issue list --repo 'owner/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 0)
     t.eq(find_raise(second.raises, "consensus.proposal").payload.body, proposal.body)
   end,
@@ -275,9 +260,9 @@ return {
     t.is_true(first:find("fingerprint:widget-sync", 1, true) ~= nil)
     t.is_nil(first:find("#2 [fkst-dev:thinking] Issue title number 2", 1, true))
     t.is_true(second:find("#2 [fkst-dev:thinking] Issue title number 2", 1, true) ~= nil)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 1)
+    t.eq(count_calls(core.gh_issue_list_board_digest_cmd("owner/repo")), 1)
     t.eq(count_calls("gh issue list --repo 'owner/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 1)
-    t.eq(count_calls("gh issue list --repo 'other/repo' --state open --limit 100 --json number,title,labels"), 1)
+    t.eq(count_calls(core.gh_issue_list_board_digest_cmd("other/repo")), 1)
     t.eq(count_calls("gh issue list --repo 'other/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 1)
   end,
 
@@ -302,8 +287,8 @@ return {
     t.is_true(body:find("Board feed-through from FKST_DEVLOOP_BOARD_CMD:", 1, true) ~= nil)
     t.is_true(body:find("fkst-dev local board", 1, true) ~= nil)
     t.is_true(body:find("source=observe", 1, true) ~= nil)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
-    t.eq(count_calls("gh pr list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
+    t.eq(count_calls(core.gh_issue_list_board_digest_cmd("owner/repo")), 0)
+    t.eq(count_calls(core.gh_pr_list_board_digest_cmd("owner/repo")), 0)
   end,
 
   test_board_digest_keeps_open_context_when_closed_digest_fetch_fails = function()
@@ -438,7 +423,7 @@ return {
     end
     t.eq(loop.round, 2)
     t.eq(review_loop.round, 3)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 1)
+    t.eq(count_calls(core.gh_issue_list_board_digest_cmd("owner/repo")), 1)
     t.eq(count_calls("gh issue list --repo 'owner/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 1)
   end,
 }

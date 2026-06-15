@@ -17,6 +17,10 @@ local function is_marker_value(value)
     and tostring(value):find('[<>"\r\n]') == nil
 end
 
+local function optional_marker_value(value)
+  return value == nil or is_marker_value(value)
+end
+
 local function is_positive_integer(value)
   local n = tonumber(value)
   return n ~= nil and n >= 1 and n % 1 == 0 and n <= 2147483647
@@ -69,6 +73,10 @@ function M.validate_issue_blocked_by_payload(payload)
   if not is_marker_value(payload.dedup_key) then
     return false
   end
+  if not optional_marker_value(payload.external_effect_saga)
+    or not optional_marker_value(payload.external_effect_step) then
+    return false
+  end
   if type(payload.source_ref) ~= "table"
     or not is_bounded_string(payload.source_ref.kind, 80)
     or not is_bounded_string(payload.source_ref.ref, 200) then
@@ -103,15 +111,17 @@ function M.gh_issue_blocked_by_cmd(repo, issue_number)
   if owner == nil or not is_positive_integer(issue_number) then
     error("github-proxy: invalid blockedBy query target")
   end
-  local query = '{repository(owner:"' .. owner .. '",name:"' .. name
-    .. '"){issue(number:' .. tostring(math.floor(tonumber(issue_number)))
-    .. '){blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number repository{nameWithOwner}}}}}}'
-  return "gh api graphql -f query=" .. shell_single_quote(query)
+  local query = M.render_github_graphql_query("blocked_by", {
+    owner = owner,
+    name = name,
+    issue_number = tostring(math.floor(tonumber(issue_number))),
+  })
+  return M.github_graphql_command_templates.graphql_query .. shell_single_quote(query)
 end
 
 function M.gh_add_blocked_by_cmd(blocked_id, blocking_id)
-  local query = "mutation($b:ID!,$g:ID!){addBlockedBy(input:{blockedIssueId:$b,blockingIssueId:$g}){clientMutationId}}"
-  return "gh api graphql -f query=" .. shell_single_quote(query)
+  local query = M.github_graphql_queries.add_blocked_by
+  return M.github_graphql_command_templates.graphql_query .. shell_single_quote(query)
     .. " -f b=" .. shell_single_quote(blocked_id)
     .. " -f g=" .. shell_single_quote(blocking_id)
 end

@@ -52,6 +52,7 @@ local mock_issue_review_meta = h.mock_issue_review_meta
 local mock_issue_merge = h.mock_issue_merge
 local merge_comments = h.merge_comments
 local mock_pr_origin = h.mock_pr_origin
+local mock_pr_origin_for = h.mock_pr_origin_for
 local mock_pr_merge = h.mock_pr_merge
 local mock_pr_merge_rollup = h.mock_pr_merge_rollup
 local mock_merging_comment = h.mock_merging_comment
@@ -85,6 +86,17 @@ local function find_label_raise(raises, target_kind)
   return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
     return tostring(payload.target_kind or "issue") == tostring(target_kind or "issue")
   end)
+end
+local function count_label_raises(raises, target_kind)
+  local count = 0
+  for _, raised in ipairs(raises or {}) do
+    local payload = raised.payload or {}
+    if raised.queue == "github-proxy.github_issue_label_request"
+      and tostring(payload.target_kind or "issue") == tostring(target_kind or "issue") then
+      count = count + 1
+    end
+  end
+  return count
 end
 local function find_comment_with(raises, text)
   return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
@@ -152,7 +164,6 @@ return {
     end
     t.eq(saw_worktree_prefix, true)
     t.eq(saw_prompt, true)
-    t.eq(count_calls("--json title,labels,comments"), 2)
     t.eq(count_calls("git -C"), 8)
     t.eq(count_calls("git worktree add -b"), 1)
     t.eq(count_calls("codex exec"), 1)
@@ -186,8 +197,8 @@ return {
     t.eq(pr_raise.payload.expected_version, impl_version)
     t.is_true(pr_raise.payload.body:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
     t.is_true(pr_raise.payload.issue_comment_body_template:find("state=\"pr-open\"", 1, true) ~= nil)
-    t.eq(pr_raise.payload.issue_label_add[1], "fkst-dev:pr-open")
-    t.eq(count_calls("--json title,body,comments,labels,state,updatedAt,assignees"), 1)
+    t.eq(#pr_raise.payload.issue_label_add, 0)
+    t.eq(#pr_raise.payload.issue_label_remove, 0)
     t.eq(count_calls("show-ref --verify --quiet"), 1)
     t.eq(count_calls("rev-parse --verify"), 1)
   end,
@@ -230,7 +241,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
-    })
+    }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:thinking" })
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
     })
@@ -246,13 +257,12 @@ return {
       },
     }, opts("observe-pr-reviewing"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
+    t.eq(#result.raises, 3)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    local label_raise = find_label_raise(result.raises, "issue")
     local pr_label_raise = find_label_raise(result.raises, "pr")
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.is_true(comment_raise.payload.body:find("state=\"reviewing\"", 1, true) ~= nil)
-    t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(find_label_raise(result.raises, "issue"), nil)
     t.eq(pr_label_raise.payload.target_kind, "pr")
     t.eq(pr_label_raise.payload.target_number, 7)
     t.eq(pr_label_raise.payload.expected_state, "reviewing")
@@ -266,7 +276,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
-    })
+    }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:thinking" })
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
@@ -282,15 +292,45 @@ return {
       },
     }, opts("observe-pr-reconcile-reviewing"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
-    local label_raise = find_label_raise(result.raises, "issue")
+    t.eq(#result.raises, 2)
     local pr_label_raise = find_label_raise(result.raises, "pr")
-    t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(find_label_raise(result.raises, "issue"), nil)
     t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(pr_label_raise.payload.target_number, 7)
-    t.eq(label_raise.payload.remove_labels[1], "fkst-dev:thinking")
-    t.is_true(#label_raise.payload.remove_labels >= 10)
-    t.eq(count_calls("--json labels,comments"), 0)
+    t.eq(pr_label_raise.payload.expected_state, "reviewing")
+  end,
+  test_observe_pr_does_not_reconcile_issue_label_from_pr_fixing_state = function()
+    local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local fix_version = core.next_fix_version(impl_version)
+    mock_pr_origin({
+      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      core.state_marker("github-devloop/issue/owner/repo/42", "fixing", fix_version),
+    }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:pr-open" })
+    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+      core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
+    })
+
+    local result = run_observe_pr({
+      schema = "github-proxy.v1",
+      type = "pr",
+      repo = "owner/repo",
+      number = 7,
+      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:03Z",
+      source_ref = {
+        kind = "external",
+        ref = "owner/repo#pr/7",
+      },
+    }, opts("observe-pr-no-issue-label-from-pr-fixing"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_label_raises(result.raises, "issue"), 0)
+    local pr_label_raise = find_label_raise(result.raises, "pr")
+    if pr_label_raise ~= nil then
+      t.eq(pr_label_raise.payload.target_kind, "pr")
+      t.eq(pr_label_raise.payload.target_number, 7)
+      t.eq(pr_label_raise.payload.expected_state, "fixing")
+      t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:fixing")
+    end
   end,
   test_observe_pr_removes_stale_reviewing_label_from_blocked_pr_marker = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -338,7 +378,7 @@ return {
       },
     }, opts("observe-pr-merge-ready-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 2)
     local merge_raise = find_raise(result.raises, "devloop_merge_ready")
     t.eq(find_label_raise(result.raises, "pr").payload.add_labels[1], "fkst-dev:merge-ready")
     t.eq(merge_raise.payload.schema, "github-devloop.merge-ready.v1")
@@ -367,7 +407,7 @@ return {
       },
     }, opts("observe-pr-merging-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 2)
     local merge_raise = find_raise(result.raises, "devloop_merge_ready")
     t.eq(find_label_raise(result.raises, "pr").payload.add_labels[1], "fkst-dev:merging")
     t.eq(merge_raise.payload.schema, "github-devloop.merge-ready.v1")
@@ -397,7 +437,7 @@ return {
       },
     }, opts("observe-pr-reviewing-self-heal"))
     t.eq(first.exit_code, 0)
-    t.eq(#first.raises, 3)
+    t.eq(#first.raises, 2)
     local reviewing_raise = find_raise(first.raises, "devloop_reviewing")
     t.eq(find_label_raise(first.raises, "pr").payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(reviewing_raise.payload.version, impl_version)
@@ -422,6 +462,7 @@ return {
     }, opts("observe-pr-reviewing-reviewed"))
     t.eq(reviewed.exit_code, 0)
     t.eq(#reviewed.raises, 2)
+    t.eq(find_label_raise(reviewed.raises, "issue"), nil)
     t.eq(find_label_raise(reviewed.raises, "pr").payload.add_labels[1], "fkst-dev:reviewing")
   end,
 
@@ -446,7 +487,7 @@ return {
       },
     }, opts("observe-pr-reviewing-fix-round-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 3)
+    t.eq(#result.raises, 2)
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
     t.eq(find_label_raise(result.raises, "pr").payload.expected_version, fix_round_version)
     t.eq(reviewing_raise.payload.version, fix_round_version)
@@ -484,7 +525,6 @@ return {
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
     t.eq(find_label_raise(result.raises, "pr"), nil)
-    t.eq(count_calls("--json labels,comments"), 0)
   end,
   test_observe_pr_non_devloop_branch_without_visible_backpointer_uses_pr_native_origin = function()
     mock_pr_origin({}, "feature/unrelated")
@@ -503,7 +543,6 @@ return {
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
     t.eq(find_label_raise(result.raises, "pr"), nil)
-    t.eq(count_calls("--json labels,comments"), 0)
   end,
   test_observe_pr_closed_pr_does_not_advance_issue_to_reviewing = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -549,7 +588,6 @@ return {
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
     t.eq(find_label_raise(result.raises, "pr"), nil)
-    t.eq(count_calls("--json labels,comments"), 0)
   end,
   test_review_pr_builds_pr_review_consensus_proposal = function()
     local event = reviewing()
@@ -577,9 +615,7 @@ return {
     t.is_true(proposal.body:find("Reviewed PR head: def456", 1, true) ~= nil)
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
     t.eq(core.validate_proposal(proposal), true)
-    t.eq(count_calls("--json title,labels,comments,assignees,author"), 1)
     t.eq(count_calls("gh pr diff"), 1)
-    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
   test_review_pr_gate_reject_reached_routes_to_fixing = function()
@@ -654,7 +690,6 @@ return {
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
     t.is_nil(proposal.content_fetch:find("gh pr", 1, true))
     t.eq(count_calls("gh pr diff"), 1)
-    t.eq(count_calls("--json headRefName,headRefOid,baseRefName,state,comments"), 1)
   end,
 
   test_review_pr_does_not_put_diff_markers_in_payload = function()
@@ -707,9 +742,18 @@ return {
     })
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(issue_proposal_id, "reviewing", version),
+    }, {
+      repo = repo,
     })
-    mock_pr_origin_sequence({
-      { head = "devloop-owner-repo-42-01HY", head_sha = "def456" },
+    mock_pr_origin_for({
+      repo = repo,
+      number = 7,
+      comments = {
+        core.pr_origin_marker(issue_proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+        core.state_marker(issue_proposal_id, "reviewing", version),
+      },
+      head = "devloop-owner-repo-42-01HY",
+      head_sha = "def456",
     })
 
     local result = run_review_pr(event, opts("review-pr-long-repo"))

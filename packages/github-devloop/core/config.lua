@@ -7,6 +7,7 @@ local allowed_env = {
   FKST_GITHUB_WRITE = true,
   FKST_DEVLOOP_UPSTREAM_BRANCH = true,
   FKST_DEVLOOP_INTEGRATION_BRANCH = true,
+  FKST_DEVLOOP_FORK_GRACE_HOURS = true,
   FKST_DEVLOOP_MAX_INFLIGHT = true,
   FKST_DEVLOOP_MANAGED_SIBLING_REPOS = true,
   FKST_DEVLOOP_ROLLUP_MERGE = true,
@@ -17,6 +18,7 @@ local allowed_env = {
   FKST_DEVLOOP_INTAKE_PROBE_PROOF = true,
   FKST_DEVLOOP_TEST_COMMAND = true,
   FKST_OUTPUT_LANG = true,
+  FKST_DEBUG_STAMP = true,
 }
 
 local allowed_presence_env = {

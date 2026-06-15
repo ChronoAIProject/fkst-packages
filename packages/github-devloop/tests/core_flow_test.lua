@@ -460,7 +460,7 @@ return {
     t.eq(judgment_opts.sandbox, "read-only")
     t.eq(
       core.gh_issue_view_implement_cmd("owner/repo", 42),
-      "gh issue view '42' --repo 'owner/repo' --json title,labels,comments"
+      "gh issue view '42' --repo 'owner/repo' --json title,body,labels,comments,state,author"
     )
     t.eq(core.git_status_cmd("/tmp/devloop-owner-repo-42"), "git -C '/tmp/devloop-owner-repo-42' status --porcelain")
     t.eq(core.git_base_head_cmd("dev"), "git rev-parse --verify refs/remotes/origin/'dev'^{commit}")
@@ -476,6 +476,13 @@ return {
     t.eq(core.git_worktree_clean_cmd(worktree_path), "git -C '" .. worktree_path .. "' clean -fd")
     t.eq(core.git_worktree_list_cmd(), "git worktree list --porcelain")
     t.is_true(core.git_worktree_add_remote_branch_cmd(worktree_path, "origin", deterministic_branch, true):find("git worktree add --force -B", 1, true) ~= nil)
+    -- #677: idempotent clear of the target worktree path before `git worktree add`,
+    -- robust to an orphan dir (present on disk but unregistered) as well as a
+    -- registered worktree; must remove --force, rm -rf, and prune, and exit 0.
+    local force_clean = core.git_worktree_force_clean_cmd(worktree_path)
+    t.is_true(force_clean:find("git worktree remove --force '" .. worktree_path .. "'", 1, true) ~= nil)
+    t.is_true(force_clean:find("rm -rf '" .. worktree_path .. "'", 1, true) ~= nil)
+    t.is_true(force_clean:find("git worktree prune", 1, true) ~= nil)
     local list = "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/dev\n\n"
       .. "worktree " .. worktree_path .. "\nHEAD def456\nbranch refs/heads/" .. deterministic_branch .. "\n\n"
     t.eq(core.find_worktree_for_branch(list, deterministic_branch), worktree_path)
@@ -597,8 +604,8 @@ return {
     t.eq(pr_request.expected_version, ready.dedup_key)
     t.is_true(pr_request.body:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
     t.is_true(pr_request.issue_comment_body_template:find("fkst:github-devloop:pr-link:v1", 1, true) ~= nil)
-    t.eq(pr_request.issue_label_add[1], "fkst-dev:pr-open")
-    t.is_true(has_value(pr_request.issue_label_remove, "fkst-dev:implementing"))
+    t.eq(#pr_request.issue_label_add, 0)
+    t.eq(#pr_request.issue_label_remove, 0)
 
     local origin = core.pr_origin_fact({
       core.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
