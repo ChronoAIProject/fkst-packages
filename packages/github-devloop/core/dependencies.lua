@@ -2,6 +2,7 @@ local M = {}
 local root_ref = nil
 
 local max_dependency_depth = 32
+local blocked_by_cache_ttl_seconds = 90
 
 local function root()
   return root_ref or M
@@ -96,6 +97,19 @@ local function decode_dependency_attr(value)
   return value
 end
 
+local function json_string(value)
+  local text = tostring(value or "")
+    :gsub("\\", "\\\\")
+    :gsub('"', '\\"')
+    :gsub("\n", "\\n")
+    :gsub("\r", "\\r")
+    :gsub("\t", "\\t")
+    :gsub("%c", function(char)
+      return string.format("\\u%04x", string.byte(char))
+    end)
+  return '"' .. text .. '"'
+end
+
 local function parse_blocked_by(stdout)
   local core = root()
   local ok, decoded = pcall(json.decode, stdout or "")
@@ -143,14 +157,85 @@ local function parse_blocked_by(stdout)
   return blockers, truncated
 end
 
+local function blocked_by_cache_key(repo, issue_number)
+  local core = root()
+  if split_repo(repo) == nil or not core.issue_ref_round_trips(repo, issue_number) then
+    error("github-devloop: invalid blockedBy cache key target")
+  end
+  local key = "github-devloop/dependency/blocked-by/"
+    .. core.safe_repo(repo)
+    .. "/issue/"
+    .. core.safe_issue(issue_number)
+  if not core._is_path_safe_key(key, core._max_key_len) then
+    error("github-devloop: invalid blockedBy cache key")
+  end
+  return key
+end
+
+local function encode_blocked_by_cache(blockers)
+  local encoded = {}
+  for _, blocker in ipairs(blockers or {}) do
+    table.insert(encoded, '{"number":' .. tostring(math.floor(tonumber(blocker.number)))
+      .. ',"state":' .. json_string(blocker.state)
+      .. ',"state_reason":' .. json_string(blocker.state_reason)
+      .. ',"repo":' .. json_string(blocker.repo)
+      .. "}")
+  end
+  return '{"schema":"github-devloop.dependency.blocked-by-cache.v1","blockers":['
+    .. table.concat(encoded, ",")
+    .. "]}"
+end
+
+local function decode_blocked_by_cache(value)
+  if type(value) ~= "string" or value == "" then
+    return nil
+  end
+  local ok, decoded = pcall(json.decode, value)
+  if not ok or type(decoded) ~= "table" then
+    return nil
+  end
+  if decoded.schema ~= "github-devloop.dependency.blocked-by-cache.v1" then
+    return nil
+  end
+  if type(decoded.blockers) ~= "table" or #decoded.blockers == 0 then
+    return nil
+  end
+
+  local core = root()
+  local blockers = {}
+  for _, blocker in ipairs(decoded.blockers) do
+    if type(blocker) ~= "table" or not core._is_positive_pr_number(blocker.number) then
+      return nil
+    end
+    if type(blocker.repo) ~= "string" or blocker.repo == "" then
+      return nil
+    end
+    table.insert(blockers, {
+      number = tonumber(blocker.number),
+      state = tostring(blocker.state or ""),
+      state_reason = tostring(blocker.state_reason or ""),
+      repo = blocker.repo,
+    })
+  end
+  return blockers
+end
+
 local function normalized_state_reason(value)
   local text = tostring(value or ""):lower():gsub("_", "-")
   text = text:gsub("^%s+", ""):gsub("%s+$", "")
   return text
 end
 
-local function fetch_blocked_by(repo, issue_number)
+local function fetch_blocked_by(repo, issue_number, force_fresh)
   local core = root()
+  local cache_key = blocked_by_cache_key(repo, issue_number)
+  if not force_fresh then
+    local cached = decode_blocked_by_cache(cache_get(cache_key))
+    if cached ~= nil then
+      return cached, nil, true
+    end
+  end
+
   local result = core.gh_exec({ cmd = core.gh_blocked_by_cmd(repo, issue_number), timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
     return nil, "gh-failed"
@@ -162,7 +247,10 @@ local function fetch_blocked_by(repo, issue_number)
   if truncated then
     return nil, "blockedby-truncated"
   end
-  return blockers, nil
+  if #blockers > 0 then
+    cache_set(cache_key, encode_blocked_by_cache(blockers), blocked_by_cache_ttl_seconds)
+  end
+  return blockers, nil, false
 end
 
 local function merged_blocker_cache_key(repo, blocker_number)
@@ -334,7 +422,7 @@ has_dependency_waiver = function(context, blocker_number)
 end
 
 local visit
-visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, context, notes)
+visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, context, notes, fresh_reads)
   if depth > max_dependency_depth then
     add_unmet(unmet, unmet_seen, issue_number)
     return gate("unresolvable", "depth-cap-exceeded", unmet)
@@ -350,7 +438,11 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
   end
 
   stack[key] = true
-  local blockers, fetch_reason = fetch_blocked_by(repo, issue_number)
+  local blockers, fetch_reason, from_cache = fetch_blocked_by(
+    repo,
+    issue_number,
+    type(fresh_reads) == "table" and fresh_reads[key] == true
+  )
   if blockers == nil then
     stack[key] = nil
     add_unmet(unmet, unmet_seen, issue_number)
@@ -383,7 +475,7 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
       end
 
       if not prefer_terminal_proof or (satisfied == false and satisfied_reason ~= "dependency-waiver-required") then
-        local nested = visit(repo, blocker.number, stack, visited, unmet, unmet_seen, depth + 1, context, notes)
+        local nested = visit(repo, blocker.number, stack, visited, unmet, unmet_seen, depth + 1, context, notes, fresh_reads)
         if nested.kind == "cycle" or nested.kind == "unresolvable" then
           stack[key] = nil
           return nested
@@ -407,6 +499,12 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
         end
       end
     end
+  end
+
+  if from_cache and #unmet == 0 then
+    stack[key] = nil
+    fresh_reads[key] = true
+    return visit(repo, issue_number, stack, visited, unmet, unmet_seen, depth, context, notes, fresh_reads)
   end
 
   stack[key] = nil
@@ -446,7 +544,7 @@ function M.dependency_gate(repo, issue_number, context)
     gate_context = {}
   end
   gate_context.managed_sibling_repos = core.managed_sibling_repos()
-  local ok, result = pcall(visit, repo, issue_number, {}, {}, {}, {}, 0, gate_context, {})
+  local ok, result = pcall(visit, repo, issue_number, {}, {}, {}, {}, 0, gate_context, {}, {})
   if not ok or type(result) ~= "table" then
     return gate("unresolvable", "dependency-gate-exception", {})
   end
@@ -455,6 +553,7 @@ function M.dependency_gate(repo, issue_number, context)
 end
 
 M.merged_blocker_cache_key = merged_blocker_cache_key
+M.blocked_by_cache_key = blocked_by_cache_key
 
 function M.dependency_wait_marker(proposal_id, version, unmet_numbers, hold_kind, reason)
   return '<!-- fkst:github-devloop:dependency-wait:v1 proposal="' .. tostring(proposal_id)

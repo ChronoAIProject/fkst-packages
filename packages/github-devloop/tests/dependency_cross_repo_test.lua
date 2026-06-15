@@ -55,6 +55,7 @@ local function mock_managed_repos(value)
 end
 
 local function mock_blocked_by(issue_number, nodes)
+  cache_expire(core.blocked_by_cache_key(repo, issue_number))
   t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
     stdout = blocked_by_json(nodes),
     stderr = "",

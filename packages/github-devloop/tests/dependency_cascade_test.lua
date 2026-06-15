@@ -83,6 +83,15 @@ local function blocked_by_json(nodes)
 end
 
 local function mock_blocked_by(issue_number, nodes)
+  cache_expire(core.blocked_by_cache_key(repo, issue_number))
+  t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
+    stdout = blocked_by_json(nodes),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_blocked_by_without_expiring_cache(issue_number, nodes)
   t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
     stdout = blocked_by_json(nodes),
     stderr = "",
@@ -91,6 +100,7 @@ local function mock_blocked_by(issue_number, nodes)
 end
 
 local function mock_blocked_by_failure(issue_number)
+  cache_expire(core.blocked_by_cache_key(repo, issue_number))
   t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
     stdout = "",
     stderr = "graphql failed",
@@ -99,6 +109,7 @@ local function mock_blocked_by_failure(issue_number)
 end
 
 local function mock_blocked_by_malformed(issue_number)
+  cache_expire(core.blocked_by_cache_key(repo, issue_number))
   t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
     stdout = "{",
     stderr = "",
@@ -109,6 +120,7 @@ end
 -- gh succeeds but the blockedBy list is truncated (more blockers than the page
 -- returns). An unseen unmet blocker must fail-closed, never read as absent.
 local function mock_blocked_by_truncated(issue_number)
+  cache_expire(core.blocked_by_cache_key(repo, issue_number))
   t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":51,"pageInfo":{"hasNextPage":true},"nodes":[{"number":7,"state":"CLOSED","repository":{"nameWithOwner":"' .. repo .. '"}}]}}}}}\n',
     stderr = "",
@@ -367,6 +379,13 @@ return {
     )
   end,
 
+  test_blocked_by_cache_key_is_readable_and_scoped = function()
+    t.eq(
+      core.blocked_by_cache_key(repo, 42),
+      "github-devloop/dependency/blocked-by/owner/repo/issue/42"
+    )
+  end,
+
   test_dependency_gate_satisfied_without_blockers = function()
     mock_blocked_by(42, {})
     local gate = core.dependency_gate(repo, 42)
@@ -447,24 +466,58 @@ return {
     t.eq(core.merged_blocker_cache_key(repo, 17), "github-devloop/dependency/merged/owner/repo/issue/17")
   end,
 
-  test_dependency_gate_does_not_cache_waiting_blocker = function()
+  test_dependency_gate_reuses_waiting_blocked_by_graph_within_ttl = function()
     local graphql_calls_before = count_calls("gh api graphql")
-    mock_blocked_by(42, { { number = 27 } })
-    mock_blocked_by(27, {})
-    mock_blocker_issue(27, "ready")
+    local root_calls_before = count_calls(core.gh_blocked_by_cmd(repo, 42))
+    mock_blocked_by(42, { { number = 71 } })
+    mock_blocked_by(71, {})
+    mock_blocker_issue(71, "ready")
     local first = core.dependency_gate(repo, 42)
     t.eq(first.ok, false)
     t.eq(first.kind, "waiting")
-    t.eq(first.unmet[1], 27)
+    t.eq(first.unmet[1], 71)
 
-    mock_blocked_by(42, { { number = 27 } })
-    mock_blocked_by(27, {})
-    mock_blocker_issue(27, "ready")
+    mock_blocked_by_without_expiring_cache(42, { { number = 71 } })
+    mock_blocked_by_without_expiring_cache(71, {})
+    mock_blocker_issue(71, "ready")
     local second = core.dependency_gate(repo, 42)
     t.eq(second.ok, false)
     t.eq(second.kind, "waiting")
-    t.eq(second.unmet[1], 27)
-    t.eq(count_calls("gh api graphql"), graphql_calls_before + 4)
+    t.eq(second.unmet[1], 71)
+    t.eq(count_calls(core.gh_blocked_by_cmd(repo, 42)), root_calls_before + 1)
+    t.eq(count_calls("gh api graphql"), graphql_calls_before + 3)
+  end,
+
+  test_dependency_gate_does_not_cache_empty_satisfied_blocked_by_graph = function()
+    local graphql_calls_before = count_calls("gh api graphql")
+    mock_blocked_by(42, {})
+    local first = core.dependency_gate(repo, 42)
+    t.eq(first.ok, true)
+    t.eq(first.kind, "satisfied")
+
+    mock_blocked_by(42, {})
+    local second = core.dependency_gate(repo, 42)
+    t.eq(second.ok, true)
+    t.eq(second.kind, "satisfied")
+    t.eq(count_calls("gh api graphql"), graphql_calls_before + 2)
+  end,
+
+  test_dependency_gate_rechecks_cached_blocked_by_against_merged_cache = function()
+    local graphql_calls_before = count_calls("gh api graphql")
+    mock_blocked_by(42, { { number = 72 } })
+    mock_blocked_by(72, {})
+    mock_blocker_issue(72, "ready")
+    local held = core.dependency_gate(repo, 42)
+    t.eq(held.ok, false)
+    t.eq(held.kind, "waiting")
+    t.eq(held.unmet[1], 72)
+
+    cache_set(core.merged_blocker_cache_key(repo, 72), "1")
+    mock_blocked_by_without_expiring_cache(42, { { number = 72 } })
+    local released = core.dependency_gate(repo, 42)
+    t.eq(released.ok, true)
+    t.eq(released.kind, "satisfied")
+    t.eq(count_calls("gh api graphql"), graphql_calls_before + 3)
   end,
 
   test_dependency_gate_satisfied_for_pr_stream_merged_blocker = function()
