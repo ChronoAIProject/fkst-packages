@@ -21,6 +21,14 @@ return {
     t.eq(core.gh_issue_list_observe_cmd("owner/repo", core._enabled_label, 2), "gh api 'repos/owner/repo/issues?state=open&labels=fkst-dev%3Aenabled&per_page=100&page=2'")
     t.eq(core.gh_pr_list_observe_cmd("owner/repo", 1), "gh api 'repos/owner/repo/pulls?state=open&per_page=100&page=1'")
     t.eq(
+      core.gh_board_digest_issue_list_cmd("owner/repo"),
+      "gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"
+    )
+    t.eq(
+      core.gh_board_digest_pr_list_cmd("owner/repo"),
+      "gh pr list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"
+    )
+    t.eq(
       core.gh_pr_list_head_base_cmd("owner/repo", "integration/dev", "dev"),
       "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Aintegration%2Fdev&base=dev&per_page=100'"
     )

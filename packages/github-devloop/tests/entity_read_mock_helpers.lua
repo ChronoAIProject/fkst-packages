@@ -365,6 +365,19 @@ function M.mock_pr_list_raw_command(t, command, result, times)
   register_command_result(t, command, result or {}, times or 1)
 end
 
+function M.mock_board_digest_lists(t, fields)
+  local f = fields or {}
+  local core = require("core")
+  local repo = f.repo or "owner/repo"
+  M.mock_issue_list_command(t, core.gh_board_digest_issue_list_cmd(repo), f.issues or {}, f.times or 1)
+  M.mock_pr_list_command(t, core.gh_board_digest_pr_list_cmd(repo), f.prs or {}, f.times or 1)
+  if f.closed_result ~= nil then
+    M.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), f.closed_result, f.times or 1)
+  else
+    M.mock_issue_list_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), f.closed_issues or {}, f.times or 1)
+  end
+end
+
 function M.mock_issue_view_selector(t, fields, selector, times)
   local f = fields or {}
   local repo = f.repo or "owner/repo"

@@ -115,4 +115,26 @@ return {
     end)
     t.eq(ok, false)
   end,
+
+  test_board_digest_list_seam_builds_issue_pr_and_closed_outputs = function()
+    seam.mock_board_digest_lists(t, {
+      repo = "owner/repo",
+      issues = {
+        { number = 42, title = "Open issue", labels = { "fkst-dev:thinking" } },
+      },
+      prs = {
+        { number = 7, title = "Open pull request", labels = { "fkst-dev:reviewing" } },
+      },
+      closed_issues = {
+        { number = 41, title = "Closed issue", labels = { "fingerprint:board-digest" }, closed_at = "2026-06-14T12:00:00Z" },
+      },
+    })
+
+    local block = core.board_digest_block("owner/repo", "2026-06-14T12:34:56Z")
+
+    t.is_true(block:find("#42 [fkst-dev:thinking] Open issue", 1, true) ~= nil)
+    t.is_true(block:find("#7 [fkst-dev:reviewing] Open pull request", 1, true) ~= nil)
+    t.is_true(block:find("#41 [closed] Closed issue", 1, true) ~= nil)
+    t.is_true(block:find("fingerprint:board-digest", 1, true) ~= nil)
+  end,
 }

@@ -76,6 +76,27 @@ return {
     t.eq(spec.rate_pool.burst, nil)
     t.eq(spec.rate_pool.refill_per_hour, nil)
   end,
+  test_sweep_cursor_batch_covers_large_board_across_k_ticks = function()
+    local items = {}
+    for number = 1, 250 do
+      table.insert(items, { number = number })
+    end
+
+    local viewed = {}
+    local cursor = nil
+    for _ = 1, 3 do
+      local selected = core.sweep_cursor_batch(items, cursor, 100, 100)
+      for _, item in ipairs(selected) do
+        viewed[item.number] = true
+      end
+      cursor = core.sweep_cursor_advance(cursor, #items, #selected)
+    end
+
+    for number = 1, 250 do
+      t.eq(viewed[number], true)
+    end
+    t.eq(cursor, 50)
+  end,
   test_opt_in_detection = function()
     t.eq(core.is_opted_in({ "fkst-dev:enabled" }), true)
     t.eq(core.is_opted_in({ "bug" }), false)

@@ -181,6 +181,14 @@ local function board_digest_pr_list_cmd(M, repo)
     .. " --json number,title,labels"
 end
 
+function M.gh_board_digest_issue_list_cmd(repo)
+  return board_digest_issue_list_cmd(M, repo)
+end
+
+function M.gh_board_digest_pr_list_cmd(repo)
+  return board_digest_pr_list_cmd(M, repo)
+end
+
 local function recent_closed_issue_list_cmd(M, repo)
   if type(M.gh_issue_list_recent_closed_cmd) == "function" then
     return M.gh_issue_list_recent_closed_cmd(repo, 30)
@@ -345,8 +353,8 @@ function M.board_digest_block(repo, tick)
     return feed
   end
 
-  local ok_issue, issue_result = pcall(M.gh_exec, { cmd = board_digest_issue_list_cmd(M, repo), timeout = 30 })
-  local ok_pr, pr_result = pcall(M.gh_exec, { cmd = board_digest_pr_list_cmd(M, repo), timeout = 30 })
+  local ok_issue, issue_result = pcall(M.gh_exec, { cmd = M.gh_board_digest_issue_list_cmd(repo), timeout = 30 })
+  local ok_pr, pr_result = pcall(M.gh_exec, { cmd = M.gh_board_digest_pr_list_cmd(repo), timeout = 30 })
   local ok_closed, closed_result = pcall(M.gh_exec, { cmd = recent_closed_issue_list_cmd(M, repo), timeout = 30 })
   if not ok_issue or not ok_pr
     or type(issue_result) ~= "table" or issue_result.exit_code ~= 0

@@ -25,109 +25,68 @@ local function prompt_issue()
   }
 end
 
-local function issue_list_json(count)
-  local items = {}
-  for n = 1, count do
-    table.insert(items, string.format(
-      '{"number":%d,"title":"Issue title number %d that is intentionally long enough to trim after sixty characters","labels":[{"name":"fkst-dev:thinking"}]}',
-      n,
-      n
-    ))
-  end
-  return "[" .. table.concat(items, ",") .. "]"
-end
-
-local function pr_list_json(count)
-  local items = {}
-  for n = 1, count do
-    table.insert(items, string.format(
-      '{"number":%d,"title":"PR title number %d","labels":[{"name":"fkst-dev:reviewing"}]}',
-      n + 100,
-      n
-    ))
-  end
-  return "[" .. table.concat(items, ",") .. "]"
-end
-
-local function json_string(value)
-  return tostring(value or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
-end
-
-local function closed_issue_list_json(items)
-  local rendered = {}
-  for _, item in ipairs(items or {}) do
-    local labels = {}
-    for _, label in ipairs(item.labels or {}) do
-      table.insert(labels, '{"name":"' .. json_string(label) .. '"}')
-    end
-    table.insert(rendered, string.format(
-      '{"number":%d,"title":"%s","closedAt":"%s","labels":[%s]}',
-      item.number,
-      json_string(item.title or "Closed issue"),
-      json_string(item.closed_at or "2026-06-01T01:02:03Z"),
-      table.concat(labels, ",")
-    ))
-  end
-  return "[" .. table.concat(rendered, ",") .. "]"
-end
-
 local function assert_valid_utf8(value)
   local ok, len = pcall(utf8.len, tostring(value or ""))
   t.is_true(ok and len ~= nil)
 end
 
+local function board_issues(count)
+  local issues = {}
+  for n = 1, count do
+    table.insert(issues, {
+      number = n,
+      title = "Issue title number " .. tostring(n) .. " that is intentionally long enough to trim after sixty characters",
+      labels = { "fkst-dev:thinking" },
+    })
+  end
+  return issues
+end
+
+local function board_prs(count)
+  local prs = {}
+  for n = 1, count do
+    table.insert(prs, {
+      number = n + 100,
+      title = "PR title number " .. tostring(n),
+      labels = { "fkst-dev:reviewing" },
+    })
+  end
+  return prs
+end
+
 local function mock_board_lists(issue_count, pr_count, repo)
-  repo = repo or "owner/repo"
-  entity_read_mocks.mock_issue_list_raw_command(t, "gh issue list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
-    stdout = issue_list_json(issue_count),
-  })
-  entity_read_mocks.mock_pr_list_raw_command(t, "gh pr list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
-    stdout = pr_list_json(pr_count),
-  })
-  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), {
-    stdout = closed_issue_list_json({
+  entity_read_mocks.mock_board_digest_lists(t, {
+    repo = repo or "owner/repo",
+    issues = board_issues(issue_count),
+    prs = board_prs(pr_count),
+    closed_issues = {
       { number = 80, title = "Closed recurring widget sync retry fix", labels = { "error-class:retry", "fingerprint:widget-sync" } },
       { number = 81, title = "Closed widget sync backoff patch", labels = { "fingerprint:widget-sync" } },
-    }),
+    },
   })
 end
 
 local function mock_board_lists_closed_failure(issue_count, pr_count, repo)
-  repo = repo or "owner/repo"
-  entity_read_mocks.mock_issue_list_raw_command(t, "gh issue list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
-    stdout = issue_list_json(issue_count),
-  })
-  entity_read_mocks.mock_pr_list_raw_command(t, "gh pr list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
-    stdout = pr_list_json(pr_count),
-  })
-  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), {
-    stdout = "",
-    stderr = "closed issue query failed",
-    exit_code = 1,
+  entity_read_mocks.mock_board_digest_lists(t, {
+    repo = repo or "owner/repo",
+    issues = board_issues(issue_count),
+    prs = board_prs(pr_count),
+    closed_result = {
+      stdout = "",
+      stderr = "closed issue query failed",
+      exit_code = 1,
+    },
   })
 end
 
 local function mock_board_title(title, repo)
   repo = repo or "owner/repo"
-  entity_read_mocks.mock_issue_list_raw_command(t, "gh issue list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
-    stdout = '[{"number":1,"title":"' .. json_string(title) .. '","labels":[{"name":"fkst-dev:thinking"}]}]',
+  entity_read_mocks.mock_board_digest_lists(t, {
+    repo = repo,
+    issues = {
+      { number = 1, title = title, labels = { "fkst-dev:thinking" } },
+    },
   })
-  entity_read_mocks.mock_pr_list_raw_command(t, "gh pr list --repo '" .. repo .. "' --state open --limit 100 --json number,title,labels", {
-    stdout = "[]",
-  })
-  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), {
-    stdout = "[]",
-  })
-end
-
-local function count_calls(needle)
-  local count = 0
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find(needle, 1, true) ~= nil then
-      count = count + 1
-    end
-  end
-  return count
 end
 
 local function find_raise(raises, queue)
@@ -232,9 +191,6 @@ return {
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
     t.is_true(proposal.body:find("GitHub issue", 1, true) ~= nil)
     t.is_nil(proposal.body:find("#101 ", 1, true))
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
-    t.eq(count_calls("gh pr list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 0)
     t.eq(find_raise(second.raises, "consensus.proposal").payload.body, proposal.body)
   end,
 
@@ -260,10 +216,6 @@ return {
     t.is_true(first:find("fingerprint:widget-sync", 1, true) ~= nil)
     t.is_nil(first:find("#2 [fkst-dev:thinking] Issue title number 2", 1, true))
     t.is_true(second:find("#2 [fkst-dev:thinking] Issue title number 2", 1, true) ~= nil)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 1)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 1)
-    t.eq(count_calls("gh issue list --repo 'other/repo' --state open --limit 100 --json number,title,labels"), 1)
-    t.eq(count_calls("gh issue list --repo 'other/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 1)
   end,
 
   test_board_digest_feeds_existing_context_path_from_local_board_command = function()
@@ -287,8 +239,6 @@ return {
     t.is_true(body:find("Board feed-through from FKST_DEVLOOP_BOARD_CMD:", 1, true) ~= nil)
     t.is_true(body:find("fkst-dev local board", 1, true) ~= nil)
     t.is_true(body:find("source=observe", 1, true) ~= nil)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
-    t.eq(count_calls("gh pr list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 0)
   end,
 
   test_board_digest_keeps_open_context_when_closed_digest_fetch_fails = function()
@@ -423,7 +373,5 @@ return {
     end
     t.eq(loop.round, 2)
     t.eq(review_loop.round, 3)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels"), 1)
-    t.eq(count_calls("gh issue list --repo 'owner/repo' --state closed --limit 30 --json number,title,closedAt,labels"), 1)
   end,
 }

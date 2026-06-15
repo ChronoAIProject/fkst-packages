@@ -216,20 +216,13 @@ local function mock_intake_codex_with_closed_issues(stdout, closed_issues, exit_
     exit_code = 0,
   })
   mock_intake_judge_view({}, {})
-  entity_read_mocks.mock_issue_list_raw_command(t, "gh issue list --repo 'owner/repo' --state open --limit 100 --json number,title,labels", {
-    stdout = "[]\n",
-  })
-  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd("owner/repo", 30), {
-    stdout = issue_list_json(closed_issues or {
+  entity_read_mocks.mock_board_digest_lists(t, {
+    repo = "owner/repo",
+    closed_issues = closed_issues or {
       { number = 80, title = "Widget sync retry patch", labels = { "fingerprint:widget-sync" } },
       { number = 81, title = "Widget sync retry overflow fix", labels = { "fingerprint:widget-sync" } },
       { number = 82, title = "Widget sync timeout fix", labels = { "fingerprint:widget-sync" } },
-    }) .. "\n",
-  })
-  t.mock_command("gh pr list", {
-    stdout = "[]\n",
-    stderr = "",
-    exit_code = 0,
+    },
   })
   for _ = 1, 3 do
     t.mock_command(" > ", { stdout = "", stderr = "", exit_code = 0 })

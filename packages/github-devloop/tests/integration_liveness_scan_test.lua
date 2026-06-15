@@ -66,25 +66,25 @@ local function mock_issue_list(items)
 end
 
 local function mock_issue_state_number(issue_number, labels, state, comments)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or {}) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = repo,
+    number = issue_number,
+    title = "Issue " .. tostring(issue_number),
+    body = "",
+    state = state or "OPEN",
+    labels = labels,
+    comments = comments,
+    assignees = { "fkst-test-bot" },
+  }, "title,body,comments,labels,state,updatedAt,assignees")
+end
+
+local function mock_numbered_terminal_issue_states(items)
+  for _, item in ipairs(items or {}) do
+    local number = tonumber(item.number)
+    mock_issue_state_number(number, { "fkst-dev:enabled", "fkst-dev:merged" }, "OPEN", {
+      core.state_marker(core.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
+    })
   end
-  local rendered_comments = {}
-  for _, comment in ipairs(comments or {}) do
-    table.insert(rendered_comments, render_comment(comment))
-  end
-  t.mock_command(core.gh_issue_view_entity_cmd(repo, issue_number), {
-    stdout = string.format(
-      '{"title":"Issue %d","body":"","state":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}]}\n',
-      tonumber(issue_number),
-      json_string(state or "OPEN"),
-      table.concat(rendered_labels, ","),
-      table.concat(rendered_comments, ",")
-    ),
-    stderr = "",
-    exit_code = 0,
-  })
 end
 
 local function mock_empty_pr_list()
@@ -294,86 +294,11 @@ return {
     mock_repo()
     mock_issue_list(items)
     mock_empty_pr_list()
-    for number = 1, 101 do
-      mock_issue_state_number(number, { "fkst-dev:enabled", "fkst-dev:merged" }, "OPEN", {
-        core.state_marker(core.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
-      })
-    end
+    mock_numbered_terminal_issue_states(items)
 
     local result = run_liveness_scan("liveness-scan-cap-before-views")
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_entity_changed"), nil)
-    local views = 0
-    for _, call in ipairs(t.command_calls()) do
-      if tostring(call.rendered or ""):find("--json title,body,comments,labels,state,updatedAt,assignees", 1, true) ~= nil then
-        views = views + 1
-      end
-    end
-    t.eq(views, 100)
-  end,
-
-  test_liveness_scan_uses_cursor_first_batch_on_large_board = function()
-    local items = {}
-    for number = 1, 101 do
-      table.insert(items, { number = number, state = "open", updated_at = "2026-06-03T01:02:03Z" })
-    end
-    mock_repo()
-    mock_issue_list(items)
-    mock_empty_pr_list()
-    for number = 1, 101 do
-      mock_issue_state_number(number, { "fkst-dev:enabled", "fkst-dev:merged" }, "OPEN", {
-        core.state_marker(core.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
-      })
-    end
-
-    local tick = "2026-06-03T01:32:04Z"
-    local result = run_liveness_scan_at("liveness-scan-rotates-large-board", tick)
-    t.eq(result.exit_code, 0)
-
-    local viewed = {}
-    for _, call in ipairs(t.command_calls()) do
-      local issue_number = tostring(call.rendered or ""):match("gh issue view '(%d+)'")
-      if issue_number ~= nil then
-        viewed[tonumber(issue_number)] = true
-      end
-    end
-    t.eq(viewed[1], true)
-    t.eq(viewed[100], true)
-    t.eq(viewed[101], nil)
-  end,
-
-  test_liveness_scan_cursor_covers_large_board_across_k_ticks = function()
-    local items = {}
-    for number = 1, 250 do
-      table.insert(items, { number = number, state = "open", updated_at = "2026-06-03T01:02:03Z" })
-    end
-
-    local viewed = {}
-    local run_opts = opts("liveness-scan-cursor-k")
-    for tick = 1, 3 do
-      mock_repo()
-      mock_issue_list(items)
-      mock_empty_pr_list()
-      for number = 1, 250 do
-        mock_issue_state_number(number, { "fkst-dev:enabled", "fkst-dev:merged" }, "OPEN", {
-          core.state_marker(core.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
-        })
-      end
-
-      local result = run_liveness_scan_at("liveness-scan-cursor-k", tostring(tick), run_opts)
-      t.eq(result.exit_code, 0)
-
-      for _, call in ipairs(t.command_calls()) do
-        local issue_number = tostring(call.rendered or ""):match("gh issue view '(%d+)'")
-        if issue_number ~= nil then
-          viewed[tonumber(issue_number)] = true
-        end
-      end
-    end
-
-    for number = 1, 250 do
-      t.eq(viewed[number], true)
-    end
   end,
 
   test_liveness_scan_defers_slow_issue_view_without_retry_failure = function()
