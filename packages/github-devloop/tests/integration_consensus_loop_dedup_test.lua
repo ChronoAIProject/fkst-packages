@@ -1,16 +1,15 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
-local opts = h.opts
 local unresolved = h.unresolved
-local run_loop = h.run_loop
-local mock_issue_loop = h.mock_issue_loop
+local run_loop_fake = h.run_loop_fake
+local loop_issue = h.loop_issue
 local find_raise = h.find_raise
 
 return {
   test_loop_reraised_proposal_dedup_follows_consensus_lineage_not_current_updated_at = function()
     local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/1234567890"
-    mock_issue_loop({ "fkst-dev:thinking" }, {
+    local issue = loop_issue({ "fkst-dev:thinking" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "thinking", base_version),
     }, {
       updated_at = "2026-06-14T01:02:03Z",
@@ -23,7 +22,7 @@ return {
         { angle = "minimal", verdict = "abstain", digest = "needs-specificity" },
       },
     })
-    local result = run_loop(event, opts("loop-dedup-lineage"))
+    local result = run_loop_fake(event, issue)
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "consensus.proposal").payload
     t.eq(proposal.dedup_key, core.converge_proposal_base_dedup(base_version) .. "/loop/1")

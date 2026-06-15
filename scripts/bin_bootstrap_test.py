@@ -42,6 +42,7 @@ class BootstrapHarness:
                 "PATH": f"{self.fake_bin}{os.pathsep}{self.env.get('PATH', '')}",
             }
         )
+        self.env.pop("FKST_NO_AUTOBUILD", None)
         self._install_fake_tools()
 
     def close(self) -> None:

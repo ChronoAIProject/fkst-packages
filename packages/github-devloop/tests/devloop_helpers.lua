@@ -1,6 +1,7 @@
 local base = require("tests.devloop_base_helpers")
 local pr = require("tests.devloop_pr_helpers")
 local worktree = require("tests.devloop_worktree_helpers")
+local loop_fake = require("tests.loop_fake_helpers")
 
 local helpers = {}
 for key, value in pairs(base) do
@@ -12,6 +13,7 @@ end
 for key, value in pairs(worktree) do
   helpers[key] = value
 end
+loop_fake.install(helpers)
 
 local base_mock_bot_env = helpers.mock_bot_env
 local base_run_observe = helpers.run_observe
@@ -118,6 +120,7 @@ end
 
 for _, name in ipairs({
   "run_loop",
+  "run_loop_fake",
   "run_review_pr",
   "run_review_loop",
   "run_fix",
