@@ -14,7 +14,7 @@ return {
     local handle = gh.new(function(opts)
       seen = opts.cmd
       return {
-        stdout = '{"number":42,"state":"OPEN","title":"t","updatedAt":"2026-06-15T00:00:00Z","labels":[{"name":"fkst-dev:enabled"}],"comments":[{"id":1,"body":"b","author":{"login":"bot"},"createdAt":"2026-06-14T00:00:00Z"}],"assignees":[{"login":"dev"}],"author":{"login":"author"}}',
+        stdout = '{"number":42,"state":"OPEN","title":"t","body":"issue body","url":"https://github.com/owner/repo/issues/42","updatedAt":"2026-06-15T00:00:00Z","labels":[{"name":"fkst-dev:enabled"}],"comments":[{"id":1,"body":"b","author":{"login":"bot"},"createdAt":"2026-06-14T00:00:00Z"}],"assignees":[{"login":"dev"}],"author":{"login":"author"}}',
         stderr = "",
         exit_code = 0,
       }
@@ -22,14 +22,17 @@ return {
 
     local issue = handle.read_issue({ kind = "external", ref = "owner/repo#issue/42" })
 
-    assert(seen == "gh issue view '42' --repo 'owner/repo' --json number,title,updatedAt,state,labels,comments,assignees,author")
+    assert(seen == "gh issue view '42' --repo 'owner/repo' --json number,title,body,url,updatedAt,state,labels,comments,assignees,author")
     assert(issue.number == 42)
     assert(issue.source_ref.kind == "external")
     assert(issue.source_ref.ref == "owner/repo#issue/42")
     assert(issue.title == "t")
+    assert(issue.body == "issue body")
+    assert(issue.url == "https://github.com/owner/repo/issues/42")
     assert(issue.updated_at == "2026-06-15T00:00:00Z")
     assert(issue.state == "OPEN")
     assert(issue.labels[1] == "fkst-dev:enabled")
+    assert(issue.comments[1].id == 1)
     assert(issue.comments[1].body == "b")
     assert(issue.comments[1].author_login == "bot")
     assert(issue.comments[1].created_at == "2026-06-14T00:00:00Z")

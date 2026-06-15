@@ -1,7 +1,10 @@
 local shell = require("std.github.shell")
 
 local M = {}
-local issue_view_fields = "number,title,updatedAt,state,labels,comments,assignees,author"
+-- The neutral Issue shape this op returns is everything `gh issue view --json` provides.
+-- Two documented exclusions: `blocked_by` needs GraphQL (a separate read op, not gh issue
+-- view), and comment `updated_at` is not exposed by gh issue view (only createdAt).
+local issue_view_fields = "number,title,body,url,updatedAt,state,labels,comments,assignees,author"
 
 local function gh_issue_view_cmd(repo, issue_number, fields)
   local selected_fields = tostring(fields or "")
@@ -55,6 +58,7 @@ local function comments_from_json(comments_json)
         author_login = tostring(comment.author_login)
       end
       table.insert(comments, {
+        id = comment.id,
         body = tostring(comment.body),
         author_login = author_login,
         created_at = comment.createdAt or comment.created_at,
@@ -97,6 +101,8 @@ function M.normalize_issue(gh_json_decoded_or_stdout, source_ref)
     number = tonumber(decoded.number) or source_number,
     source_ref = { kind = source_ref.kind, ref = source_ref.ref },
     title = tostring(decoded.title or ""),
+    body = decoded.body ~= nil and tostring(decoded.body) or nil,
+    url = decoded.url or decoded.html_url,
     updated_at = decoded.updatedAt or decoded.updated_at,
     state = decoded.state,
     labels = label_names(decoded.labels),

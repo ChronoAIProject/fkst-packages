@@ -896,12 +896,12 @@ return {
   end,
 
   test_loop_issue_view_failure_errors_for_retry = function()
-    mock_issue_view_failure("--json number,title,updatedAt,state,labels,comments,assignees,author", "forced loop failure")
+    mock_issue_view_failure("--json number,title,body,url,updatedAt,state,labels,comments,assignees,author", "forced loop failure")
 
     local result = run_loop(unresolved(), opts("loop-view-failure"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.eq(count_calls("--json number,title,updatedAt,state,labels,comments,assignees,author"), 1)
+    t.eq(count_calls("--json number,title,body,url,updatedAt,state,labels,comments,assignees,author"), 1)
   end,
 
   test_reconcile_drop_blocks_thinking_issue = function()
