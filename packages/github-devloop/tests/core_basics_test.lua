@@ -192,6 +192,38 @@ return {
     t.is_nil(captured[1]:find("terminal=", 1, true))
     t.is_true(captured[1]:find("queue=devloop_ready", 1, true) ~= nil)
   end,
+  test_wrapped_adapter_rate_limit_error_preserves_rate_limit_class = function()
+    local captured = {}
+    local old_log = log
+    log = {
+      error = function(message)
+        table.insert(captured, tostring(message))
+      end,
+    }
+    local gh = require("std.github").new(function(_opts)
+      return { stdout = "", stderr = "API rate limit exceeded", exit_code = 1 }
+    end)
+    local wrapped = core.wrap_pipeline_failure("loop", function(_event)
+      gh._exec("gh issue view '42'", 30, "gh issue view")
+    end)
+    local ok, err = pcall(function()
+      wrapped({
+        queue = "consensus.consensus_converge",
+        attempt = 2,
+        payload = {
+          proposal_id = "github-devloop/issue/owner/repo/42",
+          source_ref = source_ref(),
+        },
+      })
+    end)
+
+    log = old_log
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("gh-rate-limited", 1, true) ~= nil)
+    t.eq(#captured, 1)
+    t.is_true(captured[1]:find("error_class=gh-rate-limited", 1, true) ~= nil)
+    t.is_nil(captured[1]:find("error_class=caught-failure", 1, true))
+  end,
   test_error_class_from_message_prefers_inner_codex_failure = function()
     t.eq(
       core.error_class_from_message("github-devloop: fix codex failed: bad sha abcdef1234567890"),

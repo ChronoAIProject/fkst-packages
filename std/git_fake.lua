@@ -9,10 +9,7 @@ end
 
 function M.new(model)
   assert(type(model) == "table", "std.git_fake.new requires a model")
-  local handle = {}
-  function handle.show_ref(branch)
-    return model.refs[branch]
-  end
+  local handle = { _model = model }
   return handle
 end
 

@@ -1,19 +1,20 @@
 local shell = require("std.github.shell")
 
 local M = {}
+local issue_view_fields = "number,title,updatedAt,state,labels,comments,assignees,author"
 
 local function gh_issue_view_cmd(repo, issue_number, fields)
   local selected_fields = tostring(fields or "")
   if selected_fields == "" or selected_fields:match("[^%w_,]") or selected_fields:match("^,") or selected_fields:match(",$") or selected_fields:match(",,") then
-    error("github-devloop: invalid issue view fields")
+    error("std.github: invalid issue view fields")
   end
   return "gh issue view " .. shell.shell_single_quote(issue_number)
     .. " --repo " .. shell.shell_single_quote(repo)
     .. " --json " .. selected_fields
 end
 
-local function gh_issue_view_loop_cmd(repo, issue_number)
-  return gh_issue_view_cmd(repo, issue_number, "title,updatedAt,labels,comments,state")
+local function gh_issue_view_full_cmd(repo, issue_number)
+  return gh_issue_view_cmd(repo, issue_number, issue_view_fields)
 end
 
 local function assignee_logins(assignees)
@@ -54,16 +55,12 @@ local function comments_from_json(comments_json)
         author_login = tostring(comment.author_login)
       end
       table.insert(comments, {
-        id = comment.id,
         body = tostring(comment.body),
         author_login = author_login,
         created_at = comment.createdAt or comment.created_at,
       })
     elseif type(comment) == "string" then
-      table.insert(comments, {
-        body = comment,
-        author_login = "fkst-test-bot",
-      })
+      error("std.github: issue comments must be gh-shaped objects")
     end
   end
   return comments
@@ -81,10 +78,27 @@ local function label_names(labels_json)
   return labels
 end
 
-local function parse_issue_view_result(stdout)
-  local decoded = json.decode(stdout or "{}")
+local function repo_and_number(source_ref)
+  assert(type(source_ref) == "table", "read_issue requires a source_ref")
+  assert(source_ref.kind == "external", "read_issue requires an external source_ref")
+  local repo, number = tostring(source_ref.ref or ""):match("^([^#]+)#issue/(%d+)$")
+  assert(repo ~= nil and number ~= nil, "read_issue requires an issue source_ref")
+  return repo, tonumber(number)
+end
 
+function M.normalize_issue(gh_json_decoded_or_stdout, source_ref)
+  local _repo, source_number = repo_and_number(source_ref)
+  local decoded = gh_json_decoded_or_stdout
+  if type(decoded) == "string" then
+    decoded = json.decode(decoded or "{}")
+  end
+  assert(type(decoded) == "table", "normalize_issue requires a decoded issue object")
   return {
+    number = tonumber(decoded.number) or source_number,
+    source_ref = { kind = source_ref.kind, ref = source_ref.ref },
+    title = tostring(decoded.title or ""),
+    updated_at = decoded.updatedAt or decoded.updated_at,
+    state = decoded.state,
     labels = label_names(decoded.labels),
     comments = comments_from_json(decoded.comments),
     assignees = assignee_logins(decoded.assignees),
@@ -92,35 +106,11 @@ local function parse_issue_view_result(stdout)
   }
 end
 
-local function parse_issue_view_loop(stdout)
-  local decoded = json.decode(stdout or "{}")
-  local result = parse_issue_view_result(stdout)
-  return {
-    title = tostring(decoded.title or ""),
-    updated_at = decoded.updatedAt or decoded.updated_at,
-    state = decoded.state,
-    labels = result.labels,
-    comments = result.comments,
-    assignees = result.assignees,
-    author_login = result.author_login,
-  }
-end
-
-local function repo_and_number(source_ref)
-  assert(type(source_ref) == "table", "read_issue requires a source_ref")
-  local repo, kind, number = tostring(source_ref.ref or ""):match("^([^#]+)#([a-z]+)/(%d+)$")
-  assert(kind == "issue", "read_issue requires an issue source_ref")
-  return repo, tonumber(number)
-end
-
 function M.install(handle)
   function handle.read_issue(source_ref)
     local repo, number = repo_and_number(source_ref)
-    local out = handle._exec(gh_issue_view_loop_cmd(repo, number), 30, "gh issue view")
-    local issue = parse_issue_view_loop(out.stdout)
-    issue.number = number
-    issue.source_ref = { kind = source_ref.kind, ref = source_ref.ref }
-    return issue
+    local out = handle._exec(gh_issue_view_full_cmd(repo, number), 30, "gh issue view")
+    return M.normalize_issue(out.stdout, source_ref)
   end
 end
 

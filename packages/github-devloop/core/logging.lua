@@ -66,6 +66,7 @@ function M.error_class_from_message(message)
     or text:match("github%-devloop: ([%w%-]+):")
     or text:match("github%-devloop: ([%w%-]+) failed:")
     or text:match("github%-devloop: ([%w%-]+) retrying")
+    or text:match("std%.github: [^:]+ failed: ([%w%-]+):")
   return class or "caught-failure"
 end
 

@@ -36,12 +36,17 @@ function M.run(exec, cmd, timeout, context)
   local result = exec({ cmd = cmd, timeout = timeout, rate_pool = { name = "gh" } })
   if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
     local class = M.error_class(result)
-    error({
+    local message = "std.github: " .. tostring(context) .. " failed: " .. class .. ": " .. stderr_of(result)
+    error(setmetatable({
       class = class,
       retryable = class == "gh-rate-limited",
       result = result,
-      message = "std.github: " .. tostring(context) .. " failed: " .. class .. ": " .. stderr_of(result),
-    })
+      message = message,
+    }, {
+      __tostring = function(err)
+        return err.message
+      end,
+    }))
   end
   return result
 end

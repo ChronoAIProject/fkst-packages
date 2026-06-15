@@ -8,7 +8,7 @@ local function make_test_department(ports)
       raise("demo.request", { dedup_key = "d:" .. issue.number })
     end
   end
-  return { spec = { consumes = { "demo" } }, pipeline = pipeline }
+  return { spec = { consumes = { "demo" } }, pipeline = pipeline, ports = ports }
 end
 
 return {
@@ -19,13 +19,33 @@ return {
       },
     })
     local dept = make_test_department({ github = gh_fake.new(model), git = nil })
-    local _result, effects = run_fake(dept, {
+    local result = run_fake(dept, {
       payload = {
         source_ref = { kind = "external", ref = "owner/repo#issue/42" },
       },
     })
-    assert(#effects.raises == 1, "must capture the S2 raise")
-    assert(effects.raises[1].queue == "demo.request")
-    assert(effects.raises[1].payload.dedup_key == "d:42")
+    assert(result.result == nil)
+    assert(result.failure == nil)
+    assert(#result.raises == 1, "must capture the S2 raise")
+    assert(result.raises[1].queue == "demo.request")
+    assert(result.raises[1].payload.dedup_key == "d:42")
+    assert(result.writes == model.writes)
+  end,
+
+  test_run_fake_returns_failure_shape_without_rethrowing = function()
+    local dept = {
+      spec = { consumes = { "demo" } },
+      pipeline = function(_event)
+        raise("demo.before-fail", { dedup_key = "before-fail" })
+        error("forced fake failure")
+      end,
+    }
+    local result = run_fake(dept, { payload = {} })
+    assert(result.result == nil)
+    assert(result.failure ~= nil)
+    assert(tostring(result.failure.error):find("forced fake failure", 1, true) ~= nil)
+    assert(#result.raises == 1)
+    assert(result.raises[1].queue == "demo.before-fail")
+    assert(type(result.writes) == "table")
   end,
 }

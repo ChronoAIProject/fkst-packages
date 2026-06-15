@@ -708,40 +708,34 @@ local function mock_issue_body(body)
   })
 end
 
+local function issue_view_json_parts(labels, comments)
+  local selected = labels or { "fkst-dev:thinking" }; local rendered_labels, rendered_comments = {}, {}
+  for _, label in ipairs(selected) do table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label))) end
+  for _, comment in ipairs(with_default_state_marker(selected, comments)) do table.insert(rendered_comments, render_comment(comment)) end
+  return table.concat(rendered_labels, ","), table.concat(rendered_comments, ",")
+end
+
 local function mock_issue_result(labels, comments, extra)
   set_pr_phase_comments(labels or { "fkst-dev:thinking" }, comments)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or { "fkst-dev:thinking" }) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
-  end
-  local rendered_comments = {}
-  for _, comment in ipairs(with_default_state_marker(labels or { "fkst-dev:thinking" }, comments)) do
-    table.insert(rendered_comments, render_comment(comment))
-  end
+  local rendered_labels, rendered_comments = issue_view_json_parts(labels, comments)
   local fields = extra or {}
-  t.mock_command("--json labels,comments", { stdout = string.format('{"labels":[%s],"comments":[%s],"assignees":[%s]}\n', table.concat(rendered_labels, ","), table.concat(rendered_comments, ","), assignees_json(fields.assignees)), stderr = "", exit_code = 0 })
+  t.mock_command("--json labels,comments", { stdout = string.format('{"labels":[%s],"comments":[%s],"assignees":[%s]}\n', rendered_labels, rendered_comments, assignees_json(fields.assignees)), stderr = "", exit_code = 0 })
   t.mock_command("--json assignees,author", { stdout = string.format('{"assignees":[%s],"author":{"login":"%s"}}\n', assignees_json(fields.assignees), json_string(fields.author_login or "fkst-test-bot")), stderr = "", exit_code = 0 })
 end
 
 local function mock_issue_loop(labels, comments, extra)
-  local rendered_labels = {}
-  for _, label in ipairs(labels or { "fkst-dev:thinking" }) do
-    table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
-  end
-  local rendered_comments = {}
-  for _, comment in ipairs(with_default_state_marker(labels or { "fkst-dev:thinking" }, comments)) do
-    table.insert(rendered_comments, render_comment(comment))
-  end
+  local rendered_labels, rendered_comments = issue_view_json_parts(labels, comments)
   local fields = extra or {}
-  t.mock_command("--json title,updatedAt,labels,comments,state", {
+  t.mock_command("--json number,title,updatedAt,state,labels,comments,assignees,author", {
     stdout = string.format(
-      '{"title":"%s","updatedAt":"%s","state":"%s","labels":[%s],"comments":[%s],"assignees":[%s]}\n',
+      '{"number":42,"title":"%s","updatedAt":"%s","state":"%s","labels":[%s],"comments":[%s],"assignees":[%s],"author":{"login":"%s"}}\n',
       json_string(fields.title or "Implement decision recorder"),
       json_string(fields.updated_at or "2026-06-03T01:02:03Z"),
       json_string(fields.state or "OPEN"),
-      table.concat(rendered_labels, ","),
-      table.concat(rendered_comments, ","),
-      assignees_json(fields.assignees)
+      rendered_labels,
+      rendered_comments,
+      assignees_json(fields.assignees),
+      json_string(fields.author_login or "fkst-test-bot")
     ),
     stderr = "",
     exit_code = 0,
@@ -749,7 +743,21 @@ local function mock_issue_loop(labels, comments, extra)
 end
 
 local function mock_issue_reconcile(labels, comments, extra)
-  mock_issue_loop(labels or { "fkst-dev:thinking" }, comments, extra)
+  local rendered_labels, rendered_comments = issue_view_json_parts(labels, comments)
+  local fields = extra or {}
+  t.mock_command("--json title,updatedAt,labels,comments,state", {
+    stdout = string.format(
+      '{"title":"%s","updatedAt":"%s","state":"%s","labels":[%s],"comments":[%s],"assignees":[%s]}\n',
+      json_string(fields.title or "Implement decision recorder"),
+      json_string(fields.updated_at or "2026-06-03T01:02:03Z"),
+      json_string(fields.state or "OPEN"),
+      rendered_labels,
+      rendered_comments,
+      assignees_json(fields.assignees)
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function mock_issue_commit_subject_title(fields)
