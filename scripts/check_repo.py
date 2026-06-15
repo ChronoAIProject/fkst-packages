@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 import sys
-import os, base64, binascii, subprocess
+import os, base64, binascii, subprocess, check_repo_gh_git_adapter as gh_git_adapter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -87,6 +87,8 @@ def read_text(path: Path) -> str: return path.read_text(encoding="utf-8")
 def packages_root(root: Path) -> Path: return root / ".fkst" / "packages"
 def line_count(path: Path) -> int: return len(read_text(path).splitlines())
 def add(violations: list[str], rule: str, message: str) -> None: violations.append(f"{rule}: {message}")
+def allowlist_lines(path: Path) -> set[str]:
+    return set() if not path.exists() else {line.strip() for line in read_text(path).splitlines() if line.strip() and not line.lstrip().startswith("#")}
 
 
 def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
@@ -909,6 +911,11 @@ def check_cross_package_require(root: Path, violations: list[str]) -> None:
                 )
 
 
+def check_gh_git_adapter_ratchet(root: Path, violations: list[str]) -> None:
+    sources = gh_git_adapter.sources(root, packages_root(root), read_text, rel)
+    for message in gh_git_adapter.ratchet_messages(sources, gh_git_adapter.load_allowlist(root / gh_git_adapter.ALLOWLIST), lua_string_literals): add(violations, "G-ADAPTER", message)
+
+
 def is_saga_handler_source(source: str) -> bool:
     return SAGA_REQUIRE_RE.search(source) is not None and SAGA_DEPARTMENT_RE.search(strip_lua_comments_and_strings(source)) is not None
 
@@ -950,7 +957,7 @@ def saga_allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
 
 def check_saga_handler_ratchet(root: Path, violations: list[str], warnings: list[str]) -> None:
     allow_path = root / "migration" / "saga-handler.allowlist"
-    allowlist = set() if not allow_path.exists() else {line.strip() for line in read_text(allow_path).splitlines() if line.strip() and not line.lstrip().startswith("#")}
+    allowlist = allowlist_lines(allow_path)
     sources = {rel(root, path): read_text(path) for path in sorted(packages_root(root).glob("*/departments/*/main.lua")) if path.is_file()}
     base_status, base_allowlist = saga_allowlist_at_dev_base(root)
     if base_status == "unresolved": violations.append("G10: cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
@@ -973,6 +980,7 @@ def main() -> int:
     check_ownership_gate_claim_owner(root, violations)
     check_persistence_classes(root, violations)
     check_cross_package_require(root, violations)
+    check_gh_git_adapter_ratchet(root, violations)
     check_saga_handler_ratchet(root, violations, warnings)
 
     for warning in warnings:
@@ -988,5 +996,4 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == "__main__": raise SystemExit(main())

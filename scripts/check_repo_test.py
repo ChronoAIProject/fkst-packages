@@ -274,7 +274,7 @@ class RunScriptContractTest(unittest.TestCase):
             scripts.mkdir(parents=True)
             pkg.mkdir(parents=True)
 
-            for name in ("run.sh", "bin_bootstrap.sh", "check_repo.py"):
+            for name in ("run.sh", "bin_bootstrap.sh", "check_repo.py", "check_repo_gh_git_adapter.py"):
                 shutil.copy2(root / "scripts" / name, scripts / name)
             for name in ("check_repo_test.py", "bin_cache_test.py", "bin_bootstrap_test.py", "board_test.py", "doctor_test.py"):
                 (scripts / name).write_text("#!/usr/bin/env python3\nraise SystemExit(0)\n", encoding="utf-8")
@@ -457,6 +457,186 @@ local real = require("consensus.thing")
             self.names(src, ["github-proxy", "consensus"], "consensus"),
             [],
         )
+
+
+class GhGitAdapterRatchetTest(unittest.TestCase):
+    def violations(self, sources: dict[str, str], allowlist: dict[str, set[str]]) -> list[str]:
+        return check_repo.gh_git_adapter.ratchet_messages(
+            sources,
+            allowlist,
+            check_repo.lua_string_literals,
+        )
+
+    def test_return_command_builder_fails(self) -> None:
+        sources = {
+            "packages/example/core/commands.lua": 'function M.list(repo)\n  return "gh issue list" .. " --repo " .. repo\nend\n',
+        }
+
+        violations = self.violations(sources, {})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("constructs a new gh/git command head 'gh issue'", violations[0])
+
+    def test_non_command_log_text_is_not_flagged(self) -> None:
+        sources = {
+            "packages/example/departments/run/main.lua": 'log.info("git merge done")\n',
+        }
+
+        self.assertEqual(self.violations(sources, {}), [])
+
+    def test_command_literal_builder_without_exec_sink_fails(self) -> None:
+        sources = {
+            "packages/example/core/git.lua": 'local cmd = "git status --short"\nreturn cmd\n',
+        }
+
+        violations = self.violations(sources, {})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("'git status'", violations[0])
+
+    def test_normalized_env_cd_sh_and_path_prefixed_heads_fail(self) -> None:
+        sources = {
+            "packages/example/departments/run/main.lua": """
+exec_sync({ cmd = "GH_TOKEN=x gh issue view 1" })
+exec_sync({ cmd = "cd /tmp/repo && git status --short" })
+exec_sync({ cmd = "bash -c '/usr/bin/gh pr view 2'" })
+""",
+        }
+
+        violations = self.violations(sources, {})
+
+        self.assertEqual(len(violations), 3)
+        self.assertTrue(any("'gh issue'" in violation for violation in violations))
+        self.assertTrue(any("'git status'" in violation for violation in violations))
+        self.assertTrue(any("'gh pr'" in violation for violation in violations))
+
+    def test_concat_head_builder_fails(self) -> None:
+        sources = {
+            "packages/example/core/commands.lua": 'return "gh" .. " issue view " .. issue_number\n',
+        }
+
+        violations = self.violations(sources, {})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("'gh issue'", violations[0])
+
+    def test_commands_lua_style_builders_are_caught(self) -> None:
+        sources = {
+            "packages/example/core/commands.lua": """
+function M.issue(repo)
+  return "gh issue list"
+    .. " --repo " .. repo
+end
+
+function M.fetch(branch)
+  return "git fetch origin " .. branch
+end
+""",
+        }
+
+        violations = self.violations(sources, {})
+
+        self.assertEqual(len(violations), 2)
+        self.assertTrue(any("'gh issue'" in violation for violation in violations))
+        self.assertTrue(any("'git fetch'" in violation for violation in violations))
+
+    def test_allowlisted_current_heads_pass(self) -> None:
+        sources = {
+            "packages/example/departments/run/main.lua": 'exec_sync({ cmd = "git worktree add ../wt HEAD" })\n',
+        }
+        allowlist = {"packages/example/departments/run/main.lua": {"git worktree"}}
+
+        self.assertEqual(self.violations(sources, allowlist), [])
+
+    def test_new_head_in_allowlisted_file_fails(self) -> None:
+        sources = {
+            "packages/example/departments/run/main.lua": """
+exec_sync({ cmd = "git worktree add ../wt HEAD" })
+exec_sync({ cmd = "gh issue view 1 --json title" })
+""",
+        }
+        allowlist = {"packages/example/departments/run/main.lua": {"git worktree"}}
+
+        violations = self.violations(sources, allowlist)
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("constructs a new gh/git command head 'gh issue'", violations[0])
+
+    def test_clean_allowlist_entry_fails_stale(self) -> None:
+        sources = {
+            "packages/example/departments/run/main.lua": 'local cmd = ports.github.read_issue(repo, number)\n',
+        }
+        allowlist = {"packages/example/departments/run/main.lua": {"git worktree"}}
+
+        violations = self.violations(sources, allowlist)
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("no longer constructs 'git worktree'", violations[0])
+
+    def test_empty_allowlist_entry_fails(self) -> None:
+        sources = {
+            "packages/example/departments/run/main.lua": 'local value = 1\n',
+        }
+        allowlist = {"packages/example/departments/run/main.lua": set()}
+
+        violations = self.violations(sources, allowlist)
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("has an empty allowlist entry", violations[0])
+
+    def test_empty_allowlist_file_entry_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            migration = root / "migration"
+            migration.mkdir()
+            (migration / "gh-git-adapter.allowlist").write_text(
+                "packages/example/departments/run/main.lua:\n",
+                encoding="utf-8",
+            )
+
+            violations: list[str] = []
+            check_repo.check_gh_git_adapter_ratchet(root, violations)
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("has an empty allowlist entry", violations[0])
+
+    def test_root_std_non_adapter_is_scanned_and_std_github_is_exempt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            std_github = root / "std" / "github"
+            std_github.mkdir(parents=True)
+            (root / "std" / "oracle.lua").write_text(
+                'exec_sync({ cmd = "gh issue view 1 --json title" })\n',
+                encoding="utf-8",
+            )
+            (std_github / "issue.lua").write_text(
+                'exec_sync({ cmd = "gh issue view 1 --json title" })\n',
+                encoding="utf-8",
+            )
+
+            violations: list[str] = []
+            check_repo.check_gh_git_adapter_ratchet(root, violations)
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("std/oracle.lua constructs a new gh/git command head 'gh issue'", violations[0])
+
+    def test_adapter_path_is_allowed(self) -> None:
+        sources = {
+            "std/github/exec.lua": 'local cmd = "gh issue view 1 --json title"\n',
+            "packages/example/std/github/exec.lua": 'local cmd = "gh issue view 1 --json title"\n',
+        }
+
+        self.assertEqual(self.violations(sources, {}), [])
+
+    def test_migrated_loop_without_literal_command_head_is_not_flagged(self) -> None:
+        sources = {
+            "packages/github-devloop/departments/loop/main.lua": """
+local view = core.gh_exec({ cmd = core.gh_issue_view_loop_cmd(repo, issue_number), timeout = 30 })
+log.info("git merge done")
+""",
+        }
+
+        self.assertEqual(self.violations(sources, {}), [])
 
 
 class SagaHandlerRatchetTest(unittest.TestCase):
