@@ -1,6 +1,10 @@
 # Design: Ports & Adapters — a `gh`/`git` anti-corruption layer in `std`
 
-Status: proposal v2 · Date: 2026-06-15 · Repo: fkst-packages
+Status: proposal v3 · Date: 2026-06-15 · Repo: fkst-packages
+v3 changelog: closes the review blockers by making department port injection compose
+with `std.department{done,act}`, keeping package `body_source` vocabulary out of S1,
+splitting authored body durability into bounded migrated text vs deferred large
+artifacts, and pinning S3 guard outcomes to delivery semantics.
 Builds on (read these first):
 - `2026-06-14-std-shared-library-design.md` — the `std/` shelf, the Tier S/R split, the symlink vendoring, and the doctrine that earmarks **`gh`-shaped helpers as Tier R**. This spec puts the largest Tier R inhabitant on that shelf.
 - `2026-06-14-saga-harness-design.md` — the `std.department{done,act}` department shape and its ①②③ idempotency oracle. §6 of this spec composes that Tier S oracle with Tier R GitHub/git fakes without making the oracle depend on GitHub types.
@@ -63,8 +67,9 @@ the external `gh`/`git` world. The boundary has three explicit surfaces:
 - **S1 neutral adapters** in Tier R `std.github` / `std.git`: build commands, execute
   them, parse stdout, and return neutral normalized Lua tables.
 - **S2 package-owned write intents**: durable request schemas such as
-  `github-proxy.v1`, carrying `source_ref`, small control fields, and `body_source`
-  handles, not rendered content.
+  `github-proxy.v1`, carrying `source_ref`, small control fields, bounded short
+  control text snapshots, and package `body_source` handles where a deterministic
+  renderer is available.
 - **S3 package-owned marker/CAS guards**: trusted-bot filtering, marker grammar,
   current state, version-CAS, and expected proposal/state/version checks under the
   existing per-entity locks.
@@ -113,6 +118,14 @@ executes a local `std.git` operation. A department's migration should adopt **bo
 in one vertical slice (`done/act` + port/intent vocabulary) rather than touching
 `main.lua` twice (§9).
 
+This spec lightly extends the saga-harness composition pattern without changing
+`done(event)` / `act(event)` arity. A migrated department module should expose a
+package-local constructor such as `make_department(ports)`. That constructor closes over
+the injected port handles, builds `std.department{done=..., act=...}`, and returns the
+engine-facing module shape. The default module export binds production ports from
+`exec_sync`; tests call the same constructor with fakes. Ports enter through this
+factory/context boundary, not through global module state.
+
 ## 4. The Three Surfaces
 
 The old dividing question "GitHub vocabulary vs fkst vocabulary" is still useful, but it
@@ -122,7 +135,7 @@ parsers belongs to one of these surfaces:
 | Surface | Owner / home | Knows | Speaks | Never |
 |---|---|---|---|---|
 | **S1 neutral adapter** | Tier R `std.github` / `std.git` | `gh` CLI flags, GraphQL field names, `git` plumbing, stdout/JSON shapes, shell quoting, rate-limit strings | adapter handle operations such as `github.read_issue`, `github.create_pr`, `git.ensure_worktree`; returns neutral normalized Lua tables | marker grammar, devloop states, trusted-bot policy, proposal IDs, version-CAS, consensus |
-| **S2 write-intent layer** | package queues + payload schemas, primarily `github-proxy.v1` | durable delivery schema, `source_ref`, `dedup_key`, expected proposal/state/version control fields, `body_source` / `title_source` handles | intent names such as `github_issue_comment_request`, `github_issue_create_request`, `github_pr_open_request`, `github_issue_label_request` | command strings, stdout parsers, hidden rendered bodies |
+| **S2 write-intent layer** | package queues + payload schemas, primarily `github-proxy.v1` | durable delivery schema, `source_ref`, `dedup_key`, expected proposal/state/version control fields, bounded short `body` / `title` snapshots, package `body_source` / `title_source` handles | intent names such as `github_issue_comment_request`, `github_issue_create_request`, `github_pr_open_request`, `github_issue_label_request` | command strings, stdout parsers, template rendering by `std.github` |
 | **S3 marker/CAS guard modules** | package-owned modules under package root / departments | trusted-bot filter, `current_devloop_state`, marker schemas, version-CAS order, expected proposal/state/version/head checks, dependency gate policy | guarded-write decisions made under existing `with_lock` keys before S1 execution | `gh`/`git` flag spelling, GraphQL field strings, low-level shell quoting |
 
 S2 operation names are intentionally **distinct** from S1 execute operation names. For
@@ -173,9 +186,9 @@ package require is introduced.
 
 | Operation | Returns | Notes |
 |---|---|---|
-| `github.create_issue(request)` | issue table | takes title/body sources resolved by the executor, not a durable payload body |
-| `github.create_comment(target_ref, body_source)` | comment table | writes via `--body-file`; adapter resolves body source to a temp file |
-| `github.edit_comment(comment_ref, body_source)` | comment table | command mechanics only; stale-target classification belongs to adapter, retry policy to package |
+| `github.create_issue(request)` | issue table | takes neutral mechanics only: rendered `title_text` plus `body_text` or `body_file`; no package template ids |
+| `github.create_comment(target_ref, body_text_or_file)` | comment table | writes already-rendered text or a temp body-file path via `--body-file`; no package template ids |
+| `github.edit_comment(comment_ref, body_text_or_file)` | comment table | command mechanics only; stale-target classification belongs to adapter, retry policy to package |
 | `github.reconcile_labels(target_ref, add, remove)` | `bool` | ensures repo labels exist; S3 decides whether the label write is still allowed |
 | `github.add_blocked_by(blocked_ref, blocker_ref)` | `bool` | GraphQL `addBlockedBy`; #660's `issueId` fix stays in the adapter mechanics |
 | `github.assign_issue(issue_ref, login)` / `github.unassign_issue(issue_ref, login)` | `bool` | assignee claim policy remains package-owned |
@@ -187,11 +200,11 @@ package require is introduced.
 
 | Intent / queue | Carries |
 |---|---|
-| `github_issue_comment_request` / `github_pr_comment_request` | target `source_ref`, `dedup_key`, replace/hand-off control fields, `body_source` |
-| `github_issue_create_request` | parent/lineage control fields, `dedup_key`, labels/assignees, `title_source`, `body_source` |
-| `github_pr_open_request` | issue `source_ref`, branch/head/base control, expected proposal/state/version/head, `title_source`, PR `body_source`, issue-comment `body_source` |
+| `github_issue_comment_request` / `github_pr_comment_request` | target `source_ref`, `dedup_key`, replace/hand-off control fields, bounded short `body` or package `body_source` |
+| `github_issue_create_request` | parent/lineage control fields, `dedup_key`, labels/assignees, bounded short `title` / `body` or package `title_source` / `body_source`; large generated bodies stay unmigrated |
+| `github_pr_open_request` | issue `source_ref`, branch/head/base control, expected proposal/state/version/head, bounded short `title` / PR body / issue-comment body or package source handles; large generated bodies stay unmigrated |
 | `github_issue_label_request` / `github_pr_label_request` | target `source_ref`, expected proposal/state/version, add/remove labels |
-| `github_issue_blocked_by_request` | blocked/blocking `source_ref`, `dedup_key`, marker body source |
+| `github_issue_blocked_by_request` | blocked/blocking `source_ref`, `dedup_key`, bounded marker body or package marker `body_source` |
 
 **S3 guarded-write modules — package-owned policy:**
 
@@ -200,7 +213,24 @@ current per-entity lock before S1 execution. Examples: `comment_guard`, `label_g
 `pr_open_guard`, `merge_guard`, `blocked_by_guard`. These modules read current neutral
 comments/issues/PRs through S1, apply trusted-bot filtering and marker/CAS policy, and
 return a narrow decision (`apply`, `already_done`, `stale`, `blocked`) plus the exact S1
-execute request. They do not build command strings.
+execute request. When an S2 intent carries a package `body_source` / `title_source`
+handle, the package-owned executor resolves it through a package-owned renderer before
+calling S1. `std.github` never knows package template ids such as
+`github-devloop.reviewing-comment.v1`; it sees only rendered text or a body-file path.
+S3 modules do not build command strings.
+
+Guard decisions have explicit reliable-delivery semantics:
+
+| Guard outcome | Delivery behavior |
+|---|---|
+| `apply` | execute the S1 operation; ack only after the write path has completed |
+| `already_done` | ack as an idempotent no-op |
+| `stale` | ack terminal because a newer version/head/state superseded this intent |
+| `blocked` | ack terminal with a bounded, grepable WHY |
+| `marker-not-yet-visible`, read failure, CAS loss, ambiguous guard fact | fail-closed by raising an error so at-least-once delivery retries |
+
+This mapping preserves the activity ⟂ safety doctrine: no silent ACK of a lost write,
+and no infinite retry of a terminal stale or explicitly blocked write.
 
 **Local `git` writes — synchronous within a department worktree (idempotent; not saga-mediated; topology unchanged):**
 
@@ -305,41 +335,45 @@ parsed*, never *which path carries the effect*. Concretely:
   synchronous; they move behind `std.git` operations with idempotency (e.g. #678) folded
   into the operation.
 
-The content-not-in-payload constitution needs one explicit contract for authored bot
-text. A bot-authored body (comment body, issue body, PR body) is content, and often it is
-**not** re-derivable from the target `source_ref`. Current intents already carry raw
-`body`/`title` fields (`github-proxy` comment, issue-create, and pr-open requests). A
-write slice is not behavior-preserving until those are converted.
+The content-not-in-payload constitution constrains **large re-derivable content** such
+as issue bodies, PR diffs, code, file contents, and long comment histories. It does not
+ban short, bounded, authored control text in a durable intent. Current write intents
+freeze `body` / `title` at intent creation for comments, issue creation, and PR opening;
+that snapshot is part of their current idempotency behavior because a fixed
+`dedup_key` produces fixed visible text.
 
-S2 payloads may carry only `source_ref`, bounded control fields, and text **handles**:
+Write bodies therefore split into two classes:
+
+1. **Short control text**: state/status markers, short comments, short titles, and
+   bounded marker comments. These may remain in the durable S2 intent as rendered
+   `body` / `title` text when they are explicitly bounded and part of the command's
+   idempotency key. They may also be represented by a package `body_source` /
+   `title_source` template handle when rendering is deterministic.
+2. **Large authored/generated text**: consensus review bodies, review-result prose,
+   implementation-failure output, decomposed issue bodies, spec-amendment bodies, or
+   other codex-authored text with no clean durable home under current primitives. These
+   writes are **out of scope for this spec's write migration**. They stay on the current
+   path until fkst-substrate has a real durable-artifact primitive (§11).
+
+For deterministic templates, the S2 intent carries the package-owned handle and only
+immutable bounded params or version/digest-pinned facts:
 
 ```
 body_source = {
   kind = "template",
-  template = "github-devloop.reviewing-comment.v1",
+  template = "github-devloop.short-status-comment.v1",
   source_ref = { kind = "external", ref = "owner/repo#issue/42" },
   params = { proposal_id = "...", version = "...", pr_number = 7 }
 }
-
-body_source = {
-  kind = "artifact",
-  artifact_ref = "github-devloop/comment-body/<dedup-key>",
-  sha256 = "...",
-  media_type = "text/markdown"
-}
 ```
 
-The preferred form is deterministic re-derivation at execute time: a template id plus
-source-derived inputs and small bounded params are rendered on every delivery. Nothing
-is stored in the payload, and retry/idempotency sees the same rendered text. The same
-contract applies to `title_source` for issue/PR titles.
-
-For genuinely non-re-derivable authored text, the full text must live in a durable
-artifact addressed by `artifact_ref`; the payload carries only that handle plus an
-integrity digest. It must not live in `<RT>` scratch, must not be truncated, and must not
-be hidden in hex/base64/byte escapes. If a chosen write slice has neither a deterministic
-template nor a durable artifact handle for its current `body`/`title`, that slice cannot
-land: moving the command would otherwise silently change reliable-delivery semantics.
+The package executor resolves that handle through a package-owned renderer into final
+text or a temp body-file before calling S1. Rendering from a mutable live source at
+execute time is **forbidden** when the visible text could change under the same
+`dedup_key`; template inputs must be immutable bounded params or pinned facts. There is
+no `artifact_ref` placeholder in this spec. Until a substrate durable-artifact primitive
+exists, a slice with large non-re-derivable authored text cannot be moved to the new
+write path without changing reliable-delivery and idempotency semantics.
 
 ### 5.5 `github-proxy` transformation + exec/error consolidation
 
@@ -366,8 +400,8 @@ and `act` = an S2 intent or S1/S3 write.
 
 ### 5.6 Injection seam (the #633 load-bearing mechanism)
 
-The adapter is obtained through an explicit constructor, not by monkey-patching a cached
-Lua module:
+The adapter handle is obtained through an explicit constructor, not by monkey-patching a
+cached Lua module:
 
 ```
 local github_mod = require("std.github")
@@ -383,10 +417,65 @@ local ports = {
 to the injected `exec` primitive. If `exec` is missing, the constructor fails loudly.
 The handle has no hidden mutable singleton and no module-level fake switch.
 
-Departments create the handle at the pipeline boundary and pass it into helpers:
+Departments compose this with the engine contract through a package-local constructor.
+The constructor closes over injected ports and returns the normal engine-facing
+department module:
 
 ```
-local function done(event, ports)
+local std = require("std.saga")
+
+local function make_department(ports)
+  local function done(event)
+    local issue = ports.github.read_issue(event.payload.source_ref)
+    ...
+  end
+
+  local function act(event)
+    ...
+  end
+
+  return std.department {
+    consumes = { "devloop_ready" },
+    produces = { ... },
+    done = done,
+    act = act,
+  }
+end
+
+local function production_ports()
+  return {
+    github = require("std.github").new(exec_sync),
+    git = require("std.git").new(exec_sync),
+  }
+end
+
+local M = make_department(production_ports())
+M.make_department = make_department
+return M
+```
+
+This is the least invasive shape: `done(event)` and `act(event)` keep the
+`std.department` contract; `ports` enter through the factory/context that builds the
+department, not through extra `done`/`act` parameters. A free-form department that has
+not yet adopted `std.department` uses the same idea: `make_department(ports)` returns
+`{ spec = ..., pipeline = ... }`, with `pipeline(event)` closing over the ports.
+
+Tests bind the same constructor to fakes:
+
+```
+local dept = main.make_department({
+  github = require("std.github.fake").new(model),
+  git = require("std.git.fake").new(model),
+})
+fkst.test.run_department(dept, event)
+```
+
+Global `exec_sync` closure inside business helpers and module monkey-patching are
+**forbidden as the injection seam**. Production may mention `exec_sync` only in the
+production port factory at the module boundary; business logic receives a port handle:
+
+```
+local function done(event)
   local issue = ports.github.read_issue(event.payload.source_ref)
   ...
 end
@@ -396,8 +485,9 @@ Tests use the same seam in two ways:
 
 - adapter contract tests call `std.github.new(fake_exec)` / `std.git.new(fake_exec)` and
   assert command construction + parse behavior in one isolated suite;
-- business tests inject Tier R fakes such as `std.github.fake.new(model)` and assert
-  domain reads, S2 intents, and S3 guard decisions without ever matching command strings.
+- business tests call `make_department({ github = std.github.fake.new(model), git =
+  std.git.fake.new(model) })` and assert domain reads, S2 intents, and S3 guard
+  decisions without ever matching command strings.
 
 This mirrors existing package-side injection precedent (`read_env(name, exec)`,
 `gh_exec(..., exec)`) and makes the #633 payoff real: command spelling is swappable at
@@ -494,9 +584,12 @@ relocation wave, no public low-level builder API, and no compatibility shim.
   lowest-risk way to prove the boundary and fake seam.
 
 - **Guarded writes second.** Each write slice introduces the needed S2 intent schema
-  cleanup (`body_source` / `title_source`) and the S3 guard module before moving the S1
-  execution mechanics. The order is: intent contract, guard decision under lock, adapter
-  execute op, tests, delete old command code, close ratchet.
+  cleanup for bounded short text or deterministic package `body_source` /
+  `title_source`, plus the S3 guard module, before moving the S1 execution mechanics.
+  Large non-re-derivable authored bodies are skipped by this migration until §11's
+  durable-artifact substrate primitive exists. The order is: intent contract, guard
+  decision under lock, package render if needed, adapter execute op, tests, delete old
+  command code, close ratchet.
 
 - **Coordinate with saga-harness.** A department's `done`/`act` rewrite adopts the port
   vocabulary in the same slice. The oracle observes S2 intents / abstract effects; the
@@ -531,10 +624,11 @@ cover command fidelity now.
 - **R7 — injection seam bypass.** Developers may accidentally call `exec_sync` directly
   in migrated files. Mitigation: §8 context-aware gate plus tests that construct ports
   through `std.github.new(exec)` / `std.git.new(exec)`.
-- **R8 — non-re-derivable authored text.** Some current `body`/`title` payloads may not
-  have a deterministic template yet. Mitigation: §5.4 blocks write-slice migration until
-  the slice has either deterministic `body_source` / `title_source` rendering or a real
-  durable artifact handle.
+- **R8 — non-re-derivable large authored text.** Some current `body`/`title` payloads
+  freeze generated prose that is too large or too semantically rich to treat as bounded
+  control text, and it cannot be safely re-rendered later. Mitigation: §5.4 explicitly
+  excludes those writes from this migration; they stay on the current path until a real
+  substrate durable-artifact primitive exists.
 
 ## 11. Substrate dependencies (what is package-side vs fkst-substrate)
 
@@ -543,6 +637,7 @@ cover command fidelity now.
 | `std.github` + `std.git` adapters, constructor seam, per-op slices, S2 intent cleanup, S3 guards, port-level tests | **fkst-packages** (this repo) | core deliverable |
 | `exec_sync` primitive (already exists) | fkst-substrate | already available; no change |
 | Record-replay test mode / substrate #88 | future optional hardening | **non-blocking**; not in this plan |
+| Durable authored-artifact primitive for large generated issue/comment/PR bodies | fkst-substrate follow-up, sibling to #88 | **blocking only for migrating §5.4 class (ii) writes**; not in this plan |
 
 The package-side refactor is self-contained and needs **no** engine change — the
 strongest de-risking property of this design.
