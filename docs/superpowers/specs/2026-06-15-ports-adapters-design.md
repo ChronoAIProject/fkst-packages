@@ -1,10 +1,7 @@
 # Design: Ports & Adapters — a `gh`/`git` anti-corruption layer in `std`
 
-Status: proposal v3 · Date: 2026-06-15 · Repo: fkst-packages
-v3 changelog: closes the review blockers by making department port injection compose
-with `std.department{done,act}`, keeping package `body_source` vocabulary out of S1,
-splitting authored body durability into bounded migrated text vs deferred large
-artifacts, and pinning S3 guard outcomes to delivery semantics.
+Status: proposal v5 · Date: 2026-06-15 · Repo: fkst-packages
+v5 changelog: makes fake-bound tests determinate with package-side `raise` capture, preserves production `_G.pipeline` binding through `std.department`, and defines the saga oracle's combined S1/S2 effect set.
 Builds on (read these first):
 - `2026-06-14-std-shared-library-design.md` — the `std/` shelf, the Tier S/R split, the symlink vendoring, and the doctrine that earmarks **`gh`-shaped helpers as Tier R**. This spec puts the largest Tier R inhabitant on that shelf.
 - `2026-06-14-saga-harness-design.md` — the `std.department{done,act}` department shape and its ①②③ idempotency oracle. §6 of this spec composes that Tier S oracle with Tier R GitHub/git fakes without making the oracle depend on GitHub types.
@@ -225,12 +222,15 @@ Guard decisions have explicit reliable-delivery semantics:
 |---|---|
 | `apply` | execute the S1 operation; ack only after the write path has completed |
 | `already_done` | ack as an idempotent no-op |
-| `stale` | ack terminal because a newer version/head/state superseded this intent |
+| `stale` | ack terminal because a known newer version/head/state superseded this intent |
 | `blocked` | ack terminal with a bounded, grepable WHY |
-| `marker-not-yet-visible`, read failure, CAS loss, ambiguous guard fact | fail-closed by raising an error so at-least-once delivery retries |
+| `marker-not-yet-visible`, read failure, ambiguous guard fact, ambiguous/non-terminal CAS read failure | fail-closed by raising an error so at-least-once delivery retries |
 
 This mapping preserves the activity ⟂ safety doctrine: no silent ACK of a lost write,
-and no infinite retry of a terminal stale or explicitly blocked write.
+and no infinite retry of a terminal stale or explicitly blocked write. A CAS loss is
+`stale` only when the guard has positively observed the newer version/head/state; if the
+read is ambiguous, incomplete, or non-terminal, it is a fail-closed retry instead of a
+benign ack.
 
 **Local `git` writes — synchronous within a department worktree (idempotent; not saga-mediated; topology unchanged):**
 
@@ -345,10 +345,15 @@ that snapshot is part of their current idempotency behavior because a fixed
 Write bodies therefore split into two classes:
 
 1. **Short control text**: state/status markers, short comments, short titles, and
-   bounded marker comments. These may remain in the durable S2 intent as rendered
-   `body` / `title` text when they are explicitly bounded and part of the command's
-   idempotency key. They may also be represented by a package `body_source` /
-   `title_source` template handle when rendering is deterministic.
+   bounded marker comments. Each migrated write intent must declare its body class and,
+   for this class, a numeric byte cap in the intent schema. The default cap is **4096
+   bytes for `body` text and 256 bytes for `title` text** unless a slice documents a
+   smaller cap; exceeding the cap is a validation failure, not a reason to silently
+   truncate. These fields are for bounded control text, not codex prose. They may remain
+   in the durable S2 intent as rendered `body` / `title` text when they are part of the
+   command's idempotency key. They may also be represented by a package `body_source` /
+   `title_source` template handle when rendering is deterministic and the rendered
+   result is still within the declared cap.
 2. **Large authored/generated text**: consensus review bodies, review-result prose,
    implementation-failure output, decomposed issue bodies, spec-amendment bodies, or
    other codex-authored text with no clean durable home under current primitives. These
@@ -370,10 +375,13 @@ body_source = {
 The package executor resolves that handle through a package-owned renderer into final
 text or a temp body-file before calling S1. Rendering from a mutable live source at
 execute time is **forbidden** when the visible text could change under the same
-`dedup_key`; template inputs must be immutable bounded params or pinned facts. There is
-no `artifact_ref` placeholder in this spec. Until a substrate durable-artifact primitive
-exists, a slice with large non-re-derivable authored text cannot be moved to the new
-write path without changing reliable-delivery and idempotency semantics.
+`dedup_key`; template inputs must be immutable bounded params or pinned facts.
+Versioned template ids are immutable contracts: changing template text, layout, or
+meaning mints a new version id (`...v2`, not an edited `...v1`) so execute-time
+rendering is deterministic under a fixed `dedup_key`. There is no `artifact_ref`
+placeholder in this spec. Until a substrate durable-artifact primitive exists, a slice
+with large non-re-derivable authored text cannot be moved to the new write path without
+changing reliable-delivery and idempotency semantics.
 
 ### 5.5 `github-proxy` transformation + exec/error consolidation
 
@@ -418,8 +426,9 @@ to the injected `exec` primitive. If `exec` is missing, the constructor fails lo
 The handle has no hidden mutable singleton and no module-level fake switch.
 
 Departments compose this with the engine contract through a package-local constructor.
-The constructor closes over injected ports and returns the normal engine-facing
-department module:
+`make_department(ports)` returns the normal engine-facing department module: the
+`std.department{done,act}` result. Per `std/saga.lua`, that call sets `_G.pipeline =
+wrapped` and returns `{ spec = ..., pipeline = ... }`:
 
 ```
 local std = require("std.saga")
@@ -460,15 +469,76 @@ department, not through extra `done`/`act` parameters. A free-form department th
 not yet adopted `std.department` uses the same idea: `make_department(ports)` returns
 `{ spec = ..., pipeline = ... }`, with `pipeline(event)` closing over the ports.
 
-Tests bind the same constructor to fakes:
+The production `main.lua` top level calls `make_department(production_ports())` at load
+time and returns that module, or returns an `M` table with `M.spec` / `M.pipeline`
+bound from the same constructor. Therefore the existing engine path-loader sees the
+global `pipeline` / spec exactly as today: production departments already set a global
+`pipeline` directly, and `std.department` preserves that binding by assigning
+`_G.pipeline = wrapped`. `fkst.test.run_department("departments/observe_pr/main.lua",
+event, opts)` and the real router keep loading the real-adapter-bound department
+unchanged. This needs no engine change and preserves production wiring.
+
+Unit and department tests that need fake ports do **not** use path-based
+`run_department`, because the engine primitive takes a path string and loads the
+production module with real adapters. They load the module, bind the same constructor to
+fakes, and invoke the returned department directly in-process. `make_department` is a
+pure constructor and is callable repeatedly, so each test gets a fresh fake-bound
+department and does not depend on the production global:
 
 ```
+local main = require("departments.observe_pr.main")
+local std = {
+  github = { fake = require("std.github.fake") },
+  git = { fake = require("std.git.fake") },
+}
+
+local function capture_raises(fn)
+  local raised = {}
+  local old = raise
+  raise = function(queue, payload)
+    table.insert(raised, { queue = queue, payload = payload })
+  end
+  local ok, result = pcall(fn)
+  raise = old
+  if not ok then error(result) end
+  return result, raised
+end
+
+local model = require("std.github.fake_model").new()
 local dept = main.make_department({
-  github = require("std.github.fake").new(model),
-  git = require("std.git.fake").new(model),
+  github = std.github.fake.new(model),
+  git = std.git.fake.new(model),
 })
-fkst.test.run_department(dept, event)
+local result, raised = capture_raises(function()
+  return dept.pipeline(event)
+end)
+
+-- assert on `raised` for S2 write-intents and on `model` for fake-recorded S1 writes
 ```
+
+That direct `make_department(fakes).pipeline(event)` call runs under the same engine
+test-mode globals (`raise`, `once`, `with_lock`, `cache_*`, locks, and command mocks
+exposed through `fkst.test`) while the Tier R fake model is the stateful external truth.
+The spy swaps the injected `raise` global around the direct `dept.pipeline(event)` call;
+`once` / `with_lock` / `cache_*` test-mode behavior is unchanged because the call still
+runs under the engine's test-mode globals. No engine change and no path-based
+`run_department` are needed for the fake path.
+
+This package-side effect-capture pattern already exists: `packages/github-devloop/tests/claim_contract_test.lua:57`
+defines `capture_raises(fn)` by temporarily replacing the injected `raise` global,
+calling `pcall(fn)`, restoring `raise`, and returning the captured `{ queue, payload }`
+records. Fake-bound business tests should use this shape, not command-string matching.
+This closes the verification half of #633: business tests deterministically assert
+raised write-intents plus fake-recorded adapter writes, instead of shell command strings.
+
+A small shared test helper is a Wave-0 deliverable so departments do not hand-roll this
+spy. For example, `std.testing.run_fake(dept, event) -> { result, raises, writes }`
+should wrap `capture_raises`, call `dept.pipeline(event)`, and read the Tier R fake's
+recorded adapter writes from the model. Tests that want the real production adapter path
+continue to call `run_department(path, event, opts)`, whose result already exposes
+captured raises as `result.raises`. Tests that want fake injection call
+`make_department(fakes).pipeline(event)` through the shared helper. Both paths compose
+without changing fkst-substrate, closing #633 concretely.
 
 Global `exec_sync` closure inside business helpers and module monkey-patching are
 **forbidden as the injection seam**. Production may mention `exec_sync` only in the
@@ -498,10 +568,15 @@ the adapter boundary, not through global monkey-patching.
 Today ~100 business tests mock exact command strings (#633 brittleness). After the
 refactor the test boundary is split by the same three surfaces:
 
-1. **Business tests inject ports through §5.6.** They use Tier R fakes and assert on
-   neutral reads, durable S2 write intents, and S3 guard outcomes: `read_pr` returns a
-   PR table with `head_ref_oid=…`, a comment intent was raised once for `issue#42`, or a
-   guard returned `already_done` because a trusted marker is visible. Counting
+1. **Business tests inject ports through §5.6.** They construct the department with
+   `make_department({ github = std.github.fake.new(model), git =
+   std.git.fake.new(model) })` and call the returned `.pipeline(event)` directly under
+   engine test-mode globals through a `capture_raises(fn)`-style spy. They use Tier R
+   fakes and assert on neutral reads, durable S2 write intents captured from
+   `raise(...)`, fake-recorded S1 adapter writes, and S3 guard outcomes: `read_pr`
+   returns a PR table with `head_ref_oid=…`, a comment intent was raised once for
+   `issue#42`, a local `git.push` adapter write was recorded once by the fake model, or
+   a guard returned `already_done` because a trusted marker is visible. Counting
    "`post_comment` command string invoked once" disappears from business tests.
 
 2. **The saga-harness oracle stays Tier S and GitHub-agnostic.** It defines an abstract
@@ -511,15 +586,40 @@ refactor the test boundary is split by the same three surfaces:
 
 3. **`std.github.fake` / `std.git.fake` are Tier R implementations of that abstract
    interface.** They are the in-memory GitHub/git models used by business tests through
-   the constructor seam. The oracle observes write **intents/effects** through the
-   abstract interface; the upgrade from "command multiset" to "intent/effect multiset"
-   survives, but the Tier S harness is not identical to the GitHub fake.
+   the constructor seam. The oracle's effect set for a migrated department is the union
+   of **(a)** S1 adapter writes recorded by the Tier R fake model and **(b)** S2
+   write-intents captured from `raise(...)` by the package-side spy. Migrated business
+   departments write to GitHub by raising durable requests such as
+   `raise("github-proxy.github_issue_comment_request", payload)`, not by calling
+   `std.github.fake` directly, so the oracle must observe captured raises in addition to
+   fake-recorded adapter calls. The upgrade from "command multiset" to "intent/effect
+   multiset" survives, but the Tier S harness is not identical to the GitHub fake and the
+   fake is not `fkst.test.command_calls()`.
 
 4. **The real adapter is tested once, in isolation, for API-contract fidelity.** Only
    `std.github` / `std.git` tests verify that a public operation builds the expected
    command and parses the expected stdout shape. This is the single place command-string
    coupling is allowed to exist. It is concentrated adapter-local brittleness, not
    business-test brittleness.
+
+There is one explicit cross-spec contradiction to reconcile. The current saga companion
+spec (§4) defines the ①②③ oracle concretely as
+`fkst.test.command_calls()` plus a write-class command multiset. That does not compose
+with this ports/adapters seam, because a fake-bound department bypasses command
+execution and runs through `make_department(fakes).pipeline(event)`. The required
+reconciliation is: the saga ①②③ oracle observes the combined effect multiset for a
+migrated department: Tier R fake-recorded S1 adapter writes plus package-spy-captured S2
+write-intents. It then compares delivery-1 vs delivery-2 over that combined multiset at
+the abstract effect/truth boundary. It must not use `fkst.test.command_calls()` as the
+business-test oracle for migrated departments, and it must not rely only on fake-recorded
+adapter calls because S2 GitHub writes are raised as durable intents.
+
+This spec does **not** edit the saga companion spec; that is a separate workstream. It
+records a coordination dependency: when the saga workstream lands, its oracle section
+must be amended from "write-class command multiset from `fkst.test.command_calls()`" to
+"combined abstract effect multiset: fake-recorded S1 adapter writes plus captured S2
+write-intents." Adapter contract tests may still use command calls locally, because
+command spelling is the product there.
 
 This directly serves "让问题都在测试解决": business tests become readable behavioral
 assertions, the restart oracle remains generic, and command spelling is pinned only
@@ -562,7 +662,9 @@ relocation wave, no public low-level builder API, and no compatibility shim.
 - **Wave 0 — Foundations (one PR, behavior-neutral).**
   - Consolidate the two `gh_exec` implementations into the S1 adapter exec module shape.
   - Create empty `std.github` / `std.git` skeletons with `new(exec)` constructors.
-  - Create the Tier S abstract oracle interface that the saga-harness will observe.
+  - Create the Tier S abstract oracle interface that the saga-harness will observe, and
+    coordinate the companion saga spec's §4 wording from command-multiset to
+    abstract write-intent/effect oracle (§6, §11).
   - Spike-verify nested `require("std.github.issue")` and decide the R1 fallback.
   - Move no builders/parsers and change no business behavior.
 
@@ -592,8 +694,9 @@ relocation wave, no public low-level builder API, and no compatibility shim.
   command code, close ratchet.
 
 - **Coordinate with saga-harness.** A department's `done`/`act` rewrite adopts the port
-  vocabulary in the same slice. The oracle observes S2 intents / abstract effects; the
-  business test injects Tier R fakes through §5.6.
+  vocabulary in the same slice. The oracle observes S2 intents / abstract effects
+  recorded by the Tier R fake, not `fkst.test.command_calls()`; the business test
+  injects Tier R fakes through §5.6 and invokes `.pipeline(event)` directly.
 
 Waves and slices need no engine change. Adapter-local command-string contract tests
 cover command fidelity now.
@@ -629,12 +732,19 @@ cover command fidelity now.
   control text, and it cannot be safely re-rendered later. Mitigation: §5.4 explicitly
   excludes those writes from this migration; they stay on the current path until a real
   substrate durable-artifact primitive exists.
+- **R9 — saga oracle spec drift.** The companion saga spec currently describes the
+  ①②③ oracle as `fkst.test.command_calls()` plus a write-class command multiset, while
+  this design requires an abstract write-intent/effect interface observed through Tier R
+  fakes. Mitigation: §6 makes the contradiction explicit and §11 records a coordination
+  dependency for the saga workstream to amend its oracle wording before migrated
+  departments rely on the fake-bound oracle.
 
 ## 11. Substrate dependencies (what is package-side vs fkst-substrate)
 
 | Item | Home | Blocking? |
 |---|---|---|
 | `std.github` + `std.git` adapters, constructor seam, per-op slices, S2 intent cleanup, S3 guards, port-level tests | **fkst-packages** (this repo) | core deliverable |
+| Saga ①②③ oracle wording update: replace `fkst.test.command_calls()` command-multiset with the abstract write-intent/effect interface implemented by the stateful truth fake | saga-harness companion workstream | **coordination dependency**; this spec records it but does not edit that file |
 | `exec_sync` primitive (already exists) | fkst-substrate | already available; no change |
 | Record-replay test mode / substrate #88 | future optional hardening | **non-blocking**; not in this plan |
 | Durable authored-artifact primitive for large generated issue/comment/PR bodies | fkst-substrate follow-up, sibling to #88 | **blocking only for migrating §5.4 class (ii) writes**; not in this plan |
