@@ -7,7 +7,12 @@ end
 function M.is_rate_limited(result)
   local stderr = stderr_of(result):lower()
   for _, needle in ipairs({
-    "api rate limit exceeded",
+    -- Match the api-rate-limit family on the stable substring "api rate limit"
+    -- rather than "...exceeded": GitHub's GraphQL form is "API rate limit
+    -- ALREADY exceeded for user ID N", which the "...exceeded" contiguous needle
+    -- silently missed -> the dominant real rate-limit was misclassified
+    -- gh-command-failed (non-retryable) instead of gh-rate-limited.
+    "api rate limit",
     "secondary rate limit",
     "was submitted too quickly",
     "http 429",
