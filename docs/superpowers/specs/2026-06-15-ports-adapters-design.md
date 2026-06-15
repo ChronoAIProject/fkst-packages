@@ -426,9 +426,13 @@ to the injected `exec` primitive. If `exec` is missing, the constructor fails lo
 The handle has no hidden mutable singleton and no module-level fake switch.
 
 Departments compose this with the engine contract through a package-local constructor.
-`make_department(ports)` returns the normal engine-facing department module: the
-`std.department{done,act}` result. Per `std/saga.lua`, that call sets `_G.pipeline =
-wrapped` and returns `{ spec = ..., pipeline = ... }`:
+`make_department(ports)` builds the engine-facing department via `std.department{done,act}`
+and returns a `{ spec, pipeline }` table. Note (verified against `std/saga.lua:71-75`):
+`std.department` sets `_G.pipeline = wrapped` and returns **only** `{ spec = ... }` — it does
+**not** put `pipeline` in its returned table. So `make_department` reads the just-set
+`_G.pipeline` and returns `{ spec = dept.spec, pipeline = _G.pipeline }`, making
+`dept.pipeline` available for the direct fake-bound test call without changing `std/saga.lua`
+(a no-engine-change, std-only concern):
 
 ```
 local std = require("std.saga")
@@ -443,12 +447,15 @@ local function make_department(ports)
     ...
   end
 
-  return std.department {
+  local dept = std.department {
     consumes = { "devloop_ready" },
     produces = { ... },
     done = done,
     act = act,
   }
+  -- std.department sets _G.pipeline and returns { spec = ... } only; surface pipeline as a
+  -- table field so tests can call make_department(fakes).pipeline(event) directly.
+  return { spec = dept.spec, pipeline = _G.pipeline }
 end
 
 local function production_ports()
