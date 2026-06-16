@@ -323,6 +323,12 @@ function M.gather_replay_required_facts(row, entity, state, facts)
 end
 
 local function log_skip(dept, proposal_id, state, from_state, to_state, outcome, reason)
+  if M._replay_skip_capture ~= nil then
+    M._replay_skip_capture.outcome = outcome
+    M._replay_skip_capture.reason = reason
+    M._replay_skip_capture.from_state = from_state
+    M._replay_skip_capture.to_state = to_state
+  end
   M.log_cas_decision(dept, proposal_id, state, from_state, to_state, outcome, reason)
   return false
 end
@@ -958,6 +964,26 @@ function M.replay_from_table(dept, entity, state, table_row, facts)
   if replay == nil then return log_skip(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-foreign(replayer)", "restart transition table row is not replayable by this department") end
   local replay_facts = gather_required_facts(row, entity, state, facts or {})
   return replay(dept, entity, state, row, replay_facts)
+end
+
+function M.replay_skip_is_live_defer(outcome)
+  return outcome == "skip-pending(attempt-live)"
+end
+
+function M.replay_from_table_classified(dept, entity, state, table_row, facts)
+  local capture = {}
+  local previous = M._replay_skip_capture
+  M._replay_skip_capture = capture
+  local ok, issued = pcall(function() return M.replay_from_table(dept, entity, state, table_row, facts) end)
+  M._replay_skip_capture = previous
+  if not ok then error(issued) end
+  if issued then
+    return { kind = "issued", issued = true }
+  end
+  if M.replay_skip_is_live_defer(capture.outcome) then
+    return { kind = "live-defer", issued = false, outcome = capture.outcome, reason = capture.reason }
+  end
+  return { kind = "stuck", issued = false, outcome = capture.outcome, reason = capture.reason }
 end
 end
 

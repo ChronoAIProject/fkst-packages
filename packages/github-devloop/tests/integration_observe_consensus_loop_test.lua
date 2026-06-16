@@ -186,6 +186,7 @@ return {
 
     local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:pr-open" } }), opts("observe-reconcile-reviewing"))
     t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
     local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.is_true(label_raise ~= nil)
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")

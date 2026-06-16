@@ -301,17 +301,25 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     end
     return false
   end
-  local issued = M.replay_from_table(dept, entity, {
+  local replay = M.replay_from_table_classified(dept, entity, {
     state = state.state,
     version = state.version,
     proposal_id = state.proposal_id,
     stage_rank = state.stage_rank,
     marker_created_at = state.marker_created_at,
   }, row, facts)
-  if issued then
-    emit_timeout_attempt_marker(dept, entity, state, row, facts, proposal_id, decision.attempt)
+  if replay.kind == "live-defer" then
+    M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-timeout-count(" .. tostring(replay.outcome or "live-defer") .. ")", "receiver has an explicit live or waiting signal")
+    return false
   end
-  return issued
+  if replay.kind == "stuck" then
+    M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "timeout-stuck(" .. tostring(replay.outcome or "replay-declined") .. ")", "state output obligation is unmet and replay did not emit a consumable redrive")
+  end
+  if replay.kind == "issued" or replay.kind == "stuck" then
+    emit_timeout_attempt_marker(dept, entity, state, row, facts, proposal_id, decision.attempt)
+    return true
+  end
+  return false
 end
 
 end

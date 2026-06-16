@@ -292,6 +292,7 @@ return {
       },
     }, opts("observe-pr-reconcile-reviewing"))
     t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 3)
     local pr_label_raise = find_label_raise(result.raises, "pr")
     t.is_true(pr_label_raise ~= nil)
     t.eq(find_label_raise(result.raises, "issue"), nil)

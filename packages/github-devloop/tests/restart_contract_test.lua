@@ -270,6 +270,21 @@ return {
     t.eq(escalated.action, "escalate")
   end,
 
+  test_replay_timeout_classification_counts_all_declines_except_explicit_live_defer = function()
+    local declined = {
+      "skip-idempotent(retry-limit)",
+      "skip-foreign(decomposed)",
+      "skip-foreign(pr-link)",
+      "skip-pending(no-attempt-marker)",
+      "skip-stale(head-advanced)",
+    }
+    t.eq(core.replay_skip_is_live_defer(nil), false)
+    for _, outcome in ipairs(declined) do
+      t.eq(core.replay_skip_is_live_defer(outcome), false)
+    end
+    t.eq(core.replay_skip_is_live_defer("skip-pending(attempt-live)"), true)
+  end,
+
   test_liveness_timeout_escalates_thinking_to_timeout_reconcile_event = function()
     local row = table_by_state().thinking
     local base = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
