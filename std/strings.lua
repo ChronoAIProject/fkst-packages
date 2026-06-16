@@ -62,4 +62,19 @@ function S.sanitize_key(value, limit)
   return sanitized
 end
 
+function S.split_repo(repo)
+  local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
+  if owner == nil or owner == "" or name == nil or name == "" then
+    return nil, nil
+  end
+  return owner, name
+end
+
+function S.comment_body(comment)
+  if type(comment) == "table" then
+    return tostring(comment.body or "")
+  end
+  return tostring(comment or "")
+end
+
 return S

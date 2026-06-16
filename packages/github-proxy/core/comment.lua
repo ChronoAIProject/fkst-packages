@@ -1,6 +1,7 @@
 local S = {}
 
 function S.install(M)
+local comment_body = require("std.strings").comment_body
 local max_runtime_id_len = 180
 local stale_comment_target_error_class = "stale-comment-target"
 
@@ -18,13 +19,6 @@ local function comment_runtime_identity(repo, kind, number)
     return id:sub(1, max_runtime_id_len)
   end
   return id
-end
-
-local function comment_body(comment)
-  if type(comment) == "table" then
-    return tostring(comment.body or "")
-  end
-  return tostring(comment or "")
 end
 
 -- A GitHub App's author login is "<slug>[bot]" via the REST API but bare

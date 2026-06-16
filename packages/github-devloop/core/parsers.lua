@@ -1,6 +1,7 @@
 local S = {}
 
 function S.install(M)
+local comment_body = require("std.strings").comment_body
 function M.parse_issue_view_state(stdout)
   local decoded = json.decode(stdout or "{}")
   return M.issue_state_from_json(decoded)
@@ -523,13 +524,6 @@ function M.parse_pr_view_head_state(stdout)
     base_ref_name = decoded.baseRefName or decoded.base_ref_name,
     state = decoded.state,
   }
-end
-
-local function comment_body(comment)
-  if type(comment) == "table" then
-    return tostring(comment.body or "")
-  end
-  return tostring(comment or "")
 end
 
 local function comment_author_login(comment)

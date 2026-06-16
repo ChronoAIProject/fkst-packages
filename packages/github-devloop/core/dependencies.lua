@@ -1,4 +1,5 @@
 local M = {}
+local strings = require("std.strings")
 local root_ref = nil
 
 local max_dependency_depth = 32
@@ -7,13 +8,7 @@ local function root()
   return root_ref or M
 end
 
-local function split_repo(repo)
-  local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
-  if owner == nil or owner == "" or name == nil or name == "" then
-    return nil, nil
-  end
-  return owner, name
-end
+local split_repo = strings.split_repo
 
 local function managed_sibling_repo(current_repo, blocker_repo, managed_repos)
   local current_owner = split_repo(current_repo)

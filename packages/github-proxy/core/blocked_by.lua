@@ -19,13 +19,7 @@ local function is_positive_integer(value)
   return n ~= nil and n >= 1 and n % 1 == 0 and n <= 2147483647
 end
 
-local function split_repo(repo)
-  local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
-  if owner == nil or owner == "" or name == nil or name == "" then
-    return nil, nil
-  end
-  return owner, name
-end
+local split_repo = strings.split_repo
 
 local function runtime_segment(value)
   local safe = tostring(value or ""):gsub("[^%w._-]", "_")

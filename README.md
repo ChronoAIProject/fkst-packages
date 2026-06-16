@@ -95,7 +95,8 @@ cross-package composition goes through event queues.
 
 Shared repo-root code lives in `std/` and is vendored into each package through
 `packages/<pkg>/std -> ../../std`. Current module families cover saga/oracle helpers, GitHub and git
-ports, production port wiring, fake-port testing, strings, and GitHub debug stamps. New and migrated
+ports, production port wiring, fake-port testing, strings, environment readers, Codex option
+builders, and GitHub debug stamps. New and migrated
 `gh`/`git` access goes through `std.github`/`std.git` (production wiring via `std.ports`); remaining
 raw call sites are migration debt in `migration/gh-git-adapter.allowlist` that the G-ADAPTER ratchet
 shrinks. Tests use `std.testing` with `std.github_fake` / `std.git_fake`.

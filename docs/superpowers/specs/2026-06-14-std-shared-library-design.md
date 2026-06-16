@@ -172,6 +172,14 @@ depends on the `std` root being projected in. This is the same compromise
    copies with `require("std.<m>")`. A G-gate ratchet forbids *new* duplicated
    copies of a helper that already lives in `std`.
 
+**Class-level consolidation rule.** A small helper may become permanent `std/`
+API surface only when it is proven generic, dependency-free or dependent only on
+generic primitives, byte-identical at its duplicate call sites, centrally tested,
+and all package-local copies are deleted in the same change. This is the explicit
+Rule-of-Three recurrence handling for the `std` hoist class after #808, #819, and
+#844: bounded mechanical drains are allowed under this rule; broader semantic
+consolidation still needs its own class carrier or separate approved framing.
+
 ## 9. Testing
 
 - `std/*.lua` Tier S/R modules get their own `*_test.lua` under `std/tests/`,

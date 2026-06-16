@@ -35,4 +35,34 @@ return {
     t.eq(strings.sanitize_key("abc/def", 5), "abc/d")
     t.eq(strings.sanitize_key("abc/def", false), "abc/def")
   end,
+
+  test_split_repo_accepts_exact_owner_name_pair = function()
+    local owner, name = strings.split_repo("owner/repo")
+    t.eq(owner, "owner")
+    t.eq(name, "repo")
+  end,
+
+  test_split_repo_rejects_missing_or_extra_segments = function()
+    local owner, name = strings.split_repo(nil)
+    t.is_nil(owner)
+    t.is_nil(name)
+
+    owner, name = strings.split_repo("owner")
+    t.is_nil(owner)
+    t.is_nil(name)
+
+    owner, name = strings.split_repo("owner/repo/extra")
+    t.is_nil(owner)
+    t.is_nil(name)
+
+    owner, name = strings.split_repo("/repo")
+    t.is_nil(owner)
+    t.is_nil(name)
+  end,
+
+  test_comment_body_reads_table_string_and_nil = function()
+    t.eq(strings.comment_body({ body = "hello" }), "hello")
+    t.eq(strings.comment_body("raw body"), "raw body")
+    t.eq(strings.comment_body(nil), "")
+  end,
 }

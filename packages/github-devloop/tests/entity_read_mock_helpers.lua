@@ -1,5 +1,6 @@
 local M = {}
 local core = require("core")
+local comment_body = require("std.strings").comment_body
 
 local function json_string(value)
   return tostring(value or "")
@@ -52,13 +53,6 @@ local function assignees_json(assignees)
     table.insert(rendered, '{"login":' .. json_value(login) .. "}")
   end
   return table.concat(rendered, ",")
-end
-
-local function comment_body(comment)
-  if type(comment) == "table" then
-    return comment.body
-  end
-  return comment
 end
 
 local function comment_author(comment)

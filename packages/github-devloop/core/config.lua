@@ -1,6 +1,7 @@
 local S = {}
 
 function S.install(M)
+local env = require("std.env")
 local allowed_env = {
   FKST_GITHUB_BOT_LOGIN = true,
   FKST_GITHUB_REPO = true,
@@ -26,13 +27,6 @@ local allowed_presence_env = {
   GITHUB_TOKEN = true,
 }
 
-local function read_env_command(name)
-  if not allowed_env[name] then
-    error("github-devloop: env name is not allowed")
-  end
-  return 'printf %s "$' .. name .. '"'
-end
-
 local function env_present_command(name)
   if not allowed_presence_env[name] then
     error("github-devloop: env name is not allowed")
@@ -40,25 +34,17 @@ local function env_present_command(name)
   return 'if [ -n "${' .. name .. ':-}" ]; then printf present; fi'
 end
 
-function M.read_env_command(name)
-  return read_env_command(name)
-end
+M.read_env_command = env.command_reader(allowed_env, {
+  error_prefix = "github-devloop",
+})
 
 function M.env_present_command(name)
   return env_present_command(name)
 end
 
-function M.read_env(name, exec)
-  local run = exec or exec_sync
-  if type(run) ~= "function" then
-    return nil
-  end
-  local ok, out = pcall(run, read_env_command(name))
-  if not ok or type(out) ~= "table" or out.exit_code ~= 0 or out.stdout == "" then
-    return nil
-  end
-  return out.stdout
-end
+M.read_env = env.reader(allowed_env, {
+  error_prefix = "github-devloop",
+})
 
 function M.env_present(name, exec)
   local run = exec or exec_sync
