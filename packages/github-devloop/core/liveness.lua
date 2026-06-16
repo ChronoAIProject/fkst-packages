@@ -127,8 +127,19 @@ function M.liveness_timeout_attempt(row, state)
 end
 
 function M.next_liveness_timeout_version(row, state)
+  local from = tostring(row.from_state)
+  local escaped = from:gsub("%-", "%%-")
   local base = tostring(state and state.version or "")
-  return base .. "/timeout/" .. tostring(row.from_state) .. "/" .. tostring(M.liveness_timeout_attempt(row, state) + 1)
+  -- Replace, not stack, the trailing timeout segment for this state so the version
+  -- stays bounded as attempts climb: V -> V/timeout/<state>/1 -> V/timeout/<state>/2.
+  -- The attempt count itself is read from the full (pre-strip) version, so it keeps
+  -- advancing across sweeps even though the suffix never accumulates.
+  local previous = nil
+  while previous ~= base do
+    previous = base
+    base = base:gsub("/timeout/" .. escaped .. "/%d+$", "")
+  end
+  return base .. "/timeout/" .. from .. "/" .. tostring(M.liveness_timeout_attempt(row, state) + 1)
 end
 
 function M.liveness_timeout_due(row, state, now_seconds)
@@ -146,6 +157,7 @@ end
 local function timeout_escalation(row, state, age)
   local attempt = M.liveness_timeout_attempt(row, state)
   local limit = tonumber(row.on_timeout and row.on_timeout.escalate_after_attempts) or max_timeout_attempts
+  local next_version = M.next_liveness_timeout_version(row, state)
   if attempt >= limit then
     return {
       action = "escalate",
@@ -153,11 +165,18 @@ local function timeout_escalation(row, state, age)
       age_minutes = age,
     }
   end
+  if attempt + 1 >= limit then
+    return {
+      action = "escalate",
+      attempt = attempt + 1,
+      age_minutes = age,
+    }
+  end
   return {
     action = "redrive",
     attempt = attempt + 1,
     age_minutes = age,
-    version = M.next_liveness_timeout_version(row, state),
+    version = next_version,
   }
 end
 
@@ -223,6 +242,15 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
   end
   M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "timeout-" .. decision.action, "state output obligation exceeded budget")
   if decision.action == "escalate" then
+    if decision.version ~= nil then
+      state = {
+        state = state.state,
+        version = decision.version,
+        proposal_id = state.proposal_id,
+        stage_rank = state.stage_rank,
+        marker_created_at = state.marker_created_at,
+      }
+    end
     local queue, payload = build_timeout_reconcile(row, entity, state, facts, decision)
     if queue ~= nil then
       M.log_apply(dept, proposal_id, nil, nil, { add = {}, remove = {} }, { queue })

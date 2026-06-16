@@ -164,6 +164,7 @@ local function raise_current_state(origin, pr_number, current_pr, state, source_
       base_branch = origin.base_branch,
     },
     source_ref = source_ref,
+    liveness_scan_replay = known_issue and known_issue.liveness_scan_replay == true,
   })
 end
 
@@ -531,6 +532,16 @@ function pipeline(event)
       end
       local replay_state = state
       core.log_cas_decision("observe_pr", origin.proposal_id, state, "reviewing", state.state, "skip-idempotent(already at to_state)", state.state .. " marker visible on PR")
+      if pr.source == "poll" and raw.source == "liveness-scan" then
+        replay_state = {
+          state = state.state,
+          version = state.version,
+          proposal_id = state.proposal_id,
+          stage_rank = state.stage_rank,
+          marker_created_at = state.marker_created_at,
+          liveness_scan_replay = true,
+        }
+      end
       local raised_current_state = raise_current_state(origin, pr.number, current_pr, replay_state, source_ref, issue_current)
       if raised_current_state then
         maybe_label_hints(origin, pr.number, current_pr, replay_state, source_ref)

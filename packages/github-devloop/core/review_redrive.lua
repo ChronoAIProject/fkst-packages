@@ -9,14 +9,17 @@ function M.review_redrive_version(state, pr)
   if state_name ~= "pr-open" and state_name ~= "reviewing" then
     return version
   end
-  if M.version_timeout_round(version, state_name) <= 0 then
+  local review_round = M.version_review_loop_round(version)
+  if state and state.liveness_scan_replay == true and review_round > 0 then
     return version
-  end
-  if M.liveness_timeout_due(M.restart_transition_row(state_name), state, now()) ~= true then
+  elseif state and state.liveness_scan_replay == true then
+  elseif M.version_timeout_round(version, state_name) <= 0 then
+    return version
+  elseif M.liveness_timeout_due(M.restart_transition_row(state_name), state, now()) ~= true then
     return version
   end
   local lineage_version = M.strip_transition_version_suffixes(version)
-  if M.version_review_loop_round(version) >= max_review_redrive_rounds then
+  if review_round >= max_review_redrive_rounds then
     return version
   end
   local next_version = M.next_review_loop_version(lineage_version)

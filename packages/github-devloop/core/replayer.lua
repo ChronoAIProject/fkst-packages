@@ -288,7 +288,15 @@ local function gather_required_facts(row, entity, state, provided)
 
   gathered.snapshot = gathered.snapshot or { comments = gathered.current and gathered.current.comments or {}, prs = {}, state = state }
   if gathered.current_pr ~= nil and gathered.link ~= nil then
-    for _, comment in ipairs(gathered.current_pr.comments or {}) do table.insert(gathered.snapshot.comments, comment) end
+    -- current_pr.comments may be the SAME table as snapshot.comments: callers
+    -- (e.g. the PR liveness sweep) pass current_pr === current and a snapshot
+    -- whose comments alias current.comments. Appending into a list while
+    -- iterating that same list with ipairs never terminates and allocates
+    -- unboundedly. When they alias, the PR comments are already present, so the
+    -- append is a no-op; only copy across when they are genuinely distinct lists.
+    if gathered.current_pr.comments ~= gathered.snapshot.comments then
+      for _, comment in ipairs(gathered.current_pr.comments or {}) do table.insert(gathered.snapshot.comments, comment) end
+    end
     table.insert(gathered.snapshot.prs, { number = gathered.link.pr_number, current = gathered.current_pr })
   end
 
