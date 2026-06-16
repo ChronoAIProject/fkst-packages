@@ -48,19 +48,42 @@ return {
     t.is_nil(read_env("FKST_TEST_VALUE", nil))
   end,
 
-  test_read_env_can_require_exec_sync = function()
+  test_reader_rejects_policy_options = function()
+    t.raises(function()
+      env.reader(allowed_env, {
+        error_prefix = "std-test",
+        require_exec = true,
+      })
+    end)
+    t.raises(function()
+      env.reader(allowed_env, {
+        error_prefix = "std-test",
+        propagate_exec_errors = true,
+      })
+    end)
+    t.raises(function()
+      env.reader(allowed_env, {
+        error_prefix = "std-test",
+        include_name = true,
+      })
+    end)
+    t.raises(function()
+      env.reader(allowed_env, {
+        error_prefix = "std-test",
+        missing_exec_error = "read_env requires exec_sync",
+      })
+    end)
+  end,
+
+  test_read_env_missing_exec_is_nil = function()
     local read_env = env.reader(allowed_env, {
       error_prefix = "std-test",
-      require_exec = true,
-      missing_exec_error = "read_env requires exec_sync",
     })
 
     local old_exec_sync = exec_sync
     exec_sync = nil
-    local ok = pcall(function()
-      read_env("FKST_TEST_VALUE", nil)
-    end)
+    local value = read_env("FKST_TEST_VALUE", nil)
     exec_sync = old_exec_sync
-    t.eq(ok, false)
+    t.is_nil(value)
   end,
 }

@@ -180,6 +180,23 @@ Rule-of-Three recurrence handling for the `std` hoist class after #808, #819, an
 #844: bounded mechanical drains are allowed under this rule; broader semantic
 consolidation still needs its own class carrier or separate approved framing.
 
+### 8.1 Bounded utility drain for `has_bounded_source_ref` and `decimal_checksum`
+
+The #840 drain is governed by DRY/Single Source of Truth, constrained by AHA and
+Fowler's Rule of Three: only byte-identical, dependency-free helpers may be
+promoted, and each promoted helper needs a cohesive `std` owner. The inventory is
+closed to this narrow utility class:
+
+| Helper | Prior local copies | `std` owner | Tier | Recurrence decision |
+| --- | --- | --- | --- | --- |
+| `has_bounded_source_ref` | `packages/autochrono/core.lua`, `packages/github-devloop/core/base.lua` | `std.source_ref` | Tier S, because `source_ref` is substrate-contract shape | Exhausted for this helper; no package-local definitions remain. |
+| `decimal_checksum` | `packages/consensus/core.lua`, `packages/github-devloop/core/base.lua` | `std.strings` | Tier R, generic repo utility | Exhausted for this helper; no package-local definitions remain. |
+
+This is a recurrence waiver for a point hoist, not a new open-ended utility
+program. Existing sibling proposals (#842, #843, #844, #835, #834, #838) must
+carry their own duplicate inventory and module taxonomy before adding or growing
+`std` surface. They are not implicitly approved by #840.
+
 ## 9. Testing
 
 - `std/*.lua` Tier S/R modules get their own `*_test.lua` under `std/tests/`,

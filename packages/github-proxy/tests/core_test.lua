@@ -90,6 +90,21 @@ return {
     t.is_nil(value)
   end,
 
+  test_read_env_keeps_github_proxy_strict_exec_contract = function()
+    local old_exec_sync = exec_sync
+    exec_sync = nil
+    t.raises(function()
+      core.read_env("FKST_GITHUB_REPO", nil)
+    end)
+    exec_sync = old_exec_sync
+
+    t.raises(function()
+      core.read_env("FKST_GITHUB_REPO", function(_cmd)
+        error("exec failed")
+      end)
+    end)
+  end,
+
   test_devloop_replay_budget_defaults_to_ten = function()
     local value = core.devloop_replay_budget(function(_cmd)
       return { stdout = "", stderr = "", exit_code = 0 }
