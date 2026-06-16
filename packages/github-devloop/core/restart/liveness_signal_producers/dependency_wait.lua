@@ -2,6 +2,7 @@ return {
   family = "dependency-wait",
   resolver = "dependency-hold",
   surface = "issue-comment-stream",
+  version_form = "raw",
   producer = "core/replayer.lua",
   queue = "github-proxy.github_issue_comment_request",
   marker_source = "core/dependencies.lua",

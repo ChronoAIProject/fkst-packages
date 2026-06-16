@@ -20,6 +20,37 @@ local function run_liveness_scan(name)
   }, opts(name or "liveness-reviewing-heartbeat"))
 end
 
+local function mock_branch_config_env()
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function run_observe_pr(name)
+  mock_branch_config_env()
+  return t.run_department("departments/observe_pr/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "pr",
+      repo = repo,
+      number = 7,
+      state = "open",
+      updated_at = "2026-06-04T01:02:03Z",
+      dedup_key = "liveness-scan/owner/repo/pr/7",
+      source = "liveness-scan",
+      source_ref = core.pr_source_ref(repo, 7),
+    },
+  }, opts(name or "observe-pr-reviewing-heartbeat"))
+end
+
 local function mock_repo()
   t.mock_command(core.read_env_command("FKST_GITHUB_REPO"), {
     stdout = repo,
@@ -126,8 +157,20 @@ local function run_with_pr_comments(name, comments)
   return run_liveness_scan(name)
 end
 
+local function run_observe_with_pr_comments(name, comments)
+  mock_issue_claim()
+  mock_pr_state(comments)
+  return run_observe_pr(name)
+end
+
 local function find_raise(result, queue)
   return h.find_raise(result.raises, queue)
+end
+
+local function find_pr_comment_with(result, needle)
+  return h.find_raise(result.raises, "github-proxy.github_pr_comment_request", function(payload)
+    return tostring(payload and payload.body or ""):find(needle, 1, true) ~= nil
+  end)
 end
 
 return {
@@ -140,7 +183,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
     t.eq(find_raise(result, "devloop_reviewing"), nil)
-    t.eq(find_raise(result, "github-proxy.github_pr_comment_request"), nil)
+    t.eq(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt:v1"), nil)
   end,
 
   test_liveness_scan_reviewing_stale_pr_converge_round_climbs_to_blocked = function()
@@ -186,5 +229,38 @@ return {
       now_seconds = now(),
     }, now())
     t.eq(signal.live, false)
+  end,
+
+  test_observe_pr_reviewing_recent_pr_converge_round_does_not_escalate_timeout = function()
+    local timeout_version = version .. "/timeout/reviewing/2"
+    local result = run_observe_with_pr_comments("observe-pr-reviewing-pr-heartbeat-live", {
+      core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
+      timeout_attempt_comment(version, 1),
+      timeout_attempt_comment(version, 2),
+      review_round_comment(os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60)),
+    })
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
+    t.eq(find_raise(result, "devloop_reviewing"), nil)
+    t.eq(find_pr_comment_with(result, "fkst:github-devloop:timeout-attempt:v1"), nil)
+  end,
+
+  test_observe_pr_reviewing_stale_pr_converge_round_escalates_timeout = function()
+    local timeout_version = version .. "/timeout/reviewing/2"
+    local result = run_observe_with_pr_comments("observe-pr-reviewing-pr-heartbeat-stale", {
+      core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
+      timeout_attempt_comment(version, 1),
+      timeout_attempt_comment(version, 2),
+      review_round_comment("2026-06-03T00:00:00Z"),
+    })
+    t.eq(result.exit_code, 0)
+    local reconcile = find_raise(result, "devloop_timeout_reconcile")
+    t.is_true(reconcile ~= nil)
+    t.eq(reconcile.payload.state, "reviewing")
+    t.eq(reconcile.payload.issue_version, timeout_version)
+    t.eq(reconcile.payload.round, 3)
+    t.eq(reconcile.payload.source_ref.ref, "owner/repo#pr/7")
   end,
 }

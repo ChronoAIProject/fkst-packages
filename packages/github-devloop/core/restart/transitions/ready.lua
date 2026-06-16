@@ -18,6 +18,8 @@ return function(M, h)
         family = "dependency-wait",
         resolver = "dependency-hold",
         producer = "dependency-wait",
+        surface = "issue-comment-stream",
+        version_form = "raw",
         max_age_minutes = 525600,
       },
     }),

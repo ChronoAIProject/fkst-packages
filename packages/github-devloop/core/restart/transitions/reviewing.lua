@@ -17,6 +17,8 @@ return function(M, h)
       signal = {
         family = "review-converge-round",
         producer = "review-converge-round",
+        surface = "pr-comment-stream",
+        version_form = "safe_version_segment",
         max_age_minutes = 120,
       },
     }),

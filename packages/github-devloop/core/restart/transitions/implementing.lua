@@ -17,6 +17,8 @@ return function(M, h)
       signal = {
         family = "implement-attempt",
         producer = "implement-attempt",
+        surface = "issue-comment-stream",
+        version_form = "raw",
         max_age_minutes = 120,
       },
     }),

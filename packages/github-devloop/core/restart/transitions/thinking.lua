@@ -17,6 +17,8 @@ return function(M, h)
       signal = {
         family = "converge-round",
         producer = "converge-round",
+        surface = "issue-comment-stream",
+        version_form = "raw",
         max_age_minutes = 120,
       },
     }),

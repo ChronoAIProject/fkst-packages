@@ -433,7 +433,7 @@ return {
         },
         now_seconds = core.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"),
       })
-      t.eq(applied, false)
+      t.eq(applied, true)
     end)
     t.eq(#raised, 0)
   end,
@@ -512,7 +512,7 @@ return {
         },
         now_seconds = core.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"),
       })
-      t.eq(applied, false)
+      t.eq(applied, true)
     end)
     t.eq(#raised, 0)
   end,

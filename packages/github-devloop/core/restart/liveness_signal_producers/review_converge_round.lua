@@ -2,6 +2,7 @@ return {
   family = "review-converge-round",
   resolver = "review-converge-round",
   surface = "pr-comment-stream",
+  version_form = "safe_version_segment",
   producer = "departments/review_loop/main.lua",
   queue = "github-proxy.github_pr_comment_request",
   marker_source = "core/convergence.lua",
