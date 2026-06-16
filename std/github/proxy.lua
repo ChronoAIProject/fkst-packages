@@ -65,6 +65,16 @@ local function pr_rest_argv(repo, pr_number)
   return { "gh", "api", "repos/" .. tostring(repo) .. "/pulls/" .. tostring(pr_number) }
 end
 
+local function issue_comments_argv(repo, number)
+  assert_number(number, "issue number")
+  return { "gh", "api", "--paginate", "--slurp", "repos/" .. tostring(repo) .. "/issues/" .. tostring(number) .. "/comments?per_page=100" }
+end
+
+local function issue_comment_argv(kind, repo, number, body_file)
+  assert_number(number, kind .. " number")
+  return { "gh", kind, "comment", tostring(number), "--repo", tostring(repo), "--body-file", tostring(body_file) }
+end
+
 local function label_list_argv(repo)
   return { "gh", "label", "list", "--repo", tostring(repo), "--limit", "1000", "--json", "name" }
 end
@@ -106,6 +116,22 @@ function M.install(handle)
 
   function handle.view_pr_rest(repo, pr_number, timeout)
     return handle._exec(pr_rest_argv(repo, pr_number), timeout or 30, "gh PR REST view")
+  end
+
+  function handle.view_issue_comments(repo, issue_number, timeout)
+    return handle._exec(issue_comments_argv(repo, issue_number), timeout or 30, "gh issue REST comments")
+  end
+
+  function handle.view_pr_comments(repo, pr_number, timeout)
+    return handle._exec(issue_comments_argv(repo, pr_number), timeout or 30, "gh PR REST comments")
+  end
+
+  function handle.comment_issue(repo, issue_number, body_file, timeout)
+    return handle._exec(issue_comment_argv("issue", repo, issue_number, body_file), timeout or 30, "gh issue comment")
+  end
+
+  function handle.comment_pr(repo, pr_number, body_file, timeout)
+    return handle._exec(issue_comment_argv("pr", repo, pr_number, body_file), timeout or 30, "gh pr comment")
   end
 
   function handle.list_repo_labels(repo, timeout)

@@ -176,6 +176,10 @@ return {
     handle.create_label("owner/repo", "fkst-dev:ready", "0E8A16", 17)
     handle.edit_issue_labels("owner/repo", 42, { "fkst-dev:ready" }, { "fkst-dev:thinking" }, 18)
     handle.edit_pr_labels("owner/repo", 7, { "review" }, { "stale" }, 19)
+    handle.view_issue_comments("owner/repo", 42, 20)
+    handle.comment_issue("owner/repo", 42, "/tmp/issue-body.md", 21)
+    handle.view_pr_comments("owner/repo", 7, 22)
+    handle.comment_pr("owner/repo", 7, "/tmp/pr-body.md", 23)
 
     assert_argv_equal(
       calls[1].argv,
@@ -217,6 +221,26 @@ return {
       calls[9].argv,
       { "gh", "pr", "edit", "7", "--repo", "owner/repo", "--add-label", "review", "--remove-label", "stale" },
       "edit_pr_labels"
+    )
+    assert_argv_equal(
+      calls[10].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues/42/comments?per_page=100" },
+      "view_issue_comments"
+    )
+    assert_argv_equal(
+      calls[11].argv,
+      { "gh", "issue", "comment", "42", "--repo", "owner/repo", "--body-file", "/tmp/issue-body.md" },
+      "comment_issue"
+    )
+    assert_argv_equal(
+      calls[12].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues/7/comments?per_page=100" },
+      "view_pr_comments"
+    )
+    assert_argv_equal(
+      calls[13].argv,
+      { "gh", "pr", "comment", "7", "--repo", "owner/repo", "--body-file", "/tmp/pr-body.md" },
+      "comment_pr"
     )
     for index, call in ipairs(calls) do
       assert(call.timeout == index + 10, "timeout forwarded for call " .. tostring(index))

@@ -245,7 +245,7 @@ local function mock_comment_write()
     stdout = '{"id":123456,"body":"created","user":{"login":"fkst-test-bot"}}\n',
     exit_code = 0,
   })
-  t.mock_command("gh issue comment '42' --repo 'owner/x' --body-file '/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md'", {
+  t.mock_command("gh issue comment 42 --repo owner/x --body-file /tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md", {
     stdout = "",
     exit_code = 0,
   })
@@ -377,19 +377,19 @@ local function mock_pr_comment_write()
     stdout = "",
     exit_code = 0,
   })
-  t.mock_command("gh pr comment '7' --repo 'owner/x' --body-file '/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md'", {
+  t.mock_command("gh pr comment 7 --repo owner/x --body-file /tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md", {
     stdout = "",
     exit_code = 0,
   })
-  t.mock_command("gh pr comment '9' --repo 'owner/x' --body-file '/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md'", {
+  t.mock_command("gh pr comment 9 --repo owner/x --body-file /tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md", {
     stdout = "",
     exit_code = 0,
   })
-  t.mock_command("gh pr comment '10' --repo 'owner/x' --body-file '/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md'", {
+  t.mock_command("gh pr comment 10 --repo owner/x --body-file /tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md", {
     stdout = "",
     exit_code = 0,
   })
-  t.mock_command("gh pr comment '11' --repo 'owner/x' --body-file '/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md'", {
+  t.mock_command("gh pr comment 11 --repo owner/x --body-file /tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md", {
     stdout = "",
     exit_code = 0,
   })

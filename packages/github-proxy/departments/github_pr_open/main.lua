@@ -291,11 +291,7 @@ local function make_department(ports)
       end
 
       if not guard.pr_open_visible then
-        local issue_view = core.gh_exec(
-        core.gh_issue_view_comments_cmd(repo, payload.issue_number),
-        30,
-        "gh issue REST comments after PR open"
-        )
+        local issue_view = ports.github.view_issue_comments(repo, payload.issue_number, 30)
         if core.has_trusted_marker(core.parse_issue_comments(issue_view.stdout), payload.dedup_key, bot_login) then
           guard.pr_open_visible = true
         end
@@ -312,19 +308,11 @@ local function make_department(ports)
         })
         local issue_body_path = temp_body_file(repo, payload.branch, "issue-comment")
         file.write(issue_body_path, issue_body)
-        core.gh_exec(
-          core.gh_issue_comment_cmd(repo, payload.issue_number, issue_body_path),
-          30,
-          "gh issue comment after PR open"
-        )
+        ports.github.comment_issue(repo, payload.issue_number, issue_body_path, 30)
         core.invalidate_entity_after_write(repo, "issue", payload.issue_number)
       end
 
-      local pr_view = core.gh_exec(
-        core.gh_pr_view_comments_cmd(repo, pr.number),
-        30,
-        "gh PR REST comments after PR open"
-      )
+      local pr_view = ports.github.view_pr_comments(repo, pr.number, 30)
       if not core.has_trusted_comment_fragment(core.parse_issue_comments(pr_view.stdout), tostring(payload.body), bot_login) then
         local pr_body = tostring(payload.body) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
         pr_body = core.with_github_debug_stamp(pr_body, {
@@ -335,11 +323,7 @@ local function make_department(ports)
         })
         local pr_body_path = temp_body_file(repo, payload.branch, "pr-comment")
         file.write(pr_body_path, pr_body)
-        core.gh_exec(
-          core.gh_pr_comment_cmd(repo, pr.number, pr_body_path),
-          30,
-          "gh pr comment"
-        )
+        ports.github.comment_pr(repo, pr.number, pr_body_path, 30)
         core.invalidate_entity_after_write(repo, "pr", pr.number)
       end
 
