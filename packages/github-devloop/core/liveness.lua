@@ -122,11 +122,17 @@ function M.liveness_state_age_minutes(state, now_seconds)
   return M.stall_suspect_age_minutes(state.version, now_seconds)
 end
 
-function M.liveness_timeout_attempt(row, state)
-  return M.version_timeout_round(state and state.version, row and row.from_state)
+function M.liveness_timeout_attempt(row, state, facts)
+  local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
+  local comments = facts and facts.current and facts.current.comments or nil
+  local from_state = row and row.from_state
+  local version = state and state.version
+  local durable_round = M.timeout_attempt_round(comments, proposal_id, version, from_state)
+  local version_round = M.version_timeout_round(version, from_state)
+  return math.max(durable_round or 0, version_round or 0)
 end
 
-function M.next_liveness_timeout_version(row, state)
+function M.next_liveness_timeout_version(row, state, facts)
   local from = tostring(row.from_state)
   local escaped = from:gsub("%-", "%%-")
   local base = tostring(state and state.version or "")
@@ -139,7 +145,7 @@ function M.next_liveness_timeout_version(row, state)
     previous = base
     base = base:gsub("/timeout/" .. escaped .. "/%d+$", "")
   end
-  return base .. "/timeout/" .. from .. "/" .. tostring(M.liveness_timeout_attempt(row, state) + 1)
+  return base .. "/timeout/" .. from .. "/" .. tostring(M.liveness_timeout_attempt(row, state, facts) + 1)
 end
 
 function M.liveness_timeout_due(row, state, now_seconds)
@@ -154,10 +160,10 @@ function M.liveness_timeout_due(row, state, now_seconds)
   return true, age
 end
 
-local function timeout_escalation(row, state, age)
-  local attempt = M.liveness_timeout_attempt(row, state)
+local function timeout_escalation(row, state, age, facts)
+  local attempt = M.liveness_timeout_attempt(row, state, facts)
   local limit = tonumber(row.on_timeout and row.on_timeout.escalate_after_attempts) or max_timeout_attempts
-  local next_version = M.next_liveness_timeout_version(row, state)
+  local next_version = M.next_liveness_timeout_version(row, state, facts)
   if attempt >= limit then
     return {
       action = "escalate",
@@ -206,27 +212,56 @@ function M.liveness_timeout_decision(row, state, now_seconds)
   return timeout_escalation(row, state, age)
 end
 
+function M.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
+  local due, age = M.liveness_timeout_due(row, state, now_seconds)
+  if not due then
+    return {
+      action = "wait",
+      age_minutes = age,
+    }
+  end
+  return timeout_escalation(row, state, age, facts)
+end
+
+local function timeout_attempt_target(entity, facts)
+  local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref)
+  local kind = "issue"
+  local repo = entity and entity.repo
+  local number = entity and entity.number
+  local _, pr_number = M.parse_pr_source_ref(source_ref)
+  if pr_number ~= nil then
+    local parsed_repo = select(1, M.parse_proposal_id(facts and facts.proposal_id))
+    kind = "pr"
+    repo = parsed_repo or repo
+    number = pr_number
+  end
+  if kind == "issue" then
+    local parsed_repo, issue_number = M.parse_proposal_id(facts and facts.proposal_id)
+    repo = parsed_repo or repo
+    number = issue_number or number
+  end
+  if repo == nil or number == nil then
+    return nil
+  end
+  return {
+    kind = kind,
+    repo = repo,
+    number = number,
+  }
+end
+
 function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, facts)
   local row = table_row or M.restart_transition_row(state and state.state)
   if row == nil or row.terminal == true then
     return false
   end
-  local decision = M.liveness_timeout_decision(row, state, (facts and facts.now_seconds) or now())
+  local decision = M.liveness_timeout_decision_with_facts(row, state, facts, (facts and facts.now_seconds) or now())
   local proposal_id = facts and facts.proposal_id or state and state.proposal_id
   if decision.action == "wait" then
     return false
   end
   M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "timeout-" .. decision.action, "state output obligation exceeded budget")
   if decision.action == "escalate" then
-    if decision.version ~= nil then
-      state = {
-        state = state.state,
-        version = decision.version,
-        proposal_id = state.proposal_id,
-        stage_rank = state.stage_rank,
-        marker_created_at = state.marker_created_at,
-      }
-    end
     local queue, payload = build_timeout_reconcile(row, entity, state, facts, decision)
     if queue ~= nil then
       M.log_apply(dept, proposal_id, nil, nil, { add = {}, remove = {} }, { queue })
@@ -235,9 +270,15 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     end
     return false
   end
+  local target = timeout_attempt_target(entity, facts)
+  local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
+  if target ~= nil then
+    local attempt_request = M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, decision.attempt)
+    M.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", attempt_request)
+  end
   return M.replay_from_table(dept, entity, {
     state = state.state,
-    version = decision.version or M.next_liveness_timeout_version(row, state),
+    version = state.version,
     proposal_id = state.proposal_id,
     stage_rank = state.stage_rank,
     marker_created_at = state.marker_created_at,

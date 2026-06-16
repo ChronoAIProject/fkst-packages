@@ -297,6 +297,41 @@ function M.build_devloop_timeout_reconcile_payload(row, state, proposal_id, sour
   }
 end
 
+function M.timeout_attempt_marker(proposal_id, issue_version, state_name, round, source_ref)
+  local n = valid_round(round)
+  if n == nil or n <= 0 then
+    error("github-devloop: invalid timeout attempt round")
+  end
+  local normalized = M.normalize_source_ref(source_ref)
+  return '<!-- fkst:github-devloop:timeout-attempt:v1 proposal="' .. safe_attr(proposal_id, M._max_key_len)
+    .. '" version="' .. safe_attr(issue_version, M._max_dedup_len)
+    .. '" state="' .. safe_attr(state_name, max_attr_len)
+    .. '" round="' .. tostring(n)
+    .. '" dedup="' .. safe_attr("timeout-attempt:" .. tostring(issue_version) .. "/" .. tostring(state_name) .. "/" .. tostring(n), M._max_dedup_len)
+    .. '" source_ref_kind="' .. safe_attr(normalized.kind or "", max_attr_len)
+    .. '" source_ref="' .. safe_attr(normalized.ref or "", M._max_key_len)
+    .. '" -->'
+end
+
+function M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt)
+  local normalized = M.normalize_source_ref(source_ref)
+  local marker = M.timeout_attempt_marker(proposal_id, state.version, row.from_state, attempt, normalized)
+  return M.build_entity_comment_request(target, "github-devloop timeout redrive attempt: "
+    .. tostring(row.from_state)
+    .. " "
+    .. tostring(attempt)
+    .. "\n\n"
+    .. marker
+    .. "\n"
+    .. "⟦AI:FKST⟧", M._dedup_key({
+    "timeout-attempt",
+    tostring(proposal_id),
+    tostring(state.version),
+    tostring(row.from_state),
+    tostring(attempt),
+  }), normalized)
+end
+
 function M.review_reconcile_state_version(issue_version, round)
   return tostring(issue_version) .. "/review-loop/" .. tostring(round)
 end
@@ -674,6 +709,27 @@ function M.has_timeout_reconcile_marker(comments, proposal_id, issue_version, st
     end
   end
   return false
+end
+
+function M.timeout_attempt_round(comments, proposal_id, issue_version, state_name)
+  if type(comments) ~= "table" then
+    return 0
+  end
+  local max_seen = 0
+  local marker_pattern = "<!%-%- fkst:github%-devloop:timeout%-attempt:v1.-%-%->"
+  for _, comment in ipairs(M._trusted_marker_comments(comments)) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      if attr(marker, "proposal") == tostring(proposal_id)
+        and attr(marker, "version") == tostring(issue_version)
+        and attr(marker, "state") == tostring(state_name) then
+        local round = valid_round(attr(marker, "round"))
+        if round ~= nil and round > max_seen then
+          max_seen = round
+        end
+      end
+    end
+  end
+  return max_seen
 end
 
 function M.has_review_converge_round_marker(comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round)

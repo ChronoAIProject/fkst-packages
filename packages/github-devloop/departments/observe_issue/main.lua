@@ -126,17 +126,6 @@ end
 
 local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state)
   local row = core.restart_transition_row(state.state)
-  local replay_state = state
-  if issue.source == "liveness-scan" and (state.state == "pr-open" or state.state == "reviewing") then
-    replay_state = {
-      state = state.state,
-      version = state.version,
-      proposal_id = state.proposal_id,
-      stage_rank = state.stage_rank,
-      marker_created_at = state.marker_created_at,
-      liveness_scan_replay = true,
-    }
-  end
   local facts = {
     proposal_id = proposal_id,
     current = current,
@@ -160,7 +149,7 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   end
   if observe_replay_states[state.state]
     and state_is_issue_local
-    and core.replay_from_table("observe_issue", issue, replay_state, row, facts) then
+    and core.replay_from_table("observe_issue", issue, state, row, facts) then
     return true
   end
   if observe_replay_states[state.state] and state.state ~= "thinking" then

@@ -344,8 +344,9 @@ local function pipeline_timeout(event)
       core.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(timeout reconcile marker already visible)", "timeout reconcile result marker for incoming version is already visible")
       return
     end
-    if state.state ~= nil and core.stage_rank(state.state) >= core.stage_rank("blocked") then
-      core.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(already terminal)", "current marker is already terminal at or beyond blocked")
+    local live_row = core.restart_transition_row(state.state)
+    if state.state ~= nil and live_row ~= nil and live_row.terminal == true then
+      core.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(already terminal)", "current marker is already terminal")
       return
     end
     if state.state == nil then
@@ -363,7 +364,10 @@ local function pipeline_timeout(event)
 
     local row = core.restart_transition_row(reconcile.state)
     local due, age_minutes = core.liveness_timeout_due(row, state, now())
-    local decision = core.liveness_timeout_decision(row, state, now())
+    local decision = core.liveness_timeout_decision_with_facts(row, state, {
+      proposal_id = reconcile.proposal_id,
+      current = { comments = comments },
+    }, now())
     local limit = tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts) or nil
     if not due or decision.action ~= "escalate" or tonumber(decision.attempt) < tonumber(reconcile.round) then
       core.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(no-longer-over-budget)", "current marker is no longer at timeout escalation threshold")
