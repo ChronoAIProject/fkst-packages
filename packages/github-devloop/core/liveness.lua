@@ -250,18 +250,49 @@ local function timeout_attempt_target(entity, facts)
   }
 end
 
+local function emit_timeout_attempt_marker(dept, entity, state, row, facts, proposal_id, attempt)
+  local target = timeout_attempt_target(entity, facts)
+  local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
+  if target ~= nil then
+    local attempt_request = M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt)
+    M.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", attempt_request)
+  end
+end
+
+local function emit_decompose_exhausted_marker(dept, entity, state, facts, proposal_id, attempt)
+  local target = timeout_attempt_target(entity, facts)
+  local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
+  if target ~= nil then
+    local request = M.build_decompose_exhausted_comment_request(target, proposal_id, state, source_ref, attempt)
+    M.log_apply(dept, proposal_id, nil, nil, { add = {}, remove = {} }, {
+      target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request",
+    })
+    M.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", request)
+    return true
+  end
+  return false
+end
+
 function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, facts)
   local row = table_row or M.restart_transition_row(state and state.state)
   if row == nil or row.terminal == true then
     return false
   end
-  local decision = M.liveness_timeout_decision_with_facts(row, state, facts, (facts and facts.now_seconds) or now())
+  local comments = facts and facts.current and facts.current.comments or nil
   local proposal_id = facts and facts.proposal_id or state and state.proposal_id
+  if row.from_state == "blocked" and M.has_decompose_exhausted_marker(comments, proposal_id, state and state.version) then
+    M.log_cas_decision(dept, proposal_id, state, "blocked", row.driving_queue, "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
+    return true
+  end
+  local decision = M.liveness_timeout_decision_with_facts(row, state, facts, (facts and facts.now_seconds) or now())
   if decision.action == "wait" then
     return false
   end
   M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "timeout-" .. decision.action, "state output obligation exceeded budget")
   if decision.action == "escalate" then
+    if row.from_state == "blocked" then
+      return emit_decompose_exhausted_marker(dept, entity, state, facts, proposal_id, decision.attempt)
+    end
     local queue, payload = build_timeout_reconcile(row, entity, state, facts, decision)
     if queue ~= nil then
       M.log_apply(dept, proposal_id, nil, nil, { add = {}, remove = {} }, { queue })
@@ -270,19 +301,17 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     end
     return false
   end
-  local target = timeout_attempt_target(entity, facts)
-  local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
-  if target ~= nil then
-    local attempt_request = M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, decision.attempt)
-    M.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", attempt_request)
-  end
-  return M.replay_from_table(dept, entity, {
+  local issued = M.replay_from_table(dept, entity, {
     state = state.state,
     version = state.version,
     proposal_id = state.proposal_id,
     stage_rank = state.stage_rank,
     marker_created_at = state.marker_created_at,
   }, row, facts)
+  if issued then
+    emit_timeout_attempt_marker(dept, entity, state, row, facts, proposal_id, decision.attempt)
+  end
+  return issued
 end
 
 end

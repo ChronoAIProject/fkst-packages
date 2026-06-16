@@ -379,9 +379,14 @@ return {
           })
           t.eq(applied, true)
           t.eq(#raised, before + 1)
-          t.eq(raised[#raised].queue, "devloop_timeout_reconcile")
-          t.eq(raised[#raised].queue == row.driving_queue, false)
-          t.eq(tostring(raised[#raised].payload.dedup_key or ""):find("/timeout/" .. row.from_state .. "/4", 1, true), nil)
+          if row.from_state == "blocked" then
+            t.eq(raised[#raised].queue, "github-proxy.github_issue_comment_request")
+            t.is_true(tostring(raised[#raised].payload.body or ""):find("fkst:github-devloop:decompose-exhausted:v1", 1, true) ~= nil)
+          else
+            t.eq(raised[#raised].queue, "devloop_timeout_reconcile")
+            t.eq(raised[#raised].queue == row.driving_queue, false)
+            t.eq(tostring(raised[#raised].payload.dedup_key or ""):find("/timeout/" .. row.from_state .. "/4", 1, true), nil)
+          end
         end
       end
     end)

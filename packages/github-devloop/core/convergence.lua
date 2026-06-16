@@ -303,11 +303,12 @@ function M.timeout_attempt_marker(proposal_id, issue_version, state_name, round,
     error("github-devloop: invalid timeout attempt round")
   end
   local normalized = M.normalize_source_ref(source_ref)
+  local lineage_version = M.strip_transition_version_suffixes(issue_version)
   return '<!-- fkst:github-devloop:timeout-attempt:v1 proposal="' .. safe_attr(proposal_id, M._max_key_len)
-    .. '" version="' .. safe_attr(issue_version, M._max_dedup_len)
+    .. '" version="' .. safe_attr(lineage_version, M._max_dedup_len)
     .. '" state="' .. safe_attr(state_name, max_attr_len)
     .. '" round="' .. tostring(n)
-    .. '" dedup="' .. safe_attr("timeout-attempt:" .. tostring(issue_version) .. "/" .. tostring(state_name) .. "/" .. tostring(n), M._max_dedup_len)
+    .. '" dedup="' .. safe_attr("timeout-attempt:" .. tostring(lineage_version) .. "/" .. tostring(state_name) .. "/" .. tostring(n), M._max_dedup_len)
     .. '" source_ref_kind="' .. safe_attr(normalized.kind or "", max_attr_len)
     .. '" source_ref="' .. safe_attr(normalized.ref or "", M._max_key_len)
     .. '" -->'
@@ -326,8 +327,43 @@ function M.build_timeout_attempt_comment_request(target, proposal_id, state, row
     .. "⟦AI:FKST⟧", M._dedup_key({
     "timeout-attempt",
     tostring(proposal_id),
-    tostring(state.version),
+    tostring(M.strip_transition_version_suffixes(state.version)),
     tostring(row.from_state),
+    tostring(attempt),
+  }), normalized)
+end
+
+function M.decompose_exhausted_marker(proposal_id, issue_version, round, source_ref)
+  local n = valid_round(round)
+  if n == nil or n <= 0 then
+    error("github-devloop: invalid decompose exhausted round")
+  end
+  local normalized = M.normalize_source_ref(source_ref)
+  local lineage_version = M.strip_transition_version_suffixes(issue_version)
+  return '<!-- fkst:github-devloop:decompose-exhausted:v1 proposal="' .. safe_attr(proposal_id, M._max_key_len)
+    .. '" version="' .. safe_attr(lineage_version, M._max_dedup_len)
+    .. '" round="' .. tostring(n)
+    .. '" reason_class="decompose-output-obligation-timeout"'
+    .. '" source_ref_kind="' .. safe_attr(normalized.kind or "", max_attr_len)
+    .. '" source_ref="' .. safe_attr(normalized.ref or "", M._max_key_len)
+    .. '" -->'
+end
+
+function M.build_decompose_exhausted_comment_request(target, proposal_id, state, source_ref, attempt)
+  local normalized = M.normalize_source_ref(source_ref)
+  local marker = M.decompose_exhausted_marker(proposal_id, state.version, attempt, normalized)
+  return M.build_entity_comment_request(target, "github-devloop decompose output obligation exhausted\n\n"
+    .. "Structured WHY:\n"
+    .. "reason_class=decompose-output-obligation-timeout\n"
+    .. "from_state=blocked\n"
+    .. "from_version=" .. tostring(state.version) .. "\n"
+    .. "attempt=" .. tostring(attempt) .. "\n\n"
+    .. marker
+    .. "\n"
+    .. "⟦AI:FKST⟧", M._dedup_key({
+    "decompose-exhausted",
+    tostring(proposal_id),
+    tostring(M.strip_transition_version_suffixes(state.version)),
     tostring(attempt),
   }), normalized)
 end
@@ -716,11 +752,12 @@ function M.timeout_attempt_round(comments, proposal_id, issue_version, state_nam
     return 0
   end
   local max_seen = 0
+  local lineage_version = M.strip_transition_version_suffixes(issue_version)
   local marker_pattern = "<!%-%- fkst:github%-devloop:timeout%-attempt:v1.-%-%->"
   for _, comment in ipairs(M._trusted_marker_comments(comments)) do
     for marker in M._comment_body(comment):gmatch(marker_pattern) do
       if attr(marker, "proposal") == tostring(proposal_id)
-        and attr(marker, "version") == tostring(issue_version)
+        and M.strip_transition_version_suffixes(attr(marker, "version")) == lineage_version
         and attr(marker, "state") == tostring(state_name) then
         local round = valid_round(attr(marker, "round"))
         if round ~= nil and round > max_seen then
@@ -730,6 +767,23 @@ function M.timeout_attempt_round(comments, proposal_id, issue_version, state_nam
     end
   end
   return max_seen
+end
+
+function M.has_decompose_exhausted_marker(comments, proposal_id, issue_version)
+  if type(comments) ~= "table" then
+    return false
+  end
+  local lineage_version = M.strip_transition_version_suffixes(issue_version)
+  local marker_pattern = "<!%-%- fkst:github%-devloop:decompose%-exhausted:v1.-%-%->"
+  for _, comment in ipairs(M._trusted_marker_comments(comments)) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      if attr(marker, "proposal") == tostring(proposal_id)
+        and M.strip_transition_version_suffixes(attr(marker, "version")) == lineage_version then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 function M.has_review_converge_round_marker(comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest, round)

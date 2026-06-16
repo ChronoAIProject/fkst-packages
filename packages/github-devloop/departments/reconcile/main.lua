@@ -373,6 +373,21 @@ local function pipeline_timeout(event)
       core.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(no-longer-over-budget)", "current marker is no longer at timeout escalation threshold")
       return
     end
+    if reconcile.state == "blocked" then
+      if core.has_decompose_exhausted_marker(comments, reconcile.proposal_id, state.version) then
+        core.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
+        return
+      end
+      local target = pr_number ~= nil
+        and { kind = "pr", repo = repo, number = pr_number }
+        or { kind = "issue", repo = repo, number = issue_number }
+      local comment_request = core.build_decompose_exhausted_comment_request(target, reconcile.proposal_id, state, reconcile.source_ref, decision.attempt)
+      local queue = pr_number ~= nil and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request"
+      core.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "applied(decompose-exhausted)", "blocked decompose output obligation exhausted")
+      core.log_apply("reconcile", reconcile.proposal_id, nil, nil, { add = {}, remove = {} }, { queue })
+      core.log_raise("reconcile", reconcile.proposal_id, queue, comment_request)
+      return
+    end
 
     local version = core.timeout_reconcile_state_version(state.version, reconcile.state, decision.attempt)
     local transition = core.versioned_transition_status(state, { reconcile.state }, "blocked", version)
