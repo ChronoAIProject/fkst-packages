@@ -567,9 +567,10 @@ function M.review_converge_round_marker(review_proposal_id, issue_proposal_id, i
   if n == nil then
     error("github-devloop: invalid review converge round")
   end
+  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
   return '<!-- fkst:github-devloop:review-converge-round:v1 proposal="' .. safe_attr(review_proposal_id, M._max_key_len)
     .. '" issue_proposal="' .. safe_attr(issue_proposal_id, M._max_key_len)
-    .. '" version="' .. safe_attr(issue_version, M._max_dedup_len)
+    .. '" version="' .. safe_attr(heartbeat_version, M._max_dedup_len)
     .. '" head_sha="' .. safe_attr(head_sha, max_attr_len)
     .. '" source_ref="' .. safe_attr(source_ref_digest, max_digest_len)
     .. '" round="' .. tostring(n)
@@ -618,10 +619,11 @@ function M.converge_round_facts_for_proposal_boundary(comments, proposal_id, nar
 end
 
 function M.review_converge_round_facts(comments, review_proposal_id, issue_proposal_id, issue_version, head_sha, source_ref_digest)
+  local heartbeat_version = M.liveness_heartbeat_version(issue_version, M.liveness_signal_producer_contract("review-converge-round"))
   local matches = function(marker)
     return attr(marker, "proposal") == tostring(review_proposal_id)
       and attr(marker, "issue_proposal") == tostring(issue_proposal_id)
-      and attr(marker, "version") == tostring(issue_version)
+      and attr(marker, "version") == tostring(heartbeat_version)
       and attr(marker, "head_sha") == tostring(head_sha)
       and attr(marker, "source_ref") == tostring(source_ref_digest)
   end

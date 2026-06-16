@@ -54,6 +54,32 @@ local liveness_resolver_families = {
 
 local liveness_signal_producers = registry.load_indexed_map("core.restart.liveness_signal_producers.index", "family")
 
+function M.liveness_signal_producer_contract(family)
+  return liveness_signal_producers[tostring(family or "")]
+end
+
+local function strip_liveness_timeout_suffixes(version)
+  local text = tostring(version or "")
+  local previous = nil
+  while previous ~= text do
+    previous = text
+    text = text
+      :gsub("/timeout%-reconcile/[%w%-]+/%d+$", "")
+      :gsub("%-timeout%-reconcile%-[%w%-]+%-%d+$", "")
+      :gsub("/timeout/[%w%-]+/%d+$", "")
+      :gsub("%-timeout%-[%w%-]+%-%d+$", "")
+  end
+  return text
+end
+
+function M.liveness_heartbeat_version(version, contract)
+  local heartbeat_version = strip_liveness_timeout_suffixes(version)
+  if contract and contract.version_form == "safe_version_segment" then
+    return M.safe_version_segment(heartbeat_version)
+  end
+  return M.strip_transition_version_suffixes(heartbeat_version)
+end
+
 local function numeric_minutes(value)
   local minutes = tonumber(value)
   if minutes == nil or minutes <= 0 then
@@ -284,11 +310,7 @@ local function live_signal_comments(signal, facts)
 end
 
 local function live_signal_version(M, signal, version)
-  local base = M.strip_transition_version_suffixes(version)
-  if signal and signal.version_form == "safe_version_segment" then
-    return M.safe_version_segment(base or "")
-  end
-  return base
+  return M.liveness_heartbeat_version(version, signal)
 end
 
 local function live_signal_age(M, row, state, facts, now_seconds)
@@ -341,11 +363,13 @@ local function live_signal_age(M, row, state, facts, now_seconds)
     local head_sha = facts and facts.head_sha
     local review_proposal_id = facts and facts.review_proposal_id
     local source_repo, source_pr = M.parse_pr_source_ref(facts and facts.source_ref)
-    if source_repo ~= nil and source_pr ~= nil and M._is_git_sha(head_sha) then
-      review_proposal_id = M.pr_review_proposal_id(source_repo, source_pr, signal_version, head_sha)
+    if source_repo ~= nil
+      and source_pr ~= nil
+      and M._is_git_sha(head_sha) then
+      review_proposal_id = M.pr_review_proposal_id(source_repo, source_pr, strip_liveness_timeout_suffixes(state and state.version), head_sha)
     end
     local sr_digest = M.source_ref_digest(facts and facts.source_ref)
-    return newest_matching_marker_age(M, comments, "review-converge-round", function(marker)
+    return matching_marker_age_or_zero(M, comments, "review-converge-round", function(marker)
       return marker_attr(marker, "proposal") == tostring(review_proposal_id)
         and marker_attr(marker, "issue_proposal") == tostring(proposal_id)
         and marker_attr(marker, "version") == tostring(signal_version)

@@ -138,7 +138,7 @@ local function review_round_comment(created_at)
   return trusted_comment(core.review_converge_round_marker(
     review_proposal_id,
     proposal_id,
-    core.safe_version_segment(version),
+    version,
     "def456",
     core.source_ref_digest(source_ref),
     1,

@@ -502,7 +502,7 @@ return {
         current_pr = {
           comments = {
             {
-              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", core.safe_version_segment(version), head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Still reviewing", {
+              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", version, head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Still reviewing", {
                 { angle = "minimal", verdict = "continue", digest = "recent" },
               }),
               author_login = "fkst-test-bot",
@@ -544,7 +544,7 @@ return {
         current_pr = {
           comments = {
             {
-              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", core.safe_version_segment(version), head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Stale review", {
+              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", version, head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Stale review", {
                 { angle = "minimal", verdict = "continue", digest = "stale" },
               }),
               author_login = "fkst-test-bot",
