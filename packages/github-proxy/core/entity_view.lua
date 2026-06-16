@@ -3,10 +3,6 @@ local S = {}
 function S.install(M)
 local max_cache_key_segment_len = 120
 
-local function shell_single_quote(value)
-  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
-end
-
 local function sanitize_cache_segment(value, allow_slash)
   local pattern = allow_slash and "[^%w%._%-%/]" or "[^%w%._%-]"
   local safe = tostring(value or ""):gsub(pattern, "-")
@@ -67,13 +63,6 @@ local function entity_view_cmd(repo, kind, number)
     return M.gh_pr_rest_view_cmd(repo, number)
   end
   return M.gh_issue_rest_view_cmd(repo, number)
-end
-
-local function entity_updated_at_cmd(repo, kind, number)
-  local path_kind = kind == "pr" and "pulls" or "issues"
-  return "gh api "
-    .. shell_single_quote("repos/" .. tostring(repo) .. "/" .. path_kind .. "/" .. tostring(number))
-    .. " --jq " .. shell_single_quote(".updated_at // .updatedAt // \"\"")
 end
 
 local function parse_view_updated_at(stdout)
@@ -139,15 +128,15 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts)
   local consumer = tostring(options.consumer or "")
   if options.fresh == true or options.marker_bearing == true or freshness == "" then
     if selected_kind == "pr" then
-      return M.fetch_rest_pr_view(repo, number)
+      return M.fetch_rest_pr_view(repo, number, options.github)
     end
-    return M.fetch_rest_issue_view(repo, number)
+    return M.fetch_rest_issue_view(repo, number, options.github)
   end
 
   local key = entity_view_storage_cache_key(repo, selected_kind, number, freshness)
   local cached = decode_cached_view(cache_get(key))
   if cached ~= nil and cached.producer ~= consumer then
-    local current = M.gh_exec(entity_updated_at_cmd(repo, selected_kind, number), 30)
+    local current = (options.github or M.github_handle()).entity_updated_at(repo, selected_kind, number, { timeout = 30 })
     if current.exit_code ~= 0 then
       return current
     end
@@ -161,7 +150,9 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts)
     end
     cache_set(key, "")
   end
-  local result = selected_kind == "pr" and M.fetch_rest_pr_view(repo, number) or M.fetch_rest_issue_view(repo, number)
+  local result = selected_kind == "pr"
+    and M.fetch_rest_pr_view(repo, number, options.github)
+    or M.fetch_rest_issue_view(repo, number, options.github)
   if type(result) == "table" and result.exit_code == 0 and parse_view_updated_at(result.stdout) == freshness then
     cache_set(key, encode_cached_view(result.stdout or "", consumer))
   end
@@ -203,7 +194,7 @@ function M.gh_entity_updated_at_cmd(repo, kind, number)
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
     error("github-proxy: invalid entity updatedAt kind")
   end
-  return entity_updated_at_cmd(repo, selected_kind, number)
+  return entity_view_cmd(repo, selected_kind, number) .. " --jq .updated_at"
 end
 
 function M.fetch_entity_view(repo, kind, number, updated_at, opts)

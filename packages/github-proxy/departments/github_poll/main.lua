@@ -1,16 +1,15 @@
 local core = require("core")
+local ports_seam = require("std.ports")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "github_poll_tick" },
   produces = { "github_entity_changed" },
   stall_window = "30s",
 }
 
 local entity_types = {
-  { type = "issue", cmd = core.gh_issue_list_cmd },
-  { type = "pr", cmd = core.gh_pr_list_cmd },
+  { type = "issue", method = "issue_list_open", label = "github issue list" },
+  { type = "pr", method = "pr_list_open", label = "github pr list" },
 }
 
 local function replay_sort_key(entity)
@@ -107,17 +106,27 @@ local function raise_changed(repo, fresh_changes, replay_changes)
   end
 end
 
-local function poll_entities(repo, event, fresh_changes, replay_candidates)
+local function poll_entities(repo, event, github, fresh_changes, replay_candidates)
   for _, entity_type in ipairs(entity_types) do
-    local ok, result_or_err = core.gh_exec_result(entity_type.cmd(repo), 30, "gh " .. entity_type.type .. " list")
+    local ok, result_or_err = pcall(function()
+      return github[entity_type.method](repo, { timeout = 30 })
+    end)
     if not ok then
-      core.log_error_fact("warn", "github_poll", "FAILURE", result_or_err.class, event and event.queue, result_or_err.message, {
+      local err = result_or_err
+      if type(err) ~= "table" then
+        err = core.gh_error(entity_type.label, {
+          stdout = "",
+          stderr = tostring(err),
+          exit_code = 1,
+        })
+      end
+      core.log_error_fact("warn", "github_poll", "FAILURE", err.class, event and event.queue, err.message, {
         source_ref = event and event.source_ref,
         attempt = event and event.attempt,
         terminal = false,
       })
-      if core.is_gh_rate_limit_error(result_or_err) then
-        error(result_or_err.message)
+      if core.is_gh_rate_limit_error(err) then
+        error(err.message)
       end
     else
       collect_changed(repo, entity_type.type, core.parse_entity_list(result_or_err.stdout, entity_type.type), fresh_changes, replay_candidates)
@@ -125,7 +134,8 @@ local function poll_entities(repo, event, fresh_changes, replay_candidates)
   end
 end
 
-function pipeline(event)
+local function make_department(ports)
+local function poll_pipeline(event)
   local repo = core.read_env("FKST_GITHUB_REPO")
   if repo == nil then
     log.warn("github-proxy: FKST_GITHUB_REPO missing; skipping poll")
@@ -135,10 +145,15 @@ function pipeline(event)
   local replay_budget = core.devloop_replay_budget()
   local fresh_changes = {}
   local replay_candidates = {}
-  poll_entities(repo, event, fresh_changes, replay_candidates)
+  poll_entities(repo, event, ports.github, fresh_changes, replay_candidates)
   raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget))
 end
 
-pipeline = core.wrap_pipeline_failure("github_poll", pipeline)
+pipeline = core.wrap_pipeline_failure("github_poll", poll_pipeline)
+_G.pipeline = pipeline
+return { spec = spec, pipeline = pipeline, ports = ports }
+end
+
+local M = ports_seam.install(make_department)
 
 return M

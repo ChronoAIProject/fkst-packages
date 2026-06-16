@@ -53,11 +53,7 @@ local function render_pr_number_template(value, pr_number)
 end
 
 local function verify_pr_remote_head(repo, pr_number, expected_head_sha, expected_base_branch)
-  local pr_head = core.gh_exec(
-    core.gh_pr_view_head_oid_cmd(repo, pr_number),
-    30,
-    "gh PR REST head repository/headRefOid/state"
-  )
+  local pr_head = core.github_handle().rest_pr_view(repo, pr_number, { timeout = 30 })
   local remote_pr = core.parse_pr_view_head_state(pr_head.stdout, repo)
   if remote_pr == nil then
     error("github-proxy: gh PR REST head repository/headRefOid/state did not return a valid open PR fact")
@@ -312,11 +308,7 @@ function pipeline(event)
     end
 
     if not guard.pr_open_visible then
-      local issue_view = core.gh_exec(
-        core.gh_issue_view_comments_cmd(repo, payload.issue_number),
-        30,
-        "gh issue REST comments after PR open"
-      )
+      local issue_view = core.github_handle().issue_comments(repo, payload.issue_number, { timeout = 30 })
       if core.has_trusted_marker(core.parse_issue_comments(issue_view.stdout), payload.dedup_key, bot_login) then
         guard.pr_open_visible = true
       end
@@ -341,11 +333,7 @@ function pipeline(event)
       core.invalidate_entity_after_write(repo, "issue", payload.issue_number)
     end
 
-    local pr_view = core.gh_exec(
-      core.gh_pr_view_comments_cmd(repo, pr.number),
-      30,
-      "gh PR REST comments after PR open"
-    )
+    local pr_view = core.github_handle().issue_comments(repo, pr.number, { timeout = 30 })
     if not core.has_trusted_comment_fragment(core.parse_issue_comments(pr_view.stdout), tostring(payload.body), bot_login) then
       local pr_body = tostring(payload.body) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
       pr_body = core.with_github_debug_stamp(pr_body, {

@@ -111,11 +111,11 @@ return {
     t.eq(key, "github-proxy/view/owner/repo/issue/12/2026-06-03T01-02-03Z")
     t.eq(
       core.gh_issue_view_entity_cmd("owner/repo", 12),
-      "gh api 'repos/owner/repo/issues/12'"
+      "repos/owner/repo/issues/12"
     )
     t.eq(
       core.gh_pr_view_entity_cmd("owner/repo", 7),
-      "gh api 'repos/owner/repo/pulls/7'"
+      "repos/owner/repo/pulls/7"
     )
   end,
 
@@ -718,7 +718,7 @@ return {
     t.eq(core.parse_pr_list_for_head('[{"number":7,"headRefName":"devloop-owner-repo-42-01HY","state":"CLOSED"}]', "devloop-owner-repo-42-01HY"), nil)
     t.eq(
       core.gh_pr_view_head_oid_cmd("owner/repo", 7),
-      "gh api 'repos/owner/repo/pulls/7'"
+      "repos/owner/repo/pulls/7"
     )
     local same_repo_pr = core.parse_pr_view_head_state(
       '{"head":{"ref":"feature","sha":"ABC123","repo":{"full_name":"owner/repo","owner":{"login":"owner"}}},"base":{"ref":"dev","repo":{"full_name":"owner/repo","owner":{"login":"owner"}}},"state":"open","merged":false}',
@@ -741,7 +741,7 @@ return {
     t.eq(core.parse_pr_create("https://example.test/pull/8\n").number, 8)
     t.eq(
       core.gh_issue_view_comments_cmd("owner/repo", 3),
-      "gh api --paginate --slurp 'repos/owner/repo/issues/3/comments?per_page=100'"
+      "repos/owner/repo/issues/3/comments?per_page=100"
     )
     local expected_label_colors = {
       ["fkst-dev:enabled"] = "1D76DB",

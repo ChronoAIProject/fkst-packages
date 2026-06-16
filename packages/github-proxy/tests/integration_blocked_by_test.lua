@@ -69,7 +69,7 @@ local function mock_node_ids()
 end
 
 local function mock_add_blocked_by()
-  t.mock_command(core.gh_add_blocked_by_cmd("I_blocked", "I_blocking"), {
+  t.mock_command("addBlockedBy(input:{issueId:$b,blockingIssueId:$g})", {
     stdout = '{"data":{"addBlockedBy":{"clientMutationId":null}}}\n',
     stderr = "",
     exit_code = 0,
@@ -92,7 +92,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("addBlockedBy"), 0)
-    t.eq(count_calls("gh api --paginate --slurp 'repos/owner/x/issues/42/comments?per_page=100'"), 0)
+    t.eq(count_calls("repos/owner/x/issues/42/comments?per_page=100"), 0)
   end,
 
   test_blocked_by_real_write_adds_graphql_edge_and_marker = function()
@@ -185,7 +185,7 @@ return {
     local operations = core.github_graphql_queries
 
     t.eq(type(operations), "table")
-    t.eq(core.github_graphql_command_templates.graphql_query, "gh api graphql -f query=")
+    t.eq(core.github_graphql_command_templates.graphql_query, "github.graphql_query")
     t.eq(type(operations.blocked_by), "string")
     t.eq(type(operations.add_blocked_by), "string")
     t.eq(operations.blocked_by:find("blockedBy(first:50)", 1, true) ~= nil, true)

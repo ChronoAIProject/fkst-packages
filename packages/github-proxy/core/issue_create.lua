@@ -9,10 +9,6 @@ local max_dedup_len = 512
 local max_runtime_id_len = 180
 local max_issue_number_len = 32
 
-local function shell_single_quote(value)
-  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
-end
-
 local function is_bounded_string(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
 end
@@ -48,35 +44,9 @@ local function issue_create_runtime_identity(dedup_key)
   return id
 end
 
-local function labels_arg(labels)
-  local args = ""
-  if type(labels) ~= "table" then
-    return args
-  end
-  for _, label in ipairs(labels) do
-    if is_bounded_string(label, max_label_len) then
-      args = args .. " --label " .. shell_single_quote(label)
-    end
-  end
-  return args
-end
-
 local function is_valid_login(value)
   return is_bounded_string(value, max_login_len)
     and tostring(value):find("^[%w%-%[%]_.]+$") ~= nil
-end
-
-local function assignees_arg(assignees)
-  local args = ""
-  if type(assignees) ~= "table" then
-    return args
-  end
-  for _, login in ipairs(assignees) do
-    if is_valid_login(login) then
-      args = args .. " --assignee " .. shell_single_quote(login)
-    end
-  end
-  return args
 end
 
 -- A GitHub App's author login is "<slug>[bot]" via the REST API but bare
@@ -140,18 +110,19 @@ function M.issue_create_once_key(dedup_key)
 end
 
 function M.gh_issue_create_search_cmd(repo, dedup_key)
-  return "gh issue list --repo " .. shell_single_quote(repo)
-    .. " --state all --limit 100"
-    .. " --search " .. shell_single_quote(M.issue_create_marker(dedup_key))
-    .. " --json number,title,state,author,body,url"
+  return tostring(repo) .. "#issue-create-search/" .. tostring(dedup_key)
 end
 
 function M.gh_issue_create_cmd(repo, title, body_file, labels, assignees)
-  return "gh issue create --repo " .. shell_single_quote(repo)
-    .. " --title " .. shell_single_quote(title)
-    .. " --body-file " .. shell_single_quote(body_file)
-    .. labels_arg(labels)
-    .. assignees_arg(assignees)
+  return tostring(repo)
+    .. "#issue-create/"
+    .. tostring(title)
+    .. "/"
+    .. tostring(body_file)
+    .. "/"
+    .. tostring(type(labels) == "table" and #labels or 0)
+    .. "/"
+    .. tostring(type(assignees) == "table" and #assignees or 0)
 end
 
 local function normalize_parent_comment_target(target)
@@ -179,10 +150,7 @@ local function normalize_parent_comment_target(target)
 end
 
 function M.gh_issue_create_parent_view_cmd(parent)
-  if parent.kind == "pr" then
-    return M.gh_pr_view_comments_cmd(parent.repo, parent.number)
-  end
-  return M.gh_issue_view_comments_cmd(parent.repo, parent.number)
+  return tostring(parent.repo) .. "#" .. tostring(parent.kind) .. "/" .. tostring(parent.number) .. "/comments"
 end
 
 function M.gh_issue_create_parent_comment_cmd(parent, body_file)
@@ -413,7 +381,7 @@ function M.write_issue_create_request(payload)
   with_lock(M.issue_create_lock_key(payload.dedup_key), function()
     local parent = normalize_parent_comment_target(payload.parent_comment_target)
     if parent ~= nil then
-      local parent_view = M.gh_exec(M.gh_issue_create_parent_view_cmd(parent), 30, "gh parent comment view")
+      local parent_view = M.github_handle().issue_comments(parent.repo, parent.number, { timeout = 30 })
       local parent_comments = M.parse_issue_comments(parent_view.stdout)
       local existing_created_issue = M.trusted_issue_created_number(parent_comments, payload.dedup_key, bot_login)
       if existing_created_issue ~= nil then
@@ -430,7 +398,7 @@ function M.write_issue_create_request(payload)
       file.write(intent_path, M.issue_create_intent_marker(payload.dedup_key) .. "\n")
       M.gh_exec(M.gh_issue_create_parent_comment_cmd(parent, intent_path), 30, "gh parent issue-create intent comment")
       M.invalidate_entity_after_write(parent.repo, parent.kind, parent.number)
-      local confirm = M.gh_exec(M.gh_issue_create_parent_view_cmd(parent), 30, "gh parent issue-create intent confirm")
+      local confirm = M.github_handle().issue_comments(parent.repo, parent.number, { timeout = 30 })
       if not M.has_trusted_issue_create_intent_marker(M.parse_issue_comments(confirm.stdout), payload.dedup_key, bot_login) then
         error("github-proxy: issue-create intent marker not visible after write")
       end
@@ -441,7 +409,7 @@ function M.write_issue_create_request(payload)
     -- no-parent fallback keeps issue body search as a bounded external backstop.
     local ran = once(M.issue_create_once_key(payload.dedup_key), function()
       if parent == nil then
-        local search = M.gh_exec(M.gh_issue_create_search_cmd(repo, payload.dedup_key), 30, "gh issue list")
+        local search = M.github_handle().issue_create_search(repo, M.issue_create_marker(payload.dedup_key), { timeout = 30 })
         if M.has_trusted_issue_create_marker(M.parse_issue_create_search(search.stdout), payload.dedup_key, bot_login) then
           log.info("github-proxy: skip-idempotent issue-create marker already present")
           return
@@ -456,7 +424,7 @@ function M.write_issue_create_request(payload)
       })
       local path = "/tmp/fkst-github-proxy-" .. issue_create_runtime_identity(payload.dedup_key) .. ".md"
       file.write(path, body)
-      local created = M.gh_exec(M.gh_issue_create_cmd(repo, payload.title, path, payload.labels, payload.assignees), 30, "gh issue create")
+      local created = M.github_handle().issue_create(repo, payload.title, path, payload.labels, payload.assignees, { timeout = 30 })
       local issue_number = M.parse_created_issue_number(created.stdout)
       if issue_number ~= nil then
         M.invalidate_entity_after_write(repo, "issue", issue_number)

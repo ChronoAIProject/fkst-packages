@@ -191,7 +191,7 @@ local function is_gh_not_found(result)
 end
 
 local function load_comments(M, target, repo)
-  local view = M.gh_exec(target.view_comments_cmd(repo, target.number), 30, target.view_label)
+  local view = M.github_handle().issue_comments(repo, target.number, { timeout = 30 })
   return M.parse_issue_comments(view.stdout)
 end
 
@@ -206,7 +206,7 @@ local function parse_rest_comments(stdout)
 end
 
 local function load_rest_comments(M, target, repo)
-  local view = M.gh_exec(M.gh_issue_comments_api_cmd(repo, target.number), 30, "gh issue comments")
+  local view = M.github_handle().issue_comments(repo, target.number, { timeout = 30 })
   return parse_rest_comments(view.stdout)
 end
 

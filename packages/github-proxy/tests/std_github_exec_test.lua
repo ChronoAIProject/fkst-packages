@@ -151,4 +151,134 @@ return {
       assert(call.rate_pool == nil, "read_issue must not pass rate_pool")
     end
   end,
+
+  test_github_proxy_read_methods_use_gh_argv_without_shell_fields = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      if opts.argv[2] == "api" and opts.argv[3] == "graphql" then
+        return { stdout = '{"data":{}}', stderr = "", exit_code = 0 }
+      end
+      if opts.argv[2] == "issue" and opts.argv[3] == "list" then
+        return { stdout = "[]", stderr = "", exit_code = 0 }
+      end
+      return { stdout = "{}", stderr = "", exit_code = 0 }
+    end)
+
+    handle.rest_issue_view("owner/repo", 42, { timeout = 8 })
+    handle.rest_pr_view("owner/repo", 7, { timeout = 8 })
+    handle.issue_comments("owner/repo", 42, { timeout = 8 })
+    handle.entity_updated_at("owner/repo", "pr", 7, { timeout = 8 })
+    handle.issue_create_search("owner/repo", "<!-- marker -->", { timeout = 8 })
+    handle.graphql_query("query { viewer { login } }", { timeout = 8 })
+    handle.issue_list_open("owner/repo", { timeout = 8 })
+    handle.pr_list_open("owner/repo", { timeout = 8 })
+    handle.graphql_mutation("mutation($b:ID!){noop(id:$b){id}}", { { "b", "I_blocked" } }, { timeout = 8 })
+
+    assert_argv_equal(calls[1].argv, { "gh", "api", "repos/owner/repo/issues/42" }, "REST issue")
+    assert_argv_equal(calls[2].argv, { "gh", "api", "repos/owner/repo/pulls/7" }, "REST PR")
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues/42/comments?per_page=100" },
+      "issue comments"
+    )
+    assert_argv_equal(
+      calls[4].argv,
+      { "gh", "api", "repos/owner/repo/pulls/7", "--jq", ".updated_at // .updatedAt // \"\"" },
+      "entity updatedAt"
+    )
+    assert_argv_equal(
+      calls[5].argv,
+      {
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--state",
+        "all",
+        "--limit",
+        "100",
+        "--search",
+        "<!-- marker -->",
+        "--json",
+        "number,title,state,author,body,url",
+      },
+      "issue-create search"
+    )
+    assert_argv_equal(
+      calls[6].argv,
+      { "gh", "api", "graphql", "-f", "query=query { viewer { login } }" },
+      "GraphQL query"
+    )
+    assert_argv_equal(
+      calls[7].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues?state=open&per_page=100" },
+      "open issue list"
+    )
+    assert_argv_equal(
+      calls[8].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/pulls?state=open&per_page=100" },
+      "open PR list"
+    )
+    assert_argv_equal(
+      calls[9].argv,
+      { "gh", "api", "graphql", "-f", "query=mutation($b:ID!){noop(id:$b){id}}", "-f", "b=I_blocked" },
+      "GraphQL mutation"
+    )
+    for index, call in ipairs(calls) do
+      assert(call.timeout == 8, "read method forwards timeout for call " .. tostring(index))
+      assert(call.cmd == nil, "read method must not pass cmd")
+      assert(call.rate_pool == nil, "read method must not pass rate_pool")
+    end
+  end,
+
+  test_github_proxy_write_methods_use_gh_argv_without_shell_fields = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "", stderr = "", exit_code = 0 }
+    end)
+
+    handle.issue_create("owner/repo", "Fix title", "/tmp/body.md", { "bug", "ready" }, { "fkst-test-bot" }, { timeout = 8 })
+    handle.issue_assign("owner/repo", 42, "fkst-test-bot", { timeout = 8 })
+    handle.issue_unassign("owner/repo", 42, "fkst-test-bot", { timeout = 8 })
+
+    assert_argv_equal(
+      calls[1].argv,
+      {
+        "gh",
+        "issue",
+        "create",
+        "--repo",
+        "owner/repo",
+        "--title",
+        "Fix title",
+        "--body-file",
+        "/tmp/body.md",
+        "--label",
+        "bug",
+        "--label",
+        "ready",
+        "--assignee",
+        "fkst-test-bot",
+      },
+      "issue create"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "issue", "edit", "42", "--repo", "owner/repo", "--add-assignee", "fkst-test-bot" },
+      "issue assign"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "issue", "edit", "42", "--repo", "owner/repo", "--remove-assignee", "fkst-test-bot" },
+      "issue unassign"
+    )
+    for index, call in ipairs(calls) do
+      assert(call.timeout == 8, "write method forwards timeout for call " .. tostring(index))
+      assert(call.cmd == nil, "write method must not pass cmd")
+      assert(call.rate_pool == nil, "write method must not pass rate_pool")
+    end
+  end,
 }

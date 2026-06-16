@@ -1,7 +1,7 @@
 local S = {}
 
 local command_templates = {
-  graphql_query = "gh api graphql -f query=",
+  graphql_query = "github.graphql_query",
 }
 
 local queries = {

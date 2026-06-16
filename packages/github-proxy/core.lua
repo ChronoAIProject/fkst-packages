@@ -133,6 +133,19 @@ end
 
 require("std.github_debug_stamp").install(M)
 
+local default_github_handle = nil
+
+function M.github_handle()
+  if default_github_handle == nil then
+    default_github_handle = require("std.github").new(exec_argv)
+  end
+  return default_github_handle
+end
+
+function M.set_github_handle(handle)
+  default_github_handle = handle
+end
+
 function M.log_line(level, dept, tag, fields)
   local parts = {
     "github-proxy",

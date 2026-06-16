@@ -4,10 +4,6 @@ function S.install(M)
 local max_dedup_len = 512
 local max_repo_len = 200
 
-local function shell_single_quote(value)
-  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
-end
-
 local function is_bounded_string(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
 end
@@ -126,14 +122,12 @@ function M.gh_issue_blocked_by_cmd(repo, issue_number)
     name = name,
     issue_number = tostring(math.floor(tonumber(issue_number))),
   })
-  return M.github_graphql_command_templates.graphql_query .. shell_single_quote(query)
+  return query
 end
 
 function M.gh_add_blocked_by_cmd(blocked_id, blocking_id)
   local query = M.github_graphql_queries.add_blocked_by
-  return M.github_graphql_command_templates.graphql_query .. shell_single_quote(query)
-    .. " -f b=" .. shell_single_quote(blocked_id)
-    .. " -f g=" .. shell_single_quote(blocking_id)
+  return query .. "/b=" .. tostring(blocked_id) .. "/g=" .. tostring(blocking_id)
 end
 
 local function parse_blocked_by(stdout)
@@ -168,7 +162,7 @@ local function parse_blocked_by(stdout)
 end
 
 function M.issue_blocked_by_edge_exists(repo, blocked_issue_number, blocking_issue_number)
-  local view = M.gh_exec(M.gh_issue_blocked_by_cmd(repo, blocked_issue_number), 30, "gh blockedBy view")
+  local view = M.github_handle().graphql_query(M.gh_issue_blocked_by_cmd(repo, blocked_issue_number), { timeout = 30 })
   for _, edge in ipairs(parse_blocked_by(view.stdout)) do
     if tostring(edge.repo) == tostring(repo) and tonumber(edge.number) == tonumber(blocking_issue_number) then
       return true
@@ -230,20 +224,23 @@ function M.write_issue_blocked_by_request(payload)
 
   local bot_login = M.assert_trusted_bot_configured()
   with_lock(M.issue_blocked_by_lock_key(payload.repo, payload.blocked_issue_number), function()
-    local comments_view = M.gh_exec(M.gh_issue_view_comments_cmd(payload.repo, payload.blocked_issue_number), 30, "gh issue comments")
+    local comments_view = M.github_handle().issue_comments(payload.repo, payload.blocked_issue_number, { timeout = 30 })
     if M.has_trusted_blocked_by_marker(M.parse_issue_comments(comments_view.stdout), payload.dedup_key, bot_login) then
       log.info("github-proxy: skip-idempotent blocked-by marker already present")
       return
     end
     if not M.issue_blocked_by_edge_exists(payload.repo, payload.blocked_issue_number, payload.blocking_issue_number) then
-      local blocked = M.gh_exec(M.gh_issue_node_id_cmd(payload.repo, payload.blocked_issue_number), 30, "gh blocked issue id")
-      local blocking = M.gh_exec(M.gh_issue_node_id_cmd(payload.repo, payload.blocking_issue_number), 30, "gh blocking issue id")
+      local blocked = M.github_handle().rest_issue_view(payload.repo, payload.blocked_issue_number, { timeout = 30 })
+      local blocking = M.github_handle().rest_issue_view(payload.repo, payload.blocking_issue_number, { timeout = 30 })
       local blocked_id = M.parse_issue_node_id(blocked.stdout)
       local blocking_id = M.parse_issue_node_id(blocking.stdout)
       if blocked_id == nil or blocking_id == nil then
         error("github-proxy: issue node id missing")
       end
-      M.gh_exec(M.gh_add_blocked_by_cmd(blocked_id, blocking_id), 30, "gh addBlockedBy")
+      M.github_handle().graphql_mutation(M.github_graphql_queries.add_blocked_by, {
+        { "b", blocked_id },
+        { "g", blocking_id },
+      }, { timeout = 30 })
     end
 
     local path = marker_file(payload.dedup_key)

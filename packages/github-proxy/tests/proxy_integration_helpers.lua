@@ -59,7 +59,7 @@ local function mock_bot_env(value)
 end
 
 local function mock_issue_list(stdout, exit_code, stderr)
-  t.mock_command("gh api --paginate --slurp 'repos/owner/x/issues?state=open&per_page=100'", {
+  t.mock_command("repos/owner/x/issues?state=open&per_page=100", {
     stdout = stdout or issue_list_json(),
     stderr = stderr or "",
     exit_code = exit_code or 0,
@@ -67,7 +67,7 @@ local function mock_issue_list(stdout, exit_code, stderr)
 end
 
 local function mock_pr_list(stdout, exit_code, stderr)
-  t.mock_command("gh api --paginate --slurp 'repos/owner/x/pulls?state=open&per_page=100'", {
+  t.mock_command("repos/owner/x/pulls?state=open&per_page=100", {
     stdout = stdout or pr_list_json(),
     stderr = stderr or "",
     exit_code = exit_code or 0,
@@ -144,16 +144,16 @@ local function mock_comment_view(comments, author)
       .. ","
       .. rest_comment_json('<!-- fkst:github-devloop:implementing:v1 proposal="github-devloop/issue/owner/x/42" dedup="v1" branch="devloop-owner-x-42-01HY" head_sha="abc123" base_branch="dev" base_sha="abc123" -->')
   end
-  t.mock_command("gh api --paginate --slurp 'repos/owner/x/issues/42/comments?per_page=100'", {
+  t.mock_command("repos/owner/x/issues/42/comments?per_page=100", {
     stdout = "[[" .. rendered .. "]]\n",
   })
-  t.mock_command("gh api --paginate --slurp 'repos/owner/payload/issues/42/comments?per_page=100'", {
+  t.mock_command("repos/owner/payload/issues/42/comments?per_page=100", {
     stdout = "[[" .. rendered .. "]]\n",
   })
 end
 
 local function mock_comment_view_failure()
-  t.mock_command("gh api --paginate --slurp 'repos/owner/x/issues/42/comments?per_page=100'", {
+  t.mock_command("repos/owner/x/issues/42/comments?per_page=100", {
     stdout = "",
     stderr = "forced comment view failure",
     exit_code = 1,
@@ -165,7 +165,7 @@ local function mock_label_view(labels)
   for _, label in ipairs(labels or {}) do
     table.insert(parts, string.format('{"name":"%s"}', label))
   end
-  t.mock_command("gh api 'repos/owner/x/issues/42'", {
+  t.mock_command("repos/owner/x/issues/42", {
     stdout = '{"labels":[' .. table.concat(parts, ",") .. "]}\n",
   })
 end
@@ -175,12 +175,12 @@ local function mock_pr_label_guard(labels, comments)
   for _, label in ipairs(labels or {}) do
     table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
   end
-  t.mock_command("gh api 'repos/owner/x/pulls/7'", {
+  t.mock_command("repos/owner/x/pulls/7", {
     stdout = '{"head":{"ref":"devloop-owner-x-42-01HY","sha":"abc123","repo":{"full_name":"owner/x","owner":{"login":"owner"}}},"base":{"ref":"dev","repo":{"full_name":"owner/x","owner":{"login":"owner"}}},"state":"open","updated_at":"2026-06-03T02:03:04Z","labels":[' .. table.concat(rendered_labels, ",") .. "]}\n",
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("gh api --paginate --slurp 'repos/owner/x/issues/7/comments?per_page=100'", {
+  t.mock_command("repos/owner/x/issues/7/comments?per_page=100", {
     stdout = "[[" .. render_rest_comments(comments or {}) .. "]]\n",
     stderr = "",
     exit_code = 0,
@@ -200,12 +200,12 @@ local function mock_pr_open_guard(labels, comments, assignees)
   for _, label in ipairs(labels or { "fkst-dev:implementing" }) do
     table.insert(rendered_labels, string.format('{"name":"%s"}', json_string(label)))
   end
-  t.mock_command("gh api 'repos/owner/x/issues/42'", {
+  t.mock_command("repos/owner/x/issues/42", {
     stdout = '{"title":"Bridge issue","body":"","updated_at":"2026-06-03T01:02:03Z","state":"open","labels":[' .. table.concat(rendered_labels, ",") .. '],"assignees":[' .. assignees_json(assignees) .. "]}\n",
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("gh api --paginate --slurp 'repos/owner/x/issues/42/comments?per_page=100'", {
+  t.mock_command("repos/owner/x/issues/42/comments?per_page=100", {
     stdout = "[[" .. render_rest_comments(comments or {}) .. "]]\n",
     stderr = "",
     exit_code = 0,
@@ -295,7 +295,7 @@ local function mock_label_write(labels)
 end
 
 local function mock_pr_head_list(stdout)
-  t.mock_command("gh api --paginate --slurp 'repos/owner/x/pulls?state=open&head=owner%3A", {
+  t.mock_command("repos/owner/x/pulls?state=open&head=owner%3A", {
     stdout = stdout or "[]\n",
     stderr = "",
     exit_code = 0,
@@ -354,7 +354,7 @@ end
 local function mock_pr_comment_view(comments, author)
   local stdout = "[[" .. render_rest_comments(comments or "existing pr comment", author) .. "]]\n"
   for _, number in ipairs({ 7, 9, 10, 11 }) do
-    t.mock_command("gh api --paginate --slurp 'repos/owner/x/issues/" .. tostring(number) .. "/comments?per_page=100'", {
+    t.mock_command("repos/owner/x/issues/" .. tostring(number) .. "/comments?per_page=100", {
       stdout = stdout,
     })
   end

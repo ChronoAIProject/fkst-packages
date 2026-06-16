@@ -10,6 +10,16 @@ local mock_poll = h.mock_poll
 local count_calls = h.count_calls
 require("tests.entity_view_probe_helpers")
 
+local function count_exact_calls(rendered)
+  local total = 0
+  for _, call in ipairs(t.command_calls()) do
+    if call.rendered == rendered then
+      total = total + 1
+    end
+  end
+  return total
+end
+
 local function mock_issue_view(title)
   t.mock_command(core.gh_issue_view_entity_cmd("owner/x", 42), {
     stdout = '{"title":"' .. tostring(title) .. '","body":"","state":"open","labels":[],"assignees":[],"updated_at":"2026-06-03T01:02:03Z"}\n',
@@ -113,7 +123,7 @@ return {
     local after = run_entity_view_probe(run_opts, "second")
     t.eq(after.exit_code, 0)
     t.is_true(after.stdout:find('"After"', 1, true) ~= nil)
-    t.eq(count_calls(core.gh_issue_view_entity_cmd("owner/x", 42)), 2)
+    t.eq(count_exact_calls("gh api " .. core.gh_issue_view_entity_cmd("owner/x", 42)), 2)
   end,
 
   test_marker_bearing_fetch_bypasses_proxy_entity_view_cache = function()
@@ -131,7 +141,7 @@ return {
     local marker_read = run_entity_view_probe(run_opts, "marker-reader-2", true)
     t.eq(marker_read.exit_code, 0)
     t.is_true(marker_read.stdout:find('"After"', 1, true) ~= nil)
-    t.eq(count_calls(core.gh_issue_view_entity_cmd("owner/x", 42)), 2)
+    t.eq(count_exact_calls("gh api " .. core.gh_issue_view_entity_cmd("owner/x", 42)), 2)
     t.is_true(run_opts.env.FKST_RUNTIME_ROOT ~= nil)
   end,
 
@@ -151,6 +161,6 @@ return {
     local marker_read = run_entity_view_probe(run_opts, "state-reader", false, true)
     t.eq(marker_read.exit_code, 0)
     t.is_true(marker_read.stdout:find('"After"', 1, true) ~= nil)
-    t.eq(count_calls(core.gh_issue_view_entity_cmd("owner/x", 42)), 2)
+    t.eq(count_exact_calls("gh api " .. core.gh_issue_view_entity_cmd("owner/x", 42)), 2)
   end,
 }
