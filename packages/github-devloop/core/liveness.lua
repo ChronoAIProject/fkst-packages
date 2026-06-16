@@ -196,6 +196,10 @@ local function build_timeout_reconcile(row, entity, state, facts, decision)
   return nil, nil
 end
 
+function M.build_liveness_timeout_reconcile_payload(row, entity, state, facts, decision)
+  return build_timeout_reconcile(row, entity, state, facts, decision)
+end
+
 function M.liveness_timeout_decision(row, state, now_seconds)
   local due, age = M.liveness_timeout_due(row, state, now_seconds)
   if not due then

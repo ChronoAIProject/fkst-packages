@@ -191,7 +191,13 @@ local function require_marker_fact(facts, family)
     return M.implementing_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "implement-attempt" then
-    return M.latest_implement_attempt_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    local attempt_version = facts.state.version
+    if facts.state.state == "implementing" then
+      attempt_version = tostring(attempt_version or "")
+        :gsub("/timeout/implementing/%d+$", "")
+        :gsub("%-timeout%-implementing%-%d+$", "")
+    end
+    return M.latest_implement_attempt_fact(facts.snapshot.comments, facts.proposal_id, attempt_version)
   end
   if family == "impl-failure" then
     return M.impl_failure_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
