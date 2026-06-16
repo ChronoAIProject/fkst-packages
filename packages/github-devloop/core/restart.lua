@@ -63,12 +63,17 @@ local function timeout(queue)
   }
 end
 
+local function liveness(contract)
+  return contract
+end
+
 local transition_table = registry.load_indexed_array("core.restart.transitions.index", "from_state", M, {
   fact = fact,
   obligation = obligation,
   effect = effect,
   budget = budget,
   timeout = timeout,
+  liveness = liveness,
 })
 
 local audit_by_state = {}

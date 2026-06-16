@@ -477,7 +477,7 @@ return {
     local ready_raise = find_raise(result.raises, "devloop_ready")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:ready")
     t.eq(label_raise.payload.remove_labels[1], "fkst-dev:thinking")
-    t.is_true(#label_raise.payload.remove_labels >= 10)
+    t.eq(#label_raise.payload.remove_labels, 12)
     t.eq(label_raise.payload.issue_number, "42")
 
     t.eq(comment_raise.payload.issue_number, "42")
@@ -544,7 +544,7 @@ return {
     t.eq(#stale_ready.raises, 3)
     local label_raise = find_raise(stale_ready.raises, "github-proxy.github_issue_label_request")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:ready")
-    t.is_true(#label_raise.payload.remove_labels >= 10)
+    t.eq(#label_raise.payload.remove_labels, 12)
     t.is_true(find_raise(stale_ready.raises, "github-proxy.github_issue_comment_request") ~= nil)
     t.is_true(find_raise(stale_ready.raises, "devloop_ready") ~= nil)
 

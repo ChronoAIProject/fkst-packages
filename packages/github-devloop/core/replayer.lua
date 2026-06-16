@@ -966,10 +966,6 @@ function M.replay_from_table(dept, entity, state, table_row, facts)
   return replay(dept, entity, state, row, replay_facts)
 end
 
-function M.replay_skip_is_live_defer(outcome)
-  return outcome == "skip-pending(attempt-live)"
-end
-
 function M.replay_from_table_classified(dept, entity, state, table_row, facts)
   local capture = {}
   local previous = M._replay_skip_capture
@@ -979,9 +975,6 @@ function M.replay_from_table_classified(dept, entity, state, table_row, facts)
   if not ok then error(issued) end
   if issued then
     return { kind = "issued", issued = true }
-  end
-  if M.replay_skip_is_live_defer(capture.outcome) then
-    return { kind = "live-defer", issued = false, outcome = capture.outcome, reason = capture.reason }
   end
   return { kind = "stuck", issued = false, outcome = capture.outcome, reason = capture.reason }
 end

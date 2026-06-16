@@ -119,25 +119,14 @@ local function issue_entity(repo, issue_number)
   }
 end
 
-local function has_legitimate_output_obligation_hold(row, state, facts)
-  if row == nil or state == nil or state.state ~= "ready" then
-    return false
-  end
-  if facts == nil or facts.current == nil then
-    return false
-  end
-  local dependency_hold = core.dependency_hold_fact(facts.current.comments, facts.proposal_id or state.proposal_id)
-  return dependency_hold ~= nil and tostring(dependency_hold.version or "") == tostring(state.version or "")
-end
-
 local function maybe_timeout_action(entity, state, facts)
   local row = core.restart_transition_row(state and state.state)
   if row == nil or row.terminal == true then
     return nil
   end
   local proposal_id = facts.proposal_id or state.proposal_id
-  if has_legitimate_output_obligation_hold(row, state, facts) then
-    core.log_cas_decision("liveness_scan", proposal_id, state, row.from_state, row.driving_queue, "skip-active-output-obligation", "dependency-hold output obligation is still active")
+  if core.restart_row_liveness_deferred(row, state, facts, facts.now_seconds or now()) then
+    core.log_cas_decision("liveness_scan", proposal_id, state, row.from_state, row.driving_queue, "skip-active-output-obligation", "receiver liveness contract signal is still fresh")
     return nil
   end
   if core.maybe_timeout_redrive_from_table("liveness_scan", entity, state, row, facts) then

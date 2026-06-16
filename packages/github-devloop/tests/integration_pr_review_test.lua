@@ -142,7 +142,7 @@ return {
     end)
     local open_pr_raise = find_raise(result.raises, "devloop_open_pr")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:implementing")
-    t.is_true(#label_raise.payload.remove_labels >= 10)
+    t.eq(#label_raise.payload.remove_labels, 11)
     t.is_true(comment_raise.payload.body:find("github-devloop implementation started", 1, true) ~= nil)
     local fact = core.implementing_fact({ comment_raise.payload.body }, event.proposal_id, event.dedup_key)
     t.eq(fact.branch, branch)

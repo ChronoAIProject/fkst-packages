@@ -32,6 +32,88 @@ local function valid_timeout(row)
     and terminal.reason ~= ""
 end
 
+local liveness_contract_margin_minutes = 30
+
+local liveness_signal_resolvers = {
+  ["converge-round"] = true,
+  ["dependency-hold"] = true,
+  ["implement-attempt"] = true,
+  ["review-converge-round"] = true,
+}
+
+local function numeric_minutes(value)
+  local minutes = tonumber(value)
+  if minutes == nil or minutes <= 0 then
+    return nil
+  end
+  return minutes
+end
+
+local function non_negative_minutes(value)
+  local minutes = tonumber(value)
+  if minutes == nil or minutes < 0 then
+    return nil
+  end
+  return minutes
+end
+
+local function liveness_bound_minutes(contract)
+  local receiver = non_negative_minutes(contract and contract.receiver_bound_minutes)
+  local external = non_negative_minutes(contract and contract.external_wait_bound_minutes)
+  if receiver == nil then
+    return nil
+  end
+  if external ~= nil and external > receiver then
+    return external
+  end
+  return receiver
+end
+
+local function validate_liveness_contract(M, row, errors)
+  local state = tostring(row.from_state or "?")
+  local contract = row.liveness_contract
+  if type(contract) ~= "table" then
+    table.insert(errors, state .. ": non-terminal row must declare exactly one liveness_contract")
+    return
+  end
+  local mode = contract.mode
+  if mode ~= "row-budget-bounds-receiver" and mode ~= "live-defer" then
+    table.insert(errors, state .. ": liveness_contract must declare exactly one supported mode")
+    return
+  end
+  if mode == "row-budget-bounds-receiver" then
+    local bound = liveness_bound_minutes(contract)
+    if bound == nil then
+      table.insert(errors, state .. ": row-budget-bounds-receiver must declare receiver_bound_minutes")
+      return
+    end
+    local budget_minutes = tonumber(row.budget and row.budget.minutes)
+    if budget_minutes == nil or budget_minutes < bound + liveness_contract_margin_minutes then
+      table.insert(errors, state .. ": budget.minutes must be at least max(declared receiver/external bounds) + margin")
+    end
+    return
+  end
+
+  local signal = contract.signal
+  if type(signal) ~= "table" then
+    table.insert(errors, state .. ": live-defer must declare a signal")
+    return
+  end
+  local family = signal.family
+  local resolver = signal.resolver or family
+  if type(family) ~= "string" or family == "" then
+    table.insert(errors, state .. ": live-defer signal must declare an existing marker family")
+  elseif M.restart_durable_marker_fields()[family] == nil then
+    table.insert(errors, state .. ": live-defer signal marker family does not exist: " .. tostring(family))
+  end
+  if liveness_signal_resolvers[resolver] ~= true then
+    table.insert(errors, state .. ": live-defer signal has no resolver: " .. tostring(resolver))
+  end
+  if numeric_minutes(signal.max_age_minutes) == nil then
+    table.insert(errors, state .. ": live-defer signal must declare finite max_age_minutes")
+  end
+end
+
 function M.liveness_contract_errors(rows)
   local errors = {}
   for _, row in ipairs(rows or M.restart_transition_table()) do
@@ -55,6 +137,7 @@ function M.liveness_contract_errors(rows)
       if not valid_timeout(row) then
         table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare redrive on_timeout for its driving queue plus force-terminate on_escalate to blocked")
       end
+      validate_liveness_contract(M, row, errors)
       if (type(row.to_states) ~= "table" or #row.to_states == 0)
         and (type(row.reentry_commands) ~= "table" or #row.reentry_commands == 0) then
         table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare at least one next state")
@@ -67,6 +150,183 @@ function M.liveness_contract_errors(rows)
     end
   end
   return errors
+end
+
+local function signal_age_from_created_at(M, created_at, now_seconds)
+  local created_seconds = M.iso_timestamp_epoch_seconds(created_at)
+  local current_seconds = tonumber(now_seconds)
+  if created_seconds ~= nil and current_seconds ~= nil and current_seconds >= created_seconds then
+    return math.floor((current_seconds - created_seconds) / 60)
+  end
+  return nil
+end
+
+local function marker_attr(marker, name)
+  return tostring(marker or ""):match(name .. '="([^"]*)"')
+end
+
+local function newest_matching_marker_age(M, comments, family, matches, now_seconds)
+  local pattern_family = tostring(family or ""):gsub("%-", "%%-")
+  local marker_pattern = "<!%-%- fkst:github%-devloop:" .. pattern_family .. ":v1.-%-%->"
+  local newest_age = nil
+  for _, comment in ipairs(M._trusted_marker_comments(comments or {})) do
+    local age = signal_age_from_created_at(M, M._comment_created_at(comment), now_seconds)
+    if age ~= nil and (newest_age == nil or age < newest_age) then
+      for marker in M._comment_body(comment):gmatch(marker_pattern) do
+        if matches(marker) then
+          newest_age = age
+          break
+        end
+      end
+    end
+  end
+  return newest_age
+end
+
+local function matching_marker_age_or_zero(M, comments, family, matches, now_seconds)
+  local pattern_family = tostring(family or ""):gsub("%-", "%%-")
+  local marker_pattern = "<!%-%- fkst:github%-devloop:" .. pattern_family .. ":v1.-%-%->"
+  local newest_age = nil
+  local found = false
+  for _, comment in ipairs(M._trusted_marker_comments(comments or {})) do
+    local age = signal_age_from_created_at(M, M._comment_created_at(comment), now_seconds)
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      if matches(marker) then
+        found = true
+        if age ~= nil and (newest_age == nil or age < newest_age) then
+          newest_age = age
+        end
+      end
+    end
+  end
+  if found then
+    return newest_age or 0
+  end
+  return nil
+end
+
+local function live_signal_age(M, row, state, facts, now_seconds)
+  local signal = row and row.liveness_contract and row.liveness_contract.signal
+  local resolver = signal and (signal.resolver or signal.family) or nil
+  local comments = facts and facts.current and facts.current.comments or nil
+  local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
+  if resolver == "dependency-hold" then
+    local hold = M.dependency_hold_fact(comments, proposal_id)
+    if hold ~= nil and tostring(hold.version or "") == tostring(state and state.version or "") then
+      return signal_age_from_created_at(M, hold.comment_created_at, now_seconds) or 0
+    end
+    return matching_marker_age_or_zero(M, comments, "dependency-wait", function(marker)
+      return marker_attr(marker, "proposal") == tostring(proposal_id)
+        and marker_attr(marker, "version") == tostring(state and state.version or "")
+    end, now_seconds) or matching_marker_age_or_zero(M, comments, "dependency-cycle", function(marker)
+      return marker_attr(marker, "proposal") == tostring(proposal_id)
+        and marker_attr(marker, "version") == tostring(state and state.version or "")
+    end, now_seconds) or matching_marker_age_or_zero(M, comments, "dependency-unresolvable", function(marker)
+      return marker_attr(marker, "proposal") == tostring(proposal_id)
+        and marker_attr(marker, "version") == tostring(state and state.version or "")
+    end, now_seconds)
+  end
+  if resolver == "implement-attempt" then
+    local attempt = M.latest_implement_attempt_fact(comments, proposal_id, state and state.version)
+    if attempt ~= nil then
+      local started = tonumber(attempt.started_at)
+      local current_seconds = tonumber(now_seconds)
+      if started ~= nil and current_seconds ~= nil and current_seconds >= started then
+        return math.floor((current_seconds - started) / 60)
+      end
+    end
+    return newest_matching_marker_age(M, comments, "implement-attempt", function(marker)
+      return marker_attr(marker, "proposal") == tostring(proposal_id)
+        and marker_attr(marker, "dedup") == tostring(state and state.version or "")
+    end, now_seconds)
+  end
+  if resolver == "converge-round" then
+    local source_ref = facts and facts.source_ref
+    local sr_digest = M.source_ref_digest(source_ref)
+    local base_version = M.version_loop_round(state and state.version) > 0 and M.converge_base_version(state.version) or state and state.version
+    return newest_matching_marker_age(M, comments, "converge-round", function(marker)
+      return marker_attr(marker, "proposal") == tostring(proposal_id)
+        and marker_attr(marker, "version") == tostring(base_version)
+        and marker_attr(marker, "source_ref") == tostring(sr_digest)
+    end, now_seconds)
+  end
+  if resolver == "review-converge-round" then
+    local issue_version = state and state.version
+    local head_sha = facts and facts.head_sha
+    local review_proposal_id = facts and facts.review_proposal_id
+    local sr_digest = M.source_ref_digest(facts and facts.source_ref)
+    return newest_matching_marker_age(M, comments, "review-converge-round", function(marker)
+      return marker_attr(marker, "proposal") == tostring(review_proposal_id)
+        and marker_attr(marker, "issue_proposal") == tostring(proposal_id)
+        and marker_attr(marker, "version") == tostring(issue_version)
+        and marker_attr(marker, "head_sha") == tostring(head_sha)
+        and marker_attr(marker, "source_ref") == tostring(sr_digest)
+    end, now_seconds)
+  end
+  return nil
+end
+
+function M.restart_row_liveness_signal(row, state, facts, now_seconds)
+  local contract = row and row.liveness_contract
+  if type(contract) ~= "table" or contract.mode ~= "live-defer" then
+    return { live = false, reason = "no-live-defer-contract" }
+  end
+  local max_age = numeric_minutes(contract.signal and contract.signal.max_age_minutes)
+  if max_age == nil then
+    return { live = false, reason = "invalid-live-defer-contract" }
+  end
+  local age = live_signal_age(M, row, state, facts, now_seconds)
+  if age ~= nil and age < max_age then
+    return {
+      live = true,
+      age_minutes = age,
+      max_age_minutes = max_age,
+      family = contract.signal.family,
+      resolver = contract.signal.resolver or contract.signal.family,
+    }
+  end
+  return {
+    live = false,
+    age_minutes = age,
+    max_age_minutes = max_age,
+    family = contract.signal.family,
+    resolver = contract.signal.resolver or contract.signal.family,
+  }
+end
+
+function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
+  local contract = row and row.liveness_contract
+  if type(contract) ~= "table" then
+    return { action = "stuck", reason = "missing-contract" }
+  end
+  if contract.mode == "live-defer" then
+    local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
+    if signal.live then
+      return {
+        action = "defer",
+        reason = "live-signal",
+        signal = signal,
+      }
+    end
+    return {
+      action = "stuck",
+      reason = "signal-stale-or-missing",
+      signal = signal,
+    }
+  end
+  if contract.mode == "row-budget-bounds-receiver" then
+    return {
+      action = "stuck",
+      reason = "row-budget-bounds-receiver",
+      receiver_bound_minutes = contract.receiver_bound_minutes,
+      external_wait_bound_minutes = contract.external_wait_bound_minutes,
+    }
+  end
+  return { action = "stuck", reason = "unsupported-contract" }
+end
+
+function M.restart_row_liveness_deferred(row, state, facts, now_seconds)
+  return M.restart_row_receiver_liveness(row, state, facts, now_seconds).action == "defer"
 end
 
 function M.liveness_terminal_states(rows)
@@ -301,6 +561,12 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     end
     return false
   end
+  local receiver_liveness = M.restart_row_receiver_liveness(row, state, facts, (facts and facts.now_seconds) or now())
+  if receiver_liveness.action == "defer" then
+    local signal = receiver_liveness.signal or {}
+    M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-timeout-count(live-signal:" .. tostring(signal.family or "unknown") .. ")", "receiver liveness contract signal is still fresh")
+    return false
+  end
   local replay = M.replay_from_table_classified(dept, entity, {
     state = state.state,
     version = state.version,
@@ -308,10 +574,6 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     stage_rank = state.stage_rank,
     marker_created_at = state.marker_created_at,
   }, row, facts)
-  if replay.kind == "live-defer" then
-    M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-timeout-count(" .. tostring(replay.outcome or "live-defer") .. ")", "receiver has an explicit live or waiting signal")
-    return false
-  end
   if replay.kind == "stuck" then
     M.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "timeout-stuck(" .. tostring(replay.outcome or "replay-declined") .. ")", "state output obligation is unmet and replay did not emit a consumable redrive")
   end
