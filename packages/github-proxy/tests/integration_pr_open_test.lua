@@ -49,7 +49,7 @@ local function count_exact_calls(rendered)
 end
 
 local function assert_pr_rest_view_fetch(pr_number)
-  t.eq(count_exact_calls(core.gh_pr_rest_view_cmd("owner/x", pr_number)), 1)
+  t.eq(count_exact_calls("gh api repos/owner/x/pulls/" .. tostring(pr_number)), 1)
   t.is_true(count_calls(core.gh_issue_comments_api_cmd("owner/x", pr_number)) >= 1)
 end
 
@@ -115,7 +115,7 @@ return {
     assert_pr_rest_view_fetch(7)
     local create = calls_matching("gh pr create")[1]
     t.eq(create.rendered:find("--json", 1, true), nil)
-    t.is_true(create.rendered:find("--base 'dev'", 1, true) ~= nil)
+    t.is_true(create.rendered:find("--base dev", 1, true) ~= nil)
 
     local issue_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-issue-comment.md")
     t.is_true(issue_written:find("github-devloop PR opened: #7", 1, true) ~= nil)
@@ -221,8 +221,8 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue edit"), 1)
     local edit = calls_matching("gh issue edit")[1]
-    t.is_true(edit.rendered:find("--add-label 'fkst-dev:pr-open'", 1, true) ~= nil)
-    t.is_true(edit.rendered:find("--remove-label 'fkst-dev:implementing'", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--add-label fkst-dev:pr-open", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--remove-label fkst-dev:implementing", 1, true) ~= nil)
   end,
 
   test_pr_open_write_guard_bypasses_warm_entity_view_cache = function()
@@ -643,7 +643,7 @@ return {
     local pr_written = file.read("/tmp/fkst-github-proxy-pr-open-owner_x-devloop-owner-x-42-01HY-pr-comment.md")
     t.is_true(pr_written:find("fkst:github-devloop:pr-origin:v1", 1, true) ~= nil)
     local edit = calls_matching("gh issue edit")[1]
-    t.is_true(edit.rendered:find("--add-label 'fkst-dev:pr-open'", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--add-label fkst-dev:pr-open", 1, true) ~= nil)
   end,
 
   test_pr_open_guard_uses_canonical_rank_so_meta_escalated_implementing_can_open_pr = function()

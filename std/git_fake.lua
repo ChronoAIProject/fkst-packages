@@ -30,6 +30,10 @@ function M.new(model)
     })
     return { stdout = "", stderr = "", exit_code = 0 }
   end
+  function handle._exec_result(argv, timeout, context)
+    return true, handle._exec(argv, timeout, context)
+  end
+  require("std.git.proxy").install(handle)
   return handle
 end
 

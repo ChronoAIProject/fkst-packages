@@ -667,31 +667,7 @@ return {
     t.eq(core.is_gh_rate_limit_error(err), true)
   end,
 
-  test_gh_commands_are_quoted = function()
-    t.eq(
-      core.gh_issue_list_cmd("owner/repo"),
-      "gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'"
-    )
-    t.eq(
-      core.gh_pr_list_cmd("owner/repo"),
-      "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'"
-    )
-    t.eq(
-      core.gh_pr_list_head_cmd("owner/repo", "devloop-owner-repo-42-01HY"),
-      "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Adevloop-owner-repo-42-01HY&per_page=100'"
-    )
-    t.eq(
-      core.gh_pr_list_head_cmd("owner/repo", "devloop-owner-repo-42-01HY", "dev"),
-      "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&head=owner%3Adevloop-owner-repo-42-01HY&per_page=100&base=dev'"
-    )
-    t.eq(
-      core.git_push_branch_cmd("devloop-owner-repo-42-01HY"),
-      "git push -u origin 'devloop-owner-repo-42-01HY'"
-    )
-    t.eq(
-      core.git_show_ref_branch_cmd("devloop-owner-repo-42-01HY"),
-      "git show-ref --verify refs/heads/'devloop-owner-repo-42-01HY'"
-    )
+  test_core_parsers_and_label_colors = function()
     t.eq(
       core.parse_git_show_ref_head("abc123 refs/heads/devloop-owner-repo-42-01HY\n", "devloop-owner-repo-42-01HY"),
       "abc123"
@@ -699,14 +675,6 @@ return {
     t.eq(
       core.parse_git_show_ref_head("abc123 refs/tags/devloop-owner-repo-42-01HY\n", "devloop-owner-repo-42-01HY"),
       nil
-    )
-    t.eq(
-      core.gh_pr_create_cmd("owner/repo", "devloop-owner-repo-42-01HY", nil, "Fix title", "/tmp/body.md"),
-      "gh pr create --repo 'owner/repo' --head 'devloop-owner-repo-42-01HY' --title 'Fix title' --body-file '/tmp/body.md'"
-    )
-    t.eq(
-      core.gh_pr_create_cmd("owner/repo", "devloop-owner-repo-42-01HY", "dev", "Fix title", "/tmp/body.md"),
-      "gh pr create --repo 'owner/repo' --head 'devloop-owner-repo-42-01HY' --base 'dev' --title 'Fix title' --body-file '/tmp/body.md'"
     )
     local listed = core.parse_pr_list_for_head('[{"number":7,"headRefName":"devloop-owner-repo-42-01HY","baseRefName":"dev","state":"OPEN"}]', "devloop-owner-repo-42-01HY")
     t.eq(listed.number, 7)
@@ -716,10 +684,6 @@ return {
     t.eq(rest_listed.url, "https://example.test/8")
     t.eq(rest_listed.base_ref_name, "dev")
     t.eq(core.parse_pr_list_for_head('[{"number":7,"headRefName":"devloop-owner-repo-42-01HY","state":"CLOSED"}]', "devloop-owner-repo-42-01HY"), nil)
-    t.eq(
-      core.gh_pr_view_head_oid_cmd("owner/repo", 7),
-      "gh api 'repos/owner/repo/pulls/7'"
-    )
     local same_repo_pr = core.parse_pr_view_head_state(
       '{"head":{"ref":"feature","sha":"ABC123","repo":{"full_name":"owner/repo","owner":{"login":"owner"}}},"base":{"ref":"dev","repo":{"full_name":"owner/repo","owner":{"login":"owner"}}},"state":"open","merged":false}',
       "owner/repo"
@@ -761,22 +725,12 @@ return {
       ["fkst-dev:review-meta"] = "BFD4F2",
     }
     for label, color in pairs(expected_label_colors) do
-      t.eq(
-        core.gh_label_create_cmd("owner/repo", label),
-        "gh label create '" .. label .. "' --repo 'owner/repo' --color '" .. color .. "'"
-      )
+      t.eq(core.label_color(label), color)
     end
-    t.eq(
-      core.gh_label_create_cmd("owner/repo", "custom'label"),
-      "gh label create 'custom'\\''label' --repo 'owner/repo' --color 'ededed'"
-    )
+    t.eq(core.label_color("custom'label"), "ededed")
     t.eq(
       core.gh_issue_comment_cmd("owner/repo", 3, "/tmp/body's.md"),
       "gh issue comment '3' --repo 'owner/repo' --body-file '/tmp/body'\\''s.md'"
-    )
-    t.eq(
-      core.gh_issue_edit_labels_cmd("owner/repo", 3, { "fkst-dev:ready" }, { "fkst-dev:thinking", "needs'user" }),
-      "gh issue edit '3' --repo 'owner/repo' --add-label 'fkst-dev:ready' --remove-label 'fkst-dev:thinking' --remove-label 'needs'\\''user'"
     )
   end,
 }

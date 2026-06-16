@@ -1,8 +1,9 @@
 local core = require("core")
+local ports_seam = require("std.ports")
 
 local M = {}
 
-M.spec = {
+local spec = {
   consumes = { "github_issue_label_request" },
   stall_window = "30s",
 }
@@ -110,68 +111,74 @@ local function guarded_pr_label_view(repo, pr_number, payload)
   return current
 end
 
-function pipeline(event)
-  local payload = event.payload or {}
-  if payload.schema ~= "github-proxy.label.v1" then
-    log.warn("github-proxy: unsupported label request schema")
-    return
-  end
-  local kind = target_kind(payload)
-  if kind == nil then
-    log.warn("github-proxy: label request has invalid target_kind")
-    return
-  end
-  local number = target_number(payload, kind)
-  if number == nil or payload.dedup_key == nil then
-    log.warn("github-proxy: label request missing target number or dedup_key")
-    return
-  end
-
-  local repo = payload.repo or core.read_env("FKST_GITHUB_REPO")
-  if repo == nil or repo == "" then
-    log.warn("github-proxy: label request missing repo")
-    return
-  end
-
-  local add_labels = normalize_labels(payload.add_labels)
-  local remove_labels = normalize_labels(payload.remove_labels)
-  if #add_labels == 0 and #remove_labels == 0 then
-    log.warn("github-proxy: label request has no label changes")
-    return
-  end
-
-  with_lock(core.entity_label_lock_key(repo, kind, number), function()
-    local write_env = core.read_env("FKST_GITHUB_WRITE")
-    log_outbound(payload, repo, add_labels, remove_labels, write_env)
-    if write_env ~= "1" then
-      log.info("github-proxy dry-run: would set labels on " .. tostring(kind)
-        .. " " .. tostring(repo) .. "#" .. tostring(number) .. " "
-        .. describe_labels(add_labels, remove_labels))
+local function make_department(ports)
+  local function label_pipeline(event)
+    local payload = event.payload or {}
+    if payload.schema ~= "github-proxy.label.v1" then
+      log.warn("github-proxy: unsupported label request schema")
       return
     end
-    if kind == "issue"
-      and not core.verify_issue_claim_before_write(payload, repo, number, "github_issue_label") then
+    local kind = target_kind(payload)
+    if kind == nil then
+      log.warn("github-proxy: label request has invalid target_kind")
       return
     end
-    if kind == "pr" then
-      if guarded_pr_label_view(repo, number, payload) == nil then
-        return
-      end
-      if payload.issue_number ~= nil
-        and not core.verify_issue_claim_before_write(payload, repo, payload.issue_number, "github_issue_label") then
-        return
-      end
+    local number = target_number(payload, kind)
+    if number == nil or payload.dedup_key == nil then
+      log.warn("github-proxy: label request missing target number or dedup_key")
+      return
     end
 
-    local changed = kind == "pr"
-      and core.apply_entity_labels(repo, kind, number, add_labels, remove_labels)
-      or core.apply_issue_labels(repo, number, add_labels, remove_labels)
-    if changed ~= true then
-      log_skip(payload, repo, add_labels, remove_labels, "no-effective-label-change")
+    local repo = payload.repo or core.read_env("FKST_GITHUB_REPO")
+    if repo == nil or repo == "" then
+      log.warn("github-proxy: label request missing repo")
+      return
     end
-  end)
+
+    local add_labels = normalize_labels(payload.add_labels)
+    local remove_labels = normalize_labels(payload.remove_labels)
+    if #add_labels == 0 and #remove_labels == 0 then
+      log.warn("github-proxy: label request has no label changes")
+      return
+    end
+
+    with_lock(core.entity_label_lock_key(repo, kind, number), function()
+      local write_env = core.read_env("FKST_GITHUB_WRITE")
+      log_outbound(payload, repo, add_labels, remove_labels, write_env)
+      if write_env ~= "1" then
+        log.info("github-proxy dry-run: would set labels on " .. tostring(kind)
+          .. " " .. tostring(repo) .. "#" .. tostring(number) .. " "
+          .. describe_labels(add_labels, remove_labels))
+        return
+      end
+      if kind == "issue"
+        and not core.verify_issue_claim_before_write(payload, repo, number, "github_issue_label") then
+        return
+      end
+      if kind == "pr" then
+        if guarded_pr_label_view(repo, number, payload) == nil then
+          return
+        end
+        if payload.issue_number ~= nil
+          and not core.verify_issue_claim_before_write(payload, repo, payload.issue_number, "github_issue_label") then
+          return
+        end
+      end
+
+      local changed = kind == "pr"
+        and core.apply_entity_labels(repo, kind, number, add_labels, remove_labels, ports.github)
+        or core.apply_issue_labels(repo, number, add_labels, remove_labels, ports.github)
+      if changed ~= true then
+        log_skip(payload, repo, add_labels, remove_labels, "no-effective-label-change")
+      end
+    end)
+  end
+
+  pipeline = core.wrap_pipeline_failure("github_issue_label", label_pipeline)
+  _G.pipeline = pipeline
+  return { spec = spec, pipeline = pipeline, ports = ports }
 end
 
-pipeline = core.wrap_pipeline_failure("github_issue_label", pipeline)
+M = ports_seam.install(make_department)
 
 return M

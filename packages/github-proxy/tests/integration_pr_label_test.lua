@@ -75,8 +75,8 @@ return {
     t.eq(count_calls("gh pr edit"), 1)
     t.eq(count_calls("gh issue edit"), 0)
     local edit = calls_matching("gh pr edit")[1]
-    t.is_true(edit.rendered:find("--add-label 'fkst-dev:reviewing'", 1, true) ~= nil)
-    t.is_true(edit.rendered:find("--remove-label 'fkst-dev:pr-open'", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--add-label fkst-dev:reviewing", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--remove-label fkst-dev:pr-open", 1, true) ~= nil)
   end,
 
   test_pr_label_request_retries_when_pr_marker_is_not_visible = function()

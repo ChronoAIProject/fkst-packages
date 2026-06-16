@@ -31,6 +31,9 @@ function M.new(model)
     })
     return { stdout = "", stderr = "", exit_code = 0 }
   end
+  function handle._exec_result(argv, timeout, context)
+    return true, handle._exec(argv, timeout, context)
+  end
   function handle.read_issue(source_ref)
     local fixture = model.issues[source_ref.ref]
     if fixture == nil then
@@ -38,6 +41,7 @@ function M.new(model)
     end
     return copy(issue.normalize_issue(fixture, source_ref))
   end
+  require("std.github.proxy").install(handle)
   return handle
 end
 

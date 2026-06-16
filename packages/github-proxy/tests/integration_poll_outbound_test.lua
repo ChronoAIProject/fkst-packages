@@ -198,10 +198,6 @@ return {
     t.eq(target.queue, "github_entity_changed")
     t.eq(target.payload.updated_at, "2026-06-02T00:00:00Z")
     t.eq(target.payload.dedup_key, "owner/x#pr#12@2026-06-02T00:00:00Z")
-    t.eq(core.gh_pr_list_cmd("owner/x"), "gh api --paginate --slurp 'repos/owner/x/pulls?state=open&per_page=100'")
-    t.is_true(core.gh_pr_list_cmd("owner/x"):find("state=open", 1, true) ~= nil)
-    t.is_true(core.gh_pr_list_cmd("owner/x"):find("per_page=100", 1, true) ~= nil)
-    t.eq(core.gh_pr_list_cmd("owner/x"):find("--state all", 1, true), nil)
     t.eq(count_calls("gh api --paginate --slurp 'repos/owner/x/issues?state=open&per_page=100'"), 1)
     t.eq(count_calls("gh api --paginate --slurp 'repos/owner/x/pulls?state=open&per_page=100'"), 1)
   end,
@@ -755,8 +751,8 @@ return {
     t.eq(count_calls("gh label create"), 0)
     t.eq(count_calls("gh issue edit"), 1)
     local edit_calls = calls_matching("gh issue edit")
-    t.is_true(edit_calls[1].rendered:find("--add-label 'fkst-dev:ready'", 1, true) ~= nil)
-    t.is_true(edit_calls[1].rendered:find("--remove-label 'fkst-dev:thinking'", 1, true) ~= nil)
+    t.is_true(edit_calls[1].rendered:find("--add-label fkst-dev:ready", 1, true) ~= nil)
+    t.is_true(edit_calls[1].rendered:find("--remove-label fkst-dev:thinking", 1, true) ~= nil)
 
     mock_write_env("1")
     mock_label_write()
@@ -797,10 +793,10 @@ return {
     t.eq(count_calls("gh label create"), 1)
     t.eq(count_calls("gh issue edit"), 1)
     local create = calls_matching("gh label create")[1]
-    t.is_true(create.rendered:find("'fkst-dev:fresh'", 1, true) ~= nil)
-    t.is_true(create.rendered:find("--repo 'owner/x'", 1, true) ~= nil)
+    t.is_true(create.rendered:find("fkst-dev:fresh", 1, true) ~= nil)
+    t.is_true(create.rendered:find("--repo owner/x", 1, true) ~= nil)
     local edit = calls_matching("gh issue edit")[1]
-    t.is_true(edit.rendered:find("--add-label 'fkst-dev:fresh'", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--add-label fkst-dev:fresh", 1, true) ~= nil)
   end,
 
   test_label_request_skips_remove_when_repo_label_is_missing = function()
@@ -897,8 +893,8 @@ return {
     t.eq(count_calls("gh api --paginate --slurp 'repos/owner/x/issues/42/comments?per_page=100'"), 0)
     t.eq(count_calls("gh issue edit"), 1)
     local current_edit = calls_matching("gh issue edit")[1]
-    t.is_true(current_edit.rendered:find("--add-label 'fkst-dev:ready'", 1, true) ~= nil)
-    t.is_true(current_edit.rendered:find("--remove-label 'fkst-dev:thinking'", 1, true) ~= nil)
+    t.is_true(current_edit.rendered:find("--add-label fkst-dev:ready", 1, true) ~= nil)
+    t.is_true(current_edit.rendered:find("--remove-label fkst-dev:thinking", 1, true) ~= nil)
   end,
 
   test_label_request_applies_exclusive_hint_without_state_precondition = function()
@@ -928,8 +924,8 @@ return {
     t.eq(count_calls("gh api --paginate --slurp 'repos/owner/x/issues/42/comments?per_page=100'"), 0)
     t.eq(count_calls("gh issue edit"), 1)
     local edit = calls_matching("gh issue edit")[1]
-    t.is_true(edit.rendered:find("--add-label 'fkst-dev:blocked'", 1, true) ~= nil)
-    t.is_true(edit.rendered:find("--remove-label 'fkst-dev:ready'", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--add-label fkst-dev:blocked", 1, true) ~= nil)
+    t.is_true(edit.rendered:find("--remove-label fkst-dev:ready", 1, true) ~= nil)
   end,
 
 }
