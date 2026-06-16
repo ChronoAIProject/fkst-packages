@@ -1,4 +1,5 @@
 local S = {}
+local registry = require("core.registry")
 
 function S.install(M)
 local max_timeout_attempts = 3
@@ -34,12 +35,24 @@ end
 
 local liveness_contract_margin_minutes = 30
 
-local liveness_signal_resolvers = {
-  ["converge-round"] = true,
-  ["dependency-hold"] = true,
-  ["implement-attempt"] = true,
-  ["review-converge-round"] = true,
+local liveness_resolver_families = {
+  ["converge-round"] = {
+    ["converge-round"] = true,
+  },
+  ["dependency-hold"] = {
+    ["dependency-wait"] = true,
+    ["dependency-cycle"] = true,
+    ["dependency-unresolvable"] = true,
+  },
+  ["implement-attempt"] = {
+    ["implement-attempt"] = true,
+  },
+  ["review-converge-round"] = {
+    ["review-converge-round"] = true,
+  },
 }
+
+local liveness_signal_producers = registry.load_indexed_map("core.restart.liveness_signal_producers.index", "family")
 
 local function numeric_minutes(value)
   local minutes = tonumber(value)
@@ -67,6 +80,48 @@ local function liveness_bound_minutes(contract)
     return external
   end
   return receiver
+end
+
+local function source_contains(path, needle)
+  if type(path) ~= "string" or path == "" or type(needle) ~= "string" or needle == "" then
+    return false
+  end
+  local ok, text = pcall(file.read, "packages/github-devloop/" .. path)
+  return ok and tostring(text or ""):find(needle, 1, true) ~= nil
+end
+
+local function validate_liveness_signal_producer(M, state, signal, family, resolver, errors)
+  local producer_key = signal.producer
+  if type(producer_key) ~= "string" or producer_key == "" then
+    table.insert(errors, state .. ": live-defer signal must declare a producer binding")
+    return
+  end
+  local binding = liveness_signal_producers[producer_key]
+  if binding == nil then
+    table.insert(errors, state .. ": live-defer signal producer binding does not exist: " .. tostring(producer_key))
+    return
+  end
+  if producer_key ~= family then
+    table.insert(errors, state .. ": live-defer producer binding family mismatch: " .. tostring(producer_key))
+  end
+  if binding.resolver ~= resolver then
+    table.insert(errors, state .. ": live-defer producer binding resolver mismatch: " .. tostring(producer_key))
+  end
+  if liveness_resolver_families[resolver] == nil or liveness_resolver_families[resolver][family] ~= true then
+    table.insert(errors, state .. ": live-defer resolver does not read marker family: " .. tostring(resolver) .. "/" .. tostring(family))
+  end
+  if M.restart_durable_marker_fields()[family] == nil then
+    return
+  end
+  local marker_source = binding.marker_source or "core/requests.lua"
+  if not (source_contains(binding.producer, binding.marker_builder) or source_contains(marker_source, binding.marker_builder))
+    or not source_contains("core/requests.lua", binding.request_builder)
+    or not source_contains(binding.producer, binding.request_builder) then
+    table.insert(errors, state .. ": live-defer producer binding is not reachable from declared producer: " .. tostring(producer_key))
+  end
+  if not source_contains(binding.producer, binding.queue) then
+    table.insert(errors, state .. ": live-defer producer binding does not emit declared queue: " .. tostring(producer_key))
+  end
 end
 
 local function validate_liveness_contract(M, row, errors)
@@ -106,12 +161,13 @@ local function validate_liveness_contract(M, row, errors)
   elseif M.restart_durable_marker_fields()[family] == nil then
     table.insert(errors, state .. ": live-defer signal marker family does not exist: " .. tostring(family))
   end
-  if liveness_signal_resolvers[resolver] ~= true then
+  if liveness_resolver_families[resolver] == nil then
     table.insert(errors, state .. ": live-defer signal has no resolver: " .. tostring(resolver))
   end
   if numeric_minutes(signal.max_age_minutes) == nil then
     table.insert(errors, state .. ": live-defer signal must declare finite max_age_minutes")
   end
+  validate_liveness_signal_producer(M, state, signal, family, resolver, errors)
 end
 
 function M.liveness_contract_errors(rows)
@@ -251,11 +307,12 @@ local function live_signal_age(M, row, state, facts, now_seconds)
     end, now_seconds)
   end
   if resolver == "review-converge-round" then
-    local issue_version = state and state.version
+    local issue_version = M.safe_version_segment(state and state.version or "")
     local head_sha = facts and facts.head_sha
     local review_proposal_id = facts and facts.review_proposal_id
     local sr_digest = M.source_ref_digest(facts and facts.source_ref)
-    return newest_matching_marker_age(M, comments, "review-converge-round", function(marker)
+    local review_comments = facts and facts.current_pr and facts.current_pr.comments or nil
+    return newest_matching_marker_age(M, review_comments, "review-converge-round", function(marker)
       return marker_attr(marker, "proposal") == tostring(review_proposal_id)
         and marker_attr(marker, "issue_proposal") == tostring(proposal_id)
         and marker_attr(marker, "version") == tostring(issue_version)

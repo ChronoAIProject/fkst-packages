@@ -290,6 +290,7 @@ return {
       if spec.mode == "live-defer" then
         t.eq(row.liveness_contract.signal.family, spec.family)
         t.eq(row.liveness_contract.signal.resolver, spec.resolver)
+        t.eq(row.liveness_contract.signal.producer, spec.family)
         t.eq(row.liveness_contract.signal.max_age_minutes, spec.max_age)
       else
         t.eq(row.liveness_contract.receiver_bound_minutes, spec.receiver)
@@ -324,11 +325,32 @@ return {
     row.liveness_contract.signal.resolver = "missing-resolver"
     row.liveness_contract.signal.max_age_minutes = nil
     local errors = core.liveness_contract_errors(rows)
-    t.eq(#errors, 3)
     local joined = table.concat(errors, "\n")
     t.is_true(joined:find("missing-family", 1, true) ~= nil)
     t.is_true(joined:find("missing-resolver", 1, true) ~= nil)
     t.is_true(joined:find("max_age_minutes", 1, true) ~= nil)
+    t.is_true(joined:find("resolver mismatch", 1, true) ~= nil)
+  end,
+
+  test_liveness_contract_rejects_live_defer_without_producer_binding = function()
+    local rows = copy_rows(core.restart_transition_table())
+    local row = rows_by_state(rows).reviewing
+    row.liveness_contract.signal.producer = nil
+    local errors = core.liveness_contract_errors(rows)
+    t.eq(#errors, 1)
+    t.is_true(errors[1]:find("reviewing", 1, true) ~= nil)
+    t.is_true(errors[1]:find("producer binding", 1, true) ~= nil)
+  end,
+
+  test_liveness_contract_rejects_live_defer_family_resolver_producer_mismatch = function()
+    local rows = copy_rows(core.restart_transition_table())
+    local row = rows_by_state(rows).reviewing
+    row.liveness_contract.signal.family = "converge-round"
+    row.liveness_contract.signal.producer = "review-converge-round"
+    local errors = core.liveness_contract_errors(rows)
+    local joined = table.concat(errors, "\n")
+    t.is_true(joined:find("producer binding family mismatch", 1, true) ~= nil)
+    t.is_true(joined:find("producer binding resolver mismatch", 1, true) ~= nil)
   end,
 
   test_liveness_timeout_versions_preserve_lineage_and_attempts = function()
@@ -475,9 +497,12 @@ return {
         review_proposal_id = review_proposal_id,
         head_sha = head_sha,
         current = {
+          comments = {},
+        },
+        current_pr = {
           comments = {
             {
-              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", version, head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Still reviewing", {
+              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", core.safe_version_segment(version), head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Still reviewing", {
                 { angle = "minimal", verdict = "continue", digest = "recent" },
               }),
               author_login = "fkst-test-bot",
@@ -514,9 +539,12 @@ return {
         review_proposal_id = review_proposal_id,
         head_sha = head_sha,
         current = {
+          comments = {},
+        },
+        current_pr = {
           comments = {
             {
-              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", version, head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Stale review", {
+              body = core.review_converge_round_marker(review_proposal_id, "github-devloop/issue/owner/repo/42", core.safe_version_segment(version), head_sha, core.source_ref_digest(source_ref), 1, "consensus:" .. review_proposal_id .. "/review/loop/1", "Stale review", {
                 { angle = "minimal", verdict = "continue", digest = "stale" },
               }),
               author_login = "fkst-test-bot",

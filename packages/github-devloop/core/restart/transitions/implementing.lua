@@ -16,6 +16,7 @@ return function(M, h)
       mode = "live-defer",
       signal = {
         family = "implement-attempt",
+        producer = "implement-attempt",
         max_age_minutes = 120,
       },
     }),

@@ -17,6 +17,7 @@ return function(M, h)
       signal = {
         family = "dependency-wait",
         resolver = "dependency-hold",
+        producer = "dependency-wait",
         max_age_minutes = 525600,
       },
     }),

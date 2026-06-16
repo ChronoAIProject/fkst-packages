@@ -16,6 +16,7 @@ return function(M, h)
       mode = "live-defer",
       signal = {
         family = "review-converge-round",
+        producer = "review-converge-round",
         max_age_minutes = 120,
       },
     }),
