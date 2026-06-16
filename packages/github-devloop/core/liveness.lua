@@ -183,30 +183,6 @@ end
 local function build_timeout_reconcile(row, entity, state, facts, decision)
   local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
-  if row.from_state == "thinking" and M._has_bounded_source_ref(source_ref) then
-    local base_version = M.strip_transition_version_suffixes(state.version)
-    return "devloop_reconcile", M.build_devloop_reconcile_payload({
-      proposal_id = proposal_id,
-      source_ref = source_ref,
-    }, decision.attempt, base_version)
-  end
-  if row.from_state == "reviewing"
-    and M._has_bounded_source_ref(source_ref)
-    and M._is_git_sha(facts and facts.head_sha) then
-    local review_proposal_id = facts and facts.review_proposal_id
-    if review_proposal_id == nil and entity ~= nil and entity.repo ~= nil then
-      local _, pr_number = M.parse_pr_source_ref(source_ref)
-      if pr_number ~= nil then
-        review_proposal_id = M.pr_review_proposal_id(entity.repo, pr_number, state.version, facts.head_sha)
-      end
-    end
-    if review_proposal_id ~= nil then
-      return "devloop_review_reconcile", M.build_devloop_review_reconcile_payload({
-        proposal_id = review_proposal_id,
-        source_ref = source_ref,
-      }, decision.attempt, proposal_id, M.safe_version_segment(state.version), facts.head_sha)
-    end
-  end
   if M._has_bounded_source_ref(source_ref)
     and M._is_path_safe_key(proposal_id, M._max_key_len)
     and M._is_bounded_string(state and state.version, M._max_dedup_len) then

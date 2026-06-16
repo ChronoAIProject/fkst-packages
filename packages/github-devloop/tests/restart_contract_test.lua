@@ -270,7 +270,7 @@ return {
     t.eq(escalated.action, "escalate")
   end,
 
-  test_liveness_timeout_escalates_thinking_to_reconcile_event = function()
+  test_liveness_timeout_escalates_thinking_to_timeout_reconcile_event = function()
     local row = table_by_state().thinking
     local base = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local raised = {}
@@ -299,14 +299,15 @@ return {
       error(err)
     end
     t.eq(#raised, 1)
-    t.eq(raised[1].queue, "devloop_reconcile")
-    t.eq(raised[1].payload.schema, "github-devloop.reconcile.v1")
+    t.eq(raised[1].queue, "devloop_timeout_reconcile")
+    t.eq(raised[1].payload.schema, "github-devloop.timeout-reconcile.v1")
+    t.eq(raised[1].payload.state, "thinking")
+    t.eq(raised[1].payload.issue_version, base .. "/timeout/thinking/3")
     t.eq(raised[1].payload.round, 3)
-    t.eq(raised[1].payload.base_version, base)
-    t.eq(raised[1].payload.dedup_key, "reconcile:" .. base .. "/loop/3")
+    t.eq(raised[1].payload.dedup_key, "timeout-reconcile:" .. base .. "/timeout/thinking/3/timeout-reconcile/thinking/3")
   end,
 
-  test_liveness_timeout_escalates_reviewing_to_review_reconcile_event = function()
+  test_liveness_timeout_escalates_reviewing_to_timeout_reconcile_event = function()
     local row = table_by_state().reviewing
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local head_sha = "def456"
@@ -340,12 +341,11 @@ return {
       error(err)
     end
     t.eq(#raised, 1)
-    t.eq(raised[1].queue, "devloop_review_reconcile")
-    t.eq(raised[1].payload.schema, "github-devloop.review-reconcile.v1")
+    t.eq(raised[1].queue, "devloop_timeout_reconcile")
+    t.eq(raised[1].payload.schema, "github-devloop.timeout-reconcile.v1")
     t.eq(raised[1].payload.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.eq(raised[1].payload.review_proposal_id, review_proposal_id)
-    t.eq(raised[1].payload.issue_version, core.safe_version_segment(version .. "/timeout/reviewing/3"))
-    t.eq(raised[1].payload.head_sha, head_sha)
+    t.eq(raised[1].payload.state, "reviewing")
+    t.eq(raised[1].payload.issue_version, version .. "/timeout/reviewing/3")
     t.eq(raised[1].payload.round, 3)
   end,
 
@@ -379,9 +379,7 @@ return {
           })
           t.eq(applied, true)
           t.eq(#raised, before + 1)
-          t.is_true(raised[#raised].queue == "devloop_reconcile"
-            or raised[#raised].queue == "devloop_review_reconcile"
-            or raised[#raised].queue == "devloop_timeout_reconcile")
+          t.eq(raised[#raised].queue, "devloop_timeout_reconcile")
           t.eq(raised[#raised].queue == row.driving_queue, false)
           t.eq(tostring(raised[#raised].payload.dedup_key or ""):find("/timeout/" .. row.from_state .. "/4", 1, true), nil)
         end

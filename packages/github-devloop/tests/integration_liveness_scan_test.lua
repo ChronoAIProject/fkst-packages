@@ -637,7 +637,74 @@ return {
     t.is_true(comment ~= nil)
     t.is_true(label ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(proposal_id, "blocked", blocked_version), 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("reason_class=state-output-obligation-timeout", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("from_state=ready", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("from_version=" .. live_version, 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("age_minutes=", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("budget_minutes=", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("attempt=3", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("attempt_limit=3", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("driving_queue=devloop_ready", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find("source_ref.ref=owner/repo#issue/42", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('from_state="ready"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('from_version="' .. live_version .. '"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('reason_class="state-output-obligation-timeout"', 1, true) ~= nil)
     t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+  end,
+
+  test_liveness_scan_timeout_reconcile_blocks_ready_when_payload_version_is_stale_but_live_state_is_stuck = function()
+    local stale_version = version .. "/timeout/ready/1"
+    local live_version = version .. "/timeout/ready/2"
+    local payload = core.build_devloop_timeout_reconcile_payload(
+      core.restart_transition_row("ready"),
+      {
+        state = "ready",
+        version = stale_version,
+        proposal_id = proposal_id,
+      },
+      proposal_id,
+      core.issue_source_ref(repo, 42),
+      3
+    )
+    mock_issue_reconcile({ "fkst-dev:ready" }, {
+      timeout_state_comment("ready", live_version, "2026-06-03T00:02:00Z"),
+    })
+
+    local reconciled = run_timeout_reconcile(payload, opts("liveness-scan-ready-timeout-reconcile-live-stale-applies"))
+    t.eq(reconciled.exit_code, 0)
+    local comment = find_raise(reconciled.raises, "github-proxy.github_issue_comment_request")
+    local label = find_raise(reconciled.raises, "github-proxy.github_issue_label_request")
+    local blocked_version = core.timeout_reconcile_state_version(live_version, "ready", 3)
+    t.is_true(comment ~= nil)
+    t.is_true(label ~= nil)
+    t.is_true(comment.payload.body:find(core.state_marker(proposal_id, "blocked", blocked_version), 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('from_version="' .. live_version .. '"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('version="' .. blocked_version .. '"', 1, true) ~= nil)
+    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+  end,
+
+  test_liveness_scan_timeout_reconcile_skips_when_ready_state_advanced = function()
+    local stale_version = version .. "/timeout/ready/2"
+    local advanced_version = version .. "/timeout/ready/2"
+    local payload = core.build_devloop_timeout_reconcile_payload(
+      core.restart_transition_row("ready"),
+      {
+        state = "ready",
+        version = stale_version,
+        proposal_id = proposal_id,
+      },
+      proposal_id,
+      core.issue_source_ref(repo, 42),
+      3
+    )
+    mock_issue_reconcile({ "fkst-dev:implementing" }, {
+      timeout_state_comment("implementing", advanced_version, "2026-06-03T00:02:00Z"),
+    })
+
+    local reconciled = run_timeout_reconcile(payload, opts("liveness-scan-ready-timeout-reconcile-advanced-skips"))
+    t.eq(reconciled.exit_code, 0)
+    t.eq(find_raise(reconciled.raises, "github-proxy.github_issue_comment_request"), nil)
+    t.eq(find_raise(reconciled.raises, "github-proxy.github_issue_label_request"), nil)
   end,
 
   test_liveness_scan_implementing_emits_timeout_ready_with_frozen_version = function()

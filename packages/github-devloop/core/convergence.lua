@@ -461,7 +461,7 @@ function M.fix_reconcile_marker(proposal_id, issue_version, action)
     .. '" -->'
 end
 
-function M.timeout_reconcile_marker(proposal_id, issue_version, state_name, round, action)
+function M.timeout_reconcile_marker(proposal_id, issue_version, state_name, round, action, fields)
   local n = valid_round(round)
   if n == nil then
     error("github-devloop: invalid timeout reconcile round")
@@ -469,12 +469,25 @@ function M.timeout_reconcile_marker(proposal_id, issue_version, state_name, roun
   if action ~= "drop" then
     error("github-devloop: invalid timeout reconcile action")
   end
+  local why = fields or {}
+  local source_ref = type(why.source_ref) == "table" and why.source_ref or {}
+  local marker_version = why.terminal_version or M.timeout_reconcile_state_version(issue_version, state_name, n)
   return '<!-- fkst:github-devloop:timeout-reconcile:v1 proposal="' .. safe_attr(proposal_id, M._max_key_len)
-    .. '" version="' .. safe_attr(M.timeout_reconcile_state_version(issue_version, state_name, n), M._max_dedup_len)
+    .. '" version="' .. safe_attr(marker_version, M._max_dedup_len)
     .. '" state="' .. safe_attr(state_name, max_attr_len)
     .. '" round="' .. tostring(n)
     .. '" action="' .. safe_attr(action, max_attr_len)
     .. '" dedup="' .. safe_attr("timeout-reconcile:" .. tostring(issue_version) .. "/timeout-reconcile/" .. tostring(state_name) .. "/" .. tostring(n), M._max_dedup_len)
+    .. '" from_state="' .. safe_attr(why.from_state or state_name, max_attr_len)
+    .. '" from_version="' .. safe_attr(why.from_version or issue_version, M._max_dedup_len)
+    .. '" age_minutes="' .. safe_attr(why.age_minutes or "", max_attr_len)
+    .. '" budget_minutes="' .. safe_attr(why.budget_minutes or "", max_attr_len)
+    .. '" attempt="' .. safe_attr(why.attempt or n, max_attr_len)
+    .. '" attempt_limit="' .. safe_attr(why.attempt_limit or "", max_attr_len)
+    .. '" driving_queue="' .. safe_attr(why.driving_queue or "", max_attr_len)
+    .. '" reason_class="' .. safe_attr(why.reason_class or "state-output-obligation-timeout", max_attr_len)
+    .. '" source_ref_kind="' .. safe_attr(source_ref.kind or "", max_attr_len)
+    .. '" source_ref="' .. safe_attr(source_ref.ref or "", M._max_key_len)
     .. '" -->'
 end
 
