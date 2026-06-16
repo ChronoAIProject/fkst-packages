@@ -35,4 +35,12 @@ return {
     t.eq(strings.sanitize_key("abc/def", 5), "abc/d")
     t.eq(strings.sanitize_key("abc/def", false), "abc/def")
   end,
+
+  test_safe_segment_matches_runtime_file_identity_sanitizer = function()
+    t.eq(strings.safe_segment("owner/repo#42"), "owner_repo_42")
+    t.eq(strings.safe_segment("__owner  repo!!"), "owner_repo")
+    t.eq(strings.safe_segment("branch.name-1_2"), "branch.name-1_2")
+    t.eq(strings.safe_segment(nil), "empty")
+    t.eq(strings.safe_segment("///"), "empty")
+  end,
 }
