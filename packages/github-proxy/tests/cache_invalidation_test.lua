@@ -16,7 +16,7 @@ local function mock_issue_view(title)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(core.gh_issue_view_comments_cmd("owner/x", 42), {
+  t.mock_command(core.gh_issue_comments_api_cmd("owner/x", 42), {
     stdout = "[[]]\n",
     stderr = "",
     exit_code = 0,
@@ -76,7 +76,7 @@ return {
     mock_comment_write()
     local written = t.run_department("departments/github_comment/main.lua", issue_comment_event(), run_opts)
     t.eq(written.exit_code, 0)
-    t.eq(count_calls("gh api --method POST 'repos/owner/x/issues/42/comments'"), 1)
+    t.eq(count_calls("gh api --method POST repos/owner/x/issues/42/comments"), 1)
 
     mock_poll()
     local after_write = t.run_department("departments/github_poll/main.lua", poll_event, run_opts)

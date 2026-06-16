@@ -151,4 +151,54 @@ return {
       assert(call.rate_pool == nil, "read_issue must not pass rate_pool")
     end
   end,
+
+  test_comment_builders_use_gh_argv = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = '{"id":123456,"body":"ok","user":{"login":"fkst-test-bot"}}', stderr = "", exit_code = 0 }
+    end)
+
+    local comments = handle.list_issue_comments("owner/repo", 42, { timeout = 11 })
+    local created = handle.create_issue_comment("owner/repo", 42, "/tmp/comment body.md", { timeout = 12 })
+    local edited = handle.edit_issue_comment("owner/repo", 123456, "/tmp/comment body.md", { timeout = 13 })
+
+    assert(type(comments) == "table", "list_issue_comments parses a comment list")
+    assert(created.id == "123456", "create_issue_comment parses the written comment")
+    assert(edited.id == "123456", "edit_issue_comment parses the edited comment")
+    assert(#calls == 3, "comment operations issue one gh call each")
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "api", "--paginate", "--slurp", "repos/owner/repo/issues/42/comments?per_page=100" },
+      "list_issue_comments"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "api", "--method", "POST", "repos/owner/repo/issues/42/comments", "--field", "body=@/tmp/comment body.md" },
+      "create_issue_comment"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "api", "--method", "PATCH", "repos/owner/repo/issues/comments/123456", "--field", "body=@/tmp/comment body.md" },
+      "edit_issue_comment"
+    )
+    for index, call in ipairs(calls) do
+      assert(call.timeout == 10 + index, "comment operation forwards timeout for call " .. tostring(index))
+      assert(call.cmd == nil, "comment operation must not pass cmd")
+      assert(call.rate_pool == nil, "comment operation must not pass rate_pool")
+    end
+  end,
+
+  test_edit_issue_comment_rejects_missing_comment_id_before_exec = function()
+    local handle = gh.new(function(_opts)
+      error("exec must not be called for an invalid comment id")
+    end)
+
+    local ok, err = pcall(function()
+      return handle.edit_issue_comment("owner/repo", "", "/tmp/comment.md")
+    end)
+
+    assert(ok == false, "edit_issue_comment rejects a missing id")
+    assert(tostring(err):find("invalid comment id", 1, true) ~= nil, "error names the invalid id")
+  end,
 }

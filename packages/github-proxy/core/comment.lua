@@ -3,10 +3,7 @@ local S = {}
 function S.install(M)
 local max_runtime_id_len = 180
 local stale_comment_target_error_class = "stale-comment-target"
-
-local function shell_single_quote(value)
-  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
-end
+local github_adapter = nil
 
 local function safe_runtime_segment(value)
   local safe = tostring(value or ""):gsub("[^%w._-]", "_")
@@ -66,6 +63,17 @@ end
 
 function M.stale_comment_target_error_class()
   return stale_comment_target_error_class
+end
+
+function M.github_adapter()
+  if github_adapter ~= nil then
+    return github_adapter
+  end
+  if type(exec_argv) ~= "function" then
+    error("github-proxy: std.github adapter requires exec_argv")
+  end
+  github_adapter = require("std.github").new(exec_argv)
+  return github_adapter
 end
 
 local function comment_id(comment)
@@ -191,8 +199,10 @@ local function is_gh_not_found(result)
 end
 
 local function load_comments(M, target, repo)
-  local view = M.gh_exec(target.view_comments_cmd(repo, target.number), 30, target.view_label)
-  return M.parse_issue_comments(view.stdout)
+  return M.github_adapter().list_issue_comments(repo, target.number, {
+    timeout = 30,
+    context = target.view_label,
+  })
 end
 
 local function parse_rest_comments(stdout)
@@ -206,8 +216,10 @@ local function parse_rest_comments(stdout)
 end
 
 local function load_rest_comments(M, target, repo)
-  local view = M.gh_exec(M.gh_issue_comments_api_cmd(repo, target.number), 30, "gh issue comments")
-  return parse_rest_comments(view.stdout)
+  return M.github_adapter().list_issue_comments(repo, target.number, {
+    timeout = 30,
+    context = "github issue comments",
+  })
 end
 
 local function trusted_rest_comment_with_fragment(M, repo, target, fragment, bot_login)
@@ -215,53 +227,23 @@ local function trusted_rest_comment_with_fragment(M, repo, target, fragment, bot
   return M.trusted_comment_with_fragment(comments, fragment, bot_login)
 end
 
-function M.gh_pr_comment_cmd(repo, pr_number, body_file)
-  return "gh pr comment " .. shell_single_quote(pr_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --body-file " .. shell_single_quote(body_file)
-end
-
-function M.gh_pr_view_comments_cmd(repo, pr_number)
-  return M.gh_issue_comments_api_cmd(repo, pr_number)
-end
-
-function M.gh_issue_view_comments_cmd(repo, issue_number)
-  return M.gh_issue_comments_api_cmd(repo, issue_number)
-end
-
-function M.gh_issue_comment_cmd(repo, issue_number, body_file)
-  return "gh issue comment " .. shell_single_quote(issue_number)
-    .. " --repo " .. shell_single_quote(repo)
-    .. " --body-file " .. shell_single_quote(body_file)
-end
-
-function M.gh_issue_comment_create_cmd(repo, issue_number, body_file)
-  return "gh api --method POST "
-    .. shell_single_quote("repos/" .. tostring(repo) .. "/issues/" .. tostring(issue_number) .. "/comments")
-    .. " --field body=@" .. shell_single_quote(body_file)
-end
-
-function M.gh_comment_edit_cmd(repo, comment_id_value, body_file)
-  if comment_id_value == nil or tostring(comment_id_value) == "" then
-    error("github-proxy: invalid comment id")
-  end
-  return "gh api --method PATCH "
-    .. shell_single_quote("repos/" .. tostring(repo) .. "/issues/comments/" .. tostring(comment_id_value))
-    .. " --field body=@" .. shell_single_quote(body_file)
-end
-
 local function edit_existing_comment(M, repo, target, path, existing, replace_marker, bot_login)
   if existing == nil or existing.id == nil then
     return false, "missing-id"
   end
 
-  local ok, err = M.gh_exec_result(M.gh_comment_edit_cmd(repo, existing.id, path), 30, "gh comment edit")
+  local ok, result_or_err = pcall(function()
+    return M.github_adapter().edit_issue_comment(repo, existing.id, path, {
+      timeout = 30,
+      context = "github comment edit",
+    })
+  end)
   if ok then
-    return true, nil, existing
+    return true, nil, result_or_err or existing
   end
 
-  if not is_gh_not_found(err.result) then
-    error(err.message)
+  if not is_gh_not_found(result_or_err.result) then
+    error(result_or_err.message or result_or_err)
   end
 
   log.warn("github-proxy: gh comment edit returned 404; re-reading comments before classification")
@@ -272,31 +254,20 @@ local function edit_existing_comment(M, repo, target, path, existing, replace_ma
     return false, stale_comment_target_error_class
   end
 
-  local refreshed_ok, refreshed_err = M.gh_exec_result(M.gh_comment_edit_cmd(repo, refreshed.id, path), 30, "gh comment edit")
+  local refreshed_ok, refreshed_result_or_err = pcall(function()
+    return M.github_adapter().edit_issue_comment(repo, refreshed.id, path, {
+      timeout = 30,
+      context = "github comment edit",
+    })
+  end)
   if refreshed_ok then
-    return true, nil, refreshed
+    return true, nil, refreshed_result_or_err or refreshed
   end
-  if is_gh_not_found(refreshed_err.result) then
+  if is_gh_not_found(refreshed_result_or_err.result) then
     log.warn("github-proxy: refreshed gh comment edit target is stale: error_class=" .. stale_comment_target_error_class)
     return false, stale_comment_target_error_class
   end
-  error(refreshed_err.message)
-end
-
-local function parse_written_comment(stdout)
-  local ok, decoded = pcall(json.decode, stdout or "{}")
-  if not ok or type(decoded) ~= "table" then
-    return nil
-  end
-  local id = comment_id(decoded)
-  if id == nil then
-    return nil
-  end
-  return {
-    id = id,
-    body = comment_body(decoded),
-    author_login = comment_author_login(decoded),
-  }
+  error(refreshed_result_or_err.message or refreshed_result_or_err)
 end
 
 function M.write_comment_request(payload, target)
@@ -359,8 +330,10 @@ function M.write_comment_request(payload, target)
     elseif existing ~= nil then
       log.warn("github-proxy: replace marker comment missing id; creating a fresh comment")
     end
-    local created = M.gh_exec(target.comment_create_cmd(repo, target.number, path), 30, target.comment_label)
-    local written = parse_written_comment(created.stdout)
+    local written = M.github_adapter().create_issue_comment(repo, target.number, path, {
+      timeout = 30,
+      context = target.comment_label,
+    })
     if written == nil then
       error("github-proxy: comment create did not return a valid comment id")
     end

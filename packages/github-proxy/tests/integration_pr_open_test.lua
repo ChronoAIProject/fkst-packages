@@ -53,6 +53,14 @@ local function assert_pr_rest_view_fetch(pr_number)
   t.is_true(count_calls(core.gh_issue_comments_api_cmd("owner/x", pr_number)) >= 1)
 end
 
+local function issue_comment_creates()
+  return count_calls("gh api --method POST repos/owner/x/issues/42/comments")
+end
+
+local function pr_comment_creates(number)
+  return count_calls("gh api --method POST repos/owner/x/issues/" .. tostring(number or 7) .. "/comments")
+end
+
 return {
   test_pr_open_request_dry_run_does_not_push_or_create = function()
     mock_write_env("")
@@ -60,7 +68,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh issue comment"), 0)
+    t.eq(issue_comment_creates(), 0)
   end,
 
   test_pr_open_request_pushes_creates_comments_and_labels = function()
@@ -90,8 +98,8 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 1)
     t.eq(count_calls("gh pr create"), 1)
-    t.eq(count_calls("gh issue comment"), 1)
-    t.eq(count_calls("gh pr comment"), 1)
+    t.eq(issue_comment_creates(), 1)
+    t.eq(pr_comment_creates(7), 1)
     t.eq(count_calls("gh issue edit"), 1)
     t.eq(#result.raises, 2)
     t.eq(result.raises[1].queue, "github_entity_changed")
@@ -142,8 +150,8 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh issue comment"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(issue_comment_creates(), 0)
+    t.eq(pr_comment_creates(7), 0)
   end,
 
   test_pr_open_request_read_after_write_lag_skips_tail_label_update = function()
@@ -166,8 +174,8 @@ return {
       FKST_GITHUB_WRITE = "1",
     }))
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh issue comment"), 1)
-    t.eq(count_calls("gh pr comment"), 1)
+    t.eq(issue_comment_creates(), 1)
+    t.eq(pr_comment_creates(7), 1)
     t.eq(count_calls("gh api 'repos/owner/x/issues/42'"), 2)
     assert_pr_rest_view_fetch(7)
     t.eq(count_calls("gh issue edit"), 0)
@@ -192,8 +200,8 @@ return {
       FKST_GITHUB_WRITE = "1",
     }))
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh issue comment"), 1)
-    t.eq(count_calls("gh pr comment"), 1)
+    t.eq(issue_comment_creates(), 1)
+    t.eq(pr_comment_creates(7), 1)
     t.eq(count_calls("gh api 'repos/owner/x/issues/42'"), 2)
     assert_pr_rest_view_fetch(7)
     t.eq(count_calls("gh issue edit"), 0)
@@ -301,7 +309,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 1)
     t.eq(count_calls("gh pr create"), 1)
-    t.eq(count_calls("gh issue comment"), 1)
+    t.eq(issue_comment_creates(), 1)
     t.eq(count_calls("gh issue edit"), 1)
   end,
 
@@ -468,8 +476,8 @@ return {
     t.eq(result.exit_code, 1)
     t.eq(count_calls("git push -u origin"), 1)
     t.eq(count_calls("gh pr create"), 1)
-    t.eq(count_calls("gh issue comment"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(issue_comment_creates(), 0)
+    t.eq(pr_comment_creates(7), 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
@@ -489,8 +497,8 @@ return {
     t.eq(result.exit_code, 1)
     t.eq(count_calls("git push -u origin"), 1)
     t.eq(count_calls("gh pr create"), 1)
-    t.eq(count_calls("gh issue comment"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(issue_comment_creates(), 0)
+    t.eq(pr_comment_creates(7), 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
@@ -510,8 +518,8 @@ return {
     t.eq(result.exit_code, 1)
     t.eq(count_calls("git push -u origin"), 1)
     t.eq(count_calls("gh pr create"), 1)
-    t.eq(count_calls("gh issue comment"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(issue_comment_creates(), 0)
+    t.eq(pr_comment_creates(7), 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
@@ -536,7 +544,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh issue comment"), 1)
+    t.eq(issue_comment_creates(), 1)
     t.eq(#result.raises, 2)
     t.eq(result.raises[1].queue, "github_entity_changed")
     t.eq(result.raises[1].payload.type, "pr")
@@ -561,8 +569,8 @@ return {
     t.eq(result.exit_code, 1)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh issue comment"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(issue_comment_creates(), 0)
+    t.eq(pr_comment_creates(9), 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
@@ -580,8 +588,8 @@ return {
     t.eq(result.exit_code, 1)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh issue comment"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(issue_comment_creates(), 0)
+    t.eq(pr_comment_creates(9), 0)
     t.eq(count_calls("gh issue edit"), 0)
   end,
 
@@ -629,8 +637,8 @@ return {
     t.eq(count_calls("git show-ref --verify refs/heads"), 0)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh issue comment"), 0)
-    t.eq(count_calls("gh pr comment"), 1)
+    t.eq(issue_comment_creates(), 0)
+    t.eq(pr_comment_creates(9), 1)
     t.eq(count_calls("gh issue edit"), 1)
     t.eq(count_calls("gh api 'repos/owner/x/issues/42'"), 2)
     t.eq(#result.raises, 2)
@@ -698,7 +706,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(pr_comment_creates(9), 0)
     t.eq(count_calls("gh issue edit"), 0)
     t.eq(count_calls("gh api 'repos/owner/x/issues/42'"), 2)
   end,
@@ -733,7 +741,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("git push -u origin"), 0)
     t.eq(count_calls("gh pr create"), 0)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(pr_comment_creates(9), 0)
     t.eq(count_calls("gh issue edit"), 0)
     t.eq(count_calls("gh api 'repos/owner/x/issues/42'"), 2)
   end,

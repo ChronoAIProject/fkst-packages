@@ -40,7 +40,7 @@ local pr_open_event = h.pr_open_event
 local pr_open_guard_comments = h.pr_open_guard_comments
 local pr_open_visible_comments = h.pr_open_visible_comments
 local reviewing_marker = h.reviewing_marker
-local issue_comment_create = "gh api --method POST 'repos/owner/x/issues/42/comments'"
+local issue_comment_create = "gh api --method POST repos/owner/x/issues/42/comments"
 
 local function pr_json(number, updated_at, state)
   return string.format(
@@ -669,7 +669,7 @@ return {
     mock_write_env("1")
     mock_bot_env()
     mock_comment_view("existing comment")
-    t.mock_command("gh api --method POST 'repos/owner/x/issues/42/comments' --field body=@'/tmp/fkst-github-proxy-comment-owner_x-issue-42.md'", {
+    t.mock_command("gh api --method POST repos/owner/x/issues/42/comments --field 'body=@/tmp/fkst-github-proxy-comment-owner_x-issue-42.md'", {
       stdout = "",
       stderr = "forced comment failure",
       exit_code = 1,

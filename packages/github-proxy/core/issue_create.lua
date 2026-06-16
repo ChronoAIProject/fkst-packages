@@ -178,20 +178,6 @@ local function normalize_parent_comment_target(target)
   return false
 end
 
-function M.gh_issue_create_parent_view_cmd(parent)
-  if parent.kind == "pr" then
-    return M.gh_pr_view_comments_cmd(parent.repo, parent.number)
-  end
-  return M.gh_issue_view_comments_cmd(parent.repo, parent.number)
-end
-
-function M.gh_issue_create_parent_comment_cmd(parent, body_file)
-  if parent.kind == "pr" then
-    return M.gh_pr_comment_cmd(parent.repo, parent.number, body_file)
-  end
-  return M.gh_issue_comment_cmd(parent.repo, parent.number, body_file)
-end
-
 function M.parse_issue_create_search(stdout)
   local decoded = json.decode(stdout or "[]")
   local issues = {}
@@ -413,8 +399,10 @@ function M.write_issue_create_request(payload)
   with_lock(M.issue_create_lock_key(payload.dedup_key), function()
     local parent = normalize_parent_comment_target(payload.parent_comment_target)
     if parent ~= nil then
-      local parent_view = M.gh_exec(M.gh_issue_create_parent_view_cmd(parent), 30, "gh parent comment view")
-      local parent_comments = M.parse_issue_comments(parent_view.stdout)
+      local parent_comments = M.github_adapter().list_issue_comments(parent.repo, parent.number, {
+        timeout = 30,
+        context = "github parent comment view",
+      })
       local existing_created_issue = M.trusted_issue_created_number(parent_comments, payload.dedup_key, bot_login)
       if existing_created_issue ~= nil then
         log.info("github-proxy: skip-idempotent issue-create parent marker already present")
@@ -428,10 +416,16 @@ function M.write_issue_create_request(payload)
 
       local intent_path = issue_create_intent_marker_body_file(payload.dedup_key)
       file.write(intent_path, M.issue_create_intent_marker(payload.dedup_key) .. "\n")
-      M.gh_exec(M.gh_issue_create_parent_comment_cmd(parent, intent_path), 30, "gh parent issue-create intent comment")
+      M.github_adapter().create_issue_comment(parent.repo, parent.number, intent_path, {
+        timeout = 30,
+        context = "github parent issue-create intent comment",
+      })
       M.invalidate_entity_after_write(parent.repo, parent.kind, parent.number)
-      local confirm = M.gh_exec(M.gh_issue_create_parent_view_cmd(parent), 30, "gh parent issue-create intent confirm")
-      if not M.has_trusted_issue_create_intent_marker(M.parse_issue_comments(confirm.stdout), payload.dedup_key, bot_login) then
+      local confirm = M.github_adapter().list_issue_comments(parent.repo, parent.number, {
+        timeout = 30,
+        context = "github parent issue-create intent confirm",
+      })
+      if not M.has_trusted_issue_create_intent_marker(confirm, payload.dedup_key, bot_login) then
         error("github-proxy: issue-create intent marker not visible after write")
       end
     end
@@ -464,7 +458,10 @@ function M.write_issue_create_request(payload)
       if parent ~= nil then
         local marker_path = issue_created_marker_body_file(payload.dedup_key)
         file.write(marker_path, M.issue_created_marker(payload.dedup_key, issue_number or "unknown") .. "\n")
-        M.gh_exec(M.gh_issue_create_parent_comment_cmd(parent, marker_path), 30, "gh parent issue-created comment")
+        M.github_adapter().create_issue_comment(parent.repo, parent.number, marker_path, {
+          timeout = 30,
+          context = "github parent issue-created comment",
+        })
         M.invalidate_entity_after_write(parent.repo, parent.kind, parent.number)
       end
       maybe_raise_post_create_blocked_by(payload, issue_number)

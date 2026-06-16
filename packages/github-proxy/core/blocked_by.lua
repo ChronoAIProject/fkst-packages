@@ -230,8 +230,11 @@ function M.write_issue_blocked_by_request(payload)
 
   local bot_login = M.assert_trusted_bot_configured()
   with_lock(M.issue_blocked_by_lock_key(payload.repo, payload.blocked_issue_number), function()
-    local comments_view = M.gh_exec(M.gh_issue_view_comments_cmd(payload.repo, payload.blocked_issue_number), 30, "gh issue comments")
-    if M.has_trusted_blocked_by_marker(M.parse_issue_comments(comments_view.stdout), payload.dedup_key, bot_login) then
+    local comments = M.github_adapter().list_issue_comments(payload.repo, payload.blocked_issue_number, {
+      timeout = 30,
+      context = "github issue comments",
+    })
+    if M.has_trusted_blocked_by_marker(comments, payload.dedup_key, bot_login) then
       log.info("github-proxy: skip-idempotent blocked-by marker already present")
       return
     end
@@ -248,7 +251,10 @@ function M.write_issue_blocked_by_request(payload)
 
     local path = marker_file(payload.dedup_key)
     file.write(path, M.blocked_by_marker(payload.dedup_key, payload.blocked_issue_number, payload.blocking_issue_number) .. "\n")
-    M.gh_exec(M.gh_issue_comment_cmd(payload.repo, payload.blocked_issue_number, path), 30, "gh blocked-by marker comment")
+    M.github_adapter().create_issue_comment(payload.repo, payload.blocked_issue_number, path, {
+      timeout = 30,
+      context = "github blocked-by marker comment",
+    })
     M.invalidate_entity_after_write(payload.repo, "issue", payload.blocked_issue_number)
   end)
 end

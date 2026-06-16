@@ -57,13 +57,13 @@ local function mock_parent_pr_comment_write()
 end
 
 local function mock_parent_issue_comment_write()
-  t.mock_command("gh issue comment '42' --repo 'owner/x' --body-file '/tmp/fkst-github-proxy-intent-", {
-    stdout = "",
+  t.mock_command("gh api --method POST repos/owner/x/issues/42/comments --field 'body=@/tmp/fkst-github-proxy-intent-", {
+    stdout = '{"id":123456,"body":"created","user":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("gh issue comment '42' --repo 'owner/x' --body-file '/tmp/fkst-github-proxy-created-", {
-    stdout = "",
+  t.mock_command("gh api --method POST repos/owner/x/issues/42/comments --field 'body=@/tmp/fkst-github-proxy-created-", {
+    stdout = '{"id":123456,"body":"created","user":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })
@@ -76,6 +76,10 @@ local function first_call_index(needle)
     end
   end
   return nil
+end
+
+local function parent_pr_comment_creates()
+  return count_calls("gh api --method POST repos/owner/x/issues/7/comments")
 end
 
 return {
@@ -176,7 +180,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp 'repos/owner/x/issues/7/comments?per_page=100'"), 1)
-    t.eq(count_calls("gh pr comment"), 0)
+    t.eq(parent_pr_comment_creates(), 0)
     t.eq(count_calls("gh issue list"), 0)
     t.eq(count_calls("gh issue create"), 0)
   end,
@@ -210,8 +214,8 @@ return {
     t.eq(count_calls("gh issue list"), 0)
     t.eq(count_calls("gh issue create"), 1)
     t.eq(count_calls("--assignee 'fkst-test-bot'"), 1)
-    t.eq(count_calls("gh pr comment"), 2)
-    t.is_true(first_call_index("gh pr comment") < first_call_index("gh issue create"))
+    t.eq(parent_pr_comment_creates(), 2)
+    t.is_true(first_call_index("gh api --method POST repos/owner/x/issues/7/comments") < first_call_index("gh issue create"))
   end,
 
   test_issue_create_request_raises_blocked_by_after_fresh_create = function()
@@ -311,7 +315,7 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh issue create"), 1)
-    t.eq(count_calls("gh pr comment"), 2)
+    t.eq(parent_pr_comment_creates(), 2)
     t.eq(count_calls("fkst-github-proxy-intent"), 1)
     t.eq(count_calls("fkst-github-proxy-created"), 1)
     t.eq(core.has_trusted_issue_created_marker({

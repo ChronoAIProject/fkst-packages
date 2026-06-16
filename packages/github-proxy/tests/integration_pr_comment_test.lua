@@ -8,7 +8,7 @@ local mock_pr_comment_view = h.mock_pr_comment_view
 local mock_pr_comment_write = h.mock_pr_comment_write
 local count_calls = h.count_calls
 local capture_comment_department_logs = h.capture_comment_department_logs
-local pr_comment_create = "gh api --method POST 'repos/owner/x/issues/7/comments'"
+local pr_comment_create = "gh api --method POST repos/owner/x/issues/7/comments"
 
 local function event(extra)
   local payload = {

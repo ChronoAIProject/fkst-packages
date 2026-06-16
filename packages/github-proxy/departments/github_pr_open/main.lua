@@ -312,12 +312,11 @@ function pipeline(event)
     end
 
     if not guard.pr_open_visible then
-      local issue_view = core.gh_exec(
-        core.gh_issue_view_comments_cmd(repo, payload.issue_number),
-        30,
-        "gh issue REST comments after PR open"
-      )
-      if core.has_trusted_marker(core.parse_issue_comments(issue_view.stdout), payload.dedup_key, bot_login) then
+      local issue_comments = core.github_adapter().list_issue_comments(repo, payload.issue_number, {
+        timeout = 30,
+        context = "github issue REST comments after PR open",
+      })
+      if core.has_trusted_marker(issue_comments, payload.dedup_key, bot_login) then
         guard.pr_open_visible = true
       end
     end
@@ -333,20 +332,18 @@ function pipeline(event)
       })
       local issue_body_path = temp_body_file(repo, payload.branch, "issue-comment")
       file.write(issue_body_path, issue_body)
-      core.gh_exec(
-        core.gh_issue_comment_cmd(repo, payload.issue_number, issue_body_path),
-        30,
-        "gh issue comment after PR open"
-      )
+      core.github_adapter().create_issue_comment(repo, payload.issue_number, issue_body_path, {
+        timeout = 30,
+        context = "github issue comment after PR open",
+      })
       core.invalidate_entity_after_write(repo, "issue", payload.issue_number)
     end
 
-    local pr_view = core.gh_exec(
-      core.gh_pr_view_comments_cmd(repo, pr.number),
-      30,
-      "gh PR REST comments after PR open"
-    )
-    if not core.has_trusted_comment_fragment(core.parse_issue_comments(pr_view.stdout), tostring(payload.body), bot_login) then
+    local pr_comments = core.github_adapter().list_issue_comments(repo, pr.number, {
+      timeout = 30,
+      context = "github PR REST comments after PR open",
+    })
+    if not core.has_trusted_comment_fragment(pr_comments, tostring(payload.body), bot_login) then
       local pr_body = tostring(payload.body) .. "\n\n" .. core.comment_marker(payload.dedup_key) .. "\n"
       pr_body = core.with_github_debug_stamp(pr_body, {
         emitter = "github-proxy.pr-open.pr-comment",
@@ -356,11 +353,10 @@ function pipeline(event)
       })
       local pr_body_path = temp_body_file(repo, payload.branch, "pr-comment")
       file.write(pr_body_path, pr_body)
-      core.gh_exec(
-        core.gh_pr_comment_cmd(repo, pr.number, pr_body_path),
-        30,
-        "gh pr comment"
-      )
+      core.github_adapter().create_issue_comment(repo, pr.number, pr_body_path, {
+        timeout = 30,
+        context = "github PR comment",
+      })
       core.invalidate_entity_after_write(repo, "pr", pr.number)
     end
 

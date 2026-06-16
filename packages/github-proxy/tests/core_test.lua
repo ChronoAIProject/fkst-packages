@@ -739,10 +739,6 @@ return {
       "owner/repo"
     ).is_target_repository, false)
     t.eq(core.parse_pr_create("https://example.test/pull/8\n").number, 8)
-    t.eq(
-      core.gh_issue_view_comments_cmd("owner/repo", 3),
-      "gh api --paginate --slurp 'repos/owner/repo/issues/3/comments?per_page=100'"
-    )
     local expected_label_colors = {
       ["fkst-dev:enabled"] = "1D76DB",
       ["fkst-dev:tracking"] = "C5DEF5",
@@ -769,10 +765,6 @@ return {
     t.eq(
       core.gh_label_create_cmd("owner/repo", "custom'label"),
       "gh label create 'custom'\\''label' --repo 'owner/repo' --color 'ededed'"
-    )
-    t.eq(
-      core.gh_issue_comment_cmd("owner/repo", 3, "/tmp/body's.md"),
-      "gh issue comment '3' --repo 'owner/repo' --body-file '/tmp/body'\\''s.md'"
     )
     t.eq(
       core.gh_issue_edit_labels_cmd("owner/repo", 3, { "fkst-dev:ready" }, { "fkst-dev:thinking", "needs'user" }),

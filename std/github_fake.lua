@@ -38,6 +38,49 @@ function M.new(model)
     end
     return copy(issue.normalize_issue(fixture, source_ref))
   end
+  function handle.list_issue_comments(repo, issue_number)
+    table.insert(model.writes, {
+      kind = "list_issue_comments",
+      repo = tostring(repo),
+      issue_number = tostring(issue_number),
+    })
+    local key = tostring(repo) .. "#issue/" .. tostring(issue_number)
+    local fixture = model.issues[key]
+    if type(fixture) == "table" and type(fixture.comments) == "table" then
+      return copy(issue.normalize_issue(fixture, { kind = "external", ref = key }).comments)
+    end
+    return {}
+  end
+  function handle.create_issue_comment(repo, issue_number, body_file)
+    local comment = {
+      id = tostring(#model.writes + 1),
+      body = "",
+      author_login = "fake",
+    }
+    table.insert(model.writes, {
+      kind = "create_issue_comment",
+      repo = tostring(repo),
+      issue_number = tostring(issue_number),
+      body_file = tostring(body_file),
+      comment = copy(comment),
+    })
+    return copy(comment)
+  end
+  function handle.edit_issue_comment(repo, comment_id, body_file)
+    local comment = {
+      id = tostring(comment_id),
+      body = "",
+      author_login = "fake",
+    }
+    table.insert(model.writes, {
+      kind = "edit_issue_comment",
+      repo = tostring(repo),
+      comment_id = tostring(comment_id),
+      body_file = tostring(body_file),
+      comment = copy(comment),
+    })
+    return copy(comment)
+  end
   return handle
 end
 

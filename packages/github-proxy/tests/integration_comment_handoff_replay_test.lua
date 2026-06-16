@@ -12,7 +12,7 @@ local calls_matching = h.calls_matching
 local count_calls = h.count_calls
 local capture_comment_department_logs = h.capture_comment_department_logs
 
-local issue_comment_create = "gh api --method POST 'repos/owner/x/issues/42/comments'"
+local issue_comment_create = "gh api --method POST repos/owner/x/issues/42/comments"
 
 return {
   test_outbound_dry_run_write_and_marker_idempotency = function()
