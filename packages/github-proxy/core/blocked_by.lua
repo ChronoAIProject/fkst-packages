@@ -1,6 +1,7 @@
 local S = {}
 
-function S.install(M)
+function S.install(M, deps)
+local shared = deps or M
 local strings = require("std.strings")
 local max_dedup_len = 512
 local max_repo_len = 200
@@ -14,28 +15,12 @@ local function optional_marker_value(value)
   return value == nil or is_marker_value(value)
 end
 
-local function is_positive_integer(value)
-  local n = tonumber(value)
-  return n ~= nil and n >= 1 and n % 1 == 0 and n <= 2147483647
-end
-
 local split_repo = strings.split_repo
 
 local function runtime_segment(value)
   local safe = tostring(value or ""):gsub("[^%w._-]", "_")
   safe = safe:gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
   return safe == "" and "empty" or safe
-end
-
--- A GitHub App's author login is "<slug>[bot]" via the REST API but bare
--- "<slug>" via GraphQL. Strip the suffix so callers comparing against a
--- configured bot login match regardless of which API populated the field.
--- No-op for ordinary user logins (which never end in "[bot]").
-local function strip_bot_login_suffix(login)
-  if login == nil then
-    return nil
-  end
-  return (tostring(login):gsub("%[bot%]$", ""))
 end
 
 local function issue_author_login(comment)
@@ -50,7 +35,7 @@ local function issue_author_login(comment)
   elseif type(comment.user) == "table" and comment.user.login ~= nil then
     raw = comment.user.login
   end
-  return strip_bot_login_suffix(raw)
+  return shared.strip_bot_login_suffix(raw)
 end
 
 function M.validate_issue_blocked_by_payload(payload)
@@ -63,8 +48,8 @@ function M.validate_issue_blocked_by_payload(payload)
   if not strings.is_bounded_string(payload.repo, max_repo_len) or split_repo(payload.repo) == nil then
     return false
   end
-  if not is_positive_integer(payload.blocked_issue_number)
-    or not is_positive_integer(payload.blocking_issue_number) then
+  if not shared.is_positive_integer(payload.blocked_issue_number)
+    or not shared.is_positive_integer(payload.blocking_issue_number) then
     return false
   end
   if not is_marker_value(payload.dedup_key) then
@@ -105,7 +90,7 @@ end
 
 function M.gh_issue_blocked_by_cmd(repo, issue_number)
   local owner, name = split_repo(repo)
-  if owner == nil or not is_positive_integer(issue_number) then
+  if owner == nil or not shared.is_positive_integer(issue_number) then
     error("github-proxy: invalid blockedBy query target")
   end
   local query = M.render_github_graphql_query("blocked_by", {
@@ -141,7 +126,7 @@ local function parse_blocked_by(stdout)
   end
   local edges = {}
   for _, node in ipairs(nodes) do
-    if type(node) ~= "table" or not is_positive_integer(node.number) then
+    if type(node) ~= "table" or not shared.is_positive_integer(node.number) then
       error("github-proxy: malformed blockedBy node")
     end
     local node_repo = node.repository and node.repository.nameWithOwner
@@ -168,8 +153,8 @@ end
 
 function M.blocked_by_marker(dedup_key, blocked_issue_number, blocking_issue_number)
   if not is_marker_value(dedup_key)
-    or not is_positive_integer(blocked_issue_number)
-    or not is_positive_integer(blocking_issue_number) then
+    or not shared.is_positive_integer(blocked_issue_number)
+    or not shared.is_positive_integer(blocking_issue_number) then
     error("github-proxy: invalid blocked-by marker fields")
   end
   return '<!-- fkst:github-proxy:blocked-by:v1 dedup="' .. tostring(dedup_key)
