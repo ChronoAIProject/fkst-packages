@@ -94,13 +94,3 @@ packages/github-proxy/departments/github_poll/main.lua:
 packages/github-proxy/departments/github_pr_comment/main.lua:
   - gh PR
   - gh pr
-std/github_debug_stamp.lua:
-  - git rev-parse
-std/saga_conformance.lua:
-  - gh api
-  - gh issue
-  - gh label
-  - gh pr
-  - gh workflow
-  - git
-  - git push

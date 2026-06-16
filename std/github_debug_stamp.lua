@@ -40,16 +40,15 @@ local function read_debug_flag(read_env)
   return ok and trim(value) == "1"
 end
 
-local function read_code_version(exec)
-  local run = exec or exec_sync
-  if type(run) ~= "function" then
+local function read_code_version(git)
+  if type(git) ~= "table" or type(git.read_head) ~= "function" then
     return "unknown"
   end
-  local ok, result = pcall(run, { cmd = "git rev-parse --verify HEAD", timeout = 30 })
-  if not ok or type(result) ~= "table" or result.exit_code ~= 0 then
+  local ok, result = pcall(git.read_head, { timeout = 30 })
+  if not ok then
     return "unknown"
   end
-  local head = trim(result.stdout)
+  local head = trim(result)
   if head:find("^[0-9A-Fa-f]+$") == nil then
     return "unknown"
   end
@@ -72,7 +71,7 @@ function S.stamp(context, opts)
     marker_prefix,
     ' emitter="' .. attr_value(context and context.emitter) .. '"',
     ' target="' .. attr_value(context and context.target) .. '"',
-    ' code_version="' .. attr_value(read_code_version(selected.exec)) .. '"',
+    ' code_version="' .. attr_value(read_code_version(selected.git)) .. '"',
   }
   if context ~= nil and context.dedup_key ~= nil and tostring(context.dedup_key) ~= "" then
     table.insert(fields, ' dedup_hash="' .. checksum(context.dedup_key) .. '"')
@@ -96,7 +95,14 @@ function S.append(body, context, opts)
   return text:gsub("%s+$", "") .. "\n\n" .. marker .. "\n"
 end
 
-function S.install(M, read_env)
+local function production_git()
+  if type(exec_argv) ~= "function" then
+    return nil
+  end
+  return require("std.git").new(exec_argv)
+end
+
+function S.install(M, read_env, git_handle)
   function M.debug_stamp_marker_prefix()
     return marker_prefix
   end
@@ -104,7 +110,7 @@ function S.install(M, read_env)
   function M.with_github_debug_stamp(body, context)
     return S.append(body, context, {
       read_env = read_env or M.read_env,
-      exec = exec_sync,
+      git = git_handle or production_git(),
     })
   end
 end

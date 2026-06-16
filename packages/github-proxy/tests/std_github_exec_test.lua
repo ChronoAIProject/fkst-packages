@@ -120,6 +120,22 @@ return {
     assert(tostring(err):find("gh", 1, true) ~= nil, "misuse error must name the bad program")
   end,
 
+  test_git_read_head_builder_uses_argv_without_shell_fields = function()
+    local seen
+    local handle = git.new(function(opts)
+      seen = opts
+      return { stdout = "ABCDEF1234567890\n", stderr = "", exit_code = 0 }
+    end)
+
+    local head = handle.read_head({ timeout = 11 })
+
+    assert(head == "ABCDEF1234567890")
+    assert_argv_equal(seen.argv, { "git", "rev-parse", "--verify", "HEAD" }, "git read_head")
+    assert(seen.timeout == 11, "read_head forwards timeout")
+    assert(seen.cmd == nil, "read_head must not pass cmd")
+    assert(seen.rate_pool == nil, "read_head must not pass rate_pool")
+  end,
+
   test_read_issue_builder_uses_gh_argv = function()
     local calls = {}
     local comments_query = table.concat({ "per", "page=100" }, "_")

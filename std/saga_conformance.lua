@@ -1,92 +1,27 @@
 -- std.saga_conformance: thin test oracle for saga progress and idempotency.
 local C = {}
 
-local write_prefixes = {
-  "gh issue comment",
-  "gh issue edit",
-  "gh issue close",
-  "gh issue create",
-  "gh issue reopen",
-  "gh pr merge",
-  "gh pr comment",
-  "gh pr edit",
-  "gh pr create",
-  "gh pr close",
-  "gh pr ready",
-  "gh pr reopen",
-  "gh label add",
-  "gh label remove",
-  "gh label create",
-  "gh workflow run",
-  "git push",
-}
+local github_write_class = require("std.github.write_class")
+local git_write_class = require("std.git.write_class")
 
-local write_fragments = {
-  "gh api --method POST",
-  "gh api --method PATCH",
-  "gh api --method PUT",
-  "gh api --method DELETE",
-  "--add-label",
-  "--remove-label",
-}
-
-local function starts_with(value, prefix)
-  return value:sub(1, #prefix) == prefix
-end
-
-local function is_graphql_mutation(command)
-  return command:find("gh api graphql", 1, true) ~= nil
-    and command:find("mutation") ~= nil
-end
-
-local function is_git_push(command)
-  local first = true
-  for token in command:gmatch("%S+") do
-    if first then
-      if token ~= "git" then
-        return false
-      end
-      first = false
-    elseif token == "push" then
-      return true
-    end
-  end
-  return false
-end
-
-function C.is_write_class(command_string)
-  local command = tostring(command_string or "")
-  if is_git_push(command) then
+function C.is_write_class(call)
+  if github_write_class.is_write_call(call) or git_write_class.is_write_call(call) then
     return true
   end
-  for _, prefix in ipairs(write_prefixes) do
-    if starts_with(command, prefix) then
-      return true
-    end
-  end
-  for _, fragment in ipairs(write_fragments) do
-    if command:find(fragment, 1, true) ~= nil then
-      return true
-    end
-  end
-  if is_graphql_mutation(command) then
-    return true
-  end
-  return false
-end
-
-local function command_text(call)
   if type(call) == "table" then
-    return tostring(call.rendered or call.cmd or call.command or "") .. "\n" .. tostring(call.stdin or "")
+    local rendered = tostring(call.rendered or call.cmd or call.command or "")
+    if rendered ~= "" then
+      return C.is_write_class(rendered .. "\n" .. tostring(call.stdin or ""))
+    end
   end
-  return call
+  return false
 end
 
 local function count_write_calls(start_index)
   local count = 0
   local calls = fkst.test.command_calls()
   for index = start_index + 1, #calls do
-    if C.is_write_class(command_text(calls[index])) then
+    if C.is_write_class(calls[index]) then
       count = count + 1
     end
   end

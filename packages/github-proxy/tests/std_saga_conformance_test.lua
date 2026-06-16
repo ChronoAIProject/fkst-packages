@@ -101,6 +101,32 @@ return {
     t.eq(conformance.is_write_class("git -C '/tmp/std-saga-worktree' cat-file -t HEAD"), false)
   end,
 
+  test_write_class_classifier_accepts_argv_calls = function()
+    t.eq(conformance.is_write_class({
+      argv = { "gh", "issue", "comment", "42", "--repo", "owner/x" },
+    }), true)
+    t.eq(conformance.is_write_class({
+      argv = { "gh", "api", "--method", "POST", "repos/owner/x/issues/42/comments" },
+    }), true)
+    t.eq(conformance.is_write_class({
+      argv = { "gh", "api", "graphql" },
+      stdin = "mutation { addLabelsToLabelable(input: {}) { clientMutationId } }",
+    }), true)
+    t.eq(conformance.is_write_class({
+      argv = { "gh", "issue", "view", "42", "--repo", "owner/x" },
+    }), false)
+    t.eq(conformance.is_write_class({
+      argv = { "gh", "api", "graphql" },
+      stdin = "query { viewer { login } }",
+    }), false)
+    t.eq(conformance.is_write_class({
+      argv = { "git", "-C", "/tmp/std-saga-worktree", "push", "origin", "HEAD:branch" },
+    }), true)
+    t.eq(conformance.is_write_class({
+      argv = { "git", "-C", "/tmp/std-saga-worktree", "status", "--short" },
+    }), false)
+  end,
+
   test_assert_progress_passes_when_first_writes = function()
     t.mock_command("gh issue comment '42'", {
       stdout = "",

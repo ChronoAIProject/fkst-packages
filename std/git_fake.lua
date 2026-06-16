@@ -30,6 +30,9 @@ function M.new(model)
     })
     return { stdout = "", stderr = "", exit_code = 0 }
   end
+  function handle.read_head(_opts)
+    return tostring(model.refs.HEAD or model.refs.head or "")
+  end
   return handle
 end
 
