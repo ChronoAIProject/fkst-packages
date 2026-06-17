@@ -289,7 +289,12 @@ function M.actionable_epoch_timeout_due(row, state, facts, now_seconds)
     if now_ms == nil or epoch_ms == nil or now_ms < epoch_ms then
       return false, eval.heartbeat_age_minutes
     end
-    return true, eval.heartbeat_age_minutes or math.floor((now_ms - epoch_ms) / 60000)
+    local age = math.floor((now_ms - epoch_ms) / 60000)
+    local budget = row.budget and tonumber(row.budget.minutes) or nil
+    if budget == nil or age < budget then
+      return false, eval.heartbeat_age_minutes or age
+    end
+    return true, eval.heartbeat_age_minutes or age
   end
   if eval.status ~= "actionable" then
     return false, nil
@@ -315,10 +320,56 @@ function M.actionable_epoch_timeout_attempt(row, state, facts)
   local comments = facts and facts.current and facts.current.comments or nil
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
   local current = M.timeout_attempt_v2_round(comments, proposal_id, row, eval.generation_key)
+  if row and row.actionable_epoch and row.actionable_epoch.source == "live_defer_heartbeat:v1" then
+    return math.max(
+      current,
+      M.timeout_attempt_round(comments, proposal_id, state and state.version, row and row.from_state) or 0,
+      M.version_timeout_round(state and state.version, row and row.from_state) or 0
+    )
+  end
   if tostring(eval.generation_opened_by or ""):find("^state%-entry:v1:") then
     return math.max(current, M.timeout_attempt_round(comments, proposal_id, state and state.version, row and row.from_state) or 0, M.version_timeout_round(state and state.version, row and row.from_state) or 0)
   end
   return current
+end
+
+function M.actionable_epoch_heartbeat_decision(row, state, facts, due, age, limit)
+  local eval = facts and facts.actionable_epoch_eval
+  if not (row
+    and row.actionable_epoch
+    and row.actionable_epoch.source == "live_defer_heartbeat:v1"
+    and type(eval) == "table"
+    and eval.status == "actionable") then
+    return nil
+  end
+  local missing = tostring(eval.generation_opened_by or ""):find(":missing$", 1, false) ~= nil
+  if missing then
+    if age == nil then return { action = "wait", age_minutes = age } end
+    if due then return nil end
+    local attempt = M.liveness_timeout_attempt(row, state, facts)
+    return {
+      action = "redrive",
+      attempt = attempt + 1,
+      age_minutes = age,
+      version = M.next_liveness_timeout_version(row, state, facts),
+    }
+  end
+  if not due then
+    if M.liveness_timeout_attempt(row, state, facts) <= 0 then
+      return {
+        action = "redrive",
+        attempt = 1,
+        age_minutes = age,
+        version = M.next_liveness_timeout_version(row, state, facts),
+      }
+    end
+    return { action = "wait", age_minutes = age }
+  end
+  return {
+    action = "escalate",
+    attempt = limit,
+    age_minutes = age,
+  }
 end
 
 function M.restart_row_has_registered_actionable_epoch(row)
