@@ -18,6 +18,10 @@ local spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function pr_source_ref(repo, pr_number)
   return core.pr_source_ref(repo, pr_number)
 end
@@ -603,9 +607,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "observe_pr",

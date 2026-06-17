@@ -8,6 +8,7 @@
 -- At-least-once idempotency belongs at the write boundary, not at the earlier
 -- done probe.
 local S = {}
+local strings = require("std.strings")
 
 local function always_accept(_event)
   return true
@@ -41,6 +42,73 @@ local function spec_from_opts(opts)
     fanout = opts.fanout,
     ephemeral = opts.ephemeral,
   }
+end
+
+local function event_identity(event)
+  if type(event) ~= "table" then
+    return nil
+  end
+  local payload = type(event.payload) == "table" and event.payload or {}
+  local key = payload.dedup_key or event.dedup_key
+  if key == nil then
+    return nil
+  end
+  return tostring(event.queue or "queue") .. "/" .. tostring(key)
+end
+
+local function done_cache_key(name, event)
+  local identity = event_identity(event)
+  if identity == nil then
+    return nil
+  end
+  local raw = tostring(name or "std.saga") .. "/" .. identity
+  local checksum = strings.decimal_checksum(raw)
+  local prefix = strings.sanitize_key(raw, 150):gsub("[/#]", "-"):gsub("%-+", "-")
+  return "std/saga/done/" .. prefix .. "/" .. checksum
+end
+
+function S.done_once(name)
+  return function(event)
+    local key = done_cache_key(name, event)
+    if key == nil then
+      return false
+    end
+    return cache_get(key) ~= nil
+  end
+end
+
+function S.act_once(name, act)
+  if type(act) ~= "function" then
+    error("std.saga: act_once requires act")
+  end
+  return function(event)
+    local key = done_cache_key(name, event)
+    if key ~= nil and cache_get(key) ~= nil then
+      return nil
+    end
+    local result = act(event)
+    if key ~= nil then
+      cache_set(key, "done")
+    end
+    return result
+  end
+end
+
+function S.act_once_when_done(name, act)
+  if type(act) ~= "function" then
+    error("std.saga: act_once_when_done requires act")
+  end
+  return function(event)
+    local key = done_cache_key(name, event)
+    if key ~= nil and cache_get(key) ~= nil then
+      return nil
+    end
+    local result = act(event)
+    if result == true and key ~= nil then
+      cache_set(key, "done")
+    end
+    return result
+  end
 end
 
 function S.department(opts)

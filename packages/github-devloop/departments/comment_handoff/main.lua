@@ -11,6 +11,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function supported_handoff(payload)
   if type(payload) ~= "table"
     or payload.schema ~= "github-proxy.comment-written.v1"
@@ -80,9 +84,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "comment_handoff",

@@ -7,6 +7,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function act(event)
   raise("github-proxy.github_issue_comment_request", core.reply_to_comment_request(event.payload or {}))
 end
@@ -18,9 +22,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   name = "outbound_glue",
 }

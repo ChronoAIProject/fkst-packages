@@ -8,6 +8,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function act(event)
   local payload = event.payload or {}
   if payload.type ~= "issue" then
@@ -24,9 +28,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   name = "inbound_glue",
 }

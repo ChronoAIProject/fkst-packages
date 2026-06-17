@@ -7,6 +7,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function has_required_fields(payload)
   return payload.pr_number ~= nil and payload.body ~= nil and payload.dedup_key ~= nil
 end
@@ -94,9 +98,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "github_pr_comment",

@@ -8,6 +8,10 @@ local spec = {
   stall_window = "10m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function require_repo(repo)
   local value = tostring(repo or "")
   if value == "" or core.safe_repo(value) ~= value then
@@ -270,9 +274,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "sync_scan",

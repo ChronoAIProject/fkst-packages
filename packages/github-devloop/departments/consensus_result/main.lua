@@ -115,6 +115,25 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
 end
 
 local function make_department(ports)
+  local function done(event)
+    local reached = event.payload or {}
+    if not core.is_supported_result(reached) then
+      return false
+    end
+    local repo, issue_number = core.parse_proposal_id(reached.proposal_id)
+    if repo == nil then
+      return false
+    end
+    local current = ports.github.read_issue({
+      kind = "external",
+      ref = repo .. "#issue/" .. tostring(issue_number),
+    }, {
+      consumer = "consensus_result",
+      force_fresh = true,
+    })
+    return core.result_effects_complete(current, reached)
+  end
+
   local function act(event)
     local reached = event.payload or {}
     if type(reached) == "table" and reached.schema == "consensus.consensus_reached.v1"
@@ -202,9 +221,7 @@ local function make_department(ports)
     produces = spec.produces,
     fanout = spec.fanout,
     stall_window = spec.stall_window,
-    done = function(_event)
-      return false
-    end,
+    done = done,
     act = act,
     wrap = core.wrap_pipeline_failure,
     name = "consensus_result",

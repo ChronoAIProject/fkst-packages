@@ -8,6 +8,10 @@ local spec = {
   stall_window = "10m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local blocked_by_skew_label = "fkst-dev:blocked-by-skew"
 
 local function require_repo(repo)
@@ -327,9 +331,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   name = "pr_freshness_scan",
 }

@@ -7,6 +7,10 @@ local spec = {
   stall_window = "5m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function log_skip(payload, reason)
   core.log_line("info", "rollup_merge", "rollup", "GATE", {
     "repo=" .. tostring(core.payload_field(payload, "repo")),
@@ -84,9 +88,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "rollup_merge",

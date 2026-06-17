@@ -7,6 +7,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local entity_types = {
   { type = "issue", read = function(repo, timeout) return core.github().issue_list(repo, timeout) end },
   { type = "pr", read = function(repo, timeout) return core.github().pr_list(repo, timeout) end },
@@ -147,9 +151,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "github_poll",

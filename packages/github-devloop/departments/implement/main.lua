@@ -17,6 +17,10 @@ local spec = {
   stall_window = "10m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function raise_impl_failed(repo, issue_number, ready, reason, detail, attempt)
   local comment_request = core.build_impl_failure_comment_request(repo, issue_number, ready, reason, detail, attempt)
   local label_request = core.build_impl_failed_label_request(repo, issue_number, ready, reason)
@@ -838,9 +842,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "implement",

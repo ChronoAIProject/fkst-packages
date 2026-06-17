@@ -9,6 +9,10 @@ local spec = {
   stall_window = "2m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function dead_source_ref(payload)
   local source_ref = payload.source_ref
   if source_ref == nil and type(payload.payload) == "table" then
@@ -65,9 +69,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   name = "dead_letter",
 }

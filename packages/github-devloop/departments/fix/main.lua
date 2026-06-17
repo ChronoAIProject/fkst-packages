@@ -12,6 +12,10 @@ local spec = {
   stall_window = "10m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function branch_worktree(repo, issue_number, version, branch)
   local runtime_result = exec_sync({ cmd = core.read_runtime_root_cmd(), timeout = 30 })
   if runtime_result.exit_code ~= 0 then
@@ -826,9 +830,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "fix",

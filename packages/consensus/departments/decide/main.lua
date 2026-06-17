@@ -7,6 +7,14 @@ local spec = {
   stall_window = "2m",
 }
 
+local function done(event)
+  local proposal = event.payload or {}
+  if proposal.schema ~= "consensus.proposal.v1" or not core.is_eligible(proposal) then
+    return false
+  end
+  return cache_get(core.reached_cache_key(proposal.dedup_key)) ~= nil
+end
+
 local function read_runtime_root()
   local result = exec_sync({ cmd = core.read_runtime_root_cmd(), timeout = 30 })
   if result.exit_code ~= 0 then
@@ -174,9 +182,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "decide",

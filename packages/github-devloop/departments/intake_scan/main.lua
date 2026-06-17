@@ -12,6 +12,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local INTAKE_LIMIT = 100
 
 local function raise_reintake_refusal(repo, issue_number, proposal_id, command, reason)
@@ -122,9 +126,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "intake_scan",

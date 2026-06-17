@@ -9,6 +9,18 @@ local spec = {
   stall_window = "30s",
 }
 
+local function done(event)
+  local payload = event.payload or {}
+  if payload.schema ~= "consensus.consensus_reached.v1" or payload.decision ~= "approve" then
+    return false
+  end
+  local repo, issue_number = core.parse_proposal_id(payload.proposal_id)
+  if repo == nil or not core.validate_reached(payload) then
+    return false
+  end
+  return cache_get(core.replied_cache_key(repo, issue_number)) ~= nil
+end
+
 local function act(event)
   local payload = event.payload or {}
   if payload.schema ~= "consensus.consensus_reached.v1" then
@@ -48,9 +60,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = done,
   act = act,
   name = "reply",
 }

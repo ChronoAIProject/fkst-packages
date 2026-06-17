@@ -27,6 +27,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function read_repo()
   local repo = core.read_env("FKST_GITHUB_REPO")
   if repo == nil or not core.issue_ref_round_trips(repo, 1) then
@@ -399,9 +403,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   name = "liveness_scan",
 }

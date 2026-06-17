@@ -8,6 +8,14 @@ local spec = {
   stall_window = "30s",
 }
 
+local function done(event)
+  local issue = event.payload or {}
+  if issue.schema ~= "autochrono.issue.v1" or not core.is_eligible(issue) then
+    return false
+  end
+  return cache_get(core.proposal_cache_key(issue.repo, issue.issue_number, issue.updated_at)) ~= nil
+end
+
 local function act(event)
   local issue = event.payload or {}
   if issue.schema ~= "autochrono.issue.v1" then
@@ -44,9 +52,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = done,
   act = act,
   name = "propose",
 }

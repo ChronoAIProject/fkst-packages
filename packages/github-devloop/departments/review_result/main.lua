@@ -16,6 +16,10 @@ local spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function act(event)
   local reached = event.payload or {}
   if not core.is_supported_review_result(reached) then
@@ -238,9 +242,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "review_result",

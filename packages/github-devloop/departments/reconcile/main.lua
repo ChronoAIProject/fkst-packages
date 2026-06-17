@@ -11,6 +11,10 @@ local spec = {
   stall_window = "2m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function emit_blocked_reconcile(kind, proposal_id, state, version, action, reason, comment_request, label_request, comment_queue)
   local add_labels, remove_labels = core.state_label_changes("blocked")
   local queue = comment_queue or "github-proxy.github_issue_comment_request"
@@ -498,9 +502,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "reconcile",

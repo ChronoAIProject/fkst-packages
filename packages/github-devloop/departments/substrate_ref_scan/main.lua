@@ -9,6 +9,10 @@ local spec = {
   stall_window = "5m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function act(event)
   core.log_entry("substrate_ref_scan", event, "repo-management-plane", "tick")
   core.substrate_ref_scan()
@@ -21,9 +25,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   name = "substrate_ref_scan",
 }

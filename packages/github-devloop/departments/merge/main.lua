@@ -18,6 +18,10 @@ local spec = {
   stall_window = "2m",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local function log_gate(merge_ready, outcome, reason)
   local pass = merge_ready and merge_ready._merge_pass
   local fields = {
@@ -962,9 +966,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   name = "merge",
 }

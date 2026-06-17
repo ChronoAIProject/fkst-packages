@@ -8,6 +8,10 @@ local spec = {
   stall_window = "30s",
 }
 
+local function not_done(_event)
+  return false
+end
+
 local PROBE_LIMIT = 5
 local CURSOR_KEY = "github-devloop/intake-probe/created-cursor"
 local BACKSTOP_BOUND = "burst beyond 5 new issues per 60s probe falls back to the 5m intake_scan sweep"
@@ -117,9 +121,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = function(_event)
-    return false
-  end,
+  done = not_done,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "intake_probe",
