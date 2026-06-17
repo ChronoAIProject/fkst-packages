@@ -61,35 +61,8 @@ return {
     t.is_nil(facts.event_source_ref({ payload = "not-a-table" }))
   end,
 
-  test_wrap_pipeline_failure_logs_delivery_context_and_rethrows = function()
-    local captured = {}
-    local wrapped = facts.wrap_pipeline_failure("github_pr_open", function(_event)
-      error("github-proxy: gh-pr-create-failed: bad sha abcdef1234567890")
-    end, function(dept, event, err, context)
-      table.insert(captured, {
-        dept = dept,
-        queue = event.queue,
-        err = tostring(err),
-        context = context,
-      })
-    end)
-
-    local ok, err = pcall(function()
-      wrapped({
-        queue = "github_pr_open_request",
-        attempt = 5,
-        payload = {
-          source_ref = { kind = "external", ref = "owner/repo#issue/42" },
-        },
-      })
-    end)
-
-    t.eq(ok, false)
-    t.is_true(tostring(err):find("gh-pr-create-failed", 1, true) ~= nil)
-    t.eq(#captured, 1)
-    t.eq(captured[1].dept, "github_pr_open")
-    t.eq(captured[1].queue, "github_pr_open_request")
-    t.eq(facts.source_ref_field(captured[1].context.source_ref), "external:owner/repo#issue/42")
-    t.eq(captured[1].context.attempt, 5)
+  test_pipeline_failure_abstraction_stays_package_local = function()
+    t.is_nil(facts.wrap_pipeline_failure)
+    t.is_nil(facts.pipeline_failure_wrapper)
   end,
 }

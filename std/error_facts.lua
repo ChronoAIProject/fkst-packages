@@ -73,27 +73,4 @@ function F.event_source_ref(event)
   return nil
 end
 
-function F.wrap_pipeline_failure(dept, fn, log_failure)
-  if type(log_failure) ~= "function" then
-    error("std.error_facts: log_failure callback is required")
-  end
-  return function(event)
-    local ok, err = pcall(fn, event)
-    if ok then
-      return err
-    end
-    log_failure(dept, event, err, {
-      source_ref = F.event_source_ref(event),
-      attempt = type(event) == "table" and event.attempt or nil,
-    })
-    error(err, 0)
-  end
-end
-
-function F.pipeline_failure_wrapper(log_failure)
-  return function(dept, fn)
-    return F.wrap_pipeline_failure(dept, fn, log_failure)
-  end
-end
-
 return F

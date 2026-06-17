@@ -25,14 +25,21 @@ function M.log_error_fact(level, dept, proposal_id, tag, error_class, queue, mes
   M.log_line(level or "error", dept, proposal_id, tag or "FAILURE", fields)
 end
 
-M.wrap_pipeline_failure = error_facts.pipeline_failure_wrapper(function(dept, event, err, context)
-  local payload = type(event) == "table" and event.payload or nil
-  local proposal_id = type(payload) == "table" and payload.proposal_id or "unknown"
-  M.log_error_fact("error", dept, proposal_id, "FAILURE", M.error_class_from_message(err), type(event) == "table" and event.queue or nil, err, {
-    source_ref = context.source_ref,
-    attempt = context.attempt,
-  })
-end)
+function M.wrap_pipeline_failure(dept, fn)
+  return function(event)
+    local ok, err = pcall(fn, event)
+    if ok then
+      return err
+    end
+    local payload = type(event) == "table" and event.payload or nil
+    local proposal_id = type(payload) == "table" and payload.proposal_id or "unknown"
+    M.log_error_fact("error", dept, proposal_id, "FAILURE", M.error_class_from_message(err), type(event) == "table" and event.queue or nil, err, {
+      source_ref = error_facts.event_source_ref(event),
+      attempt = type(event) == "table" and event.attempt or nil,
+    })
+    error(err, 0)
+  end
+end
 
 function M.log_line(level, dept, proposal_id, tag, fields)
   local parts = {
