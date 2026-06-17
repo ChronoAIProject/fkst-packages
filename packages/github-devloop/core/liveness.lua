@@ -750,7 +750,7 @@ end
 
 function M.liveness_timeout_attempt(row, state, facts)
   local eval = facts and facts.actionable_epoch_eval
-  if M.restart_row_has_registered_actionable_epoch(row) then
+  if M.restart_row_has_registered_actionable_epoch(row) and row.actionable_epoch.source ~= "live_defer_heartbeat:v1" then
     return M.actionable_epoch_timeout_attempt(row, state, facts)
   end
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
@@ -914,6 +914,7 @@ local function emit_timeout_attempt_marker(dept, entity, state, row, facts, prop
   if target ~= nil then
     local eval = facts and facts.actionable_epoch_eval
     if M.restart_row_has_registered_actionable_epoch(row)
+      and row.actionable_epoch.source ~= "live_defer_heartbeat:v1"
       and type(eval) == "table"
       and eval.status == "actionable"
       and eval.generation_key ~= nil then
