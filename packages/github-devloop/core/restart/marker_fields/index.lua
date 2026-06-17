@@ -12,6 +12,7 @@ return {
   { module = "implement_attempt", key = "implement-attempt" },
   { module = "implementing", key = "implementing" },
   { module = "merge_gate", key = "merge-gate" },
+  { module = "merge_gate_wait", key = "merge-gate-wait" },
   { module = "merge_ready", key = "merge-ready" },
   { module = "merging", key = "merging" },
   { module = "pr_link", key = "pr-link" },
