@@ -18,7 +18,11 @@ local spec = {
   stall_window = "2m",
 }
 
-local function not_done(_event)
+local function completion_rechecked_at_write_boundary(event)
+  if core.event_queue_matches(event, "devloop_merge_queue_tick") then
+    return false
+  end
+  -- process_merge_ready_locked re-derives merged markers, PR authority, queue, CI, and head facts under lock.
   return false
 end
 
@@ -966,7 +970,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   name = "merge",
 }

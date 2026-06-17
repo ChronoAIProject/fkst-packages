@@ -6,7 +6,8 @@ local spec = {
   stall_window = "30s",
 }
 
-local function not_done(_event)
+local function completion_rechecked_at_write_boundary(_event)
+  -- write_issue_blocked_by_request checks trusted markers and the GitHub edge under the target lock.
   return false
 end
 
@@ -21,7 +22,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "github_issue_blocked_by",

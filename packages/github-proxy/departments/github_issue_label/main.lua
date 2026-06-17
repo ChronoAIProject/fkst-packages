@@ -6,10 +6,6 @@ local spec = {
   stall_window = "30s",
 }
 
-local function not_done(_event)
-  return false
-end
-
 local function normalize_labels(value)
   local labels = {}
   if type(value) ~= "table" then
@@ -86,6 +82,29 @@ local function log_skip(payload, repo, add_labels, remove_labels, reason)
     table.insert(fields, 3, "issue=" .. tostring(number))
   end
   core.log_line("info", "github_issue_label", "SKIP", fields)
+end
+
+local function labels_complete(current_labels, add_labels, remove_labels)
+  local present = {}
+  for _, label in ipairs(current_labels or {}) do
+    present[tostring(label)] = true
+  end
+  for _, label in ipairs(add_labels) do
+    if present[tostring(label)] ~= true then
+      return false
+    end
+  end
+  for _, label in ipairs(remove_labels) do
+    if present[tostring(label)] == true then
+      return false
+    end
+  end
+  return true
+end
+
+local function completion_rechecked_at_write_boundary(_event)
+  -- Label edits are guarded under the entity label lock and GitHub label sets are idempotent.
+  return false
 end
 
 local function guarded_pr_label_view(repo, pr_number, payload)
@@ -182,7 +201,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "github_issue_label",

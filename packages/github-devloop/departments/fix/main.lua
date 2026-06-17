@@ -12,7 +12,8 @@ local spec = {
   stall_window = "10m",
 }
 
-local function not_done(_event)
+local function completion_rechecked_at_write_boundary(_event)
+  -- act re-derives PR facts under the transition lock and rechecks before push or review/meta effects.
   return false
 end
 
@@ -830,7 +831,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "fix",

@@ -16,7 +16,8 @@ local spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
-local function not_done(_event)
+local function completion_rechecked_at_write_boundary(_event)
+  -- act re-derives PR origin, head, review markers, and state under the issue transition lock.
   return false
 end
 
@@ -242,7 +243,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "review_result",

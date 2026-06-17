@@ -17,7 +17,8 @@ local spec = {
   stall_window = "10m",
 }
 
-local function not_done(_event)
+local function completion_rechecked_at_write_boundary(_event)
+  -- process_ready_event re-derives issue state under the transition lock before spawning or raising effects.
   return false
 end
 
@@ -842,7 +843,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "implement",

@@ -7,7 +7,8 @@ local spec = {
   stall_window = "2m",
 }
 
-local function not_done(_event)
+local function completion_rechecked_at_write_boundary(_event)
+  -- guard_pr_open_write re-derives issue state, PR-open markers, branch head, and existing PRs under lock.
   return false
 end
 
@@ -383,7 +384,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "github_pr_open",

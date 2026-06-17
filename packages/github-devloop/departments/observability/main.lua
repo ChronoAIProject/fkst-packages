@@ -8,7 +8,7 @@ local spec = {
   stall_window = "2m",
 }
 
-local function not_done(_event)
+local function recurring_delivery(_event)
   return false
 end
 
@@ -24,7 +24,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = recurring_delivery,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "observability",

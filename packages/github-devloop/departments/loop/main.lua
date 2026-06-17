@@ -12,22 +12,8 @@ local spec = {
   stall_window = "30s",
 }
 
-local function not_done(_event)
+local function recurring_convergence_round(_event)
   return false
-end
-
-local function append_round_fact(facts, round, narrowed_question, angle_digests, dedup_key)
-  local copied = {}
-  for _, fact in ipairs(facts or {}) do
-    table.insert(copied, fact)
-  end
-  table.insert(copied, {
-    round = round,
-    question = core.converge_question_digest(narrowed_question),
-    verdicts = core.converge_verdicts_digest(angle_digests),
-    dedup = dedup_key,
-  })
-  return copied
 end
 
 local function act(event)
@@ -91,7 +77,7 @@ local function act(event)
       unresolved.angle_digests
     )
     local comment_request = core.build_converge_round_comment_request(repo, issue_number, unresolved, round, marker_body)
-    local facts_with_current = append_round_fact(facts, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key)
+    local facts_with_current = core.append_converge_round_fact(facts, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key)
     local budget_round = math.max(round, core.converge_boundary_budget_round(current.comments, unresolved.proposal_id, unresolved.narrowed_question, unresolved.angle_digests))
     local hit_round_cap = budget_round >= core.max_converge_rounds()
     if hit_round_cap or core.is_true_stall(facts_with_current, round) then
@@ -145,7 +131,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = recurring_convergence_round,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "loop",

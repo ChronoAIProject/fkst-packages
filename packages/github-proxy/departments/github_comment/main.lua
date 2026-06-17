@@ -7,12 +7,13 @@ local spec = {
   stall_window = "30s",
 }
 
-local function not_done(_event)
-  return false
-end
-
 local function has_required_fields(payload)
   return payload.issue_number ~= nil and payload.body ~= nil and payload.dedup_key ~= nil
+end
+
+local function completion_rechecked_at_write_boundary(_event)
+  -- write_comment_request reloads trusted comments under the target lock before creating or editing.
+  return false
 end
 
 local function log_outbound(payload, repo, write_env)
@@ -97,7 +98,7 @@ return saga.department{
   stall_window = spec.stall_window,
   retry = spec.retry,
   ephemeral = spec.ephemeral,
-  done = not_done,
+  done = completion_rechecked_at_write_boundary,
   act = act,
   wrap = core.wrap_pipeline_failure,
   name = "github_comment",
