@@ -12,6 +12,7 @@ local allowed_env = {
   FKST_DEVLOOP_MAX_INFLIGHT = true,
   FKST_DEVLOOP_MANAGED_SIBLING_REPOS = true,
   FKST_DEVLOOP_ROLLUP_MERGE = true,
+  FKST_DEVLOOP_ROLLUP_AUTOFIX = true,
   FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = true,
   FKST_DEVLOOP_RELEASE_NOTES_FALLBACK = true,
   FKST_DEVLOOP_CONFLICT_LOG_CMD = true,
@@ -85,6 +86,15 @@ function M.claim_mode(exec)
     return "label"
   end
   return "assignee"
+end
+
+-- Rollup auto-fix is opt-in and additive: default (unset/anything-but-"1") is
+-- off, which is byte-for-byte today's behavior (the rollup-health watchdog only
+-- files a passive issue). When "1", the watchdog issue is created already
+-- fkst-dev:enabled + fkst-class:expedite so the loop claims and fixes the red
+-- rollup ahead of new issues (expedite class + inflight cap = priority).
+function M.rollup_autofix_enabled(exec)
+  return M._trim(M.read_env("FKST_DEVLOOP_ROLLUP_AUTOFIX", exec) or "") == "1"
 end
 
 function M.max_inflight(exec)
