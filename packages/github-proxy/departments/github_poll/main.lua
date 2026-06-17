@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "github_poll_tick" },
   produces = { "github_entity_changed" },
   stall_window = "30s",
@@ -127,7 +126,7 @@ local function poll_entities(repo, event, fresh_changes, replay_candidates)
   end
 end
 
-function pipeline(event)
+local function act(event)
   local repo = core.read_env("FKST_GITHUB_REPO")
   if repo == nil then
     log.warn("github-proxy: FKST_GITHUB_REPO missing; skipping poll")
@@ -141,6 +140,17 @@ function pipeline(event)
   raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget))
 end
 
-pipeline = core.wrap_pipeline_failure("github_poll", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "github_poll",
+}

@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "consensus.consensus_reached" },
   produces = {
     "github-proxy.github_issue_label_request",
@@ -17,7 +16,7 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
-function pipeline(event)
+local function act(event)
   local reached = event.payload or {}
   if not core.is_supported_review_result(reached) then
     core.log_entry("review_result", event, "unknown", core.payload_field(reached, "dedup_key"))
@@ -232,6 +231,17 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("review_result", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "review_result",
+}

@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "consensus.consensus_converge" },
   produces = {
     "consensus.proposal",
@@ -77,7 +76,7 @@ local function reviewing_segment_transition_status(state, review_version)
   return "pending"  -- no marker yet, or a state earlier than reviewing -> reviewing marker not yet visible
 end
 
-function pipeline(event)
+local function act(event)
   local unresolved = event.payload or {}
   if not core.is_supported_pr_review_unresolved(unresolved) then
     core.log_entry("review_loop", event, "unknown", core.payload_field(unresolved, "dedup_key"))
@@ -245,6 +244,17 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("review_loop", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "review_loop",
+}

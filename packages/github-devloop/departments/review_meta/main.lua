@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "devloop_review_meta" },
   produces = {
     "github-proxy.github_issue_label_request",
@@ -13,7 +12,7 @@ M.spec = {
   stall_window = "2m",
 }
 
-function pipeline(event)
+local function act(event)
   local review_meta = event.payload or {}
   if not core.is_supported_review_meta(review_meta) then
     core.log_entry("review_meta", event, "unknown", core.payload_field(review_meta, "dedup_key"))
@@ -200,6 +199,17 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("review_meta", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "review_meta",
+}

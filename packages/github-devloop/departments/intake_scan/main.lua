@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "devloop_intake_tick" },
   produces = {
     "devloop_intake_candidate",
@@ -59,7 +58,7 @@ local function handle_pending_reintake(repo, issue, current, proposal_id)
   return true
 end
 
-function pipeline(event)
+local function act(event)
   core.log_entry("intake_scan", event, "github-devloop/intake", "tick")
   core.assert_trusted_bot_configured()
 
@@ -116,6 +115,17 @@ function pipeline(event)
   end
 end
 
-pipeline = core.wrap_pipeline_failure("intake_scan", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "intake_scan",
+}

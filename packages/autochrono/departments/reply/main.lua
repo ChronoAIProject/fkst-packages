@@ -1,16 +1,15 @@
 local core = require("core")
+local saga = require("std.saga")
 local mapping = require("departments.reply.mapping")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "consensus.consensus_reached" },
   produces = { "reply" },
   fanout = { "consensus.consensus_reached" },
   stall_window = "30s",
 }
 
-function pipeline(event)
+local function act(event)
   local payload = event.payload or {}
   if payload.schema ~= "consensus.consensus_reached.v1" then
     log.warn("autochrono: unsupported consensus schema")
@@ -42,4 +41,16 @@ function pipeline(event)
   end)
 end
 
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  name = "reply",
+}

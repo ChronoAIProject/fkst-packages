@@ -1,18 +1,28 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "devloop_doctor_tick" },
   produces = {},
   retry = false,
   stall_window = "2m",
 }
 
-function pipeline(_event)
+local function act(_event)
   print(core.saga_doctor_run())
 end
 
-pipeline = core.wrap_pipeline_failure("doctor", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "doctor",
+}

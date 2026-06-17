@@ -1,8 +1,8 @@
 local core = require("core")
+local saga = require("std.saga")
 local runtime_files = require("departments.merge.runtime_files")
 
-local M = {}
-M.spec = {
+local spec = {
   consumes = { "devloop_merge_ready", "devloop_merge_queue_tick" },
   produces = {
     "github-proxy.github_issue_label_request",
@@ -960,13 +960,24 @@ local function process_merge_ready_event(event)
   end)
 end
 
-function pipeline(event)
-  core.dispatch_consumed_queue("merge", M.spec, event, {
+local function act(event)
+  core.dispatch_consumed_queue("merge", spec, event, {
     devloop_merge_queue_tick = function()
       process_merge_queue_tick(event)
     end,
     devloop_merge_ready = process_merge_ready_event,
   })
 end
-pipeline = core.wrap_pipeline_failure("merge", pipeline)
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  name = "merge",
+}

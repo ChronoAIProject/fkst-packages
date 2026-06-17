@@ -1,9 +1,8 @@
 local core = require("core")
+local saga = require("std.saga")
 local source_refs = require("std.source_ref")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "github-proxy.github_comment_written" },
   produces = {
     "devloop_ready",
@@ -37,7 +36,7 @@ local function supported_handoff(payload)
   return nil
 end
 
-function pipeline(event)
+local function act(event)
   local payload = event.payload or {}
   local handoff = supported_handoff(payload)
   if handoff == nil then
@@ -74,6 +73,17 @@ function pipeline(event)
   core.log_raise("comment_handoff", handoff.proposal_id, "devloop_reviewing", reviewing)
 end
 
-pipeline = core.wrap_pipeline_failure("comment_handoff", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "comment_handoff",
+}

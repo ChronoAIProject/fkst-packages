@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "devloop_ensure_repo_tick" },
   produces = {},
   ephemeral = { "devloop_ensure_repo_tick" },
@@ -10,9 +9,21 @@ M.spec = {
   stall_window = "2m",
 }
 
-function pipeline(event)
+local function act(event)
   core.log_entry("ensure_repo", event, "repo-management-plane", "tick")
   core.ensure_repo()
 end
 
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  name = "ensure_repo",
+}

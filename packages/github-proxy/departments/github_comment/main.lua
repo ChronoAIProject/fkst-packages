@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "github_issue_comment_request" },
   produces = { "github_comment_written" },
   stall_window = "30s",
@@ -57,7 +56,7 @@ local function write_with_outbound_log(payload, target)
   return written, repo
 end
 
-function pipeline(event)
+local function act(event)
   local payload = event.payload or {}
   local written, repo = write_with_outbound_log(payload, {
     kind = "issue",
@@ -87,6 +86,17 @@ function pipeline(event)
   end
 end
 
-pipeline = core.wrap_pipeline_failure("github_comment", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "github_comment",
+}

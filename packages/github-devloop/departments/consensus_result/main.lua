@@ -1,4 +1,5 @@
 local core = require("core")
+local saga = require("std.saga")
 local ports_seam = require("std.ports")
 
 local spec = {
@@ -114,7 +115,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
 end
 
 local function make_department(ports)
-  local function result_pipeline(event)
+  local function act(event)
     local reached = event.payload or {}
     if type(reached) == "table" and reached.schema == "consensus.consensus_reached.v1"
       and reached.decision == "reject" then
@@ -196,9 +197,18 @@ local function make_department(ports)
     end)
   end
 
-  pipeline = core.wrap_pipeline_failure("consensus_result", result_pipeline)
-  _G.pipeline = pipeline
-  return { spec = spec, pipeline = pipeline }
+  return saga.department{
+    consumes = spec.consumes,
+    produces = spec.produces,
+    fanout = spec.fanout,
+    stall_window = spec.stall_window,
+    done = function(_event)
+      return false
+    end,
+    act = act,
+    wrap = core.wrap_pipeline_failure,
+    name = "consensus_result",
+  }
 end
 
 local M = ports_seam.install(make_department)

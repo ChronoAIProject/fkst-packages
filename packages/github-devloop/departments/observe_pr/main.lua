@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "github-proxy.github_entity_changed", "github-proxy.github_pr_opened" },
   produces = {
     "github-proxy.github_issue_label_request",
@@ -590,13 +589,24 @@ local function process_pr_event(event)
   end)
 end
 
-function pipeline(event)
-  core.dispatch_consumed_queue("observe_pr", M.spec, event, {
+local function act(event)
+  core.dispatch_consumed_queue("observe_pr", spec, event, {
     ["github-proxy.github_entity_changed"] = process_pr_event,
     ["github-proxy.github_pr_opened"] = process_pr_event,
   })
 end
 
-pipeline = core.wrap_pipeline_failure("observe_pr", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "observe_pr",
+}

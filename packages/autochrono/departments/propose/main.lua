@@ -1,15 +1,14 @@
 local core = require("core")
+local saga = require("std.saga")
 local mapping = require("departments.propose.mapping")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "issue" },
   produces = { "consensus.proposal" },
   stall_window = "30s",
 }
 
-function pipeline(event)
+local function act(event)
   local issue = event.payload or {}
   if issue.schema ~= "autochrono.issue.v1" then
     log.warn("autochrono: unsupported issue schema")
@@ -38,4 +37,16 @@ function pipeline(event)
   end)
 end
 
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  name = "propose",
+}

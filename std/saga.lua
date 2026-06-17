@@ -72,6 +72,7 @@ function S.department(opts)
 
   return {
     spec = spec_from_opts(opts),
+    pipeline = wrapped,
   }
 end
 

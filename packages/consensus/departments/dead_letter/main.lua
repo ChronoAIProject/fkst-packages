@@ -1,9 +1,8 @@
 local core = require("core")
+local saga = require("std.saga")
 local error_facts = require("std.error_facts")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "dead_letter" },
   produces = {},
   stall_window = "2m",
@@ -30,7 +29,7 @@ local function dead_dedup_key(payload)
   return nil
 end
 
-function pipeline(event)
+local function act(event)
   local payload = event.payload or {}
   local error_class = error_facts.one_line(payload.error_class or "dead-letter")
   local error_message = payload.error or payload.message or error_class
@@ -53,6 +52,17 @@ function pipeline(event)
   )
 end
 
-pipeline = core.wrap_pipeline_failure("dead_letter", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "dead_letter",
+}

@@ -1,9 +1,9 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
 local error_facts = require("std.error_facts")
 
-M.spec = {
+local spec = {
   consumes = { "dead_letter" },
   produces = { "github-proxy.github_issue_create_request" },
   stall_window = "2m",
@@ -30,7 +30,7 @@ local function dead_dedup_key(payload)
   return nil
 end
 
-function pipeline(event)
+local function act(event)
   local payload = event.payload or {}
 
   log.warn(
@@ -58,4 +58,16 @@ function pipeline(event)
   end
 end
 
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  name = "dead_letter",
+}

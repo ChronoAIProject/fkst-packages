@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "devloop_open_pr", "github-proxy.github_entity_changed" },
   produces = {
     "github-proxy.github_pr_open_request",
@@ -61,7 +60,7 @@ local function raise_impl_failed(repo, issue_number, ready, reason, detail)
   core.log_raise("open_pr", ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
 end
 
-function pipeline(event)
+local function act(event)
   local input = open_pr_context(event)
   local raw = event.payload or {}
   if input == nil then
@@ -182,6 +181,17 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("open_pr", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "open_pr",
+}

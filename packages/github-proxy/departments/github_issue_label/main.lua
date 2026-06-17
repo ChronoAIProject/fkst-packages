@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "github_issue_label_request" },
   stall_window = "30s",
 }
@@ -110,7 +109,7 @@ local function guarded_pr_label_view(repo, pr_number, payload)
   return current
 end
 
-function pipeline(event)
+local function act(event)
   local payload = event.payload or {}
   if payload.schema ~= "github-proxy.label.v1" then
     log.warn("github-proxy: unsupported label request schema")
@@ -172,6 +171,17 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("github_issue_label", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "github_issue_label",
+}

@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "devloop_sync_conflict" },
   produces = { "github-proxy.github_issue_create_request" },
   stall_window = "10m",
@@ -182,7 +181,7 @@ local function push_if_real(conflict, worktree)
   core.log_apply("sync_conflict", "branch-sync", "synced", conflict.upstream_sha, {}, {})
 end
 
-function pipeline(event)
+local function act(event)
   local conflict = event.payload or {}
   if not core.is_supported_sync_conflict(conflict) then
     core.log_entry("sync_conflict", event, "branch-sync", core.payload_field(conflict, "dedup_key"))
@@ -278,6 +277,17 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("sync_conflict", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "sync_conflict",
+}

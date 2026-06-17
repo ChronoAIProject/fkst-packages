@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "github_pr_open_request" },
   produces = { "github_entity_changed", "github_pr_opened" },
   stall_window = "2m",
@@ -223,7 +222,7 @@ local function current_issue_state_for_label_edit(repo, payload, bot_login)
   return core.current_devloop_state(issue.comments, payload.proposal_id, bot_login)
 end
 
-function pipeline(event)
+local function act(event)
   local payload = event.payload or {}
   if payload.schema ~= "github-proxy.pr-open.v1" then
     log.warn("github-proxy: unsupported PR open request schema")
@@ -373,6 +372,17 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("github_pr_open", pipeline)
-
-return M
+return saga.department{
+  consumes = spec.consumes,
+  produces = spec.produces,
+  fanout = spec.fanout,
+  stall_window = spec.stall_window,
+  retry = spec.retry,
+  ephemeral = spec.ephemeral,
+  done = function(_event)
+    return false
+  end,
+  act = act,
+  wrap = core.wrap_pipeline_failure,
+  name = "github_pr_open",
+}
