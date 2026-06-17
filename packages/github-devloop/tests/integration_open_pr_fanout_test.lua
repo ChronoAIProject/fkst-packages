@@ -17,6 +17,7 @@ local count_calls = h.count_calls
 local render_comment = h.render_comment
 local run_observe = h.run_observe
 local find_raise = h.find_raise
+local mock_current_base_head = h.mock_current_base_head
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local function full_issue_view(labels, comments, extra)
@@ -330,6 +331,7 @@ return {
       register_all_views = true,
       times = 1,
     })
+    mock_current_base_head()
 
     local result = run_observe(issue({
       labels = { "fkst-dev:enabled" },

@@ -103,6 +103,24 @@ local function capture_raises(fn)
   return result, raised
 end
 
+local function mock_current_base_head(base_sha)
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = "dev",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git fetch origin dev", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", {
+    stdout = tostring(base_sha or "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 return {
   test_issue_claim_state_is_current_assignees_only = function()
     t.eq(core.issue_claim_state({}, "fkst-test-bot"), "unassigned")
@@ -136,6 +154,7 @@ return {
 
   test_acquired_claim_can_emit_autonomy_attempt_denominator = function()
     mock_bot("fkst-test-bot", "")
+    mock_current_base_head("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
     local emitted, raised = capture_raises(function()
       return core.emit_autonomy_attempt("claim_contract", "owner/repo", 42, self_current({
@@ -149,6 +168,7 @@ return {
     t.eq(#raised, 1)
     t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
     t.is_true(raised[1].payload.body:find("fkst:github-devloop:autonomy-attempt:v1", 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('base_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', 1, true) ~= nil)
     t.eq(raised[1].payload.dedup_key, core._dedup_key({
       "autonomy-attempt",
       "github-devloop/issue/owner/repo/42",
@@ -161,7 +181,7 @@ return {
     mock_bot("fkst-test-bot", "")
     local attempt = core.autonomy_attempt_marker(core.autonomy_attempt_record("owner/repo", 42, {
       updated_at = "2026-06-03T01:02:03Z",
-    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z"))
+    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 
     local emitted, raised = capture_raises(function()
       return core.emit_autonomy_attempt("claim_contract", "owner/repo", 42, self_current({

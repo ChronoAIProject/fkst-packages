@@ -16,11 +16,12 @@ return {
       title = "fix scheduler regression",
       updated_at = "2026-06-03T01:02:03Z",
       labels = { "fkst-avm:L3" },
-    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z")
+    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
     local marker = core.autonomy_attempt_marker(record)
     t.is_true(marker:find("fkst:github-devloop:autonomy-attempt:v1", 1, true) ~= nil)
     t.is_true(marker:find('attempt_id="' .. core.autonomy_attempt_id("owner/repo", 42, "fkst-test-bot", "2026-06-03T01:02:03Z") .. '"', 1, true) ~= nil)
+    t.is_true(marker:find('base_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', 1, true) ~= nil)
     t.is_true(marker:find('task_class="L3"', 1, true) ~= nil)
 
     local fact = core.autonomy_attempt_denominator_fact({
@@ -35,13 +36,14 @@ return {
     t.eq(fact.repo, "owner/repo")
     t.eq(fact.issue_number, 42)
     t.eq(fact.worker_id, "fkst-test-bot")
+    t.eq(fact.base_sha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     t.eq(fact.terminal, "pending")
   end,
 
   test_autonomy_attempt_fact_ignores_forged_comments = function()
     local record = core.autonomy_attempt_record("owner/repo", 42, {
       updated_at = "2026-06-03T01:02:03Z",
-    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z")
+    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     local marker = core.autonomy_attempt_marker(record)
 
     local fact = core.autonomy_attempt_fact({
@@ -59,7 +61,7 @@ return {
     local version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/timeout/ready/3"
     local record = core.autonomy_attempt_record("owner/repo", 42, {
       updated_at = "2026-06-03T01:02:03Z",
-    }, proposal_id, "fkst-test-bot", "2026-06-03T01:03:04Z")
+    }, proposal_id, "fkst-test-bot", "2026-06-03T01:03:04Z", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     local comments = {
       {
         body = core.autonomy_attempt_marker(record),

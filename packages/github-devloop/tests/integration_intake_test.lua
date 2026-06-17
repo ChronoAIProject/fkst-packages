@@ -5,6 +5,7 @@ local opts = h.opts
 local find_raise = h.find_raise
 local count_calls = h.count_calls
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local mock_current_base_head = h.mock_current_base_head
 
 local function mock_repo_env(repo)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
@@ -87,6 +88,7 @@ local function assert_autonomy_attempt_raise(raises, proposal_id)
   local attempt = find_comment_body(raises, "fkst:github-devloop:autonomy-attempt:v1")
   t.is_true(attempt ~= nil)
   t.is_true(attempt.body:find('proposal="' .. tostring(proposal_id) .. '"', 1, true) ~= nil)
+  t.is_true(attempt.body:find('base_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', 1, true) ~= nil)
   t.is_true(attempt.body:find('source_ref="owner/repo#issue/42"', 1, true) ~= nil)
 end
 
@@ -343,6 +345,7 @@ return {
   test_scan_filters_enabled_closed_and_trusted_marker = function()
     mock_bot_env()
     mock_repo_env()
+    mock_current_base_head()
     mock_issue_list({
       { number = 40, labels = { "fkst-dev:enabled" } },
       { number = 41, labels = { "fkst-dev:thinking" } },
@@ -372,6 +375,7 @@ return {
     local command = trusted_reintake_command("IC_reintake_scan")
     mock_bot_env()
     mock_repo_env()
+    mock_current_base_head()
     mock_issue_list({ { number = 42, labels = {} } })
     mock_intake_scan_view({}, {
       core.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
@@ -445,6 +449,7 @@ return {
   test_scan_ignores_forged_marker = function()
     mock_bot_env()
     mock_repo_env()
+    mock_current_base_head()
     mock_issue_list({ { number = 42, labels = {} } })
     mock_intake_scan_view({}, {
       {

@@ -2,9 +2,6 @@ local h = require("tests.devloop_helpers")
 require("tests.cache_seed_helpers")
 local t = h.t
 local core = h.core
-local action_label = h.action_label
-local reason_label = h.reason_label
-local has_value = h.has_value
 local opts = h.opts
 local source_ref = h.source_ref
 local issue = h.issue
@@ -13,10 +10,8 @@ local unresolved = h.unresolved
 local reconcile = h.reconcile
 local ready = h.ready
 local reviewing = h.reviewing
-local review_reached = h.review_reached
 local review_unresolved = h.review_unresolved
 local fixing = h.fixing
-local pr_link_marker_for_fix = h.pr_link_marker_for_fix
 local review_meta_event = h.review_meta_event
 local merge_ready = h.merge_ready
 local run_observe = h.run_observe
@@ -82,26 +77,22 @@ local mock_bot_env = h.mock_bot_env
 local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
+local mock_current_base_head = h.mock_current_base_head
 
 local function assert_autonomy_attempt_raise(raises)
   local attempt = nil
   for _, raised in ipairs(raises or {}) do if raised.queue == "github-proxy.github_issue_comment_request" and tostring(raised.payload and raised.payload.body or ""):find("fkst:github-devloop:autonomy-attempt:v1", 1, true) ~= nil then attempt = raised.payload end end
-  t.is_true(attempt ~= nil and attempt.body:find('proposal="github-devloop/issue/owner/repo/42"', 1, true) ~= nil and attempt.body:find('source_ref="owner/repo#issue/42"', 1, true) ~= nil)
+  t.is_true(attempt ~= nil and attempt.body:find('proposal="github-devloop/issue/owner/repo/42"', 1, true) ~= nil and attempt.body:find('base_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', 1, true) ~= nil and attempt.body:find('source_ref="owner/repo#issue/42"', 1, true) ~= nil)
 end
 
 local function seed_cache(key, value, run_opts)
-  return t.run_department("tests/cache_seed_helpers.lua", {
-    queue = "cache_seed",
-    payload = {
-      key = key,
-      value = tostring(value),
-    },
-  }, run_opts)
+  return t.run_department("tests/cache_seed_helpers.lua", { queue = "cache_seed", payload = { key = key, value = tostring(value) } }, run_opts)
 end
 
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
     mock_issue_state({ "fkst-dev:enabled" })
+    mock_current_base_head()
 
     local result = run_observe(issue(), opts("observe-opt-in"))
     t.eq(result.exit_code, 0)
@@ -431,6 +422,7 @@ return {
   test_observe_uses_current_github_state_not_payload_state = function()
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN")
     mock_issue_body("Body from GitHub")
+    mock_current_base_head()
 
     local result = run_observe(issue({ state = "CLOSED" }), opts("observe-stale-state"))
     t.eq(result.exit_code, 0)
@@ -450,6 +442,7 @@ return {
   test_observe_re_raises_until_thinking_label_is_on_issue = function()
     local run_opts = opts("observe-idempotent")
     mock_issue_state({ "fkst-dev:enabled" })
+    mock_current_base_head()
 
     local first = run_observe(issue(), run_opts)
     t.eq(first.exit_code, 0)
@@ -457,6 +450,7 @@ return {
     assert_autonomy_attempt_raise(first.raises)
 
     mock_issue_state({ "fkst-dev:enabled" })
+    mock_current_base_head()
     local second = run_observe(issue({
       updated_at = "2026-06-03T01:02:04Z",
       view_cache_key = "github-proxy/view/owner/repo/issue/42/2026-06-03T01-02-04Z",
@@ -466,6 +460,7 @@ return {
     assert_autonomy_attempt_raise(second.raises)
 
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", { { body = core.state_marker("github-devloop/issue/owner/repo/42", "thinking", "github-devloop/issue/owner/repo/42/2026-06-03T01-02-05Z"), created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()) } })
+    mock_current_base_head()
     local thinking = run_observe(issue({
       updated_at = "2026-06-03T01:02:05Z",
       view_cache_key = "github-proxy/view/owner/repo/issue/42/2026-06-03T01-02-05Z",

@@ -913,6 +913,12 @@ local function mock_issue_merge(labels, comments, extra)
   entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:merge-ready" }, comments = selected, title = fields.title, state = fields.state, assignees = fields.assignees or { "fkst-test-bot" } }, "title,labels,comments,state,assignees")
 end
 
+local function mock_current_base_head(base_sha)
+  mock_branch_config_env()
+  t.mock_command("git fetch origin dev", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", { stdout = tostring(base_sha or "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") .. "\n", stderr = "", exit_code = 0 })
+end
+
 return {
   t = t,
   core = core,
@@ -980,5 +986,6 @@ return {
   mock_issue_fix_for_event = mock_issue_fix_for_event,
   mock_issue_review_meta = mock_issue_review_meta,
   mock_issue_merge = mock_issue_merge,
+  mock_current_base_head = mock_current_base_head,
   argv_rendered = gh_argv.argv_rendered,
 }

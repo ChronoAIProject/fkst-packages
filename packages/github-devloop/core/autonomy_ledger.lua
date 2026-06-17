@@ -101,6 +101,18 @@ local function normalize_terminal_state(value)
   return "pending"
 end
 
+local function autonomy_attempt_base_branch()
+  local integration = M.read_env("FKST_DEVLOOP_INTEGRATION_BRANCH")
+  if integration == nil or M._trim(integration) == "" then
+    integration = M.read_env("FKST_DEVLOOP_UPSTREAM_BRANCH")
+  end
+  integration = M._trim(integration or "")
+  if not M._is_git_ref_safe(integration) then
+    error("github-devloop: invalid autonomy attempt base branch")
+  end
+  return integration
+end
+
 local function task_class_from_label(label)
   local text = label_name(label)
   local found = text:match("[Aa][Vv][Mm][%-%_: ]*([Ll][0-4])")
@@ -229,7 +241,7 @@ local function autonomy_attempt_parts(record)
   local attempt_id = tostring(record.attempt_id or M.autonomy_attempt_id(repo, issue_number, worker_id, lease_epoch))
   local source_ref = M.normalize_source_ref(record.source_ref)
   local started_at = tostring(record.started_at or "")
-  local base_sha = tostring(record.base_sha or "unknown")
+  local base_sha = tostring(record.base_sha or "")
   local task_class = normalize_task_class(record.task_class)
   if not M._is_path_safe_key(proposal_id, M._max_key_len)
     or not M._is_path_safe_key(repo, M._max_key_len)
@@ -240,6 +252,7 @@ local function autonomy_attempt_parts(record)
     or source_ref.kind ~= "external"
     or tostring(source_ref.ref or "") ~= tostring(repo) .. "#issue/" .. tostring(issue_number)
     or not M._is_bounded_string(started_at, 80)
+    or not M._is_git_sha(base_sha)
     or not M._is_bounded_string(base_sha, max_attempt_base_sha_len) then
     error("github-devloop: invalid autonomy attempt marker")
   end
@@ -257,7 +270,7 @@ local function autonomy_attempt_parts(record)
   }
 end
 
-function M.autonomy_attempt_record(repo, issue_number, current, proposal_id, worker_id, started_at)
+function M.autonomy_attempt_record(repo, issue_number, current, proposal_id, worker_id, started_at, base_sha)
   local issue = type(current) == "table" and current or {}
   local lease_epoch = tostring(issue.updated_at or issue.updatedAt or started_at or "")
   return {
@@ -268,7 +281,7 @@ function M.autonomy_attempt_record(repo, issue_number, current, proposal_id, wor
     worker_id = tostring(worker_id or M.claim_owner()),
     lease_epoch = lease_epoch,
     started_at = tostring(started_at or now()),
-    base_sha = "unknown",
+    base_sha = tostring(base_sha or ""),
     task_class = M.autonomy_task_class(issue),
     source_ref = M.issue_source_ref(repo, issue_number),
   }
@@ -322,7 +335,7 @@ function M.autonomy_attempt_record_from_marker(marker, comment, proposal_id)
     issue_number = tonumber(issue_number),
     worker_id = worker_id,
     lease_epoch = lease_epoch,
-    base_sha = marker_attr(marker, "base_sha") or "unknown",
+    base_sha = marker_attr(marker, "base_sha") or "",
     started_at = marker_attr(marker, "started_at") or M._comment_created_at(comment),
     task_class = normalize_task_class(marker_attr(marker, "task_class")),
     source_ref = {
@@ -401,7 +414,11 @@ function M.build_autonomy_attempt_comment_request(repo, issue_number, current, p
     return nil
   end
   local normalized = M.normalize_source_ref(source_ref or M.issue_source_ref(repo, issue_number))
-  local record = M.autonomy_attempt_record(repo, issue_number, current, proposal_id, M.claim_owner(), now())
+  local base_sha, base_reason = M.current_base_head(autonomy_attempt_base_branch())
+  if base_sha == nil then
+    error("github-devloop: autonomy attempt base_sha unavailable: " .. tostring(base_reason or "unknown"))
+  end
+  local record = M.autonomy_attempt_record(repo, issue_number, current, proposal_id, M.claim_owner(), now(), base_sha)
   local marker = M.autonomy_attempt_marker(record)
   return M.build_entity_comment_request({
     kind = "issue",
