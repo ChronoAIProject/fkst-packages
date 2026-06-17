@@ -465,6 +465,9 @@ local function live_signal_age(M, row, state, facts, now_seconds)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
   local signal_version = live_signal_version(M, signal, state and state.version)
   if resolver == "dependency-hold" then
+    if M.dependency_release_fact(comments, proposal_id, signal_version) ~= nil then
+      return nil
+    end
     local hold = M.dependency_hold_fact(comments, proposal_id)
     if hold ~= nil and tostring(hold.version or "") == tostring(signal_version or "") then
       return signal_age_from_created_at(M, hold.comment_created_at, now_seconds) or 0
@@ -723,12 +726,27 @@ function M.liveness_state_age_minutes(state, now_seconds)
   return M.stall_suspect_age_minutes(state.version, now_seconds)
 end
 
+local function ready_dependency_release_age_minutes(state, facts, now_seconds)
+  if type(state) ~= "table" or tostring(state.state or "") ~= "ready" then
+    return nil
+  end
+  local proposal_id = (facts and facts.proposal_id) or state.proposal_id
+  local comments = facts and facts.current and facts.current.comments or nil
+  return M.dependency_release_age_minutes(comments, proposal_id, state.version, now_seconds)
+end
+
 function M.liveness_timeout_attempt(row, state, facts)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
   local comments = facts and facts.current and facts.current.comments or nil
   local from_state = row and row.from_state
   local version = state and state.version
   local durable_round = M.timeout_attempt_round(comments, proposal_id, version, from_state)
+  if tostring(from_state or "") == "ready" then
+    local post_release_round = M.timeout_attempt_round_after_dependency_release(comments, proposal_id, version, from_state)
+    if post_release_round ~= nil then
+      durable_round = post_release_round
+    end
+  end
   local version_round = M.version_timeout_round(version, from_state)
   return math.max(durable_round or 0, version_round or 0)
 end
@@ -768,6 +786,14 @@ end
 function M.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
   if row == nil or row.terminal == true then
     return false, nil
+  end
+  local release_age = ready_dependency_release_age_minutes(state, facts, now_seconds)
+  if release_age ~= nil then
+    local budget = row.budget and tonumber(row.budget.minutes) or nil
+    if budget == nil or release_age < budget then
+      return false, release_age
+    end
+    return true, release_age
   end
   local contract = row.liveness_contract
   if type(contract) == "table" and contract.mode == "row-budget-bounds-receiver" then

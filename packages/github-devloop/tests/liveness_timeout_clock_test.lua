@@ -43,8 +43,8 @@ local function merge_gate_wait_comment(state_version, created_at)
   return trusted_comment(core.merge_gate_wait_marker(proposal_id, 7, state_version, head_sha, "ci-wait", "CI_WAIT"), created_at)
 end
 
-local function timeout_attempt_comment(state_name, state_version, round, source_ref)
-  return trusted_comment(core.timeout_attempt_marker(proposal_id, state_version, state_name, round, source_ref), "2026-06-03T00:00:00Z")
+local function timeout_attempt_comment(state_name, state_version, round, source_ref, created_at)
+  return trusted_comment(core.timeout_attempt_marker(proposal_id, state_version, state_name, round, source_ref), created_at or "2026-06-03T00:00:00Z")
 end
 
 local function capture_raises(fn)
@@ -226,6 +226,40 @@ local function run_timeout_reconcile(payload, comments, name)
 end
 
 return {
+  test_dependency_release_resets_ready_timeout_clock_and_attempt_lineage = function()
+    local row = core.restart_transition_row("ready")
+    local source_ref = core.issue_source_ref(repo, 42)
+    local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T10:34:00Z")
+    local comments = {
+      state_comment("ready", version, "2026-06-03T09:45:00Z"),
+      trusted_comment(core.dependency_wait_marker(proposal_id, version, { 886 }), "2026-06-03T09:44:57Z"),
+      timeout_attempt_comment("ready", version, 1, source_ref, "2026-06-03T10:20:00Z"),
+      timeout_attempt_comment("ready", version, 2, source_ref, "2026-06-03T10:25:00Z"),
+      trusted_comment(core.dependency_release_marker(proposal_id, version), "2026-06-03T10:33:51Z"),
+    }
+    local state = {
+      state = "ready",
+      version = version,
+      proposal_id = proposal_id,
+      marker_created_at = "2026-06-03T09:45:00Z",
+    }
+    local facts = {
+      proposal_id = proposal_id,
+      source_ref = source_ref,
+      current = { comments = comments },
+      now_seconds = now_seconds,
+    }
+
+    local due, age = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
+    t.eq(due, false)
+    t.eq(age, 0)
+    t.eq(core.restart_row_liveness_deferred(row, state, facts, now_seconds), false)
+    t.eq(core.liveness_timeout_attempt(row, state, facts), 0)
+
+    table.insert(comments, timeout_attempt_comment("ready", version, 1, source_ref, "2026-06-03T10:33:53Z"))
+    t.eq(core.liveness_timeout_attempt(row, state, facts), 1)
+  end,
+
   test_live_defer_timeout_clock_uses_fresh_thinking_heartbeat = function()
     local row = core.restart_transition_row("thinking")
     local state = {
