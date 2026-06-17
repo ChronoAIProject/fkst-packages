@@ -63,15 +63,6 @@ local function gh_issue_rest_argv(repo, issue_number)
   return { "gh", "api", "repos/" .. tostring(repo) .. "/issues/" .. tostring(issue_number) }
 end
 
-local function gh_graphql_argv(query, fields)
-  local argv = { "gh", "api", "graphql", "-f", "query=" .. tostring(query) }
-  for key, value in pairs(fields or {}) do
-    table.insert(argv, "-f")
-    table.insert(argv, tostring(key) .. "=" .. tostring(value))
-  end
-  return argv
-end
-
 local function gh_issue_comments_rest_argv(repo, issue_number)
   return {
     "gh",
@@ -92,6 +83,19 @@ local function gh_issue_edit_assignee_argv(repo, issue_number, flag, login)
     tostring(repo),
     flag,
     tostring(login),
+  }
+end
+
+local function gh_issue_edit_label_argv(repo, issue_number, flag, label)
+  return {
+    "gh",
+    "issue",
+    "edit",
+    tostring(issue_number),
+    "--repo",
+    tostring(repo),
+    flag,
+    tostring(label),
   }
 end
 
@@ -284,6 +288,10 @@ function M.issue_view_cache_key(repo, issue_number)
 end
 
 function M.install(handle)
+  function handle.issue_view(repo, issue_number, fields, timeout)
+    return handle._exec(gh_issue_view_argv(repo, issue_number, fields), timeout, "gh issue view")
+  end
+
   local function fetch_issue_view_stdout(repo, number, timeout, opts)
     local issue = handle._exec(gh_issue_rest_argv(repo, number), timeout, "gh issue view")
     local comments = handle._exec(gh_issue_comments_rest_argv(repo, number), timeout, "gh issue comments")
@@ -331,6 +339,10 @@ function M.install(handle)
     return handle._exec(gh_issue_rest_argv(repo, issue_number), timeout, "gh issue REST view")
   end
 
+  function handle.issue_view(repo, issue_number, fields, timeout)
+    return handle._exec(gh_issue_view_argv(repo, issue_number, fields), timeout, "gh issue view")
+  end
+
   function handle.issue_updated_at(repo, issue_number, timeout)
     return handle._exec(gh_issue_updated_at_argv(repo, issue_number), timeout, "gh issue updated_at")
   end
@@ -358,9 +370,22 @@ function M.install(handle)
     )
   end
 
-  function handle.graphql(query, fields, timeout)
-    return handle._exec(gh_graphql_argv(query, fields), timeout, "gh GraphQL")
+  function handle.issue_add_label(repo, issue_number, label, timeout)
+    return handle._exec(
+      gh_issue_edit_label_argv(repo, issue_number, "--add-label", label),
+      timeout,
+      "gh issue add label"
+    )
   end
+
+  function handle.issue_remove_label(repo, issue_number, label, timeout)
+    return handle._exec(
+      gh_issue_edit_label_argv(repo, issue_number, "--remove-label", label),
+      timeout,
+      "gh issue remove label"
+    )
+  end
+
 end
 
 return M

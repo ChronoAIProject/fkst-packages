@@ -221,12 +221,12 @@ local function mock_diff_name_only(pr_number, paths)
 end
 
 local function mock_current_base_head(base_sha)
-  t.mock_command("git fetch 'origin' 'dev'", {
+  t.mock_command("git fetch origin dev", {
     stdout = "",
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("git rev-parse --verify refs/remotes/'origin'/'dev'^{commit}", {
+  t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", {
     stdout = tostring(base_sha) .. "\n",
     stderr = "",
     exit_code = 0,
@@ -519,6 +519,7 @@ return {
     mock_queue_pr_red(older, "2026-06-03T01:00:00Z")
     mock_queue_pr(current, "2026-06-03T02:00:00Z")
     mock_merge_pr_view(older, "OPEN", "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
+    h.mock_required_check_runs_for(older.reviewed_head_sha, "failure")
     mock_claimed_issue_for_event(older, 1)
     t.mock_command("git fetch origin 'pull/9/merge'", {
       stdout = "",
@@ -605,7 +606,7 @@ return {
     mock_pr_merge(comments, branch_for_pr(current.pr_number), current.reviewed_head_sha)
     mock_queue_list({})
     mock_current_base_head("dddddddddddddddddddddddddddddddddddddddd")
-    t.mock_command("git merge-base --is-ancestor '" .. predecessor.reviewed_head_sha .. "' 'dddddddddddddddddddddddddddddddddddddddd'", {
+    t.mock_command("git merge-base --is-ancestor " .. predecessor.reviewed_head_sha .. " dddddddddddddddddddddddddddddddddddddddd", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -615,7 +616,7 @@ return {
     mock_pr_merge(comments, branch_for_pr(current.pr_number), current.reviewed_head_sha)
     mock_pr_merge(comments, branch_for_pr(current.pr_number), current.reviewed_head_sha)
     mock_current_base_head("dddddddddddddddddddddddddddddddddddddddd")
-    t.mock_command("git merge-base --is-ancestor '" .. predecessor.reviewed_head_sha .. "' 'dddddddddddddddddddddddddddddddddddddddd'", {
+    t.mock_command("git merge-base --is-ancestor " .. predecessor.reviewed_head_sha .. " dddddddddddddddddddddddddddddddddddddddd", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -653,7 +654,7 @@ return {
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(current))
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", current.reviewed_head_sha, "OPEN", "owner/repo", false, "MERGEABLE", "DIRTY")
     mock_current_base_head(base_head)
-    t.mock_command("git merge-base --is-ancestor '" .. base_head .. "' '" .. current.reviewed_head_sha .. "'", {
+    t.mock_command("git merge-base --is-ancestor " .. base_head .. " " .. current.reviewed_head_sha, {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -881,6 +882,7 @@ return {
     mock_queue_list({})
     mock_claimed_issue_for_event(second, 1)
     mock_merge_pr_view(second, "OPEN", "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
+    h.mock_required_check_runs_for(second.reviewed_head_sha, "failure")
     mock_queue_list({ 8 })
     mock_queue_pr(second, "2026-06-03T01:01:00Z", "fixing", second.version .. "/fix/1")
 
@@ -925,6 +927,7 @@ return {
     mock_queue_list({})
     mock_claimed_issue_for_event(second, 1)
     mock_merge_pr_view(second, "OPEN", "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
+    h.mock_required_check_runs_for(second.reviewed_head_sha, "failure")
     mock_queue_list({ 8, 9 })
     mock_queue_pr(second, "2026-06-03T01:01:00Z", "fixing", second.version .. "/fix/1")
     mock_queue_pr(third, "2026-06-03T01:02:00Z")

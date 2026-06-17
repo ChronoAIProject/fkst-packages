@@ -79,6 +79,74 @@ local function build_timeout_reconcile_pr_comment_request(repo, pr_number, recon
   }), reconcile.source_ref)
 end
 
+local function merge_wait_timeout_reason_class(reconcile, state, comments, current_pr)
+  if reconcile.state ~= "merge-ready" and reconcile.state ~= "merging" then
+    return "state-output-obligation-timeout"
+  end
+  local _, pr_number = core.parse_pr_source_ref(reconcile.source_ref)
+  local head_sha = current_pr and current_pr.head_sha or nil
+  if pr_number == nil or not core._is_git_sha(head_sha) then
+    return "state-output-obligation-timeout"
+  end
+  local wait = core.merge_gate_wait_fact(comments, reconcile.proposal_id, state.version, pr_number, head_sha)
+  if wait == nil then
+    return "state-output-obligation-timeout"
+  end
+  local reason_class = core.merge_gate_reason_class(wait.reason)
+  local wait_kind = tostring(wait.kind or "")
+  if core.is_ci_red_reason(reason_class) or core.is_not_mergeable_reason(reason_class) then
+    return "state-output-obligation-timeout"
+  end
+  if reason_class == "ci-wait"
+    or core.is_ci_wait_reason(reason_class)
+    or wait_kind == "CI_WAIT"
+    or wait_kind == "CHECKS_PENDING"
+    or wait_kind == "CI_UNKNOWN"
+    or wait_kind == "EXTERNAL_CI_RED"
+    or wait_kind == "INTEGRATION_RED" then
+    return "external-ci-wait-expired"
+  end
+  return "state-output-obligation-timeout"
+end
+
+local function timeout_reconcile_needs_linked_surface(state_name)
+  return state_name == "pr-open"
+    or state_name == "reviewing"
+    or state_name == "fixing"
+    or state_name == "review-meta"
+    or state_name == "merge-ready"
+    or state_name == "merging"
+end
+
+local function command_indicates_not_found(result)
+  local stderr = tostring(result and result.stderr or ""):lower()
+  return stderr:find("404", 1, true) ~= nil
+    or stderr:find("not found", 1, true) ~= nil
+end
+
+local function load_timeout_issue_surface(repo, issue_number, proposal_id, state_name)
+  local view = core.gh_issue_view_loop(repo, issue_number, 30)
+  if view.exit_code ~= 0 then
+    error("github-devloop: timeout-reconcile-issue-view-failed: " .. tostring(view.stderr))
+  end
+  local current_issue = core.parse_issue_view_loop(view.stdout)
+  if timeout_reconcile_needs_linked_surface(state_name) then
+    local snapshot = core.linked_entity_snapshot(repo, proposal_id, current_issue.comments)
+    local current_pr = nil
+    local link = core.pr_link_fact(snapshot.comments, proposal_id)
+    if link ~= nil then
+      for _, item in ipairs(snapshot.prs or {}) do
+        if tostring(item.number or "") == tostring(link.pr_number or "") then
+          current_pr = item.current
+          break
+        end
+      end
+    end
+    return current_issue, current_pr, snapshot.comments, snapshot
+  end
+  return current_issue, nil, current_issue.comments, nil
+end
+
 local function pipeline_thinking(event)
   local reconcile = event.payload or {}
   if not core.is_supported_reconcile(reconcile) then
@@ -103,7 +171,7 @@ local function pipeline_thinking(event)
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()
 
-    local view = core.gh_exec({ cmd = core.gh_issue_view_loop_cmd(repo, issue_number), timeout = 30 })
+    local view = core.gh_issue_view_loop(repo, issue_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: gh issue reconcile view failed: " .. tostring(view.stderr))
     end
@@ -181,7 +249,7 @@ local function pipeline_review(event)
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()
 
-    local view = core.gh_exec({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
+    local view = core.gh_pr_view_origin(repo, pr_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: gh pr review reconcile view failed: " .. tostring(view.stderr))
     end
@@ -257,7 +325,7 @@ local function pipeline_fix(event)
   with_lock(lock_key, function()
     core.assert_trusted_bot_configured()
 
-    local view = core.gh_exec({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
+    local view = core.gh_pr_view_origin(repo, pr_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: gh pr fix reconcile view failed: " .. tostring(view.stderr))
     end
@@ -319,23 +387,28 @@ local function pipeline_timeout(event)
     core.assert_trusted_bot_configured()
 
     local comments
+    local current_pr
+    local current_issue
+    local snapshot
+    local target_pr_number = pr_number
     if pr_number ~= nil then
       if not core.verify_pr_review_issue_claim("reconcile", repo, issue_number, nil, reconcile.proposal_id) then
         return
       end
-      local view = core.gh_exec({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
+      local view = core.gh_pr_view_origin(repo, pr_number, 30)
       if view.exit_code ~= 0 then
-        error("github-devloop: gh pr timeout reconcile view failed: " .. tostring(view.stderr))
+        if not command_indicates_not_found(view) then
+          error("github-devloop: gh pr timeout reconcile view failed: " .. tostring(view.stderr))
+        end
+        core.log_cas_decision("reconcile", reconcile.proposal_id, { state = reconcile.state, version = reconcile.issue_version }, reconcile.state, "blocked", "pr-surface-gone-fallback", "PR source disappeared before timeout reconcile; falling back to issue surface")
+        target_pr_number = nil
+        current_issue, current_pr, comments, snapshot = load_timeout_issue_surface(repo, issue_number, reconcile.proposal_id, reconcile.state)
+      else
+        current_pr = core.parse_pr_view_origin(view.stdout)
+        comments = current_pr.comments
       end
-      local current_pr = core.parse_pr_view_origin(view.stdout)
-      comments = current_pr.comments
     else
-      local view = core.gh_exec({ cmd = core.gh_issue_view_loop_cmd(repo, issue_number), timeout = 30 })
-      if view.exit_code ~= 0 then
-        error("github-devloop: gh issue timeout reconcile view failed: " .. tostring(view.stderr))
-      end
-      local current = core.parse_issue_view_loop(view.stdout)
-      comments = current.comments
+      current_issue, current_pr, comments, snapshot = load_timeout_issue_surface(repo, issue_number, reconcile.proposal_id, reconcile.state)
     end
 
     core.log_forged_markers("reconcile", reconcile.proposal_id, comments)
@@ -363,11 +436,34 @@ local function pipeline_timeout(event)
     end
 
     local row = core.restart_transition_row(reconcile.state)
-    local due, age_minutes = core.liveness_timeout_due(row, state, now())
-    local decision = core.liveness_timeout_decision_with_facts(row, state, {
+    local timeout_facts = {
       proposal_id = reconcile.proposal_id,
       current = { comments = comments },
-    }, now())
+      current_pr = current_pr,
+      snapshot = snapshot,
+      source_ref = reconcile.source_ref,
+      head_sha = current_pr and current_pr.head_sha or nil,
+      fresh_current_state = state,
+    }
+    if current_issue ~= nil then
+      timeout_facts.current = current_issue
+    end
+    local epoch = row and row.actionable_epoch
+    if type(epoch) == "table" and epoch.allows_state_entry_if_never_deferred == true then
+      timeout_facts.dependency_gate = core.dependency_gate(repo, issue_number, {
+        proposal_id = reconcile.proposal_id,
+        version = state.version,
+        comments = comments,
+      })
+    end
+    local due, age_minutes = core.liveness_timeout_due_with_facts(row, state, timeout_facts, now())
+    local decision = core.liveness_timeout_decision_with_facts(row, state, timeout_facts, now())
+    if row
+      and row.actionable_epoch
+      and row.actionable_epoch.source == "live_defer_heartbeat:v1" then
+      local signal = core.restart_row_liveness_signal(row, state, timeout_facts, now())
+      age_minutes = signal.age_minutes or age_minutes
+    end
     local limit = tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts) or nil
     if not due or decision.action ~= "escalate" or tonumber(decision.attempt) < tonumber(reconcile.round) then
       core.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(no-longer-over-budget)", "current marker is no longer at timeout escalation threshold")
@@ -378,11 +474,11 @@ local function pipeline_timeout(event)
         core.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
         return
       end
-      local target = pr_number ~= nil
-        and { kind = "pr", repo = repo, number = pr_number }
+      local target = target_pr_number ~= nil
+        and { kind = "pr", repo = repo, number = target_pr_number }
         or { kind = "issue", repo = repo, number = issue_number }
       local comment_request = core.build_decompose_exhausted_comment_request(target, reconcile.proposal_id, state, reconcile.source_ref, decision.attempt)
-      local queue = pr_number ~= nil and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request"
+      local queue = target_pr_number ~= nil and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request"
       core.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "applied(decompose-exhausted)", "blocked decompose output obligation exhausted")
       core.log_apply("reconcile", reconcile.proposal_id, nil, nil, { add = {}, remove = {} }, { queue })
       core.log_raise("reconcile", reconcile.proposal_id, queue, comment_request)
@@ -404,6 +500,7 @@ local function pipeline_timeout(event)
     local reason_prefix = row and row.on_timeout and row.on_timeout.on_escalate and row.on_timeout.on_escalate.reason
       or "state-output-obligation-timeout"
     local reason = tostring(reason_prefix) .. "-after-" .. tostring(decision.attempt) .. "-attempts"
+    local reason_class = merge_wait_timeout_reason_class(reconcile, state, comments, current_pr)
     local why_fields = {
       from_state = reconcile.state,
       from_version = state.version,
@@ -413,11 +510,11 @@ local function pipeline_timeout(event)
       attempt = decision.attempt,
       attempt_limit = limit,
       driving_queue = row and row.driving_queue or nil,
-      reason_class = "state-output-obligation-timeout",
+      reason_class = reason_class,
       source_ref = core.normalize_source_ref(reconcile.source_ref),
     }
-    local comment_request = pr_number ~= nil
-      and build_timeout_reconcile_pr_comment_request(repo, pr_number, reconcile, action, reason, version, why_fields)
+    local comment_request = target_pr_number ~= nil
+      and build_timeout_reconcile_pr_comment_request(repo, target_pr_number, reconcile, action, reason, version, why_fields)
       or build_timeout_reconcile_comment_request(repo, issue_number, reconcile, action, reason, version, why_fields)
     local label_request = core.build_state_label_request(repo, issue_number, "blocked", core._dedup_key({
       "timeout-reconcile",
@@ -433,7 +530,7 @@ local function pipeline_timeout(event)
       reason,
       comment_request,
       label_request,
-      pr_number ~= nil and "github-proxy.github_pr_comment_request" or nil
+      target_pr_number ~= nil and "github-proxy.github_pr_comment_request" or nil
     )
   end)
 end

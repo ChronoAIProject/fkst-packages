@@ -1,6 +1,7 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local gh_argv = require("tests.gh_argv_mock_helpers")
 local opts = h.opts
 local fixing = h.fixing
 local run_fix = h.run_fix
@@ -86,10 +87,10 @@ return {
     t.is_true(worktree ~= nil)
   end,
 
-  test_fix_merges_current_integration_before_codex = function()
-    local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "rollup-red: test: COMPLETED/FAILURE" })
+  test_fix_merges_gate_baseline_before_codex = function()
+    local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = core.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: rollup-red: test: COMPLETED/FAILURE"
+    local reject_comment = "github-devloop merge gate failed: own-ci-red"
       .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
       .. "\n" .. core.merge_gate_marker(
         event.proposal_id,
@@ -99,7 +100,7 @@ return {
         event.review_dedup_key,
         event.reviewed_head_sha,
         event.gate_baseline_sha,
-        "rollup-red"
+        "own-ci-red"
       )
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
@@ -122,9 +123,7 @@ return {
       unmerged_stdout = "100644 abc123 1\tpackages/github-devloop/core.lua\n",
       post_codex_unmerged_stdout = "",
     })
-    t.mock_command("git fetch 'origin' 'refs/pull/7/merge'", { stdout = "", stderr = "", exit_code = 0 })
-    t.mock_command("git rev-parse --verify FETCH_HEAD^{commit}", { stdout = "abc123\n", stderr = "", exit_code = 0 })
-    mock_implement_codex(0, "resolved merge product failure")
+    mock_implement_codex(0, "resolved owned CI failure")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("feedface", branch)
     mock_write_env("1")
@@ -136,7 +135,7 @@ return {
     mock_git_push(branch)
     mock_pr_fix({ origin_marker }, branch, "feedface")
 
-    local result = run_fix(event, opts("fix-merge-product-before-codex", { FKST_GITHUB_WRITE = "1" }))
+    local result = run_fix(event, opts("fix-gate-baseline-before-codex", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 3)
     t.eq(find_raise(result.raises, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
@@ -144,7 +143,7 @@ return {
     local merge_index = nil
     local codex_index = nil
     for index, call in ipairs(t.command_calls()) do
-      if call.rendered:find("git -C '" .. worktree .. "' merge --no-edit 'abc123'", 1, true) ~= nil then
+      if gh_argv.argv_contains(call, { "git", "-C", worktree, "merge", "--no-edit", "abc123" }) then
         merge_index = index
       elseif call.rendered:find("codex exec", 1, true) ~= nil then
         codex_index = index
@@ -163,16 +162,16 @@ return {
     end
     t.eq(saw_conflict_prompt, true)
     t.eq(count_calls("git fetch 'origin' 'dev'"), 0)
-    t.eq(count_calls("git fetch 'origin' 'refs/pull/7/merge'"), 1)
+    t.eq(count_calls("git fetch 'origin' 'refs/pull/7/merge'"), 0)
     t.eq(count_calls("refs/remotes/'origin'/'dev'^{commit}"), 0)
     t.eq(count_calls("merge --no-edit 'abc123'"), 1)
     t.eq(count_calls("ls-files -u"), 2)
   end,
 
   test_fix_errors_on_leftover_conflict_markers = function()
-    local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "rollup-red: test: COMPLETED/FAILURE" })
+    local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = core.implement_branch("owner/repo", "42", event.version)
-    local reject_comment = "github-devloop merge gate failed: rollup-red: test: COMPLETED/FAILURE"
+    local reject_comment = "github-devloop merge gate failed: own-ci-red"
       .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
       .. "\n" .. core.merge_gate_marker(
         event.proposal_id,
@@ -182,7 +181,7 @@ return {
         event.review_dedup_key,
         event.reviewed_head_sha,
         event.gate_baseline_sha,
-        "rollup-red"
+        "own-ci-red"
       )
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
@@ -207,10 +206,8 @@ return {
       post_codex_conflict_markers_stdout = "packages/github-devloop/core.lua:1:" .. string.rep("<", 7) .. " HEAD\n",
       post_codex_conflict_markers_exit_code = 0,
     })
-    t.mock_command("git fetch 'origin' 'refs/pull/7/merge'", { stdout = "", stderr = "", exit_code = 0 })
-    t.mock_command("git rev-parse --verify FETCH_HEAD^{commit}", { stdout = "abc123\n", stderr = "", exit_code = 0 })
     mock_write_env("1")
-    mock_implement_codex(0, "resolved merge product failure")
+    mock_implement_codex(0, "resolved owned CI failure")
 
     local result = run_fix(event, opts("fix-leftover-conflict-markers", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 1)

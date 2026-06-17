@@ -133,11 +133,11 @@ function pipeline(event)
       return
     end
 
-    local branch_ref = exec_sync({ cmd = core.git_show_ref_cmd(".", fact.branch), timeout = 30 })
+    local branch_ref = core.git_show_ref(".", fact.branch, 30)
     if branch_ref.exit_code ~= 0 then
       error("github-devloop: implementing branch missing: " .. tostring(branch_ref.stderr))
     end
-    local branch_head = exec_sync({ cmd = core.git_rev_parse_branch_cmd(".", fact.branch), timeout = 30 })
+    local branch_head = core.git_rev_parse_branch(".", fact.branch, 30)
     if branch_head.exit_code ~= 0 then
       error("github-devloop: implementing branch head missing: " .. tostring(branch_head.stderr))
     end
@@ -146,7 +146,7 @@ function pipeline(event)
       error("github-devloop: unsafe implementing branch head")
     end
     if head_sha ~= fact.head_sha then
-      local ancestry = exec_sync({ cmd = core.git_is_ancestor_cmd(fact.head_sha, head_sha), timeout = 30 })
+      local ancestry = core.git_is_ancestor(fact.head_sha, head_sha, 30)
       if ancestry.exit_code ~= 0 then
         core.log_cas_decision("open_pr", proposal_id, state, "implementing", "impl-failed", "applied(non-descendant-head)", "branch head is not descended from implementing fact")
         raise_impl_failed(

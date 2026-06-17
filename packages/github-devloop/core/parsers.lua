@@ -1,6 +1,7 @@
 local S = {}
 
 function S.install(M)
+local strings = require("std.strings")
 function M.parse_issue_view_state(stdout)
   local decoded = json.decode(stdout or "{}")
   return M.issue_state_from_json(decoded)
@@ -532,13 +533,6 @@ function M.parse_pr_view_head_state(stdout)
   }
 end
 
-local function comment_body(comment)
-  if type(comment) == "table" then
-    return tostring(comment.body or "")
-  end
-  return tostring(comment or "")
-end
-
 local function comment_author_login(comment)
   -- Normalize the comment author login so an author read as "<slug>[bot]" (REST)
   -- matches a bare-"<slug>" configured bot login (GraphQL). No-op for ordinary logins.
@@ -582,7 +576,7 @@ local function trusted_marker_comments(comments)
 end
 
 function M.comment_body(comment)
-  return comment_body(comment)
+  return strings.comment_body(comment)
 end
 
 function M.comment_author_login(comment)
@@ -594,7 +588,7 @@ function M.comment_created_at(comment)
 end
 
 
-M._comment_body = comment_body
+M._comment_body = strings.comment_body
 M._comment_author_login = comment_author_login
 M._comment_created_at = comment_created_at
 M._is_trusted_comment = is_trusted_comment
@@ -835,15 +829,6 @@ function M.rollup_failure_gate_sha(pr)
   return gate_sha
 end
 
-function M.rollup_red_fix_reason(pr, reason)
-  local base_reason = tostring(reason or "rollup-red")
-  local failure_summary = M.pr_rollup_failure_summary(pr)
-  if failure_summary == "" then
-    return base_reason
-  end
-  return base_reason .. ": " .. failure_summary
-end
-
 M._max_rollup_check_name_len = max_rollup_check_name_len
 M._max_rollup_failure_summary_len = max_rollup_failure_summary_len
 M._required_check_run_names = required_check_run_names
@@ -879,7 +864,16 @@ function M.pr_mergeable(pr)
 end
 
 function M.is_ci_red_reason(reason)
-  return tostring(reason or "") == "rollup-red"
+  return tostring(reason or "") == "own-ci-red"
+end
+
+function M.is_ci_wait_reason(reason)
+  local text = tostring(reason or "")
+  return text == "external-ci-red"
+    or text == "integration-ci-red"
+    or text == "ci-unknown"
+    or text == "checks-pending"
+    or text == "rollup-pending"
 end
 
 function M.is_not_mergeable_reason(reason)

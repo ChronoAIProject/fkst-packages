@@ -108,6 +108,25 @@ local cmd = "gh api --paginate --slurp "
 """
         self.assertEqual(self.warning_lines(source), [])
 
+    def test_allows_paginated_adapter_read(self) -> None:
+        source = """
+return github().api_paginate_slurp("repos/o/r/issues?state=open&per_page=100")
+"""
+        self.assertEqual(self.warning_lines(source), [])
+
+    def test_warns_non_paginated_adapter_read(self) -> None:
+        source = """
+return github().api_get("o/r", "issues?state=open&per_page=100")
+"""
+        self.assertEqual(self.warning_lines(source), [2])
+
+    def test_warns_raw_unpaginated_read_near_paginated_adapter(self) -> None:
+        source = """
+local ok = github().api_paginate_slurp("repos/o/r/issues?state=open&per_page=100")
+local bad = "gh api 'repos/o/r/pulls?state=open&per_page=100'"
+"""
+        self.assertEqual(self.warning_lines(source), [3])
+
 
 class HiddenTextGuardTest(unittest.TestCase):
     def hidden_lines(self, source: str) -> list[int]:
@@ -188,6 +207,49 @@ function M.gh_rate_pool()
 end
 """
         self.assertEqual(self.sizing_lines(source), [])
+
+
+class PermissionControlGuardTest(unittest.TestCase):
+    def run_check(self, rel_path: str, source: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / rel_path
+            path.parent.mkdir(parents=True)
+            path.write_text(source, encoding="utf-8")
+            violations: list[str] = []
+            check_repo.check_no_permission_control(root, violations)
+            return violations
+
+    def test_rejects_chmod_and_restrictive_modes_in_production_source(self) -> None:
+        chmod_violations = self.run_check(
+            "packages/github-devloop/core/commands.lua",
+            "return 'mkdir -p /tmp/x && chmod u-w /tmp/x'\n",
+        )
+        self.assertEqual(len(chmod_violations), 1)
+        self.assertIn("G-PERM", chmod_violations[0])
+
+        mode_violations = self.run_check(
+            "std/probe.py",
+            "mode = 0o444\n",
+        )
+        self.assertEqual(len(mode_violations), 1)
+        self.assertIn("restrictive mode literal", mode_violations[0])
+
+    def test_allows_tests_and_executable_bit_additions(self) -> None:
+        self.assertEqual(
+            self.run_check(
+                "packages/github-devloop/tests/probe_test.lua",
+                "return 'chmod 0555 /tmp/fixture'\n",
+            ),
+            [],
+        )
+        self.assertEqual(
+            self.run_check(
+                "scripts/probe.sh",
+                "chmod +x \"$fixture\"\nchmod +rw \"$scratch\"\n",
+            ),
+            [],
+        )
 
 
 class OwnershipGateClaimOwnerGuardTest(unittest.TestCase):
@@ -387,7 +449,7 @@ class RunScriptContractTest(unittest.TestCase):
             scripts.mkdir(parents=True)
             pkg.mkdir(parents=True)
 
-            for name in ("run.sh", "bin_bootstrap.sh", "check_repo.py", "check_repo_gh_git_adapter.py", "check_repo_ingress.py"):
+            for name in ("run.sh", "bin_bootstrap.sh", "check_repo.py", "check_repo_gh_git_adapter.py", "check_repo_ingress.py", "check_repo_perm.py"):
                 shutil.copy2(root / "scripts" / name, scripts / name)
             for name in ("check_repo_test.py", "bin_cache_test.py", "bin_bootstrap_test.py", "board_test.py", "doctor_test.py"):
                 (scripts / name).write_text("#!/usr/bin/env python3\nraise SystemExit(0)\n", encoding="utf-8")
@@ -519,6 +581,19 @@ class ObservabilitySplitArchitectureTest(unittest.TestCase):
             check_repo.LINE_LIMIT - check_repo.LINE_WARNING_MARGIN,
             "core/observability.lua must remain an orchestration layer, not a near-limit monolith",
         )
+
+
+class ObservabilitySpecContractTest(unittest.TestCase):
+    def test_topology_dashboard_spec_requires_authoritative_artifact_proof(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "docs" / "dev" / "observability-legibility.md").read_text(encoding="utf-8")
+
+        for token in ("M.spec.graph_json = true", "graph_json()", "fkst.graph.v1", "## System topology"):
+            self.assertIn(token, source)
+        self.assertIn("authoritative artifact", source)
+        self.assertIn("must not render", source)
+        self.assertIn("linking or reusing", source)
+        self.assertIn("documented evidence", source)
 
 
 class RepositoryInterfaceContractTest(unittest.TestCase):

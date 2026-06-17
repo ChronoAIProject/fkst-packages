@@ -1,6 +1,7 @@
 local S = {}
 
 function S.install(M)
+local env = require("std.env")
 local allowed_env = {
   FKST_GITHUB_BOT_LOGIN = true,
   FKST_GITHUB_CLAIM_MODE = true,
@@ -26,6 +27,9 @@ local allowed_env = {
 local allowed_presence_env = {
   GH_TOKEN = true,
   GITHUB_TOKEN = true,
+  FKST_GITHUB_READ_TOKEN = true,
+  FKST_GITHUB_WRITE_TOKEN = true,
+  FKST_GITHUB_MERGE_TOKEN = true,
 }
 
 local function read_env_command(name)
@@ -42,25 +46,13 @@ local function env_present_command(name)
   return 'if [ -n "${' .. name .. ':-}" ]; then printf present; fi'
 end
 
-function M.read_env_command(name)
-  return read_env_command(name)
-end
+M.read_env_command = read_env_command
 
 function M.env_present_command(name)
   return env_present_command(name)
 end
 
-function M.read_env(name, exec)
-  local run = exec or exec_sync
-  if type(run) ~= "function" then
-    return nil
-  end
-  local ok, out = pcall(run, read_env_command(name))
-  if not ok or type(out) ~= "table" or out.exit_code ~= 0 or out.stdout == "" then
-    return nil
-  end
-  return out.stdout
-end
+M.read_env = env.read_env(read_env_command)
 
 function M.env_present(name, exec)
   local run = exec or exec_sync
@@ -167,11 +159,14 @@ function M.intake_probe_gate(exec)
 end
 
 local function current_checkout_branch(exec)
-  local run = exec or exec_sync
+  local run = exec or exec_argv
   if type(run) ~= "function" then
-    error("github-devloop: branch config requires exec_sync")
+    error("github-devloop: branch config requires exec_argv")
   end
-  local ok, out = pcall(run, "git rev-parse --abbrev-ref HEAD")
+  local git = require("std.git").new(run)
+  local ok, out = pcall(function()
+    return git.current_branch(30)
+  end)
   if not ok or type(out) ~= "table" or out.exit_code ~= 0 then
     error("github-devloop: current checkout branch read failed")
   end

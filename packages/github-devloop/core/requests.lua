@@ -166,9 +166,11 @@ function M.build_result_label_request(repo, issue_number, reached)
     reached.source_ref
   )
 end
-function M.build_result_comment_request(repo, issue_number, reached)
+function M.build_result_comment_request(repo, issue_number, reached, state_name)
   local marker = M.result_marker(reached.proposal_id, reached.decision, reached.dedup_key)
-  local state_marker = M.state_marker(reached.proposal_id, "ready", tostring(reached.effect_version or reached.dedup_key), "result-marker,ready-label,devloop-ready")
+  local canonical_state = state_name or "ready"
+  local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready" or "result-marker,ready-label,dependency-hold"
+  local state_marker = M.state_marker(reached.proposal_id, canonical_state, tostring(reached.effect_version or reached.dedup_key), effects)
   local body_text = M.neutralize_untrusted_comment_text(reached.body or "")
   local verdict_summary = build_verdict_summary(reached.angle_results)
   local body = M.comment_string("decision_prefix") .. tostring(reached.decision)
@@ -969,12 +971,17 @@ function M.build_merging_comment_body(merge_ready)
     .. "\n" .. M.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
 end
 
-function M.build_merged_comment_body(merge_ready)
+function M.build_merged_comment_body(merge_ready, autonomy_record)
+  local autonomy_marker = ""
+  if autonomy_record ~= nil then
+    autonomy_marker = "\n" .. M.autonomy_result_marker(autonomy_record)
+  end
   return M.comment_string("merged_pr_prefix") .. tostring(merge_ready.pr_number)
     .. "\n\n" .. M.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
     .. "\n" .. M.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
     .. "\n" .. M.state_marker(merge_ready.proposal_id, "merged", merge_ready.version)
-    .. "\n" .. M.merged_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
+    .. "\n" .. M.merged_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha, autonomy_record)
+    .. autonomy_marker
 end
 end
 return S

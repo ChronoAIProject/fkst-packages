@@ -6,6 +6,7 @@ local reason_label = base.reason_label
 local json_string = base.json_string
 local render_comment = base.render_comment
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local gh_argv = require("tests.gh_argv_mock_helpers")
 local last_merge_comments = nil
 
 local function json_literal(value)
@@ -340,9 +341,22 @@ local function mock_pr_ready(exit_code, stderr)
   })
 end
 
+local function mock_required_check_runs_for(head_sha, conclusion, repo)
+  local sha = tostring(head_sha or "def456")
+  t.mock_command("gh api 'repos/" .. tostring(repo or "owner/repo") .. "/commits/" .. sha .. "/check-runs'", {
+    stdout = '{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"'
+      .. tostring(conclusion or "failure")
+      .. '","head_sha":"'
+      .. sha
+      .. '"}]}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function has_call(needle)
   for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find(needle, 1, true) ~= nil then
+    if gh_argv.call_contains(call, needle) then
       return true
     end
   end
@@ -569,6 +583,7 @@ return {
   mock_merging_comment = mock_merging_comment,
   mock_pr_merge_command = mock_pr_merge_command,
   mock_pr_ready = mock_pr_ready,
+  mock_required_check_runs_for = mock_required_check_runs_for,
   has_call = has_call,
   mock_issue_close = mock_issue_close,
   merge_comments_with_merging = merge_comments_with_merging,

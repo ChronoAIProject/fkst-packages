@@ -5,8 +5,14 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
+  local responsibility_signature = h.responsibility_signature
   return {
     from_state = "merge-ready",
+    liveness_class_id = "merge_ready.actionable",
+    watchdog = watchdog("row-budget-bounds-receiver", 390),
+    actionable_epoch = actionable_epoch("state_entry:v1"),
     terminal = false,
     to_states = { "reviewing", "merging", "fixing", "blocked" },
     driving_queue = "devloop_merge_ready",
@@ -17,8 +23,56 @@ return function(M, h)
       mode = "row-budget-bounds-receiver",
       receiver_bound_minutes = 30,
       external_wait_bound_minutes = 360,
+      progress_signal = {
+        family = "merge-gate-wait",
+        producer = "merge-gate-wait",
+        resolver = "merge-gate-wait",
+        surface = "pr-comment-stream",
+        version_form = "raw",
+        max_age_minutes = 360,
+      },
     }),
     on_timeout = timeout("devloop_merge_ready"),
+    responsibility_signature = responsibility_signature({
+      receiver_kind = "merge-controller",
+      driving_queue = "devloop_merge_ready",
+      state_kind = "gate",
+      liveness_class = "merge_ready.actionable",
+      input_fact_family = "head-bound-merge-authorization",
+      output_postcondition_family = "merge_eligibility_decided",
+      decision_type = "MergeEligibility",
+      phase_rank = M.stage_rank("merge-ready"),
+      lineage_keys = { "merge-ready.version", "merge-ready.pr", "merge-ready.head_sha", "merge-ready.review_dedup", "source_ref" },
+      successors = {
+        {
+          state = "reviewing",
+          output_variant = "approval_stale",
+          postcondition_family = "merge_eligibility_decided",
+          decision_type = "MergeEligibility",
+          bump = true,
+        },
+        {
+          state = "merging",
+          output_variant = "eligible_now",
+          postcondition_family = "merge_eligibility_decided",
+          decision_type = "MergeEligibility",
+          monotonic = true,
+        },
+        {
+          state = "fixing",
+          output_variant = "code_repair_needed",
+          postcondition_family = "merge_eligibility_decided",
+          decision_type = "MergeEligibility",
+          bump = true,
+        },
+        {
+          state = "blocked",
+          output_variant = "watchdog_reconcile_terminal",
+          terminal = true,
+          monotonic = true,
+        },
+      },
+    }),
     payload_builder = M.build_devloop_merge_ready_payload,
     dedup_shape = "merge-ready/<proposal_id>/<version>/<pr>/<review_dedup>/<current_head>",
     required_facts = {
@@ -27,6 +81,7 @@ return function(M, h)
       fact("review-result", "marker-read"),
       fact("merge-ready", "marker-read"),
       fact("review-carry-over", "marker-read"),
+      fact("merge-gate-wait", "marker-read"),
       fact("pr-head", "fetch-before-compare"),
       fact("base-head", "fetch-before-compare"),
     },

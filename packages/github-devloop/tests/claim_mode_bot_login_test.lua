@@ -42,6 +42,31 @@ local function count_calls(needle)
   return count
 end
 
+local function count_adapter_calls(flag, value)
+  local count = 0
+  for _, call in ipairs(t.command_calls()) do
+    local rendered = tostring(call.rendered or "")
+    if rendered == "" and type(call.argv) == "table" then
+      rendered = table.concat(call.argv, " ")
+    end
+    if rendered == "" and type(call.args) == "table" then
+      local values = {}
+      if call.program ~= nil then
+        table.insert(values, tostring(call.program))
+      end
+      for _, arg in ipairs(call.args) do
+        table.insert(values, tostring(arg))
+      end
+      rendered = table.concat(values, " ")
+    end
+    if rendered:find(tostring(flag), 1, true) ~= nil
+      and rendered:find(tostring(value), 1, true) ~= nil then
+      count = count + 1
+    end
+  end
+  return count
+end
+
 local function ownership_json(logins, author_login, labels)
   local rendered_assignees = {}
   for _, login in ipairs(logins or {}) do
@@ -136,12 +161,12 @@ return {
 
   test_label_mode_claim_adds_label_then_verifies_winner = function()
     mock_env("fkst-test-bot", "label", "1")
-    t.mock_command("gh issue edit '42' --repo 'owner/repo' --add-label '" .. claimed_label .. "'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command(core.gh_issue_view_claim_ownership_cmd("owner/repo", 42), {
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({}, "fkst-test-bot", { claimed_label }),
       stderr = "",
       exit_code = 0,
@@ -156,26 +181,26 @@ return {
     )
 
     t.eq(ok, true)
-    t.eq(count_calls("--add-label '" .. claimed_label .. "'"), 1)
-    t.eq(count_calls("--remove-label '" .. claimed_label .. "'"), 0)
+    t.eq(count_adapter_calls("--add-label", claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", claimed_label), 0)
     -- Assignee-mode commands are never issued in label-mode.
-    t.eq(count_calls("--add-assignee"), 0)
+    t.eq(count_adapter_calls("--add-assignee", "fkst-test-bot"), 0)
   end,
 
   test_label_mode_claim_loss_removes_label_and_skips = function()
     mock_env("fkst-test-bot", "label", "1")
-    t.mock_command("gh issue edit '42' --repo 'owner/repo' --add-label '" .. claimed_label .. "'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-label '" .. claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
     -- Verification view shows the label is gone (lost the race).
-    t.mock_command(core.gh_issue_view_claim_ownership_cmd("owner/repo", 42), {
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({}, "fkst-test-bot", {}),
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("gh issue edit '42' --repo 'owner/repo' --remove-label '" .. claimed_label .. "'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --remove-label '" .. claimed_label .. "'", {
       stdout = "",
       stderr = "",
       exit_code = 0,
@@ -190,8 +215,8 @@ return {
     )
 
     t.eq(ok, false)
-    t.eq(count_calls("--add-label '" .. claimed_label .. "'"), 1)
-    t.eq(count_calls("--remove-label '" .. claimed_label .. "'"), 1)
+    t.eq(count_adapter_calls("--add-label", claimed_label), 1)
+    t.eq(count_adapter_calls("--remove-label", claimed_label), 1)
   end,
 
   test_label_mode_self_owned_short_circuits_without_writes = function()
@@ -209,7 +234,7 @@ return {
 
   test_label_mode_verify_issue_claim_reads_labels = function()
     mock_env("fkst-test-bot", "label", "")
-    t.mock_command(core.gh_issue_view_claim_ownership_cmd("owner/repo", 42), {
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({}, "fkst-test-bot", { claimed_label }),
       stderr = "",
       exit_code = 0,
@@ -217,7 +242,7 @@ return {
     t.eq(core.verify_issue_claim("owner/repo", 42, "fkst-test-bot"), true)
 
     mock_env("fkst-test-bot", "label", "")
-    t.mock_command(core.gh_issue_view_claim_ownership_cmd("owner/repo", 42), {
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
       stdout = ownership_json({}, "fkst-test-bot", {}),
       stderr = "",
       exit_code = 0,
@@ -225,13 +250,16 @@ return {
     t.eq(core.verify_issue_claim("owner/repo", 42, "fkst-test-bot"), false)
   end,
 
-  test_label_mode_claim_view_cmd_projects_labels = function()
+  test_label_mode_claim_view_projects_labels = function()
     mock_env("fkst-test-bot", "label", "")
-    -- label-mode view must include labels; assignee-mode keeps assignees,author only.
-    t.eq(
-      core.gh_issue_view_claim_ownership_cmd("owner/repo", 42),
-      core.gh_issue_view_cmd("owner/repo", 42, "assignees,author,labels")
-    )
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
+      stdout = ownership_json({}, "fkst-test-bot", { claimed_label }),
+      stderr = "",
+      exit_code = 0,
+    })
+    local ownership = core.read_current_issue_ownership("owner/repo", 42)
+    t.eq(ownership.labels[1], claimed_label)
+    t.eq(core.issue_claim_state(ownership.assignees, "fkst-test-bot", ownership.labels), "self")
   end,
 
   -- (c) assignee-mode (default) is unchanged: unknown/empty claim mode behaves
@@ -249,21 +277,23 @@ return {
     mock_env("fkst-test-bot", "bogus-mode", "")
     t.eq(core.claim_mode(), "assignee")
     t.eq(core.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
-    -- claim view stays on the assignees,author projection.
-    t.eq(
-      core.gh_issue_view_claim_ownership_cmd("owner/repo", 42),
-      core.gh_issue_view_claim_cmd("owner/repo", 42)
-    )
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author", {
+      stdout = ownership_json({ "fkst-test-bot" }, "fkst-test-bot"),
+      stderr = "",
+      exit_code = 0,
+    })
+    local ownership = core.read_current_issue_ownership("owner/repo", 42)
+    t.eq(core.issue_claim_state(ownership.assignees, "fkst-test-bot", ownership.labels), "self")
   end,
 
   test_assignee_mode_claim_assigns_then_verifies = function()
     mock_env("fkst-test-bot", "", "1")
-    t.mock_command("gh issue edit '42' --repo 'owner/repo' --add-assignee 'fkst-test-bot'", {
+    t.mock_command("gh issue edit 42 --repo owner/repo --add-assignee fkst-test-bot", {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
+    t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author", {
       stdout = ownership_json({ "fkst-test-bot" }, "fkst-test-bot"),
       stderr = "",
       exit_code = 0,
@@ -278,9 +308,9 @@ return {
     )
 
     t.eq(ok, true)
-    t.eq(count_calls("--add-assignee 'fkst-test-bot'"), 1)
+    t.eq(count_adapter_calls("--add-assignee", "fkst-test-bot"), 1)
     -- No label-mode commands leak into assignee-mode.
-    t.eq(count_calls("--add-label '" .. claimed_label .. "'"), 0)
+    t.eq(count_adapter_calls("--add-label", claimed_label), 0)
   end,
 
   -- claim_owner normalizes the configured bot login at its single source.

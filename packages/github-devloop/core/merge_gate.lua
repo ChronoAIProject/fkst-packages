@@ -44,7 +44,7 @@ local function log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
 end
 
 function M.commit_check_runs_merge_gate(repo, head_sha, opts)
-  local result = M.gh_exec({ cmd = M.gh_commit_check_runs_cmd(repo, head_sha), timeout = 30 })
+  local result = M.gh_commit_check_runs(repo, head_sha, 30)
   if result.exit_code ~= 0 then
     error("github-devloop: gh commit check-runs failed: " .. tostring(result.stderr))
   end
@@ -52,6 +52,17 @@ function M.commit_check_runs_merge_gate(repo, head_sha, opts)
   local green, reason = M.commit_check_runs_green(runs)
   log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
   return green, reason, runs
+end
+
+local function fetch_commit_check_runs(repo, head_sha)
+  if tostring(repo or "") == "" or not M.is_safe_head_sha(head_sha) then
+    return nil, "ci-unknown"
+  end
+  local result = M.gh_commit_check_runs(repo, head_sha, 30)
+  if result.exit_code ~= 0 then
+    return nil, "ci-unknown"
+  end
+  return M.parse_commit_check_runs(result.stdout), nil
 end
 
 local function check_run_id(run)
@@ -99,6 +110,115 @@ local function check_run_head_sha(run)
   return nil
 end
 
+local function check_run_name(run)
+  if type(run) ~= "table" then
+    return ""
+  end
+  return tostring(run.name or run.context or run.workflowName or run.workflow_name or "")
+end
+
+local function check_run_state(run)
+  if type(run) ~= "table" then
+    return "", ""
+  end
+  return tostring(run.state or run.status or ""):upper(), tostring(run.conclusion or ""):upper()
+end
+
+local green_required_check_conclusions = {
+  SUCCESS = true,
+  NEUTRAL = true,
+  SKIPPED = true,
+}
+
+local function required_head_check_run_status(runs, head_sha)
+  if type(runs) ~= "table" or not M.is_safe_head_sha(head_sha) then
+    return "unknown"
+  end
+  local required_names = M._required_check_run_names or {}
+  local required = {}
+  for _, name in ipairs(required_names) do
+    required[tostring(name)] = false
+  end
+  local expected = tostring(head_sha):lower()
+  for _, run in ipairs(runs) do
+    local name = check_run_name(run)
+    if required[name] ~= nil then
+      local run_head = check_run_head_sha(run)
+      if run_head == nil or run_head == expected then
+        required[name] = true
+        local state, conclusion = check_run_state(run)
+        if state == "COMPLETED" then
+          if not green_required_check_conclusions[conclusion] then
+            return "red"
+          end
+        else
+          return "pending"
+        end
+      end
+    end
+  end
+  for _, name in ipairs(required_names) do
+    if required[tostring(name)] ~= true then
+      return "unknown"
+    end
+  end
+  return "green"
+end
+
+local function ci_classification(kind, reason, extra)
+  local result = extra or {}
+  result.kind = kind
+  result.reason = reason
+  result.merge_blocking = kind ~= "OK"
+  result.actionable = kind == "OWN_CI_RED"
+  return result
+end
+
+local function integration_or_external_red(pr, head_sha, runs)
+  local gate_sha = M.rollup_failure_gate_sha(pr)
+  if gate_sha ~= nil and tostring(gate_sha):lower() ~= tostring(head_sha):lower() then
+    return ci_classification("INTEGRATION_RED", "integration-ci-red", { check_runs = runs })
+  end
+  return ci_classification("EXTERNAL_CI_RED", "external-ci-red", { check_runs = runs })
+end
+
+function M.classify_pr_ci_gate(pr, opts)
+  local green, reason = M.pr_rollup_green(pr)
+  if green then
+    return ci_classification("OK", "rollup-green")
+  end
+  if reason == "rollup-pending" then
+    return ci_classification("CHECKS_PENDING", "checks-pending")
+  end
+  local repo = opts and opts.repo or nil
+  local head_sha = tostring(pr and pr.head_sha or "")
+  if not M.is_safe_head_sha(head_sha) then
+    return ci_classification("CI_UNKNOWN", "ci-unknown")
+  end
+  if tostring(repo or "") == "" then
+    return ci_classification("CI_UNKNOWN", "ci-unknown")
+  end
+  local runs, fetch_reason = fetch_commit_check_runs(repo, head_sha)
+  if runs == nil then
+    return ci_classification("CI_UNKNOWN", fetch_reason or "ci-unknown")
+  end
+  log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
+  local head_status = required_head_check_run_status(runs, head_sha)
+  if head_status == "red" then
+    return ci_classification("OWN_CI_RED", "own-ci-red", { check_runs = runs })
+  end
+  if head_status == "pending" then
+    return ci_classification("CHECKS_PENDING", "checks-pending", { check_runs = runs })
+  end
+  if head_status == "unknown" then
+    return ci_classification("CI_UNKNOWN", "ci-unknown", { check_runs = runs })
+  end
+  if reason == "rollup-red" then
+    return integration_or_external_red(pr, head_sha, runs)
+  end
+  return ci_classification("OK", "rollup-green", { check_runs = runs })
+end
+
 function M.rerunnable_check_run_ids_for_head(runs, head_sha)
   if type(runs) ~= "table" or not M.is_safe_head_sha(head_sha) then
     return {}
@@ -138,6 +258,10 @@ function M.evaluate_ci_merge_gate(pr, opts)
   end
   local green, green_reason = M.evaluate_ci_status_gate(pr, opts)
   if not green then
+    if green_reason == "rollup-red" then
+      local classification = M.classify_pr_ci_gate(pr, opts)
+      return false, classification.reason
+    end
     return false, green_reason
   end
   return true, "merge-gate-ok"
@@ -170,7 +294,7 @@ function M.merge_gate_reason_requires_pr_merge_product(reason)
   if row ~= nil then
     return row.requires_pr_merge_product == true
   end
-  return M.merge_gate_reason_class(reason) == "rollup-red"
+  return false
 end
 
 function M.ci_missing_status_dispatch_eligible(pr, now_seconds, first_observed_seconds, grace_seconds)
@@ -192,7 +316,7 @@ function M.ci_missing_status_dispatch_eligible(pr, now_seconds, first_observed_s
 end
 
 local function merge_ci_selfheal_worktree(repo, pr_number, head_sha)
-  local runtime_result = M.gh_exec({ cmd = M.read_runtime_root_cmd(), timeout = 30 })
+  local runtime_result = exec_sync({ cmd = M.read_runtime_root_cmd(), timeout = 30 })
   if runtime_result.exit_code ~= 0 then
     error("github-devloop: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
   end
@@ -215,7 +339,7 @@ local function rerequest_head_check_runs(repo, pr_number, head_sha, runs, propos
     return false, "ci-selfheal-no-rerunnable-check-runs"
   end
   for _, id in ipairs(ids) do
-    local result = M.gh_exec({ cmd = M.gh_check_run_rerequest_cmd(repo, id), timeout = 30 })
+    local result = M.gh_check_run_rerequest(repo, id, 30)
     if result.exit_code ~= 0 then
       error("github-devloop: check-run rerequest failed: " .. tostring(result.stderr))
     end
@@ -245,29 +369,28 @@ local function nudge_pr_head(repo, pr_number, pr, proposal_id, first_observed_se
     return false, "ci-selfheal-foreign-head"
   end
   local worktree = merge_ci_selfheal_worktree(repo, pr_number, head_sha)
-  local remove_result = M.gh_exec({ cmd = M.git_worktree_remove_if_present_cmd(worktree), timeout = 60 })
+  local remove_result = M.git_worktree_remove_if_present(worktree, 60)
   if remove_result.exit_code ~= 0 then
     error("github-devloop: merge CI self-heal worktree cleanup failed: " .. tostring(remove_result.stderr))
   end
-  local add_result = M.gh_exec({ cmd = M.git_worktree_add_detached_cmd(worktree, head_sha), timeout = 60 })
+  local plan = M.git_worktree_add_detached_plan(worktree, head_sha)
+  local mkdir_result = exec_sync({ cmd = M.mkdir_p_cmd(plan.parent_dir), timeout = 30 })
+  if mkdir_result.exit_code ~= 0 then
+    error("github-devloop: merge CI self-heal worktree parent setup failed: " .. tostring(mkdir_result.stderr))
+  end
+  local add_result = M.git_worktree_add_detached(plan.worktree, plan.sha, 60)
   if add_result.exit_code ~= 0 then
     error("github-devloop: merge CI self-heal worktree add failed: " .. tostring(add_result.stderr))
   end
-  local commit_result = M.gh_exec({
-    cmd = M.git_empty_commit_cmd(worktree, "chore: nudge PR CI"),
-    timeout = 60,
-  })
+  local commit_result = M.git_empty_commit(worktree, "chore: nudge PR CI", 60)
   if commit_result.exit_code ~= 0 then
     error("github-devloop: merge CI self-heal empty commit failed: " .. tostring(commit_result.stderr))
   end
-  local push_result = M.gh_exec({
-    cmd = M.git_push_worktree_branch_update_with_lease_cmd(worktree, head_ref, head_sha),
-    timeout = 120,
-  })
+  local push_result = M.git_push_worktree_branch_update_with_lease(worktree, head_ref, head_sha, 120)
   if push_result.exit_code ~= 0 then
     error("github-devloop: merge CI self-heal push failed: " .. tostring(push_result.stderr))
   end
-  local pushed_head = M.gh_exec({ cmd = M.git_head_sha_cmd(worktree), timeout = 30 })
+  local pushed_head = M.git_head_sha(worktree, 30)
   if pushed_head.exit_code ~= 0 then
     error("github-devloop: merge CI self-heal head read failed: " .. tostring(pushed_head.stderr))
   end
@@ -368,7 +491,7 @@ function M.run_verified_pr_merge(request)
   local pr_number = request and request.pr_number
   local max_attempts = merge_attempt_limit(request)
   for attempt = 1, max_attempts do
-    local pr_recheck = M.gh_exec({ cmd = M.gh_pr_view_merge_cmd(repo, pr_number), timeout = 30 })
+    local pr_recheck = M.gh_pr_view_merge(repo, pr_number, 30)
     if pr_recheck.exit_code ~= 0 then
       error("github-devloop: gh pr merge recheck failed: " .. tostring(pr_recheck.stderr))
     end
@@ -404,7 +527,7 @@ function M.run_verified_pr_merge(request)
       request.before_merge(rechecked_pr)
     end
 
-    local merge_result = M.gh_exec({ cmd = M.gh_pr_merge_cmd(repo, pr_number, merge_head_sha), timeout = 120 })
+    local merge_result = M.gh_pr_merge(repo, pr_number, merge_head_sha, 120)
     if merge_result.exit_code ~= 0 then
       if attempt < max_attempts and M.is_match_head_modified_error(merge_result.stderr) then
         M.log_line("info", tostring(request.dept or "merge"), tostring(request.proposal_id or "merge"), "MATCH_HEAD_RETRY", {
@@ -421,7 +544,7 @@ function M.run_verified_pr_merge(request)
     else
       M.invalidate_entity_after_write(repo, "pr", pr_number)
 
-      local merged_view = M.gh_exec({ cmd = M.gh_pr_view_merge_cmd(repo, pr_number), timeout = 30 })
+      local merged_view = M.gh_pr_view_merge(repo, pr_number, 30)
       if merged_view.exit_code ~= 0 then
         error("github-devloop: gh pr post-merge view failed: " .. tostring(merged_view.stderr))
       end

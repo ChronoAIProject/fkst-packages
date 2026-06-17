@@ -100,6 +100,11 @@ local function mock_context_bundle(payload)
     stderr = "",
     exit_code = 0,
   })
+  helpers.t.mock_command("gh pr diff '7' --repo '" .. repo .. "' --name-only", {
+    stdout = "file.lua\n",
+    stderr = "",
+    exit_code = 0,
+  })
   entity_read_mocks.mock_issue_board_digest_list(helpers.t, repo, {})
   entity_read_mocks.mock_issue_list_command(helpers.t, helpers.core.gh_issue_list_recent_closed_cmd(repo, 30), {})
   for _ = 1, 12 do
@@ -207,4 +212,5 @@ end
 helpers.mock_context_bundle = mock_context_bundle
 helpers.mock_default_issue_claim = mock_default_issue_claim
 helpers.issue_identity_from_payload = issue_identity_from_payload
+helpers.mock_required_check_runs_for = pr.mock_required_check_runs_for
 return helpers

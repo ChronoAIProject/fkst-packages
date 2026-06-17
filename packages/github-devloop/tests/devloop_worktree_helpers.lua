@@ -1,6 +1,7 @@
 local base = require("tests.devloop_base_helpers")
 local t = base.t
 local core = base.core
+local gh_argv = require("tests.gh_argv_mock_helpers")
 local function mock_setup_worktree(path)
   t.mock_command("git -C", {
     stdout = "dev\n",
@@ -38,6 +39,14 @@ local function mock_implement_worktree_reconcile()
   })
 end
 
+local function mock_worktree_parent_mkdir()
+  t.mock_command("mkdir -p", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_fresh_implement_worktree(path)
   t.mock_command("git fetch 'origin' 'dev'", {
     stdout = "",
@@ -69,6 +78,7 @@ local function mock_fresh_implement_worktree(path)
     stderr = "",
     exit_code = 0,
   })
+  mock_worktree_parent_mkdir()
   t.mock_command("git worktree add -b", {
     stdout = "",
     stderr = "",
@@ -123,6 +133,7 @@ local function mock_existing_empty_implement_worktree(path)
     stderr = "",
     exit_code = 0,
   })
+  mock_worktree_parent_mkdir()
   t.mock_command("git worktree add", {
     stdout = "",
     stderr = "",
@@ -235,6 +246,7 @@ local function mock_outside_runtime_implement_worktree_rebuild(runtime_root, bra
     stderr = "",
     exit_code = 0,
   })
+  mock_worktree_parent_mkdir()
   t.mock_command("git worktree add", {
     stdout = "",
     stderr = "",
@@ -306,6 +318,7 @@ local function mock_multiple_outside_runtime_implement_worktrees_rebuild(runtime
     stderr = "",
     exit_code = 0,
   })
+  mock_worktree_parent_mkdir()
   t.mock_command("git worktree add", {
     stdout = "",
     stderr = "",
@@ -492,6 +505,7 @@ local function mock_missing_fix_worktree(branch, head, path)
     stderr = "",
     exit_code = 0,
   })
+  mock_worktree_parent_mkdir()
   t.mock_command("git worktree add --force -B", {
     stdout = "",
     stderr = "",
@@ -540,6 +554,7 @@ local function mock_outside_runtime_fix_worktree(branch, head, path)
     stderr = "",
     exit_code = 0,
   })
+  mock_worktree_parent_mkdir()
   t.mock_command("git worktree add --force -B", {
     stdout = "",
     stderr = "",
@@ -615,15 +630,16 @@ local function mock_issue_view_failure(json_selector, stderr)
 end
 
 local function count_calls(needle)
-  local count = 0
+  local count = gh_argv.count_calls(t, needle)
   local alternate = nil
   if needle == "--json headRefName,headRefOid,baseRefName,state,comments" then
     alternate = "--json headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,comments,labels,mergeable,mergeStateStatus"
   end
-  for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find(needle, 1, true) ~= nil
-      or (alternate ~= nil and call.rendered:find(alternate, 1, true) ~= nil) then
-      count = count + 1
+  if alternate ~= nil then
+    for _, call in ipairs(t.command_calls()) do
+      if tostring(call.rendered or ""):find(alternate, 1, true) ~= nil then
+        count = count + 1
+      end
     end
   end
   return count

@@ -22,12 +22,12 @@ local function mock_base_fetch(base_head)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("git fetch 'origin' 'dev'", {
+  t.mock_command("git fetch origin dev", {
     stdout = "",
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
+  t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", {
     stdout = tostring(base_head or "ba5e1234") .. "\n",
     stderr = "",
     exit_code = 0,
@@ -36,6 +36,11 @@ end
 
 local function mock_resolution_delta(exit_code)
   t.mock_command("git merge-tree --write-tree", {
+    stdout = "1234abcd\n",
+    stderr = exit_code == 0 and "" or "delta is not empty",
+    exit_code = 0,
+  })
+  t.mock_command("git diff --quiet 1234abcd", {
     stdout = "",
     stderr = exit_code == 0 and "" or "delta is not empty",
     exit_code = exit_code,
@@ -140,6 +145,7 @@ return {
     mock_write_env("1")
     mock_issue_merge({ "fkst-dev:merge-ready" }, carried_comments)
     mock_pr_merge(carried_comments, "devloop-owner-repo-42-01HY", new_head, "OPEN", "owner/repo", false, "MERGEABLE", "CLEAN", "COMPLETED", "FAILURE")
+    h.mock_required_check_runs_for(new_head, "failure")
 
     local ci_red = run_merge(carried.payload, opts("merge-carry-over-ci-red", { FKST_GITHUB_WRITE = "1" }))
 

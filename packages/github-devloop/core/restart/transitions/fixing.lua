@@ -5,8 +5,15 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
+  local responsibility_signature = h.responsibility_signature
   return {
     from_state = "fixing",
+    generation_entry = "always",
+    liveness_class_id = "fixing.actionable",
+    watchdog = watchdog("row-budget-bounds-receiver", 120),
+    actionable_epoch = actionable_epoch("state_entry:v1"),
     terminal = false,
     to_states = { "reviewing", "review-meta" },
     driving_queue = "devloop_fixing",
@@ -18,6 +25,30 @@ return function(M, h)
       receiver_bound_minutes = 60,
     }),
     on_timeout = timeout("devloop_fixing"),
+    responsibility_signature = responsibility_signature({
+      receiver_kind = "code-producer",
+      driving_queue = "devloop_fixing",
+      state_kind = "worker",
+      liveness_class = "fixing.actionable",
+      input_fact_family = "fix-feedback",
+      output_postcondition_family = "revision_published",
+      phase_rank = M.stage_rank("fixing"),
+      lineage_keys = { "state.version", "review-result.dedup", "review-result.head_sha", "source_ref" },
+      successors = {
+        {
+          state = "reviewing",
+          output_variant = "revision_published",
+          postcondition_family = "revision_published",
+          bump = true,
+        },
+        {
+          state = "review-meta",
+          output_variant = "revision_failed",
+          failure = true,
+          monotonic = true,
+        },
+      },
+    }),
     payload_builder = M.build_devloop_fixing_payload,
     dedup_shape = "forward:fixing/<proposal_id>/<version>/<pr>/<review_dedup>; replay:fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<reviewed_head_sha>",
     required_facts = {

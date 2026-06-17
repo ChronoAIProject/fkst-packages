@@ -70,6 +70,24 @@ local function liveness(contract)
   return contract
 end
 
+local function watchdog(mode, minutes)
+  return {
+    mode = mode,
+    budget_ms = tonumber(minutes) * 60 * 1000,
+  }
+end
+
+local function actionable_epoch(source)
+  return {
+    source = source,
+    generation_source = "same_as_actionable_epoch",
+  }
+end
+
+local function responsibility_signature(signature)
+  return signature
+end
+
 local transition_table = registry.load_indexed_array("core.restart.transitions.index", "from_state", M, {
   fact = fact,
   obligation = obligation,
@@ -77,6 +95,9 @@ local transition_table = registry.load_indexed_array("core.restart.transitions.i
   budget = budget,
   timeout = timeout,
   liveness = liveness,
+  watchdog = watchdog,
+  actionable_epoch = actionable_epoch,
+  responsibility_signature = responsibility_signature,
 })
 
 local audit_by_state = {}
@@ -165,6 +186,7 @@ local default_consumer_sources = {
   "packages/github-devloop/departments/decompose/main.lua",
   "packages/github-devloop/departments/observe_pr/main.lua",
   "packages/github-devloop/departments/observe_issue/main.lua",
+  "packages/github-devloop/core/ready_split.lua",
   "packages/github-devloop/core/replayer.lua",
   "packages/github-devloop/core/requests.lua",
 }

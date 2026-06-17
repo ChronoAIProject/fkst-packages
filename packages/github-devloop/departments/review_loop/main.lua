@@ -16,20 +16,6 @@ M.spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
-local function append_round_fact(facts, round, narrowed_question, angle_digests, dedup_key)
-  local copied = {}
-  for _, fact in ipairs(facts or {}) do
-    table.insert(copied, fact)
-  end
-  table.insert(copied, {
-    round = round,
-    question = core.converge_question_digest(narrowed_question),
-    verdicts = core.converge_verdicts_digest(angle_digests),
-    dedup = dedup_key,
-  })
-  return copied
-end
-
 local function review_truth_table_unapproved(unresolved)
   if tonumber(unresolved.round) == nil or tonumber(unresolved.round) < 1 then
     return false
@@ -95,7 +81,7 @@ function pipeline(event)
 
   core.assert_trusted_bot_configured()
   local branches = core.branch_config()
-  local pr_view = core.gh_exec({ cmd = core.gh_pr_view_origin_cmd(repo, pr_number), timeout = 30 })
+  local pr_view = core.gh_pr_view_origin(repo, pr_number, 30)
   if pr_view.exit_code ~= 0 then
     error("github-devloop: gh pr origin view failed for review loop: " .. tostring(pr_view.stderr))
   end
@@ -164,7 +150,7 @@ function pipeline(event)
       unresolved.narrowed_question,
       unresolved.angle_digests
     )
-    local facts_with_current = append_round_fact(facts, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key)
+    local facts_with_current = core.append_converge_round_fact(facts, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key)
     local budget_round = math.max(round, core.review_converge_budget_round(current_pr.comments, unresolved.proposal_id, origin.proposal_id))
     local hit_round_cap = budget_round >= core.max_converge_rounds()
     if hit_round_cap or core.is_true_stall(facts_with_current, round) then
@@ -211,7 +197,7 @@ function pipeline(event)
       comments = current_pr.comments,
     }
     if origin.issue_number ~= nil then
-      local issue_view = core.gh_exec({ cmd = core.gh_issue_view_review_loop_cmd(origin.repo, origin.issue_number), timeout = 30 })
+      local issue_view = core.gh_issue_view_review_loop(origin.repo, origin.issue_number, 30)
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh issue review loop view failed: " .. tostring(issue_view.stderr))
       end

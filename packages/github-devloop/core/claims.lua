@@ -1,6 +1,18 @@
 local S = {}
+local github_handle = nil
 
 function S.install(M)
+local function github()
+  if github_handle ~= nil then
+    return github_handle
+  end
+  if type(exec_argv) ~= "function" then
+    error("github-devloop: GitHub adapter requires exec_argv")
+  end
+  github_handle = require("std.github").new(exec_argv)
+  return github_handle
+end
+
 local function assignee_login(assignee)
   if type(assignee) == "table" then
     if assignee.login ~= nil then
@@ -87,41 +99,6 @@ function M.is_self_owned_issue(ownership, owner)
   return M.strip_bot_login_suffix(author) == tostring(owner or "")
 end
 
-function M.gh_issue_assign_cmd(repo, issue_number, login)
-  return "gh issue edit " .. M._shell_single_quote(issue_number)
-    .. " --repo " .. M._shell_single_quote(repo)
-    .. " --add-assignee " .. M._shell_single_quote(login)
-end
-
-function M.gh_issue_unassign_cmd(repo, issue_number, login)
-  return "gh issue edit " .. M._shell_single_quote(issue_number)
-    .. " --repo " .. M._shell_single_quote(repo)
-    .. " --remove-assignee " .. M._shell_single_quote(login)
-end
-
--- label-mode claim/unclaim: a GitHub App can add/remove a label even though it
--- cannot be an issue assignee.
-function M.gh_issue_add_claim_label_cmd(repo, issue_number)
-  return "gh issue edit " .. M._shell_single_quote(issue_number)
-    .. " --repo " .. M._shell_single_quote(repo)
-    .. " --add-label " .. M._shell_single_quote(claimed_label)
-end
-
-function M.gh_issue_remove_claim_label_cmd(repo, issue_number)
-  return "gh issue edit " .. M._shell_single_quote(issue_number)
-    .. " --repo " .. M._shell_single_quote(repo)
-    .. " --remove-label " .. M._shell_single_quote(claimed_label)
-end
-
--- label-mode needs labels in the claim view; assignee-mode keeps the existing
--- assignees,author projection unchanged.
-function M.gh_issue_view_claim_ownership_cmd(repo, issue_number)
-  if M.claim_mode() == "label" then
-    return M.gh_issue_view_cmd(repo, issue_number, "assignees,author,labels")
-  end
-  return M.gh_issue_view_claim_cmd(repo, issue_number)
-end
-
 function M.read_current_issue_assignees(repo, issue_number)
   local ownership = M.read_current_issue_ownership(repo, issue_number)
   return M.assignee_logins(ownership and ownership.assignees)
@@ -143,10 +120,11 @@ function M.read_current_issue_ownership(repo, issue_number)
   if issue_number == nil then
     return nil
   end
-  local view = M.gh_exec({ cmd = M.gh_issue_view_claim_ownership_cmd(repo, issue_number), timeout = 30 })
-  if view.exit_code ~= 0 then
-    error("github-devloop: gh issue claim view failed: " .. tostring(view.stderr))
+  local fields = "assignees,author"
+  if M.claim_mode() == "label" then
+    fields = "assignees,author,labels"
   end
+  local view = github().issue_view(repo, issue_number, fields, 30)
   local decoded = json.decode(view.stdout or "{}")
   return {
     assignees = M.assignee_logins(decoded.assignees),
@@ -297,39 +275,27 @@ function M.claim_issue_for_management(dept, repo, issue_number, current, proposa
   end
 
   if M.claim_mode() == "label" then
-    local claimed = M.gh_exec({ cmd = M.gh_issue_add_claim_label_cmd(repo, issue_number), timeout = 30 })
-    if claimed.exit_code ~= 0 then
-      error("github-devloop: gh issue edit add claim label failed: " .. tostring(claimed.stderr))
-    end
+    github().issue_add_label(repo, issue_number, claimed_label, 30)
     M.invalidate_entity_after_write(repo, "issue", issue_number)
     if M.verify_issue_claim(repo, issue_number, owner) then
       log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
       return true
     end
 
-    local unclaimed = M.gh_exec({ cmd = M.gh_issue_remove_claim_label_cmd(repo, issue_number), timeout = 30 })
-    if unclaimed.exit_code ~= 0 then
-      error("github-devloop: gh issue edit remove claim label failed: " .. tostring(unclaimed.stderr))
-    end
+    github().issue_remove_label(repo, issue_number, claimed_label, 30)
     M.invalidate_entity_after_write(repo, "issue", issue_number)
     log_claim(dept, proposal_id, "claim-lost", "label claim lost after add-label verification")
     return false
   end
 
-  local assigned = M.gh_exec({ cmd = M.gh_issue_assign_cmd(repo, issue_number, owner), timeout = 30 })
-  if assigned.exit_code ~= 0 then
-    error("github-devloop: gh issue edit assign failed: " .. tostring(assigned.stderr))
-  end
+  github().issue_assign(repo, issue_number, owner, 30)
   M.invalidate_entity_after_write(repo, "issue", issue_number)
   if M.verify_issue_claim(repo, issue_number, owner) then
     log_claim(dept, proposal_id, "claim-won", "assignee claim verified after assign")
     return true
   end
 
-  local unassigned = M.gh_exec({ cmd = M.gh_issue_unassign_cmd(repo, issue_number, owner), timeout = 30 })
-  if unassigned.exit_code ~= 0 then
-    error("github-devloop: gh issue edit unassign failed: " .. tostring(unassigned.stderr))
-  end
+  github().issue_unassign(repo, issue_number, owner, 30)
   M.invalidate_entity_after_write(repo, "issue", issue_number)
   log_claim(dept, proposal_id, "claim-lost", "assignee claim lost after assign verification")
   return false
