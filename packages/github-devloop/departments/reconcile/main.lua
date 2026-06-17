@@ -448,7 +448,7 @@ local function pipeline_timeout(event)
       from_state = reconcile.state,
       from_version = state.version,
       terminal_version = version,
-      age_minutes = age_minutes,
+      age_minutes = decision.actionable_epoch and decision.actionable_epoch.signal_age_minutes or age_minutes,
       budget_minutes = row and row.budget and tonumber(row.budget.minutes) or nil,
       attempt = decision.attempt,
       attempt_limit = limit,

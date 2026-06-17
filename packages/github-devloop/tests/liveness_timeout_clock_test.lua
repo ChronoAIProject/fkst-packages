@@ -226,16 +226,17 @@ local function run_timeout_reconcile(payload, comments, name)
 end
 
 return {
-  test_dependency_release_resets_ready_timeout_clock_and_attempt_lineage = function()
+  test_live_defer_clear_opens_fresh_timeout_generation = function()
     local row = core.restart_transition_row("ready")
     local source_ref = core.issue_source_ref(repo, 42)
-    local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T10:34:00Z")
+    local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z")
     local comments = {
       state_comment("ready", version, "2026-06-03T09:45:00Z"),
       trusted_comment(core.dependency_wait_marker(proposal_id, version, { 886 }), "2026-06-03T09:44:57Z"),
       timeout_attempt_comment("ready", version, 1, source_ref, "2026-06-03T10:20:00Z"),
       timeout_attempt_comment("ready", version, 2, source_ref, "2026-06-03T10:25:00Z"),
-      trusted_comment(core.dependency_release_marker(proposal_id, version), "2026-06-03T10:33:51Z"),
+      timeout_attempt_comment("ready", version, 3, source_ref, "2026-06-03T10:30:00Z"),
+      trusted_comment(core.dependency_release_marker(proposal_id, version), "2026-06-03T10:33:00Z"),
     }
     local state = {
       state = "ready",
@@ -250,13 +251,49 @@ return {
       now_seconds = now_seconds,
     }
 
+    local eval = core.actionable_epoch.resolve(row, state, facts, now_seconds)
+    t.eq(eval.status, "actionable")
+    t.eq(eval.epoch_source, "live_defer_epoch:v1")
+    t.eq(eval.generation_opened_by, "clear-fact:dependency-release:v1@2026-06-03T10:33:00Z")
+    t.eq(eval.epoch_ms, core.iso_timestamp_epoch_seconds("2026-06-03T10:33:00Z") * 1000)
+    t.eq(eval.age_minutes, 0)
+
     local due, age = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
     t.eq(due, false)
     t.eq(age, 0)
     t.eq(core.restart_row_liveness_deferred(row, state, facts, now_seconds), false)
     t.eq(core.liveness_timeout_attempt(row, state, facts), 0)
+    t.eq(state.marker_created_at, "2026-06-03T09:45:00Z")
 
-    table.insert(comments, timeout_attempt_comment("ready", version, 1, source_ref, "2026-06-03T10:33:53Z"))
+    local generation_key = facts.actionable_epoch.generation_key
+    table.insert(comments, trusted_comment(core.timeout_attempt_v2_marker(proposal_id, version, "ready", facts.actionable_epoch.liveness_class_id, "aeg-stale-generation", 3, source_ref), "2026-06-03T10:33:01Z"))
+    t.eq(core.liveness_timeout_attempt(row, state, facts), 0)
+
+    local eligible_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T11:18:01Z")
+    facts.now_seconds = eligible_seconds
+    facts.actionable_epoch = nil
+    local later_due, later_age = core.liveness_timeout_due_with_facts(row, state, facts, eligible_seconds)
+    t.eq(later_due, true)
+    t.eq(later_age, 45)
+    t.eq(facts.actionable_epoch.generation_key, generation_key)
+
+    local raised = capture_raises(function()
+      local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
+        repo = repo,
+        number = 42,
+        source_ref = source_ref,
+      }, state, row, facts)
+      t.eq(applied, true)
+    end)
+    t.eq(#raised, 1)
+    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
+    t.is_true(tostring(raised[1].payload.body or ""):find("fkst:github-devloop:timeout-attempt:v2", 1, true) ~= nil)
+    local body = tostring(raised[1].payload.body or "")
+    t.is_true(body:find('liveness_class_id="ready.actionable"', 1, true) ~= nil)
+    t.is_true(body:find('generation_key="' .. generation_key .. '"', 1, true) ~= nil)
+    table.insert(comments, trusted_comment(core.timeout_attempt_v2_marker(proposal_id, version, "ready", facts.actionable_epoch.liveness_class_id, generation_key, 1, source_ref), "2026-06-03T11:18:01Z"))
+    facts.actionable_epoch = nil
+    core.liveness_timeout_due_with_facts(row, state, facts, eligible_seconds)
     t.eq(core.liveness_timeout_attempt(row, state, facts), 1)
   end,
 

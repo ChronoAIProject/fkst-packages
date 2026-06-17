@@ -115,10 +115,6 @@ return {
 
   test_known_liveness_contract_violations_inventory_is_exact = function()
     local inventory = core.known_liveness_contract_violations()
-    assert_inventory_errors(inventory, "ready", {
-      ["ready: live-defer row must declare actionable_epoch.source"] = true,
-      ["ready: live-defer row must declare defer"] = true,
-    })
     assert_inventory_errors(inventory, "reviewing", {
       ["reviewing: live-defer row must declare actionable_epoch.source"] = true,
       ["reviewing: live-defer row must declare defer"] = true,
@@ -135,13 +131,14 @@ return {
     for _ in pairs(inventory) do
       count = count + 1
     end
-    t.eq(count, 4)
+    t.eq(count, 3)
   end,
 
   test_inventory_ratchet_keeps_main_conformance_green = function()
     t.eq(#core.liveness_contract_errors(), 0)
     local strict = core.strict_restart_liveness_contract_errors()
-    for _, state in ipairs({ "ready", "reviewing", "implementing", "thinking" }) do
+    t.eq(core.liveness_contract_inventory_is_listed_violation("ready", strict), false)
+    for _, state in ipairs({ "reviewing", "implementing", "thinking" }) do
       t.is_true(core.liveness_contract_inventory_is_listed_violation(state, strict), state)
     end
   end,
@@ -153,39 +150,33 @@ return {
     local errors = core.restart_liveness_inventory_errors(rows)
     t.is_true(contains_error(errors, "pr-open: non-terminal row must declare actionable_epoch.source"))
 
-    by_state.ready.liveness_class_id = "ready.actionable"
-    by_state.ready.watchdog = {
-      mode = "live-defer",
-      budget_ms = by_state.ready.budget.minutes * 60 * 1000,
-    }
-    by_state.ready.defer = {
+    by_state.reviewing.defer = {
       live_marker = "dependency-wait:v1",
       freshness_ms = 525600 * 60 * 1000,
       clear_fact = "dependency-wait-cleared:v1",
       observed_fact = "dependency-wait-observed:v1",
       clear_opens_generation = true,
     }
-    by_state.ready.actionable_epoch = {
+    by_state.reviewing.actionable_epoch = {
       source = "live_defer_epoch:v1",
       generation_source = "same_as_actionable_epoch",
     }
     errors = core.restart_liveness_inventory_errors(rows)
-    t.is_true(contains_error(errors, "ready: listed known_liveness_contract_violations entry is stale and must be removed"))
+    t.is_true(contains_error(errors, "reviewing: listed known_liveness_contract_violations entry is stale and must be removed"))
   end,
 
   test_inventory_ratchet_rejects_extra_error_on_listed_state = function()
     local rows = copy_rows(core.restart_transition_table())
     local by_state = rows_by_state(rows)
-    by_state.ready.liveness_class_id = ""
+    by_state.reviewing.liveness_class_id = ""
     local errors = core.restart_liveness_inventory_errors(rows)
-    t.is_true(contains_error(errors, "ready: non-terminal row must declare liveness_class_id"))
+    t.is_true(contains_error(errors, "reviewing: non-terminal row must declare liveness_class_id"))
   end,
 
-  test_887_ready_model_fixture_is_strict_violation_until_p2_runtime_fix = function()
+  test_887_ready_model_fixture_declares_actionable_epoch_after_p2_runtime_fix = function()
     local ready = rows_by_state(core.restart_transition_table()).ready
     local errors = core.strict_restart_liveness_contract_errors({ ready })
-    t.is_true(contains_error(errors, "ready: live-defer row must declare actionable_epoch.source"))
-    t.is_true(contains_error(errors, "ready: live-defer row must declare defer"))
+    t.eq(#errors, 0)
 
     local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T10:33:02Z")
     local due, age = core.liveness_timeout_due_with_facts(ready, {
@@ -197,8 +188,8 @@ return {
       proposal_id = "github-devloop/issue/owner/repo/887",
       current = { comments = {} },
     }, now_seconds)
-    t.eq(due, true)
-    t.eq(age, 48)
+    t.eq(due, false)
+    t.eq(age, nil)
   end,
 
   test_negative_control_live_defer_without_actionable_epoch_fails = function()

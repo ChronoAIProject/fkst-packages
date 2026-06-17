@@ -714,6 +714,7 @@ return {
             source_ref = row.from_state == "reviewing" and core.pr_source_ref("owner/repo", 7) or core.issue_source_ref("owner/repo", 42),
             review_proposal_id = core.pr_review_proposal_id("owner/repo", 7, state.version, "def456"),
             head_sha = "def456",
+            current = row.from_state == "ready" and { comments = { { body = core.dependency_release_marker(state.proposal_id, base), author_login = "fkst-test-bot", created_at = "2026-06-03T01:02:03Z" } } } or nil,
             now_seconds = core.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"),
           })
           t.eq(applied, true)

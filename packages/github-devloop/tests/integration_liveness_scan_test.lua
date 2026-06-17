@@ -13,18 +13,16 @@ local json_string = h.json_string
 local ready = h.ready
 local mock_issue_reconcile = h.mock_issue_reconcile
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
-
+local ready_liveness_helpers = require("tests.ready_liveness_helpers")
 local function run_timeout_reconcile(payload, run_opts)
   return t.run_department("departments/reconcile/main.lua", {
     queue = "devloop_timeout_reconcile",
     payload = payload,
   }, run_opts)
 end
-
 local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-
 -- A marker createdAt this many seconds before the (real) wall clock. Liveness budgets
 -- compare marker age against now(); hardcoded absolute dates make "not over budget"
 -- cases flip to over-budget as wall time advances past the budget window (non-hermetic).
@@ -32,27 +30,12 @@ local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T0
 local function recent_iso(seconds_ago)
   return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60))
 end
-
 local function run_liveness_scan(name)
-  return t.run_department("departments/liveness_scan/main.lua", {
-    queue = "devloop_liveness_tick",
-    payload = {
-      schema = "github-devloop.tick.v1",
-    },
-    ts = "2026-06-03T01:32:03Z",
-  }, opts(name or "liveness-scan"))
+  return t.run_department("departments/liveness_scan/main.lua", { queue = "devloop_liveness_tick", payload = { schema = "github-devloop.tick.v1" }, ts = "2026-06-03T01:32:03Z" }, opts(name or "liveness-scan"))
 end
-
 local function run_liveness_scan_at(name, ts, run_opts)
-  return t.run_department("departments/liveness_scan/main.lua", {
-    queue = "devloop_liveness_tick",
-    payload = {
-      schema = "github-devloop.tick.v1",
-    },
-    ts = ts,
-  }, run_opts or opts(name or "liveness-scan"))
+  return t.run_department("departments/liveness_scan/main.lua", { queue = "devloop_liveness_tick", payload = { schema = "github-devloop.tick.v1" }, ts = ts }, run_opts or opts(name or "liveness-scan"))
 end
-
 local function mock_repo()
   t.mock_command(core.read_env_command("FKST_GITHUB_REPO"), {
     stdout = repo,
@@ -60,7 +43,6 @@ local function mock_repo()
     exit_code = 0,
   })
 end
-
 local function numbered_list_json(items)
   local rendered = {}
   for _, item in ipairs(items or {}) do
@@ -73,7 +55,6 @@ local function numbered_list_json(items)
   end
   return "[" .. table.concat(rendered, ",") .. "]\n"
 end
-
 local function blocked_by_json(nodes)
   local rendered = {}
   for _, node in ipairs(nodes or {}) do
@@ -91,7 +72,6 @@ local function blocked_by_json(nodes)
     .. table.concat(rendered, ",")
     .. ']}}}}}\n'
 end
-
 local function mock_blocked_by(issue_number, nodes)
   t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
     stdout = blocked_by_json(nodes),
@@ -99,7 +79,6 @@ local function mock_blocked_by(issue_number, nodes)
     exit_code = 0,
   })
 end
-
 local function mock_issue_list(items)
   t.mock_command(core.gh_issue_list_observe_cmd(repo), {
     stdout = numbered_list_json(items),
@@ -107,7 +86,6 @@ local function mock_issue_list(items)
     exit_code = 0,
   })
 end
-
 local function mock_issue_state_number(issue_number, labels, state, comments, updated_at)
   entity_read_mocks.mock_issue_read_forms(t, {
     repo = repo,
@@ -122,7 +100,6 @@ local function mock_issue_state_number(issue_number, labels, state, comments, up
     times = 1,
   })
 end
-
 local function mock_empty_pr_list()
   t.mock_command(core.gh_pr_list_observe_cmd(repo), {
     stdout = "[]\n",
@@ -130,7 +107,6 @@ local function mock_empty_pr_list()
     exit_code = 0,
   })
 end
-
 local function mock_pr_list(items)
   t.mock_command(core.gh_pr_list_observe_cmd(repo), {
     stdout = numbered_list_json(items),
@@ -138,7 +114,6 @@ local function mock_pr_list(items)
     exit_code = 0,
   })
 end
-
 local function mock_pr_state(comments, state)
   entity_read_mocks.mock_pr_read_forms(t, {
     repo = repo,
@@ -152,7 +127,6 @@ local function mock_pr_state(comments, state)
     times = 1,
   })
 end
-
 local function mock_linked_pr_state(comments, state, exit_code, times)
   local rendered = {}
   for _, comment in ipairs(comments or {}) do
@@ -185,7 +159,6 @@ local function mock_linked_pr_state(comments, state, exit_code, times)
     })
   end
 end
-
 local function mock_linked_pr_absent(times)
   entity_read_mocks.mock_pr_view_raw_selector(t, { repo = repo, number = 7 }, entity_read_mocks.pr_origin_selector, {
     stdout = "",
@@ -193,12 +166,10 @@ local function mock_linked_pr_absent(times)
     exit_code = 1,
   }, times or 1)
 end
-
 local function assert_no_entity_change(result)
   t.eq(result.exit_code, 0)
   t.eq(find_raise(result.raises, "github-proxy.github_entity_changed"), nil)
 end
-
 local function entity_change_issue_numbers(result)
   local numbers = {}
   for _, raised in ipairs(result.raises or {}) do
@@ -210,7 +181,6 @@ local function entity_change_issue_numbers(result)
   end
   return numbers
 end
-
 local function has_liveness_action_for_proposal(result, target_proposal_id)
   for _, raised in ipairs(result.raises or {}) do
     local payload = raised.payload or {}
@@ -223,7 +193,6 @@ local function has_liveness_action_for_proposal(result, target_proposal_id)
   end
   return false
 end
-
 local function timeout_state_comment(state_name, state_version, created_at)
   return {
     body = core.state_marker(proposal_id, state_name, state_version),
@@ -231,23 +200,16 @@ local function timeout_state_comment(state_name, state_version, created_at)
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
 end
-
-local function timeout_attempt_comment(state_name, state_version, round, created_at)
-  return {
-    body = core.timeout_attempt_marker(proposal_id, state_version, state_name, round, core.issue_source_ref(repo, 42)),
-    author_login = "fkst-test-bot",
-    created_at = created_at or "2026-06-03T00:00:00Z",
-  }
-end
-
+local ready_liveness = ready_liveness_helpers.install(core, repo, proposal_id, timeout_state_comment)
+local ready_dependency_release_comment = ready_liveness.release_comment
+local ready_timeout_attempt_v2_comment = ready_liveness.timeout_attempt_v2_comment
+local append_ready_release_attempts = ready_liveness.append_release_attempts
 local function assert_no_observe_reinject(result)
   t.eq(find_raise(result.raises, "github-proxy.github_entity_changed"), nil)
 end
-
 local function issue_rest_view_number(rendered)
   return tostring(rendered or ""):match("gh api 'repos/owner/repo/issues/(%d+)'$")
 end
-
 return {
   test_liveness_scan_requeues_pr_open_issue_and_observe_replays_reviewing = function()
     local ready_payload = reviewing()
@@ -258,7 +220,6 @@ return {
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     })
     mock_empty_pr_list()
-
     local scanned = run_liveness_scan("liveness-scan-pr-open")
     t.eq(scanned.exit_code, 0)
     local raised = find_raise(scanned.raises, "github-proxy.github_entity_changed")
@@ -270,7 +231,6 @@ return {
     t.eq(raised.payload.source, "liveness-scan")
     t.eq(raised.payload.source_ref.ref, "owner/repo#issue/42")
     t.is_true(tostring(raised.payload.dedup_key):find("liveness%-scan", 1) ~= nil)
-
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "OPEN", {
       { body = core.state_marker(proposal_id, "pr-open", version), author_login = "fkst-test-bot", created_at = recent_iso(60) },
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
@@ -288,14 +248,12 @@ return {
     t.eq(reviewing_raise.payload.pr_number, ready_payload.pr_number)
     t.eq(reviewing_raise.payload.version, version .. "/review-loop/1")
   end,
-
   test_observe_pr_open_closed_unmerged_pr_redrives_ready = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "OPEN", {
       core.state_marker(proposal_id, "pr-open", version),
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     })
     mock_linked_pr_state({}, "CLOSED", nil, 2)
-
     local result = run_observe(issue({
       dedup_key = "liveness-scan/closed-pr-open",
       source = "liveness-scan",
@@ -308,14 +266,12 @@ return {
     t.eq(ready_raise.payload.source_ref.ref, "owner/repo#issue/42")
     t.is_true(tostring(ready_raise.payload.dedup_key):find("reimplement/1", 1, true) ~= nil)
   end,
-
   test_observe_reviewing_closed_unmerged_pr_redrives_ready = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "OPEN", {
       core.state_marker(proposal_id, "reviewing", version),
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     })
     mock_linked_pr_state({}, "CLOSED", nil, 2)
-
     local result = run_observe(issue({
       dedup_key = "liveness-scan/closed-reviewing",
       source = "liveness-scan",
@@ -328,14 +284,12 @@ return {
     t.eq(ready_raise.payload.source_ref.ref, "owner/repo#issue/42")
     t.is_true(tostring(ready_raise.payload.dedup_key):find("reimplement/1", 1, true) ~= nil)
   end,
-
   test_observe_reviewing_absent_pr_redrives_ready = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "OPEN", {
       core.state_marker(proposal_id, "reviewing", version),
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     })
     mock_linked_pr_absent(2)
-
     local result = run_observe(issue({
       dedup_key = "liveness-scan/absent-reviewing",
       source = "liveness-scan",
@@ -347,14 +301,12 @@ return {
     t.eq(ready_raise.payload.proposal_id, proposal_id)
     t.is_true(tostring(ready_raise.payload.dedup_key):find("reimplement/1", 1, true) ~= nil)
   end,
-
   test_observe_reviewing_merged_pr_marks_issue_merged_without_reimplementing = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "OPEN", {
       core.state_marker(proposal_id, "reviewing", version),
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     })
     mock_linked_pr_state({}, "MERGED", nil, 2)
-
     local result = run_observe(issue({
       dedup_key = "liveness-scan/merged-reviewing",
       source = "liveness-scan",
@@ -370,7 +322,6 @@ return {
     t.is_true(label_raise ~= nil)
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:merged")
   end,
-
   test_liveness_scan_skips_terminal_issue = function()
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
@@ -378,19 +329,15 @@ return {
       core.state_marker(proposal_id, "merged", version),
     })
     mock_empty_pr_list()
-
     assert_no_entity_change(run_liveness_scan("liveness-scan-terminal"))
   end,
-
   test_liveness_scan_skips_issue_without_state = function()
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {})
     mock_empty_pr_list()
-
     assert_no_entity_change(run_liveness_scan("liveness-scan-no-state"))
   end,
-
   test_liveness_scan_requeues_every_non_terminal_issue_marker_state = function()
     local issues = {}
     local expected = {}
@@ -421,7 +368,6 @@ return {
     mock_repo()
     mock_issue_list(issues)
     mock_empty_pr_list()
-
     local result = run_liveness_scan("liveness-scan-non-terminal-issue-marker-conformance")
     t.eq(result.exit_code, 0)
     for issue_number, state in pairs(expected) do
@@ -432,7 +378,6 @@ return {
       t.eq(raised[issue_number], nil, "terminal issue marker state was requeued: " .. tostring(state))
     end
   end,
-
   test_liveness_scan_requeues_ready_dependency_hold = function()
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
@@ -441,7 +386,6 @@ return {
       core.dependency_wait_marker(proposal_id, version, { 7 }),
     })
     mock_empty_pr_list()
-
     local result = run_liveness_scan("liveness-scan-ready-dependency-hold")
     t.eq(result.exit_code, 0)
     local raised = find_raise(result.raises, "github-proxy.github_entity_changed")
@@ -450,7 +394,6 @@ return {
     t.eq(raised.payload.source, "liveness-scan")
     t.is_true(tostring(raised.payload.dedup_key):find("liveness%-scan", 1) ~= nil)
   end,
-
   test_liveness_scan_skips_over_budget_ready_dependency_hold_timeout = function()
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
@@ -460,7 +403,6 @@ return {
         .. core.dependency_wait_marker(proposal_id, version, { 271 }),
     })
     mock_empty_pr_list()
-
     local result = run_liveness_scan("liveness-scan-ready-dependency-hold-timeout-skip")
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_timeout_reconcile"), nil)
@@ -469,16 +411,15 @@ return {
     t.is_true(raised ~= nil)
     t.eq(raised.payload.type, "issue")
   end,
-
   test_liveness_scan_over_budget_ready_writes_timeout_redrive_without_observe = function()
     mock_blocked_by(42, {})
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
       timeout_state_comment("ready", version),
+      ready_dependency_release_comment(version),
     })
     mock_empty_pr_list()
-
     local result = run_liveness_scan("liveness-scan-ready-timeout-redrive")
     t.eq(result.exit_code, 0)
     assert_no_observe_reinject(result)
@@ -491,14 +432,12 @@ return {
     t.is_true(attempt ~= nil)
     t.is_true(attempt.payload.body:find(core.timeout_attempt_marker(proposal_id, version, "ready", 1, core.issue_source_ref(repo, 42)), 1, true) ~= nil)
   end,
-
   test_liveness_scan_over_budget_thinking_redrives_live_version_and_writes_attempt = function()
     local timeout_version = version .. "/timeout/thinking/1"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       timeout_state_comment("thinking", version, "2026-06-03T00:00:00Z"),
       timeout_state_comment("thinking", timeout_version, "2026-06-03T00:10:00Z"),
     })
-
     local result = run_observe(issue({
       dedup_key = "liveness-scan/thinking-timeout",
       source = "liveness-scan",
@@ -513,7 +452,6 @@ return {
     t.is_true(attempt ~= nil)
     t.is_true(attempt.payload.body:find(core.timeout_attempt_marker(proposal_id, timeout_version, "thinking", 2, core.issue_source_ref(repo, 42)), 1, true) ~= nil)
   end,
-
   test_liveness_scan_bare_observe_reinject_does_not_increment_timeout_attempt = function()
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
@@ -521,7 +459,6 @@ return {
       timeout_state_comment("ready", version, recent_iso(60)),
     })
     mock_empty_pr_list()
-
     local result = run_liveness_scan("liveness-scan-ready-bare-observe-no-timeout-increment")
     t.eq(result.exit_code, 0)
     local changed = find_raise(result.raises, "github-proxy.github_entity_changed")
@@ -529,7 +466,6 @@ return {
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
     t.eq(core.version_timeout_round(changed.payload.dedup_key, "ready"), 0)
   end,
-
   test_liveness_scan_over_budget_blocked_redrives_decompose = function()
     local review_proposal = core.pr_review_proposal_id(repo, 7, version, "def456")
     mock_repo()
@@ -546,7 +482,6 @@ return {
       exit_code = 0,
     })
     mock_empty_pr_list()
-
     local result = run_liveness_scan("liveness-scan-blocked-timeout-redrive")
     t.eq(result.exit_code, 0)
     assert_no_observe_reinject(result)
@@ -558,7 +493,6 @@ return {
     t.is_true(attempt ~= nil)
     t.is_true(attempt.payload.body:find(core.timeout_attempt_marker(proposal_id, version, "blocked", 1, core.issue_source_ref(repo, 42)), 1, true) ~= nil)
   end,
-
   test_liveness_scan_escalates_absent_pr_bound_issue_marker_without_observe = function()
     local timeout_version = version .. "/timeout/pr-open/3"
     mock_repo()
@@ -572,7 +506,6 @@ return {
       core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     })
     mock_empty_pr_list()
-
     local result = run_liveness_scan("liveness-scan-absent-pr-open-timeout-escalate")
     t.eq(result.exit_code, 0)
     assert_no_observe_reinject(result)
@@ -585,7 +518,6 @@ return {
     t.eq(reconcile.payload.round, 3)
     t.eq(reconcile.payload.source_ref.ref, "owner/repo#issue/42")
   end,
-
   test_liveness_scan_over_budget_ready_escalates_to_timeout_reconcile = function()
     local timeout_version = version .. "/timeout/ready/3"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
@@ -594,8 +526,8 @@ return {
         author_login = "fkst-test-bot",
         created_at = "2026-06-03T01:02:03Z",
       },
+      ready_dependency_release_comment(version),
     })
-
     local result = run_observe(issue({
       dedup_key = "liveness-scan/ready-timeout",
       source = "liveness-scan",
@@ -610,10 +542,10 @@ return {
     t.eq(reconcile.payload.round, 3)
     t.eq(reconcile.payload.source_ref.ref, "owner/repo#issue/42")
   end,
-
   test_liveness_scan_timeout_attempt_climbs_to_escalation_across_frozen_sweeps = function()
     local comments = {
       timeout_state_comment("ready", version, "2026-06-03T00:00:00Z"),
+      ready_dependency_release_comment(version, "2026-06-03T00:00:00Z"),
     }
     for sweep = 1, 3 do
       mock_blocked_by(42, {})
@@ -622,7 +554,6 @@ return {
       mock_issue_list({ { number = 42, state = "open", updated_at = updated_at } })
       mock_issue_state_number(42, { "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", comments, updated_at)
       mock_empty_pr_list()
-
       local result = run_liveness_scan("liveness-scan-ready-timeout-sweep-" .. tostring(sweep))
       t.eq(result.exit_code, 0)
       assert_no_observe_reinject(result)
@@ -634,7 +565,7 @@ return {
         local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
         t.is_true(attempt ~= nil)
         t.is_true(attempt.payload.body:find('round="' .. tostring(sweep) .. '"', 1, true) ~= nil)
-        table.insert(comments, timeout_attempt_comment("ready", version, sweep, "2026-06-03T00:0" .. tostring(sweep) .. ":00Z"))
+        table.insert(comments, ready_timeout_attempt_v2_comment(version, sweep, "2026-06-03T00:0" .. tostring(sweep) .. ":00Z"))
         t.eq(find_raise(result.raises, "devloop_timeout_reconcile"), nil)
       else
         t.eq(find_raise(result.raises, "devloop_ready"), nil)
@@ -646,29 +577,26 @@ return {
       end
     end
   end,
-
   test_liveness_scan_timeout_escalation_reconcile_blocks_ready_current_marker = function()
     local live_version = version .. "/timeout/ready/2"
     mock_blocked_by(42, {})
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T02:00:03Z" } })
-    mock_issue_state_number(42, { "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
+    mock_issue_state_number(42, { "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", append_ready_release_attempts({
       timeout_state_comment("ready", version, "2026-06-03T00:00:00Z"),
       timeout_state_comment("ready", version .. "/timeout/ready/1", "2026-06-03T00:01:00Z"),
       timeout_state_comment("ready", live_version, "2026-06-03T00:02:00Z"),
-    }, "2026-06-03T02:00:03Z")
+    }, version), "2026-06-03T02:00:03Z")
     mock_empty_pr_list()
-
     local scanned = run_liveness_scan("liveness-scan-ready-timeout-reconcile-chain")
     t.eq(scanned.exit_code, 0)
     local reconcile = find_raise(scanned.raises, "devloop_timeout_reconcile")
     t.is_true(reconcile ~= nil)
     t.eq(reconcile.payload.issue_version, live_version)
     t.eq(reconcile.payload.round, 3)
-
-    mock_issue_reconcile({ "fkst-dev:ready" }, {
+    mock_issue_reconcile({ "fkst-dev:ready" }, append_ready_release_attempts({
       timeout_state_comment("ready", live_version, "2026-06-03T00:02:00Z"),
-    })
+    }, version))
     local reconciled = run_timeout_reconcile(reconcile.payload, opts("liveness-scan-ready-timeout-reconcile-applies"))
     t.eq(reconciled.exit_code, 0)
     local comment = find_raise(reconciled.raises, "github-proxy.github_issue_comment_request")
@@ -691,7 +619,6 @@ return {
     t.is_true(comment.payload.body:find('reason_class="state-output-obligation-timeout"', 1, true) ~= nil)
     t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
   end,
-
   test_liveness_scan_timeout_reconcile_blocks_ready_when_payload_version_is_stale_but_live_state_is_stuck = function()
     local stale_version = version .. "/timeout/ready/1"
     local live_version = version .. "/timeout/ready/2"
@@ -706,10 +633,9 @@ return {
       core.issue_source_ref(repo, 42),
       3
     )
-    mock_issue_reconcile({ "fkst-dev:ready" }, {
+    mock_issue_reconcile({ "fkst-dev:ready" }, append_ready_release_attempts({
       timeout_state_comment("ready", live_version, "2026-06-03T00:02:00Z"),
-    })
-
+    }, version))
     local reconciled = run_timeout_reconcile(payload, opts("liveness-scan-ready-timeout-reconcile-live-stale-applies"))
     t.eq(reconciled.exit_code, 0)
     local comment = find_raise(reconciled.raises, "github-proxy.github_issue_comment_request")
@@ -722,7 +648,6 @@ return {
     t.is_true(comment.payload.body:find('version="' .. blocked_version .. '"', 1, true) ~= nil)
     t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
   end,
-
   test_liveness_scan_timeout_reconcile_skips_when_ready_state_advanced = function()
     local stale_version = version .. "/timeout/ready/2"
     local advanced_version = version .. "/timeout/ready/2"
@@ -740,13 +665,11 @@ return {
     mock_issue_reconcile({ "fkst-dev:implementing" }, {
       timeout_state_comment("implementing", advanced_version, "2026-06-03T00:02:00Z"),
     })
-
     local reconciled = run_timeout_reconcile(payload, opts("liveness-scan-ready-timeout-reconcile-advanced-skips"))
     t.eq(reconciled.exit_code, 0)
     t.eq(find_raise(reconciled.raises, "github-proxy.github_issue_comment_request"), nil)
     t.eq(find_raise(reconciled.raises, "github-proxy.github_issue_label_request"), nil)
   end,
-
   test_liveness_scan_implementing_emits_timeout_ready_with_frozen_version = function()
     local event = ready()
     local stuck = {
@@ -757,7 +680,6 @@ return {
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     h.mock_issue_implement({ "fkst-dev:enabled", "fkst-dev:implementing" }, stuck)
     mock_empty_pr_list()
-
     local scanned = run_liveness_scan("liveness-scan-implementing-redrive-scan")
     t.eq(scanned.exit_code, 0)
     local reraised = find_raise(scanned.raises, "devloop_ready")
@@ -768,7 +690,6 @@ return {
     local attempt = find_raise(scanned.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)
     t.is_true(attempt.payload.body:find(core.timeout_attempt_marker(event.proposal_id, event.dedup_key, "implementing", 1, core.issue_source_ref(repo, 42)), 1, true) ~= nil)
-
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", stuck)
     local branch = core.implement_branch(repo, 42, core.implementation_base_version(reraised.payload.dedup_key))
     t.mock_command(core.git_fetch_branch_cmd("origin", branch), { stdout = "", stderr = "", exit_code = 0 })
@@ -777,7 +698,6 @@ return {
     t.eq(implemented.exit_code, 0)
     t.eq(find_raise(implemented.raises, "devloop_open_pr") ~= nil, true)
   end,
-
   test_liveness_scan_requeues_open_pr_with_non_terminal_state = function()
     local event = reviewing()
     mock_repo()
@@ -792,7 +712,6 @@ return {
       stderr = "",
       exit_code = 0,
     })
-
     local result = run_liveness_scan("liveness-scan-pr-reviewing")
     t.eq(result.exit_code, 0)
     local raised = find_raise(result.raises, "github-proxy.github_entity_changed")
@@ -802,7 +721,6 @@ return {
     t.eq(raised.payload.number, 7)
     t.eq(raised.payload.source_ref.ref, "owner/repo#pr/7")
     t.is_true(tostring(raised.payload.dedup_key):find("liveness%-scan", 1) ~= nil)
-
     mock_pr_state({
       core.pr_origin_marker(event.proposal_id, 42, "devloop-owner-repo-42-01HY", event.version, "dev"),
       { body = core.state_marker(event.proposal_id, "reviewing", event.version), author_login = "fkst-test-bot", created_at = recent_iso(60) },
@@ -822,7 +740,6 @@ return {
     t.is_true(reviewing_raise ~= nil)
     t.eq(reviewing_raise.payload.version, event.version .. "/review-loop/1")
   end,
-
   test_liveness_scan_reviewing_reinject_keeps_existing_review_loop_round = function()
     local event = reviewing()
     local review_version = event.version .. "/review-loop/2"
@@ -838,12 +755,10 @@ return {
       stderr = "",
       exit_code = 0,
     })
-
     local scanned = run_liveness_scan("liveness-scan-pr-reviewing-existing-review-loop")
     t.eq(scanned.exit_code, 0)
     local raised = find_raise(scanned.raises, "github-proxy.github_entity_changed")
     t.is_true(raised ~= nil)
-
     mock_pr_state({
       core.pr_origin_marker(event.proposal_id, 42, "devloop-owner-repo-42-01HY", event.version, "dev"),
       { body = core.state_marker(event.proposal_id, "reviewing", review_version), author_login = "fkst-test-bot", created_at = recent_iso(60) },
@@ -863,7 +778,6 @@ return {
     t.is_true(reviewing_raise ~= nil)
     t.eq(reviewing_raise.payload.version, review_version)
   end,
-
   test_liveness_scan_skips_other_owned_pr_before_reinjecting = function()
     local event = reviewing()
     mock_repo()
@@ -878,10 +792,8 @@ return {
       stderr = "",
       exit_code = 0,
     })
-
     assert_no_entity_change(run_liveness_scan("liveness-scan-pr-other-owned"))
   end,
-
   test_liveness_scan_caps_before_fresh_entity_views = function()
     local items = {}
     for number = 1, 101 do
@@ -895,7 +807,6 @@ return {
         core.state_marker(core.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
       })
     end
-
     local result = run_liveness_scan("liveness-scan-cap-before-views")
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_entity_changed"), nil)
@@ -907,7 +818,6 @@ return {
     end
     t.eq(views, 100)
   end,
-
   test_liveness_scan_uses_cursor_first_batch_on_large_board = function()
     local items = {}
     for number = 1, 101 do
@@ -921,11 +831,9 @@ return {
         core.state_marker(core.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
       })
     end
-
     local tick = "2026-06-03T01:32:04Z"
     local result = run_liveness_scan_at("liveness-scan-rotates-large-board", tick)
     t.eq(result.exit_code, 0)
-
     local viewed = {}
     for _, call in ipairs(t.command_calls()) do
       local issue_number = issue_rest_view_number(call.rendered)
@@ -937,13 +845,11 @@ return {
     t.eq(viewed[100], true)
     t.eq(viewed[101], nil)
   end,
-
   test_liveness_scan_cursor_covers_large_board_across_k_ticks = function()
     local items = {}
     for number = 1, 250 do
       table.insert(items, { number = number, state = "open", updated_at = "2026-06-03T01:02:03Z" })
     end
-
     local viewed = {}
     local run_opts = opts("liveness-scan-cursor-k")
     for tick = 1, 3 do
@@ -955,10 +861,8 @@ return {
           core.state_marker(core.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
         })
       end
-
       local result = run_liveness_scan_at("liveness-scan-cursor-k", tostring(tick), run_opts)
       t.eq(result.exit_code, 0)
-
       for _, call in ipairs(t.command_calls()) do
         local issue_number = issue_rest_view_number(call.rendered)
         if issue_number ~= nil then
@@ -966,12 +870,10 @@ return {
         end
       end
     end
-
     for number = 1, 250 do
       t.eq(viewed[number], true)
     end
   end,
-
   test_liveness_scan_defers_slow_issue_view_without_retry_failure = function()
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
@@ -981,7 +883,6 @@ return {
       stderr = "timed out",
       exit_code = 124,
     })
-
     local result = run_liveness_scan("liveness-scan-view-timeout-deferred")
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_entity_changed"), nil)

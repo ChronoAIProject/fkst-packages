@@ -598,50 +598,6 @@ function M.dependency_release_fact(comments, proposal_id, version)
   return nil
 end
 
-function M.dependency_release_age_minutes(comments, proposal_id, version, now_seconds)
-  local core = root()
-  local release = M.dependency_release_fact(comments, proposal_id, version)
-  if release == nil then
-    return nil
-  end
-  local created_seconds = core.iso_timestamp_epoch_seconds(release.comment_created_at)
-  local current_seconds = tonumber(now_seconds)
-  if created_seconds ~= nil and current_seconds ~= nil and current_seconds >= created_seconds then
-    return math.floor((current_seconds - created_seconds) / 60)
-  end
-  return 0
-end
-
-function M.timeout_attempt_round_after_dependency_release(comments, proposal_id, issue_version, state_name)
-  local core = root()
-  local release = M.dependency_release_fact(comments, proposal_id, issue_version)
-  if release == nil or type(comments) ~= "table" then
-    return nil
-  end
-  local release_seconds = core.iso_timestamp_epoch_seconds(release.comment_created_at)
-  if release_seconds == nil then
-    return nil
-  end
-  local max_seen = 0
-  local lineage_version = core.strip_transition_version_suffixes(issue_version)
-  local marker_pattern = "<!%-%- fkst:github%-devloop:timeout%-attempt:v1.-%-%->"
-  for _, comment in ipairs(core._trusted_marker_comments(comments)) do
-    local comment_seconds = core.iso_timestamp_epoch_seconds(core._comment_created_at(comment))
-    if comment_seconds ~= nil and comment_seconds >= release_seconds then
-      for marker in core._comment_body(comment):gmatch(marker_pattern) do
-        local round = tonumber(marker_attr(marker, "round"))
-        if marker_attr(marker, "proposal") == tostring(proposal_id)
-          and core.strip_transition_version_suffixes(marker_attr(marker, "version")) == lineage_version
-          and marker_attr(marker, "state") == tostring(state_name)
-          and round ~= nil and round > max_seen then
-          max_seen = round
-        end
-      end
-    end
-  end
-  return max_seen
-end
-
 function M.dependency_wait_fact(comments, proposal_id)
   local core = root()
   if type(comments) ~= "table" then

@@ -331,9 +331,36 @@ function M.timeout_attempt_marker(proposal_id, issue_version, state_name, round,
     .. '" -->'
 end
 
-function M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt)
+function M.timeout_attempt_v2_marker(proposal_id, issue_version, state_name, liveness_class_id, generation_key, round, source_ref)
+  local n = valid_round(round)
+  if n == nil or n <= 0 then
+    error("github-devloop: invalid timeout attempt round")
+  end
+  local normalized = M.normalize_source_ref(source_ref)
+  local lineage_version = M.strip_transition_version_suffixes(issue_version)
+  local key = tostring(generation_key or "")
+  if key == "" then
+    error("github-devloop: missing timeout attempt generation key")
+  end
+  return '<!-- fkst:github-devloop:timeout-attempt:v2 proposal="' .. safe_attr(proposal_id, M._max_key_len)
+    .. '" version="' .. safe_attr(lineage_version, M._max_dedup_len)
+    .. '" state="' .. safe_attr(state_name, max_attr_len)
+    .. '" liveness_class_id="' .. safe_attr(liveness_class_id or state_name, max_attr_len)
+    .. '" generation_key="' .. safe_attr(key, max_attr_len)
+    .. '" round="' .. tostring(n)
+    .. '" dedup="' .. safe_attr("timeout-attempt:" .. tostring(lineage_version) .. "/" .. tostring(state_name) .. "/" .. key .. "/" .. tostring(n), M._max_dedup_len)
+    .. '" source_ref_kind="' .. safe_attr(normalized.kind or "", max_attr_len)
+    .. '" source_ref="' .. safe_attr(normalized.ref or "", M._max_key_len)
+    .. '" -->'
+end
+
+function M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt, epoch)
   local normalized = M.normalize_source_ref(source_ref)
   local marker = M.timeout_attempt_marker(proposal_id, state.version, row.from_state, attempt, normalized)
+  if type(epoch) == "table" and epoch.generation_key ~= nil then
+    marker = M.timeout_attempt_v2_marker(proposal_id, state.version, row.from_state, epoch.liveness_class_id, epoch.generation_key, attempt, normalized)
+      .. "\n" .. marker
+  end
   return M.build_entity_comment_request(target, "github-devloop timeout redrive attempt: "
     .. tostring(row.from_state)
     .. " "
@@ -346,6 +373,7 @@ function M.build_timeout_attempt_comment_request(target, proposal_id, state, row
     tostring(proposal_id),
     tostring(M.strip_transition_version_suffixes(state.version)),
     tostring(row.from_state),
+    tostring(type(epoch) == "table" and epoch.generation_key or ""),
     tostring(attempt),
   }), normalized)
 end
@@ -778,6 +806,34 @@ function M.timeout_attempt_round(comments, proposal_id, issue_version, state_nam
       if attr(marker, "proposal") == tostring(proposal_id)
         and M.strip_transition_version_suffixes(attr(marker, "version")) == lineage_version
         and attr(marker, "state") == tostring(state_name) then
+        local round = valid_round(attr(marker, "round"))
+        if round ~= nil and round > max_seen then
+          max_seen = round
+        end
+      end
+    end
+  end
+  return max_seen
+end
+
+function M.timeout_attempt_round_for_generation(comments, proposal_id, issue_version, state_name, liveness_class_id, generation_key)
+  if type(comments) ~= "table" then
+    return 0
+  end
+  local key = tostring(generation_key or "")
+  if key == "" then
+    return 0
+  end
+  local max_seen = 0
+  local lineage_version = M.strip_transition_version_suffixes(issue_version)
+  local marker_pattern = "<!%-%- fkst:github%-devloop:timeout%-attempt:v2.-%-%->"
+  for _, comment in ipairs(M._trusted_marker_comments(comments)) do
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      if attr(marker, "proposal") == tostring(proposal_id)
+        and M.strip_transition_version_suffixes(attr(marker, "version")) == lineage_version
+        and attr(marker, "state") == tostring(state_name)
+        and attr(marker, "liveness_class_id") == tostring(liveness_class_id or state_name)
+        and attr(marker, "generation_key") == key then
         local round = valid_round(attr(marker, "round"))
         if round ~= nil and round > max_seen then
           max_seen = round

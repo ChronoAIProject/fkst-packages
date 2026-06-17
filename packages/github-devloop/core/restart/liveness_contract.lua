@@ -32,10 +32,6 @@ local epoch_sources = {
 }
 
 local known_liveness_contract_violations = {
-  ready = {
-    ["ready: live-defer row must declare actionable_epoch.source"] = true,
-    ["ready: live-defer row must declare defer"] = true,
-  },
   reviewing = {
     ["reviewing: live-defer row must declare actionable_epoch.source"] = true,
     ["reviewing: live-defer row must declare defer"] = true,

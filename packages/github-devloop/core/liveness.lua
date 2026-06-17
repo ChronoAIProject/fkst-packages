@@ -125,6 +125,8 @@ local function strip_liveness_timeout_suffixes(version)
   return text
 end
 
+M.strip_liveness_timeout_suffixes = strip_liveness_timeout_suffixes
+
 function M.liveness_heartbeat_version(version, contract)
   local heartbeat_version = strip_liveness_timeout_suffixes(version)
   if contract and contract.version_form == "safe_version_segment" then
@@ -731,26 +733,24 @@ function M.liveness_state_age_minutes(state, now_seconds)
   return M.stall_suspect_age_minutes(state.version, now_seconds)
 end
 
-local function ready_dependency_release_age_minutes(state, facts, now_seconds)
-  if type(state) ~= "table" or tostring(state.state or "") ~= "ready" then
-    return nil
-  end
-  local proposal_id = (facts and facts.proposal_id) or state.proposal_id
-  local comments = facts and facts.current and facts.current.comments or nil
-  return M.dependency_release_age_minutes(comments, proposal_id, state.version, now_seconds)
-end
-
 function M.liveness_timeout_attempt(row, state, facts)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
   local comments = facts and facts.current and facts.current.comments or nil
   local from_state = row and row.from_state
   local version = state and state.version
-  local durable_round = M.timeout_attempt_round(comments, proposal_id, version, from_state)
-  if tostring(from_state or "") == "ready" then
-    local post_release_round = M.timeout_attempt_round_after_dependency_release(comments, proposal_id, version, from_state)
-    if post_release_round ~= nil then
-      durable_round = post_release_round
+  local epoch = facts and facts.actionable_epoch or nil
+  if epoch == nil and facts ~= nil then
+    epoch = M.actionable_epoch.resolve(row, state, facts, (facts and facts.now_seconds) or now())
+    facts.actionable_epoch = epoch
+  end
+  local durable_round = 0
+  if type(epoch) == "table" and epoch.generation_key ~= nil then
+    durable_round = M.timeout_attempt_round_for_generation(comments, proposal_id, version, from_state, row and row.liveness_class_id, epoch.generation_key)
+    if durable_round == 0 and tostring(row and row.actionable_epoch and row.actionable_epoch.source or "") ~= "live_defer_epoch:v1" then
+      durable_round = M.timeout_attempt_round(comments, proposal_id, version, from_state)
     end
+  else
+    durable_round = M.timeout_attempt_round(comments, proposal_id, version, from_state)
   end
   local version_round = M.version_timeout_round(version, from_state)
   return math.max(durable_round or 0, version_round or 0)
@@ -784,37 +784,41 @@ function M.liveness_timeout_due(row, state, now_seconds)
   return true, age
 end
 
-local function live_signal_max_age(row)
-  return numeric_minutes(row_liveness_signal(row) and row_liveness_signal(row).max_age_minutes)
-end
-
 function M.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
   if row == nil or row.terminal == true then
     return false, nil
   end
-  local release_age = ready_dependency_release_age_minutes(state, facts, now_seconds)
-  if release_age ~= nil then
-    local budget = row.budget and tonumber(row.budget.minutes) or nil
-    if budget == nil or release_age < budget then
-      return false, release_age
+  if not (row.actionable_epoch and row.actionable_epoch.source ~= nil) then
+    local contract = row.liveness_contract
+    if type(contract) == "table" and contract.mode == "row-budget-bounds-receiver" then
+      return M.liveness_timeout_due(row, state, now_seconds)
     end
-    return true, release_age
-  end
-  local contract = row.liveness_contract
-  if type(contract) == "table" and contract.mode == "row-budget-bounds-receiver" then
+    local signal_contract = row_liveness_signal(row)
+    local signal_max_age = numeric_minutes(signal_contract and signal_contract.max_age_minutes)
+    if signal_max_age ~= nil then
+      local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
+      if signal.age_minutes ~= nil then
+        if signal.age_minutes < signal_max_age then
+          return false, signal.age_minutes
+        end
+        return true, signal.age_minutes
+      end
+    end
     return M.liveness_timeout_due(row, state, now_seconds)
   end
-  local signal_max_age = live_signal_max_age(row)
-  if signal_max_age ~= nil then
-    local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
-    if signal.age_minutes ~= nil then
-      if signal.age_minutes < signal_max_age then
-        return false, signal.age_minutes
-      end
-      return true, signal.age_minutes
-    end
+  local eval = M.actionable_epoch.resolve(row, state, facts, now_seconds)
+  if type(eval) == "table" and facts ~= nil then
+    facts.actionable_epoch = eval
   end
-  return M.liveness_timeout_due(row, state, now_seconds)
+  if eval.status == "deferred" or eval.status == "contract_invalid" then
+    return false, eval.age_minutes
+  end
+  local budget = row.budget and tonumber(row.budget.minutes) or nil
+  local age = eval.age_minutes or M.actionable_epoch_age_minutes(eval.epoch_ms, now_seconds)
+  if budget == nil or age == nil or age < budget then
+    return false, age
+  end
+  return true, age
 end
 
 local function timeout_escalation(row, state, age, facts)
@@ -875,9 +879,12 @@ function M.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
     return {
       action = "wait",
       age_minutes = age,
+      actionable_epoch = facts and facts.actionable_epoch or nil,
     }
   end
-  return timeout_escalation(row, state, age, facts)
+  local decision = timeout_escalation(row, state, age, facts)
+  decision.actionable_epoch = facts and facts.actionable_epoch or nil
+  return decision
 end
 
 local function timeout_attempt_target(entity, facts)
@@ -911,7 +918,7 @@ local function emit_timeout_attempt_marker(dept, entity, state, row, facts, prop
   local target = timeout_attempt_target(entity, facts)
   local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
   if target ~= nil then
-    local attempt_request = M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt)
+    local attempt_request = M.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt, facts and facts.actionable_epoch or nil)
     M.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", attempt_request)
   end
 end
