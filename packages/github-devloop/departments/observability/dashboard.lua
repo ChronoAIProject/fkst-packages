@@ -11,24 +11,31 @@ local dashboard_marker_prefix = common.dashboard_marker_prefix
 local max_dashboard_body_len = common.max_dashboard_body_len
 local max_dashboard_section_items = common.max_dashboard_section_items
 local max_dashboard_title_len = common.max_dashboard_title_len
-
 local function dashboard_deferred_if_deadline(deadline)
   return common.dashboard_deferred_if_deadline(core, deadline)
 end
 
 local function ensure_dashboard_label(repo, limits, deadline)
   local deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local existing = core.observability_exec(core.gh_dashboard_label_get_cmd(repo, dashboard_label), limits, deadline, "gh dashboard label get")
+  local existing = core.observability_exec({
+    run = function(timeout)
+      return core.gh_dashboard_label_get(repo, dashboard_label, timeout)
+    end,
+  }, limits, deadline, "dashboard label get")
   if core.observability_result_deferred(existing) then return "deferred" end
   if existing.exit_code == 0 then
     return "exists"
   end
   if not common.command_indicates_not_found(existing) then
-    error("github-devloop: gh dashboard label get failed: " .. tostring(existing.stderr))
+    error("github-devloop: dashboard label get failed: " .. tostring(existing.stderr))
   end
 
   deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local created = core.observability_exec(core.gh_dashboard_label_create_cmd(repo, dashboard_label), limits, deadline, "gh dashboard label create")
+  local created = core.observability_exec({
+    run = function(timeout)
+      return core.gh_dashboard_label_create(repo, dashboard_label, timeout)
+    end,
+  }, limits, deadline, "dashboard label create")
   if core.observability_result_deferred(created) then return "deferred" end
   if created.exit_code == 0 then
     log.info("github-devloop dept=observability tag=DASHBOARD_LABEL_CREATED label=" .. dashboard_label)
@@ -37,7 +44,7 @@ local function ensure_dashboard_label(repo, limits, deadline)
   if common.command_indicates_already_exists(created) then
     return "exists"
   end
-  error("github-devloop: gh dashboard label create failed: " .. tostring(created.stderr))
+  error("github-devloop: dashboard label create failed: " .. tostring(created.stderr))
 end
 
 local function dashboard_input_path(repo, version, hash)
@@ -217,11 +224,51 @@ local function append_state_section(lines, title, state, by_state, now_seconds)
   append_entity_lines(lines, by_state[state] or {}, now_seconds)
 end
 
+local function section(lines)
+  return table.concat(lines, "\n")
+end
+
+local function append_section(sections, lines)
+  table.insert(sections, section(lines))
+end
+
+local function append_rendered_section(rendered, text)
+  if #rendered == 0 then
+    table.insert(rendered, text)
+  else
+    table.insert(rendered, "\n")
+    table.insert(rendered, text)
+  end
+end
+
+local function render_dashboard_sections(sections, marker, limit)
+  local marker_suffix = "\n\n" .. marker .. "\n"
+  local body_limit = tonumber(limit) or max_dashboard_body_len
+  if body_limit <= #marker_suffix then
+    return marker_suffix
+  end
+
+  local rendered = {}
+  local rendered_len = 0
+  for _, candidate in ipairs(sections) do
+    local separator_len = #rendered == 0 and 0 or 1
+    local candidate_len = #candidate + separator_len
+    if rendered_len + candidate_len + #marker_suffix <= body_limit then
+      append_rendered_section(rendered, candidate)
+      rendered_len = rendered_len + candidate_len
+    else
+      break
+    end
+  end
+  return table.concat(rendered) .. marker_suffix
+end
+
 function core.render_observability_dashboard(args)
   local list = args and args.entities or {}
   local counts = args and args.counts or {}
   local stalls = args and args.stalls or {}
   local state_gap_report = args and args.state_gap_report or {}
+  local topology_mermaid = args and args.topology_mermaid or nil
   local now_seconds = args and args.now_seconds or now()
   local generated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now_seconds)
   local instance = core.read_env("FKST_GITHUB_BOT_LOGIN") or "unknown"
@@ -235,13 +282,27 @@ function core.render_observability_dashboard(args)
     table.insert(by_state[state], entity)
   end
 
-  local lines = {
+  local sections = {}
+  append_section(sections, {
     "# " .. dashboard_title,
     "",
     "Live read-only dashboard generated from trusted fkst-dev markers. Chinese: &#27492;&#30475;&#26495;&#21482;&#26159;&#21487;&#20449; marker &#30340;&#21482;&#35835;&#27966;&#29983;&#35270;&#22270;&#65292;&#19981;&#26159;&#20107;&#23454;&#28304;&#12290;",
     "",
-    "## Now working",
-  }
+  })
+  if topology_mermaid ~= nil and tostring(topology_mermaid) ~= "" then
+    append_section(sections, {
+      "## System topology",
+      "",
+      "Operator orientation: this projects `graph_json()` nodes into package lanes and queue-mediated message paths needed to read the live work sections below.",
+      "",
+      "```mermaid",
+      tostring(topology_mermaid),
+      "```",
+      "",
+    })
+  end
+  local lines = {}
+  table.insert(lines, "## Now working")
   local working = {}
   for _, state in ipairs({ "implementing", "pr-open", "reviewing", "fixing", "merge-ready", "merging" }) do
     for _, entity in ipairs(by_state[state] or {}) do
@@ -249,8 +310,9 @@ function core.render_observability_dashboard(args)
     end
   end
   append_entity_lines(lines, working, now_seconds)
+  append_section(sections, lines)
 
-  table.insert(lines, "")
+  lines = {}
   table.insert(lines, "## Board by state")
   table.insert(lines, "Total: " .. tostring(#list))
   for _, state in ipairs(core._state_order) do
@@ -259,13 +321,22 @@ function core.render_observability_dashboard(args)
   if counts.unmanaged ~= nil then
     table.insert(lines, "- unmanaged: " .. tostring(counts.unmanaged))
   end
+  append_section(sections, lines)
 
+  lines = {}
   append_state_section(lines, "Ready", "ready", by_state, now_seconds)
+  append_section(sections, lines)
+  lines = {}
   append_state_section(lines, "Blocked", "blocked", by_state, now_seconds)
+  append_section(sections, lines)
+  lines = {}
   append_state_section(lines, "Review meta", "review-meta", by_state, now_seconds)
+  append_section(sections, lines)
+  lines = {}
   append_state_section(lines, "Thinking", "thinking", by_state, now_seconds)
+  append_section(sections, lines)
 
-  table.insert(lines, "")
+  lines = {}
   table.insert(lines, "## Stall suspects")
   if #stalls == 0 then
     table.insert(lines, "- None")
@@ -281,22 +352,25 @@ function core.render_observability_dashboard(args)
       shown = shown + 1
     end
   end
+  append_section(sections, lines)
 
+  lines = {}
   core.append_state_gap_dashboard_section(lines, state_gap_report)
-  table.insert(lines, "")
+  append_section(sections, lines)
+
+  lines = {}
   table.insert(lines, "## Footer")
   table.insert(lines, "- quota: not rendered")
   table.insert(lines, "- instance: " .. tostring(instance))
   table.insert(lines, "- generated-at: " .. generated_at)
+  append_section(sections, lines)
 
-  local stable = table.concat(lines, "\n")
+  local marker = dashboard_marker("0000000000", generated_at)
+  local stable_body = render_dashboard_sections(sections, marker, args and args.max_body_len or max_dashboard_body_len)
+  local stable = stable_body:gsub("\n\n<!%-%- fkst:dashboard:v1[^\n]*%-%->\n$", "")
   local hash = decimal_checksum(stable:gsub("%- generated%-at: [^\n]+", "- generated-at: <generated>"))
-  local marker = dashboard_marker(hash, generated_at)
-  local body = stable .. "\n\n" .. marker .. "\n"
-  if #body > max_dashboard_body_len then
-    local marker_suffix = "\n\n" .. marker .. "\n"
-    body = core.truncate_utf8(body, max_dashboard_body_len - #marker_suffix) .. marker_suffix
-  end
+  marker = dashboard_marker(hash, generated_at)
+  local body = render_dashboard_sections(sections, marker, args and args.max_body_len or max_dashboard_body_len)
   return {
     body = body,
     hash = hash,
@@ -306,7 +380,11 @@ function core.render_observability_dashboard(args)
 end
 
 local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
-  local listed = core.observability_exec(core.gh_dashboard_issue_list_cmd(repo, dashboard_label), limits, deadline, "gh dashboard issue list")
+  local listed = core.observability_exec({
+    run = function(timeout)
+      return core.gh_dashboard_issue_list(repo, dashboard_label, timeout)
+    end,
+  }, limits, deadline, "dashboard issue list")
   if core.observability_result_deferred(listed) then
     return "deferred"
   end
@@ -317,11 +395,11 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
       .. " auth_mode=" .. common.gh_auth_mode(core)
       .. " http_status=" .. common.stderr_http_status(listed.stderr)
       .. " exit_code=" .. tostring(listed.exit_code))
-    error("github-devloop: gh dashboard issue list failed: " .. tostring(listed.stderr))
+    error("github-devloop: dashboard issue list failed: " .. tostring(listed.stderr))
   end
   if tostring(listed.stdout or ""):match("^%s*$") then
     log.warn("github-devloop dept=observability tag=DASHBOARD_LOCATOR_FAILED locator=label-list label=" .. dashboard_label .. " reason=empty-output")
-    error("github-devloop: gh dashboard issue list failed: empty output")
+    error("github-devloop: dashboard issue list failed: empty output")
   end
   for _, issue in ipairs(core.parse_dashboard_issue_list(listed.stdout)) do
     if issue.author_login == bot_login
@@ -333,7 +411,11 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
 end
 
 local function trusted_dashboard_issue_by_number(repo, issue_number, bot_login, limits, deadline)
-  local view = core.observability_run_cmd(core.gh_dashboard_issue_get_cmd(repo, issue_number), limits, deadline, "gh dashboard issue get")
+  local view = core.observability_run_cmd({
+    run = function(timeout)
+      return core.gh_dashboard_issue_get(repo, issue_number, timeout)
+    end,
+  }, limits, deadline, "dashboard issue get")
   if core.observability_result_deferred(view) then
     return "deferred"
   end
@@ -387,7 +469,11 @@ local function publish_observability_dashboard_locked(repo, dashboard, limits, d
   if current == nil then
     deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
     local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
-    local created = core.observability_run_cmd(core.gh_dashboard_issue_create_cmd(repo, path), limits, deadline, "gh dashboard issue create")
+    local created = core.observability_run_cmd({
+      run = function(timeout)
+        return core.gh_dashboard_issue_create(repo, path, timeout)
+      end,
+    }, limits, deadline, "dashboard issue create")
     if core.observability_result_deferred(created) then return "deferred" end
     log.info("github-devloop dept=observability tag=DASHBOARD_CREATED hash=" .. tostring(dashboard.hash))
     return "created"
@@ -429,7 +515,11 @@ local function publish_observability_dashboard_locked(repo, dashboard, limits, d
   end
   local path = write_dashboard_input(repo, dashboard_title, dashboard.body)
   deferred = dashboard_deferred_if_deadline(deadline); if deferred ~= nil then return deferred end
-  local updated = core.observability_exec(core.gh_dashboard_issue_update_cmd(repo, current.number, path), limits, deadline, "gh dashboard issue update")
+  local updated = core.observability_exec({
+    run = function(timeout)
+      return core.gh_dashboard_issue_update(repo, current.number, path, timeout)
+    end,
+  }, limits, deadline, "dashboard issue update")
   if core.observability_result_deferred(updated) then return "deferred" end
   if updated.exit_code ~= 0 then
     local stderr = tostring(updated.stderr or "")
@@ -441,7 +531,7 @@ local function publish_observability_dashboard_locked(repo, dashboard, limits, d
         .. " hash=" .. tostring(dashboard.hash))
       return "cas-mismatch"
     end
-    error("github-devloop: gh dashboard issue update failed: " .. stderr)
+    error("github-devloop: dashboard issue update failed: " .. stderr)
   end
   log.info("github-devloop dept=observability tag=DASHBOARD_UPDATED issue=" .. tostring(current.number)
     .. " hash=" .. tostring(dashboard.hash))

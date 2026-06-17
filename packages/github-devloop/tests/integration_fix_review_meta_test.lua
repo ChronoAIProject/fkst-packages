@@ -472,7 +472,7 @@ return {
     t.eq(count_calls("codex exec"), 0)
   end,
 
-  test_fix_no_changes_escalates_to_review_meta = function()
+  test_fix_no_changes_moves_forward_to_reviewing_for_review_meta_path = function()
     local event = fixing()
     local branch = core.implement_branch("owner/repo", "42", event.version)
     local reject_comment = core.build_review_result_comment_request(

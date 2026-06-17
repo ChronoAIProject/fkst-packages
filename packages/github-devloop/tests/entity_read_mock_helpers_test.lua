@@ -9,8 +9,8 @@ local function decode(text)
   return value
 end
 
-local function gh(cmd)
-  return core.gh_exec(cmd, 30)
+local function github()
+  return require("std.github").new(exec_argv)
 end
 
 local function first(value)
@@ -36,9 +36,9 @@ return {
     })
 
     local view = decode(core.fetch_issue_view("owner/repo", 42, "2026-06-14T10:11:12Z", { consumer = "view" }).stdout)
-    local rest = decode(gh("gh api 'repos/owner/repo/issues/42'").stdout)
-    local probe = gh("gh api 'repos/owner/repo/issues/42' --jq '.updated_at // .updatedAt // \"\"'")
-    local comments = decode(gh("gh api --paginate --slurp 'repos/owner/repo/issues/42/comments?per_page=100'").stdout)
+    local rest = decode(github().issue_rest_view("owner/repo", 42, 30).stdout)
+    local probe = github().issue_updated_at("owner/repo", 42, 30)
+    local comments = decode(github().issue_comments("owner/repo", 42, 30).stdout)
 
     t.eq(view.number, rest.number)
     t.eq(view.title, rest.title)
@@ -81,9 +81,9 @@ return {
     })
 
     local view = decode(core.fetch_pr_view("owner/repo", 7, "2026-06-14T11:11:12Z", { consumer = "view" }).stdout)
-    local rest = decode(gh("gh api 'repos/owner/repo/pulls/7'").stdout)
-    local probe = gh("gh api 'repos/owner/repo/pulls/7' --jq '.updated_at // .updatedAt // \"\"'")
-    local comments = decode(gh("gh api --paginate --slurp 'repos/owner/repo/issues/7/comments?per_page=100'").stdout)
+    local rest = decode(github().pr_rest_view("owner/repo", 7, 30).stdout)
+    local probe = github().entity_updated_at("owner/repo", "pr", 7, 30)
+    local comments = decode(github().issue_comments("owner/repo", 7, 30).stdout)
 
     t.eq(view.number, rest.number)
     t.eq(view.headRefName, rest.head.ref)
@@ -113,6 +113,16 @@ return {
     t.eq(first(view.comments).body, first(comments).body)
     t.eq(first(view.comments).author.login, first(comments).user.login)
     t.eq(first(view.comments).createdAt, first(comments).created_at)
+  end,
+
+  test_comment_body_fixture_preserves_raw_json_body_value = function()
+    local table_nil = seam.view_comment_json({ body = nil })
+    local scalar_nil = seam.view_comment_json(nil)
+    local numeric = decode(seam.view_comment_json({ body = 123 }))
+
+    t.is_true(table_nil:find('"body":null', 1, true) ~= nil)
+    t.is_true(scalar_nil:find('"body":null', 1, true) ~= nil)
+    t.eq(numeric.body, 123)
   end,
 
   test_unregistered_entity_read_fails_closed = function()

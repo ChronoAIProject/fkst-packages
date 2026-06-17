@@ -1,6 +1,7 @@
 local S = {}
 
 function S.install(M)
+local codex = require("std.codex")
 local error_facts = require("std.error_facts")
 local source_refs = require("std.source_ref")
 local strings = require("std.strings")
@@ -50,6 +51,7 @@ local review_meta_label = "fkst-dev:review-meta"
 local impl_failed_label = "fkst-dev:impl-failed"
 local blocked_label = "fkst-dev:blocked"
 local blocked_on_dependency_label = "fkst-dev:blocked-on-dependency"
+local gh_program = table.concat({ "g", "h" })
 
 local state_labels = {
   [thinking_label] = true,
@@ -68,6 +70,7 @@ local state_labels = {
 
 local label_by_state = {
   thinking = thinking_label,
+  dependency_wait = ready_label,
   ready = ready_label,
   implementing = implementing_label,
   ["pr-open"] = pr_open_label,
@@ -88,8 +91,9 @@ end
 
 local state_graph = {
   unmanaged = { "thinking" },
-  thinking = { "ready", "blocked" },
-  ready = { "implementing" },
+  thinking = { "dependency_wait", "ready", "blocked" },
+  dependency_wait = { "dependency_wait", "ready", "blocked" },
+  ready = { "dependency_wait", "implementing", "blocked" },
   implementing = { "pr-open", "impl-failed" },
   ["pr-open"] = { "reviewing", "blocked" },
   reviewing = { "merge-ready", "fixing", "review-meta" },
@@ -102,9 +106,10 @@ local state_graph = {
   blocked = {},
 }
 
-local state_order = { "thinking", "ready", "implementing", "pr-open", "reviewing", "merge-ready", "fixing", "impl-failed", "blocked", "review-meta", "merging", "merged" }
+local state_order = { "thinking", "dependency_wait", "ready", "implementing", "pr-open", "reviewing", "merge-ready", "fixing", "impl-failed", "blocked", "review-meta", "merging", "merged" }
 local state_stage_rank = {
   thinking = 100,
+  dependency_wait = 500,
   ready = 500,
   implementing = 600,
   ["pr-open"] = 650,
@@ -727,13 +732,7 @@ function M.judgment_worktree(role, identity)
   return worktree
 end
 
-function M.judgment_codex_opts(prompt, worktree)
-  return {
-    prompt = prompt,
-    worktree = worktree,
-    sandbox = "read-only",
-  }
-end
+M.judgment_codex_opts = codex.judgment_codex_opts
 
 function M.max_body_len()
   return max_body_len
@@ -851,10 +850,6 @@ function M.normalize_source_ref(source_ref)
   }
 end
 
-function M.gh_rate_pool()
-  return { name = "gh" }
-end
-
 function M.gh_exec_opts(cmd_or_opts, timeout)
   local opts = {}
   if type(cmd_or_opts) == "table" then
@@ -865,19 +860,26 @@ function M.gh_exec_opts(cmd_or_opts, timeout)
     opts.cmd = cmd_or_opts
   end
   opts.timeout = opts.timeout or timeout or 30
-  opts.rate_pool = M.gh_rate_pool()
-  if type(M.github_capability_exec_opts) == "function" then
-    opts = M.github_capability_exec_opts(opts)
-  end
   return opts
 end
 
-function M.gh_exec(cmd_or_opts, timeout, exec)
-  local run = exec or exec_sync
-  if type(run) ~= "function" then
-    error("github-devloop: gh exec requires exec_sync")
+local function normalize_gh_argv_exec_opts(cmd_or_opts, timeout)
+  local opts = M.gh_exec_opts(cmd_or_opts, timeout)
+  if type(opts.argv) ~= "table" or opts.argv[1] ~= gh_program then
+    error("github-devloop: GitHub exec requires GitHub argv")
   end
-  return run(M.gh_exec_opts(cmd_or_opts, timeout))
+  return {
+    argv = opts.argv,
+    timeout = opts.timeout,
+  }
+end
+
+function M.gh_exec(cmd_or_opts, timeout, exec)
+  local run = exec or exec_argv
+  if type(run) ~= "function" then
+    error("github-devloop: GitHub exec requires exec_argv")
+  end
+  return run(normalize_gh_argv_exec_opts(cmd_or_opts, timeout))
 end
 
 

@@ -1,5 +1,6 @@
 local M = {}
 local root_ref = nil
+local strings = require("std.strings")
 
 local max_dependency_depth = 32
 
@@ -7,17 +8,9 @@ local function root()
   return root_ref or M
 end
 
-local function split_repo(repo)
-  local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
-  if owner == nil or owner == "" or name == nil or name == "" then
-    return nil, nil
-  end
-  return owner, name
-end
-
 local function managed_sibling_repo(current_repo, blocker_repo, managed_repos)
-  local current_owner = split_repo(current_repo)
-  local blocker_owner = split_repo(blocker_repo)
+  local current_owner = strings.split_repo(current_repo)
+  local blocker_owner = strings.split_repo(blocker_repo)
   if current_owner == nil or blocker_owner == nil or current_owner ~= blocker_owner then
     return false
   end
@@ -151,7 +144,7 @@ end
 
 local function fetch_blocked_by(repo, issue_number)
   local core = root()
-  local result = core.gh_exec({ cmd = core.gh_blocked_by_cmd(repo, issue_number), timeout = 30 })
+  local result = core.gh_blocked_by(repo, issue_number, 30)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     return nil, "gh-failed"
   end
@@ -193,7 +186,7 @@ end
 local function blocker_merged(repo, blocker_number)
   local core = root()
   local blocker_proposal_id = core.proposal_id(repo, blocker_number)
-  local result = core.gh_exec({ cmd = core.gh_issue_view_observe_cmd(repo, blocker_number), timeout = 30 })
+  local result = core.gh_issue_view_observe(repo, blocker_number, 30)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     return nil, "gh-failed"
   end
@@ -211,7 +204,7 @@ local function blocker_merged(repo, blocker_number)
     return false, nil
   end
 
-  local pr_result = core.gh_exec({ cmd = core.gh_pr_view_observe_cmd(repo, link.pr_number), timeout = 30 })
+  local pr_result = core.gh_pr_view_observe(repo, link.pr_number, 30)
   if type(pr_result) ~= "table" or pr_result.exit_code ~= 0 then
     return nil, "gh-pr-failed"
   end
@@ -422,23 +415,22 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
   return result
 end
 
-function M.gh_blocked_by_cmd(repo, issue_number)
+function M.gh_blocked_by(repo, issue_number, timeout, exec)
   local core = root()
-  local owner, name = split_repo(repo)
+  local owner, name = strings.split_repo(repo)
   if owner == nil or not core._is_positive_pr_number(issue_number) then
     error("github-devloop: invalid dependency query target")
   end
-  local query = core.render_github_graphql_query("dependency_blocked_by", {
+  return core.github_graphql("dependency_blocked_by", {
     owner = owner,
     name = name,
     issue_number = tostring(math.floor(tonumber(issue_number))),
-  })
-  return core.github_graphql_command_templates.graphql_query .. core._shell_single_quote(query)
+  }, timeout, exec)
 end
 
 function M.dependency_gate(repo, issue_number, context)
   local core = root()
-  if split_repo(repo) == nil or not core._is_positive_pr_number(issue_number) then
+  if strings.split_repo(repo) == nil or not core._is_positive_pr_number(issue_number) then
     return gate("unresolvable", "invalid-target", {})
   end
   local gate_context = context
@@ -483,6 +475,15 @@ end
 function M.dependency_release_marker(proposal_id, version)
   return '<!-- fkst:github-devloop:dependency-release:v1 proposal="' .. tostring(proposal_id)
     .. '" version="' .. tostring(version)
+    .. '" -->'
+end
+
+function M.ready_split_canonicalized_marker(proposal_id, from_version, to_version, derived_state, reason)
+  return '<!-- fkst:github-devloop:ready-split-canonicalized:v1 proposal="' .. tostring(proposal_id)
+    .. '" from_version="' .. safe_dependency_attr(from_version)
+    .. '" to_version="' .. safe_dependency_attr(to_version)
+    .. '" derived_state="' .. safe_dependency_attr(derived_state)
+    .. '" reason="' .. safe_dependency_attr(reason or "ready_split_rederive")
     .. '" -->'
 end
 
@@ -603,6 +604,39 @@ function M.dependency_release_fact(comments, proposal_id, version)
     end
   end
   return nil
+end
+
+function M.ready_split_canonicalized_fact(comments, proposal_id, from_version)
+  local core = root()
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:ready%-split%-canonicalized:v1.-%-%->"
+  for _, comment in ipairs(core._trusted_marker_comments(comments)) do
+    for marker in core._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]+)"')
+      local marker_from = marker:match('from_version="([^"]*)"')
+      if marker_proposal == tostring(proposal_id)
+        and marker_from == tostring(from_version) then
+        return {
+          proposal_id = marker_proposal,
+          from_version = marker_from,
+          to_version = decode_dependency_attr(marker_attr(marker, "to_version")),
+          derived_state = decode_dependency_attr(marker_attr(marker, "derived_state")),
+          reason = decode_dependency_attr(marker_attr(marker, "reason")),
+          comment_created_at = core._comment_created_at(comment),
+        }
+      end
+    end
+  end
+  return nil
+end
+
+function M.ready_split_version(version)
+  local core = root()
+  local base = core.strip_transition_version_suffixes(version)
+  local next_n = core.version_ready_split_round(version) + 1
+  return tostring(base) .. "/ready-split/" .. tostring(next_n)
 end
 
 function M.dependency_wait_fact(comments, proposal_id)

@@ -1,6 +1,7 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local gh_argv = require("tests.gh_argv_mock_helpers")
 local zh_summary = string.char(228, 184, 173, 230, 150, 135, 230, 145, 152, 232, 166, 129)
 
 local function opts(name, extra)
@@ -73,7 +74,7 @@ local function mock_ahead_for(integration, count)
 end
 
 local function mock_content_diff(has_diff)
-  t.mock_command("git diff --quiet refs/remotes/origin/'dev' refs/remotes/origin/'integration/dev'", {
+  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/integration/dev", {
     stdout = "",
     stderr = "",
     exit_code = has_diff and 1 or 0,
@@ -81,7 +82,7 @@ local function mock_content_diff(has_diff)
 end
 
 local function mock_content_diff_for(integration, has_diff)
-  t.mock_command("git diff --quiet refs/remotes/origin/'dev' refs/remotes/origin/'" .. tostring(integration) .. "'", {
+  t.mock_command("git diff --quiet refs/remotes/origin/dev refs/remotes/origin/" .. tostring(integration), {
     stdout = "",
     stderr = "",
     exit_code = has_diff and 1 or 0,
@@ -177,8 +178,21 @@ end
 
 local function find_call(needle)
   for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find(needle, 1, true) ~= nil then
+    if gh_argv.call_contains(call, needle) then
       return call
+    end
+  end
+  return nil
+end
+
+local function argv_option(call, name)
+  local argv = { call.program }
+  for _, arg in ipairs(call.args or {}) do
+    table.insert(argv, arg)
+  end
+  for index, value in ipairs(argv) do
+    if value == name then
+      return argv[index + 1]
     end
   end
   return nil
@@ -229,11 +243,12 @@ return {
     end
     t.is_true(saw_prompt_range)
     t.is_true(saw_prompt_issue_fetch)
-    t.is_true(h.has_call("--head 'integration/dev'"))
-    t.is_true(h.has_call("--base 'dev'"))
+    t.is_true(h.has_call("--head integration/dev"))
+    t.is_true(h.has_call("--base dev"))
     local create_call = find_call("gh pr create")
-    t.is_true(create_call.rendered:find("--body 'Release highlights", 1, true) ~= nil)
-    t.is_true(create_call.rendered:find(core._release_notes_ai_sentinel, 1, true) ~= nil)
+    local body = argv_option(create_call, "--body")
+    t.is_true(body:find("Release highlights", 1, true) ~= nil)
+    t.is_true(body:find(core._release_notes_ai_sentinel, 1, true) ~= nil)
     t.eq(h.count_calls("mktemp '/tmp/fkst-github-devloop-rollup.XXXXXX'"), 0)
     t.eq(h.count_calls("rm -f --"), 0)
   end,
@@ -283,10 +298,11 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(h.count_calls("gh pr create"), 1)
     local create_call = find_call("gh pr create")
-    t.is_true(create_call.rendered:find("--body 'Automated rollup", 1, true) ~= nil)
-    t.is_true(create_call.rendered:find("Zh: zi dong", 1, true) == nil)
-    t.is_true(create_call.rendered:find(zh_summary, 1, true) ~= nil)
-    t.is_true(create_call.rendered:find(core._release_notes_ai_sentinel, 1, true) ~= nil)
+    local body = argv_option(create_call, "--body")
+    t.is_true(body:find("Automated rollup", 1, true) ~= nil)
+    t.is_true(body:find("Zh: zi dong", 1, true) == nil)
+    t.is_true(body:find(zh_summary, 1, true) ~= nil)
+    t.is_true(body:find(core._release_notes_ai_sentinel, 1, true) ~= nil)
     t.eq(h.count_calls("rm -f --"), 0)
   end,
 

@@ -103,12 +103,71 @@ expand() { [ "${1:-all}" = all ] && echo "$DOGFOOD_REPOS" || echo "$1"; }
 # this device's autonomous changes BEFORE they promote to dev. The rollup target
 # stays UPSTREAM_BRANCH (FKST_DEVLOOP_UPSTREAM_BRANCH=dev); only the engine BIN +
 # the pinned operator/skill checkouts stay on dev.
+# Self-heal a run checkout corrupted by a volatile DOGFOOD_ROOT. DOGFOOD_ROOT defaults to
+# /private/tmp, which macOS age-cleans (files untouched >3d): it strips .git and older tracked
+# files, leaving a partial tree. The constantly-written durable store survives, but the static
+# package source rots — so the supervise either reads "skew/current" against the rotted checkout
+# (operator fixes never deploy) or, on restart, refuses to start on an incomplete package graph
+# (e.g. a raiser file gone -> "queue ... has no producer"). Detect that (no .git, or tracked files
+# deleted) and re-clone fresh from origin. Forward-only restore; the durable store is separate and
+# survives (or is re-derived from GitHub markers). $2 is the org/repo slug to clone (PKGSRC is
+# always fkst-packages; HOST is the target $REPO). This makes correctness independent of where
+# DOGFOOD_ROOT points, rather than relying on the base dir being non-volatile.
+ensure_run_checkout() { # $1 checkout dir, $2 org/repo slug
+  local dir="$1" slug="$2" corrupt=""
+  if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+    corrupt="not-a-git-repo"
+  elif git -C "$dir" status --porcelain 2>/dev/null | grep -q '^ D '; then
+    corrupt="deleted-tracked-files"
+  fi
+  [ -z "$corrupt" ] && return 0
+  echo "  ! run checkout $dir corrupt ($corrupt; likely $DOGFOOD_ROOT cleanup) -> re-cloning $slug"
+  [ -e "$dir" ] && mv "$dir" "${dir}.corrupt.$(date +%s)" 2>/dev/null
+  mkdir -p "$(dirname "$dir")"
+  git clone -q "https://github.com/$slug.git" "$dir" \
+    && echo "    re-cloned $slug -> $dir" \
+    || { echo "    ERROR: failed to clone $slug into $dir"; return 1; }
+}
+
 sync_to_run_branch() { # $1 worktree dir
   git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || { echo "  ! $1 is not a git worktree"; return 1; }
   git -C "$1" fetch origin "$INTEGRATION_BRANCH" -q 2>/dev/null
   # checkout -B (not reset --hard): leaves the checkout actually ON the integration branch
   # tracking origin/<integration>, instead of pointing a stale local 'dev' ref at integration content.
   echo "  $1 -> $(git -C "$1" checkout -q -B "$INTEGRATION_BRANCH" "origin/$INTEGRATION_BRANCH" 2>&1 | tail -1; git -C "$1" rev-parse --short HEAD 2>/dev/null) ($INTEGRATION_BRANCH)"
+}
+
+# Ensure a checkout's INTEGRATION_BRANCH is >= UPSTREAM_BRANCH (dev) by merging upstream
+# FORWARD into integration and pushing. Why: operator out-of-band fixes land on dev; the
+# dogfood runs on integration; the in-pipeline sync_scan ff's dev->integration but can lag
+# (or the running supervise is itself stale), so _proc_stale reads "current" against a stale
+# integration and the supervise never picks up operator fixes. This deterministically merges
+# dev forward (plain ff when integration is an ancestor of dev; a merge commit when integration
+# has its own un-rolled commits — both keep integration >= dev) and pushes, so the next
+# _proc_stale sees pkg-stale and restarts onto the fix. Forward-only (never rewrites integration);
+# aborts on conflict and leaves it for sync_conflict; a push failure is non-fatal.
+ensure_integration_caught_up() { # $1 checkout dir
+  local wt="$1"
+  git -C "$wt" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  [ "$INTEGRATION_BRANCH" = "$UPSTREAM_BRANCH" ] && return 0   # single-branch topology: nothing to merge
+  git -C "$wt" fetch origin "$INTEGRATION_BRANCH" "$UPSTREAM_BRANCH" -q 2>/dev/null || return 0
+  git -C "$wt" rev-parse --verify "origin/$INTEGRATION_BRANCH" >/dev/null 2>&1 || return 0
+  git -C "$wt" rev-parse --verify "origin/$UPSTREAM_BRANCH"   >/dev/null 2>&1 || return 0
+  local behind; behind=$(git -C "$wt" rev-list --count "origin/$INTEGRATION_BRANCH..origin/$UPSTREAM_BRANCH" 2>/dev/null || echo 0)
+  [ "${behind:-0}" -eq 0 ] && return 0
+  echo "  $INTEGRATION_BRANCH is $behind behind $UPSTREAM_BRANCH in $(basename "$wt") -> merging $UPSTREAM_BRANCH forward"
+  git -C "$wt" checkout -q -B "$INTEGRATION_BRANCH" "origin/$INTEGRATION_BRANCH" 2>/dev/null \
+    || { echo "    WARN: could not checkout $INTEGRATION_BRANCH — leaving for sync_scan"; return 0; }
+  if git -C "$wt" merge --no-edit "origin/$UPSTREAM_BRANCH" >/dev/null 2>&1; then
+    if git -C "$wt" push origin "HEAD:$INTEGRATION_BRANCH" >/dev/null 2>&1; then
+      echo "    merged + pushed: $INTEGRATION_BRANCH -> $(git -C "$wt" rev-parse --short HEAD)"
+    else
+      echo "    WARN: merge ok but push failed (perm/race) — leaving for sync_scan"
+    fi
+  else
+    git -C "$wt" merge --abort 2>/dev/null
+    echo "    WARN: $UPSTREAM_BRANCH does not merge cleanly into $INTEGRATION_BRANCH — leaving for sync_conflict"
+  fi
 }
 
 # Engine BIN freshness. Stale = substrate origin/dev ahead of the build checkout, OR any
@@ -206,6 +265,10 @@ stop_one() {
 restart_one() {
   cfg "$1" || return 1
   echo "[$1] sync to origin/$INTEGRATION_BRANCH (run branch; rollup target stays $UPSTREAM_BRANCH):"
+  ensure_run_checkout "$PKGSRC" "$GH_ORG/fkst-packages"              # re-clone if DOGFOOD_ROOT cleanup rotted the checkout
+  [ "$HOST" != "$PKGSRC" ] && ensure_run_checkout "$HOST" "$REPO"
+  ensure_integration_caught_up "$PKGSRC"                              # keep run branch (integration) >= dev so operator fixes deploy
+  [ "$HOST" != "$PKGSRC" ] && ensure_integration_caught_up "$HOST"
   sync_to_run_branch "$PKGSRC"
   [ "$HOST" != "$PKGSRC" ] && sync_to_run_branch "$HOST"
   stop_one "$1"; sleep 1
@@ -311,6 +374,10 @@ cmd_sync() {
   local n st
   for n in $(expand "${1:-all}"); do
     cfg "$n" || continue
+    ensure_run_checkout "$PKGSRC" "$GH_ORG/fkst-packages"              # re-clone if DOGFOOD_ROOT cleanup rotted the checkout (else _proc_stale misreads "skew" and fixes never deploy)
+    [ "$HOST" != "$PKGSRC" ] && ensure_run_checkout "$HOST" "$REPO"
+    ensure_integration_caught_up "$PKGSRC"                              # keep run branch (integration) >= dev so operator fixes deploy
+    [ "$HOST" != "$PKGSRC" ] && ensure_integration_caught_up "$HOST"
     st=$(_proc_stale "$n")
     case "$st" in
       pkg-stale|engine-stale) echo "  $n: $st -> auto-restart"; restart_one "$n" | sed 's/^/    /' ;;

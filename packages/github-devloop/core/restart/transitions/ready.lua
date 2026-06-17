@@ -5,29 +5,60 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
+  local responsibility_signature = h.responsibility_signature
   return {
     from_state = "ready",
+    liveness_class_id = "actionable_kickoff",
+    watchdog = watchdog("row-budget-bounds-receiver", 45),
+    actionable_epoch = actionable_epoch("state_entry:v1"),
     terminal = false,
-    to_states = { "implementing" },
+    to_states = { "dependency_wait", "implementing", "blocked" },
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
-    output_obligation = obligation({ "state:v1 implementing", "dependency-hold:v1" }, { "implementing", "ready" }),
-    budget = budget(45, "Ready is deferred by dependency-wait heartbeats when blocked; otherwise implementation kickoff is expected inside the watchdog margin."),
+    output_obligation = obligation({ "state:v1 implementing" }, { "implementing", "dependency_wait", "blocked" }),
+    budget = budget(45, "Actionable ready has no effective open blockers; implementation kickoff is expected inside the watchdog margin."),
     liveness_contract = liveness({
-      mode = "live-defer",
-      signal = {
-        family = "dependency-wait",
-        resolver = "dependency-hold",
-        producer = "dependency-wait",
-        surface = "issue-comment-stream",
-        version_form = "raw",
-        max_age_minutes = 525600,
-      },
+      mode = "row-budget-bounds-receiver",
+      receiver_bound_minutes = 15,
+      external_wait_bound_minutes = 0,
     }),
     on_timeout = timeout("devloop_ready"),
+    responsibility_signature = responsibility_signature({
+      receiver_kind = "issue",
+      driving_queue = "devloop_ready",
+      state_kind = "queue_wait",
+      liveness_class = "actionable_kickoff",
+      input_fact_family = "ready-base-preconditions-and-no-open-blockers",
+      output_postcondition_family = "implementation_kickoff",
+      phase_rank = M.stage_rank("ready"),
+      lineage_keys = { "state.version", "source_ref", "actionable_epoch" },
+      successors = {
+        {
+          state = "implementing",
+          output_variant = "implementation_started",
+          postcondition_family = "implementation_kickoff",
+          monotonic = true,
+        },
+        {
+          state = "dependency_wait",
+          output_variant = "blocker_reappeared",
+          regression = "blocker_reappeared",
+          failure = true,
+          bump = true,
+        },
+        {
+          state = "blocked",
+          output_variant = "actionable_kickoff_timeout",
+          terminal = true,
+          monotonic = true,
+        },
+      },
+    }),
     payload_builder = M.build_devloop_ready_payload,
     dedup_shape = "ready/<state.version>",
-    required_facts = { fact("state", "marker-read"), fact("dependency-release", "marker-read") },
+    required_facts = { fact("state", "marker-read") },
     payload_fields = {
       proposal_id = "marker:state.proposal",
       dedup_key = "marker:state.version",
@@ -35,12 +66,12 @@ return function(M, h)
     },
     version_identity = "strip_transition_version_suffixes(state.version)",
     effects = effect(
-      { "result-marker", "ready-label", "devloop_ready" },
-      "ready replay is complete only when the result marker and ready label are visible, and observe_issue can re-raise devloop_ready while still ready",
+      { "devloop_ready" },
+      "ready replay is complete only when observe_issue can re-raise devloop_ready for an actionable blocker-free issue",
       "result_effects_complete"
     ),
     marker_facts = "state:v1 ready",
     kickoff = "devloop_ready",
-    replay = "Raise ready/<version> after dependency gate re-derives satisfied blockers.",
+    replay = "Raise ready/<version> only after dependency gate re-derives no effective open blockers.",
   }
 end

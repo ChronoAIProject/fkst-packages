@@ -1,10 +1,12 @@
+local strings = require("std.strings")
+
 local M = {}
 
 M.dept = "observability"
 M.dashboard_title = "fkst-dev board"
 M.dashboard_label = "fkst-dashboard"
 M.dashboard_marker_prefix = "<!-- fkst:dashboard:v1"
-M.max_dashboard_body_len = 12000
+M.max_dashboard_body_len = 60000
 M.max_dashboard_section_items = 40
 M.max_dashboard_title_len = 80
 M.max_reap_reason_len = 180
@@ -21,20 +23,7 @@ M.stall_suspect_threshold_minutes = {
 function M.install_common(_core)
 end
 
-function M.json_string(value)
-  local text = tostring(value or "")
-  text = text:gsub("\\", "\\\\")
-  text = text:gsub('"', '\\"')
-  text = text:gsub("\b", "\\b")
-  text = text:gsub("\f", "\\f")
-  text = text:gsub("\n", "\\n")
-  text = text:gsub("\r", "\\r")
-  text = text:gsub("\t", "\\t")
-  text = text:gsub("[%z\1-\31]", function(char)
-    return string.format("\\u%04x", char:byte())
-  end)
-  return '"' .. text .. '"'
-end
+M.json_string = strings.json_string
 
 function M.stderr_http_status(stderr)
   local text = tostring(stderr or "")
@@ -86,7 +75,11 @@ function M.require_observe_bot(core)
 end
 
 function M.fetch_issue(core, repo, issue_number, limits, deadline)
-  local view = core.observability_run_cmd(core.gh_issue_view_observe_cmd(repo, issue_number), limits, deadline, "gh observability issue view")
+  local view = core.observability_run_cmd({
+    run = function(timeout)
+      return core.gh_issue_view_observe(repo, issue_number, timeout)
+    end,
+  }, limits, deadline, "observability issue view")
   if core.observability_result_deferred(view) then
     return nil
   end
@@ -94,7 +87,11 @@ function M.fetch_issue(core, repo, issue_number, limits, deadline)
 end
 
 function M.fetch_pr(core, repo, pr_number, limits, deadline)
-  local view = core.observability_run_cmd(core.gh_pr_view_observe_cmd(repo, pr_number), limits, deadline, "gh observability PR view")
+  local view = core.observability_run_cmd({
+    run = function(timeout)
+      return core.gh_pr_view_observe(repo, pr_number, timeout)
+    end,
+  }, limits, deadline, "observability PR view")
   if core.observability_result_deferred(view) then
     return nil
   end

@@ -2,6 +2,7 @@ local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local gh_argv = require("tests.gh_argv_mock_helpers")
 
 local function opts(name)
   return {
@@ -114,7 +115,7 @@ end
 
 local function mock_queue_head(age_minutes, version)
   local proposal_id = "github-devloop/issue/owner/repo/42"
-  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,comments,state,stateReason", {
+  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,comments,state,stateReason,assignees,author", {
     stdout = '{"title":"Merge-ready head","state":"OPEN","comments":['
       .. render_comment(core.state_marker(proposal_id, "merge-ready", version or version_minutes_ago(age_minutes or 90)))
       .. "]}\n",
@@ -185,7 +186,7 @@ end
 local function mock_closed_merged_issue(number, closed_minutes_ago, trusted)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
   mock_recent_closed("[" .. recent_closed_item(number, closed_at_minutes_ago(closed_minutes_ago), { core._merged_label }) .. "]\n")
-  entity_read_mocks.mock_issue_view_raw_selector(t, { number = number }, "title,comments,state,stateReason", {
+  entity_read_mocks.mock_issue_view_raw_selector(t, { number = number }, "title,comments,state,stateReason,assignees,author", {
     stdout = '{"title":"Merged issue","state":"CLOSED","comments":['
       .. render_comment(core.merged_marker(proposal_id, 9, "v1", "abcdef123456"), trusted == false and "mallory" or "fkst-test-bot")
       .. "]}\n",
@@ -204,7 +205,7 @@ end
 local function count_calls(needle)
   local count = 0
   for _, call in ipairs(t.command_calls()) do
-    if call.rendered:find(needle, 1, true) ~= nil then
+    if gh_argv.call_contains(call, needle) then
       count = count + 1
     end
   end

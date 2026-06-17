@@ -40,8 +40,33 @@ function M.new(model)
   end
   require("std.github.entities").install(handle)
   require("std.github.comments").install(handle)
+  require("std.github.workflows").install(handle)
+  function handle.issue_view(repo, issue_number, fields, timeout)
+    return handle._exec({
+      "gh",
+      "issue",
+      "view",
+      tostring(issue_number),
+      "--repo",
+      tostring(repo),
+      "--json",
+      tostring(fields),
+    }, timeout, "gh issue view")
+  end
   function handle.issue_rest_view(repo, issue_number, timeout)
     return handle._exec({ "gh", "api", "repos/" .. tostring(repo) .. "/issues/" .. tostring(issue_number) }, timeout, "gh issue REST view")
+  end
+  function handle.issue_view(repo, issue_number, fields, timeout)
+    return handle._exec({
+      "gh",
+      "issue",
+      "view",
+      tostring(issue_number),
+      "--repo",
+      tostring(repo),
+      "--json",
+      tostring(fields),
+    }, timeout, "gh issue view")
   end
   function handle.issue_updated_at(repo, issue_number, timeout)
     return handle._exec({
@@ -82,14 +107,7 @@ function M.new(model)
       tostring(login),
     }, timeout, "gh issue unassign")
   end
-  function handle.graphql(query, fields, timeout)
-    local argv = { "gh", "api", "graphql", "-f", "query=" .. tostring(query) }
-    for key, value in pairs(fields or {}) do
-      table.insert(argv, "-f")
-      table.insert(argv, tostring(key) .. "=" .. tostring(value))
-    end
-    return handle._exec(argv, timeout, "gh GraphQL")
-  end
+  require("std.github.graphql").install(handle)
   return handle
 end
 

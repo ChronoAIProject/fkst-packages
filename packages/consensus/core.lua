@@ -1,4 +1,6 @@
 local M = {}
+local codex = require("std.codex")
+local env = require("std.env")
 local error_facts = require("std.error_facts")
 local strings = require("std.strings")
 
@@ -35,39 +37,10 @@ local function read_env_command(name)
   end
   return 'printf %s "$' .. name .. '"'
 end
-function M.read_env_command(name)
-  return read_env_command(name)
-end
-function M.read_env(name, exec)
-  local run = exec or exec_sync
-  if type(run) ~= "function" then
-    return nil
-  end
-  local ok, out = pcall(run, read_env_command(name))
-  if not ok or type(out) ~= "table" or out.exit_code ~= 0 or out.stdout == "" then
-    return nil
-  end
-  return out.stdout
-end
+M.read_env_command = read_env_command
+M.read_env = env.read_env(read_env_command)
 function M.error_fingerprint(error_class, queue, dept, message)
   return error_facts.error_fingerprint(error_class, queue, dept, message)
-end
-function M.error_fact_fields(error_class, queue, dept, message, context)
-  local fields = {
-    "error_class=" .. error_facts.one_line(error_class or "unknown-error"),
-    "fingerprint=" .. M.error_fingerprint(error_class, queue, dept, message),
-  }
-  local source_ref = error_facts.source_ref_field(context and context.source_ref)
-  if source_ref ~= nil and source_ref ~= "" then
-    table.insert(fields, "source_ref=" .. source_ref)
-  end
-  if context and context.attempt ~= nil then
-    table.insert(fields, "attempt=" .. error_facts.one_line(context.attempt))
-  end
-  if context and context.terminal ~= nil then
-    table.insert(fields, "terminal=" .. tostring(context.terminal == true))
-  end
-  return fields
 end
 function M.error_class_from_message(message)
   local text = tostring(message or "")
@@ -76,21 +49,12 @@ function M.error_class_from_message(message)
   return class or "caught-failure"
 end
 function M.log_error_fact(level, dept, tag, error_class, queue, message, context)
-  local fields = M.error_fact_fields(error_class, queue, dept, message, context)
+  local fields = error_facts.error_fact_fields(error_class, queue, dept, message, context)
   table.insert(fields, "queue=" .. error_facts.one_line(queue))
   table.insert(fields, "error=" .. error_facts.one_line(message))
   log[level or "warn"]("consensus dept=" .. error_facts.one_line(dept) .. " tag=" .. error_facts.one_line(tag or "FAILURE") .. " " .. table.concat(fields, " "))
 end
-local function event_source_ref(event)
-  if type(event) == "table" and event.source_ref ~= nil then
-    return event.source_ref
-  end
-  local payload = type(event) == "table" and event.payload or nil
-  if type(payload) == "table" then
-    return payload.source_ref
-  end
-  return nil
-end
+local event_source_ref = error_facts.event_source_ref
 function M.wrap_pipeline_failure(dept, fn)
   return function(event)
     local ok, err = pcall(fn, event)
@@ -422,20 +386,14 @@ function M.judgment_scratch_worktree(runtime_root, kind, identity)
   return runtime_root_path(runtime_root) .. "/judgment-worktrees/consensus-" .. slug .. "-" .. suffix
 end
 
-function M.judgment_codex_opts(prompt, worktree)
-  return {
-    prompt = prompt,
-    worktree = worktree,
-    sandbox = "read-only",
-  }
-end
+M.judgment_codex_opts = codex.judgment_codex_opts
 
 function M.mkdir_p_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
     error("consensus: invalid directory path")
   end
-  return "mkdir -p " .. shell_single_quote(value) .. " && chmod 0555 " .. shell_single_quote(value)
+  return "mkdir -p " .. shell_single_quote(value)
 end
 
 -- Fail-closed parse. A genuine answer is an ADJACENT pair: exactly one clean verdict line
