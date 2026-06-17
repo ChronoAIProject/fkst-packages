@@ -15,7 +15,7 @@ fkst-packages 是 fkst 的**包库**（"库 B"），承载跑在 **fkst-substrat
 `nyxid oracle` 把推理任务路由到浏览器端 ChatGPT Pro，是 codex / Claude 之外的**旁路推理通道**。用途：复杂任务迟迟不出结果、需要新思路或独立复核时，让 ChatGPT Pro 跑一段独立推理 / 第二意见，再回到本管线决策。子命令、参数、输出字段以 `nyxid oracle --help` / `nyxid oracle ask --help` 为准（已验证子命令：`ask` / `result` / `cancel` / `status` / `attach` / `extract` / `pool` / `sessions` / `session` / `close-session`）。本节只记非显然用法，**不缓存配额/并发数字**：
 
 - **两步异步（省 token，不轮询）**：`nyxid oracle ask company-chatgpt-pro "<问题>" --no-wait --output json` 拿 `task_id`（status=queued）；再 `nyxid oracle result <task_id> --output json` 取结果。status 走 `queued → dispatched(phase=sent) → completed`，`completed` 时 `response` 字段即答案（附 `chatgpt_url`）。单次 `result` 即可，未完成返回中间 status——**不要 busy-loop 轮询**。省 `--no-wait` 则 `ask` 同步阻塞最多 `--wait` 秒。
-- **pool 是 org-visibility**：`company-chatgpt-pro` 限该 pool 所属 org 成员；非成员 `ask` 返回 403（`error_code 1002 forbidden`），`status` 返回 404。先 `nyxid org join <邀请码>` 加入该 org，再 `nyxid oracle pool list` 应能看到该 pool。当前账号（`aloning@gmail.com`）已可用。
+- **pool 是 org-visibility**：`company-chatgpt-pro` 限该 pool 所属 org 成员；非成员 `ask` 返回 403（`error_code 1002 forbidden`），`status` 返回 404。先 `nyxid org join <邀请码>` 加入该 org，再 `nyxid oracle pool list` 应能看到该 pool（看不到该 pool 即说明当前账号未加入对应 org）。
 - 长 prompt 用 `--file -` 从 stdin 喂，附件 `--pdf`，多轮 `--new-conversation` / `--conversation <id>`；配额与并发（per-user inflight、worker tab 数）以 `nyxid oracle pool list` / `nyxid oracle status <pool>` 实时读出，不在此缓存。
 
 ## 引擎上下文（写包必须懂；权威完整的 engine↔package 契约见 fkst-substrate 的 `docs/package-repo-contract.md`，引擎实现细节见其 `SPEC.md` / `CLAUDE.md` / `docs/architecture.md`）
