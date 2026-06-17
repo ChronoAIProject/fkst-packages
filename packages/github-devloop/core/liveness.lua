@@ -1,5 +1,6 @@
 local S = {}
 local registry = require("core.registry")
+local liveness_contracts = require("core.liveness_contract")
 local source_refs = require("std.source_ref")
 
 function S.install(M)
@@ -109,6 +110,24 @@ local liveness_signal_producers = registry.load_indexed_map("core.restart.livene
 
 function M.liveness_signal_producer_contract(family)
   return liveness_signal_producers[tostring(family or "")]
+end
+
+function M.known_liveness_contract_violations()
+  return liveness_contracts.known_violations()
+end
+
+local function error_text(error_record)
+  if type(error_record) == "table" then
+    return error_record.message
+  end
+  return error_record
+end
+
+local function append_plain_error(errors, message)
+  table.insert(errors, {
+    message = message,
+    kind = "general",
+  })
 end
 
 local function strip_liveness_timeout_suffixes(version)
@@ -237,23 +256,24 @@ local function validate_liveness_contract(M, row, errors)
   local state = tostring(row.from_state or "?")
   local contract = row.liveness_contract
   if type(contract) ~= "table" then
-    table.insert(errors, state .. ": non-terminal row must declare exactly one liveness_contract")
+    append_plain_error(errors, state .. ": non-terminal row must declare exactly one liveness_contract")
     return
   end
+  liveness_contracts.validate_row(M, row, state, contract, errors)
   local mode = contract.mode
   if mode ~= "row-budget-bounds-receiver" and mode ~= "live-defer" then
-    table.insert(errors, state .. ": liveness_contract must declare exactly one supported mode")
+    append_plain_error(errors, state .. ": liveness_contract must declare exactly one supported mode")
     return
   end
   if mode == "row-budget-bounds-receiver" then
     local bound = liveness_bound_minutes(contract)
     if bound == nil then
-      table.insert(errors, state .. ": row-budget-bounds-receiver must declare receiver_bound_minutes")
+      append_plain_error(errors, state .. ": row-budget-bounds-receiver must declare receiver_bound_minutes")
       return
     end
     local budget_minutes = tonumber(row.budget and row.budget.minutes)
     if budget_minutes == nil or budget_minutes < bound + liveness_contract_margin_minutes then
-      table.insert(errors, state .. ": budget.minutes must be at least max(declared receiver/external bounds) + margin")
+      append_plain_error(errors, state .. ": budget.minutes must be at least max(declared receiver/external bounds) + margin")
     end
     if contract.progress_signal ~= nil then
       validate_liveness_signal_shape(M, state, contract.progress_signal, "row-budget progress_signal", errors)
@@ -267,74 +287,84 @@ local function validate_liveness_contract(M, row, errors)
 
   local signal = contract.signal
   if type(signal) ~= "table" then
-    table.insert(errors, state .. ": live-defer must declare a signal")
+    append_plain_error(errors, state .. ": live-defer must declare a signal")
     return
   end
   validate_liveness_signal_shape(M, state, signal, "live-defer signal", errors)
+  liveness_contracts.validate_defer(M, row, state, contract, errors)
 end
 
-function M.liveness_contract_errors(rows)
+local function stringify_errors(errors)
+  local text_errors = {}
+  for _, err in ipairs(errors or {}) do
+    table.insert(text_errors, error_text(err))
+  end
+  return text_errors
+end
+
+function M.strict_liveness_contract_error_records(rows)
   local errors = {}
   local table_rows = rows or M.restart_transition_table()
+  liveness_contracts.validate_registry(M, errors)
   validate_restart_totality(M, table_rows, errors)
   for _, row in ipairs(table_rows) do
     if type(row.from_state) ~= "string" or row.from_state == "" then
-      table.insert(errors, "row: missing from_state")
+      append_plain_error(errors, "row: missing from_state")
     end
     if type(row.terminal) ~= "boolean" then
-      table.insert(errors, tostring(row.from_state or "?") .. ": terminal must be boolean")
+      append_plain_error(errors, tostring(row.from_state or "?") .. ": terminal must be boolean")
     end
     if row.terminal == true then
       if row.output_obligation ~= nil then
-        table.insert(errors, tostring(row.from_state or "?") .. ": terminal row must not declare output_obligation")
+        append_plain_error(errors, tostring(row.from_state or "?") .. ": terminal row must not declare output_obligation")
       end
     else
       if not has_required_table(row, "output_obligation") then
-        table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare output_obligation")
+        append_plain_error(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare output_obligation")
       end
       if not valid_budget(row) then
-        table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare a positive budget with receiver_max_work_justification")
+        append_plain_error(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare a positive budget with receiver_max_work_justification")
       end
       if not valid_timeout(row) then
-        table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare redrive on_timeout for its driving queue plus force-terminate on_escalate to blocked")
+        append_plain_error(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare redrive on_timeout for its driving queue plus force-terminate on_escalate to blocked")
       end
       if type(row.observe_surfaces) ~= "table" or next(row.observe_surfaces) == nil then
-        table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare observe_surfaces")
+        append_plain_error(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare observe_surfaces")
       else
         for surface, enabled in pairs(row.observe_surfaces) do
           if surface ~= "issue" and surface ~= "pr" and surface ~= "liveness_scan" then
-            table.insert(errors, tostring(row.from_state or "?") .. ": unsupported observe surface " .. tostring(surface))
+            append_plain_error(errors, tostring(row.from_state or "?") .. ": unsupported observe surface " .. tostring(surface))
           end
           if enabled ~= true then
-            table.insert(errors, tostring(row.from_state or "?") .. ": observe surface must be true: " .. tostring(surface))
+            append_plain_error(errors, tostring(row.from_state or "?") .. ": observe surface must be true: " .. tostring(surface))
           end
         end
       end
       if row.pr_recovery ~= nil then
         if type(row.pr_recovery) ~= "table" then
-          table.insert(errors, tostring(row.from_state or "?") .. ": pr_recovery must be a table")
+          append_plain_error(errors, tostring(row.from_state or "?") .. ": pr_recovery must be a table")
         else
           for name, recovery in pairs(row.pr_recovery) do
             if name ~= "not_mergeable" then
-              table.insert(errors, tostring(row.from_state or "?") .. ": unsupported pr_recovery " .. tostring(name))
+              append_plain_error(errors, tostring(row.from_state or "?") .. ": unsupported pr_recovery " .. tostring(name))
             elseif type(recovery) ~= "table"
               or recovery.to_state ~= "fixing"
               or recovery.queue ~= "devloop_fixing" then
-              table.insert(errors, tostring(row.from_state or "?") .. ": not_mergeable pr_recovery must target fixing via devloop_fixing")
+              append_plain_error(errors, tostring(row.from_state or "?") .. ": not_mergeable pr_recovery must target fixing via devloop_fixing")
             end
           end
         end
       end
       if row.timeout_surfaces ~= nil then
         if type(row.timeout_surfaces) ~= "table" then
-          table.insert(errors, tostring(row.from_state or "?") .. ": timeout_surfaces must be a table")
+          append_plain_error(errors, tostring(row.from_state or "?") .. ": timeout_surfaces must be a table")
         else
           for surface, enabled in pairs(row.timeout_surfaces) do
             if surface ~= "issue" and surface ~= "issue_liveness_scan" and surface ~= "pr" and surface ~= "liveness_scan" then
-              table.insert(errors, tostring(row.from_state or "?") .. ": unsupported timeout surface " .. tostring(surface))
+              append_plain_error(errors, tostring(row.from_state or "?") .. ": unsupported timeout surface " .. tostring(surface))
             end
             if enabled ~= true then
-              table.insert(errors, tostring(row.from_state or "?") .. ": timeout surface must be true: " .. tostring(surface))
+              append_plain_error(errors, tostring(row.from_state or "?") .. ": timeout surface must be true: " .. tostring(surface))
             end
           end
         end
@@ -342,16 +372,27 @@ function M.liveness_contract_errors(rows)
       validate_liveness_contract(M, row, errors)
       if (type(row.to_states) ~= "table" or #row.to_states == 0)
         and (type(row.reentry_commands) ~= "table" or #row.reentry_commands == 0) then
-        table.insert(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare at least one next state")
+        append_plain_error(errors, tostring(row.from_state or "?") .. ": non-terminal row must declare at least one next state")
       end
     end
     for _, next_state in ipairs(row.to_states or {}) do
       if M._label_by_state[next_state] == nil then
-        table.insert(errors, tostring(row.from_state or "?") .. ": unknown next state " .. tostring(next_state))
+        append_plain_error(errors, tostring(row.from_state or "?") .. ": unknown next state " .. tostring(next_state))
       end
     end
   end
   return errors
+end
+
+function M.strict_liveness_contract_errors(rows)
+  return stringify_errors(M.strict_liveness_contract_error_records(rows))
+end
+
+function M.liveness_contract_errors(rows)
+  return stringify_errors(liveness_contracts.inventory_checked_records(
+    M.strict_liveness_contract_error_records(rows),
+    rows == nil
+  ))
 end
 
 local function signal_age_from_created_at(M, created_at, now_seconds)

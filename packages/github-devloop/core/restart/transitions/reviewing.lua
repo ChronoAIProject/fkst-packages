@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "reviewing",
     terminal = false,
@@ -20,6 +22,22 @@ return function(M, h)
     },
     output_obligation = obligation({ "review-result:v1", "review-converge-round:v1", "state:v1 blocked" }, { "merge-ready", "fixing", "review-meta", "blocked", "reviewing" }),
     budget = budget(150, "The long review receiver is supervised by review-converge-round heartbeats; this budget only bounds stale heartbeat redrive."),
+    watchdog = watchdog({
+      mode = "live-defer",
+      budget_ms = 9000000,
+    }),
+    liveness_class_id = "reviewing.review-heartbeat",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
+    defer = {
+      live_marker = "review-converge-round",
+      freshness_ms = 7200000,
+      clear_fact = "review-result:v1 or review-meta:v1 or state:v1 blocked",
+      observed_fact = "review-converge-round:v1",
+      clear_opens_generation = true,
+    },
     liveness_contract = liveness({
       mode = "live-defer",
       signal = {

@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "fixing",
     terminal = false,
@@ -13,6 +15,15 @@ return function(M, h)
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "fix:v1", "state:v1 reviewing", "review-meta:v1" }, { "reviewing", "review-meta", "fixing" }),
     budget = budget(120, "The fixing receiver is bounded by a 60 minute codex repair attempt plus the standard 30 minute watchdog margin and retry slack."),
+    watchdog = watchdog({
+      mode = "row-budget-bounds-receiver",
+      budget_ms = 7200000,
+    }),
+    liveness_class_id = "fixing.codex-repair",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
       receiver_bound_minutes = 60,

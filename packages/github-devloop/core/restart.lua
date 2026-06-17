@@ -17,6 +17,8 @@ local payload_derivations = {
 
 local marker_fields = registry.load_indexed_map("core.restart.marker_fields.index", "family")
 
+local actionable_epoch_sources = registry.load_indexed_map("core.restart.actionable_epoch_sources.index", "source")
+
 local required_replay_payload_fields = registry.load_indexed_map("core.restart.required_replay_payload_fields.index", "state")
 
 local function fact(family, freshness)
@@ -70,6 +72,14 @@ local function liveness(contract)
   return contract
 end
 
+local function watchdog(contract)
+  return contract
+end
+
+local function actionable_epoch(contract)
+  return contract
+end
+
 local transition_table = registry.load_indexed_array("core.restart.transitions.index", "from_state", M, {
   fact = fact,
   obligation = obligation,
@@ -77,6 +87,8 @@ local transition_table = registry.load_indexed_array("core.restart.transitions.i
   budget = budget,
   timeout = timeout,
   liveness = liveness,
+  watchdog = watchdog,
+  actionable_epoch = actionable_epoch,
 })
 
 local audit_by_state = {}
@@ -107,6 +119,10 @@ end
 
 function M.restart_durable_marker_fields()
   return marker_fields
+end
+
+function M.restart_actionable_epoch_sources()
+  return actionable_epoch_sources
 end
 
 function M.restart_source_ref_derivations()

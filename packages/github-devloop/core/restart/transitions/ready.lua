@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "ready",
     terminal = false,
@@ -13,6 +15,22 @@ return function(M, h)
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 implementing", "dependency-hold:v1" }, { "implementing", "ready" }),
     budget = budget(45, "Ready is deferred by dependency-wait heartbeats when blocked; otherwise implementation kickoff is expected inside the watchdog margin."),
+    watchdog = watchdog({
+      mode = "live-defer",
+      budget_ms = 2700000,
+    }),
+    liveness_class_id = "ready.dependency-gated-kickoff",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
+    defer = {
+      live_marker = "dependency-wait",
+      freshness_ms = 31536000000,
+      clear_fact = "dependency-release:v1",
+      observed_fact = "dependency-wait:v1",
+      clear_opens_generation = true,
+    },
     liveness_contract = liveness({
       mode = "live-defer",
       signal = {

@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "thinking",
     terminal = false,
@@ -14,6 +16,22 @@ return function(M, h)
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
     output_obligation = obligation({ "consensus.consensus_reached", "consensus.consensus_converge" }, { "ready", "blocked", "thinking" }),
     budget = budget(150, "The long consensus receiver is supervised by converge-round heartbeats; this budget only bounds stale heartbeat redrive."),
+    watchdog = watchdog({
+      mode = "live-defer",
+      budget_ms = 9000000,
+    }),
+    liveness_class_id = "thinking.consensus-heartbeat",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
+    defer = {
+      live_marker = "converge-round",
+      freshness_ms = 7200000,
+      clear_fact = "consensus.consensus_reached or state:v1 blocked",
+      observed_fact = "converge-round:v1",
+      clear_opens_generation = true,
+    },
     liveness_contract = liveness({
       mode = "live-defer",
       signal = {

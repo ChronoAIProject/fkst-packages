@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "merging",
     terminal = false,
@@ -13,6 +15,15 @@ return function(M, h)
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "merged:v1", "state:v1 fixing", "state:v1 blocked" }, { "merged", "fixing", "blocked" }),
     budget = budget(390, "The merging receiver is bounded by 30 minutes of merge work plus a 360 minute external CI wait window."),
+    watchdog = watchdog({
+      mode = "row-budget-bounds-receiver",
+      budget_ms = 23400000,
+    }),
+    liveness_class_id = "merging.merge-gate",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
       receiver_bound_minutes = 30,

@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "blocked",
     terminal = false,
@@ -14,6 +16,15 @@ return function(M, h)
     output_obligation = obligation({ "decomposed:v1", "github-proxy.github_issue_create_request[*]", "operator rereview/reintake command" }, { "blocked", "reviewing", "thinking" }),
     reentry_commands = { "rereview", "reintake" },
     budget = budget(1440, "No receiver work is expected; the row waits up to 1410 minutes for operator reentry before the 30 minute watchdog margin."),
+    watchdog = watchdog({
+      mode = "row-budget-bounds-receiver",
+      budget_ms = 86400000,
+    }),
+    liveness_class_id = "blocked.operator-reentry",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
       receiver_bound_minutes = 0,

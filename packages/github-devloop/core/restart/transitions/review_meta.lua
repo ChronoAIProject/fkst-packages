@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "review-meta",
     terminal = false,
@@ -13,6 +15,15 @@ return function(M, h)
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "review-meta:v1", "state:v1 fixing", "state:v1 blocked" }, { "fixing", "blocked" }),
     budget = budget(90, "The review-meta receiver is bounded by a 60 minute codex decision attempt plus the standard 30 minute watchdog margin."),
+    watchdog = watchdog({
+      mode = "row-budget-bounds-receiver",
+      budget_ms = 5400000,
+    }),
+    liveness_class_id = "review-meta.codex-decision",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",
       receiver_bound_minutes = 60,

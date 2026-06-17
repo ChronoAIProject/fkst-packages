@@ -5,6 +5,8 @@ return function(M, h)
   local budget = h.budget
   local timeout = h.timeout
   local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
   return {
     from_state = "implementing",
     terminal = false,
@@ -13,6 +15,22 @@ return function(M, h)
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 pr-open", "state:v1 impl-failed" }, { "pr-open", "impl-failed" }),
     budget = budget(45, "The long implementation receiver is supervised by implement-attempt heartbeats; this budget only bounds stale heartbeat redrive."),
+    watchdog = watchdog({
+      mode = "live-defer",
+      budget_ms = 2700000,
+    }),
+    liveness_class_id = "implementing.implementation-heartbeat",
+    actionable_epoch = actionable_epoch({
+      source = "state_entry:v1",
+      generation_source = "same_as_actionable_epoch",
+    }),
+    defer = {
+      live_marker = "implement-attempt",
+      freshness_ms = 7200000,
+      clear_fact = "state:v1 pr-open or state:v1 impl-failed",
+      observed_fact = "implement-attempt:v1",
+      clear_opens_generation = true,
+    },
     liveness_contract = liveness({
       mode = "live-defer",
       signal = {
