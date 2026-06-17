@@ -260,7 +260,12 @@ function M.claim_issue_for_management(dept, repo, issue_number, current, proposa
     return false
   end
   author = M.strip_bot_login_suffix(author)
-  if author ~= owner then
+  -- Fork-and-block isolation (grace + fork of other-authored issues) is an
+  -- assignee-mode policy: it keeps an assignee-claim bot from intruding on a
+  -- human's issue. In label-mode the loop is single-tenant and explicitly
+  -- opts issues in via the fkst-dev:enabled label, so it claims directly
+  -- (matching the label-claim fork). Assignee-mode keeps the original behavior.
+  if M.claim_mode() ~= "label" and author ~= owner then
     local dedup_key = M.fork_issue_dedup_key(repo, issue_number)
     if M.has_trusted_issue_create_parent_marker(current and current.comments, dedup_key, owner) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
