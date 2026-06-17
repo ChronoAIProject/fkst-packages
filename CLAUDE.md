@@ -40,6 +40,14 @@ fkst-packages 是 fkst 的**包库**（"库 B"），承载跑在 **fkst-substrat
 - 事件带 `schema` 字段（如 `"github-proxy.v1"`）；幂等靠 `dedup_key`（+ 出站用评论里的 HTML marker 等外部 durable 源）。
 - 出站写外部（如 `gh issue comment`）会改外部状态：默认 dry-run，真写只由 `FKST_GITHUB_WRITE=1` 表达。`github-devloop` 本质是直接自治系统，不保留历史兼容、双模式、人工 label gate 或 opt-in 写入开关；不可逆 merge 仍必须满足可信 marker、独立 PR diff `review-result:v1 approve`、head-bound、CI/mergeability、branch protection 与写前重导。
 
+## No Permission-Based Control / 禁止用文件权限做控制
+
+Never use file or directory permissions as a control, guard, isolation, or read-only mechanism anywhere in this system. Production source must not add `chmod`, restrictive mode literals such as `0555` / `0444` / `0500` / `0400`, read-only directories, or any equivalent permission-removal scheme to enforce behavior. The only allowed permission operation is making a test fixture or probe executable, such as `chmod +x` in test code; that is fixture setup, not control-by-permission.
+
+Directory permissions are fragile: a read-only parent prevents `git worktree add` from creating the leaf, breaks `rm -rf` cleanup, varies by OS/filesystem, and can fail silently enough to look like unrelated liveness drift. They are also redundant: runtime read-only and source immutability are enforced by process isolation, including codex `--sandbox read-only`, worktree isolation, and the engine's runtime-only-read source handling. The authority for control is isolation plus durable marker/CAS/saga facts, never file modes.
+
+Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree parent broke `sync_scan`'s `git worktree add`, stalled forward sync across a week's dev advance, left running code stale, and allowed recurrence of an already-fixed false-terminal class. 中文补充：整个系统不需要、也禁止用文件或目录权限来做行为控制；只依赖进程隔离、worktree 隔离、durable marker/CAS/saga 事实。⟦AI:FKST⟧
+
 ## 面向对象基本原则
 
 - **单一职责原则**：一个类应该只有一个发生变化的原因。
