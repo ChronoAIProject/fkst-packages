@@ -3,27 +3,8 @@ local error_facts = require("std.error_facts")
 
 function S.install(M)
 
-function M.error_fingerprint(error_class, queue, dept, message)
-  return error_facts.error_fingerprint(error_class, queue, dept, message)
-end
-
-function M.error_fact_fields(error_class, queue, dept, message, context)
-  local fields = {
-    "error_class=" .. error_facts.one_line(error_class or "unknown-error"),
-    "fingerprint=" .. M.error_fingerprint(error_class, queue, dept, message),
-  }
-  local source_ref = error_facts.source_ref_field(context and context.source_ref)
-  if source_ref ~= nil and source_ref ~= "" then
-    table.insert(fields, "source_ref=" .. source_ref)
-  end
-  if context and context.attempt ~= nil then
-    table.insert(fields, "attempt=" .. error_facts.one_line(context.attempt))
-  end
-  if context and context.terminal ~= nil then
-    table.insert(fields, "terminal=" .. tostring(context.terminal == true))
-  end
-  return fields
-end
+M.error_fingerprint = error_facts.error_fingerprint
+M.error_fact_fields = error_facts.error_fact_fields
 
 function M.error_class_from_message(message)
   local text = tostring(message or "")
@@ -44,32 +25,14 @@ function M.log_error_fact(level, dept, proposal_id, tag, error_class, queue, mes
   M.log_line(level or "error", dept, proposal_id, tag or "FAILURE", fields)
 end
 
-local function event_source_ref(event)
-  if type(event) == "table" and event.source_ref ~= nil then
-    return event.source_ref
-  end
+M.wrap_pipeline_failure = error_facts.pipeline_failure_wrapper(function(dept, event, err, context)
   local payload = type(event) == "table" and event.payload or nil
-  if type(payload) == "table" then
-    return payload.source_ref
-  end
-  return nil
-end
-
-function M.wrap_pipeline_failure(dept, fn)
-  return function(event)
-    local ok, err = pcall(fn, event)
-    if ok then
-      return err
-    end
-    local payload = type(event) == "table" and event.payload or nil
-    local proposal_id = type(payload) == "table" and payload.proposal_id or "unknown"
-    M.log_error_fact("error", dept, proposal_id, "FAILURE", M.error_class_from_message(err), type(event) == "table" and event.queue or nil, err, {
-      source_ref = event_source_ref(event),
-      attempt = type(event) == "table" and event.attempt or nil,
-    })
-    error(err, 0)
-  end
-end
+  local proposal_id = type(payload) == "table" and payload.proposal_id or "unknown"
+  M.log_error_fact("error", dept, proposal_id, "FAILURE", M.error_class_from_message(err), type(event) == "table" and event.queue or nil, err, {
+    source_ref = context.source_ref,
+    attempt = context.attempt,
+  })
+end)
 
 function M.log_line(level, dept, proposal_id, tag, fields)
   local parts = {

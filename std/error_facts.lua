@@ -44,4 +44,56 @@ function F.error_fingerprint(error_class, queue, dept, message)
   }, "|"))
 end
 
+function F.error_fact_fields(error_class, queue, dept, message, context)
+  local fields = {
+    "error_class=" .. F.one_line(error_class or "unknown-error"),
+    "fingerprint=" .. F.error_fingerprint(error_class, queue, dept, message),
+  }
+  local source_ref = F.source_ref_field(context and context.source_ref)
+  if source_ref ~= nil and source_ref ~= "" then
+    table.insert(fields, "source_ref=" .. source_ref)
+  end
+  if context and context.attempt ~= nil then
+    table.insert(fields, "attempt=" .. F.one_line(context.attempt))
+  end
+  if context and context.terminal ~= nil then
+    table.insert(fields, "terminal=" .. tostring(context.terminal == true))
+  end
+  return fields
+end
+
+function F.event_source_ref(event)
+  if type(event) == "table" and event.source_ref ~= nil then
+    return event.source_ref
+  end
+  local payload = type(event) == "table" and event.payload or nil
+  if type(payload) == "table" then
+    return payload.source_ref
+  end
+  return nil
+end
+
+function F.wrap_pipeline_failure(dept, fn, log_failure)
+  if type(log_failure) ~= "function" then
+    error("std.error_facts: log_failure callback is required")
+  end
+  return function(event)
+    local ok, err = pcall(fn, event)
+    if ok then
+      return err
+    end
+    log_failure(dept, event, err, {
+      source_ref = F.event_source_ref(event),
+      attempt = type(event) == "table" and event.attempt or nil,
+    })
+    error(err, 0)
+  end
+end
+
+function F.pipeline_failure_wrapper(log_failure)
+  return function(dept, fn)
+    return F.wrap_pipeline_failure(dept, fn, log_failure)
+  end
+end
+
 return F

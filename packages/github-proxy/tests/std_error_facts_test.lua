@@ -23,4 +23,73 @@ return {
     t.eq(facts.source_ref_field("raw\nref"), "raw ref")
     t.is_nil(facts.source_ref_field(nil))
   end,
+
+  test_error_fact_fields_include_delivery_context = function()
+    local fields = facts.error_fact_fields(
+      "gh-command-failed",
+      "github_issue_comment_request",
+      "github_comment",
+      "github-proxy: gh issue comment failed: gh-command-failed: bad sha abcdef1234567890 at 2026-06-10T01:02:03Z /tmp/fkst-a",
+      {
+        source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+        attempt = 2,
+        terminal = false,
+      }
+    )
+
+    t.eq(fields[1], "error_class=gh-command-failed")
+    t.eq(fields[2], "fingerprint=" .. facts.error_fingerprint(
+      "gh-command-failed",
+      "github_issue_comment_request",
+      "github_comment",
+      "github-proxy: gh issue comment failed: gh-command-failed: bad sha fedcba0987654321 at 2026-07-11T09:08:07Z /tmp/fkst-b"
+    ))
+    t.eq(fields[3], "source_ref=external:owner/repo#issue/42")
+    t.eq(fields[4], "attempt=2")
+    t.eq(fields[5], "terminal=false")
+  end,
+
+  test_event_source_ref_prefers_event_then_payload = function()
+    local event_ref = { kind = "external", ref = "owner/repo#issue/42" }
+    local payload_ref = { kind = "external", ref = "owner/repo#issue/43" }
+
+    t.eq(facts.event_source_ref({
+      source_ref = event_ref,
+      payload = { source_ref = payload_ref },
+    }), event_ref)
+    t.eq(facts.event_source_ref({ payload = { source_ref = payload_ref } }), payload_ref)
+    t.is_nil(facts.event_source_ref({ payload = "not-a-table" }))
+  end,
+
+  test_wrap_pipeline_failure_logs_delivery_context_and_rethrows = function()
+    local captured = {}
+    local wrapped = facts.wrap_pipeline_failure("github_pr_open", function(_event)
+      error("github-proxy: gh-pr-create-failed: bad sha abcdef1234567890")
+    end, function(dept, event, err, context)
+      table.insert(captured, {
+        dept = dept,
+        queue = event.queue,
+        err = tostring(err),
+        context = context,
+      })
+    end)
+
+    local ok, err = pcall(function()
+      wrapped({
+        queue = "github_pr_open_request",
+        attempt = 5,
+        payload = {
+          source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+        },
+      })
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("gh-pr-create-failed", 1, true) ~= nil)
+    t.eq(#captured, 1)
+    t.eq(captured[1].dept, "github_pr_open")
+    t.eq(captured[1].queue, "github_pr_open_request")
+    t.eq(facts.source_ref_field(captured[1].context.source_ref), "external:owner/repo#issue/42")
+    t.eq(captured[1].context.attempt, 5)
+  end,
 }
