@@ -78,6 +78,8 @@ local function self_current(extra)
     assignees = fields.assignees or {},
     title = fields.title or "Implement fork isolation",
     state = fields.state or "OPEN",
+    updated_at = fields.updated_at,
+    labels = fields.labels or {},
     author_login = fields.author_login or "fkst-test-bot",
     comments = fields.comments or {},
   }
@@ -129,6 +131,51 @@ return {
 
     t.eq(ok, true)
     t.eq(count_calls("gh issue edit"), 0)
+  end,
+
+  test_acquired_claim_can_emit_autonomy_attempt_denominator = function()
+    mock_bot("fkst-test-bot", "")
+
+    local emitted, raised = capture_raises(function()
+      return core.emit_autonomy_attempt("claim_contract", "owner/repo", 42, self_current({
+        updated_at = "2026-06-03T01:02:03Z",
+        title = "fix scheduler regression",
+        labels = { "fkst-avm:L3" },
+      }), "github-devloop/issue/owner/repo/42")
+    end)
+
+    t.eq(emitted, true)
+    t.eq(#raised, 1)
+    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
+    t.is_true(raised[1].payload.body:find("fkst:github-devloop:autonomy-attempt:v1", 1, true) ~= nil)
+    t.eq(raised[1].payload.dedup_key, core._dedup_key({
+      "autonomy-attempt",
+      "github-devloop/issue/owner/repo/42",
+      "2026-06-03T01:02:03Z",
+      "fkst-test-bot",
+    }))
+  end,
+
+  test_existing_autonomy_attempt_marker_suppresses_duplicate_claim_event = function()
+    mock_bot("fkst-test-bot", "")
+    local attempt = core.autonomy_attempt_marker(core.autonomy_attempt_record("owner/repo", 42, {
+      updated_at = "2026-06-03T01:02:03Z",
+    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z"))
+
+    local emitted, raised = capture_raises(function()
+      return core.emit_autonomy_attempt("claim_contract", "owner/repo", 42, self_current({
+        comments = {
+          {
+            body = attempt,
+            author_login = "fkst-test-bot",
+          },
+        },
+        updated_at = "2026-06-03T01:02:03Z",
+      }), "github-devloop/issue/owner/repo/42")
+    end)
+
+    t.eq(emitted, false)
+    t.eq(#raised, 0)
   end,
 
   test_claim_assigns_then_verifies_self_only_winner = function()

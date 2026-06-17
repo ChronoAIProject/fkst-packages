@@ -83,6 +83,13 @@ local function find_comment_body(raises, needle)
   return nil
 end
 
+local function assert_autonomy_attempt_raise(raises, proposal_id)
+  local attempt = find_comment_body(raises, "fkst:github-devloop:autonomy-attempt:v1")
+  t.is_true(attempt ~= nil)
+  t.is_true(attempt.body:find('proposal="' .. tostring(proposal_id) .. '"', 1, true) ~= nil)
+  t.is_true(attempt.body:find('source_ref="owner/repo#issue/42"', 1, true) ~= nil)
+end
+
 local function find_label_add(raises, label)
   for _, raised in ipairs(raises or {}) do
     if raised.queue == "github-proxy.github_issue_label_request" then
@@ -353,10 +360,11 @@ return {
 
     local result = run_scan(opts("intake-scan-filter"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
+    t.eq(#result.raises, 2)
     t.eq(result.raises[1].queue, "devloop_intake_candidate")
     t.eq(result.raises[1].payload.issue_number, "42")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")
+    assert_autonomy_attempt_raise(result.raises, "github-devloop/issue/owner/repo/42")
   end,
 
   test_scan_reintake_requeues_issue_with_trusted_intake_marker = function()
@@ -372,7 +380,7 @@ return {
 
     local result = run_scan(opts("intake-scan-reintake"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
+    t.eq(#result.raises, 2)
     t.eq(result.raises[1].queue, "devloop_intake_candidate")
     t.eq(result.raises[1].payload.issue_number, "42")
     local expected_effect = expected_scan_effect_key(proposal_id, nil, command)
@@ -380,6 +388,7 @@ return {
     t.eq(result.raises[1].payload.reintake_command_created_at, command.created_at)
     t.is_true(result.raises[1].payload.dedup_key ~= core.intake_dedup_key(proposal_id, "2026-06-03T01:02:03Z"))
     t.is_true(result.raises[1].payload.dedup_key:find("intake%-candidate/github%-devloop/issue/owner/repo/42", 1, false) ~= nil)
+    assert_autonomy_attempt_raise(result.raises, proposal_id)
   end,
 
   test_scan_reintake_without_prior_intake_marker_refuses = function()
@@ -446,8 +455,9 @@ return {
 
     local result = run_scan(opts("intake-scan-forged"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
+    t.eq(#result.raises, 2)
     t.eq(result.raises[1].payload.issue_number, "42")
+    assert_autonomy_attempt_raise(result.raises, "github-devloop/issue/owner/repo/42")
   end,
 
   test_judge_positive_writes_comment_and_enabled_label = function()

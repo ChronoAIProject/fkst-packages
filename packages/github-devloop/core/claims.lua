@@ -99,6 +99,20 @@ local function log_claim(dept, proposal_id, action, reason)
   M.log_cas_decision(dept, proposal_id, { state = nil, version = nil }, "claim", "claim", action, reason)
 end
 
+function M.emit_autonomy_attempt(dept, repo, issue_number, current, proposal_id)
+  local request = M.build_autonomy_attempt_comment_request(
+    repo,
+    issue_number,
+    current,
+    proposal_id,
+    M.issue_source_ref(repo, issue_number)
+  )
+  if request ~= nil then
+    M.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", request)
+  end
+  return request ~= nil
+end
+
 function M.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue, proposal_id)
   if issue_number == nil then
     log_claim(dept, proposal_id, "skip-not-owned", "backing issue is absent")

@@ -531,6 +531,7 @@ local function process_issue_event(event)
     core.log_raise("observe_issue", proposal_id, "consensus.proposal", proposal)
     core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
     core.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", label_request)
+    core.emit_autonomy_attempt("observe_issue", issue.repo, issue.number, current, proposal_id)
   end)
 end
 

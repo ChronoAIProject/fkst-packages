@@ -11,6 +11,74 @@ local function mock_check_runs(json)
 end
 
 return {
+  test_autonomy_attempt_marker_is_canonical_claim_denominator = function()
+    local record = core.autonomy_attempt_record("owner/repo", 42, {
+      title = "fix scheduler regression",
+      updated_at = "2026-06-03T01:02:03Z",
+      labels = { "fkst-avm:L3" },
+    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z")
+
+    local marker = core.autonomy_attempt_marker(record)
+    t.is_true(marker:find("fkst:github-devloop:autonomy-attempt:v1", 1, true) ~= nil)
+    t.is_true(marker:find('attempt_id="' .. core.autonomy_attempt_id("owner/repo", 42, "fkst-test-bot", "2026-06-03T01:02:03Z") .. '"', 1, true) ~= nil)
+    t.is_true(marker:find('task_class="L3"', 1, true) ~= nil)
+
+    local fact = core.autonomy_attempt_denominator_fact({
+      {
+        body = marker,
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:03:04Z",
+      },
+    }, "github-devloop/issue/owner/repo/42")
+
+    t.eq(fact.attempt_id, core.autonomy_attempt_id("owner/repo", 42, "fkst-test-bot", "2026-06-03T01:02:03Z"))
+    t.eq(fact.repo, "owner/repo")
+    t.eq(fact.issue_number, 42)
+    t.eq(fact.worker_id, "fkst-test-bot")
+    t.eq(fact.terminal, "pending")
+  end,
+
+  test_autonomy_attempt_fact_ignores_forged_comments = function()
+    local record = core.autonomy_attempt_record("owner/repo", 42, {
+      updated_at = "2026-06-03T01:02:03Z",
+    }, "github-devloop/issue/owner/repo/42", "fkst-test-bot", "2026-06-03T01:03:04Z")
+    local marker = core.autonomy_attempt_marker(record)
+
+    local fact = core.autonomy_attempt_fact({
+      {
+        body = marker,
+        author_login = "mallory",
+      },
+    }, "github-devloop/issue/owner/repo/42")
+
+    t.eq(fact, nil)
+  end,
+
+  test_autonomy_attempt_denominator_terminalizes_timeout = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/timeout/ready/3"
+    local record = core.autonomy_attempt_record("owner/repo", 42, {
+      updated_at = "2026-06-03T01:02:03Z",
+    }, proposal_id, "fkst-test-bot", "2026-06-03T01:03:04Z")
+    local comments = {
+      {
+        body = core.autonomy_attempt_marker(record),
+        author_login = "fkst-test-bot",
+      },
+      {
+        body = core.state_marker(proposal_id, "blocked", version),
+        author_login = "fkst-test-bot",
+      },
+      {
+        body = core.timeout_attempt_marker(proposal_id, version, "blocked", 3, core.issue_source_ref("owner/repo", 42)),
+        author_login = "fkst-test-bot",
+      },
+    }
+
+    local fact = core.autonomy_attempt_denominator_fact(comments, proposal_id)
+    t.eq(fact.terminal, "timeout")
+  end,
+
   test_valid_autonomous_merge_stays_pending_until_all_required_gates_pass = function()
     local gates = {
       human_touch = "pass",

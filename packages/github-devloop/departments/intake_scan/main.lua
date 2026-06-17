@@ -56,6 +56,7 @@ local function handle_pending_reintake(repo, issue, current, proposal_id)
     "devloop_intake_candidate",
   })
   core.log_raise("intake_scan", proposal_id, "devloop_intake_candidate", payload)
+  core.emit_autonomy_attempt("intake_scan", repo, issue.number, current, proposal_id)
   return true
 end
 
@@ -111,6 +112,7 @@ function pipeline(event)
           "devloop_intake_candidate",
         })
         core.log_raise("intake_scan", proposal_id, "devloop_intake_candidate", payload)
+        core.emit_autonomy_attempt("intake_scan", repo, issue_number, current, proposal_id)
       end
     end
   end
