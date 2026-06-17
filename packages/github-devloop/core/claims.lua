@@ -29,16 +29,40 @@ function M.assignee_logins(value)
   return logins
 end
 
+-- Single source for the claim owner: normalize the configured bot login so all
+-- downstream comparisons get the bare slug regardless of whether the deployment
+-- configured "<slug>" or "<slug>[bot]". No-op for ordinary user logins.
 function M.claim_owner()
-  return M.assert_trusted_bot_configured() or M.trusted_bot_login()
+  return M.strip_bot_login_suffix(M.assert_trusted_bot_configured() or M.trusted_bot_login())
 end
 
-function M.issue_claim_state(assignees, owner)
+local claimed_label = "fkst-dev:claimed"
+
+function M.claimed_label()
+  return claimed_label
+end
+
+-- assignee (default) ⇒ exactly today's behavior. label ⇒ opt-in GitHub App mode.
+function M.claim_mode_active()
+  return M.claim_mode()
+end
+
+-- assignee-mode (default): ownership is the current single self-assignee.
+-- label-mode (opt-in): ownership is the presence of the fkst-dev:claimed label.
+-- labels is optional/extra and ignored in assignee-mode, so existing 2-arg
+-- callers keep byte-for-byte behavior.
+function M.issue_claim_state(assignees, owner, labels)
+  if M.claim_mode() == "label" then
+    if M.has_label(labels, claimed_label) then
+      return "self"
+    end
+    return "unassigned"
+  end
   local logins = M.assignee_logins(assignees)
   if #logins == 0 then
     return "unassigned"
   end
-  if #logins == 1 and logins[1] == tostring(owner or "") then
+  if #logins == 1 and M.strip_bot_login_suffix(logins[1]) == tostring(owner or "") then
     return "self"
   end
   return "other"
@@ -48,7 +72,7 @@ function M.is_self_owned_issue(ownership, owner)
   if type(ownership) ~= "table" then
     return false
   end
-  local claim_state = M.issue_claim_state(ownership.assignees, owner)
+  local claim_state = M.issue_claim_state(ownership.assignees, owner, ownership.labels)
   if claim_state == "self" then
     return true
   end
@@ -56,7 +80,11 @@ function M.is_self_owned_issue(ownership, owner)
     return false
   end
   -- Unassigned+self-author is intentional for fork-and-block isolation: a different bot login sees author!=self and skips.
-  return M.issue_author_login(ownership) == tostring(owner or "")
+  local author = M.issue_author_login(ownership)
+  if author == nil then
+    return false
+  end
+  return M.strip_bot_login_suffix(author) == tostring(owner or "")
 end
 
 function M.gh_issue_assign_cmd(repo, issue_number, login)
@@ -71,16 +99,51 @@ function M.gh_issue_unassign_cmd(repo, issue_number, login)
     .. " --remove-assignee " .. M._shell_single_quote(login)
 end
 
+-- label-mode claim/unclaim: a GitHub App can add/remove a label even though it
+-- cannot be an issue assignee.
+function M.gh_issue_add_claim_label_cmd(repo, issue_number)
+  return "gh issue edit " .. M._shell_single_quote(issue_number)
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --add-label " .. M._shell_single_quote(claimed_label)
+end
+
+function M.gh_issue_remove_claim_label_cmd(repo, issue_number)
+  return "gh issue edit " .. M._shell_single_quote(issue_number)
+    .. " --repo " .. M._shell_single_quote(repo)
+    .. " --remove-label " .. M._shell_single_quote(claimed_label)
+end
+
+-- label-mode needs labels in the claim view; assignee-mode keeps the existing
+-- assignees,author projection unchanged.
+function M.gh_issue_view_claim_ownership_cmd(repo, issue_number)
+  if M.claim_mode() == "label" then
+    return M.gh_issue_view_cmd(repo, issue_number, "assignees,author,labels")
+  end
+  return M.gh_issue_view_claim_cmd(repo, issue_number)
+end
+
 function M.read_current_issue_assignees(repo, issue_number)
   local ownership = M.read_current_issue_ownership(repo, issue_number)
   return M.assignee_logins(ownership and ownership.assignees)
+end
+
+local function decoded_label_names(decoded)
+  local labels = {}
+  for _, label in ipairs((decoded and decoded.labels) or {}) do
+    if type(label) == "table" and label.name ~= nil then
+      table.insert(labels, tostring(label.name))
+    elseif type(label) == "string" then
+      table.insert(labels, label)
+    end
+  end
+  return labels
 end
 
 function M.read_current_issue_ownership(repo, issue_number)
   if issue_number == nil then
     return nil
   end
-  local view = M.gh_exec({ cmd = M.gh_issue_view_claim_cmd(repo, issue_number), timeout = 30 })
+  local view = M.gh_exec({ cmd = M.gh_issue_view_claim_ownership_cmd(repo, issue_number), timeout = 30 })
   if view.exit_code ~= 0 then
     error("github-devloop: gh issue claim view failed: " .. tostring(view.stderr))
   end
@@ -88,11 +151,13 @@ function M.read_current_issue_ownership(repo, issue_number)
   return {
     assignees = M.assignee_logins(decoded.assignees),
     author_login = M.issue_author_login(decoded),
+    labels = decoded_label_names(decoded),
   }
 end
 
 function M.verify_issue_claim(repo, issue_number, owner)
-  return M.issue_claim_state(M.read_current_issue_assignees(repo, issue_number), owner) == "self"
+  local ownership = M.read_current_issue_ownership(repo, issue_number)
+  return M.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels) == "self"
 end
 
 local function log_claim(dept, proposal_id, action, reason)
@@ -106,9 +171,16 @@ function M.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue,
   end
   local owner = M.claim_owner()
   local ownership = nil
-  if type(current_issue) == "table"
-    and current_issue.assignees ~= nil
-    and M.issue_author_login(current_issue) ~= nil then
+  local current_usable
+  if M.claim_mode() == "label" then
+    -- label-mode ownership is derived from the labels projection.
+    current_usable = type(current_issue) == "table" and current_issue.labels ~= nil
+  else
+    current_usable = type(current_issue) == "table"
+      and current_issue.assignees ~= nil
+      and M.issue_author_login(current_issue) ~= nil
+  end
+  if current_usable then
     ownership = current_issue
   else
     ownership = M.read_current_issue_ownership(repo, issue_number)
@@ -116,7 +188,7 @@ function M.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue,
   if M.is_self_owned_issue(ownership, owner) then
     return true
   end
-  local status = M.issue_claim_state(ownership and ownership.assignees, owner)
+  local status = M.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels)
   if status == "other" then
     log_claim(dept, proposal_id, "skip-claimed-by-other", "backing issue assignee claim is held by another login")
   else
@@ -173,7 +245,7 @@ end
 
 function M.claim_issue_for_management(dept, repo, issue_number, current, proposal_id)
   local owner = M.claim_owner()
-  local status = M.issue_claim_state(current and current.assignees, owner)
+  local status = M.issue_claim_state(current and current.assignees, owner, current and current.labels)
   if status == "self" then
     return true
   end
@@ -187,6 +259,7 @@ function M.claim_issue_for_management(dept, repo, issue_number, current, proposa
     log_claim(dept, proposal_id, "skip-fork-author-unknown", "issue author is missing or unknown")
     return false
   end
+  author = M.strip_bot_login_suffix(author)
   if author ~= owner then
     local dedup_key = M.fork_issue_dedup_key(repo, issue_number)
     if M.has_trusted_issue_create_parent_marker(current and current.comments, dedup_key, owner) then
@@ -216,6 +289,26 @@ function M.claim_issue_for_management(dept, repo, issue_number, current, proposa
   if M.read_env("FKST_GITHUB_WRITE") ~= "1" then
     log_claim(dept, proposal_id, "dry-run-claim", "FKST_GITHUB_WRITE!=1")
     return true
+  end
+
+  if M.claim_mode() == "label" then
+    local claimed = M.gh_exec({ cmd = M.gh_issue_add_claim_label_cmd(repo, issue_number), timeout = 30 })
+    if claimed.exit_code ~= 0 then
+      error("github-devloop: gh issue edit add claim label failed: " .. tostring(claimed.stderr))
+    end
+    M.invalidate_entity_after_write(repo, "issue", issue_number)
+    if M.verify_issue_claim(repo, issue_number, owner) then
+      log_claim(dept, proposal_id, "claim-won", "label claim verified after add-label")
+      return true
+    end
+
+    local unclaimed = M.gh_exec({ cmd = M.gh_issue_remove_claim_label_cmd(repo, issue_number), timeout = 30 })
+    if unclaimed.exit_code ~= 0 then
+      error("github-devloop: gh issue edit remove claim label failed: " .. tostring(unclaimed.stderr))
+    end
+    M.invalidate_entity_after_write(repo, "issue", issue_number)
+    log_claim(dept, proposal_id, "claim-lost", "label claim lost after add-label verification")
+    return false
   end
 
   local assigned = M.gh_exec({ cmd = M.gh_issue_assign_cmd(repo, issue_number, owner), timeout = 30 })
@@ -251,6 +344,16 @@ end
 
 function M.attach_issue_claim(payload, source_ref)
   if type(payload) ~= "table" then
+    return payload
+  end
+  -- github-proxy's pre-write guard verifies the attached claim against the
+  -- issue's ASSIGNEES. In label-mode the owner is a GitHub App, which holds the
+  -- fkst-dev:claimed label but is never an assignee, so an attached assignee
+  -- claim would always read as "lost" and block every write. Ownership in
+  -- label-mode is instead verified at claim time (claim_issue_for_management),
+  -- so skip attaching the assignee claim and let github-proxy's no-claim path
+  -- proceed. Assignee-mode is unchanged.
+  if M.claim_mode() == "label" then
     return payload
   end
   payload.claim = M.claim_required_payload(source_ref or payload.source_ref)

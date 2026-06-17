@@ -3,6 +3,7 @@ local S = {}
 function S.install(M)
 local allowed_env = {
   FKST_GITHUB_BOT_LOGIN = true,
+  FKST_GITHUB_CLAIM_MODE = true,
   FKST_GITHUB_REPO = true,
   FKST_GITHUB_WRITE = true,
   FKST_DEVLOOP_UPSTREAM_BRANCH = true,
@@ -71,6 +72,19 @@ end
 
 function M.write_mode(exec)
   return M.read_env("FKST_GITHUB_WRITE", exec) == "1" and "real" or "dry-run"
+end
+
+-- Claim mode is opt-in and additive: the default (unset/empty/unknown) is
+-- "assignee", which is byte-for-byte today's behavior. "label" opts into
+-- holding ownership via the fkst-dev:claimed label, which a GitHub App can set
+-- even though an App cannot be an issue assignee.
+function M.claim_mode(exec)
+  local raw = M.read_env("FKST_GITHUB_CLAIM_MODE", exec)
+  raw = M._trim(raw or "")
+  if raw == "label" then
+    return "label"
+  end
+  return "assignee"
 end
 
 function M.max_inflight(exec)
