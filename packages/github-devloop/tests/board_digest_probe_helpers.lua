@@ -4,49 +4,8 @@ local M = {}
 
 M.spec = {
   consumes = { "board_digest_probe" },
+  produces = { "board_digest_result" },
 }
-
-local function lua_quote(value)
-  return string.format("%q", tostring(value or ""))
-end
-
-local function lua_literal(value)
-  local kind = type(value)
-  if kind == "nil" then
-    return "nil"
-  end
-  if kind == "boolean" or kind == "number" then
-    return tostring(value)
-  end
-  if kind == "string" then
-    return lua_quote(value)
-  end
-  if kind ~= "table" then
-    error("github-devloop test probe: unsupported result field type")
-  end
-  local parts = {}
-  local index = 1
-  for key, field in pairs(value) do
-    if key == index then
-      table.insert(parts, lua_literal(field))
-      index = index + 1
-    else
-      table.insert(parts, "[" .. lua_literal(key) .. "]=" .. lua_literal(field))
-    end
-  end
-  return "{" .. table.concat(parts, ",") .. "}"
-end
-
-local function write_result(path, payload)
-  if path == nil or tostring(path) == "" then
-    error("github-devloop test probe: missing result path")
-  end
-  file.write(path, "return " .. lua_literal(payload) .. "\n")
-end
-
-local function finish(event_payload, payload)
-  write_result(event_payload.result_path, payload)
-end
 
 function M.run(payload)
   if payload.mode == "block" then
@@ -112,7 +71,7 @@ end
 
 function pipeline(event)
   local payload = event.payload or {}
-  finish(payload, M.run(payload))
+  raise("board_digest_result", M.run(payload))
 end
 
 M.pipeline = pipeline

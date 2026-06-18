@@ -1,5 +1,4 @@
 local h = require("tests.devloop_helpers")
-require("tests.cache_seed_helpers")
 local t = h.t
 local core = h.core
 local opts = h.opts
