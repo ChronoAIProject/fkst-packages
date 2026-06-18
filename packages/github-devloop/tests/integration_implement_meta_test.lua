@@ -110,6 +110,25 @@ local function assert_implement_attempt(raises, event, attempt)
   t.is_true(comment_raise.payload.body:find('attempt="' .. tostring(attempt or 1) .. '"', 1, true) ~= nil)
 end
 
+local function find_label_with_added(raises, label)
+  return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
+    for _, added in ipairs(payload.add_labels or {}) do
+      if tostring(added) == tostring(label) then
+        return true
+      end
+    end
+    return false
+  end)
+end
+
+local function assert_worktree_ready_state(raises, event)
+  local comment_raise = find_comment_with(raises, "github-devloop implementation worktree ready")
+  t.is_true(comment_raise ~= nil)
+  t.is_true(comment_raise.payload.body:find(core.state_marker(event.proposal_id, "implementing", event.dedup_key), 1, true) ~= nil)
+  t.eq(core.implementing_fact({ comment_raise.payload.body }, event.proposal_id, event.dedup_key), nil)
+  t.is_true(find_label_with_added(raises, "fkst-dev:implementing") ~= nil)
+end
+
 return {
   test_implement_ready_label_only_empty_comments_does_not_synthesize_marker = function()
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
@@ -181,9 +200,10 @@ return {
 
     local result = run_implement(event, opts("implement-codex-failure"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    assert_worktree_ready_state(result.raises, event)
+    local label_raise = find_label_with_added(result.raises, "fkst-dev:impl-failed")
     local comment_raise = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:impl-failed")
     t.eq(#label_raise.payload.remove_labels, 11)
@@ -208,8 +228,9 @@ return {
 
     local result = run_implement(event, opts("implement-failure-marker-injection"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
+    assert_worktree_ready_state(result.raises, event)
     local comment_raise = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
     t.is_true(comment_raise.payload.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(comment_raise.payload.body:find(forged, 1, true) == nil, true)
@@ -272,9 +293,10 @@ return {
 
     local result = run_implement(event, opts("implement-existing-branch-reuse"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    assert_worktree_ready_state(result.raises, event)
+    t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     local comment = find_comment_with(result.raises, "fkst:github-devloop:implementing:v1").payload.body
     local fact = core.implementing_fact({ comment }, event.proposal_id, event.dedup_key)
     t.eq(fact.branch, branch)
@@ -308,8 +330,9 @@ return {
 
     local result = run_implement(event, opts("implement-boundary-worktree"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
+    assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
     t.eq(count_calls("git worktree list"), 0)
     t.eq(count_calls("codex exec"), 1)
@@ -329,9 +352,10 @@ return {
 
     local result = run_implement(event, opts("implement-no-changes"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:impl-failed")
+    assert_worktree_ready_state(result.raises, event)
+    t.eq(find_label_with_added(result.raises, "fkst-dev:impl-failed").payload.add_labels[1], "fkst-dev:impl-failed")
     local comment_raise = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
     t.is_true(comment_raise.payload.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("No files needed changes.", 1, true) ~= nil)
@@ -357,9 +381,10 @@ return {
 
     local result = run_implement(event, opts("implement-clean-ahead"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    assert_worktree_ready_state(result.raises, event)
+    t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     local comment = find_comment_with(result.raises, "fkst:github-devloop:implementing:v1").payload.body
     local fact = core.implementing_fact({ comment }, event.proposal_id, event.dedup_key)
     t.eq(fact.branch, branch)
@@ -384,9 +409,10 @@ return {
 
     local result = run_implement(event, opts("implement-existing-empty-branch-no-changes"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:impl-failed")
+    assert_worktree_ready_state(result.raises, event)
+    t.eq(find_label_with_added(result.raises, "fkst-dev:impl-failed").payload.add_labels[1], "fkst-dev:impl-failed")
     local comment_raise = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
     t.is_true(comment_raise.payload.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
     t.eq(count_calls("git worktree add"), 1)
@@ -413,9 +439,10 @@ return {
 
     local result = run_implement(event, opts("implement-existing-worktree-reuse"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    assert_worktree_ready_state(result.raises, event)
+    t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     local comment = find_comment_with(result.raises, "fkst:github-devloop:implementing:v1").payload.body
     local fact = core.implementing_fact({ comment }, event.proposal_id, event.dedup_key)
     t.eq(fact.branch, branch)
@@ -447,8 +474,9 @@ return {
 
     local result = run_implement(event, opts("implement-dirty-worktree-reuse"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
+    assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
     t.eq(count_calls("reset --hard"), 1)
     t.eq(count_calls("clean -fd"), 1)
@@ -487,8 +515,9 @@ return {
 
     local result = run_implement(event, opts("implement-ignore-outside-runtime-worktree"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
+    assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
     t.eq(count_calls("git worktree add"), 1)
     -- 2 = removing the one non-current-runtime stale worktree, plus the idempotent
@@ -527,8 +556,9 @@ return {
 
     local result = run_implement(event, opts("implement-remove-all-outside-runtime-worktrees"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, event)
+    assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
     -- 3 = removing the two non-current-runtime stale worktrees, plus the idempotent
     -- force-clean of the target path before `git worktree add` (#677).
@@ -597,9 +627,10 @@ return {
 
     local visible = run_implement(ready(), opts("implement-ready-visible"))
     t.eq(visible.exit_code, 0)
-    t.eq(#visible.raises, 5)
+    t.eq(#visible.raises, 6)
     assert_implement_attempt(visible.raises, ready())
-    t.eq(find_raise(visible.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    assert_worktree_ready_state(visible.raises, ready())
+    t.eq(find_label_with_added(visible.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     assert_open_pr_kickoff(visible.raises, ready(), branch, "def456")
     t.eq(count_calls("codex exec"), 1)
   end,
@@ -723,8 +754,9 @@ return {
 
     local result = run_implement(event, opts("implement-durable-ready-hand-off-marker-pending"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    t.eq(#result.raises, 6)
+    assert_worktree_ready_state(result.raises, event)
+    t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
     t.eq(count_calls("repos/owner/repo/issues/comments/IC_ready_1"), 1)
     t.eq(count_calls("codex exec"), 1)
@@ -757,9 +789,10 @@ return {
 
     local result = run_implement(redrive, opts("implement-ready-redrive-original-hand-off"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 6)
     assert_implement_attempt(result.raises, redrive)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    assert_worktree_ready_state(result.raises, redrive)
+    t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     assert_open_pr_kickoff(result.raises, redrive, branch, "def456")
     t.eq(count_calls("repos/owner/repo/issues/comments/IC_ready_original"), 1)
     t.eq(count_calls("codex exec"), 1)
