@@ -236,6 +236,7 @@ cmd_check() {
   python3 -B "$ROOT/scripts/board_test.py" || fail=1
   python3 -B "$ROOT/scripts/doctor_test.py" || fail=1
   python3 -B "$ROOT/scripts/ratchet_migration_slicer_test.py" || fail=1
+  python3 -B "$ROOT/scripts/workflow_contract_test.py" || fail=1
   if ! competence_base_ref="$(competence_gate_base_ref)"; then
     echo "error: competence gate requires FKST_COMPETENCE_BASE_REF, GITHUB_BASE_REF, or an integration ref" >&2
     fail=1
