@@ -1,5 +1,5 @@
 local S = {}
-local registry = require("core.registry")
+local registry = require("std.registry")
 local strings = require("std.strings")
 
 function S.install(M)
@@ -149,7 +149,7 @@ local function integration_or_external_red(pr, head_sha, runs)
   return ci_classification("EXTERNAL_CI_RED", "external-ci-red", { check_runs = runs })
 end
 
-local merge_gate_reason_classes = registry.load_indexed_map("core.merge_gate.reason_classes.index", "reason")
+local merge_gate_reason_classes = registry.load_indexed_map("core.merge_gate.reason_classes.index", "reason", nil, nil, "github-devloop")
 
 local function merge_gate_reason_row(reason)
   local text = tostring(reason or "")
