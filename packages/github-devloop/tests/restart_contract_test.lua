@@ -62,7 +62,7 @@ end
 local function marker_builder_paths()
   return {
     "packages/github-devloop/core/state.lua",
-    "packages/github-devloop/core/markers.lua",
+    "packages/github-devloop/core/markers/builders.lua",
     "packages/github-devloop/core/autonomy_ledger.lua",
     "packages/github-devloop/core/impl_failure.lua",
     "packages/github-devloop/core/convergence.lua",
