@@ -28,6 +28,15 @@ local function render_comment(body)
   )
 end
 
+local function trusted_comment(id, body)
+  return {
+    id = id,
+    body = body,
+    author = { login = "fkst-test-bot" },
+    created_at = "2026-06-03T01:00:00Z",
+  }
+end
+
 local function issue_comments_json(comments)
   local rendered = {}
   for _, comment in ipairs(comments or {}) do
@@ -146,6 +155,13 @@ local function run_observe()
   }, h.opts("ready-split-regression-observe"))
 end
 
+local function run_observe_with_issue(event)
+  return t.run_department("departments/observe_issue/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = event,
+  }, h.opts("ready-split-regression-observe-visible"))
+end
+
 local function run_implement(payload)
   return t.run_department("departments/implement/main.lua", {
     queue = "devloop_ready",
@@ -180,6 +196,56 @@ local function marker_body(raises, needle)
 end
 
 return {
+  test_ready_hand_off_comment_id_requires_trusted_visible_ready_marker = function()
+    local marker = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
+    t.eq(core.ready_hand_off_comment_id({
+      trusted_comment("IC_ready_1", marker),
+    }, proposal_id, version), "IC_ready_1")
+    t.eq(core.ready_hand_off_comment_id({
+      {
+        id = "IC_forged",
+        body = marker,
+        author = { login = "not-the-bot" },
+      },
+    }, proposal_id, version), nil)
+    t.eq(core.ready_hand_off_comment_id({
+      trusted_comment("IC_missing_effects", core.state_marker(proposal_id, "ready", version)),
+    }, proposal_id, version), nil)
+  end,
+
+  test_ready_redrive_with_visible_marker_carries_handoff_and_distinct_generation = function()
+    local marker = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
+    mock_observe_issue({ "fkst-dev:enabled", "fkst-dev:ready" }, {
+      trusted_comment("IC_ready_visible", marker),
+    })
+    mock_blocked_by(42, {})
+
+    local result = run_observe_with_issue(h.issue())
+    t.eq(result.exit_code, 0)
+    local ready = find_raise(result.raises, "devloop_ready")
+    t.is_true(ready ~= nil)
+    t.eq(ready.payload.ready_hand_off.comment_id, "IC_ready_visible")
+    t.eq(ready.payload.ready_hand_off.marker_version, version)
+    t.eq(ready.payload.ready_hand_off.event_version, ready.payload.dedup_key)
+    t.is_true(ready.payload.dedup_key ~= core.build_devloop_ready_payload({
+      proposal_id = proposal_id,
+      dedup_key = version,
+      source_ref = source_ref(),
+    }).dedup_key)
+    t.is_true(ready.payload.dedup_key:find("/redrive/ready/1", 1, true) ~= nil)
+  end,
+
+  test_ready_redrive_without_visible_ready_marker_fails_closed = function()
+    mock_observe_issue({ "fkst-dev:enabled", "fkst-dev:ready" }, {
+      core.state_marker(proposal_id, "ready", version),
+    })
+    mock_blocked_by(42, {})
+
+    local result = run_observe_with_issue(h.issue())
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+  end,
+
   test_implement_backstop_split_generation_uses_inner_ready_version = function()
     local split_version = core.ready_split_version(version)
     local ready = ready_at(split_version)
