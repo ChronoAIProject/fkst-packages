@@ -110,6 +110,36 @@ local function assert_implement_attempt(raises, event, attempt)
   t.is_true(comment_raise.payload.body:find('attempt="' .. tostring(attempt or 1) .. '"', 1, true) ~= nil)
 end
 
+local function with_implement_attempt_hand_off(event, attempt, comment_id)
+  local copy = {}
+  for key, value in pairs(event) do
+    copy[key] = value
+  end
+  copy.implement_attempt_hand_off = {
+    kind = "own-implement-attempt-marker",
+    proposal_id = event.proposal_id,
+    marker_version = event.dedup_key,
+    event_version = event.dedup_key,
+    attempt = attempt or 1,
+    comment_id = comment_id or "IC_attempt_1",
+  }
+  return copy
+end
+
+local function mock_implement_attempt_comment_get(event, attempt, comment_id)
+  t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/" .. tostring(comment_id or "IC_attempt_1") .. "'", {
+    stdout = '{"body":"' .. json_string(core.implement_attempt_marker(event.proposal_id, event.dedup_key, attempt or 1, "123")) .. '","user":{"login":"fkst-test-bot"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function acked_attempt_event(event, attempt, comment_id)
+  local acked = with_implement_attempt_hand_off(event, attempt or 1, comment_id or "IC_attempt_1")
+  mock_implement_attempt_comment_get(acked, attempt or 1, comment_id or "IC_attempt_1")
+  return acked
+end
+
 return {
   test_implement_ready_label_only_empty_comments_does_not_synthesize_marker = function()
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
@@ -138,7 +168,7 @@ return {
   end,
 
   test_implement_fork_ready_rechecks_closed_origin_before_work = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     mock_issue_implement({ "fkst-dev:ready" }, {
       core.state_marker(event.proposal_id, "ready", event.dedup_key),
       core.fork_origin_marker("owner/repo", 618, "human", core.issue_source_ref("owner/repo", 618)),
@@ -172,7 +202,7 @@ return {
   end,
 
   test_implement_codex_nonzero_marks_impl_failed_with_failure_marker = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     mock_issue_implement({ "fkst-dev:ready" }, {
       core.state_marker(event.proposal_id, "ready", default_marker_version),
     })
@@ -194,7 +224,7 @@ return {
   end,
 
   test_implement_failure_detail_cannot_forge_higher_state_marker = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     local forged = core.state_marker(
       event.proposal_id,
       "blocked",
@@ -247,7 +277,7 @@ return {
   end,
 
   test_implement_crash_before_marker_reuses_existing_branch_commit = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
     mock_existing_implement_branch("def456")
@@ -288,14 +318,14 @@ return {
   end,
 
   test_implement_existing_worktree_for_other_issue_does_not_affect_fresh_attempt = function()
-    local event = ready({
+    local event = acked_attempt_event(ready({
       proposal_id = "github-devloop/issue/owner/repo/4",
       dedup_key = "ready/consensus-github-devloop/issue/owner/repo/4/2026-06-03T01-02-03Z",
       source_ref = {
         kind = "external",
         ref = "owner/repo#issue/4",
       },
-    })
+    }))
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
       core.state_marker(event.proposal_id, "ready", default_marker_version),
@@ -316,7 +346,7 @@ return {
   end,
 
   test_implement_empty_git_status_marks_impl_failed_with_failure_marker = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     mock_issue_implement({ "fkst-dev:ready" })
     mock_fresh_implement_worktree()
     mock_implement_codex(0, "No files needed changes.")
@@ -338,7 +368,7 @@ return {
   end,
 
   test_implement_clean_worktree_with_branch_ahead_marks_implementing = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
     mock_fresh_implement_worktree()
@@ -371,7 +401,7 @@ return {
   end,
 
   test_implement_existing_empty_branch_still_marks_no_changes_failed = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     mock_issue_implement({ "fkst-dev:ready" })
     mock_existing_empty_implement_worktree()
     mock_implement_codex(0, "No files needed changes.")
@@ -394,7 +424,7 @@ return {
   end,
 
   test_implement_existing_empty_worktree_reuses_and_converges_when_codex_commits = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
     local worktree = mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
@@ -428,7 +458,7 @@ return {
   end,
 
   test_implement_reused_worktree_is_reset_and_cleaned_before_merge = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
     local worktree = mock_existing_dirty_implement_worktree_reuse(nil, branch, "1")
@@ -467,7 +497,7 @@ return {
   end,
 
   test_implement_ignores_existing_worktree_outside_current_runtime_root = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     local branch = deterministic_branch_for(event)
     local runtime = "/tmp/fkst-packages-test/github-devloop/runtime"
     mock_issue_implement({ "fkst-dev:ready" })
@@ -508,7 +538,7 @@ return {
   end,
 
   test_implement_removes_all_existing_worktrees_outside_current_runtime_root = function()
-    local event = ready()
+    local event = acked_attempt_event(ready())
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
     mock_multiple_outside_runtime_implement_worktrees_rebuild("/tmp/fkst-packages-test/github-devloop/runtime", branch)
@@ -587,20 +617,63 @@ return {
     t.eq(count_calls("codex exec"), 0)
     t.eq(count_calls("git -C"), 0)
 
+    local event = acked_attempt_event(ready())
     mock_issue_implement({ "fkst-dev:ready" })
-    local branch = deterministic_branch_for(ready())
+
+    local visible = run_implement(event, opts("implement-ready-visible"))
+    t.eq(visible.exit_code, 0)
+    t.eq(#visible.raises, 1)
+    assert_implement_attempt(visible.raises, event)
+    t.eq(find_raise(visible.raises, "github-proxy.github_issue_label_request"), nil)
+    t.eq(find_raise(visible.raises, "devloop_open_pr"), nil)
+    t.eq(count_calls("codex exec"), 0)
+    t.eq(count_calls("git -C"), 0)
+  end,
+
+  test_implement_ready_redelivery_during_attempt_marker_lag_does_not_spawn = function()
+    local event = acked_attempt_event(ready())
+    mock_issue_implement({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    })
+
+    local first = run_implement(event, opts("implement-ready-lag-first"))
+    t.eq(first.exit_code, 0)
+    t.eq(#first.raises, 1)
+    assert_implement_attempt(first.raises, event)
+
+    mock_issue_implement({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    })
+    local second = run_implement(event, opts("implement-ready-lag-second"))
+    t.eq(second.exit_code, 0)
+    t.eq(#second.raises, 1)
+    assert_implement_attempt(second.raises, event)
+    t.eq(count_calls("codex exec"), 0)
+    t.eq(count_calls("git -C"), 0)
+  end,
+
+  test_implement_verified_attempt_hand_off_spawns_codex = function()
+    local base_event = ready()
+    local event = with_implement_attempt_hand_off(base_event, 1, "IC_attempt_1")
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    })
+    mock_implement_attempt_comment_get(event, 1, "IC_attempt_1")
     mock_fresh_implement_worktree("/tmp/fkst-packages-test/github-devloop/runtime")
     mock_implement_codex(0, "implemented")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("def456", branch)
-    mock_issue_implement({ "fkst-dev:ready" })
+    mock_issue_implement({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, "123"),
+    })
 
-    local visible = run_implement(ready(), opts("implement-ready-visible"))
-    t.eq(visible.exit_code, 0)
-    t.eq(#visible.raises, 5)
-    assert_implement_attempt(visible.raises, ready())
-    t.eq(find_raise(visible.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
-    assert_open_pr_kickoff(visible.raises, ready(), branch, "def456")
+    local result = run_implement(event, opts("implement-attempt-hand-off-spawn"))
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    assert_open_pr_kickoff(result.raises, event, branch, "def456")
+    t.eq(count_calls("repos/owner/repo/issues/comments/IC_attempt_1"), 1)
     t.eq(count_calls("codex exec"), 1)
   end,
 

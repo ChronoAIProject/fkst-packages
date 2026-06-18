@@ -62,6 +62,20 @@ function M.build_devloop_ready_payload(source)
       comment_id = source.ready_comment_id,
     }
   end
+  if source.include_implement_attempt_hand_off == true and source.implement_attempt_comment_id ~= nil then
+    local attempt = tonumber(source.implement_attempt)
+    if attempt == nil or attempt < 1 or attempt ~= math.floor(attempt) or attempt > M._max_impl_retry_attempts then
+      error("github-devloop: invalid implement attempt hand-off attempt")
+    end
+    payload.implement_attempt_hand_off = {
+      kind = "own-implement-attempt-marker",
+      proposal_id = source.proposal_id,
+      marker_version = marker_version,
+      event_version = ready_version,
+      attempt = attempt,
+      comment_id = source.implement_attempt_comment_id,
+    }
+  end
   local framing = bounded_framing(M, source.framing)
   if framing ~= nil then
     payload.framing = framing

@@ -201,7 +201,7 @@ end
 
 function M.build_implement_attempt_comment_request(repo, issue_number, ready, attempt, started_at)
   local marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt, started_at)
-  return {
+  local request = {
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
@@ -215,6 +215,14 @@ function M.build_implement_attempt_comment_request(repo, issue_number, ready, at
     }),
     source_ref = M.normalize_source_ref(ready.source_ref),
   }
+  request.handoff = {
+    kind = "github-devloop.implement-attempt",
+    proposal_id = ready.proposal_id,
+    version = ready.dedup_key,
+    attempt = attempt,
+    source_ref = M.normalize_source_ref(ready.source_ref),
+  }
+  return request
 end
 
 function M.build_implement_version_mismatch_comment_request(repo, issue_number, ready, expected_version, current_version, attempt)

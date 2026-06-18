@@ -23,6 +23,8 @@ function M.is_supported_ready(payload)
           event_version = payload.dedup_key,
           effects = "result-marker,ready-label,devloop-ready",
         })))
+    and (payload.implement_attempt_hand_off == nil
+      or M.is_implement_attempt_hand_off(payload.implement_attempt_hand_off, payload))
     and (payload.impl_retry_attempt == nil
       or (tonumber(payload.impl_retry_attempt) ~= nil
         and tonumber(payload.impl_retry_attempt) >= 1

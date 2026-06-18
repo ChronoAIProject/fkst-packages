@@ -84,6 +84,39 @@ return {
     t.eq(core.is_supported_ready(ready), true)
   end,
 
+  test_comment_written_implement_attempt_ack_raises_ready_with_attempt_hand_off = function()
+    local source_ref = core.issue_source_ref("owner/repo", 42)
+    local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local result = run_handoff({
+      schema = "github-proxy.comment-written.v1",
+      repo = "owner/repo",
+      target = "issue",
+      issue_number = 42,
+      comment_id = "IC_attempt_1",
+      request_dedup_key = "implement/comment/attempt/" .. version .. "/1",
+      dedup_key = "implement/comment/attempt/" .. version .. "/1/written/IC_attempt_1",
+      source_ref = source_ref,
+      handoff = {
+        kind = "github-devloop.implement-attempt",
+        proposal_id = "github-devloop/issue/owner/repo/42",
+        version = version,
+        attempt = 1,
+        source_ref = source_ref,
+      },
+    }, "comment-handoff-implement-attempt")
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local ready = find_raise(result.raises, "devloop_ready").payload
+    t.eq(ready.schema, "github-devloop.ready.v1")
+    t.eq(ready.dedup_key, version)
+    t.eq(ready.implement_attempt_hand_off.comment_id, "IC_attempt_1")
+    t.eq(ready.implement_attempt_hand_off.marker_version, version)
+    t.eq(ready.implement_attempt_hand_off.event_version, version)
+    t.eq(ready.implement_attempt_hand_off.attempt, 1)
+    t.eq(core.is_supported_ready(ready), true)
+  end,
+
   test_comment_written_reviewing_ack_raises_durable_reviewing_with_verifiable_hand_off = function()
     local source_ref = core.pr_source_ref("owner/repo", 7)
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"

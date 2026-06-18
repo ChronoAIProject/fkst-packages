@@ -33,6 +33,16 @@ local function supported_handoff(payload)
     and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
     return handoff
   end
+  if handoff.kind == "github-devloop.implement-attempt"
+    and core.is_safe_entity_proposal_ref(handoff.proposal_id, handoff.version)
+    and tonumber(handoff.attempt) ~= nil
+    and tonumber(handoff.attempt) >= 1
+    and tonumber(handoff.attempt) == math.floor(tonumber(handoff.attempt))
+    and tonumber(handoff.attempt) <= core._max_impl_retry_attempts
+    and core._is_bounded_string(handoff.version, core._max_dedup_len)
+    and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
+    return handoff
+  end
   return nil
 end
 
@@ -73,6 +83,22 @@ local function act_handoff(event)
       ready_comment_id = payload.comment_id,
     })
     core.log_cas_decision("comment_handoff", handoff.proposal_id, { state = "ready", version = ready.dedup_key }, "comment-written", "devloop_ready", "applied(own-write-comment-id)", "ready marker comment write was acknowledged")
+    core.log_raise("comment_handoff", handoff.proposal_id, "devloop_ready", ready)
+    return
+  end
+
+  if handoff.kind == "github-devloop.implement-attempt" then
+    local ready = core.build_devloop_ready_payload({
+      proposal_id = handoff.proposal_id,
+      dedup_key = core.ready_payload_inner_version(handoff.version),
+      source_ref = handoff.source_ref,
+      impl_retry_attempt = core.implementation_retry_attempt(handoff.version),
+      effect_version = handoff.version,
+      include_implement_attempt_hand_off = true,
+      implement_attempt = handoff.attempt,
+      implement_attempt_comment_id = payload.comment_id,
+    })
+    core.log_cas_decision("comment_handoff", handoff.proposal_id, { state = "implementing", version = handoff.version }, "comment-written", "devloop_ready", "applied(own-implement-attempt-comment-id)", "implement attempt marker comment write was acknowledged")
     core.log_raise("comment_handoff", handoff.proposal_id, "devloop_ready", ready)
     return
   end

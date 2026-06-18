@@ -130,6 +130,22 @@ function M.is_safe_comment_id(value)
   return text ~= "" and #text <= 80 and text:find("^[%w_%-]+$") ~= nil
 end
 
+function M.is_implement_attempt_hand_off(hand_off, ready)
+  if type(hand_off) ~= "table" or type(ready) ~= "table" then
+    return false
+  end
+  local attempt = tonumber(hand_off.attempt)
+  return hand_off.kind == "own-implement-attempt-marker"
+    and hand_off.proposal_id == ready.proposal_id
+    and hand_off.event_version == ready.dedup_key
+    and hand_off.marker_version == ready.dedup_key
+    and attempt ~= nil
+    and attempt >= 1
+    and attempt == math.floor(attempt)
+    and attempt <= M._max_impl_retry_attempts
+    and M.is_safe_comment_id(hand_off.comment_id)
+end
+
 function M.is_own_state_marker_hand_off(hand_off, expected)
   if type(hand_off) ~= "table" or type(expected) ~= "table" then
     return false
@@ -191,6 +207,35 @@ function M.verified_hand_off_state(repo, hand_off, expected)
     version = expected.event_version,
     stage_rank = M.stage_rank(expected.state),
   }, reason
+end
+
+function M.verify_implement_attempt_hand_off(repo, hand_off, ready)
+  if not M.is_implement_attempt_hand_off(hand_off, ready) then
+    return false, "payload-mismatch"
+  end
+  local ok_result, result = pcall(github().comment_get, repo, hand_off.comment_id, 30)
+  if not ok_result or type(result) ~= "table" then
+    return false, "comment-get-failed"
+  end
+  local ok, decoded = pcall(json.decode, result.stdout or "{}")
+  if not ok or type(decoded) ~= "table" then
+    return false, "comment-json-invalid"
+  end
+  local comment = {
+    body = decoded.body,
+    author = decoded.author,
+    author_login = decoded.author_login,
+    user = decoded.user,
+    created_at = decoded.createdAt or decoded.created_at,
+  }
+  if not M._is_trusted_comment(comment) then
+    return false, "comment-author-untrusted"
+  end
+  local fact = M.latest_implement_attempt_fact({ comment }, hand_off.proposal_id, hand_off.marker_version)
+  if fact == nil or tonumber(fact.attempt) ~= tonumber(hand_off.attempt) then
+    return false, "implement-attempt-marker-missing"
+  end
+  return true, "verified"
 end
 end
 

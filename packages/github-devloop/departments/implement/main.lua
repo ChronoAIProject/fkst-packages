@@ -54,6 +54,14 @@ local function raise_implement_attempt(repo, issue_number, ready, attempt, start
   core.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", request)
 end
 
+local function raise_implement_attempt_claim(repo, issue_number, ready, attempt)
+  local started_at = now()
+  core.log_apply("implement", ready.proposal_id, "implementing", ready.dedup_key, { add = {}, remove = {} }, {
+    "github-proxy.github_issue_comment_request",
+  })
+  raise_implement_attempt(repo, issue_number, ready, attempt, started_at)
+end
+
 local function open_pr_payload_from_fact(repo, issue_number, ready, fact)
   return core.build_devloop_open_pr_payload(
     repo,
@@ -343,7 +351,6 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
   merge_integration_for_implementation(worktree, branches.integration, base_head)
 
   local codex_started_at = now()
-  raise_implement_attempt(repo, issue_number, ready, attempt, codex_started_at)
   core.log_codex_start("implement", ready.proposal_id, "implement")
   local content_fetch = core.context_fetch_from_bundle({
     dept = "implement",
@@ -793,21 +800,36 @@ local function process_ready_event(event)
         return
       end
       local attempts = core.implement_attempt_count(current.comments, ready.proposal_id, marker_ready.dedup_key)
+      if ready.implement_attempt_hand_off ~= nil then
+        local attempt_ok, attempt_reason = core.verify_implement_attempt_hand_off(repo, ready.implement_attempt_hand_off, marker_ready)
+        if not attempt_ok then
+          core.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "skip-pending(implement-attempt-hand-off)", "implement attempt hand-off was not verified: " .. tostring(attempt_reason))
+          error("github-devloop: implement attempt marker not yet verified for retry spawn; retrying")
+        end
+        local hand_off_attempt = tonumber(ready.implement_attempt_hand_off.attempt)
+        if attempts > hand_off_attempt then
+          core.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "skip-stale(older-implement-attempt-hand-off)", "newer implement attempt marker is already visible")
+          return
+        end
+        core.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "applied(verified-implement-attempt-hand-off)", "implement attempt marker comment verified by direct id lookup")
+        attempt_plan = {
+          marker_ready = marker_ready,
+          current = current,
+          branches = branches,
+          branch = branch,
+          base_head = base_head,
+          attempt = hand_off_attempt,
+          expected_from_states = { "implementing" },
+        }
+        return
+      end
       if attempts >= MAX_IMPLEMENT_ATTEMPTS then
         core.log_cas_decision("implement", ready.proposal_id, state, "implementing", "impl-failed", "applied(attempts-exhausted)", "implementation attempts exhausted with no PR or branch progress")
         raise_impl_failed(repo, issue_number, marker_ready, "retry-exhausted", "No linked PR, remote branch, or local branch progress was visible after " .. tostring(attempts) .. " attempts.", attempts)
         return
       end
-      core.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "applied(retry-no-progress)", "no PR or branch progress is visible; retrying implementation attempt")
-      attempt_plan = {
-        marker_ready = marker_ready,
-        current = current,
-        branches = branches,
-        branch = branch,
-        base_head = base_head,
-        attempt = attempts + 1,
-        expected_from_states = { "implementing" },
-      }
+      core.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "applied(implement-attempt-claim)", "implementation retry attempt claim requested before codex spawn")
+      raise_implement_attempt_claim(repo, issue_number, marker_ready, attempts + 1)
       return
     end
 
@@ -878,12 +900,29 @@ local function process_ready_event(event)
       "reason=implementation fact marker absent for this version",
     })
 
+    local attempt = ready.impl_retry_attempt or 1
+    local claimed_attempt = core.implement_attempt_count(current.comments, ready.proposal_id, marker_ready.dedup_key)
+    if ready.implement_attempt_hand_off == nil then
+      if claimed_attempt >= attempt then
+        core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-pending(implement-attempt-ack)", "implement attempt marker is visible but write acknowledgement is not bound to this delivery")
+        return
+      end
+      core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "applied(implement-attempt-claim)", "implementation attempt claim requested before codex spawn")
+      raise_implement_attempt_claim(repo, issue_number, marker_ready, attempt)
+      return
+    end
+    local attempt_ok, attempt_reason = core.verify_implement_attempt_hand_off(repo, ready.implement_attempt_hand_off, marker_ready)
+    if not attempt_ok then
+      core.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-pending(implement-attempt-hand-off)", "implement attempt hand-off was not verified: " .. tostring(attempt_reason))
+      error("github-devloop: implement attempt marker not yet verified for spawn; retrying")
+    end
+
     attempt_plan = {
       marker_ready = marker_ready,
       current = current,
       branches = branches,
       branch = branch,
-      attempt = ready.impl_retry_attempt or 1,
+      attempt = attempt,
       expected_from_states = expected_states,
       accepted_ready_hand_off = accepted_ready_hand_off,
     }

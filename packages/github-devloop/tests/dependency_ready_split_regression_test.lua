@@ -562,7 +562,6 @@ return {
     t.eq(ready.payload.ready_hand_off.comment_id, "IC_dependency_release_ready")
     t.eq(ready.payload.ready_hand_off.marker_version, split_version)
 
-    local branch = core.implement_branch(repo, 42, ready.payload.dedup_key)
     mock_implement_issue({ "fkst-dev:ready" }, {
       core.state_marker(proposal_id, "dependency_wait", version),
     })
@@ -571,6 +570,24 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    local claimed = h.run_implement(ready.payload, h.opts("ready-split-regression-release-claim"))
+    t.eq(claimed.exit_code, 0)
+    t.eq(count_queue(claimed.raises, "github-proxy.github_issue_comment_request"), 1)
+    local attempt_comment = find_raise(claimed.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(attempt_comment.payload.body:find("fkst:github-devloop:implement-attempt:v1", 1, true) ~= nil)
+    t.eq(find_raise(claimed.raises, "devloop_open_pr"), nil)
+    t.eq(h.count_calls("codex exec"), 0)
+
+    local attempt_handoff = run_comment_handoff_from_request(
+      attempt_comment.payload,
+      "IC_dependency_release_attempt",
+      "ready-split-regression-release-attempt-handoff"
+    )
+    t.eq(attempt_handoff.exit_code, 0)
+    local attempt_ready = find_raise(attempt_handoff.raises, "devloop_ready")
+    t.is_true(attempt_ready ~= nil)
+
+    local branch = core.implement_branch(repo, 42, attempt_ready.payload.dedup_key)
     h.mock_fresh_implement_worktree()
     h.mock_implement_codex(0, "implemented")
     h.mock_git_status(" M packages/github-devloop/core/ready_split.lua\n")
@@ -581,14 +598,20 @@ return {
     mock_implement_issue({ "fkst-dev:ready" }, {
       core.state_marker(proposal_id, "dependency_wait", version),
     })
+    t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_dependency_release_attempt'", {
+      stdout = '{"body":"' .. encode_json_string(attempt_comment.payload.body) .. '","user":{"login":"fkst-test-bot"}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
 
-    local implemented = h.run_implement(ready.payload, h.opts("ready-split-regression-release-implement"))
+    local implemented = h.run_implement(attempt_ready.payload, h.opts("ready-split-regression-release-implement"))
     t.eq(implemented.exit_code, 0)
     t.eq(count_queue(implemented.raises, "github-proxy.github_issue_label_request"), 1)
     t.eq(find_raise(implemented.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
     t.is_true(find_raise(implemented.raises, "devloop_open_pr") ~= nil)
     t.eq(count_queue(implemented.raises, "devloop_open_pr"), 1)
     t.eq(h.count_calls("repos/owner/repo/issues/comments/IC_dependency_release_ready"), 1)
+    t.eq(h.count_calls("repos/owner/repo/issues/comments/IC_dependency_release_attempt"), 1)
     t.eq(h.count_calls("codex exec"), 1)
   end,
 }
