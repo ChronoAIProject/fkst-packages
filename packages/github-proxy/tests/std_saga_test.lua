@@ -35,6 +35,21 @@ return {
     t.eq(acted, 1)
   end,
 
+  test_department_preserves_graph_json_spec_flag = function()
+    local module = saga.department({
+      consumes = { "demo" },
+      graph_json = true,
+    }, {
+      done = function(_event)
+        return true
+      end,
+      act = function(_event)
+      end,
+    })
+
+    t.eq(module.spec.graph_json, true)
+  end,
+
   test_department_skips_when_done = function()
     local acted = 0
     local skipped = 0
