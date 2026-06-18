@@ -260,6 +260,7 @@ return {
         number = 42,
         updated_at = "2026-06-03T01:02:03Z",
         consumer = "cache-warmer",
+        result_path = run_opts.env.FKST_RUNTIME_ROOT .. "/entity-view-probe-result.lua",
       },
     }, run_opts)
     t.eq(cached.exit_code, 0)

@@ -3,6 +3,7 @@ local fixtures = require("tests.production_fixture_helpers")
 require("tests.board_digest_probe_helpers")
 local core = h.core
 local t = h.t
+local find_raise = h.find_raise
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("tests.gh_argv_mock_helpers")
 
@@ -138,25 +139,24 @@ local function count_calls(needle)
   return gh_argv.count_calls(t, needle)
 end
 
-local function find_raise(raises, queue)
-  for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
-      return raised
-    end
-  end
-  return nil
+local function probe_result_path(opts)
+  return tostring(opts.env.FKST_RUNTIME_ROOT) .. "/board-digest-probe-result.lua"
 end
 
 local function run_probe(payload, opts)
-  return t.run_department("tests/board_digest_probe_helpers.lua", {
+  local result_path = probe_result_path(opts)
+  payload.result_path = result_path
+  local result = t.run_department("tests/board_digest_probe_helpers.lua", {
     queue = "board_digest_probe",
     payload = payload,
   }, opts)
+  result.probe_result_path = result_path
+  return result
 end
 
 local function probe_result(result)
-  local raised = find_raise(result.raises, "board_digest_result")
-  return raised and raised.payload or nil
+  t.eq(result.exit_code, 0)
+  return dofile(result.probe_result_path)
 end
 
 return {

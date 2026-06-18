@@ -199,6 +199,20 @@ return {
     t.eq(count_kind(result.github._model.writes, "issue_comment"), 0)
   end,
 
+  test_poll_with_closed_existing_slice_key_noops = function()
+    local dedup_key = "saga-handler/slice/1793373804b5c827"
+    local result = run_driver({
+      plan = plan_json("slice_available", dedup_key),
+      github = { existing_slice = true },
+    })
+
+    t.eq(count_kind(result.github._model.writes, "issue_create"), 0)
+    t.eq(count_kind(result.github._model.writes, "issue_add_sub_issue"), 0)
+    t.eq(count_kind(result.github._model.writes, "issue_comment"), 0)
+    t.eq(#result.github._model.searches, 2)
+    t.is_true(result.github._model.searches[2]:find("fkst:github-proxy:issue-create:" .. dedup_key, 1, true) ~= nil)
+  end,
+
   test_poll_with_empty_inventory_closes_parent = function()
     local result = run_driver({
       plan = plan_json("inventory_empty"),

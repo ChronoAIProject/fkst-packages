@@ -4,8 +4,45 @@ local M = {}
 
 M.spec = {
   consumes = { "entity_view_probe" },
-  produces = { "entity_view_probe_result" },
 }
+
+local function lua_quote(value)
+  return string.format("%q", tostring(value or ""))
+end
+
+local function lua_literal(value)
+  local kind = type(value)
+  if kind == "nil" then
+    return "nil"
+  end
+  if kind == "boolean" or kind == "number" then
+    return tostring(value)
+  end
+  if kind == "string" then
+    return lua_quote(value)
+  end
+  if kind ~= "table" then
+    error("github-proxy test probe: unsupported result field type")
+  end
+  local parts = {}
+  local index = 1
+  for key, field in pairs(value) do
+    if key == index then
+      table.insert(parts, lua_literal(field))
+      index = index + 1
+    else
+      table.insert(parts, "[" .. lua_literal(key) .. "]=" .. lua_literal(field))
+    end
+  end
+  return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function write_result(path, payload)
+  if path == nil or tostring(path) == "" then
+    error("github-proxy test probe: missing result path")
+  end
+  file.write(path, "return " .. lua_literal(payload) .. "\n")
+end
 
 function pipeline(event)
   local payload = event.payload or {}
@@ -36,7 +73,7 @@ function pipeline(event)
       })
     end
   end
-  raise("entity_view_probe_result", {
+  write_result(payload.result_path, {
     exit_code = result.exit_code,
     stdout = result.stdout,
     stderr = result.stderr,

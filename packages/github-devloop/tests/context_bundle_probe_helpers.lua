@@ -5,8 +5,45 @@ M = {}
 
 M.spec = {
   consumes = { "context_bundle_probe" },
-  produces = { "context_bundle_probe_result" },
 }
+
+local function lua_quote(value)
+  return string.format("%q", tostring(value or ""))
+end
+
+local function lua_literal(value)
+  local kind = type(value)
+  if kind == "nil" then
+    return "nil"
+  end
+  if kind == "boolean" or kind == "number" then
+    return tostring(value)
+  end
+  if kind == "string" then
+    return lua_quote(value)
+  end
+  if kind ~= "table" then
+    error("github-devloop test probe: unsupported result field type")
+  end
+  local parts = {}
+  local index = 1
+  for key, field in pairs(value) do
+    if key == index then
+      table.insert(parts, lua_literal(field))
+      index = index + 1
+    else
+      table.insert(parts, "[" .. lua_literal(key) .. "]=" .. lua_literal(field))
+    end
+  end
+  return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function write_result(path, payload)
+  if path == nil or tostring(path) == "" then
+    error("github-devloop test probe: missing result path")
+  end
+  file.write(path, "return " .. lua_literal(payload) .. "\n")
+end
 
 local function shell_single_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
@@ -330,21 +367,21 @@ function pipeline(event)
   local payload = event.payload or {}
   local root = payload.root
   if payload.mode == "round_trip" then
-    raise("context_bundle_probe_result", run_round_trip(root))
+    write_result(payload.result_path, run_round_trip(root))
   elseif payload.mode == "deleted_file" then
-    raise("context_bundle_probe_result", run_deleted_file(root))
+    write_result(payload.result_path, run_deleted_file(root))
   elseif payload.mode == "preexisting" then
-    raise("context_bundle_probe_result", run_preexisting(root))
+    write_result(payload.result_path, run_preexisting(root))
   elseif payload.mode == "publish_reuse" then
-    raise("context_bundle_probe_result", run_publish_reuse(root))
+    write_result(payload.result_path, run_publish_reuse(root))
   elseif payload.mode == "publish_unique_on_invalid" then
-    raise("context_bundle_probe_result", run_publish_unique_on_invalid(root))
+    write_result(payload.result_path, run_publish_unique_on_invalid(root))
   elseif payload.mode == "utf8_truncation" then
-    raise("context_bundle_probe_result", run_utf8_truncation(root))
+    write_result(payload.result_path, run_utf8_truncation(root))
   elseif payload.mode == "stale_manifest_files" then
-    raise("context_bundle_probe_result", run_stale_manifest_files(root))
+    write_result(payload.result_path, run_stale_manifest_files(root))
   elseif payload.mode == "stale_manifest_rebuild" then
-    raise("context_bundle_probe_result", run_stale_manifest_rebuild(root))
+    write_result(payload.result_path, run_stale_manifest_rebuild(root))
   else
     error("unknown context bundle probe mode")
   end
