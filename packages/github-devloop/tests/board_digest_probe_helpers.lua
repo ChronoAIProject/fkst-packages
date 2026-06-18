@@ -48,24 +48,21 @@ local function finish(event_payload, payload)
   write_result(event_payload.result_path, payload)
 end
 
-function pipeline(event)
-  local payload = event.payload or {}
+function M.run(payload)
   if payload.mode == "block" then
-    finish(payload, {
+    return {
       body = core.board_digest_block(payload.repo, payload.tick),
-    })
-    return
+    }
   end
 
   if payload.mode == "append" then
-    finish(payload, {
+    return {
       proposal = core.append_board_digest_to_proposal(payload.proposal, payload.repo, payload.tick),
-    })
-    return
+    }
   end
 
   if payload.mode == "board_loop" then
-    finish(payload, {
+    return {
       proposal = core.build_board_loop_proposal(
         payload.repo,
         payload.issue_number,
@@ -75,12 +72,11 @@ function pipeline(event)
         payload.converge,
         payload.tick
       ),
-    })
-    return
+    }
   end
 
   if payload.mode == "board_review" then
-    finish(payload, {
+    return {
       proposal = core.build_board_pr_review_proposal(
         payload.repo,
         payload.issue_number,
@@ -91,12 +87,11 @@ function pipeline(event)
         payload.source_ref,
         payload.tick
       ),
-    })
-    return
+    }
   end
 
   if payload.mode == "board_review_loop" then
-    finish(payload, {
+    return {
       proposal = core.build_board_pr_review_loop_proposal(
         payload.repo,
         payload.issue_number,
@@ -109,11 +104,17 @@ function pipeline(event)
         payload.converge,
         payload.tick
       ),
-    })
-    return
+    }
   end
 
   error("github-devloop test probe: unknown mode")
 end
+
+function pipeline(event)
+  local payload = event.payload or {}
+  finish(payload, M.run(payload))
+end
+
+M.pipeline = pipeline
 
 return M

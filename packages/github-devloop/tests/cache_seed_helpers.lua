@@ -9,4 +9,6 @@ function pipeline(event)
   cache_set(payload.key, payload.value)
 end
 
+M.pipeline = pipeline
+
 return M

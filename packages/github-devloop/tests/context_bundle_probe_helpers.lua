@@ -363,26 +363,37 @@ local function run_stale_manifest_rebuild(root)
   }
 end
 
+function M.run(payload)
+  local root = payload.root
+  if payload.mode == "round_trip" then
+    return run_round_trip(root)
+  elseif payload.mode == "deleted_file" then
+    return run_deleted_file(root)
+  elseif payload.mode == "preexisting" then
+    return run_preexisting(root)
+  elseif payload.mode == "publish_reuse" then
+    return run_publish_reuse(root)
+  elseif payload.mode == "publish_unique_on_invalid" then
+    return run_publish_unique_on_invalid(root)
+  elseif payload.mode == "utf8_truncation" then
+    return run_utf8_truncation(root)
+  elseif payload.mode == "stale_manifest_files" then
+    return run_stale_manifest_files(root)
+  elseif payload.mode == "stale_manifest_rebuild" then
+    return run_stale_manifest_rebuild(root)
+  end
+  error("unknown context bundle probe mode")
+end
+
 function pipeline(event)
   local payload = event.payload or {}
   local root = payload.root
-  if payload.mode == "round_trip" then
-    write_result(payload.result_path, run_round_trip(root))
-  elseif payload.mode == "deleted_file" then
-    write_result(payload.result_path, run_deleted_file(root))
-  elseif payload.mode == "preexisting" then
-    write_result(payload.result_path, run_preexisting(root))
-  elseif payload.mode == "publish_reuse" then
-    write_result(payload.result_path, run_publish_reuse(root))
-  elseif payload.mode == "publish_unique_on_invalid" then
-    write_result(payload.result_path, run_publish_unique_on_invalid(root))
-  elseif payload.mode == "utf8_truncation" then
-    write_result(payload.result_path, run_utf8_truncation(root))
-  elseif payload.mode == "stale_manifest_files" then
-    write_result(payload.result_path, run_stale_manifest_files(root))
-  elseif payload.mode == "stale_manifest_rebuild" then
-    write_result(payload.result_path, run_stale_manifest_rebuild(root))
-  else
-    error("unknown context bundle probe mode")
+  if root ~= nil then
+    mkdir_p(root)
   end
+  write_result(payload.result_path, M.run(payload))
 end
+
+M.pipeline = pipeline
+
+return M

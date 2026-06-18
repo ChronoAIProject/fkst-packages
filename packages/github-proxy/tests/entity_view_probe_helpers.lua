@@ -44,8 +44,7 @@ local function write_result(path, payload)
   file.write(path, "return " .. lua_literal(payload) .. "\n")
 end
 
-function pipeline(event)
-  local payload = event.payload or {}
+function M.run(payload)
   local kind = tostring(payload.kind or "issue")
   local result
   if kind == "pr" then
@@ -73,11 +72,18 @@ function pipeline(event)
       })
     end
   end
-  write_result(payload.result_path, {
+  return {
     exit_code = result.exit_code,
     stdout = result.stdout,
     stderr = result.stderr,
-  })
+  }
 end
+
+function pipeline(event)
+  local payload = event.payload or {}
+  write_result(payload.result_path, M.run(payload))
+end
+
+M.pipeline = pipeline
 
 return M
