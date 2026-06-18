@@ -523,4 +523,72 @@ return {
     t.eq(ready.payload.ready_hand_off.comment_id, "IC_ready_result")
     t.eq(ready.payload.ready_hand_off.marker_version, current.dedup_key)
   end,
+
+  test_dependency_release_ready_handoff_accepts_direct_visible_marker = function()
+    local split_version = core.ready_split_version(version)
+    mock_observe_issue(
+      { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
+      {
+        core.state_marker(proposal_id, "dependency_wait", version),
+        "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
+          .. core.dependency_wait_marker(proposal_id, version, { 53 }),
+      }
+    )
+    mock_blocked_by(42, { { number = 53 } })
+    mock_blocked_by(53, {})
+    mock_blocker_issue(53, "merged")
+
+    local released = run_observe()
+    t.eq(released.exit_code, 0)
+    t.eq(find_raise(released.raises, "devloop_ready"), nil)
+    local release_comment = ready_handoff_comment_raise(released.raises)
+    t.is_true(release_comment ~= nil)
+    t.eq(release_comment.payload.handoff.marker_version, split_version)
+    t.is_true(release_comment.payload.body:find(
+      core.state_marker(proposal_id, "ready", split_version, "result-marker,ready-label,devloop-ready"),
+      1,
+      true
+    ) ~= nil)
+    t.is_true(release_comment.payload.body:find("fkst:github-devloop:ready-split-canonicalized:v1", 1, true) ~= nil)
+
+    local handoff = run_comment_handoff_from_request(
+      release_comment.payload,
+      "IC_dependency_release_ready",
+      "ready-split-regression-release-comment-handoff"
+    )
+    t.eq(handoff.exit_code, 0)
+    local ready = find_raise(handoff.raises, "devloop_ready")
+    t.is_true(ready ~= nil)
+    t.eq(ready.payload.ready_hand_off.comment_id, "IC_dependency_release_ready")
+    t.eq(ready.payload.ready_hand_off.marker_version, split_version)
+
+    local branch = core.implement_branch(repo, 42, ready.payload.dedup_key)
+    mock_implement_issue({ "fkst-dev:ready" }, {
+      core.state_marker(proposal_id, "dependency_wait", version),
+    })
+    t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_dependency_release_ready'", {
+      stdout = '{"body":"' .. encode_json_string(release_comment.payload.body) .. '","user":{"login":"fkst-test-bot"}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    h.mock_fresh_implement_worktree()
+    h.mock_implement_codex(0, "implemented")
+    h.mock_git_status(" M packages/github-devloop/core/ready_split.lua\n")
+    h.mock_git_commit("def456", branch)
+    mock_implement_issue({ "fkst-dev:ready" }, {
+      core.state_marker(proposal_id, "dependency_wait", version),
+    })
+    mock_implement_issue({ "fkst-dev:ready" }, {
+      core.state_marker(proposal_id, "dependency_wait", version),
+    })
+
+    local implemented = h.run_implement(ready.payload, h.opts("ready-split-regression-release-implement"))
+    t.eq(implemented.exit_code, 0)
+    t.eq(count_queue(implemented.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(find_raise(implemented.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
+    t.is_true(find_raise(implemented.raises, "devloop_open_pr") ~= nil)
+    t.eq(count_queue(implemented.raises, "devloop_open_pr"), 1)
+    t.eq(h.count_calls("repos/owner/repo/issues/comments/IC_dependency_release_ready"), 1)
+    t.eq(h.count_calls("codex exec"), 1)
+  end,
 }

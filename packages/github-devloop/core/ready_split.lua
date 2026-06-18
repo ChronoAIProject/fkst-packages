@@ -5,8 +5,9 @@ function S.install(M)
 local dependency_gate_rederive = true
 
 function M.build_ready_split_canonicalized_comment_request(repo, issue_number, proposal_id, from_version, to_state, to_version, gate, source_ref)
+  local state_effects = to_state == "ready" and "result-marker,ready-label,devloop-ready" or "ready-split-canonicalized"
   local markers = M.ready_split_canonicalized_marker(proposal_id, from_version, to_version, to_state, gate and gate.reason or "ready_split_rederive")
-    .. "\n" .. M.state_marker(proposal_id, to_state, to_version, "ready-split-canonicalized")
+    .. "\n" .. M.state_marker(proposal_id, to_state, to_version, state_effects)
   if to_state == "dependency_wait" then
     markers = markers .. "\n" .. M.dependency_wait_marker(proposal_id, to_version, gate and gate.unmet or {}, gate and gate.kind or "waiting", gate and gate.reason or "waiting-on-dependency")
   end
