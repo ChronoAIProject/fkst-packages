@@ -6,6 +6,7 @@ return {
   producer = "departments/loop/main.lua",
   queue = "github-proxy.github_issue_comment_request",
   marker_source = "core/convergence.lua",
+  request_source = "core/requests/lifecycle.lua",
   marker_builder = "converge_round_marker",
   request_builder = "build_converge_round_comment_request",
 }
