@@ -454,7 +454,6 @@ local function replay_implementing(dept, issue, state, row, facts)
   local payload = M.build_devloop_ready_payload({
     proposal_id = proposal_id,
     dedup_key = M.ready_payload_inner_version(state.version),
-    impl_retry_attempt = reimplement_attempt,
     source_ref = issue.source_ref,
     impl_retry_attempt = M.implementation_retry_attempt(state.version),
   })

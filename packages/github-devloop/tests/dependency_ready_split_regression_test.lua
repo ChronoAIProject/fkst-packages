@@ -205,6 +205,30 @@ local function marker_body(raises, needle)
   return raise and raise.payload.body or nil
 end
 
+local function ready_handoff_comment_raise(raises)
+  return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
+    return type(payload.handoff) == "table"
+      and payload.handoff.kind == "github-devloop.ready"
+  end)
+end
+
+local function run_comment_handoff_from_request(request, comment_id, name)
+  return t.run_department("departments/comment_handoff/main.lua", {
+    queue = "github-proxy.github_comment_written",
+    payload = {
+      schema = "github-proxy.comment-written.v1",
+      repo = request.repo,
+      target = "issue",
+      issue_number = request.issue_number,
+      comment_id = comment_id,
+      request_dedup_key = request.dedup_key,
+      dedup_key = tostring(request.dedup_key) .. "/written/" .. tostring(comment_id),
+      source_ref = request.source_ref,
+      handoff = request.handoff,
+    },
+  }, h.opts(name))
+end
+
 local function capture_core_raises(fn)
   local raised = {}
   local original_log_raise = core.log_raise
@@ -441,5 +465,62 @@ return {
       return h.has_value(payload.add_labels, "fkst-dev:blocked-on-dependency")
     end)
     t.is_true(label ~= nil)
+  end,
+
+  test_consensus_result_dependency_wait_comment_has_no_ready_handoff = function()
+    local current = reached()
+    h.mock_issue_result({ "fkst-dev:thinking" }, {
+      core.state_marker(current.proposal_id, "thinking", current.dedup_key),
+    })
+    mock_blocked_by(42, { { number = 51 } })
+    mock_blocked_by(51, {})
+    mock_blocker_issue(51, "ready")
+
+    local result = h.run_result(current, h.opts("ready-split-regression-result-hold-handoff"))
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    local result_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return type(payload.body) == "string"
+        and payload.body:find('state="dependency_wait"', 1, true) ~= nil
+        and payload.body:find("fkst:github-devloop:result:v1", 1, true) ~= nil
+    end)
+    t.is_true(result_comment ~= nil)
+    t.is_nil(result_comment.payload.handoff)
+
+    local handoff = run_comment_handoff_from_request(
+      result_comment.payload,
+      "IC_dependency_hold_result",
+      "ready-split-regression-result-hold-comment-handoff"
+    )
+    t.eq(handoff.exit_code, 0)
+    t.eq(find_raise(handoff.raises, "devloop_ready"), nil)
+  end,
+
+  test_consensus_result_ready_comment_keeps_ready_handoff = function()
+    local current = reached()
+    h.mock_issue_result({ "fkst-dev:thinking" }, {
+      core.state_marker(current.proposal_id, "thinking", current.dedup_key),
+    })
+    mock_blocked_by(42, {})
+
+    local result = h.run_result(current, h.opts("ready-split-regression-result-ready-handoff"))
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    local result_comment = ready_handoff_comment_raise(result.raises)
+    t.is_true(result_comment ~= nil)
+    t.eq(result_comment.payload.handoff.proposal_id, current.proposal_id)
+    t.eq(result_comment.payload.handoff.version, current.dedup_key)
+    t.eq(result_comment.payload.handoff.marker_version, current.dedup_key)
+
+    local handoff = run_comment_handoff_from_request(
+      result_comment.payload,
+      "IC_ready_result",
+      "ready-split-regression-result-ready-comment-handoff"
+    )
+    t.eq(handoff.exit_code, 0)
+    local ready = find_raise(handoff.raises, "devloop_ready")
+    t.is_true(ready ~= nil)
+    t.eq(ready.payload.ready_hand_off.comment_id, "IC_ready_result")
+    t.eq(ready.payload.ready_hand_off.marker_version, current.dedup_key)
   end,
 }
