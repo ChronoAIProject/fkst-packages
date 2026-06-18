@@ -23,10 +23,10 @@ class CiWorkflowContractTest(unittest.TestCase):
     def test_dev_ref_fetch_uses_remote_tracking_ref(self) -> None:
         step = workflow_step_block(ci_workflow_source(), "Ensure dev ref is available")
 
-        self.assertIn("git fetch origin dev", step)
+        self.assertIn("git fetch origin refs/heads/dev:refs/remotes/origin/dev", step)
         self.assertIn("git rev-parse --verify origin/dev", step)
         self.assertNotIn("git fetch origin dev:dev", step)
-        self.assertNotIn("refs/heads/dev", step)
+        self.assertNotIn(":refs/heads/dev", step)
 
 
 if __name__ == "__main__":
