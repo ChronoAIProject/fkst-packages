@@ -35,8 +35,8 @@ local function raise_impl_failed(repo, issue_number, ready, reason, detail, atte
   core.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", label_request)
 end
 
-local function raise_implementing_state(repo, issue_number, ready, worktree, branch, base_branch, base_sha)
-  local comment_request = core.build_implementing_state_comment_request(repo, issue_number, ready, worktree, branch, base_branch, base_sha)
+local function raise_implementing_state(repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at)
+  local comment_request = core.build_implementing_state_comment_request(repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at)
   local label_request = core.build_implementing_label_request(repo, issue_number, ready)
   local add_labels, remove_labels = core.state_label_changes("implementing")
   core.log_apply("implement", ready.proposal_id, "implementing", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
@@ -358,8 +358,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
   merge_integration_for_implementation(worktree, branches.integration, base_head)
 
   local codex_started_at = now()
-  raise_implement_attempt(repo, issue_number, ready, attempt, codex_started_at)
-  raise_implementing_state(repo, issue_number, ready, worktree, branch, branches.integration, base_head)
+  raise_implementing_state(repo, issue_number, ready, worktree, branch, branches.integration, base_head, attempt, codex_started_at)
   return worktree, codex_started_at
 end
 
@@ -934,9 +933,6 @@ local function process_ready_event(event)
     return
   end
 
-  if attempt_plan.base_head == nil then
-    attempt_plan.base_head = prepare_base(attempt_plan.branches)
-  end
   local worktree, codex_started_at
   with_lock(lock_key, function()
     if precheck_implementation_write_gate(
@@ -946,6 +942,9 @@ local function process_ready_event(event)
       attempt_plan.expected_from_states,
       attempt_plan.accepted_ready_hand_off
     ) then
+      if attempt_plan.base_head == nil then
+        attempt_plan.base_head = prepare_base(attempt_plan.branches)
+      end
       worktree, codex_started_at = prepare_attempt(
         repo,
         issue_number,
