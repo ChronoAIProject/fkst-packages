@@ -191,13 +191,8 @@ function M.replay_dependency_wait_state(dept, issue, state, row, facts)
   return raise_dependency_release(M, dept, issue, proposal_id, state, facts.current, command_comment_request, gate)
 end
 
-local function next_ready_redrive_version(M, marker_version)
-  local base = tostring(marker_version or "")
-  local next_n = 0
-  for n in base:gmatch("/redrive/ready/(%d+)") do
-    next_n = math.max(next_n, tonumber(n) or 0)
-  end
-  return base .. "/redrive/ready/" .. tostring(next_n + 1)
+local function next_ready_redrive_version(marker_version, round)
+  return tostring(marker_version or "") .. "/redrive/ready/" .. tostring(round)
 end
 
 function M.replay_ready_state(dept, issue, state, row, facts)
@@ -224,26 +219,29 @@ function M.replay_ready_state(dept, issue, state, row, facts)
     ))
     return true
   end
-  local ready_payload = facts.ready_payload
-  if ready_payload == nil then
-    local ready_comment_id = M.ready_hand_off_comment_id(
-      facts.current.comments,
-      proposal_id,
-      state.version
-    )
-    if ready_comment_id == nil then
-      M.log_cas_decision(dept, proposal_id, state, "ready", "implementing", "skip-pending(ready-marker-comment-not-visible)", "trusted ready state marker comment id is not visible")
-      return false
-    end
-    ready_payload = M.build_devloop_ready_payload({
-      proposal_id = fields.proposal_id,
-      dedup_key = next_ready_redrive_version(M, state.version),
-      source_ref = fields.source_ref,
-      effect_version = state.version,
-      include_ready_hand_off = true,
-      ready_comment_id = ready_comment_id,
-    })
+  local ready_comment_id = M.ready_hand_off_comment_id(
+    facts.current.comments,
+    proposal_id,
+    state.version
+  )
+  if ready_comment_id == nil then
+    M.log_cas_decision(dept, proposal_id, state, "ready", "implementing", "skip-pending(ready-marker-comment-not-visible)", "trusted ready state marker comment id is not visible")
+    return false
   end
+  local ready_redrive_round = (M.timeout_attempt_round(
+    facts.current.comments,
+    proposal_id,
+    state.version,
+    row.from_state
+  ) or 0) + 1
+  local ready_payload = M.build_devloop_ready_payload({
+    proposal_id = fields.proposal_id,
+    dedup_key = next_ready_redrive_version(state.version, ready_redrive_round),
+    source_ref = fields.source_ref,
+    effect_version = state.version,
+    include_ready_hand_off = true,
+    ready_comment_id = ready_comment_id,
+  })
   local raised = { "devloop_ready" }
   local command_comment_request = nil
   if facts.command ~= nil then

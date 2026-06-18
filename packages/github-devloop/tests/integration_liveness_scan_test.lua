@@ -634,7 +634,7 @@ return {
       if sweep < 3 then
         local ready_raise = find_raise(result.raises, "devloop_ready")
         t.is_true(ready_raise ~= nil)
-        t.is_true(ready_raise.payload.dedup_key:find("/redrive/ready/1", 1, true) ~= nil)
+        t.is_true(ready_raise.payload.dedup_key:find("/redrive/ready/" .. tostring(sweep), 1, true) ~= nil)
         t.eq(ready_raise.payload.ready_hand_off.comment_id, "IC_ready_timeout_sweep")
         t.eq(core.version_timeout_round(ready_raise.payload.dedup_key, "ready"), 0)
         local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")

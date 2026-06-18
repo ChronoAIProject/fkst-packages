@@ -21,19 +21,29 @@ local function encode_json_string(value)
     :gsub("\n", "\\n")
 end
 
-local function render_comment(body)
+local function render_comment(comment)
+  local body = comment
+  local id = ""
+  local created_at = "2026-06-03T01:00:00Z"
+  if type(comment) == "table" then
+    body = comment.body
+    id = comment.id or ""
+    created_at = comment.created_at or comment.createdAt or created_at
+  end
   return string.format(
-    '{"body":"%s","author":{"login":"fkst-test-bot"},"createdAt":"2026-06-03T01:00:00Z"}',
-    encode_json_string(body or "")
+    '{"id":"%s","body":"%s","author":{"login":"fkst-test-bot"},"createdAt":"%s"}',
+    encode_json_string(id),
+    encode_json_string(body or ""),
+    encode_json_string(created_at)
   )
 end
 
-local function trusted_comment(id, body)
+local function trusted_comment(id, body, created_at)
   return {
     id = id,
     body = body,
     author = { login = "fkst-test-bot" },
-    created_at = "2026-06-03T01:00:00Z",
+    created_at = created_at or "2026-06-03T01:00:00Z",
   }
 end
 
@@ -195,6 +205,43 @@ local function marker_body(raises, needle)
   return raise and raise.payload.body or nil
 end
 
+local function capture_core_raises(fn)
+  local raised = {}
+  local original_log_raise = core.log_raise
+  core.log_raise = function(_, _, queue, payload)
+    table.insert(raised, {
+      queue = queue,
+      payload = payload,
+    })
+  end
+  local ok, err = pcall(fn)
+  core.log_raise = original_log_raise
+  if not ok then
+    error(err)
+  end
+  return raised
+end
+
+local function replay_ready_with_comments(comments)
+  return capture_core_raises(function()
+    core.replay_ready_state("observe_issue", h.issue(), {
+      state = "ready",
+      version = version,
+      proposal_id = proposal_id,
+    }, core.restart_transition_row("ready"), {
+      proposal_id = proposal_id,
+      current = {
+        labels = { "fkst-dev:enabled", "fkst-dev:ready" },
+        comments = comments,
+      },
+      dependency_gate = {
+        ok = true,
+        reason = "test",
+      },
+    })
+  end)
+end
+
 return {
   test_ready_hand_off_comment_id_requires_trusted_visible_ready_marker = function()
     local marker = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
@@ -233,6 +280,90 @@ return {
       source_ref = source_ref(),
     }).dedup_key)
     t.is_true(ready.payload.dedup_key:find("/redrive/ready/1", 1, true) ~= nil)
+  end,
+
+  test_ready_redrive_generation_advances_with_timeout_attempt_markers = function()
+    local marker_version = version
+    local marker = core.state_marker(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
+    local attempt_1 = core.timeout_attempt_marker(proposal_id, marker_version, "ready", 1, source_ref())
+    local first_raises = replay_ready_with_comments({
+      trusted_comment("IC_ready_visible", marker),
+      trusted_comment("IC_timeout_1", attempt_1, "2026-06-03T01:01:00Z"),
+    })
+
+    local first_ready = find_raise(first_raises, "devloop_ready")
+    t.eq(first_ready ~= nil, true)
+    t.eq(first_ready.payload.dedup_key, core.build_devloop_ready_payload({
+      proposal_id = proposal_id,
+      dedup_key = marker_version .. "/redrive/ready/2",
+      source_ref = source_ref(),
+    }).dedup_key)
+    t.eq(first_ready.payload.ready_hand_off.marker_version, marker_version)
+    t.eq(first_ready.payload.ready_hand_off.event_version, first_ready.payload.dedup_key)
+
+    local attempt_2 = core.timeout_attempt_marker(proposal_id, marker_version, "ready", 2, source_ref())
+    local second_raises = replay_ready_with_comments({
+      trusted_comment("IC_ready_visible", marker),
+      trusted_comment("IC_timeout_1", attempt_1, "2026-06-03T01:01:00Z"),
+      trusted_comment("IC_timeout_2", attempt_2, "2026-06-03T01:02:00Z"),
+    })
+
+    local second_ready = find_raise(second_raises, "devloop_ready")
+    t.eq(second_ready ~= nil, true)
+    t.eq(second_ready.payload.dedup_key, core.build_devloop_ready_payload({
+      proposal_id = proposal_id,
+      dedup_key = marker_version .. "/redrive/ready/3",
+      source_ref = source_ref(),
+    }).dedup_key)
+    t.eq(second_ready.payload.ready_hand_off.comment_id, "IC_ready_visible")
+    t.eq(second_ready.payload.ready_hand_off.marker_version, marker_version)
+    t.eq(second_ready.payload.ready_hand_off.event_version, second_ready.payload.dedup_key)
+    t.eq(first_ready.payload.dedup_key == second_ready.payload.dedup_key, false)
+  end,
+
+  test_ready_replay_ignores_prebuilt_payload_without_hand_off = function()
+    local marker_version = version
+    local marker = core.state_marker(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
+    local raises = capture_core_raises(function()
+      core.replay_ready_state("observe_issue", h.issue(), {
+        state = "ready",
+        version = marker_version,
+        proposal_id = proposal_id,
+      }, core.restart_transition_row("ready"), {
+        proposal_id = proposal_id,
+        current = {
+          labels = { "fkst-dev:enabled", "fkst-dev:ready" },
+          comments = {
+            trusted_comment("IC_ready_visible", marker),
+            trusted_comment(
+              "IC_timeout_1",
+              core.timeout_attempt_marker(proposal_id, marker_version, "ready", 1, source_ref()),
+              "2026-06-03T01:01:00Z"
+            ),
+          },
+        },
+        dependency_gate = {
+          ok = true,
+          reason = "test",
+        },
+        ready_payload = core.build_devloop_ready_payload({
+          proposal_id = proposal_id,
+          dedup_key = marker_version .. "/stale-bypass",
+          source_ref = source_ref(),
+        }),
+      })
+    end)
+
+    local ready = find_raise(raises, "devloop_ready")
+    t.eq(ready ~= nil, true)
+    t.eq(ready.payload.ready_hand_off.comment_id, "IC_ready_visible")
+    t.eq(ready.payload.ready_hand_off.marker_version, marker_version)
+    t.eq(ready.payload.ready_hand_off.event_version, ready.payload.dedup_key)
+    t.eq(ready.payload.dedup_key, core.build_devloop_ready_payload({
+      proposal_id = proposal_id,
+      dedup_key = marker_version .. "/redrive/ready/2",
+      source_ref = source_ref(),
+    }).dedup_key)
   end,
 
   test_ready_redrive_without_visible_ready_marker_fails_closed = function()
