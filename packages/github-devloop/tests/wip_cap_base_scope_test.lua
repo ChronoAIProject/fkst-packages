@@ -42,7 +42,7 @@ local function mock_wip_list(numbers)
 end
 
 -- markers may be nil to model an implementing holder with no pr-link yet
-local function mock_wip_state(issue_number, state_name, base_branch)
+local function mock_wip_state(issue_number, state_name, base_branch, hold)
   local proposal_id = core.proposal_id(REPO, issue_number)
   local version = "ready/consensus-github-devloop/issue/owner/repo/" .. tostring(issue_number) .. "/intake/1/loop/1"
   local comments = { render_comment(core.state_marker(proposal_id, state_name, version)) }
@@ -50,10 +50,12 @@ local function mock_wip_state(issue_number, state_name, base_branch)
     local branch = "devloop/issue/owner/repo/" .. tostring(issue_number) .. "/work"
     table.insert(comments, render_comment(core.pr_link_marker(proposal_id, issue_number + 500, branch, version, base_branch)))
   end
+  local labels = hold and '[{"name":"fkst-dev:enabled"},{"name":"fkst-dev:hold"}]'
+    or '[{"name":"fkst-dev:enabled"}]'
   t.mock_command(core.gh_issue_view_state_cmd(REPO, issue_number), {
     stdout = string.format(
-      '{"title":"Issue","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
-      table.concat(comments, ",")
+      '{"title":"Issue","state":"OPEN","labels":%s,"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+      labels, table.concat(comments, ",")
     ),
     stderr = "", exit_code = 0,
   })
@@ -99,5 +101,23 @@ return {
     t.eq(allowed, false)
     t.eq(reason, "wip-cap-reached")
     t.eq(count, 1)
+  end,
+
+  -- Regression (#970 starvation): a held issue (fkst-dev:hold) on the managed
+  -- integration base would normally count (cf. test_managed_base_holder_still_counts),
+  -- but an operator-parked issue is not live in-flight work. Excluding it prevents a
+  -- held + stale-pr-open holder from pinning the only MAX_INFLIGHT slot and starving
+  -- all new implement work (the live #970 hang: #974 reverted+reopened+held, still
+  -- carrying a pr-open marker, blocked #970 at ready forever).
+  test_held_holder_is_excluded_from_cap = function()
+    mock_env(1)
+    mock_wip_list({ 51 })
+    mock_wip_state(51, "pr-open", INTEGRATION, true)
+
+    local allowed, reason, count, max = core.wip_capacity_allows_start(REPO, 42)
+    t.eq(allowed, true)
+    t.eq(reason, "wip-cap-available")
+    t.eq(count, 0)
+    t.eq(max, 1)
   end,
 }

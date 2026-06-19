@@ -529,15 +529,21 @@ function M.wip_capacity_allows_start(repo, current_issue_number)
       local state = M.current_state(current.comments, proposal_id)
       if active_wip_states[state.state] then
         -- Admission control must not be deadlockable by un-progressable holders.
-        -- A PR-bound active holder whose pr-link base branch is not this instance's
-        -- integration branch (e.g. a PR stranded on a retired integration branch after
-        -- a topology migration) can never be advanced by this instance's observe_pr
-        -- (it skips base-mismatched PRs). Counting it would let a permanently stuck
-        -- holder pin a MAX_INFLIGHT slot and starve all new work. It is not this
-        -- instance's in-flight work, so exclude it from the cap. Log every exclusion so
-        -- the admission cap is never silently narrowed.
+        -- (a) A held issue (fkst-dev:hold) is parked by an operator and is not this
+        -- instance's live in-flight work; counting it lets a held holder pin a
+        -- MAX_INFLIGHT slot and starve all new work (e.g. an issue reverted from a
+        -- rollup, reopened, and held while still carrying a stale pr-open marker).
+        -- (b) A PR-bound active holder whose pr-link base branch is not this instance's
+        -- integration branch can never be advanced by this instance's observe_pr (it
+        -- skips base-mismatched PRs). Exclude both; log every exclusion so the
+        -- admission cap is never silently narrowed.
         local link = M.pr_link_fact(current.comments, proposal_id)
-        if link ~= nil and tostring(link.base_branch or "") ~= tostring(integration_branch or "") then
+        if M.has_label(current.labels, "fkst-dev:hold") then
+          M.log_line("info", "wip", proposal_id, "WIP_EXCLUDE", {
+            "reason=held",
+            "state=" .. tostring(state.state),
+          })
+        elseif link ~= nil and tostring(link.base_branch or "") ~= tostring(integration_branch or "") then
           M.log_line("info", "wip", proposal_id, "WIP_EXCLUDE", {
             "reason=base-unmanaged",
             "state=" .. tostring(state.state),
