@@ -58,6 +58,8 @@ Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree pare
 - **迪米特法则**：一个对象应该对其他对象保持最少的了解。
 - **合成复用原则**：尽量使用对象组合，而不是继承来达到复用的目的。
 
+**守住包边界：新功能默认放包外，能在包外实现就不往已稳定的包里塞（prefer-out-of-package；上面 SRP/OCP/合成复用 在包边界的落地）。** 加一个新功能时先问「它能不能作为独立包 / 包外模块实现？」——**能，就别塞进一个已稳定、职责已收敛的包**。每一次往稳定包「顺手加功能」都是 SRP 侵蚀：它的变更原因变多、blast radius 变大、滑向 **god-package**（等同 god-class，见上「单一职责」与「全状态强制 saga 化·禁 god-state」）。判据（标准 OOP）：① **SRP**——新功能若有自己独立的「变更原因」（不同的 source / 不同的信任域 / 不同的生命周期），它就是独立职责、该独立包；② **OCP**——对扩展开放、对修改关闭：用新包 / 组合**扩展**，而不是改稳定包的内部；③ **合成复用 > 塞入**——composed 包（Facade/Adapter）把兄弟包接起来，不把逻辑复制 / 塞进彼此。本仓实证范式：`github-external-pr-intake`（外部 PR 桥接）、`github-ratchet-migration-slicer`（把切片器从 github-devloop 抽出）都遵此——`github-devloop` 只守「issue→PR→review→merge 生命周期」**这一条**职责，切片 / 外部 PR / 关系 auto-fill 一律落在包外。**边界（不与「模式服务当前问题 / 三次法则」「over-split 也是病」冲突）**：这条治的是**职责归属**（独立职责该放包外，而非默认塞进现有包），不是叫你为单个功能提前造投机抽象、也不是无职责边界地碎片化；**真有独立「变更原因」才独立包，没有就别为「干净」硬拆**——over-split（包/状态碎片化）与 over-merge（god-package/god-state）同为病。
+
 ## 核心循环：不分析原因，watchdog 心跳盲重投 + 乐观锁 + codex 兜底（简单优先）
 
 系统**不追求「用程序完美枚举处理每一种失败」**。程序保持笨、健壮、确定；智能长尾交给 codex。**「不分析原因」是铁律，但触发重投的「超时」绝不能是裸 wall-clock**——裸定时器会在健康的长跑异步 receiver（implement codex ~2h / review consensus / CI 等待）**还在干活**时就开火，把健康工作当 strand 终结，反向重造 #762 要修的病（false-terminal，不是 frozen；实证 #762 8 轮 review 逐层逼出）。正解是 **watchdog timer 模式**（嵌入式经典 harness）：被监督的 receiver 周期性「踢狗」（写心跳 marker），watchdog 只在**狗没被踢**（心跳超预算变陈）时才动作。**关键：踢狗检测不是根因分析**——它是一个通用 liveness 探针（receiver 还在不在动？），**不问「为什么慢」**，所以「不分析原因、程序保持笨」原封不动；我们没加任何 per-case 分支，只加了**一个通用 liveness 信号**。恢复路径只有三条手段，按此顺序：
