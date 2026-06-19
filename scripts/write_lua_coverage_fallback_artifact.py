@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge package-level Lua coverage into the repository coverage artifact shape."""
+"""Merge package-root Lua coverage artifacts into the repository artifact shape."""
 
 from __future__ import annotations
 
@@ -77,7 +77,8 @@ def main(argv: list[str]) -> int:
             {file: {"covered_lines": sorted(lines)} for file, lines in sorted(merged.items())},
             indent=2,
             sort_keys=True,
-        ) + "\n",
+        )
+        + "\n",
         encoding="utf-8",
     )
     return 0

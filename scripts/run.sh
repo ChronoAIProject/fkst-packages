@@ -426,6 +426,36 @@ except ValueError as exc:
 PY
 }
 
+root_self_test_lua_tests_exist() {
+  local test_file
+  for test_file in "$ROOT"/tests/*_test.lua "$ROOT"/departments/*/*_test.lua; do
+    [ -f "$test_file" ] && return 0
+  done
+  return 1
+}
+
+package_lua_tests_exist() {
+  local test_file
+  for test_file in "$SOURCE_PACKAGES_ROOT"/*/tests/*_test.lua "$SOURCE_PACKAGES_ROOT"/*/departments/*/*_test.lua; do
+    [ -f "$test_file" ] && return 0
+  done
+  return 1
+}
+
+lua_coverage_needs_package_fallback() {
+  # Source proof for this fallback:
+  # fkst-framework `CliCommand::SelfTest` runs `self_test::run()`, then runs
+  # `test_runner::run_tests` with `PackageRoots::resolve(&cwd, vec![cwd])` for
+  # the current directory only. The engine fixture
+  # `self_test_coverage_runs_lua_tests_and_writes_artifacts` proves that
+  # `--self-test --coverage` covers root-owned `tests/*_test.lua` against
+  # root-owned production Lua. In this package repository, the real Lua tests
+  # live under `packages/<pkg>/tests`, so an empty root self-test coverage
+  # artifact is source-proven to be possible and package-root test coverage is
+  # the only engine-authored line metadata available for the ratchet.
+  ! root_self_test_lua_tests_exist && package_lua_tests_exist
+}
+
 run_self_test_with_optional_lua_coverage() {
   local coverage_dir="$FKST_RUNTIME_ROOT/lua-coverage" coverage_json out rc
   LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK=0
@@ -443,17 +473,11 @@ run_self_test_with_optional_lua_coverage() {
       return 1
     fi
     if ! lua_coverage_artifact_has_line_metadata "$coverage_json"; then
-      # Source contract: fkst-substrate `docs/package-repo-contract.md`
-      # defines `fkst-framework --self-test --coverage <dir>` as the normal
-      # self-test plus the Lua test runner against the current directory as a
-      # folded host/package root. This repository's real package tests live
-      # under `packages/<pkg>/tests`, so the root folded run can validly emit
-      # `{}` while package-root `test --coverage` still produces engine-owned
-      # Lua line coverage artifacts. The fallback only replaces the empty
-      # producer artifact; `check_repo.py` remains the single ratchet consumer.
-      echo "warning: fkst-framework --self-test --coverage wrote no Lua line metadata; using package test coverage fallback" >&2
-      LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK=1
-      return 0
+      if lua_coverage_needs_package_fallback; then
+        echo "warning: fkst-framework --self-test --coverage produced no root Lua test coverage; using source-proven package-root test coverage artifacts" >&2
+        LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK=1
+        return 0
+      fi
     fi
     FKST_LUA_COVERAGE_JSON="$coverage_json" python3 -B "$ROOT/scripts/check_repo.py"
     return $?

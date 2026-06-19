@@ -114,7 +114,7 @@ class RunShCoverageSelfTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_empty_self_test_artifact_requests_package_fallback_without_check_repo(self) -> None:
+    def test_empty_self_test_artifact_requests_source_proven_package_fallback_when_only_package_tests_exist(self) -> None:
         h = RunShCoverageHarness(
             textwrap.dedent(
                 """\
@@ -130,6 +130,11 @@ class RunShCoverageSelfTest(unittest.TestCase):
             )
         )
         try:
+            (h.mini_repo / "packages" / "example" / "tests").mkdir(parents=True)
+            (h.mini_repo / "packages" / "example" / "tests" / "core_test.lua").write_text(
+                "return { test_example = function() end }\n",
+                encoding="utf-8",
+            )
             result = h.run_shell(
                 "run_self_test_with_optional_lua_coverage; "
                 'test "${LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK:-0}" = "1"'
@@ -137,7 +142,42 @@ class RunShCoverageSelfTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual(h.argv_lines(), [f"--self-test --coverage {h.runtime / 'lua-coverage'}"])
-            self.assertIn("wrote no Lua line metadata", result.stderr)
+            self.assertIn("source-proven package-root test coverage artifacts", result.stderr)
+        finally:
+            h.close()
+
+    def test_empty_self_test_artifact_uses_check_repo_when_root_tests_exist(self) -> None:
+        h = RunShCoverageHarness(
+            textwrap.dedent(
+                """\
+                #!/bin/sh
+                printf '%s\\n' "$*" >> "$RUN_SH_COVERAGE_ARGV_LOG"
+                if [ "$1" = "--self-test" ] && [ "$2" = "--coverage" ] && [ -n "${3:-}" ]; then
+                  printf '{}\\n' > "$3/coverage.json"
+                  exit 0
+                fi
+                echo "unexpected argv: $*" >&2
+                exit 64
+                """
+            )
+        )
+        try:
+            (h.mini_repo / "tests").mkdir()
+            (h.mini_repo / "tests" / "root_test.lua").write_text(
+                "return { test_root = function() end }\n",
+                encoding="utf-8",
+            )
+            result = h.run_shell("run_self_test_with_optional_lua_coverage")
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(
+                h.argv_lines(),
+                [
+                    f"--self-test --coverage {h.runtime / 'lua-coverage'}",
+                    f"CHECK_REPO={h.runtime / 'lua-coverage' / 'coverage.json'}",
+                    "{}",
+                ],
+            )
         finally:
             h.close()
 

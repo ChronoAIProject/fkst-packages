@@ -266,7 +266,9 @@
 {"file":"packages/github-devloop/core/autonomy_ledger.lua","line":188,"normalized_line_hash":"4ce0d401ea2f7d1c","reason":"baseline"}
 {"file":"packages/github-devloop/core/autonomy_ledger.lua","line":205,"normalized_line_hash":"9701e7986f6d94c9","reason":"baseline"}
 {"file":"packages/github-devloop/core/autonomy_ledger.lua","line":217,"normalized_line_hash":"cf69ceba9a417d3b","reason":"baseline"}
+{"file":"packages/github-devloop/core/autonomy_ledger.lua","line":223,"normalized_line_hash":"8d4093c8c64f0e8d","reason":"baseline"}
 {"file":"packages/github-devloop/core/autonomy_ledger.lua","line":224,"normalized_line_hash":"1dccd870cc8acb2d","reason":"baseline"}
+{"file":"packages/github-devloop/core/autonomy_ledger.lua","line":226,"normalized_line_hash":"d2a6b19c6e34a274","reason":"baseline"}
 {"file":"packages/github-devloop/core/autonomy_ledger.lua","line":229,"normalized_line_hash":"9d7149c5d0babf02","reason":"baseline"}
 {"file":"packages/github-devloop/core/autonomy_ledger.lua","line":233,"normalized_line_hash":"c3ad50c3fab3118d","reason":"baseline"}
 {"file":"packages/github-devloop/core/autonomy_ledger.lua","line":265,"normalized_line_hash":"2c58b0f2b094944d","reason":"baseline"}
