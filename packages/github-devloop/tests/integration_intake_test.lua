@@ -342,6 +342,7 @@ return {
       { number = 42, labels = { "fkst-class:expedite" } },
       { number = 43, labels = {} },
       { number = 44, labels = {} },
+      { number = 45, labels = { "fkst-dev:hold" } },
     })
     mock_intake_scan_view({ "fkst-dev:enabled" }, {}, "OPEN", 40)
     mock_intake_scan_view({ "fkst-dev:thinking" }, {}, "OPEN", 41)
@@ -350,6 +351,9 @@ return {
     mock_intake_scan_view({}, {
       core.intake_decision_marker("github-devloop/issue/owner/repo/44", "decline", "intake/github-devloop/issue/owner/repo/44/v1", "standard"),
     }, "OPEN", 44)
+    -- #45 carries fkst-dev:hold (operator opt-out): must be filtered from intake
+    -- even though it has no devloop state label.
+    mock_intake_scan_view({ "fkst-dev:hold" }, {}, "OPEN", 45)
 
     local result = run_scan(opts("intake-scan-filter"))
     t.eq(result.exit_code, 0)
