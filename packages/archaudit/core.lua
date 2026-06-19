@@ -102,6 +102,10 @@ local function required_bool(row, name)
   return value
 end
 
+local function decode_json(text)
+  return json.decode(text)
+end
+
 function M.validate_repo(repo)
   if not strings.is_bounded_string(repo, github_proxy_limits.repo) then
     return false
@@ -161,7 +165,7 @@ function M.observe(exec)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("archaudit: observe-unreadable: " .. tostring(result and result.stderr or "no result"))
   end
-  local ok, decoded = pcall(json.decode, result.stdout or "")
+  local ok, decoded = pcall(decode_json, result.stdout or "")
   if not ok or type(decoded) ~= "table" then
     error("archaudit: observe-malformed-json: observe returned malformed JSON")
   end
@@ -210,7 +214,7 @@ function M.parse_findings_json(stdout)
   if raw:sub(1, 1) ~= "[" or raw:sub(-1) ~= "]" then
     error("archaudit: malformed-json: codex output is not a JSON array")
   end
-  local ok, decoded = pcall(json.decode, stdout or "")
+  local ok, decoded = pcall(decode_json, stdout or "")
   if not ok then
     error("archaudit: malformed-json: codex output is malformed JSON")
   end

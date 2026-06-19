@@ -104,9 +104,7 @@ function M.observe(exec)
     error("idle-detector: observe-failed: " .. tostring(result and result.stderr or "no result"))
   end
   local ok, decoded = pcall(json.decode, result.stdout or "")
-  if not ok or type(decoded) ~= "table" then
-    error("idle-detector: malformed-observe-json: observe returned malformed JSON")
-  end
+  assert(ok and type(decoded) == "table", "idle-detector: malformed-observe-json: observe returned malformed JSON")
   return validate_observe_facts(decoded)
 end
 

@@ -24,6 +24,10 @@ local function observe_idle()
 end
 
 return {
+  test_persistence_class_is_composed_judgment_pipeline = function()
+    t.eq(core.persistence_class(), "composed_judgment_pipeline")
+  end,
+
   test_parse_findings_accepts_strict_array = function()
     local parsed = core.parse_findings_json(finding_json)
     t.eq(#parsed, 1)
@@ -34,10 +38,87 @@ return {
 
   test_parse_findings_rejects_non_json_and_extra_shape = function()
     t.raises(function() core.parse_findings_json("not json") end)
+    t.raises(function() core.parse_findings_json("[{]") end)
     t.raises(function() core.parse_findings_json('{"file":"x"}') end)
     t.raises(function() core.parse_findings_json('"scalar"') end)
     t.raises(function() core.parse_findings_json("42") end)
     t.raises(function() core.parse_findings_json('[{"file":"x","line":"bad","rule":"SRP","why":"w","suggested_fix":"f"}]') end)
+  end,
+
+  test_parse_findings_reports_malformed_json_decode_error = function()
+    local ok, err = pcall(function()
+      core.parse_findings_json("[{]")
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("archaudit: malformed-json: codex output is malformed JSON", 1, true) ~= nil)
+  end,
+
+  test_parse_findings_reports_non_array_json_for_keyed_table = function()
+    local previous_json = json
+    json = {
+      decode = function(_stdout)
+        return { keyed = { file = "packages/archaudit/core.lua", line = 1, rule = "SRP", why = "Why.", suggested_fix = "Fix." } }
+      end,
+    }
+    local ok, err = pcall(function()
+      core.parse_findings_json("[]")
+    end)
+    json = previous_json
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("archaudit: non-array-json: codex output is not a JSON array", 1, true) ~= nil)
+  end,
+
+  test_parse_findings_rejects_sparse_or_keyed_arrays = function()
+    t.raises(function() core.parse_findings_json('{"1":{"file":"x"}}') end)
+    t.raises(function()
+      local previous_json = json
+      json = {
+        decode = function(_stdout)
+          local sparse = {}
+          sparse[1] = { file = "packages/archaudit/core.lua", line = 1, rule = "SRP", why = "Why.", suggested_fix = "Fix." }
+          sparse[3] = { file = "packages/archaudit/core.lua", line = 1, rule = "DIP", why = "Why.", suggested_fix = "Fix." }
+          return sparse
+        end,
+      }
+      local ok, err = pcall(core.parse_findings_json, "[]")
+      json = previous_json
+      if not ok then
+        error(err, 0)
+      end
+    end)
+  end,
+
+  test_parse_findings_rejects_decoder_returning_scalar_or_sparse_table = function()
+    local previous_json = json
+    json = {
+      decode = function(_stdout)
+        return "not a table"
+      end,
+    }
+    local ok_scalar, err_scalar = pcall(function()
+      t.raises(function() core.parse_findings_json("[]") end)
+    end)
+    json = previous_json
+    if not ok_scalar then
+      error(err_scalar, 0)
+    end
+
+    previous_json = json
+    json = {
+      decode = function(_stdout)
+        local sparse = {}
+        sparse[1] = { file = "packages/archaudit/core.lua", line = 1, rule = "SRP", why = "Why.", suggested_fix = "Fix." }
+        sparse[3] = { file = "packages/archaudit/core.lua", line = 1, rule = "DIP", why = "Why.", suggested_fix = "Fix." }
+        return sparse
+      end,
+    }
+    local ok_sparse, err_sparse = pcall(function()
+      t.raises(function() core.parse_findings_json("[]") end)
+    end)
+    json = previous_json
+    if not ok_sparse then
+      error(err_sparse, 0)
+    end
   end,
 
   test_parse_findings_accepts_legitimate_empty_array = function()
@@ -50,6 +131,18 @@ return {
     t.eq(core.validate_finding(finding), true)
     finding.line = 999999
     t.eq(core.validate_finding(finding), false)
+    t.eq(core.validate_finding("not a finding"), false)
+    local previous_read = file.read
+    file.read = function(_path)
+      return ""
+    end
+    local ok, err = pcall(function()
+      t.eq(core.validate_finding({ file = "packages/archaudit/core.lua", line = 1 }), false)
+    end)
+    file.read = previous_read
+    if not ok then
+      error(err, 0)
+    end
   end,
 
   test_dedup_key_is_stable_and_bounded = function()
@@ -97,6 +190,18 @@ return {
     t.raises(function() core.build_issue_create_request("owner repo", finding, true) end)
   end,
 
+  test_issue_request_sanitizes_marker_unsafe_dedup_seed = function()
+    local payload = core.build_issue_create_request("owner/repo", {
+      file = "packages/archaudit/core.lua",
+      line = 1,
+      rule = "SRP\nunsafe",
+      why = "Concrete issue.",
+      suggested_fix = "Small fix.",
+    }, true)
+    t.is_true(payload.dedup_key:find("\n", 1, true) == nil)
+    t.is_true(payload.body:find("archaudit-dedup: " .. payload.dedup_key, 1, true) ~= nil)
+  end,
+
   test_issue_request_omits_missing_label = function()
     local finding = core.parse_findings_json(finding_json)[1]
     local payload = core.build_issue_create_request("owner/repo", finding, false)
@@ -116,6 +221,46 @@ return {
     t.eq(core.idle_hint_freshness(detected, detected - 1, detected, 600), "expired")
     t.raises(function() core.idle_hint_freshness(nil, expires, detected, 600) end)
     t.raises(function() core.idle_hint_freshness(detected, nil, nil, 600) end)
+    t.raises(function() core.idle_hint_freshness(detected, "not-number", detected, 600) end)
+  end,
+
+  test_iso_timestamp_parser_covers_invalid_and_january_dates = function()
+    t.eq(core.iso_timestamp_epoch_seconds("not-a-time"), nil)
+    t.eq(core.iso_timestamp_epoch_seconds("2026-13-01T00:00:00Z"), nil)
+    t.eq(core.iso_timestamp_epoch_seconds("2026-01-01T00:00:00Z"), 1767225600)
+  end,
+
+  test_prompt_includes_strict_object_schema = function()
+    local prompt = core.build_prompt("owner/repo", 2)
+    t.is_true(prompt:find('Object schema: {"file":"packages/example/core.lua","line":42,"rule":"SRP"', 1, true) ~= nil)
+  end,
+
+  test_observe_wrapper_requires_exec_and_rejects_unreadable_or_malformed_json = function()
+    t.raises(function() core.observe("not a function") end)
+    t.raises(function()
+      core.observe(function(_cmd)
+        return { stdout = "", stderr = "observe failed", exit_code = 1 }
+      end)
+    end)
+    t.raises(function()
+      core.observe(function(_cmd)
+        return { stdout = "{not json", stderr = "", exit_code = 0 }
+      end)
+    end)
+  end,
+
+  test_observe_wrapper_reports_malformed_json_error_class = function()
+    local ok, err = pcall(function()
+      core.observe(function(_cmd)
+        return { stdout = "{not json", stderr = "", exit_code = 0 }
+      end)
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("archaudit: observe-malformed-json", 1, true) ~= nil)
+  end,
+
+  test_observe_validation_rejects_non_table_top_level = function()
+    t.raises(function() core.validate_observe_facts("not facts") end)
   end,
 
   test_observe_predicate_accepts_real_idle_and_uses_generated_time = function()

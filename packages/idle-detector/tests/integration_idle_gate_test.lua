@@ -61,6 +61,25 @@ return {
     t.eq(result.raises[1].payload.detected_at, "2026-06-19T01:00:00Z")
   end,
 
+  test_idle_gate_accepts_cron_slot_and_event_ts_fallbacks = function()
+    mock_observe(observe_json(1781830860000), 0)
+    local cron_event = event("2026-06-19T01:00:00Z")
+    cron_event.payload.slot = nil
+    cron_event.payload.cron_slot = "2026-06-19T01:00:00Z"
+    local cron_result = t.run_department("departments/idle_gate/main.lua", cron_event, opts("cron-slot"))
+    t.eq(cron_result.exit_code, 0)
+    t.eq(cron_result.raises[1].payload.detected_at, "2026-06-19T01:00:00Z")
+
+    mock_observe(observe_json(1781830860000), 0)
+    local ts_event = event("2026-06-19T01:00:00Z")
+    ts_event.payload.slot = nil
+    ts_event.payload.cron_slot = nil
+    ts_event.payload.detected_at = nil
+    local ts_result = t.run_department("departments/idle_gate/main.lua", ts_event, opts("event-ts-slot"))
+    t.eq(ts_result.exit_code, 0)
+    t.eq(ts_result.raises[1].payload.detected_at, "2026-06-19T01:00:00Z")
+  end,
+
   test_idle_gate_uses_observe_time_to_drop_stale_slot = function()
     mock_observe(observe_json(1781831461000), 0)
     local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("stale"))
@@ -103,6 +122,50 @@ return {
 
   test_idle_gate_skips_observe_read_failure = function()
     assert_skip_with_observe("observe-failure", "", 1)
+  end,
+
+  test_idle_gate_logs_terminal_skip_on_observe_read_failure = function()
+    mock_observe("", 1)
+    local previous_warn = log.warn
+    local logs = {}
+    log.warn = function(message)
+      table.insert(logs, tostring(message))
+    end
+    package.loaded["departments.idle_gate.main"] = nil
+    local ok, err = pcall(function()
+      local dept = require("departments.idle_gate.main")
+      dept.pipeline(event("2026-06-19T01:00:00Z"))
+    end)
+    log.warn = previous_warn
+    if not ok then
+      error(err, 0)
+    end
+    t.eq(#logs, 1)
+    t.is_true(logs[1]:find("tag=SKIP", 1, true) ~= nil)
+    t.is_true(logs[1]:find("error_class=terminal-skip", 1, true) ~= nil)
+    t.is_true(logs[1]:find("terminal=true", 1, true) ~= nil)
+    t.is_true(logs[1]:find("unreadable observe facts", 1, true) ~= nil)
+  end,
+
+  test_idle_gate_skips_malformed_json_and_malformed_slot_without_raising_idle = function()
+    assert_skip_with_observe("malformed-json", "{not json", 0)
+
+    mock_observe(observe_json(1781830860000), 0)
+    local malformed_slot = event("not-a-time")
+    local result = t.run_department("departments/idle_gate/main.lua", malformed_slot, opts("malformed-slot"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+  end,
+
+  test_idle_gate_unknown_queue_is_caught_failure = function()
+    local result = t.run_department("departments/idle_gate/main.lua", {
+      queue = "foreign_queue",
+      payload = {
+        source_ref = { kind = "cron", ref = "idle-detector/idle_poll/foreign" },
+      },
+    }, opts("unknown-queue"))
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_skips_malformed_observe_shapes = function()

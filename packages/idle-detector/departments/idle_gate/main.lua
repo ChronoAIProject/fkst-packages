@@ -60,28 +60,15 @@ end
 local function act_idle(event)
   local slot = tick_slot(event)
   local ok_observe, facts_or_err = pcall(core.observe)
-  if not ok_observe then
-    log_skip("unreadable observe facts: " .. tostring(facts_or_err), event)
-    return
-  end
-  local ok_time, observe_now_or_err = pcall(core.observe_now_seconds, facts_or_err)
-  if not ok_time then
-    log_skip("malformed observe facts: " .. tostring(observe_now_or_err), event)
-    return
-  end
-  local stale, stale_why = slot_is_stale(slot, observe_now_or_err)
+  local observe_error = not ok_observe and ("unreadable observe facts: " .. tostring(facts_or_err)) or nil
+  if observe_error ~= nil then return log_skip(observe_error, event) end
+  local observe_now = core.observe_now_seconds(facts_or_err)
+  local stale, stale_why = slot_is_stale(slot, observe_now)
   if stale then
     log_skip(stale_why, event)
     return
   end
-  local ok_idle, idle, why = pcall(function()
-    local is_idle, idle_why = core.is_idle_observe(facts_or_err)
-    return is_idle, idle_why
-  end)
-  if not ok_idle then
-    log_skip("malformed observe facts: " .. tostring(idle), event)
-    return
-  end
+  local idle, why = core.is_idle_observe(facts_or_err)
   if not idle then
     log_skip(why or "system busy", event)
     return

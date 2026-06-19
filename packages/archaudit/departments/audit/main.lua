@@ -116,6 +116,18 @@ local function parser_error_class(err)
   return "validation-failure"
 end
 
+local function observe_result()
+  return pcall(core.observe)
+end
+
+local function observe_now_result(facts)
+  return pcall(core.observe_now_seconds, facts)
+end
+
+local function idle_observe_result(facts)
+  return pcall(core.is_idle_observe, facts)
+end
+
 local function run_codex(repo, max_count)
   local opts = codex.judgment_codex_opts(core.build_prompt(repo, max_count), ".")
   opts.timeout = codex_timeout_seconds
@@ -128,6 +140,42 @@ local function run_codex(repo, max_count)
     error("archaudit: codex-nonzero: codex nonzero exit")
   end
   return core.parse_findings_json(result.stdout)
+end
+
+local function codex_result(repo, count)
+  return pcall(run_codex, repo, count)
+end
+
+local function issue_request_result(repo, finding, label_available)
+  return pcall(core.build_issue_create_request, repo, finding, label_available)
+end
+
+local function stop_observe_error(event, err)
+  local message = tostring(err)
+  if message:find("observe%-unreadable") ~= nil then
+    log_fact("warn", "audit", "SKIP", "terminal-skip", event, message, true)
+    return true
+  end
+  fail(event, "observe-malformed", message)
+end
+
+local function fail_observe_malformed(event, err)
+  fail(event, "observe-malformed", tostring(err))
+end
+
+local function fail_codex_error(event, err)
+  local message = tostring(err)
+  if message:find("codex%-timeout") ~= nil then
+    fail(event, "codex-timeout", "codex timeout")
+  end
+  if message:find("codex%-nonzero") ~= nil then
+    fail(event, "codex-nonzero", "codex nonzero exit")
+  end
+  fail(event, parser_error_class(message), message)
+end
+
+local function fail_request_error(event, err)
+  fail(event, "validation-failure", err)
 end
 
 local function audit_done(event)
@@ -144,18 +192,13 @@ end
 local function make_department(ports)
   local function act_audit(event)
     local payload = event.payload or {}
-    local ok_observe, facts_or_err = pcall(core.observe)
-    if not ok_observe then
-      local message = tostring(facts_or_err)
-      if message:find("observe%-unreadable") ~= nil then
-        log_fact("warn", "audit", "SKIP", "terminal-skip", event, message, true)
-        return
-      end
-      fail(event, "observe-malformed", message)
+    local ok_observe, facts_or_err = observe_result()
+    if not ok_observe and stop_observe_error(event, facts_or_err) then
+      return
     end
-    local ok_time, observe_now_or_err = pcall(core.observe_now_seconds, facts_or_err)
-    if not ok_time then
-      fail(event, "observe-malformed", tostring(observe_now_or_err))
+    local ok_time, observe_now_or_err = observe_now_result(facts_or_err)
+    if not ok_time and fail_observe_malformed(event, observe_now_or_err) then
+      return
     end
     local ok_fresh, fresh, fresh_why = pcall(fresh_hint, payload, observe_now_or_err)
     if not ok_fresh then
@@ -165,9 +208,9 @@ local function make_department(ports)
       log_fact("warn", "audit", "SKIP", "terminal-skip", event, fresh_why, true)
       return
     end
-    local ok_idle, idle, why = pcall(core.is_idle_observe, facts_or_err)
-    if not ok_idle then
-      fail(event, "observe-malformed", tostring(idle))
+    local ok_idle, idle, why = idle_observe_result(facts_or_err)
+    if not ok_idle and fail_observe_malformed(event, idle) then
+      return
     end
     if not idle then
       log_fact("warn", "audit", "SKIP", "terminal-skip", event, why or "current system busy", true)
@@ -180,16 +223,9 @@ local function make_department(ports)
     end
 
     local count = max_issues()
-    local ok_codex, findings_or_err = pcall(run_codex, repo, count)
-    if not ok_codex then
-      local message = tostring(findings_or_err)
-      if message:find("codex%-timeout") ~= nil then
-        fail(event, "codex-timeout", "codex timeout")
-      end
-      if message:find("codex%-nonzero") ~= nil then
-        fail(event, "codex-nonzero", "codex nonzero exit")
-      end
-      fail(event, parser_error_class(message), message)
+    local ok_codex, findings_or_err = codex_result(repo, count)
+    if not ok_codex and fail_codex_error(event, findings_or_err) then
+      return
     end
 
     local label_available = has_archaudit_label(ports.github, repo)
@@ -201,9 +237,9 @@ local function make_department(ports)
       if not core.validate_finding(finding) then
         fail(event, "validation-failure", "invalid file or line")
       end
-      local ok_request, request_or_err = pcall(core.build_issue_create_request, repo, finding, label_available)
-      if not ok_request then
-        fail(event, "validation-failure", request_or_err)
+      local ok_request, request_or_err = issue_request_result(repo, finding, label_available)
+      if not ok_request and fail_request_error(event, request_or_err) then
+        return
       end
       table.insert(requests, request_or_err)
     end

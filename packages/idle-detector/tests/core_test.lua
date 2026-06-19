@@ -27,6 +27,10 @@ local function observe_idle_json()
 end
 
 return {
+  test_persistence_class_is_stateless_adapter = function()
+    t.eq(core.persistence_class(), "stateless_adapter")
+  end,
+
   test_idle_predicate_accepts_real_zero_snapshot = function()
     local idle, why = core.is_idle_observe(observe_idle())
     t.eq(idle, true)
@@ -193,6 +197,25 @@ return {
     end)
   end,
 
+  test_observe_wrapper_requires_exec_and_rejects_malformed_json = function()
+    t.raises(function() core.observe("not a function") end)
+    t.raises(function()
+      core.observe(function(_cmd)
+        return { stdout = "{not json", stderr = "", exit_code = 0 }
+      end)
+    end)
+  end,
+
+  test_observe_wrapper_reports_malformed_json_error_class = function()
+    local ok, err = pcall(function()
+      core.observe(function(_cmd)
+        return { stdout = "{not json", stderr = "", exit_code = 0 }
+      end)
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("idle-detector: malformed-observe-json", 1, true) ~= nil)
+  end,
+
   test_system_idle_payload_is_small_and_source_ref_backed = function()
     local payload = core.build_system_idle_payload("2026-06-19T01:00:00Z", "idle_tick/2026-06-19T01:00:00Z", "2026-06-19T01:10:00Z")
     t.eq(payload.schema, "idle-detector.system-idle.v1")
@@ -211,6 +234,12 @@ return {
     t.eq(core.freshness_verdict(reference, reference + 601, 600), "stale")
     t.eq(core.freshness_verdict(reference, reference - 60, 600), "fresh")
     t.raises(function() core.freshness_verdict(nil, reference, 600) end)
+  end,
+
+  test_iso_timestamp_parser_covers_invalid_and_january_dates = function()
+    t.eq(core.iso_timestamp_epoch_seconds("not-a-time"), nil)
+    t.eq(core.iso_timestamp_epoch_seconds("2026-13-01T00:00:00Z"), nil)
+    t.eq(core.iso_timestamp_epoch_seconds("2026-01-01T00:00:00Z"), 1767225600)
   end,
 
   test_skip_fact_fields_are_pure_and_structured = function()
