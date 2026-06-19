@@ -125,7 +125,7 @@ return {
     local first_proposal = find_raise(first.raises, "consensus.proposal").payload
     t.eq(first_proposal.schema, "consensus.proposal.v1")
     t.eq(first_proposal.proposal_id, original.proposal_id)
-    t.eq(first_proposal.dedup_key, original.dedup_key .. "/replay")
+    t.eq(first_proposal.dedup_key, original.dedup_key .. "/replay/2026-06-03T01-02-03Z")
     t.eq(first_proposal.source_ref.ref, "owner/repo#issue/42")
 
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
@@ -146,7 +146,11 @@ return {
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 1)
     local second_proposal = find_raise(second.raises, "consensus.proposal").payload
-    t.eq(second_proposal.dedup_key, core.build_proposal(updated_event).dedup_key .. "/replay")
+    -- The replay dedup is rooted at the trusted thinking marker version
+    -- (original.dedup_key), not the event's updated_at; only the trailing
+    -- "/replay/<updated_at>" segment carries the re-observed event's updated_at,
+    -- which is what makes it distinct from the first proposal.
+    t.eq(second_proposal.dedup_key, original.dedup_key .. "/replay/2026-06-03T01-02-04Z")
     t.is_true(second_proposal.dedup_key ~= first_proposal.dedup_key)
     t.is_true(second_proposal.content_fetch ~= first_proposal.content_fetch)
     t.eq(count_calls("--json body"), 0)
@@ -192,7 +196,10 @@ return {
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, original.proposal_id)
-    t.eq(proposal.dedup_key, original.dedup_key .. "/replay/loop/1")
+    -- The replay version now carries the full thinking marker lineage
+    -- (…/loop/1) followed by "/replay/<updated_at>", so it reduces back to the
+    -- same intake base as the marker for same-base version comparison.
+    t.eq(proposal.dedup_key, original.dedup_key .. "/loop/1/replay/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
   end,
 
@@ -213,7 +220,7 @@ return {
     t.eq(#result.raises, 2)
     local proposal = find_raise(result.raises, "consensus.proposal").payload
     t.eq(proposal.proposal_id, original.proposal_id)
-    t.eq(proposal.dedup_key, original.dedup_key .. "/replay")
+    t.eq(proposal.dedup_key, original.dedup_key .. "/replay/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)

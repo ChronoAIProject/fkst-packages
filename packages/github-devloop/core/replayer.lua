@@ -385,9 +385,9 @@ local function build_thinking_replay_proposal(issue, proposal_id, state, current
   for key, value in pairs(issue) do
     replay_issue[key] = value
   end
-  local replay_dedup = M.proposal_dedup_key(proposal_id, issue.updated_at)
+  local replay_dedup = tostring(state.version or "")
     .. "/replay"
-    .. tostring(state.version or ""):sub(#stable_version + 1)
+    .. "/" .. M.safe_updated_at(issue.updated_at)
   replay_issue.content_fetch = M.context_fetch_ref_from_bundle({
     dept = "observe_issue",
     repo = issue.repo,

@@ -69,7 +69,10 @@ return {
     local result = run_observe(issue(), opts("observe-managed-unassigned-reclaim", { FKST_GITHUB_WRITE = "1" }))
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal").payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/replay")
+    -- Replay version is now rooted at the trusted thinking marker version
+    -- (here the fixture default "2026-06-02T00-00-00Z") with a trailing
+    -- "/replay/<event updated_at>" rather than the event's updated_at base.
+    t.eq(find_raise(result.raises, "consensus.proposal").payload.dedup_key, "2026-06-02T00-00-00Z/replay/2026-06-03T01-02-03Z")
     t.eq(count_calls("--add-assignee 'fkst-test-bot'"), 1)
     t.eq(count_calls("--remove-assignee 'fkst-test-bot'"), 0)
   end,
@@ -81,7 +84,7 @@ return {
     local result = run_observe(issue(), opts("observe-stalled-self-claim-held", { FKST_GITHUB_WRITE = "1" }))
 
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal").payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/replay")
+    t.eq(find_raise(result.raises, "consensus.proposal").payload.dedup_key, "2026-06-02T00-00-00Z/replay/2026-06-03T01-02-03Z")
     t.eq(count_calls("--remove-assignee 'fkst-test-bot'"), 0)
     t.eq(count_calls("--add-assignee 'fkst-test-bot'"), 0)
   end,
