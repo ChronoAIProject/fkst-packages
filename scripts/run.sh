@@ -391,11 +391,6 @@ LUA
   echo "OK: SDK primitive truncate_utf8 is available in BIN: $BIN"
 }
 
-write_lua_coverage_fallback_artifact() {
-  local output="$1"; shift
-  python3 -B "$RUN_SH_REPO_ROOT/scripts/write_lua_coverage_fallback_artifact.py" "$ROOT" "$output" "$@"
-}
-
 check_lua_coverage_artifact() {
   local coverage_json="$1"
   if [ ! -f "$coverage_json" ]; then
@@ -403,6 +398,11 @@ check_lua_coverage_artifact() {
     return 1
   fi
   FKST_LUA_COVERAGE_JSON="$coverage_json" python3 -B "$ROOT/scripts/check_repo.py"
+}
+
+write_lua_coverage_fallback_artifact() {
+  local output="$1"; shift
+  python3 -B "$RUN_SH_REPO_ROOT/scripts/write_lua_coverage_fallback_artifact.py" "$ROOT" "$output" "$@"
 }
 
 lua_coverage_artifact_has_line_metadata() {
@@ -443,10 +443,14 @@ run_self_test_with_optional_lua_coverage() {
       return 1
     fi
     if ! lua_coverage_artifact_has_line_metadata "$coverage_json"; then
-      # Engine contract: `--self-test --coverage` runs package tests only for
-      # the current directory as a folded package root. This repository stores
-      # Lua tests under packages/<pkg>/tests, so the root self-test can honestly
-      # emit an empty artifact; package `test --coverage` remains engine-owned.
+      # Source contract: fkst-substrate `docs/package-repo-contract.md`
+      # defines `fkst-framework --self-test --coverage <dir>` as the normal
+      # self-test plus the Lua test runner against the current directory as a
+      # folded host/package root. This repository's real package tests live
+      # under `packages/<pkg>/tests`, so the root folded run can validly emit
+      # `{}` while package-root `test --coverage` still produces engine-owned
+      # Lua line coverage artifacts. The fallback only replaces the empty
+      # producer artifact; `check_repo.py` remains the single ratchet consumer.
       echo "warning: fkst-framework --self-test --coverage wrote no Lua line metadata; using package test coverage fallback" >&2
       LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK=1
       return 0
