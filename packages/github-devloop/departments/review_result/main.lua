@@ -1,4 +1,4 @@
-local core, saga = require("core"), require("std.saga")
+local core, saga = require("departments.review_result.marker_core"), require("std.saga")
 
 -- Preserve existing body line coordinates for the coverage ratchet.
 

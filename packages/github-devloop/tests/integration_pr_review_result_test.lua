@@ -9,9 +9,35 @@ local mock_issue_result = h.mock_issue_result
 local mock_pr_origin = h.mock_pr_origin
 local count_calls = h.count_calls
 local find_raise = h.find_raise
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
 local verdict_summary_label = "Three-angle verdicts: "
+
+local function mock_review_result_pr_marker_reads(direct_comments, paginated_comments, fields)
+  local f = fields or {}
+  local base_fields = {
+    repo = f.repo or "owner/repo",
+    number = f.number or 7,
+    head = f.head or "devloop-owner-repo-42-01HY",
+    head_sha = f.head_sha or "def456",
+    state = f.state or "OPEN",
+    base_branch = f.base_branch or "dev",
+    labels = f.labels or {},
+  }
+  local direct_fields = {}
+  local paginated_fields = { times = 1 }
+  for key, value in pairs(base_fields) do
+    direct_fields[key] = value
+    paginated_fields[key] = value
+  end
+  direct_fields.comments = direct_comments
+  paginated_fields.comments = paginated_comments
+  entity_read_mocks.mock_pr_view_raw_selector(t, direct_fields, entity_read_mocks.pr_origin_selector, {
+    stdout = entity_read_mocks.pr_view_stdout(direct_fields),
+  })
+  entity_read_mocks.mock_pr_read_forms(t, paginated_fields)
+end
 
 local function mock_issue_claim(assignees, author_login)
   local rendered = {}
@@ -72,6 +98,21 @@ return {
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merge-ready:v1", 1, true) ~= nil)
     t.eq(merge_raise.payload.schema, "github-devloop.merge-ready.v1")
     t.eq(tostring(merge_raise.payload.pr_number), "7")
+    t.eq(merge_raise.payload.reviewed_head_sha, "def456")
+  end,
+
+  test_review_result_approve_uses_paginated_pr_marker_stream = function()
+    local event = review_reached()
+    local impl_version = reviewing().version
+    local origin_marker = core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev")
+    local reviewing_marker = core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version)
+    mock_review_result_pr_marker_reads({ origin_marker }, { origin_marker, reviewing_marker })
+
+    local result = run_review_result(event, opts("review-result-paginated-pr-marker"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 3)
+    local merge_raise = find_raise(result.raises, "devloop_merge_ready")
+    t.eq(merge_raise.payload.version, impl_version)
     t.eq(merge_raise.payload.reviewed_head_sha, "def456")
   end,
 
@@ -238,19 +279,15 @@ return {
   test_review_result_marker_lag_retries_then_visible_marker_applies = function()
     local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version
-    mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
-    })
-    mock_issue_result({ "fkst-dev:enabled" }, {})
+    local origin_marker = core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev")
+    mock_review_result_pr_marker_reads({ origin_marker }, { origin_marker })
 
     local pending = run_review_result(event, opts("review-result-marker-lag"))
     t.eq(pending.exit_code, 1)
     t.eq(#pending.raises, 0)
 
-    mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
-    })
-    mock_issue_result({ "fkst-dev:reviewing" }, {
+    mock_review_result_pr_marker_reads({ origin_marker }, {
+      origin_marker,
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
     })
 
