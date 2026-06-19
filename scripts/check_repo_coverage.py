@@ -656,29 +656,6 @@ def repository_messages(root: Path) -> list[str]:
         return [f"invalid Lua coverage ratchet input: {exc}"]
 
 
-def covered_json_messages(root: Path, artifacts: list[tuple[Path, str | None]]) -> list[str]:
-    required = (root / REQUIRED_FLAG).exists()
-    flag_messages = required_flag_removal_messages(root, required)
-    if flag_messages:
-        return flag_messages
-    if not artifacts:
-        return repository_messages(root)
-    missing = [str(path) for path, _package_name in artifacts if not path.exists()]
-    if missing:
-        if not required:
-            warn_disabled(f"coverage artifact is missing: {missing[0]}")
-            return []
-        return [f"Lua coverage artifact does not exist: {missing[0]}"]
-    try:
-        uncovered = uncovered_from_covered_sets(root, merge_covered_sets(artifacts))
-        return ratchet_input_messages(root, uncovered)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        if not required:
-            warn_disabled(f"coverage artifact would not parse once enabled: {exc}")
-            return []
-        return [f"invalid Lua coverage ratchet input: {exc}"]
-
-
 def cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -706,15 +683,7 @@ def cli(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.write_current_uncovered is None:
-        root = Path.cwd()
-        if args.covered_json:
-            try:
-                messages = covered_json_messages(root, [parse_covered_json_arg(value) for value in args.covered_json])
-            except ValueError as exc:
-                print(f"error: invalid covered coverage artifact argument: {exc}", file=sys.stderr)
-                return 1
-        else:
-            messages = repository_messages(root)
+        messages = repository_messages(Path.cwd())
         for message in messages:
             print(message)
         return 1 if messages else 0

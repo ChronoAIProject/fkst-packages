@@ -434,41 +434,6 @@ class CoverageRatchetTest(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertIn("not in migration/coverage-uncovered.allowlist", messages[0])
 
-    def test_covered_json_messages_enforces_required_ratchet_with_package_mapping(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "migration").mkdir()
-            (root / "migration" / "coverage-uncovered.required").write_text("", encoding="utf-8")
-            (root / "migration" / "coverage-uncovered.allowlist").write_text("", encoding="utf-8")
-            (root / "packages" / "example").mkdir(parents=True)
-            (root / "packages" / "example" / "core.lua").write_text(
-                "\n".join([
-                    "local M = {}",
-                    "function M.covered()",
-                    "  return 1",
-                    "end",
-                    "function M.missing()",
-                    "  return 2",
-                    "end",
-                    "return M",
-                ]) + "\n",
-                encoding="utf-8",
-            )
-            artifact = root / "coverage.json"
-            artifact.write_text(
-                json.dumps({"core.lua": {"covered_lines": [1, 2, 3, 8]}}),
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(coverage, "selected_base_ref", return_value="integration"):
-                with mock.patch.object(coverage, "required_flag_at_base", return_value="present"):
-                    with mock.patch.object(coverage, "allowlist_at_base", return_value=("absent", None)):
-                        messages = coverage.covered_json_messages(root, [(artifact, "example")])
-
-        self.assertGreaterEqual(len(messages), 1)
-        self.assertIn("packages/example/core.lua:5:function M.missing()", messages[0])
-        self.assertIn("not in migration/coverage-uncovered.allowlist", messages[0])
-
     def test_ratchet_input_messages_allows_bootstrap_allowlist_when_base_flag_absent(self) -> None:
         key = self.key()
         with tempfile.TemporaryDirectory() as tmp:

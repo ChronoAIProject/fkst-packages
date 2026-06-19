@@ -32,7 +32,20 @@ class RunShCoverageHarness:
         self.framework = self.root / "fkst-framework"
         write_executable(
             self.mini_repo_scripts / "check_repo.py",
-            "#!/usr/bin/env python3\nraise SystemExit(0)\n",
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import os
+                from pathlib import Path
+
+                with open(os.environ["RUN_SH_COVERAGE_ARGV_LOG"], "a", encoding="utf-8") as handle:
+                    handle.write("CHECK_REPO=" + os.environ.get("FKST_LUA_COVERAGE_JSON", "") + "\\n")
+                    coverage = os.environ.get("FKST_LUA_COVERAGE_JSON")
+                    if coverage:
+                        handle.write(Path(coverage).read_text(encoding="utf-8"))
+                raise SystemExit(0)
+                """
+            ),
         )
         write_executable(self.framework, bin_body)
 
@@ -78,7 +91,6 @@ class RunShCoverageSelfTest(unittest.TestCase):
                 """\
                 #!/bin/sh
                 printf '%s\\n' "$*" >> "$RUN_SH_COVERAGE_ARGV_LOG"
-                pwd >> "$RUN_SH_COVERAGE_ARGV_LOG"
                 if [ "$1" = "--self-test" ] && [ "$#" -eq 1 ]; then
                   exit 0
                 fi
@@ -90,14 +102,13 @@ class RunShCoverageSelfTest(unittest.TestCase):
         try:
             result = h.run_shell("run_self_test")
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(len(h.argv_lines()), 2)
+            self.assertEqual(len(h.argv_lines()), 1)
             argv = h.argv_lines()[0].split()
             self.assertEqual(argv, ["--self-test"])
-            self.assertEqual(h.argv_lines()[1], str(h.mini_repo))
         finally:
             h.close()
 
-    def test_lua_coverage_ratchet_passes_covered_json_arguments(self) -> None:
+    def test_coverage_artifact_merges_package_paths_and_checks_canonical_env(self) -> None:
         h = RunShCoverageHarness(
             textwrap.dedent(
                 """\
@@ -107,25 +118,39 @@ class RunShCoverageSelfTest(unittest.TestCase):
                 """
             )
         )
-        check_repo = h.mini_repo_scripts / "check_repo_coverage.py"
-        write_executable(
-            check_repo,
-            textwrap.dedent(
-                """\
-                #!/usr/bin/env python3
-                import os
-                import sys
-                with open(os.environ["RUN_SH_COVERAGE_ARGV_LOG"], "a", encoding="utf-8") as handle:
-                    handle.write(" ".join(sys.argv[1:]) + "\\n")
-                    handle.write(os.environ.get("FKST_LUA_COVERAGE_JSON", "") + "\\n")
-                raise SystemExit(0)
-                """
-            ),
-        )
         try:
-            result = h.run_shell('run_lua_coverage_ratchet --covered-json "pkg=/tmp/pkg-coverage.json"')
+            (h.mini_repo / "packages" / "example").mkdir(parents=True)
+            (h.mini_repo / "packages" / "example" / "core.lua").write_text("return {}\n", encoding="utf-8")
+            (h.mini_repo / "packages" / "example" / "unused.lua").write_text("return {}\n", encoding="utf-8")
+            (h.mini_repo / "std").mkdir()
+            (h.mini_repo / "std" / "shared.lua").write_text("return {}\n", encoding="utf-8")
+            first = h.root / "first.json"
+            second = h.root / "second.json"
+            output = h.root / "merged" / "coverage.json"
+            first.write_text(
+                '{"core.lua":{"covered_lines":[2,1]},"std/shared.lua":{"covered_lines":[3]}}',
+                encoding="utf-8",
+            )
+            second.write_text(
+                '{"core.lua":{"covered_lines":[3]},"packages/other/core.lua":{"covered_lines":[4]}}',
+                encoding="utf-8",
+            )
+
+            result = h.run_shell(
+                f'write_lua_coverage_artifact "{output}" "example={first}" "example={second}"; '
+                f'check_lua_coverage_artifact "{output}"'
+            )
+
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.argv_lines(), ["--covered-json pkg=/tmp/pkg-coverage.json", "1"])
+            lines = h.argv_lines()
+            self.assertEqual(lines[0], f"CHECK_REPO={output}")
+            merged = "\n".join(lines[1:])
+            self.assertIn('"packages/example/core.lua"', merged)
+            self.assertIn('"covered_lines": [', merged)
+            self.assertIn('"packages/example/unused.lua"', merged)
+            self.assertIn('"covered_lines": []', merged)
+            self.assertIn('"std/shared.lua"', merged)
+            self.assertIn('"packages/other/core.lua"', merged)
         finally:
             h.close()
 
