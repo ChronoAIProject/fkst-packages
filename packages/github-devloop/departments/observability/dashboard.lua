@@ -222,7 +222,7 @@ local function append_span_metrics_sections(sections, span_metrics)
         .. ": open=" .. tostring(row.open_count or 0)
         .. " avg-open=" .. format_duration(row.avg_open_dwell_seconds)
         .. " completed=" .. tostring(row.completed_count or 0)
-        .. " avg-completed=" .. format_duration(row.avg_completed_seconds)
+        .. " avg-completed=" .. format_duration(row.avg_completed_seconds) .. " completed-samples=" .. (function(samples) local values = {}; for _, sample in ipairs(samples or {}) do table.insert(values, format_duration(sample and sample.duration_seconds)); if #values >= max_dashboard_section_items then break end end; if #values == 0 then return "none" end; return table.concat(values, ", ") end)(row.completed_samples)
         .. " anchor=" .. tostring(row.open_anchor or "state-entry"))
       shown = shown + 1
       if shown >= max_dashboard_section_items then

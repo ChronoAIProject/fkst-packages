@@ -220,9 +220,9 @@ return {
       now_seconds = now_seconds,
     })
     t.is_true(dashboard.body:find("## State spans", 1, true) ~= nil)
-    t.is_true(dashboard.body:find("- implementing: open=1 avg-open=30m completed=1 avg-completed=30m anchor=heartbeat", 1, true) ~= nil)
-    t.is_true(dashboard.body:find("- thinking: open=1 avg-open=10m completed=0 avg-completed=unknown anchor=heartbeat", 1, true) ~= nil)
-    t.is_true(dashboard.body:find("- ready: open=0 avg-open=unknown completed=2 avg-completed=45m anchor=state-entry", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- implementing: open=1 avg-open=30m completed=1 avg-completed=30m completed-samples=30m anchor=heartbeat", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- thinking: open=1 avg-open=10m completed=0 avg-completed=unknown completed-samples=none anchor=heartbeat", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- ready: open=0 avg-open=unknown completed=2 avg-completed=45m completed-samples=30m, 1h 0m anchor=state-entry", 1, true) ~= nil)
     t.is_true(dashboard.body:find("## Recent transitions", 1, true) ~= nil)
     t.is_true(dashboard.body:find("- ready->implementing: 2", 1, true) ~= nil)
     t.is_true(dashboard.body:find("- implementing->pr-open: 1", 1, true) ~= nil)
