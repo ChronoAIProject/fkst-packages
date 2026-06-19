@@ -7,6 +7,14 @@ local function observe_idle()
   return {
     schema_version = 1,
     generated_at_ms = 1781830860000,
+    source = {
+      durable_root = "/tmp/fkst-durable",
+      database = "/tmp/fkst-durable/delivery.redb",
+      read_semantics = "single read transaction",
+      history_semantics = "delivery queue snapshot only",
+    },
+    limits = { max_deliveries = 500, max_dead_letters = 500 },
+    truncated = { deliveries = false, dead_letters = false },
     queues = {
       { queue = "proposal", depth = 0, pending = 0, in_flight = 0, retrying = 0 },
     },
@@ -144,6 +152,14 @@ return {
       function(facts) facts.schema_version = nil end,
       function(facts) facts.schema_version = 2 end,
       function(facts) facts.generated_at_ms = "1781830860000" end,
+      function(facts) facts.source = nil end,
+      function(facts) facts.source = "bad" end,
+      function(facts) facts.limits = nil end,
+      function(facts) facts.limits.max_deliveries = 1.5 end,
+      function(facts) facts.limits.max_dead_letters = "500" end,
+      function(facts) facts.truncated = nil end,
+      function(facts) facts.truncated.deliveries = "false" end,
+      function(facts) facts.truncated.dead_letters = 0 end,
       function(facts) facts.queues[1] = "bad" end,
       function(facts) facts.queues[1].queue = "" end,
       function(facts) facts.queues[1].pending = -1 end,
@@ -174,6 +190,20 @@ return {
     idle, why = core.is_idle_observe(facts)
     t.eq(idle, false)
     t.is_true(why:find("dead_letters=1", 1, true) ~= nil)
+  end,
+
+  test_observe_predicate_rejects_truncated_observe_lists_as_not_idle = function()
+    local facts = observe_idle()
+    facts.truncated.deliveries = true
+    local idle, why = core.is_idle_observe(facts)
+    t.eq(idle, false)
+    t.is_true(why:find("truncated deliveries", 1, true) ~= nil)
+
+    facts = observe_idle()
+    facts.truncated.dead_letters = true
+    idle, why = core.is_idle_observe(facts)
+    t.eq(idle, false)
+    t.is_true(why:find("truncated dead_letters", 1, true) ~= nil)
   end,
 
   test_skip_fact_fields_are_pure_and_structured = function()

@@ -38,6 +38,22 @@ local function required_int(row, name)
   return value
 end
 
+local function required_table(facts, name)
+  local value = facts[name]
+  if type(value) ~= "table" then
+    error("idle-detector: malformed-observe-facts: malformed " .. name)
+  end
+  return value
+end
+
+local function required_bool(row, name)
+  local value = row[name]
+  if type(value) ~= "boolean" then
+    error("idle-detector: malformed-observe-facts: " .. tostring(name) .. " must be a boolean")
+  end
+  return value
+end
+
 local function validate_observe_facts(facts)
   if type(facts) ~= "table" then
     error("idle-detector: malformed-observe-facts: top-level facts must be a table")
@@ -48,6 +64,13 @@ local function validate_observe_facts(facts)
   if type(facts.generated_at_ms) ~= "number" or facts.generated_at_ms < 0 or math.floor(facts.generated_at_ms) ~= facts.generated_at_ms then
     error("idle-detector: malformed-observe-facts: generated_at_ms must be a non-negative integer")
   end
+  required_table(facts, "source")
+  local limits = required_table(facts, "limits")
+  required_int(limits, "max_deliveries")
+  required_int(limits, "max_dead_letters")
+  local truncated = required_table(facts, "truncated")
+  required_bool(truncated, "deliveries")
+  required_bool(truncated, "dead_letters")
   required_list(facts, "queues")
   required_list(facts, "deliveries")
   required_list(facts, "dead_letters")
@@ -89,6 +112,12 @@ end
 
 function M.is_idle_observe(facts)
   validate_observe_facts(facts)
+  if facts.truncated.deliveries then
+    return false, "observe truncated deliveries"
+  end
+  if facts.truncated.dead_letters then
+    return false, "observe truncated dead_letters"
+  end
   for _, row in ipairs(facts.queues) do
     local queue = row.queue
     for _, field in ipairs({ "pending", "in_flight", "retrying", "depth" }) do

@@ -78,8 +78,32 @@ local function mock_observe(stdout, exit_code)
   })
 end
 
+local function observe_json(opts)
+  opts = opts or {}
+  local parts = {
+    '{"schema_version":' .. tostring(opts.schema_version or 1),
+    ',"generated_at_ms":' .. tostring(opts.generated_at_ms or 1781830860000),
+  }
+  if not opts.omit_source then
+    table.insert(parts, ',"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"}')
+  end
+  if not opts.omit_limits then
+    table.insert(parts, ',"limits":' .. (opts.limits_json or '{"max_deliveries":500,"max_dead_letters":500}'))
+  end
+  if not opts.omit_truncated then
+    table.insert(parts, ',"truncated":' .. (opts.truncated_json or '{"deliveries":false,"dead_letters":false}'))
+  end
+  if not opts.omit_queues then
+    table.insert(parts, ',"queues":' .. (opts.queues_json or '[{"queue":"proposal","depth":0,"pending":0,"in_flight":0,"retrying":0,"oldest_pending_age_ms":null}]'))
+  end
+  table.insert(parts, ',"deliveries":' .. (opts.deliveries_json or "[]"))
+  table.insert(parts, ',"dead_letters":' .. (opts.dead_letters_json or "[]"))
+  table.insert(parts, "}")
+  return table.concat(parts, "")
+end
+
 local function mock_stale_observe()
-  mock_observe('{"schema_version":1,"generated_at_ms":1781831461000,"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"limits":{"max_deliveries":500,"max_dead_letters":500},"truncated":{"deliveries":false,"dead_letters":false},"queues":[{"queue":"proposal","depth":0,"pending":0,"in_flight":0,"retrying":0,"oldest_pending_age_ms":null}],"deliveries":[],"dead_letters":[]}', 0)
+  mock_observe(observe_json({ generated_at_ms = 1781831461000 }), 0)
 end
 
 local function mock_codex_findings(stdout, exit_code)
@@ -193,9 +217,22 @@ return {
     t.eq(#result.raises, 0)
   end,
 
+  test_fake_current_truncated_observe_skips_without_issue = function()
+    for _, truncated_json in ipairs({
+      '{"deliveries":true,"dead_letters":false}',
+      '{"deliveries":false,"dead_letters":true}',
+    }) do
+      mock_env("owner/repo", "3")
+      mock_observe(observe_json({ truncated_json = truncated_json }), 0)
+      local dept = fake_audit_department("[]")
+      local result = run_fake_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
+      t.eq(#result.raises, 0)
+    end
+  end,
+
   test_fake_current_observe_missing_queues_is_structured_failure_no_issue = function()
     mock_env("owner/repo", "3")
-    mock_observe('{"schema_version":1,"generated_at_ms":1781830860000,"deliveries":[],"dead_letters":[]}', 0)
+    mock_observe(observe_json({ omit_queues = true }), 0)
     local dept = fake_audit_department("[]")
     local result = run_fake_failure_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
     t.eq(#result.raises, 0)
@@ -203,7 +240,7 @@ return {
 
   test_fake_current_observe_unknown_schema_is_structured_failure_no_issue = function()
     mock_env("owner/repo", "3")
-    mock_observe('{"schema_version":2,"generated_at_ms":1781830860000,"queues":[],"deliveries":[],"dead_letters":[]}', 0)
+    mock_observe(observe_json({ schema_version = 2, queues_json = "[]" }), 0)
     local dept = fake_audit_department("[]")
     local result = run_fake_failure_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
     t.eq(#result.raises, 0)
@@ -211,7 +248,31 @@ return {
 
   test_fake_current_observe_malformed_top_level_is_structured_failure_no_issue = function()
     mock_env("owner/repo", "3")
-    mock_observe('{"schema_version":1,"generated_at_ms":"1781830860000","queues":[],"deliveries":[],"dead_letters":[]}', 0)
+    mock_observe('{"schema_version":1,"generated_at_ms":"1781830860000","source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"limits":{"max_deliveries":500,"max_dead_letters":500},"truncated":{"deliveries":false,"dead_letters":false},"queues":[],"deliveries":[],"dead_letters":[]}', 0)
+    local dept = fake_audit_department("[]")
+    local result = run_fake_failure_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
+    t.eq(#result.raises, 0)
+  end,
+
+  test_fake_current_observe_missing_or_malformed_source_limits_truncated_is_structured_failure_no_issue = function()
+    for _, observe_stdout in ipairs({
+      observe_json({ omit_source = true, queues_json = "[]" }),
+      observe_json({ omit_limits = true, queues_json = "[]" }),
+      observe_json({ omit_truncated = true, queues_json = "[]" }),
+      observe_json({ truncated_json = '{"deliveries":"false","dead_letters":false}', queues_json = "[]" }),
+      observe_json({ limits_json = '{"max_deliveries":1.5,"max_dead_letters":500}', queues_json = "[]" }),
+    }) do
+      mock_env("owner/repo", "3")
+      mock_observe(observe_stdout, 0)
+      local dept = fake_audit_department("[]")
+      local result = run_fake_failure_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
+      t.eq(#result.raises, 0)
+    end
+  end,
+
+  test_fake_current_observe_malformed_dead_letter_truncated_is_structured_failure_no_issue = function()
+    mock_env("owner/repo", "3")
+    mock_observe(observe_json({ truncated_json = '{"deliveries":false,"dead_letters":0}', queues_json = "[]" }), 0)
     local dept = fake_audit_department("[]")
     local result = run_fake_failure_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
     t.eq(#result.raises, 0)
@@ -219,9 +280,9 @@ return {
 
   test_fake_current_observe_keyed_lists_are_structured_failure_no_issue = function()
     for _, observe_json in ipairs({
-      '{"schema_version":1,"generated_at_ms":1781830860000,"queues":{"proposal":{"depth":0,"pending":0,"in_flight":0,"retrying":0}},"deliveries":[],"dead_letters":[]}',
-      '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"proposal","depth":0,"pending":0,"in_flight":0,"retrying":0}],"deliveries":{"one":{}},"dead_letters":[]}',
-      '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"proposal","depth":0,"pending":0,"in_flight":0,"retrying":0}],"deliveries":[],"dead_letters":{"one":{}}}',
+      observe_json({ queues_json = '{"proposal":{"depth":0,"pending":0,"in_flight":0,"retrying":0}}' }),
+      observe_json({ deliveries_json = '{"one":{}}' }),
+      observe_json({ dead_letters_json = '{"one":{}}' }),
     }) do
       mock_env("owner/repo", "3")
       mock_observe(observe_json, 0)
@@ -233,10 +294,10 @@ return {
 
   test_fake_current_observe_missing_each_busy_dimension_is_structured_failure_no_issue = function()
     for _, observe_json in ipairs({
-      '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"proposal","pending":0,"in_flight":0,"retrying":0}],"deliveries":[],"dead_letters":[]}',
-      '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"proposal","depth":0,"in_flight":0,"retrying":0}],"deliveries":[],"dead_letters":[]}',
-      '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"proposal","depth":0,"pending":0,"retrying":0}],"deliveries":[],"dead_letters":[]}',
-      '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"proposal","depth":0,"pending":0,"in_flight":0}],"deliveries":[],"dead_letters":[]}',
+      observe_json({ queues_json = '[{"queue":"proposal","pending":0,"in_flight":0,"retrying":0}]' }),
+      observe_json({ queues_json = '[{"queue":"proposal","depth":0,"in_flight":0,"retrying":0}]' }),
+      observe_json({ queues_json = '[{"queue":"proposal","depth":0,"pending":0,"retrying":0}]' }),
+      observe_json({ queues_json = '[{"queue":"proposal","depth":0,"pending":0,"in_flight":0}]' }),
     }) do
       mock_env("owner/repo", "3")
       mock_observe(observe_json, 0)
@@ -248,13 +309,13 @@ return {
 
   test_fake_current_observe_malformed_queue_rows_are_structured_failure_no_issue = function()
     mock_env("owner/repo", "3")
-    mock_observe('{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"","depth":0,"pending":0,"in_flight":0,"retrying":0}],"deliveries":[],"dead_letters":[]}', 0)
+    mock_observe(observe_json({ queues_json = '[{"queue":"","depth":0,"pending":0,"in_flight":0,"retrying":0}]' }), 0)
     local bad_name_dept = fake_audit_department("[]")
     local bad_name = run_fake_failure_at(bad_name_dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
     t.eq(#bad_name.raises, 0)
 
     mock_env("owner/repo", "3")
-    mock_observe('{"schema_version":1,"generated_at_ms":1781830860000,"queues":[{"queue":"proposal","depth":0,"pending":-1,"in_flight":0,"retrying":0}],"deliveries":[],"dead_letters":[]}', 0)
+    mock_observe(observe_json({ queues_json = '[{"queue":"proposal","depth":0,"pending":-1,"in_flight":0,"retrying":0}]' }), 0)
     local negative_dept = fake_audit_department("[]")
     local negative = run_fake_failure_at(negative_dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
     t.eq(#negative.raises, 0)

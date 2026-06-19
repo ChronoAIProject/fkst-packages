@@ -30,13 +30,13 @@ local function mock_observe(stdout, exit_code)
   })
 end
 
-local function observe_json(generated_at_ms, queue_json, deliveries_json, dead_letters_json)
+local function observe_json(generated_at_ms, queue_json, deliveries_json, dead_letters_json, truncated_json)
   return table.concat({
     '{"schema_version":1',
     ',"generated_at_ms":' .. tostring(generated_at_ms or 1781830860000),
     ',"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"}',
     ',"limits":{"max_deliveries":500,"max_dead_letters":500}',
-    ',"truncated":{"deliveries":false,"dead_letters":false}',
+    ',"truncated":' .. (truncated_json or '{"deliveries":false,"dead_letters":false}'),
     ',"queues":' .. (queue_json or '[{"queue":"proposal","depth":0,"pending":0,"in_flight":0,"retrying":0,"oldest_pending_age_ms":null}]'),
     ',"deliveries":' .. (deliveries_json or "[]"),
     ',"dead_letters":' .. (dead_letters_json or "[]"),
@@ -96,6 +96,11 @@ return {
     assert_skip_with_observe("dead-letters", observe_json(1781830860000, nil, nil, '[{"delivery_id":"dead","queue":"proposal","dept":"decide","attempts":1,"replayable":true,"permanent":false}]'), 0)
   end,
 
+  test_idle_gate_skips_truncated_observe_lists_without_raising_idle = function()
+    assert_skip_with_observe("truncated-deliveries", observe_json(1781830860000, nil, nil, nil, '{"deliveries":true,"dead_letters":false}'), 0)
+    assert_skip_with_observe("truncated-dead-letters", observe_json(1781830860000, nil, nil, nil, '{"deliveries":false,"dead_letters":true}'), 0)
+  end,
+
   test_idle_gate_skips_observe_read_failure = function()
     assert_skip_with_observe("observe-failure", "", 1)
   end,
@@ -104,27 +109,47 @@ return {
     for _, case in ipairs({
       {
         name = "missing-generated-at",
-        observe = '{"schema_version":1,"queues":[],"deliveries":[],"dead_letters":[]}',
+        observe = '{"schema_version":1,"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"limits":{"max_deliveries":500,"max_dead_letters":500},"truncated":{"deliveries":false,"dead_letters":false},"queues":[],"deliveries":[],"dead_letters":[]}',
       },
       {
         name = "wrong-generated-at-type",
-        observe = '{"schema_version":1,"generated_at_ms":"1781830860000","queues":[],"deliveries":[],"dead_letters":[]}',
+        observe = '{"schema_version":1,"generated_at_ms":"1781830860000","source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"limits":{"max_deliveries":500,"max_dead_letters":500},"truncated":{"deliveries":false,"dead_letters":false},"queues":[],"deliveries":[],"dead_letters":[]}',
+      },
+      {
+        name = "missing-source",
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"limits":{"max_deliveries":500,"max_dead_letters":500},"truncated":{"deliveries":false,"dead_letters":false},"queues":[],"deliveries":[],"dead_letters":[]}',
+      },
+      {
+        name = "missing-limits",
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"truncated":{"deliveries":false,"dead_letters":false},"queues":[],"deliveries":[],"dead_letters":[]}',
+      },
+      {
+        name = "missing-truncated",
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"limits":{"max_deliveries":500,"max_dead_letters":500},"queues":[],"deliveries":[],"dead_letters":[]}',
+      },
+      {
+        name = "non-boolean-truncated",
+        observe = observe_json(1781830860000, nil, nil, nil, '{"deliveries":"false","dead_letters":false}'),
+      },
+      {
+        name = "non-integer-limits",
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"},"limits":{"max_deliveries":1.5,"max_dead_letters":500},"truncated":{"deliveries":false,"dead_letters":false},"queues":[],"deliveries":[],"dead_letters":[]}',
       },
       {
         name = "non-table-queues",
-        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":"bad","deliveries":[],"dead_letters":[]}',
+        observe = observe_json(1781830860000, '"bad"'),
       },
       {
         name = "keyed-queues",
-        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":{"proposal":{"depth":0,"pending":0,"in_flight":0,"retrying":0}},"deliveries":[],"dead_letters":[]}',
+        observe = observe_json(1781830860000, '{"proposal":{"depth":0,"pending":0,"in_flight":0,"retrying":0}}'),
       },
       {
         name = "keyed-deliveries",
-        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[],"deliveries":{"one":{}},"dead_letters":[]}',
+        observe = observe_json(1781830860000, "[]", '{"one":{}}'),
       },
       {
         name = "keyed-dead-letters",
-        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[],"deliveries":[],"dead_letters":{"one":{}}}',
+        observe = observe_json(1781830860000, "[]", "[]", '{"one":{}}'),
       },
     }) do
       assert_skip_with_observe("malformed-" .. case.name, case.observe, 0)

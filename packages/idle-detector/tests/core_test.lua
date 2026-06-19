@@ -34,7 +34,16 @@ return {
   end,
 
   test_idle_predicate_fails_closed_on_missing_required_real_fields = function()
-    for _, field in ipairs({ "schema_version", "generated_at_ms", "queues", "deliveries", "dead_letters" }) do
+    for _, field in ipairs({
+      "schema_version",
+      "generated_at_ms",
+      "source",
+      "limits",
+      "truncated",
+      "queues",
+      "deliveries",
+      "dead_letters",
+    }) do
       local facts = observe_idle()
       facts[field] = nil
       t.raises(function() core.is_idle_observe(facts) end)
@@ -54,6 +63,21 @@ return {
     t.raises(function() core.is_idle_observe(facts) end)
     facts = observe_idle()
     facts.generated_at_ms = "1781830860000"
+    t.raises(function() core.is_idle_observe(facts) end)
+    facts = observe_idle()
+    facts.source = "not a table"
+    t.raises(function() core.is_idle_observe(facts) end)
+    facts = observe_idle()
+    facts.limits.max_deliveries = 1.5
+    t.raises(function() core.is_idle_observe(facts) end)
+    facts = observe_idle()
+    facts.limits.max_dead_letters = "500"
+    t.raises(function() core.is_idle_observe(facts) end)
+    facts = observe_idle()
+    facts.truncated.deliveries = "false"
+    t.raises(function() core.is_idle_observe(facts) end)
+    facts = observe_idle()
+    facts.truncated.dead_letters = 0
     t.raises(function() core.is_idle_observe(facts) end)
   end,
 
@@ -115,6 +139,20 @@ return {
     idle, why = core.is_idle_observe(facts)
     t.eq(idle, false)
     t.is_true(why:find("dead_letters=1", 1, true) ~= nil)
+  end,
+
+  test_idle_predicate_rejects_truncated_observe_lists_as_not_idle = function()
+    local facts = observe_idle()
+    facts.truncated.deliveries = true
+    local idle, why = core.is_idle_observe(facts)
+    t.eq(idle, false)
+    t.is_true(why:find("truncated deliveries", 1, true) ~= nil)
+
+    facts = observe_idle()
+    facts.truncated.dead_letters = true
+    idle, why = core.is_idle_observe(facts)
+    t.eq(idle, false)
+    t.is_true(why:find("truncated dead_letters", 1, true) ~= nil)
   end,
 
   test_observe_now_seconds_uses_generated_at_ms = function()

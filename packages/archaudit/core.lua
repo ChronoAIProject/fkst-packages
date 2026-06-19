@@ -86,6 +86,22 @@ local function required_int(row, name)
   return value
 end
 
+local function required_table(facts, name)
+  local value = facts[name]
+  if type(value) ~= "table" then
+    error("archaudit: observe-malformed-facts: malformed " .. name)
+  end
+  return value
+end
+
+local function required_bool(row, name)
+  local value = row[name]
+  if type(value) ~= "boolean" then
+    error("archaudit: observe-malformed-facts: " .. tostring(name) .. " must be a boolean")
+  end
+  return value
+end
+
 function M.validate_repo(repo)
   if not strings.is_bounded_string(repo, github_proxy_limits.repo) then
     return false
@@ -106,6 +122,13 @@ function M.validate_observe_facts(facts)
   if type(facts.generated_at_ms) ~= "number" or facts.generated_at_ms < 0 or math.floor(facts.generated_at_ms) ~= facts.generated_at_ms then
     error("archaudit: observe-malformed-facts: generated_at_ms must be a non-negative integer")
   end
+  required_table(facts, "source")
+  local limits = required_table(facts, "limits")
+  required_int(limits, "max_deliveries")
+  required_int(limits, "max_dead_letters")
+  local truncated = required_table(facts, "truncated")
+  required_bool(truncated, "deliveries")
+  required_bool(truncated, "dead_letters")
   required_list(facts, "queues")
   required_list(facts, "deliveries")
   required_list(facts, "dead_letters")
@@ -147,6 +170,12 @@ end
 
 function M.is_idle_observe(facts)
   M.validate_observe_facts(facts)
+  if facts.truncated.deliveries then
+    return false, "current observe truncated deliveries"
+  end
+  if facts.truncated.dead_letters then
+    return false, "current observe truncated dead_letters"
+  end
   for _, row in ipairs(facts.queues) do
     for _, field in ipairs({ "pending", "in_flight", "retrying", "depth" }) do
       if row[field] > 0 then
