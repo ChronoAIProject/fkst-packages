@@ -263,6 +263,15 @@ return {
     t.eq(paths[2], "b.lua")
     t.eq(paths[3], "c.lua")
   end,
+  test_command_result_required_returns_success_and_errors_with_class = function()
+    local result = { exit_code = 0, stdout = "ok", stderr = "" }
+    t.eq(core.command_result_required(result, "PR freshness fetch"), result)
+    local ok, err = pcall(function()
+      core.command_result_required({ exit_code = 2, stderr = "network down" }, "PR freshness fetch")
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("github-devloop: PR freshness fetch failed: network down", 1, true) ~= nil)
+  end,
   test_core_shared_judgment_worktree_reads_runtime_root_and_mkdirs = function()
     local worktree = core.judgment_worktree_path("/tmp/fkst-runtime\n", "review-meta", "dedup/key")
     t.eq(core.mkdir_p_cmd(worktree), "mkdir -p '" .. worktree .. "'")
