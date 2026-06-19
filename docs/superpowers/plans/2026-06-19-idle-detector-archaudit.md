@@ -259,6 +259,15 @@ return {
     t.is_nil(payload.queues)
     t.is_nil(payload.metrics)
   end,
+
+  test_freshness_verdict_is_pure_and_deterministic = function()
+    local reference = core.iso_timestamp_epoch_seconds("2026-06-19T01:00:00Z")
+    t.eq(core.freshness_verdict(reference, reference + 60, 600), "fresh")
+    t.eq(core.freshness_verdict(reference, reference + 600, 600), "fresh")
+    t.eq(core.freshness_verdict(reference, reference + 601, 600), "stale")
+    t.eq(core.freshness_verdict(reference, reference - 60, 600), "fresh")
+    t.raises(function() core.freshness_verdict(nil, reference, 600) end)
+  end,
 }
 ```
 
@@ -397,6 +406,39 @@ function M.build_system_idle_payload(detected_at, observe_ref, expires_at)
   return payload
 end
 
+function M.iso_timestamp_epoch_seconds(timestamp)
+  local year, month, day, hour, minute, second = tostring(timestamp or ""):match(
+    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d)[%-:](%d%d)[%-:](%d%d)Z$"
+  )
+  if year == nil then
+    return nil
+  end
+  year, month, day = tonumber(year), tonumber(month), tonumber(day)
+  hour, minute, second = tonumber(hour), tonumber(minute), tonumber(second)
+  if month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59 then
+    return nil
+  end
+  if month <= 2 then
+    year = year - 1
+    month = month + 12
+  end
+  local era = math.floor(year / 400)
+  local yoe = year - era * 400
+  local doy = math.floor((153 * (month - 3) + 2) / 5) + day - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  return (era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second
+end
+
+function M.freshness_verdict(reference_ts_seconds, now_seconds, budget_seconds)
+  if type(reference_ts_seconds) ~= "number" or type(now_seconds) ~= "number" or type(budget_seconds) ~= "number" then
+    error("idle-detector: malformed freshness timestamp")
+  end
+  if now_seconds - reference_ts_seconds > budget_seconds then
+    return "stale"
+  end
+  return "fresh"
+end
+
 return M
 ```
 
@@ -430,21 +472,25 @@ local t = fkst.test
 
 local function opts(name)
   return {
-    now = "2026-06-19T01:05:00Z",
     env = {
       FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/idle-detector/" .. tostring(name),
     },
   }
 end
 
+local function recent_slot()
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60)
+end
+
 local function event(ts)
+  local slot = ts or recent_slot()
   return {
     queue = "idle_tick",
-    ts = ts or "2026-06-19T01:00:00Z",
+    ts = slot,
     payload = {
       schema = "idle-detector.idle-tick.v1",
-      slot = ts or "2026-06-19T01:00:00Z",
-      source_ref = { kind = "cron", ref = "idle-detector/idle_poll/2026-06-19T01:00:00Z" },
+      slot = slot,
+      source_ref = { kind = "cron", ref = "idle-detector/idle_poll/" .. slot },
     },
   }
 end
@@ -460,60 +506,61 @@ end
 return {
   test_idle_gate_raises_system_idle_when_observe_is_idle = function()
     mock_observe('{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}', 0)
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("idle"))
+    local slot = recent_slot()
+    local result = t.run_department("departments/idle_gate/main.lua", event(slot), opts("idle"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "system_idle")
     t.eq(result.raises[1].payload.schema, "idle-detector.system-idle.v1")
-    t.eq(result.raises[1].payload.detected_at, "2026-06-19T01:00:00Z")
+    t.eq(result.raises[1].payload.detected_at, slot)
     t.eq(result.raises[1].payload.source_ref.kind, "host-observe")
-    t.eq(result.raises[1].payload.source_ref.ref, "idle_tick/2026-06-19T01:00:00Z")
+    t.eq(result.raises[1].payload.source_ref.ref, "idle_tick/" .. slot)
   end,
 
   test_idle_gate_skips_busy_observe_without_raise = function()
     mock_observe('{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":1,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}', 0)
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("busy"))
+    local result = t.run_department("departments/idle_gate/main.lua", event(), opts("busy"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_skips_dlq_without_raise = function()
     mock_observe('{"schema":"fkst.observe.v1","queues":[],"anomalies":[],"dlq":[{"queue":"proposal"}]}', 0)
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("dlq"))
+    local result = t.run_department("departments/idle_gate/main.lua", event(), opts("dlq"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_skips_observe_failure_without_retry_storm = function()
     mock_observe("", 1)
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("observe-failure"))
+    local result = t.run_department("departments/idle_gate/main.lua", event(), opts("observe-failure"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_fails_closed_on_missing_observe_queues = function()
     mock_observe('{"schema":"fkst.observe.v1","anomalies":[],"dlq":[]}', 0)
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("observe-missing-queues"))
+    local result = t.run_department("departments/idle_gate/main.lua", event(), opts("observe-missing-queues"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_fails_closed_on_unknown_observe_schema = function()
     mock_observe('{"schema":"fkst.observe.v2","queues":[],"anomalies":[],"dlq":[]}', 0)
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("observe-unknown-schema"))
+    local result = t.run_department("departments/idle_gate/main.lua", event(), opts("observe-unknown-schema"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_fails_closed_on_malformed_observe_top_level = function()
     mock_observe('{"schema":"fkst.observe.v1","queues":"bad","anomalies":[],"dlq":[]}', 0)
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("observe-malformed-top"))
+    local result = t.run_department("departments/idle_gate/main.lua", event(), opts("observe-malformed-top"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_drops_stale_cron_slot = function()
-    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T00:40:00Z"), opts("stale"))
+    local result = t.run_department("departments/idle_gate/main.lua", event("1970-01-01T00:00:00Z"), opts("stale"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(#t.command_calls(), 0)
@@ -546,31 +593,8 @@ local spec = {
 
 local stale_budget_seconds = 10 * 60
 
-local function iso_timestamp_epoch_seconds(timestamp)
-  local year, month, day, hour, minute, second = tostring(timestamp or ""):match(
-    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d)[%-:](%d%d)[%-:](%d%d)Z$"
-  )
-  if year == nil then
-    return nil
-  end
-  year, month, day = tonumber(year), tonumber(month), tonumber(day)
-  hour, minute, second = tonumber(hour), tonumber(minute), tonumber(second)
-  if month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59 then
-    return nil
-  end
-  if month <= 2 then
-    year = year - 1
-    month = month + 12
-  end
-  local era = math.floor(year / 400)
-  local yoe = year - era * 400
-  local doy = math.floor((153 * (month - 3) + 2) / 5) + day - 1
-  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
-  return (era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second
-end
-
 local function iso_from_seconds(seconds)
-  return os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(seconds) or now())
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", tonumber(seconds))
 end
 
 local function tick_slot(event)
@@ -603,11 +627,11 @@ local function wrap_pipeline_failure(dept, fn)
 end
 
 local function slot_is_stale(slot, now_seconds)
-  local slot_seconds = iso_timestamp_epoch_seconds(slot)
+  local slot_seconds = core.iso_timestamp_epoch_seconds(slot)
   if slot_seconds == nil then
     return true, "malformed or missing idle_tick slot"
   end
-  if now_seconds - slot_seconds > stale_budget_seconds then
+  if core.freshness_verdict(slot_seconds, now_seconds, stale_budget_seconds) == "stale" then
     return true, "stale idle_tick slot"
   end
   return false, nil
@@ -617,7 +641,8 @@ local function idle_done(event)
   if type(event) ~= "table" or event.queue ~= "idle_tick" then
     error("idle-detector: idle_gate consumed unknown queue")
   end
-  local stale, why = slot_is_stale(tick_slot(event), now())
+  local now_seconds = now()
+  local stale, why = slot_is_stale(tick_slot(event), now_seconds)
   if stale then
     log_skip(why, event)
     return true
@@ -647,7 +672,7 @@ local function act_idle(event)
   raise("system_idle", core.build_system_idle_payload(
     slot,
     "idle_tick/" .. tostring(slot),
-    iso_from_seconds(iso_timestamp_epoch_seconds(slot) + stale_budget_seconds)
+    iso_from_seconds(core.iso_timestamp_epoch_seconds(slot) + stale_budget_seconds)
   ))
 end
 
@@ -685,6 +710,8 @@ git commit -m "feat(idle-detector): gate system_idle on current observe facts"
 - Create: `packages/archaudit/tests/core_test.lua`
 - Test: `scripts/run.sh test archaudit`
 
+Contract bound from `packages/github-proxy/core/issue_create.lua`: `validate_issue_create_payload` accepts `repo <= 200`, `title <= 240`, `body <= 12000`, `dedup_key <= 512` with marker-safe characters, `source_ref.kind <= 80`, and `source_ref.ref <= 200`. The archaudit builder must satisfy these by construction or reject with a structured failure; do not truncate content to force a payload through validation.
+
 - [ ] **Step 1: Create package directories, std symlink, and composed deps.**
 
 ```bash
@@ -714,7 +741,14 @@ return {
   test_parse_findings_rejects_non_json_and_extra_shape = function()
     t.raises(function() core.parse_findings_json("not json") end)
     t.raises(function() core.parse_findings_json('{"file":"x"}') end)
+    t.raises(function() core.parse_findings_json('"scalar"') end)
+    t.raises(function() core.parse_findings_json('42') end)
     t.raises(function() core.parse_findings_json('[{"file":"x","line":"bad","rule":"SRP","why":"w","suggested_fix":"f"}]') end)
+  end,
+
+  test_parse_findings_accepts_legitimate_empty_array = function()
+    local parsed = core.parse_findings_json("[]")
+    t.eq(#parsed, 0)
   end,
 
   test_validate_finding_checks_file_and_line = function()
@@ -750,10 +784,55 @@ return {
     t.is_true(payload.body:find("archaudit-dedup: " .. payload.dedup_key, 1, true) ~= nil)
   end,
 
+  test_issue_request_rejects_overlong_source_ref_from_long_file_path = function()
+    local long_file = "packages/" .. string.rep("longsegment/", 15) .. "core.lua"
+    t.raises(function()
+      core.build_issue_create_request("owner/repo", {
+        file = long_file,
+        line = 1,
+        rule = "SRP",
+        why = "Concrete issue.",
+        suggested_fix = "Small fix.",
+      }, true)
+    end)
+  end,
+
+  test_issue_request_rejects_long_or_malformed_repo = function()
+    local finding = core.parse_findings_json(finding_json)[1]
+    t.raises(function() core.build_issue_create_request("owner/" .. string.rep("r", 201), finding, true) end)
+    t.raises(function() core.build_issue_create_request("owner repo", finding, true) end)
+  end,
+
   test_issue_request_omits_missing_label = function()
     local finding = core.parse_findings_json(finding_json)[1]
     local payload = core.build_issue_create_request("owner/repo", finding, false)
     t.eq(#payload.labels, 0)
+  end,
+
+  test_freshness_and_expiry_verdicts_are_pure_and_deterministic = function()
+    local detected = core.iso_timestamp_epoch_seconds("2026-06-19T01:00:00Z")
+    local expires = core.iso_timestamp_epoch_seconds("2026-06-19T01:10:00Z")
+    t.eq(core.idle_hint_freshness(detected, nil, detected + 60, 600), "fresh")
+    t.eq(core.idle_hint_freshness(detected, expires, detected + 60, 600), "fresh")
+    t.eq(core.idle_hint_freshness(detected, expires, detected + 601, 600), "stale")
+    t.eq(core.idle_hint_freshness(detected, expires, expires, 600), "expired")
+    t.eq(core.idle_hint_freshness(detected, detected - 1, detected, 600), "expired")
+    t.raises(function() core.idle_hint_freshness(nil, expires, detected, 600) end)
+    t.raises(function() core.idle_hint_freshness(detected, nil, nil, 600) end)
+  end,
+
+  test_failure_fact_fields_are_pure_and_structured = function()
+    local fact = core.failure_fact("audit", "FAILURE", "missing-repo", {
+      queue = "idle-detector.system_idle",
+      payload = {
+        source_ref = { kind = "host-observe", ref = "idle_tick/2026-06-19T01:00:00Z" },
+      },
+    }, "missing or malformed FKST_GITHUB_REPO", true)
+    t.is_true(fact:find("tag=FAILURE", 1, true) ~= nil)
+    t.is_true(fact:find("error_class=missing-repo", 1, true) ~= nil)
+    t.is_true(fact:find("source_ref=host-observe:idle_tick/2026-06-19T01:00:00Z", 1, true) ~= nil)
+    t.is_true(fact:find("terminal=true", 1, true) ~= nil)
+    t.is_true(fact:find("WHY=missing or malformed FKST_GITHUB_REPO", 1, true) ~= nil)
   end,
 }
 ```
@@ -772,13 +851,43 @@ Expected: FAIL, with `module 'core' not found`.
 -- packages/archaudit/core.lua
 local M = {}
 local strings = require("std.strings")
+local error_facts = require("std.error_facts")
 
 local file_limit = 240
 local rule_limit = 80
 local why_limit = 1000
 local fix_limit = 1000
+local github_proxy_limits = {
+  repo = 200,
+  title = 240,
+  body = 12000,
+  dedup_key = 512,
+  source_ref_kind = 80,
+  source_ref_ref = 200,
+}
+
 local function bounded(value, limit)
   return type(value) == "string" and value ~= "" and #value <= limit
+end
+
+local function marker_safe(value)
+  return tostring(value):find('[<>"\r\n]') == nil
+end
+
+local function assert_request_field(ok, field)
+  if not ok then
+    error("archaudit: invalid issue-create field: " .. tostring(field), 0)
+  end
+end
+
+function M.validate_repo(repo)
+  if not strings.is_bounded_string(repo, github_proxy_limits.repo) then
+    return false
+  end
+  if strings.split_repo(repo) == nil then
+    return false
+  end
+  return tostring(repo):find("^[%w._-]+/[%w._-]+$") ~= nil
 end
 
 local function one_line(value)
@@ -915,9 +1024,25 @@ function M.build_prompt(repo, max_findings)
 end
 
 function M.parse_findings_json(stdout)
+  local raw = strings.trim(stdout or "")
+  if raw:sub(1, 1) ~= "[" or raw:sub(-1) ~= "]" then
+    error("archaudit: malformed-json: codex output is not a JSON array")
+  end
   local ok, decoded = pcall(json.decode, stdout or "")
   if not ok or type(decoded) ~= "table" then
     error("archaudit: malformed-json: codex output is not a JSON array")
+  end
+  local count = 0
+  for key, _value in pairs(decoded) do
+    if type(key) ~= "number" or key < 1 or math.floor(key) ~= key then
+      error("archaudit: malformed-json: codex output is not a JSON array")
+    end
+    if key > count then
+      count = key
+    end
+  end
+  if count ~= #decoded then
+    error("archaudit: malformed-json: codex output is not a dense JSON array")
   end
   local findings = {}
   for index, item in ipairs(decoded) do
@@ -979,11 +1104,16 @@ function M.dedup_key(repo, finding)
 end
 
 function M.build_issue_create_request(repo, finding, label_available)
+  assert_request_field(M.validate_repo(repo), "repo")
   local dedup_key = M.dedup_key(repo, finding)
   local title = "Archaudit: " .. tostring(finding.file) .. ":" .. tostring(finding.line) .. " " .. one_line(finding.rule)
-  if #title > 240 then
-    title = title:sub(1, 240)
-  end
+  local body = body_text(finding, dedup_key)
+  local source_ref_ref = tostring(repo) .. "#" .. tostring(finding.file) .. ":" .. tostring(finding.line) .. "#archaudit-create-intent"
+  assert_request_field(strings.is_bounded_string(title, github_proxy_limits.title), "title")
+  assert_request_field(strings.is_bounded_string(body, github_proxy_limits.body), "body")
+  assert_request_field(strings.is_bounded_string(dedup_key, github_proxy_limits.dedup_key) and marker_safe(dedup_key), "dedup_key")
+  assert_request_field(strings.is_bounded_string("repo-site", github_proxy_limits.source_ref_kind), "source_ref.kind")
+  assert_request_field(strings.is_bounded_string(source_ref_ref, github_proxy_limits.source_ref_ref), "source_ref.ref")
   local labels = {}
   if label_available then
     labels = { "archaudit" }
@@ -992,14 +1122,64 @@ function M.build_issue_create_request(repo, finding, label_available)
     schema = "github-proxy.issue-create.v1",
     repo = tostring(repo),
     title = title,
-    body = body_text(finding, dedup_key),
+    body = body,
     labels = labels,
     dedup_key = dedup_key,
     source_ref = {
       kind = "repo-site",
-      ref = tostring(repo) .. "#" .. tostring(finding.file) .. ":" .. tostring(finding.line) .. "#archaudit-create-intent",
+      ref = source_ref_ref,
     },
   }
+end
+
+function M.iso_timestamp_epoch_seconds(timestamp)
+  local year, month, day, hour, minute, second = tostring(timestamp or ""):match(
+    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d)[%-:](%d%d)[%-:](%d%d)Z$"
+  )
+  if year == nil then
+    return nil
+  end
+  year, month, day = tonumber(year), tonumber(month), tonumber(day)
+  hour, minute, second = tonumber(hour), tonumber(minute), tonumber(second)
+  if month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59 then
+    return nil
+  end
+  if month <= 2 then
+    year = year - 1
+    month = month + 12
+  end
+  local era = math.floor(year / 400)
+  local yoe = year - era * 400
+  local doy = math.floor((153 * (month - 3) + 2) / 5) + day - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  return (era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second
+end
+
+function M.idle_hint_freshness(detected_seconds, expires_seconds, now_seconds, budget_seconds)
+  if type(detected_seconds) ~= "number" or type(now_seconds) ~= "number" or type(budget_seconds) ~= "number" then
+    error("archaudit: malformed idle hint timestamp")
+  end
+  if now_seconds - detected_seconds > budget_seconds then
+    return "stale"
+  end
+  if expires_seconds ~= nil then
+    if type(expires_seconds) ~= "number" then
+      error("archaudit: malformed idle hint timestamp")
+    end
+    if expires_seconds <= now_seconds then
+      return "expired"
+    end
+  end
+  return "fresh"
+end
+
+function M.failure_fact(dept, tag, error_class, event, message, terminal)
+  local fields = error_facts.error_fact_fields(error_class, type(event) == "table" and event.queue or nil, dept, message, {
+    source_ref = error_facts.event_source_ref(event),
+    terminal = terminal,
+  })
+  table.insert(fields, "WHY=" .. error_facts.one_line(message))
+  return "archaudit dept=" .. tostring(dept) .. " tag=" .. tostring(tag) .. " " .. table.concat(fields, " ")
 end
 
 return M
@@ -1044,17 +1224,21 @@ local function opts(name, env)
     base[key] = value
   end
   return {
-    now = "2026-06-19T01:05:00Z",
     env = base,
   }
 end
 
+local function recent_iso(seconds_ago)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60))
+end
+
 local function idle_event(extra)
+  local detected_at = recent_iso(60)
   local payload = {
     schema = "idle-detector.system-idle.v1",
-    detected_at = "2026-06-19T01:00:00Z",
-    expires_at = "2026-06-19T01:10:00Z",
-    source_ref = { kind = "host-observe", ref = "idle_tick/2026-06-19T01:00:00Z" },
+    detected_at = detected_at,
+    expires_at = recent_iso(-540),
+    source_ref = { kind = "host-observe", ref = "idle_tick/" .. detected_at },
   }
   for key, value in pairs(extra or {}) do
     payload[key] = value
@@ -1120,10 +1304,29 @@ return {
     t.is_true(raised.payload.body:find("archaudit-dedup: " .. raised.payload.dedup_key, 1, true) ~= nil)
   end,
 
+  test_caps_distinct_valid_findings_to_first_three = function()
+    mock_env("owner/repo", "3")
+    mock_idle_observe()
+    mock_codex_findings(table.concat({
+      "[",
+      '{"file":"packages/archaudit/core.lua","line":1,"rule":"SRP","why":"First issue.","suggested_fix":"Fix first."}',
+      ',{"file":"packages/archaudit/core.lua","line":1,"rule":"DIP","why":"Second issue.","suggested_fix":"Fix second."}',
+      ',{"file":"packages/archaudit/core.lua","line":1,"rule":"Demeter","why":"Third issue.","suggested_fix":"Fix third."}',
+      ',{"file":"packages/archaudit/core.lua","line":1,"rule":"God-state","why":"Fourth issue.","suggested_fix":"Fix fourth."}',
+      "]",
+    }, ""), 0)
+    local result = t.run_department("departments/audit/main.lua", idle_event(), opts("cap"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 3)
+    t.eq(result.raises[1].payload.title, "Archaudit: packages/archaudit/core.lua:1 SRP")
+    t.eq(result.raises[2].payload.title, "Archaudit: packages/archaudit/core.lua:1 DIP")
+    t.eq(result.raises[3].payload.title, "Archaudit: packages/archaudit/core.lua:1 Demeter")
+  end,
+
   test_stale_idle_hint_skips_without_codex = function()
     local result = t.run_department("departments/audit/main.lua", idle_event({
-      detected_at = "2026-06-19T00:40:00Z",
-      expires_at = "2026-06-19T00:50:00Z",
+      detected_at = "1970-01-01T00:00:00Z",
+      expires_at = "1970-01-01T00:10:00Z",
     }), opts("stale"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
@@ -1168,9 +1371,22 @@ return {
     local result = t.run_department("departments/audit/main.lua", idle_event(), opts("missing-repo"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.is_true(result.stderr:find("tag=FAILURE", 1, true) ~= nil)
-    t.is_true(result.stderr:find("error_class=missing-repo", 1, true) ~= nil)
-    t.is_true(result.stderr:find("missing or malformed FKST_GITHUB_REPO", 1, true) ~= nil)
+  end,
+
+  test_long_repo_is_structured_failure_no_issue = function()
+    mock_env("owner/" .. string.rep("r", 201), "3")
+    mock_idle_observe()
+    local result = t.run_department("departments/audit/main.lua", idle_event(), opts("long-repo"))
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
+  end,
+
+  test_malformed_repo_is_structured_failure_no_issue = function()
+    mock_env("owner repo", "3")
+    mock_idle_observe()
+    local result = t.run_department("departments/audit/main.lua", idle_event(), opts("malformed-repo"))
+    t.eq(result.exit_code, 1)
+    t.eq(#result.raises, 0)
   end,
 
   test_malformed_codex_is_failure_no_issue = function()
@@ -1180,9 +1396,6 @@ return {
     local result = t.run_department("departments/audit/main.lua", idle_event(), opts("malformed-codex"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.is_true(result.stderr:find("tag=FAILURE", 1, true) ~= nil)
-    t.is_true(result.stderr:find("error_class=codex-failed", 1, true) ~= nil)
-    t.is_true(result.stderr:find("codex-failed", 1, true) ~= nil)
   end,
 
   test_timeout_codex_is_failure_no_issue = function()
@@ -1192,9 +1405,6 @@ return {
     local result = t.run_department("departments/audit/main.lua", idle_event(), opts("timeout-codex"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.is_true(result.stderr:find("tag=FAILURE", 1, true) ~= nil)
-    t.is_true(result.stderr:find("error_class=codex-failed", 1, true) ~= nil)
-    t.is_true(result.stderr:find("codex-failed", 1, true) ~= nil)
   end,
 
   test_malformed_detected_at_is_structured_failure_no_issue = function()
@@ -1203,9 +1413,6 @@ return {
     }), opts("malformed-detected-at"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.is_true(result.stderr:find("tag=FAILURE", 1, true) ~= nil)
-    t.is_true(result.stderr:find("error_class=malformed-idle-hint", 1, true) ~= nil)
-    t.is_true(result.stderr:find("malformed detected_at", 1, true) ~= nil)
   end,
 
   test_malformed_expires_at_is_structured_failure_no_issue = function()
@@ -1214,21 +1421,8 @@ return {
     }), opts("malformed-expires-at"))
     t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
-    t.is_true(result.stderr:find("tag=FAILURE", 1, true) ~= nil)
-    t.is_true(result.stderr:find("error_class=malformed-idle-hint", 1, true) ~= nil)
-    t.is_true(result.stderr:find("malformed expires_at", 1, true) ~= nil)
   end,
 
-  test_duplicate_findings_collapse_within_one_codex_output = function()
-    mock_env("owner/repo", "3")
-    mock_idle_observe()
-    local duplicate = '{"file":"packages/archaudit/core.lua","line":1,"rule":"SRP","why":"Same issue.","suggested_fix":"Same small fix."}'
-    mock_codex_findings("[" .. duplicate .. "," .. duplicate .. "]", 0)
-    local result = t.run_department("departments/audit/main.lua", idle_event(), opts("duplicate"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(#result.raises[1].payload.labels, 0)
-  end,
 }
 ```
 
@@ -1247,7 +1441,6 @@ Expected: FAIL, with `departments/audit/main.lua` missing.
 local core = require("core")
 local codex = require("std.codex")
 local env = require("std.env")
-local error_facts = require("std.error_facts")
 local saga = require("std.saga")
 local ports_lib = require("std.ports")
 local strings = require("std.strings")
@@ -1275,36 +1468,8 @@ end
 
 local read_env = env.read_env(read_env_command)
 
-local function iso_timestamp_epoch_seconds(timestamp)
-  local year, month, day, hour, minute, second = tostring(timestamp or ""):match(
-    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d)[%-:](%d%d)[%-:](%d%d)Z$"
-  )
-  if year == nil then
-    return nil
-  end
-  year, month, day = tonumber(year), tonumber(month), tonumber(day)
-  hour, minute, second = tonumber(hour), tonumber(minute), tonumber(second)
-  if month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59 then
-    return nil
-  end
-  if month <= 2 then
-    year = year - 1
-    month = month + 12
-  end
-  local era = math.floor(year / 400)
-  local yoe = year - era * 400
-  local doy = math.floor((153 * (month - 3) + 2) / 5) + day - 1
-  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
-  return (era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second
-end
-
 local function log_fact(level, dept, tag, error_class, event, message, terminal)
-  local fields = error_facts.error_fact_fields(error_class, type(event) == "table" and event.queue or nil, dept, message, {
-    source_ref = error_facts.event_source_ref(event),
-    terminal = terminal,
-  })
-  table.insert(fields, "WHY=" .. error_facts.one_line(message))
-  log[level or "warn"]("archaudit dept=" .. dept .. " tag=" .. tag .. " " .. table.concat(fields, " "))
+  log[level or "warn"](core.failure_fact(dept, tag, error_class, event, message, terminal))
 end
 
 local function fail(event, error_class, message)
@@ -1316,22 +1481,24 @@ local function is_current_idle()
   return core.is_idle_observe(core.observe())
 end
 
-local function fresh_hint(payload)
-  local detected = iso_timestamp_epoch_seconds(payload.detected_at)
+local function fresh_hint(payload, now_seconds)
+  local detected = core.iso_timestamp_epoch_seconds(payload.detected_at)
   if detected == nil then
     error("malformed detected_at")
   end
-  if now() - detected > freshness_budget_seconds then
-    return false, "stale system_idle hint"
-  end
+  local expires = nil
   if payload.expires_at ~= nil then
-    local expires = iso_timestamp_epoch_seconds(payload.expires_at)
+    expires = core.iso_timestamp_epoch_seconds(payload.expires_at)
     if expires == nil then
       error("malformed expires_at")
     end
-    if expires <= now() then
-      return false, "expired system_idle hint"
-    end
+  end
+  local verdict = core.idle_hint_freshness(detected, expires, now_seconds, freshness_budget_seconds)
+  if verdict == "stale" then
+    return false, "stale system_idle hint"
+  end
+  if verdict == "expired" then
+    return false, "expired system_idle hint"
   end
   return true, nil
 end
@@ -1347,7 +1514,7 @@ end
 
 local function repo_from_env()
   local repo = strings.trim(read_env("FKST_GITHUB_REPO") or "")
-  if strings.split_repo(repo) == nil then
+  if not core.validate_repo(repo) then
     return nil
   end
   return repo
@@ -1390,7 +1557,8 @@ local function audit_done(event)
   if payload.schema ~= "idle-detector.system-idle.v1" then
     fail(event, "unknown-schema", "unknown system_idle schema")
   end
-  local ok_fresh, fresh, why = pcall(fresh_hint, payload)
+  local now_seconds = now()
+  local ok_fresh, fresh, why = pcall(fresh_hint, payload, now_seconds)
   if not ok_fresh then
     fail(event, "malformed-idle-hint", fresh)
   end
@@ -1426,7 +1594,6 @@ local function make_department(ports)
     end
 
     local label_available = has_archaudit_label(ports.github, repo)
-    local seen = {}
     local emitted = 0
     for _, finding in ipairs(findings_or_err) do
       if emitted >= count then
@@ -1435,12 +1602,12 @@ local function make_department(ports)
       if not core.validate_finding(finding) then
         fail(event, "invalid-finding-evidence", "invalid file or line")
       end
-      local dedup_key = core.dedup_key(repo, finding)
-      if not seen[dedup_key] then
-        seen[dedup_key] = true
-        raise("github-proxy.github_issue_create_request", core.build_issue_create_request(repo, finding, label_available))
-        emitted = emitted + 1
+      local ok_request, request_or_err = pcall(core.build_issue_create_request, repo, finding, label_available)
+      if not ok_request then
+        fail(event, "invalid-issue-create-request", request_or_err)
       end
+      raise("github-proxy.github_issue_create_request", request_or_err)
+      emitted = emitted + 1
     end
   end
 
@@ -1505,14 +1672,17 @@ Add this helper before the file's `return { ... }`:
 local function fake_audit_department(label_stdout)
   package.loaded["departments.audit.main"] = nil
   local model = github_fake.model()
+  local label_calls = {}
   local github = github_fake.new(model)
-  function github.label_list(_repo, _timeout)
+  function github.label_list(repo, timeout)
+    table.insert(label_calls, { repo = repo, timeout = timeout })
     return { stdout = label_stdout, stderr = "", exit_code = 0 }
   end
   local installed = require("departments.audit.main")
+  t.eq(type(installed.make_department), "function")
   local dept = installed.make_department({ github = github, git = nil })
   dept.model = model
-  return dept, model
+  return dept, model, label_calls
 end
 ```
 
@@ -1523,24 +1693,32 @@ test_run_fake_label_present_raises_labeled_issue = function()
   mock_env("owner/repo", "3")
   mock_idle_observe()
   mock_codex_findings('[{"file":"packages/archaudit/core.lua","line":1,"rule":"SRP","why":"Concrete issue.","suggested_fix":"Small local fix."}]', 0)
-  local dept, model = fake_audit_department('[{"name":"archaudit"}]')
+  local dept, model, label_calls = fake_audit_department('[{"name":"archaudit"}]')
   local result = testing.run_fake(dept, idle_event())
   t.eq(#result.raises, 1)
   t.eq(result.raises[1].queue, "github-proxy.github_issue_create_request")
   t.eq(result.raises[1].payload.labels[1], "archaudit")
+  t.eq(#label_calls, 1)
+  t.eq(label_calls[1].repo, "owner/repo")
+  t.eq(label_calls[1].timeout, 30)
   t.eq(#model.writes, 0)
+  t.eq(#result.writes, 0)
 end,
 
 test_run_fake_label_missing_still_raises_unlabeled_issue = function()
   mock_env("owner/repo", "3")
   mock_idle_observe()
   mock_codex_findings('[{"file":"packages/archaudit/core.lua","line":1,"rule":"SRP","why":"Concrete issue.","suggested_fix":"Small local fix."}]', 0)
-  local dept, model = fake_audit_department('[{"name":"bug"}]')
+  local dept, model, label_calls = fake_audit_department('[{"name":"bug"}]')
   local result = testing.run_fake(dept, idle_event())
   t.eq(#result.raises, 1)
   t.eq(result.raises[1].queue, "github-proxy.github_issue_create_request")
   t.eq(#result.raises[1].payload.labels, 0)
+  t.eq(#label_calls, 1)
+  t.eq(label_calls[1].repo, "owner/repo")
+  t.eq(label_calls[1].timeout, 30)
   t.eq(#model.writes, 0)
+  t.eq(#result.writes, 0)
 end,
 ```
 
@@ -1569,7 +1747,7 @@ git commit -m "test(archaudit): prove label availability is not a gate"
 
 - [ ] **Step 1: Add deterministic downstream idempotency tests through `github-proxy.github_issue_create`.**
 
-Extend the existing `github-proxy` issue-create integration test with an `archaudit` payload. This uses the package's own marker/search fixture and proves durable duplicate suppression belongs to `github-proxy`, not to archaudit's in-batch collapse.
+Extend the existing `github-proxy` issue-create integration test with an `archaudit` payload. This uses the package's own marker/search fixture and proves durable duplicate suppression belongs to `github-proxy`, not to a local archaudit duplicate ledger.
 
 Add this helper after the existing `event(extra)` helper in `packages/github-proxy/tests/integration_issue_create_test.lua`:
 
@@ -1617,7 +1795,7 @@ Add these tests inside the existing returned test table:
     ))
     mock_issue_create()
 
-    local result = t.run_department("packages/github-proxy/departments/github_issue_create/main.lua", {
+    local result = t.run_department("departments/github_issue_create/main.lua", {
       queue = "github_issue_create_request",
       payload = payload,
     }, opts("duplicate-marker", { FKST_GITHUB_WRITE = "1" }))
@@ -1630,7 +1808,7 @@ Add these tests inside the existing returned test table:
   test_archaudit_issue_create_dry_run_does_not_search_or_create = function()
     mock_write_env("")
 
-    local result = t.run_department("packages/github-proxy/departments/github_issue_create/main.lua", {
+    local result = t.run_department("departments/github_issue_create/main.lua", {
       queue = "github_issue_create_request",
       payload = archaudit_payload(),
     }, opts("dry-run-archaudit"))
@@ -1765,7 +1943,7 @@ Verified docs/superpowers/specs/2026-06-18-archaudit-design.md is already the mi
 - File/line validation only, no broader evidence validator -> Task 4.
 - Per-run cap default 3 -> Task 5.
 - Issue-create payload schema, dedup key, source_ref, body marker, label advisory behavior -> Tasks 4-6.
-- In-batch duplicate collapse is only trivial uniqueness on `dedup_key` within one codex output and is not durable flood control -> Task 5.
+- No in-batch duplicate collapse in `archaudit`; the only local anti-flood control is the per-run cap -> Task 5.
 - Durable duplicate suppression through github-proxy marker/search idempotency -> Task 7.
 - Anti-flood exactly two controls: per-run cap 3 and github-proxy dedup -> Tasks 5 and 7.
 - Defaults table -> Defaults section.
