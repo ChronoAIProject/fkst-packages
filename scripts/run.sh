@@ -474,6 +474,22 @@ check_lua_coverage_artifact() {
   FKST_LUA_COVERAGE_JSON="$coverage_json" python3 -B "$ROOT/scripts/check_repo.py"
 }
 
+run_self_test_with_optional_lua_coverage() {
+  local coverage_json="${1:-}"; shift || true
+  if [ -z "${FKST_SKIP_SELF_TEST:-}" ]; then
+    if ! run_self_test; then
+      return 1
+    fi
+  fi
+  if [ -z "$coverage_json" ]; then
+    return 0
+  fi
+  if ! write_lua_coverage_artifact "$coverage_json" "$@"; then
+    return 1
+  fi
+  check_lua_coverage_artifact "$coverage_json"
+}
+
 # Run "$@"; unless verbose (cmd_test's flag), drop advisory `PASS` lines from its
 # combined output so only failures surface. Returns the command's own exit code
 # (via PIPESTATUS, not grep's). The `set +e`/`set -e` guard makes it safe in any
@@ -541,7 +557,7 @@ cmd_test() {
   coverage_json="$coverage_root/coverage.json"
 
   echo "=== self-test ==="
-  if ! run_self_test; then
+  if ! run_self_test_with_optional_lua_coverage; then
     fail=$((fail + 1))
   fi
 
@@ -598,9 +614,7 @@ cmd_test() {
       fail=$((fail + 1))
     fi
     if [ "$fail" -eq 0 ]; then
-      if ! write_lua_coverage_artifact "$coverage_json" "${coverage_inputs[@]}"; then
-        fail=$((fail + 1))
-      elif ! check_lua_coverage_artifact "$coverage_json"; then
+      if ! FKST_SKIP_SELF_TEST=1 run_self_test_with_optional_lua_coverage "$coverage_json" "${coverage_inputs[@]}"; then
         fail=$((fail + 1))
       fi
     fi

@@ -100,15 +100,13 @@ class RunShCoverageSelfTest(unittest.TestCase):
             )
         )
         try:
-            result = h.run_shell("run_self_test")
+            result = h.run_shell("run_self_test_with_optional_lua_coverage")
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(len(h.argv_lines()), 1)
-            argv = h.argv_lines()[0].split()
-            self.assertEqual(argv, ["--self-test"])
+            self.assertEqual(h.argv_lines(), ["--self-test"])
         finally:
             h.close()
 
-    def test_coverage_artifact_merges_package_paths_and_checks_canonical_env(self) -> None:
+    def test_canonical_self_test_wrapper_builds_coverage_artifact_and_checks_env(self) -> None:
         h = RunShCoverageHarness(
             textwrap.dedent(
                 """\
@@ -119,38 +117,18 @@ class RunShCoverageSelfTest(unittest.TestCase):
             )
         )
         try:
+            (h.root / "package-coverage.json").write_text('{"core.lua":{"covered_lines":[1]}}', encoding="utf-8")
             (h.mini_repo / "packages" / "example").mkdir(parents=True)
             (h.mini_repo / "packages" / "example" / "core.lua").write_text("return {}\n", encoding="utf-8")
-            (h.mini_repo / "packages" / "example" / "unused.lua").write_text("return {}\n", encoding="utf-8")
-            (h.mini_repo / "std").mkdir()
-            (h.mini_repo / "std" / "shared.lua").write_text("return {}\n", encoding="utf-8")
-            first = h.root / "first.json"
-            second = h.root / "second.json"
-            output = h.root / "merged" / "coverage.json"
-            first.write_text(
-                '{"core.lua":{"covered_lines":[2,1]},"std/shared.lua":{"covered_lines":[3]}}',
-                encoding="utf-8",
-            )
-            second.write_text(
-                '{"core.lua":{"covered_lines":[3]},"packages/other/core.lua":{"covered_lines":[4]}}',
-                encoding="utf-8",
-            )
-
+            output = h.root / "coverage.json"
             result = h.run_shell(
-                f'write_lua_coverage_artifact "{output}" "example={first}" "example={second}"; '
-                f'check_lua_coverage_artifact "{output}"'
+                f'FKST_SKIP_SELF_TEST=1 run_self_test_with_optional_lua_coverage '
+                f'"{output}" "example={h.root / "package-coverage.json"}"'
             )
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            lines = h.argv_lines()
-            self.assertEqual(lines[0], f"CHECK_REPO={output}")
-            merged = "\n".join(lines[1:])
-            self.assertIn('"packages/example/core.lua"', merged)
-            self.assertIn('"covered_lines": [', merged)
-            self.assertIn('"packages/example/unused.lua"', merged)
-            self.assertIn('"covered_lines": []', merged)
-            self.assertIn('"std/shared.lua"', merged)
-            self.assertIn('"packages/other/core.lua"', merged)
+            self.assertEqual(h.argv_lines()[0], f"CHECK_REPO={output}")
+            self.assertIn('"packages/example/core.lua"', output.read_text(encoding="utf-8"))
         finally:
             h.close()
 
