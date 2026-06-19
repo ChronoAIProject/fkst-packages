@@ -2,6 +2,7 @@ local common = require("departments.observability.common")
 local census = require("departments.observability.census")
 local dashboard = require("departments.observability.dashboard")
 local reaper = require("departments.observability.reaper")
+local spans = require("departments.observability.spans")
 local topology = require("departments.observability.topology")
 
 local S = {}
@@ -10,6 +11,7 @@ function S.install(M)
 common.install_common(M)
 census.install_census(M)
 reaper.install_reaper(M)
+spans.install_spans(M)
 dashboard.install_dashboard(M)
 
 function M.observability_topology_mermaid()
@@ -43,6 +45,7 @@ function M.observe_devloop_entities(event)
     counts = observed.counts,
     stalls = observed.stalls,
     state_gap_report = observed.state_gap_report,
+    span_metrics = observed.span_metrics,
     now_seconds = observed.now_seconds,
     topology_mermaid = M.observability_topology_mermaid(),
   })

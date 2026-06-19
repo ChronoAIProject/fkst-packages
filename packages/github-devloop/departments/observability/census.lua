@@ -27,6 +27,8 @@ local function put_issue_entity(entities, repo, issue_number, issue)
     dependency_wait = nil,
   }
   entity.issue_number = tonumber(issue_number)
+  entity.issue_source_ref = core.issue_source_ref(repo, issue_number)
+  entity.source_ref = entity.source_ref or entity.issue_source_ref
   entity.title = issue.title
   entity.parent_issue = issue
   if state_or_nil(issue_state) ~= nil then
@@ -57,6 +59,8 @@ local function put_pr_entity(entities, repo, pr_number, pr)
   }
   entity.issue_number = origin.issue_number
   entity.pr_number = tonumber(pr_number)
+  entity.pr_source_ref = core.pr_source_ref(repo, pr_number)
+  entity.source_ref = entity.pr_source_ref
   entity.pr_origin = origin
   entity.pr = pr
   if state_or_nil(pr_state) ~= nil then
@@ -296,12 +300,14 @@ function core.collect_observability_entities(event, repo, limits, deadline)
   for _, edge in ipairs(state_gap_report.edges or {}) do
     log.info(core.state_gap_log_line(edge))
   end
+  local span_metrics = core.observability_span_metrics(list, now_seconds)
 
   return {
     list = list,
     counts = counts,
     stalls = stalls,
     state_gap_report = state_gap_report,
+    span_metrics = span_metrics,
     now_seconds = now_seconds,
   }
 end

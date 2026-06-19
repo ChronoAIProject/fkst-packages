@@ -184,6 +184,74 @@ local function format_age(age_minutes)
   return tostring(days) .. "d " .. tostring(day_hours) .. "h"
 end
 
+local append_section
+
+local function format_duration(seconds)
+  if tonumber(seconds) == nil then
+    return "unknown"
+  end
+  local total = math.max(0, math.floor(tonumber(seconds) + 0.5))
+  local days = math.floor(total / 86400)
+  total = total % 86400
+  local hours = math.floor(total / 3600)
+  total = total % 3600
+  local minutes = math.floor(total / 60)
+  local secs = total % 60
+  if days > 0 then
+    return tostring(days) .. "d " .. tostring(hours) .. "h"
+  end
+  if hours > 0 then
+    return tostring(hours) .. "h " .. tostring(minutes) .. "m"
+  end
+  if minutes > 0 then
+    return tostring(minutes) .. "m"
+  end
+  return tostring(secs) .. "s"
+end
+
+local function append_span_metrics_sections(sections, span_metrics)
+  local metrics = span_metrics or {}
+  local by_state = metrics.by_state or {}
+  local lines = {}
+  table.insert(lines, "## State spans")
+  local shown = 0
+  for _, state in ipairs(core._state_order) do
+    local row = by_state[state]
+    if row ~= nil and ((row.open_count or 0) > 0 or (row.completed_count or 0) > 0) then
+      table.insert(lines, "- " .. tostring(state)
+        .. ": open=" .. tostring(row.open_count or 0)
+        .. " avg-open=" .. format_duration(row.avg_open_dwell_seconds)
+        .. " completed=" .. tostring(row.completed_count or 0)
+        .. " avg-completed=" .. format_duration(row.avg_completed_seconds)
+        .. " anchor=" .. tostring(row.open_anchor or "state-entry"))
+      shown = shown + 1
+      if shown >= max_dashboard_section_items then
+        break
+      end
+    end
+  end
+  if shown == 0 then
+    table.insert(lines, "- None")
+  end
+  append_section(sections, lines)
+
+  lines = {}
+  table.insert(lines, "## Recent transitions")
+  if #(metrics.transitions or {}) == 0 then
+    table.insert(lines, "- None")
+  else
+    local count = 0
+    for _, transition in ipairs(metrics.transitions or {}) do
+      table.insert(lines, "- " .. tostring(transition.transition) .. ": " .. tostring(transition.count or 0))
+      count = count + 1
+      if count >= max_dashboard_section_items then
+        break
+      end
+    end
+  end
+  append_section(sections, lines)
+end
+
 local function entity_line(entity, now_seconds)
   local state = entity.state and entity.state.state or "unmanaged"
   local parts = {
@@ -228,7 +296,7 @@ local function section(lines)
   return table.concat(lines, "\n")
 end
 
-local function append_section(sections, lines)
+function append_section(sections, lines)
   table.insert(sections, section(lines))
 end
 
@@ -270,6 +338,7 @@ function core.render_observability_dashboard(args)
   local state_gap_report = args and args.state_gap_report or {}
   local topology_mermaid = args and args.topology_mermaid or nil
   local now_seconds = args and args.now_seconds or now()
+  local span_metrics = args and args.span_metrics or core.observability_span_metrics(list, now_seconds)
   local generated_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now_seconds)
   local instance = core.read_env("FKST_GITHUB_BOT_LOGIN") or "unknown"
   local by_state = { unmanaged = {} }
@@ -322,6 +391,8 @@ function core.render_observability_dashboard(args)
     table.insert(lines, "- unmanaged: " .. tostring(counts.unmanaged))
   end
   append_section(sections, lines)
+
+  append_span_metrics_sections(sections, span_metrics)
 
   lines = {}
   append_state_section(lines, "Ready", "ready", by_state, now_seconds)

@@ -123,7 +123,111 @@ local function dashboard_fixture()
   })
 end
 
+local function trusted(body, created_at)
+  return {
+    body = body,
+    author_login = "fkst-test-bot",
+    created_at = created_at,
+  }
+end
+
+local function untrusted(body, created_at)
+  return {
+    body = body,
+    author_login = "mallory",
+    created_at = created_at,
+  }
+end
+
+local function entity(proposal_id, issue_number, state, version, comments, extra)
+  local item = {
+    proposal_id = proposal_id,
+    issue_number = issue_number,
+    state = {
+      state = state,
+      version = version,
+      marker_created_at = comments[#comments].created_at,
+    },
+    parent_issue = { comments = comments },
+  }
+  for key, value in pairs(extra or {}) do
+    item[key] = value
+  end
+  return item
+end
+
 return {
+  test_observability_span_metrics_are_deterministic_from_trusted_markers = function()
+    local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T04:00:00Z")
+    local proposal_1 = "github-devloop/issue/owner/repo/42"
+    local proposal_2 = "github-devloop/issue/owner/repo/43"
+    local proposal_3 = "github-devloop/issue/owner/repo/44"
+    local ready_version = "ready-version"
+    local implementing_version = "implementing-version"
+    local thinking_version = "thinking-version"
+    local source_ref = core.issue_source_ref("owner/repo", 44)
+    local sr_digest = core.source_ref_digest(source_ref)
+    local comments_1 = {
+      trusted(core.state_marker(proposal_1, "ready", ready_version), "2026-06-03T00:00:00Z"),
+      trusted(core.state_marker(proposal_1, "implementing", implementing_version), "2026-06-03T00:30:00Z"),
+      trusted(core.implement_attempt_marker(proposal_1, implementing_version, 1, tostring(now_seconds - 15 * 60)), "2026-06-03T03:45:00Z"),
+      trusted(core.state_marker(proposal_1, "pr-open", implementing_version), "2026-06-03T01:00:00Z"),
+      untrusted(core.state_marker(proposal_1, "blocked", "forged"), "2026-06-03T03:59:00Z"),
+    }
+    local comments_2 = {
+      trusted(core.state_marker(proposal_2, "ready", ready_version), "2026-06-03T01:00:00Z"),
+      trusted(core.state_marker(proposal_2, "implementing", implementing_version), "2026-06-03T02:00:00Z"),
+      trusted(core.implement_attempt_marker(proposal_2, implementing_version, 1, tostring(now_seconds - 30 * 60)), "2026-06-03T03:30:00Z"),
+    }
+    local comments_3 = {
+      trusted(core.state_marker(proposal_3, "thinking", thinking_version), "2026-06-03T02:00:00Z"),
+      trusted(core.converge_round_marker(proposal_3, thinking_version, sr_digest, 1, thinking_version .. "/loop/1", "Narrow", {}), "2026-06-03T03:50:00Z"),
+    }
+    local entities = {
+      entity(proposal_1, 42, "pr-open", implementing_version, comments_1),
+      entity(proposal_2, 43, "implementing", implementing_version, comments_2),
+      entity(proposal_3, 44, "thinking", thinking_version, comments_3, { source_ref = source_ref }),
+    }
+
+    local first = core.observability_span_metrics(entities, now_seconds)
+    local second = core.observability_span_metrics(entities, now_seconds)
+
+    t.eq(first.by_state["implementing"].open_count, 1)
+    t.eq(first.by_state["implementing"].avg_open_dwell_seconds, 1800)
+    t.eq(first.by_state["implementing"].open_anchor, "heartbeat")
+    t.eq(first.by_state["thinking"].open_count, 1)
+    t.eq(first.by_state["thinking"].avg_open_dwell_seconds, 600)
+    t.eq(first.by_state["thinking"].open_anchor, "heartbeat")
+    t.eq(first.by_state["ready"].completed_count, 2)
+    t.eq(first.by_state["ready"].avg_completed_seconds, 2700)
+    t.eq(first.by_state["implementing"].completed_count, 1)
+    t.eq(first.by_state["implementing"].avg_completed_seconds, 1800)
+    local transition_counts = {}
+    for _, transition in ipairs(first.transitions) do
+      transition_counts[transition.transition] = transition.count
+    end
+    t.eq(transition_counts["implementing->pr-open"], 1)
+    t.eq(transition_counts["ready->implementing"], 2)
+    t.eq(first.recent_window_seconds, 21600)
+    t.eq(first.by_state.blocked, nil)
+    t.eq(first.summary_hash, second.summary_hash)
+
+    local dashboard = core.render_observability_dashboard({
+      entities = entities,
+      counts = { ["pr-open"] = 1, implementing = 1, thinking = 1 },
+      stalls = {},
+      span_metrics = first,
+      now_seconds = now_seconds,
+    })
+    t.is_true(dashboard.body:find("## State spans", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- implementing: open=1 avg-open=30m completed=1 avg-completed=30m anchor=heartbeat", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- thinking: open=1 avg-open=10m completed=0 avg-completed=unknown anchor=heartbeat", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- ready: open=0 avg-open=unknown completed=2 avg-completed=45m anchor=state-entry", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("## Recent transitions", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- ready->implementing: 2", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- implementing->pr-open: 1", 1, true) ~= nil)
+  end,
+
   test_dashboard_publish_defers_without_gh_calls_when_deadline_exhausted = function()
     mock_env("1")
     local gh_calls = 0
