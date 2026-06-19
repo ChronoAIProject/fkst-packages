@@ -138,19 +138,12 @@ local function audit_done(event)
   if payload.schema ~= "idle-detector.system-idle.v1" then
     fail(event, "unknown-schema", "unknown system_idle schema")
   end
-  local ok_fresh, fresh, why = pcall(fresh_hint, payload, now())
-  if not ok_fresh then
-    fail(event, "malformed-idle-hint", fresh)
-  end
-  if not fresh then
-    log_fact("warn", "audit", "SKIP", "terminal-skip", event, why, true)
-    return true
-  end
   return false
 end
 
 local function make_department(ports)
   local function act_audit(event)
+    local payload = event.payload or {}
     local ok_observe, facts_or_err = pcall(core.observe)
     if not ok_observe then
       local message = tostring(facts_or_err)
@@ -159,6 +152,18 @@ local function make_department(ports)
         return
       end
       fail(event, "observe-malformed", message)
+    end
+    local ok_time, observe_now_or_err = pcall(core.observe_now_seconds, facts_or_err)
+    if not ok_time then
+      fail(event, "observe-malformed", tostring(observe_now_or_err))
+    end
+    local ok_fresh, fresh, fresh_why = pcall(fresh_hint, payload, observe_now_or_err)
+    if not ok_fresh then
+      fail(event, "malformed-idle-hint", fresh)
+    end
+    if not fresh then
+      log_fact("warn", "audit", "SKIP", "terminal-skip", event, fresh_why, true)
+      return
     end
     local ok_idle, idle, why = pcall(core.is_idle_observe, facts_or_err)
     if not ok_idle then

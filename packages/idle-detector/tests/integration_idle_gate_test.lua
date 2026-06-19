@@ -4,6 +4,7 @@ local function opts(name)
   return {
     env = {
       FKST_RUNTIME_ROOT = "/tmp/fkst-packages-test/idle-detector/" .. tostring(name),
+      FKST_DURABLE_ROOT = "/tmp/fkst-packages-test/idle-detector/durable-" .. tostring(name),
     },
   }
 end
@@ -22,39 +23,47 @@ local function event(ts)
 end
 
 local function mock_observe(stdout, exit_code)
-  t.mock_command("fkst-framework observe --json", {
+  t.mock_command('fkst-framework observe --durable-root "$FKST_DURABLE_ROOT" --json', {
     stdout = stdout or "",
     stderr = exit_code == 0 and "" or "observe failed",
     exit_code = exit_code or 0,
   })
 end
 
-local function idle_observe_json()
-  return '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}'
+local function observe_json(generated_at_ms, queue_json, deliveries_json, dead_letters_json)
+  return table.concat({
+    '{"schema_version":1',
+    ',"generated_at_ms":' .. tostring(generated_at_ms or 1781830860000),
+    ',"source":{"durable_root":"/tmp/fkst-durable","database":"/tmp/fkst-durable/delivery.redb","read_semantics":"single read transaction","history_semantics":"delivery queue snapshot only"}',
+    ',"limits":{"max_deliveries":500,"max_dead_letters":500}',
+    ',"truncated":{"deliveries":false,"dead_letters":false}',
+    ',"queues":' .. (queue_json or '[{"queue":"proposal","depth":0,"pending":0,"in_flight":0,"retrying":0,"oldest_pending_age_ms":null}]'),
+    ',"deliveries":' .. (deliveries_json or "[]"),
+    ',"dead_letters":' .. (dead_letters_json or "[]"),
+    "}",
+  }, "")
 end
 
 local function assert_skip_with_observe(case_name, observe_stdout, exit_code)
   mock_observe(observe_stdout, exit_code or 0)
-  local result = t.run_department("departments/idle_gate/main.lua", event("1970-01-01T00:00:00Z"), opts(case_name))
+  local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts(case_name))
   t.eq(result.exit_code, 0)
   t.eq(#result.raises, 0)
 end
 
 return {
-  test_idle_gate_drops_stale_cron_slot = function()
-    local result = t.run_department("departments/idle_gate/main.lua", event("1970-01-01T00:00:00Z"), opts("stale"))
+  test_idle_gate_uses_observe_time_to_raise_fresh_idle = function()
+    mock_observe(observe_json(1781830860000), 0)
+    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("fresh"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
-    t.eq(#t.command_calls(), 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "system_idle")
+    t.eq(result.raises[1].payload.detected_at, "2026-06-19T01:00:00Z")
   end,
 
-  -- The engine department harness exposes real now() but no now injection, and
-  -- this worker's observed BIN exposes no observe snapshot timestamp to use as
-  -- a deterministic reference clock. Fresh/stale precision stays in pure helper
-  -- tests; this department test proves now-independent stale routing.
-  test_idle_gate_drops_stale_cron_slot_even_when_observe_is_idle = function()
-    mock_observe(idle_observe_json(), 0)
-    local result = t.run_department("departments/idle_gate/main.lua", event("1970-01-01T00:00:00Z"), opts("stale-idle-observe"))
+  test_idle_gate_uses_observe_time_to_drop_stale_slot = function()
+    mock_observe(observe_json(1781831461000), 0)
+    local result = t.run_department("departments/idle_gate/main.lua", event("2026-06-19T01:00:00Z"), opts("stale"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
@@ -62,25 +71,29 @@ return {
   test_idle_gate_skips_observe_derived_busy_states = function()
     for _, case in ipairs({
       {
-        name = "ready",
-        observe = '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":1,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}',
+        name = "pending",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","depth":1,"pending":1,"in_flight":0,"retrying":0,"oldest_pending_age_ms":1000}]'),
       },
       {
-        name = "leased",
-        observe = '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":1,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}',
+        name = "in-flight",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","depth":1,"pending":0,"in_flight":1,"retrying":0,"oldest_pending_age_ms":null}]'),
       },
       {
-        name = "retry",
-        observe = '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":1,"dlq":0}],"anomalies":[],"dlq":[]}',
+        name = "retrying",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","depth":1,"pending":0,"in_flight":0,"retrying":1,"oldest_pending_age_ms":null}]'),
+      },
+      {
+        name = "depth",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","depth":1,"pending":0,"in_flight":0,"retrying":0,"oldest_pending_age_ms":null}]'),
       },
     }) do
       assert_skip_with_observe("busy-" .. case.name, case.observe, 0)
     end
   end,
 
-  test_idle_gate_skips_dlq_or_anomaly_observe_facts = function()
-    assert_skip_with_observe("dlq", '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[{"queue":"proposal"}]}', 0)
-    assert_skip_with_observe("anomaly", '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[{"type":"stalled"}],"dlq":[]}', 0)
+  test_idle_gate_skips_deliveries_or_dead_letters = function()
+    assert_skip_with_observe("deliveries", observe_json(1781830860000, nil, '[{"delivery_id":"d1","queue":"proposal","dept":"decide","status":"pending","attempt":1}]', nil), 0)
+    assert_skip_with_observe("dead-letters", observe_json(1781830860000, nil, nil, '[{"delivery_id":"dead","queue":"proposal","dept":"decide","attempts":1,"replayable":true,"permanent":false}]'), 0)
   end,
 
   test_idle_gate_skips_observe_read_failure = function()
@@ -90,35 +103,51 @@ return {
   test_idle_gate_skips_malformed_observe_shapes = function()
     for _, case in ipairs({
       {
+        name = "missing-generated-at",
+        observe = '{"schema_version":1,"queues":[],"deliveries":[],"dead_letters":[]}',
+      },
+      {
+        name = "wrong-generated-at-type",
+        observe = '{"schema_version":1,"generated_at_ms":"1781830860000","queues":[],"deliveries":[],"dead_letters":[]}',
+      },
+      {
         name = "non-table-queues",
-        observe = '{"schema":"fkst.observe.v1","queues":"bad","anomalies":[],"dlq":[]}',
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":"bad","deliveries":[],"dead_letters":[]}',
       },
       {
         name = "keyed-queues",
-        observe = '{"schema":"fkst.observe.v1","queues":{"proposal":{"ready":0,"leased":0,"retry":0,"dlq":0}},"anomalies":[],"dlq":[]}',
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":{"proposal":{"depth":0,"pending":0,"in_flight":0,"retrying":0}},"deliveries":[],"dead_letters":[]}',
       },
       {
-        name = "keyed-anomalies",
-        observe = '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":{"stalled":{"queue":"proposal"}},"dlq":[]}',
+        name = "keyed-deliveries",
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[],"deliveries":{"one":{}},"dead_letters":[]}',
       },
       {
-        name = "keyed-dlq",
-        observe = '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":{"proposal":{"count":1}}}',
+        name = "keyed-dead-letters",
+        observe = '{"schema_version":1,"generated_at_ms":1781830860000,"queues":[],"deliveries":[],"dead_letters":{"one":{}}}',
       },
     }) do
       assert_skip_with_observe("malformed-" .. case.name, case.observe, 0)
     end
   end,
 
-  test_idle_gate_skips_missing_or_ambiguous_queue_metric_groups = function()
+  test_idle_gate_skips_missing_real_queue_metrics = function()
     for _, case in ipairs({
       {
-        name = "missing-ready",
-        observe = '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}',
+        name = "missing-depth",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","pending":0,"in_flight":0,"retrying":0}]'),
       },
       {
-        name = "ambiguous-ready",
-        observe = '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"pending":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}',
+        name = "missing-pending",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","depth":0,"in_flight":0,"retrying":0}]'),
+      },
+      {
+        name = "missing-in-flight",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","depth":0,"pending":0,"retrying":0}]'),
+      },
+      {
+        name = "missing-retrying",
+        observe = observe_json(1781830860000, '[{"queue":"proposal","depth":0,"pending":0,"in_flight":0}]'),
       },
     }) do
       assert_skip_with_observe("metric-" .. case.name, case.observe, 0)

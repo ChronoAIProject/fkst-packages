@@ -15,7 +15,7 @@ local github_proxy_limits = {
   source_ref_kind = 80,
   source_ref_ref = 200,
 }
-local observe_schema = "fkst.observe.v1"
+local observe_schema_version = 1
 
 function M.persistence_class()
   return "composed_judgment_pipeline"
@@ -56,35 +56,6 @@ local function body_text(finding, dedup_key)
   }, "\n")
 end
 
-local function int_value(value)
-  if type(value) == "number" then
-    if value < 0 or math.floor(value) ~= value then
-      error("archaudit: observe-malformed-metric: value must be a non-negative integer")
-    end
-    return value
-  end
-  if type(value) == "string" and value:match("^%d+$") then
-    return tonumber(value)
-  end
-  error("archaudit: observe-malformed-metric: value must be a non-negative integer")
-end
-
-local function required_metric(row, names, group)
-  local found = nil
-  for _, name in ipairs(names) do
-    if row[name] ~= nil then
-      if found ~= nil then
-        error("archaudit: observe-ambiguous-metric: multiple fields in one metric group")
-      end
-      found = { value = int_value(row[name]), name = name }
-    end
-  end
-  if found == nil then
-    error("archaudit: observe-missing-metric-group: " .. tostring(group))
-  end
-  return found.value, found.name
-end
-
 local function required_list(facts, name)
   local value = facts[name]
   if type(value) ~= "table" then
@@ -107,6 +78,14 @@ local function required_list(facts, name)
   return value
 end
 
+local function required_int(row, name)
+  local value = row[name]
+  if type(value) ~= "number" or value < 0 or math.floor(value) ~= value then
+    error("archaudit: observe-malformed-metric: " .. tostring(name) .. " must be a non-negative integer")
+  end
+  return value
+end
+
 function M.validate_repo(repo)
   if not strings.is_bounded_string(repo, github_proxy_limits.repo) then
     return false
@@ -121,13 +100,33 @@ function M.validate_observe_facts(facts)
   if type(facts) ~= "table" then
     error("archaudit: observe-malformed-top-level: facts must be a table")
   end
-  if facts.schema ~= observe_schema then
-    error("archaudit: observe-unknown-schema: expected fkst.observe.v1")
+  if facts.schema_version ~= observe_schema_version then
+    error("archaudit: observe-unknown-schema-version: expected schema_version=1")
+  end
+  if type(facts.generated_at_ms) ~= "number" or facts.generated_at_ms < 0 or math.floor(facts.generated_at_ms) ~= facts.generated_at_ms then
+    error("archaudit: observe-malformed-facts: generated_at_ms must be a non-negative integer")
   end
   required_list(facts, "queues")
-  required_list(facts, "anomalies")
-  required_list(facts, "dlq")
+  required_list(facts, "deliveries")
+  required_list(facts, "dead_letters")
+  for _, row in ipairs(facts.queues) do
+    if type(row) ~= "table" then
+      error("archaudit: observe-malformed-queue-row: queue row must be a table")
+    end
+    if type(row.queue) ~= "string" or row.queue == "" then
+      error("archaudit: observe-malformed-queue-name: queue name must be non-empty")
+    end
+    required_int(row, "depth")
+    required_int(row, "pending")
+    required_int(row, "in_flight")
+    required_int(row, "retrying")
+  end
   return facts
+end
+
+function M.observe_now_seconds(facts)
+  M.validate_observe_facts(facts)
+  return math.floor(facts.generated_at_ms / 1000)
 end
 
 function M.observe(exec)
@@ -135,7 +134,7 @@ function M.observe(exec)
   if type(run) ~= "function" then
     error("archaudit: missing-exec: observe requires exec_sync")
   end
-  local result = run({ cmd = "fkst-framework observe --json", timeout = 30 })
+  local result = run({ cmd = 'fkst-framework observe --durable-root "$FKST_DURABLE_ROOT" --json', timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("archaudit: observe-unreadable: " .. tostring(result and result.stderr or "no result"))
   end
@@ -149,29 +148,17 @@ end
 function M.is_idle_observe(facts)
   M.validate_observe_facts(facts)
   for _, row in ipairs(facts.queues) do
-    if type(row) ~= "table" then
-      error("archaudit: observe-malformed-queue-row: queue row must be a table")
-    end
-    if type(row.queue) ~= "string" or row.queue == "" then
-      error("archaudit: observe-malformed-queue-name: queue name must be non-empty")
-    end
-    for _, names in ipairs({
-      { "ready", "pending", "due", "available", "depth" },
-      { "leased", "inflight", "in_flight", "running", "active" },
-      { "retry", "retries", "retry_pending", "delayed", "backoff" },
-      { "dlq", "dead", "dead_letters", "dead_letter" },
-    }) do
-      local value, name = required_metric(row, names, names[1])
-      if value > 0 then
-        return false, "current observe busy " .. tostring(name) .. "=" .. tostring(value)
+    for _, field in ipairs({ "pending", "in_flight", "retrying", "depth" }) do
+      if row[field] > 0 then
+        return false, "current observe busy queue=" .. tostring(row.queue) .. " " .. field .. "=" .. tostring(row[field])
       end
     end
   end
-  if #facts.dlq > 0 then
-    return false, "current observe dlq>0"
+  if #facts.deliveries > 0 then
+    return false, "current observe deliveries=" .. tostring(#facts.deliveries)
   end
-  if #facts.anomalies > 0 then
-    return false, "current observe anomaly>0"
+  if #facts.dead_letters > 0 then
+    return false, "current observe dead_letters=" .. tostring(#facts.dead_letters)
   end
   return true, nil
 end

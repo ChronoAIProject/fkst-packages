@@ -54,11 +54,6 @@ local function idle_done(event)
   if type(event) ~= "table" or event.queue ~= "idle_tick" then
     error("idle-detector: unknown-queue: idle_gate consumed unknown queue")
   end
-  local stale, why = slot_is_stale(tick_slot(event), now())
-  if stale then
-    log_skip(why, event)
-    return true
-  end
   return false
 end
 
@@ -67,6 +62,16 @@ local function act_idle(event)
   local ok_observe, facts_or_err = pcall(core.observe)
   if not ok_observe then
     log_skip("unreadable observe facts: " .. tostring(facts_or_err), event)
+    return
+  end
+  local ok_time, observe_now_or_err = pcall(core.observe_now_seconds, facts_or_err)
+  if not ok_time then
+    log_skip("malformed observe facts: " .. tostring(observe_now_or_err), event)
+    return
+  end
+  local stale, stale_why = slot_is_stale(slot, observe_now_or_err)
+  if stale then
+    log_skip(stale_why, event)
     return
   end
   local ok_idle, idle, why = pcall(function()

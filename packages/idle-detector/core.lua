@@ -2,39 +2,10 @@ local M = {}
 
 local error_facts = require("std.error_facts")
 
-local observe_schema = "fkst.observe.v1"
+local observe_schema_version = 1
 
 function M.persistence_class()
   return "stateless_adapter"
-end
-
-local function int_value(value)
-  if type(value) == "number" then
-    if value < 0 or math.floor(value) ~= value then
-      error("idle-detector: malformed-observe-metric: value must be a non-negative integer")
-    end
-    return value
-  end
-  if type(value) == "string" and value:match("^%d+$") then
-    return tonumber(value)
-  end
-  error("idle-detector: malformed-observe-metric: value must be a non-negative integer")
-end
-
-local function required_metric(row, names, group)
-  local found = nil
-  for _, name in ipairs(names) do
-    if row[name] ~= nil then
-      if found ~= nil then
-        error("idle-detector: ambiguous-observe-metric: multiple fields in one metric group")
-      end
-      found = { value = int_value(row[name]), name = name }
-    end
-  end
-  if found == nil then
-    error("idle-detector: missing-observe-metric: missing metric group " .. tostring(group))
-  end
-  return found.value, found.name
 end
 
 local function required_list(facts, name)
@@ -59,17 +30,45 @@ local function required_list(facts, name)
   return value
 end
 
+local function required_int(row, name)
+  local value = row[name]
+  if type(value) ~= "number" or value < 0 or math.floor(value) ~= value then
+    error("idle-detector: malformed-observe-metric: " .. tostring(name) .. " must be a non-negative integer")
+  end
+  return value
+end
+
 local function validate_observe_facts(facts)
   if type(facts) ~= "table" then
     error("idle-detector: malformed-observe-facts: top-level facts must be a table")
   end
-  if facts.schema ~= observe_schema then
-    error("idle-detector: unknown-observe-schema: expected fkst.observe.v1")
+  if facts.schema_version ~= observe_schema_version then
+    error("idle-detector: unknown-observe-schema-version: expected schema_version=1")
+  end
+  if type(facts.generated_at_ms) ~= "number" or facts.generated_at_ms < 0 or math.floor(facts.generated_at_ms) ~= facts.generated_at_ms then
+    error("idle-detector: malformed-observe-facts: generated_at_ms must be a non-negative integer")
   end
   required_list(facts, "queues")
-  required_list(facts, "anomalies")
-  required_list(facts, "dlq")
+  required_list(facts, "deliveries")
+  required_list(facts, "dead_letters")
+  for _, row in ipairs(facts.queues) do
+    if type(row) ~= "table" then
+      error("idle-detector: malformed-observe-row: queue row must be a table")
+    end
+    if type(row.queue) ~= "string" or row.queue == "" then
+      error("idle-detector: malformed-observe-row: queue name must be non-empty")
+    end
+    required_int(row, "depth")
+    required_int(row, "pending")
+    required_int(row, "in_flight")
+    required_int(row, "retrying")
+  end
   return facts
+end
+
+function M.observe_now_seconds(facts)
+  validate_observe_facts(facts)
+  return math.floor(facts.generated_at_ms / 1000)
 end
 
 function M.observe(exec)
@@ -77,7 +76,7 @@ function M.observe(exec)
   if type(run) ~= "function" then
     error("idle-detector: missing-exec: observe requires exec_sync")
   end
-  local result = run({ cmd = "fkst-framework observe --json", timeout = 30 })
+  local result = run({ cmd = 'fkst-framework observe --durable-root "$FKST_DURABLE_ROOT" --json', timeout = 30 })
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("idle-detector: observe-failed: " .. tostring(result and result.stderr or "no result"))
   end
@@ -91,35 +90,18 @@ end
 function M.is_idle_observe(facts)
   validate_observe_facts(facts)
   for _, row in ipairs(facts.queues) do
-    if type(row) ~= "table" then
-      error("idle-detector: malformed-observe-row: queue row must be a table")
-    end
-    if type(row.queue) ~= "string" or row.queue == "" then
-      error("idle-detector: malformed-observe-row: queue name must be non-empty")
-    end
     local queue = row.queue
-    local ready, ready_name = required_metric(row, { "ready", "pending", "due", "available", "depth" }, "ready")
-    if ready > 0 then
-      return false, "busy queue=" .. queue .. " " .. ready_name .. "=" .. tostring(ready)
-    end
-    local leased, leased_name = required_metric(row, { "leased", "inflight", "in_flight", "running", "active" }, "leased")
-    if leased > 0 then
-      return false, "busy queue=" .. queue .. " " .. leased_name .. "=" .. tostring(leased)
-    end
-    local retry, retry_name = required_metric(row, { "retry", "retries", "retry_pending", "delayed", "backoff" }, "retry")
-    if retry > 0 then
-      return false, "busy queue=" .. queue .. " " .. retry_name .. "=" .. tostring(retry)
-    end
-    local dlq, dlq_name = required_metric(row, { "dlq", "dead", "dead_letters", "dead_letter" }, "dlq")
-    if dlq > 0 then
-      return false, "busy queue=" .. queue .. " " .. dlq_name .. "=" .. tostring(dlq)
+    for _, field in ipairs({ "pending", "in_flight", "retrying", "depth" }) do
+      if row[field] > 0 then
+        return false, "busy queue=" .. queue .. " " .. field .. "=" .. tostring(row[field])
+      end
     end
   end
-  if #facts.dlq > 0 then
-    return false, "busy dlq>0"
+  if #facts.deliveries > 0 then
+    return false, "busy deliveries=" .. tostring(#facts.deliveries)
   end
-  if #facts.anomalies > 0 then
-    return false, "busy anomaly>0"
+  if #facts.dead_letters > 0 then
+    return false, "busy dead_letters=" .. tostring(#facts.dead_letters)
   end
   return true, nil
 end

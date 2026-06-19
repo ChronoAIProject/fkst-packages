@@ -3,6 +3,18 @@ local t = fkst.test
 
 local finding_json = '[{"file":"packages/idle-detector/core.lua","line":1,"rule":"SRP","why":"Mixed responsibilities.","suggested_fix":"Extract the extra responsibility."}]'
 
+local function observe_idle()
+  return {
+    schema_version = 1,
+    generated_at_ms = 1781830860000,
+    queues = {
+      { queue = "proposal", depth = 0, pending = 0, in_flight = 0, retrying = 0 },
+    },
+    deliveries = {},
+    dead_letters = {},
+  }
+end
+
 return {
   test_parse_findings_accepts_strict_array = function()
     local parsed = core.parse_findings_json(finding_json)
@@ -98,36 +110,28 @@ return {
     t.raises(function() core.idle_hint_freshness(detected, nil, nil, 600) end)
   end,
 
-  test_observe_predicate_fails_closed_on_missing_each_busy_dimension_group = function()
-    for _, row in ipairs({
-      { queue = "proposal", leased = 0, retry = 0, dlq = 0 },
-      { queue = "proposal", ready = 0, retry = 0, dlq = 0 },
-      { queue = "proposal", ready = 0, leased = 0, dlq = 0 },
-      { queue = "proposal", ready = 0, leased = 0, retry = 0 },
-    }) do
-      t.raises(function()
-        core.is_idle_observe({ schema = "fkst.observe.v1", queues = { row }, anomalies = {}, dlq = {} })
-      end)
+  test_observe_predicate_accepts_real_idle_and_uses_generated_time = function()
+    local idle, why = core.is_idle_observe(observe_idle())
+    t.eq(idle, true)
+    t.is_nil(why)
+    t.eq(core.observe_now_seconds(observe_idle()), 1781830860)
+  end,
+
+  test_observe_predicate_fails_closed_on_missing_each_real_busy_dimension = function()
+    for _, field in ipairs({ "depth", "pending", "in_flight", "retrying" }) do
+      local facts = observe_idle()
+      facts.queues[1][field] = nil
+      t.raises(function() core.is_idle_observe(facts) end)
     end
   end,
 
   test_observe_predicate_fails_closed_on_non_dense_observe_lists = function()
-    for _, list_name in ipairs({ "queues", "anomalies", "dlq" }) do
-      local keyed = {
-        schema = "fkst.observe.v1",
-        queues = { { queue = "proposal", ready = 0, leased = 0, retry = 0, dlq = 0 } },
-        anomalies = {},
-        dlq = {},
-      }
+    for _, list_name in ipairs({ "queues", "deliveries", "dead_letters" }) do
+      local keyed = observe_idle()
       keyed[list_name] = { keyed = {} }
       t.raises(function() core.is_idle_observe(keyed) end)
 
-      local sparse = {
-        schema = "fkst.observe.v1",
-        queues = { { queue = "proposal", ready = 0, leased = 0, retry = 0, dlq = 0 } },
-        anomalies = {},
-        dlq = {},
-      }
+      local sparse = observe_idle()
       sparse[list_name] = {}
       sparse[list_name][1] = {}
       sparse[list_name][3] = {}
@@ -135,23 +139,41 @@ return {
     end
   end,
 
-  test_observe_predicate_fails_closed_on_ambiguous_and_unknown_metric_groups = function()
-    t.raises(function()
-      core.is_idle_observe({
-        schema = "fkst.observe.v1",
-        queues = { { queue = "proposal", ready = 0, pending = 0, leased = 0, retry = 0, dlq = 0 } },
-        anomalies = {},
-        dlq = {},
-      })
-    end)
-    t.raises(function()
-      core.is_idle_observe({
-        schema = "fkst.observe.v1",
-        queues = { { queue = "proposal", unexpected = 0 } },
-        anomalies = {},
-        dlq = {},
-      })
-    end)
+  test_observe_predicate_fails_closed_on_malformed_real_shape = function()
+    for _, mutate in ipairs({
+      function(facts) facts.schema_version = nil end,
+      function(facts) facts.schema_version = 2 end,
+      function(facts) facts.generated_at_ms = "1781830860000" end,
+      function(facts) facts.queues[1] = "bad" end,
+      function(facts) facts.queues[1].queue = "" end,
+      function(facts) facts.queues[1].pending = -1 end,
+    }) do
+      local facts = observe_idle()
+      mutate(facts)
+      t.raises(function() core.is_idle_observe(facts) end)
+    end
+  end,
+
+  test_observe_predicate_rejects_real_busy_dimensions_and_lists = function()
+    for _, field in ipairs({ "depth", "pending", "in_flight", "retrying" }) do
+      local facts = observe_idle()
+      facts.queues[1][field] = 1
+      local idle, why = core.is_idle_observe(facts)
+      t.eq(idle, false)
+      t.is_true(why:find(field, 1, true) ~= nil)
+    end
+
+    local facts = observe_idle()
+    facts.deliveries = { { delivery_id = "d1", queue = "proposal", dept = "decide", status = "pending", attempt = 1 } }
+    local idle, why = core.is_idle_observe(facts)
+    t.eq(idle, false)
+    t.is_true(why:find("deliveries=1", 1, true) ~= nil)
+
+    facts = observe_idle()
+    facts.dead_letters = { { delivery_id = "dead", queue = "proposal", dept = "decide", attempts = 1, replayable = true, permanent = false } }
+    idle, why = core.is_idle_observe(facts)
+    t.eq(idle, false)
+    t.is_true(why:find("dead_letters=1", 1, true) ~= nil)
   end,
 
   test_skip_fact_fields_are_pure_and_structured = function()
@@ -159,8 +181,8 @@ return {
       "stale system_idle hint",
       "expired system_idle hint",
       "observe-unreadable: observe failed",
-      "current observe busy ready=1",
-      "current observe dlq>0",
+      "current observe busy queue=proposal pending=1",
+      "current observe dead_letters=1",
     }) do
       local fact = core.skip_fact("audit", {
         queue = "idle-detector.system_idle",
