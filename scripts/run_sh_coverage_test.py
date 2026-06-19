@@ -85,13 +85,14 @@ class RunShCoverageHarness:
 
 
 class RunShCoverageSelfTest(unittest.TestCase):
-    def test_self_test_runs_without_coverage_flag(self) -> None:
+    def test_self_test_passes_coverage_flag_with_directory_value(self) -> None:
         h = RunShCoverageHarness(
             textwrap.dedent(
                 """\
                 #!/bin/sh
                 printf '%s\\n' "$*" >> "$RUN_SH_COVERAGE_ARGV_LOG"
-                if [ "$1" = "--self-test" ] && [ "$#" -eq 1 ]; then
+                if [ "$1" = "--self-test" ] && [ "$2" = "--coverage" ] && [ -n "${3:-}" ]; then
+                  printf '{"files":[{"file":"packages/example/core.lua","missing_lines":[]}]}\\n' > "$3/coverage.json"
                   exit 0
                 fi
                 echo "unexpected argv: $*" >&2
@@ -100,35 +101,43 @@ class RunShCoverageSelfTest(unittest.TestCase):
             )
         )
         try:
+            (h.mini_repo / "packages" / "example").mkdir(parents=True)
+            (h.mini_repo / "packages" / "example" / "core.lua").write_text("return {}\n", encoding="utf-8")
             result = h.run_shell("run_self_test_with_optional_lua_coverage")
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.argv_lines(), ["--self-test"])
+            lines = h.argv_lines()
+            self.assertGreaterEqual(len(lines), 2)
+            argv = lines[0].split()
+            self.assertEqual(argv[0:2], ["--self-test", "--coverage"])
+            self.assertEqual(argv[2], str(h.runtime / "lua-coverage"))
+            self.assertEqual(lines[1], f"CHECK_REPO={h.runtime / 'lua-coverage' / 'coverage.json'}")
         finally:
             h.close()
 
-    def test_canonical_self_test_wrapper_builds_coverage_artifact_and_checks_env(self) -> None:
+    def test_empty_self_test_artifact_requests_package_fallback_without_check_repo(self) -> None:
         h = RunShCoverageHarness(
             textwrap.dedent(
                 """\
                 #!/bin/sh
-                echo "framework must not run" >&2
+                printf '%s\\n' "$*" >> "$RUN_SH_COVERAGE_ARGV_LOG"
+                if [ "$1" = "--self-test" ] && [ "$2" = "--coverage" ] && [ -n "${3:-}" ]; then
+                  printf '{}\\n' > "$3/coverage.json"
+                  exit 0
+                fi
+                echo "unexpected argv: $*" >&2
                 exit 64
                 """
             )
         )
         try:
-            (h.root / "package-coverage.json").write_text('{"core.lua":{"covered_lines":[1]}}', encoding="utf-8")
-            (h.mini_repo / "packages" / "example").mkdir(parents=True)
-            (h.mini_repo / "packages" / "example" / "core.lua").write_text("return {}\n", encoding="utf-8")
-            output = h.root / "coverage.json"
             result = h.run_shell(
-                f'FKST_SKIP_SELF_TEST=1 run_self_test_with_optional_lua_coverage '
-                f'"{output}" "example={h.root / "package-coverage.json"}"'
+                "run_self_test_with_optional_lua_coverage; "
+                'test "${LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK:-0}" = "1"'
             )
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(h.argv_lines()[0], f"CHECK_REPO={output}")
-            self.assertIn('"packages/example/core.lua"', output.read_text(encoding="utf-8"))
+            self.assertEqual(h.argv_lines(), [f"--self-test --coverage {h.runtime / 'lua-coverage'}"])
+            self.assertIn("wrote no Lua line metadata", result.stderr)
         finally:
             h.close()
 

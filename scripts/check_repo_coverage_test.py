@@ -404,6 +404,21 @@ class CoverageRatchetTest(unittest.TestCase):
 
         self.assertEqual(messages, [f"Lua coverage artifact does not exist: {missing}"])
 
+    def test_repository_messages_required_flag_rejects_empty_explicit_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "migration").mkdir()
+            (root / "migration" / "coverage-uncovered.required").write_text("", encoding="utf-8")
+            artifact = root / "coverage.json"
+            artifact.write_text("{}\n", encoding="utf-8")
+
+            with mock.patch.dict("os.environ", {"FKST_LUA_COVERAGE_JSON": str(artifact)}, clear=True):
+                messages = coverage.repository_messages(root)
+
+        self.assertEqual(messages, [
+            "invalid Lua coverage ratchet input: coverage artifact has no covered-line metadata"
+        ])
+
     def test_repository_messages_required_flag_blocks_unallowlisted_explicit_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

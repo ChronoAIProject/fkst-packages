@@ -72,6 +72,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUN_SH_REPO_ROOT="$ROOT"
 FKST_DIR="$ROOT/.fkst"
 SOURCE_PACKAGES_ROOT="$ROOT/packages"
 LOCAL_PACKAGES_ROOT="$FKST_DIR/local-packages"
@@ -390,80 +391,9 @@ LUA
   echo "OK: SDK primitive truncate_utf8 is available in BIN: $BIN"
 }
 
-run_self_test() {
-  set +e
-  (cd "$ROOT" && "$BIN" --self-test)
-  local rc=$?
-  set -e
-  return "$rc"
-}
-
-write_lua_coverage_artifact() {
+write_lua_coverage_fallback_artifact() {
   local output="$1"; shift
-  python3 - "$ROOT" "$output" "$@" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-output = Path(sys.argv[2])
-merged = {}
-for base in ("packages", "std"):
-    start = root / base
-    if not start.exists():
-        continue
-    for path in start.rglob("*.lua"):
-        if path.is_symlink():
-            continue
-        relpath = path.relative_to(root).as_posix()
-        parts = relpath.split("/")
-        if "tests" in parts or relpath.endswith(("_test.lua", "_helpers.lua", "_fake.lua")):
-            continue
-        merged.setdefault(relpath, set())
-
-for arg in sys.argv[3:]:
-    if "=" not in arg:
-        raise SystemExit(f"coverage input must be PACKAGE=PATH: {arg}")
-    package, raw_path = arg.split("=", 1)
-    if not package or not raw_path:
-        raise SystemExit(f"coverage input must be PACKAGE=PATH: {arg}")
-    path = Path(raw_path)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise SystemExit(f"coverage artifact must be a JSON object: {path}")
-    for artifact_file, file_data in data.items():
-        if not isinstance(artifact_file, str) or not isinstance(file_data, dict):
-            continue
-        if artifact_file.startswith("packages/") or artifact_file.startswith("std/"):
-            repo_file = artifact_file
-        elif artifact_file.startswith("../") or artifact_file.startswith("/"):
-            repo_file = artifact_file
-        else:
-            repo_file = f"packages/{package}/{artifact_file}"
-        covered = file_data.get("covered_lines", file_data.get("covered"))
-        if covered is None:
-            continue
-        if not isinstance(covered, list):
-            raise SystemExit(f"coverage artifact covered_lines must be a list: {path}:{artifact_file}")
-        lines = merged.setdefault(repo_file, set())
-        for line in covered:
-            if isinstance(line, bool):
-                raise SystemExit(f"coverage line must be a positive integer: {path}:{artifact_file}")
-            line_int = int(line)
-            if line_int < 1:
-                raise SystemExit(f"coverage line must be a positive integer: {path}:{artifact_file}")
-            lines.add(line_int)
-
-output.parent.mkdir(parents=True, exist_ok=True)
-output.write_text(
-    json.dumps(
-        {file: {"covered_lines": sorted(lines)} for file, lines in sorted(merged.items())},
-        indent=2,
-        sort_keys=True,
-    ) + "\n",
-    encoding="utf-8",
-)
-PY
+  python3 -B "$ROOT/scripts/write_lua_coverage_fallback_artifact.py" "$ROOT" "$output" "$@"
 }
 
 check_lua_coverage_artifact() {
@@ -475,20 +405,58 @@ check_lua_coverage_artifact() {
   FKST_LUA_COVERAGE_JSON="$coverage_json" python3 -B "$ROOT/scripts/check_repo.py"
 }
 
+lua_coverage_artifact_has_line_metadata() {
+  local coverage_json="$1"
+  PYTHONPATH="$RUN_SH_REPO_ROOT/scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$coverage_json" "$ROOT" <<'PY'
+import sys
+from pathlib import Path
+
+import check_repo_coverage
+
+try:
+    check_repo_coverage.uncovered_from_artifact(Path(sys.argv[1]), Path(sys.argv[2]))
+except ValueError as exc:
+    message = str(exc)
+    if (
+        "coverage artifact has no covered-line metadata" in message
+        or "coverage artifact has no engine-authored Lua line metadata" in message
+    ):
+        raise SystemExit(1)
+    raise
+PY
+}
+
 run_self_test_with_optional_lua_coverage() {
-  local coverage_json="${1:-}"; shift || true
-  if [ -z "${FKST_SKIP_SELF_TEST:-}" ]; then
-    if ! run_self_test; then
+  local coverage_dir="$FKST_RUNTIME_ROOT/lua-coverage" coverage_json out rc
+  LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK=0
+  rm -rf "$coverage_dir"
+  mkdir -p "$coverage_dir"
+  set +e
+  out="$(cd "$coverage_dir" && "$BIN" --self-test --coverage "$coverage_dir" 2>&1)"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    printf '%s\n' "$out"
+    coverage_json="$coverage_dir/coverage.json"
+    if [ ! -f "$coverage_json" ]; then
+      echo "error: fkst-framework --self-test --coverage did not write coverage.json in $coverage_dir" >&2
       return 1
     fi
+    if ! lua_coverage_artifact_has_line_metadata "$coverage_json"; then
+      echo "warning: fkst-framework --self-test --coverage wrote no Lua line metadata; using package test coverage fallback" >&2
+      LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK=1
+      return 0
+    fi
+    FKST_LUA_COVERAGE_JSON="$coverage_json" python3 -B "$ROOT/scripts/check_repo.py"
+    return $?
   fi
-  if [ -z "$coverage_json" ]; then
-    return 0
+  if printf '%s\n' "$out" | grep -Eq "(unknown|unrecognized).*--coverage"; then
+    echo "warning: fkst-framework does not expose --self-test --coverage; skipping Lua coverage ratchet artifact collection" >&2
+    "$BIN" --self-test
+    return $?
   fi
-  if ! write_lua_coverage_artifact "$coverage_json" "$@"; then
-    return 1
-  fi
-  check_lua_coverage_artifact "$coverage_json"
+  printf '%s\n' "$out" >&2
+  return "$rc"
 }
 
 # Run "$@"; unless verbose (cmd_test's flag), drop advisory `PASS` lines from its
@@ -525,7 +493,7 @@ run_quiet_keep() {
 
 cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}"
-  local report_dir report_file coverage_root coverage_dir coverage_file coverage_json
+  local report_dir report_file coverage_root="" coverage_dir coverage_file coverage_json
   local coverage_inputs=()
   # Lines worth surfacing when a package test fails: the engine's per-test FAIL
   # line (anchored at column 0 so it does not catch mid-line tag=FAILURE in the
@@ -554,12 +522,14 @@ cmd_test() {
   echo "test hermetic: FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT (ambient overridden)"
 
   report_dir="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-reports.XXXXXX")"
-  coverage_root="$(mktemp -d "${TMPDIR:-/tmp}/fkst-lua-coverage.XXXXXX")"
-  coverage_json="$coverage_root/coverage.json"
 
   echo "=== self-test ==="
   if ! run_self_test_with_optional_lua_coverage; then
     fail=$((fail + 1))
+  fi
+  if [ "${LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK:-0}" = "1" ]; then
+    coverage_root="$(mktemp -d "${TMPDIR:-/tmp}/fkst-lua-coverage.XXXXXX")"
+    coverage_json="$coverage_root/coverage.json"
   fi
 
   echo "=== sdk-primitives ==="
@@ -585,21 +555,30 @@ cmd_test() {
       fi
     fi
     report_file="$report_dir/$name.json"
-    coverage_dir="$coverage_root/$name"
-    coverage_file="$coverage_dir/coverage.json"
-    mkdir -p "$coverage_dir"
+    if [ "${LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK:-0}" = "1" ]; then
+      coverage_dir="$coverage_root/$name"
+      coverage_file="$coverage_dir/coverage.json"
+      mkdir -p "$coverage_dir"
+    fi
     # Default-quiet: keep only failure-relevant lines (the --report-json that
     # drives the tally and G5 coverage is unaffected). run_quiet_keep is called
     # from `if !` so the inner pipe never trips `set -e` on a failing package;
     # the loop continues, the count is correct, and FAILED: still prints.
-    if ! run_quiet_keep "$test_failure_filter" \
-        "$BIN" test --project-root "$pkg" --package-root "$pkg" --report-json "$report_file" --coverage "$coverage_dir"; then
-      fail=$((fail + 1))
-    elif [ ! -f "$coverage_file" ]; then
-      echo "error: fkst-framework test --coverage did not write coverage.json in $coverage_dir" >&2
-      fail=$((fail + 1))
+    if [ "${LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK:-0}" = "1" ]; then
+      if ! run_quiet_keep "$test_failure_filter" \
+          "$BIN" test --project-root "$pkg" --package-root "$pkg" --report-json "$report_file" --coverage "$coverage_dir"; then
+        fail=$((fail + 1))
+      elif [ ! -f "$coverage_file" ]; then
+        echo "error: fkst-framework test --coverage did not write coverage.json in $coverage_dir" >&2
+        fail=$((fail + 1))
+      else
+        coverage_inputs+=("$name=$coverage_file")
+      fi
     else
-      coverage_inputs+=("$name=$coverage_file")
+      if ! run_quiet_keep "$test_failure_filter" \
+          "$BIN" test --project-root "$pkg" --package-root "$pkg" --report-json "$report_file"; then
+        fail=$((fail + 1))
+      fi
     fi
   done
   if [ "$ran" -eq 0 ]; then
@@ -614,8 +593,10 @@ cmd_test() {
     if ! cmd_test_composed; then
       fail=$((fail + 1))
     fi
-    if [ "$fail" -eq 0 ]; then
-      if ! FKST_SKIP_SELF_TEST=1 run_self_test_with_optional_lua_coverage "$coverage_json" "${coverage_inputs[@]}"; then
+    if [ "$fail" -eq 0 ] && [ "${LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK:-0}" = "1" ]; then
+      if ! write_lua_coverage_fallback_artifact "$coverage_json" "${coverage_inputs[@]}"; then
+        fail=$((fail + 1))
+      elif ! check_lua_coverage_artifact "$coverage_json"; then
         fail=$((fail + 1))
       fi
     fi
