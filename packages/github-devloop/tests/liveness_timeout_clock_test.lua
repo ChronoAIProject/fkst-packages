@@ -337,6 +337,50 @@ return {
     t.is_true(raised[2].payload.body:find('round="1"', 1, true) ~= nil)
   end,
 
+  test_implementing_codex_timeout_age_redrives_without_force_terminal = function()
+    local row = core.restart_transition_row("implementing")
+    local state = {
+      state = "implementing",
+      version = version,
+      proposal_id = proposal_id,
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T04:00:00Z")
+    local heartbeat_started = now_seconds - (180 * 60)
+    local facts = {
+      proposal_id = proposal_id,
+      source_ref = core.issue_source_ref(repo, 42),
+      current = {
+        comments = {
+          state_comment("implementing", version, "2026-06-03T00:00:00Z"),
+          implementing_attempt_comment(version, heartbeat_started),
+          timeout_attempt_v2_comment(row, "old-generation-key", 2, core.issue_source_ref(repo, 42)),
+        },
+      },
+      now_seconds = now_seconds,
+    }
+    local eval = core.actionable_epoch_resolve(row, state, facts, now_seconds)
+    t.eq(eval.status, "actionable")
+    t.eq(eval.epoch_ms, (heartbeat_started + 120 * 60) * 1000)
+    t.eq(eval.heartbeat_age_minutes, 180)
+    local due, age = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
+    t.eq(due, false)
+    t.eq(age, 180)
+
+    local raised = capture_raises(function()
+      local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
+        repo = repo,
+        number = 42,
+        source_ref = core.issue_source_ref(repo, 42),
+      }, state, row, facts)
+      t.eq(applied, true)
+    end)
+    t.eq(#raised, 2)
+    t.eq(raised[1].queue, "devloop_ready")
+    t.eq(raised[2].queue, "github-proxy.github_issue_comment_request")
+    t.is_true(raised[2].payload.body:find('round="1"', 1, true) ~= nil)
+  end,
+
   test_live_defer_heartbeat_beyond_stale_epoch_budget_is_due = function()
     local row = core.restart_transition_row("implementing")
     local state = {
@@ -345,8 +389,8 @@ return {
       proposal_id = proposal_id,
       marker_created_at = "2026-06-03T00:00:00Z",
     }
-    local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T03:46:00Z")
-    local heartbeat_started = now_seconds - (166 * 60)
+    local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T04:31:00Z")
+    local heartbeat_started = now_seconds - (211 * 60)
     local facts = {
       proposal_id = proposal_id,
       source_ref = core.issue_source_ref(repo, 42),
@@ -363,7 +407,7 @@ return {
     t.eq(eval.epoch_ms, (heartbeat_started + 120 * 60) * 1000)
     local due, age = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
     t.eq(due, true)
-    t.eq(age, 166)
+    t.eq(age, 211)
 
     facts.current.comments[#facts.current.comments + 1] = timeout_attempt_v2_comment(row, eval.generation_key, 1, core.issue_source_ref(repo, 42))
     facts.current.comments[#facts.current.comments + 1] = timeout_attempt_v2_comment(row, eval.generation_key, 2, core.issue_source_ref(repo, 42))

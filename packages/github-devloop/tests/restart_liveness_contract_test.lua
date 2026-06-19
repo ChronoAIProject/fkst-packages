@@ -116,6 +116,7 @@ local function synthetic_heartbeat_row()
         surface = "issue-comment-stream",
         version_form = "raw",
         max_age_minutes = 120,
+        receiver_bound_minutes = 60,
       },
     },
   }
@@ -296,6 +297,15 @@ return {
       t.eq(row.watchdog.on_stale.producer, producer, state)
       t.eq(#core.strict_restart_liveness_contract_errors({ row }), 0, state)
     end
+  end,
+
+  test_implementing_budget_covers_codex_timeout_plus_margin = function()
+    local row = rows_by_state(core.restart_transition_table()).implementing
+    local codex_timeout_minutes = row.liveness_contract.signal.receiver_bound_minutes
+    t.eq(row.budget.minutes, codex_timeout_minutes + 30)
+    t.eq(row.watchdog.budget_ms, (codex_timeout_minutes + 30) * 60 * 1000)
+    t.eq(codex_timeout_minutes, 60)
+    t.eq(row.liveness_contract.signal.max_age_minutes, 120)
   end,
 
   test_heartbeat_defer_rejects_clear_fact_shape = function()

@@ -12,7 +12,7 @@ return function(M, h)
     liveness_class_id = "implementing.active",
     watchdog = {
       mode = "live-defer",
-      budget_ms = 45 * 60 * 1000,
+      budget_ms = 90 * 60 * 1000,
       on_stale = {
         op = "redrive_receiver",
         producer = "implement-attempt",
@@ -36,7 +36,7 @@ return function(M, h)
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 pr-open", "state:v1 impl-failed" }, { "pr-open", "impl-failed" }),
-    budget = budget(45, "The long implementation receiver is supervised by implement-attempt heartbeats; this budget only bounds stale heartbeat redrive."),
+    budget = budget(90, "The long implementation receiver is supervised by implement-attempt heartbeats; this budget is the Codex timeout plus the watchdog margin and only bounds stale heartbeat redrive."),
     liveness_contract = liveness({
       mode = "live-defer",
       signal = {
@@ -44,7 +44,7 @@ return function(M, h)
         producer = "implement-attempt",
         surface = "issue-comment-stream",
         version_form = "raw",
-        max_age_minutes = 120,
+        max_age_minutes = 120, receiver_bound_minutes = 60,
       },
     }),
     on_timeout = timeout("devloop_ready"),

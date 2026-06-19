@@ -269,7 +269,7 @@ return {
       thinking = { mode = "live-defer", family = "converge-round", max_age = 120, budget = 150 },
       dependency_wait = { mode = "live-defer", family = "dependency-wait", resolver = "dependency-hold", max_age = 525600, budget = 525600 },
       ready = { mode = "row-budget-bounds-receiver", receiver = 15, external = 0, budget = 45 },
-      implementing = { mode = "live-defer", family = "implement-attempt", max_age = 120, budget = 45 },
+      implementing = { mode = "live-defer", family = "implement-attempt", max_age = 120, receiver = 60, budget = 90 },
       ["pr-open"] = { mode = "row-budget-bounds-receiver", receiver = 0, budget = 30 },
       reviewing = { mode = "live-defer", family = "review-converge-round", max_age = 120, budget = 150 },
       ["merge-ready"] = { mode = "row-budget-bounds-receiver", receiver = 30, external = 360, budget = 390 },
@@ -290,6 +290,7 @@ return {
         t.eq(row.liveness_contract.signal.resolver, spec.resolver)
         t.eq(row.liveness_contract.signal.producer, spec.family)
         t.eq(row.liveness_contract.signal.max_age_minutes, spec.max_age)
+        t.eq(row.liveness_contract.signal.receiver_bound_minutes, spec.receiver)
       else
         t.eq(row.liveness_contract.receiver_bound_minutes, spec.receiver)
         t.eq(row.liveness_contract.external_wait_bound_minutes, spec.external)
