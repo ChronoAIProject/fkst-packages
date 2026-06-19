@@ -37,6 +37,12 @@ return {
     t.eq(strings.comment_body(nil), "")
   end,
 
+  test_runtime_safe_segment_normalizes_temp_file_segment = function()
+    t.eq(strings.runtime_safe_segment("owner/repo#42"), "owner_repo_42")
+    t.eq(strings.runtime_safe_segment("___"), "empty")
+    t.eq(strings.runtime_safe_segment(nil), "empty")
+  end,
+
   test_json_string_wraps_and_escapes_json_string_boundaries = function()
     t.eq(strings.json_string(nil), '""')
     t.eq(strings.json_string('a"b\\c'), '"a\\"b\\\\c"')

@@ -14,8 +14,8 @@ local MAX_RUNTIME_ID_LEN = 180
 local context_cache = setmetatable({}, { __mode = "k" })
 
 local function safe_segment(value)
-  local safe = tostring(value or ""):gsub("[^%w._-]", "_")
-  safe = safe:gsub("_+", "_"):gsub("^_+", ""):gsub("_+$", "")
+
+  local safe = require("std.strings").runtime_safe_segment(value)
   if safe == "" then
     return "empty"
   end

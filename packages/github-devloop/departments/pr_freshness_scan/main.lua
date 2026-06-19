@@ -23,7 +23,7 @@ local function run_required(result, error_class)
   if result.exit_code ~= 0 then
     error("github-devloop: " .. error_class .. " failed: " .. tostring(result.stderr))
   end
-  return result
+  return require("std.result").require_success(result, "github-devloop: ", error_class)
 end
 
 local function require_git_ok(result, error_class)
