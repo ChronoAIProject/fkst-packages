@@ -327,13 +327,13 @@ return {
     end)
   end,
 
-  test_codex_run_absent_redrives_without_terminal_due = function()
+  test_codex_run_absent_at_50_minutes_redrives_without_terminal_due = function()
     local row = core.restart_transition_row("implementing")
     local state = {
       state = "implementing",
       version = version,
       proposal_id = proposal_id,
-      marker_created_at = "2026-06-03T02:30:00Z",
+      marker_created_at = "2026-06-03T02:11:00Z",
     }
     local now_seconds = core.iso_timestamp_epoch_seconds("2026-06-03T03:01:00Z")
     local attempt_started = now_seconds - (10 * 60)
@@ -343,7 +343,7 @@ return {
       source_ref = core.issue_source_ref(repo, 42),
       current = {
         comments = {
-          state_comment("implementing", version, "2026-06-03T02:30:00Z"),
+          state_comment("implementing", version, "2026-06-03T02:11:00Z"),
           implementing_attempt_comment(version, attempt_started, nil, 1, exec_ref),
         },
       },
@@ -352,11 +352,11 @@ return {
     with_codex_runs({}, function()
       local eval = core.actionable_epoch_resolve(row, state, facts, now_seconds)
       t.eq(eval.status, "actionable")
-      t.eq(eval.epoch_ms, core.iso_timestamp_epoch_seconds("2026-06-03T02:30:00Z") * 1000)
+      t.eq(eval.epoch_ms, core.iso_timestamp_epoch_seconds("2026-06-03T02:11:00Z") * 1000)
       t.eq(eval.signal.reason, "codex-run-not-running")
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
       t.eq(due, false)
-      t.eq(age, 31)
+      t.eq(age, 50)
       t.eq(core.liveness_timeout_attempt(row, state, facts), 0)
 
       local raised = capture_raises(function()

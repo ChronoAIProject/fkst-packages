@@ -44,7 +44,8 @@ local epoch_sources = {
   ["codex_run:v1"] = {
     durable = true,
     opens_generation = "spawn_or_redrive_only",
-    excludes_deferred_time = true,
+    -- Deferred time is not yet excluded; bounded by an oversized budget like fixing until a no-live-onset epoch is added.
+    excludes_deferred_time = false,
     requires_live_marker = true,
     requires_producer = true,
     requires_exec_ref = true,
@@ -236,6 +237,7 @@ local function validate_codex_run_defer(row, errors)
   local state = state_name(row)
   local defer = row and row.defer or nil
   local epoch = row and row.actionable_epoch or nil
+  local signal = row and row.liveness_contract and row.liveness_contract.signal or nil
   if not non_empty_string(defer.live_marker) then
     table.insert(errors, state .. ": codex_run defer must declare live_marker")
   end
@@ -266,6 +268,23 @@ local function validate_codex_run_defer(row, errors)
   end
   if not registered_heartbeat_producer(row, defer) then
     table.insert(errors, state .. ": codex_run defer producer is not a registered live-defer producer: " .. tostring(defer.producer))
+  end
+  if type(signal) ~= "table" then
+    table.insert(errors, state .. ": codex_run defer must declare liveness_contract.signal")
+    return
+  end
+  local resolver = signal.resolver or signal.family
+  if signal.max_age_minutes ~= nil then
+    table.insert(errors, state .. ": codex_run defer signal must not declare max_age_minutes")
+  end
+  if signal.family ~= "implement-attempt" or resolver ~= "implement-attempt" or signal.producer ~= "implement-attempt" then
+    table.insert(errors, state .. ": codex_run defer signal must resolve through implement-attempt exec_ref")
+  end
+  local binding = type(M.liveness_signal_producer_contract) == "function"
+    and M.liveness_signal_producer_contract(signal.producer)
+    or nil
+  if type(binding) ~= "table" or binding.resolver ~= "implement-attempt" then
+    table.insert(errors, state .. ": codex_run defer producer must bind the implement-attempt exec_ref resolver")
   end
 end
 

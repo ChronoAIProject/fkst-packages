@@ -12,7 +12,7 @@ return function(M, h)
     liveness_class_id = "implementing.active",
     watchdog = {
       mode = "live-defer",
-      budget_ms = 45 * 60 * 1000,
+      budget_ms = 120 * 60 * 1000,
       on_stale = {
         op = "redrive_receiver",
         producer = "implement-attempt",
@@ -35,7 +35,7 @@ return function(M, h)
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 pr-open", "state:v1 impl-failed" }, { "pr-open", "impl-failed" }),
-    budget = budget(45, "The long implementation receiver is supervised by fkst.codex_runs exec_ref truth; this budget only bounds no-live reactivation."),
+    budget = budget(120, "A live implementation codex defers indefinitely via fkst.codex_runs() exec_ref truth; when the codex is absent, resolve_codex_run currently uses the state-entry actionable epoch, so this budget must cover the full codex runtime like fixing: 120 = 60 minute codex attempt + 30 minute watchdog margin + slack, bounding no-live reactivation until follow-up: no-live-onset epoch."),
     liveness_contract = liveness({
       mode = "live-defer",
       signal = {

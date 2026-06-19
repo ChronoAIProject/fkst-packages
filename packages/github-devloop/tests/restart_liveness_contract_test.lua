@@ -154,7 +154,7 @@ return {
     t.eq(sources["live_defer_heartbeat:v1"].forbids_clear_opens_generation, true)
     t.eq(sources["codex_run:v1"].durable, true)
     t.eq(sources["codex_run:v1"].opens_generation, "spawn_or_redrive_only")
-    t.eq(sources["codex_run:v1"].excludes_deferred_time, true)
+    t.eq(sources["codex_run:v1"].excludes_deferred_time, false)
     t.eq(sources["codex_run:v1"].requires_live_marker, true)
     t.eq(sources["codex_run:v1"].requires_producer, true)
     t.eq(sources["codex_run:v1"].requires_exec_ref, true)
@@ -308,9 +308,38 @@ return {
     t.eq(implementing.defer.producer, "implement-attempt")
     t.eq(implementing.defer.live_marker, "implement-attempt:v1")
     t.eq(implementing.defer.freshness_ms, nil)
+    t.eq(implementing.liveness_contract.signal.family, "implement-attempt")
+    t.eq(implementing.liveness_contract.signal.producer, "implement-attempt")
+    t.eq(implementing.liveness_contract.signal.resolver, nil)
+    t.eq(implementing.liveness_contract.signal.max_age_minutes, nil)
     t.eq(implementing.watchdog.on_stale.op, "redrive_receiver")
     t.eq(implementing.watchdog.on_stale.producer, "implement-attempt")
     t.eq(#core.strict_restart_liveness_contract_errors({ implementing }), 0, "implementing")
+  end,
+
+  test_codex_run_defer_rejects_age_based_signal = function()
+    local row = copy_value(rows_by_state(core.restart_transition_table()).implementing)
+    row.liveness_contract.signal.max_age_minutes = 45
+    local errors = core.strict_restart_liveness_contract_errors({ row })
+    t.is_true(contains_error(errors, "implementing: codex_run defer signal must not declare max_age_minutes"), joined_errors(errors))
+  end,
+
+  test_codex_run_defer_rejects_freshness_ms = function()
+    local row = copy_value(rows_by_state(core.restart_transition_table()).implementing)
+    row.defer.freshness_ms = 60 * 60 * 1000
+    local errors = core.strict_restart_liveness_contract_errors({ row })
+    t.is_true(contains_error(errors, "implementing: codex_run defer must not declare freshness_ms"), joined_errors(errors))
+  end,
+
+  test_codex_run_defer_rejects_non_exec_ref_resolver = function()
+    local row = copy_value(rows_by_state(core.restart_transition_table()).implementing)
+    row.liveness_contract.signal.family = "converge-round"
+    row.liveness_contract.signal.producer = "converge-round"
+    row.liveness_contract.signal.resolver = "converge-round"
+    row.liveness_contract.signal.max_age_minutes = 120
+    local errors = core.strict_restart_liveness_contract_errors({ row })
+    t.is_true(contains_error(errors, "implementing: codex_run defer signal must resolve through implement-attempt exec_ref"), joined_errors(errors))
+    t.is_true(contains_error(errors, "implementing: codex_run defer producer must bind the implement-attempt exec_ref resolver"), joined_errors(errors))
   end,
 
   test_heartbeat_defer_rejects_clear_fact_shape = function()
