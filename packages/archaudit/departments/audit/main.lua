@@ -66,7 +66,7 @@ end
 local function max_issues()
   local raw = strings.trim(read_env("ARCHAUDIT_MAX_ISSUES_PER_IDLE") or "")
   local value = tonumber(raw)
-  if value == nil or value < 1 or value > 20 then
+  if value == nil or value < 1 then
     return 3
   end
   return math.floor(value)

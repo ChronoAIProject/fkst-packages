@@ -114,6 +114,18 @@ local function mock_codex_findings(stdout, exit_code)
   })
 end
 
+local function finding_json(rule, why)
+  return '{"file":"packages/archaudit/core.lua","line":1,"rule":"' .. rule .. '","why":"' .. why .. '","suggested_fix":"Fix ' .. rule .. '."}'
+end
+
+local function findings_json(count)
+  local rows = {}
+  for index = 1, count do
+    table.insert(rows, finding_json("Rule" .. tostring(index), "Issue " .. tostring(index) .. "."))
+  end
+  return "[" .. table.concat(rows, ",") .. "]"
+end
+
 local function fake_audit_department(label_stdout)
   package.loaded["departments.audit.main"] = nil
   local model = github_fake.model()
@@ -189,6 +201,28 @@ return {
     t.eq(result.raises[1].payload.title, "Archaudit: packages/archaudit/core.lua:1 SRP")
     t.eq(result.raises[2].payload.title, "Archaudit: packages/archaudit/core.lua:1 DIP")
     t.eq(result.raises[3].payload.title, "Archaudit: packages/archaudit/core.lua:1 Demeter")
+  end,
+
+  test_fake_honors_large_positive_max_issues_without_upper_clamp = function()
+    mock_env("owner/repo", "50")
+    mock_idle_observe()
+    mock_codex_findings(findings_json(25), 0)
+    local dept = fake_audit_department("[]")
+    local result = run_fake_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
+    t.eq(#result.raises, 25)
+    t.eq(result.raises[1].payload.title, "Archaudit: packages/archaudit/core.lua:1 Rule1")
+    t.eq(result.raises[25].payload.title, "Archaudit: packages/archaudit/core.lua:1 Rule25")
+  end,
+
+  test_fake_invalid_max_issues_values_default_to_three = function()
+    for _, max_issues in ipairs({ "", "not-a-number", "0", "-1" }) do
+      mock_env("owner/repo", max_issues)
+      mock_idle_observe()
+      mock_codex_findings(findings_json(4), 0)
+      local dept = fake_audit_department("[]")
+      local result = run_fake_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
+      t.eq(#result.raises, 3)
+    end
   end,
 
   test_fake_mixed_valid_plus_invalid_batch_is_all_or_nothing_failure_no_issue = function()
