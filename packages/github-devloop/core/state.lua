@@ -407,8 +407,8 @@ local function compare_state_marker(a, b)
     and ((a.state == "ready" and b.state == "blocked") or (a.state == "blocked" and b.state == "ready")) then
     return b.state == "blocked"
   end
-  local a_key = version_sort_key(a.version, a.stage_rank)
-  local b_key = version_sort_key(b.version, b.stage_rank)
+  local a_key, b_key = version_sort_key(a.version, a.stage_rank), version_sort_key(b.version, b.stage_rank)
+  if a_key.stage_rank ~= b_key.stage_rank then return b_key.stage_rank > a_key.stage_rank end
   return compare_version_keys(b_key, a_key) > 0
 end
 

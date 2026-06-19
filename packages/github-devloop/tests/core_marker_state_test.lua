@@ -14,6 +14,42 @@ return {
     )
   end,
 
+  -- #970 regression: when a ready marker is version-EQUIVALENT to the thinking
+  -- (intake) marker -- same lineage base, equal rounds, so
+  -- compare_transition_versions == 0 -- resolution falls to compare_state_marker's
+  -- tiebreak. The intake version carries no timestamp, so its order-key is the raw
+  -- "github-.../intake/<n>" path, which sorts LEXICALLY ABOVE the ready marker's
+  -- replay-timestamp order-key ("2026-..."). The old primary-first tiebreak
+  -- therefore picked thinking, so current_state resolved to thinking forever and
+  -- the issue oscillated thinking<->ready, never reaching implement. current_state
+  -- must prefer the further-along stage (ready) when versions are equivalent.
+  test_version_equivalent_ready_wins_over_thinking_with_higher_intake_order_key = function()
+    local proposal_id = "github-devloop/issue/owner/repo/970"
+    local intake_version = "github-devloop/issue/owner/repo/970/intake/1213362634"
+    local ready_version = "consensus:" .. intake_version .. "/replay/2026-06-03T01-02-03Z"
+
+    -- Preconditions that make this a genuine regression, not a trivially-ordered
+    -- case: the markers are version-equivalent, yet the intake order-key outranks
+    -- the ready order-key (the exact shape of the live #970 hang).
+    t.eq(core._compare_transition_versions(ready_version, intake_version), 0)
+    t.is_true(core.version_order_key(intake_version) > core.version_order_key(ready_version))
+
+    local comments = {
+      core.state_marker(proposal_id, "thinking", intake_version),
+      core.state_marker(proposal_id, "ready", ready_version),
+    }
+    local current = core.current_state(comments, proposal_id)
+    t.eq(current.state, "ready")
+    t.eq(current.version, ready_version)
+
+    -- Order-independent: the same winner regardless of marker comment order.
+    local reversed = {
+      core.state_marker(proposal_id, "ready", ready_version),
+      core.state_marker(proposal_id, "thinking", intake_version),
+    }
+    t.eq(core.current_state(reversed, proposal_id).state, "ready")
+  end,
+
   test_marker_label_and_comment_builders = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local thinking_marker = core.state_marker(proposal_id, "thinking", "v1")
