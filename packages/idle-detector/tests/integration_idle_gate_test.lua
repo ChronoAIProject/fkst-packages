@@ -33,13 +33,9 @@ local function idle_observe_json()
   return '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}'
 end
 
-local function fresh_event()
-  return event("2099-01-01T00:00:00Z")
-end
-
 local function assert_skip_with_observe(case_name, observe_stdout, exit_code)
   mock_observe(observe_stdout, exit_code or 0)
-  local result = t.run_department("departments/idle_gate/main.lua", fresh_event(), opts(case_name))
+  local result = t.run_department("departments/idle_gate/main.lua", event("1970-01-01T00:00:00Z"), opts(case_name))
   t.eq(result.exit_code, 0)
   t.eq(#result.raises, 0)
 end
@@ -52,17 +48,15 @@ return {
     t.eq(#t.command_calls(), 0)
   end,
 
-  test_idle_gate_raises_system_idle_for_fresh_idle_observe = function()
+  -- The engine department harness exposes real now() but no now injection, and
+  -- this worker's observed BIN exposes no observe snapshot timestamp to use as
+  -- a deterministic reference clock. Fresh/stale precision stays in pure helper
+  -- tests; this department test proves now-independent stale routing.
+  test_idle_gate_drops_stale_cron_slot_even_when_observe_is_idle = function()
     mock_observe(idle_observe_json(), 0)
-    local result = t.run_department("departments/idle_gate/main.lua", fresh_event(), opts("idle"))
+    local result = t.run_department("departments/idle_gate/main.lua", event("1970-01-01T00:00:00Z"), opts("stale-idle-observe"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "system_idle")
-    t.eq(result.raises[1].payload.schema, "idle-detector.system-idle.v1")
-    t.eq(result.raises[1].payload.detected_at, "2099-01-01T00:00:00Z")
-    t.eq(result.raises[1].payload.expires_at, "2099-01-01T00:10:00Z")
-    t.eq(result.raises[1].payload.source_ref.kind, "host-observe")
-    t.eq(result.raises[1].payload.source_ref.ref, "idle_tick/2099-01-01T00:00:00Z")
+    t.eq(#result.raises, 0)
   end,
 
   test_idle_gate_skips_observe_derived_busy_states = function()
