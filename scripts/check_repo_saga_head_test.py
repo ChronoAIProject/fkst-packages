@@ -31,6 +31,11 @@ class SagaSpecHeadRatchetTest(unittest.TestCase):
         "packages/github-devloop/departments/review_pr/main.lua",
         "packages/github-devloop/departments/review_result/main.lua",
     }
+    slice_1193_paths = {
+        "packages/github-devloop/departments/rollup_merge/main.lua",
+        "packages/github-devloop/departments/rollup_scan/main.lua",
+        "packages/github-devloop/departments/substrate_ref_scan/main.lua",
+    }
 
     def violations(self, source: str) -> list[str]:
         return saga_head.violations(
@@ -142,6 +147,26 @@ class SagaSpecHeadRatchetTest(unittest.TestCase):
             [],
         )
         self.assertTrue(self.slice_1186_paths.isdisjoint(allowlist))
+
+    def test_issue_1193_slice_is_saga_shaped_and_allowlist_pruned(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        sources = {
+            path: (root / path).read_text(encoding="utf-8")
+            for path in sorted(self.slice_1193_paths)
+        }
+        allowlist = {
+            line.strip()
+            for line in (root / "migration" / "saga-handler.allowlist").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+
+        violations = check_repo.saga_handler_ratchet_violations(sources, allowlist)
+
+        self.assertEqual(
+            [message for message in violations if any(path in message for path in self.slice_1193_paths)],
+            [],
+        )
+        self.assertTrue(self.slice_1193_paths.isdisjoint(allowlist))
 
 
 if __name__ == "__main__":

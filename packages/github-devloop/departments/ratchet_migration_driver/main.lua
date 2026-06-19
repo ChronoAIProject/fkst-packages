@@ -157,12 +157,32 @@ local function parent_has_marker(parent, marker, trusted_logins)
   return false
 end
 
+local function recent_comment(comment, now_seconds)
+  local created = core.iso_timestamp_epoch_seconds(comment and (comment.createdAt or comment.created_at))
+  local age = created ~= nil and now_seconds ~= nil and now_seconds - tonumber(created) or nil
+  return age ~= nil and age >= 0 and age <= 15 * 60
+end
+
+local function parent_has_recent_issue_create_intent_marker(parent, dedup_key, trusted_logins)
+  local now_seconds = tonumber(now())
+  for _, comment in ipairs(parent.comments or {}) do
+    if trusted_author(comment, trusted_logins) and recent_comment(comment, now_seconds) then
+      for marker in body(comment):gmatch("<!%-%- fkst:github%-proxy:issue%-create%-intent:v1.-%-%->") do
+        if marker:match('dedup="([^"]+)"') == dedup_key then
+          return true
+        end
+      end
+    end
+  end
+  return false
+end
+
 local function parent_has_issue_created_marker(parent, dedup_key, trusted_logins)
   local ledger_issues, now_seconds = {}, tonumber(now())
   for _, comment in ipairs(parent.comments or {}) do
     if trusted_author(comment, trusted_logins) then
       for marker in body(comment):gmatch("<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->") do
-        if marker:match('dedup="([^"]+)"') == dedup_key then local issue = tonumber(marker:match('issue="(%d+)"')); if issue ~= nil then table.insert(ledger_issues, issue) else local created = core.iso_timestamp_epoch_seconds(comment.createdAt or comment.created_at); local age = created ~= nil and now_seconds ~= nil and now_seconds - tonumber(created) or nil; if age ~= nil and age >= 0 and age <= 15 * 60 then table.insert(ledger_issues, "unresolved") end end end
+        if marker:match('dedup="([^"]+)"') == dedup_key then local issue = tonumber(marker:match('issue="(%d+)"')); if issue ~= nil then table.insert(ledger_issues, issue) elseif recent_comment(comment, now_seconds) then table.insert(ledger_issues, "unresolved") end end
       end
     end
   end; return ledger_issues
@@ -238,6 +258,9 @@ local function reconcile_one(github, repo, ratchet)
 
   local slice = plan.next_slice
   local dedup_key = tostring(slice.dedup_key or "")
+  if parent_has_recent_issue_create_intent_marker(parent, dedup_key, trusted_logins) then
+    return "deduped-parent-ledger"
+  end
   local ledger_issues = parent_has_issue_created_marker(parent, dedup_key, trusted_logins)
   for _, ledger_issue in ipairs(ledger_issues) do local prior = ledger_issue ~= "unresolved" and decode_json_object((github.issue_view(repo, ledger_issue, "number,state,author,body", 30) or {}).stdout or "{}", "child issue") or nil; if prior == nil or not trusted_author(prior, trusted_logins) or tostring(prior.state or ""):upper() ~= "CLOSED" then return "deduped-parent-ledger" end end
 

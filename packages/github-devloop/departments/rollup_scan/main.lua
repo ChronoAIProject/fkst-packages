@@ -1,8 +1,7 @@
 local core = require("core")
+local saga = require("std.saga")
 
-local M = {}
-
-M.spec = {
+local spec = {
   consumes = { "devloop_branch_tick" },
   produces = { "devloop_rollup_ready", "github-proxy.github_issue_create_request" },
   fanout = { "devloop_branch_tick" },
@@ -112,7 +111,11 @@ local function create_rollup_pr(repo, upstream, integration, head_sha, ahead, pu
   error("github-devloop: rollup PR create failed: " .. tostring(result.stderr))
 end
 
-function pipeline(event)
+local function rollup_scan_done(_event)
+  return false
+end
+
+local function rollup_scan_act(event)
   core.log_entry("rollup_scan", event, "rollup", event and event.queue or "")
   local branches = core.branch_config()
   local cfg = core.devloop_config()
@@ -191,6 +194,9 @@ function pipeline(event)
   end)
 end
 
-pipeline = core.wrap_pipeline_failure("rollup_scan", pipeline)
-
-return M
+return saga.department(spec, {
+  done = rollup_scan_done,
+  act = rollup_scan_act,
+  wrap = core.wrap_pipeline_failure,
+  name = "rollup_scan",
+})

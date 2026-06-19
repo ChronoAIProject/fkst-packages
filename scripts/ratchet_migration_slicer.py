@@ -603,6 +603,25 @@ def parent_issue_created_marker_issues(
     return issues
 
 
+def parent_has_recent_issue_create_intent_marker(
+    parent: dict[str, Any],
+    dedup_key: str,
+    bot_login: str | None,
+    now_seconds: int,
+) -> bool:
+    pattern = re.compile(r"<!-- fkst:github-proxy:issue-create-intent:v1 .*?-->")
+    expected = f'dedup="{ensure_marker_value(dedup_key)}"'
+    for comment in comments_from_parent(parent):
+        if not is_trusted_record(comment, bot_login):
+            continue
+        if not recent_unknown_ledger_comment(comment, now_seconds):
+            continue
+        for marker in pattern.findall(record_body(comment)):
+            if expected in marker:
+                return True
+    return False
+
+
 def parse_json_list(stdout: str) -> list[dict[str, Any]]:
     decoded = json.loads(stdout or "[]")
     if not isinstance(decoded, list):
@@ -685,7 +704,10 @@ def reconcile_ratchet(
 
     doc = slice_document(spec, inventory, slice_size)
     dedup_key = str(doc["dedup_key"])
-    ledger_issues = parent_issue_created_marker_issues(parent, dedup_key, bot_login, int(time()))
+    now_seconds = int(time())
+    if parent_has_recent_issue_create_intent_marker(parent, dedup_key, bot_login, now_seconds):
+        return ReconcileResult(spec.ratchet, "deduped-parent-ledger", dedup_key, parent_issue=parent_issue)
+    ledger_issues = parent_issue_created_marker_issues(parent, dedup_key, bot_login, now_seconds)
     for ledger_issue in ledger_issues:
         if ledger_issue is UNRESOLVED_LEDGER_ISSUE:
             return ReconcileResult(spec.ratchet, "deduped-parent-ledger", dedup_key, parent_issue=parent_issue)

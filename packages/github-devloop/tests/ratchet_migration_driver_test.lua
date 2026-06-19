@@ -346,6 +346,34 @@ return {
     t.eq(#result.exec_calls, 3)
   end,
 
+  test_poll_with_managed_sibling_parent_intent_noops = function()
+    local result = run_driver({
+      all_ratchets = true,
+      env = {
+        FKST_GITHUB_REPO = "owner/repo",
+        FKST_GITHUB_WRITE = "1",
+        FKST_GITHUB_BOT_LOGIN = "ElonSG",
+        FKST_DEVLOOP_MANAGED_BOT_LOGINS = "ElonSG loning",
+      },
+      github = {
+        parent_comments = {
+          {
+            author_login = "loning[bot]",
+            body = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="saga-handler/slice/abc123" -->',
+            created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time()),
+          },
+        },
+      },
+    })
+
+    t.eq(count_kind(result.github._model.writes, "issue_create"), 0)
+    t.eq(count_kind(result.github._model.writes, "issue_add_sub_issue"), 0)
+    t.eq(count_kind(result.github._model.writes, "issue_comment"), 0)
+    t.eq(count_kind(result.github._model.writes, "issue_search"), 0)
+    t.eq(count_kind(result.github._model.writes, "issue_view"), 3)
+    t.eq(#result.exec_calls, 3)
+  end,
+
   test_poll_with_managed_sibling_parent_ledger_closed_child_recreates = function()
     local result = run_driver({
       env = {
