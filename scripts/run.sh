@@ -393,7 +393,7 @@ LUA
 
 write_lua_coverage_fallback_artifact() {
   local output="$1"; shift
-  python3 -B "$ROOT/scripts/write_lua_coverage_fallback_artifact.py" "$ROOT" "$output" "$@"
+  python3 -B "$RUN_SH_REPO_ROOT/scripts/write_lua_coverage_fallback_artifact.py" "$ROOT" "$output" "$@"
 }
 
 check_lua_coverage_artifact() {
