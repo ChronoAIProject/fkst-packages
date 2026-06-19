@@ -41,6 +41,18 @@ local epoch_sources = {
     forbids_observed_fact = true,
     forbids_clear_opens_generation = true,
   },
+  ["codex_run:v1"] = {
+    durable = true,
+    opens_generation = "spawn_or_redrive_only",
+    excludes_deferred_time = true,
+    requires_live_marker = true,
+    requires_producer = true,
+    requires_exec_ref = true,
+    forbids_freshness_ms = true,
+    forbids_clear_fact = true,
+    forbids_observed_fact = true,
+    forbids_clear_opens_generation = true,
+  },
 }
 
 local known_liveness_contract_violations = {}
@@ -220,6 +232,43 @@ local function validate_heartbeat_defer(row, errors)
   end
 end
 
+local function validate_codex_run_defer(row, errors)
+  local state = state_name(row)
+  local defer = row and row.defer or nil
+  local epoch = row and row.actionable_epoch or nil
+  if not non_empty_string(defer.live_marker) then
+    table.insert(errors, state .. ": codex_run defer must declare live_marker")
+  end
+  if not non_empty_string(defer.producer) then
+    table.insert(errors, state .. ": codex_run defer must declare producer")
+  end
+  if defer.freshness_ms ~= nil then
+    table.insert(errors, state .. ": codex_run defer must not declare freshness_ms")
+  end
+  if epoch == nil or epoch.source ~= "codex_run:v1" then
+    table.insert(errors, state .. ": codex_run defer must use codex_run:v1")
+  end
+  if defer.clear_fact ~= nil then
+    table.insert(errors, state .. ": codex_run defer must not declare clear_fact")
+  end
+  if defer.observed_fact ~= nil then
+    table.insert(errors, state .. ": codex_run defer must not declare observed_fact")
+  end
+  if defer.clear_opens_generation ~= nil then
+    table.insert(errors, state .. ": codex_run defer must not declare clear_opens_generation")
+  end
+  local on_stale = row and row.watchdog and row.watchdog.on_stale
+  if type(on_stale) ~= "table" or on_stale.op ~= "redrive_receiver" then
+    table.insert(errors, state .. ": codex_run defer must declare watchdog.on_stale.op=redrive_receiver")
+  end
+  if type(on_stale) == "table" and on_stale.producer ~= nil and on_stale.producer ~= defer.producer then
+    table.insert(errors, state .. ": codex_run defer watchdog.on_stale producer must match defer.producer")
+  end
+  if not registered_heartbeat_producer(row, defer) then
+    table.insert(errors, state .. ": codex_run defer producer is not a registered live-defer producer: " .. tostring(defer.producer))
+  end
+end
+
 local function validate_defer(row, source, errors)
   local state = state_name(row)
   local defer = row and row.defer or nil
@@ -235,7 +284,11 @@ local function validate_defer(row, source, errors)
     validate_heartbeat_defer(row, errors)
     return
   end
-  table.insert(errors, state .. ": live-defer defer.kind must be release_gate or heartbeat")
+  if defer.kind == "codex_run" then
+    validate_codex_run_defer(row, errors)
+    return
+  end
+  table.insert(errors, state .. ": live-defer defer.kind must be release_gate, heartbeat, or codex_run")
 end
 
 local function validate_row(row, errors)
@@ -289,6 +342,8 @@ local function validate_runtime_provenance(row, errors)
       },
     }
   elseif row.actionable_epoch.source == "live_defer_heartbeat:v1" then
+    now_seconds = M.iso_timestamp_epoch_seconds("2026-06-03T00:00:01Z")
+  elseif row.actionable_epoch.source == "codex_run:v1" then
     now_seconds = M.iso_timestamp_epoch_seconds("2026-06-03T00:00:01Z")
   end
   local ok, eval = pcall(M.actionable_epoch_resolve, row, {

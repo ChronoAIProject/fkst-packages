@@ -88,19 +88,19 @@ local function synthetic_heartbeat_row()
       budget_ms = 45 * 60 * 1000,
       on_stale = {
         op = "redrive_receiver",
-        producer = "implement-attempt",
+        producer = "converge-round",
       },
     },
     actionable_epoch = {
       source = "live_defer_heartbeat:v1",
       generation_source = "same_as_actionable_epoch",
-      live_marker = "implement-attempt:v1",
-      producer = "implement-attempt",
+      live_marker = "converge-round:v1",
+      producer = "converge-round",
     },
     defer = {
       kind = "heartbeat",
-      live_marker = "implement-attempt:v1",
-      producer = "implement-attempt",
+      live_marker = "converge-round:v1",
+      producer = "converge-round",
       freshness_ms = 45 * 60 * 1000,
       redrive_opens_generation = true,
     },
@@ -111,11 +111,11 @@ local function synthetic_heartbeat_row()
     liveness_contract = {
       mode = "live-defer",
       signal = {
-        family = "implement-attempt",
-        producer = "implement-attempt",
+        family = "converge-round",
+        producer = "converge-round",
         surface = "issue-comment-stream",
         version_form = "raw",
-        max_age_minutes = 120,
+        max_age_minutes = 45,
       },
     },
   }
@@ -152,6 +152,13 @@ return {
     t.eq(sources["live_defer_heartbeat:v1"].forbids_clear_fact, true)
     t.eq(sources["live_defer_heartbeat:v1"].forbids_observed_fact, true)
     t.eq(sources["live_defer_heartbeat:v1"].forbids_clear_opens_generation, true)
+    t.eq(sources["codex_run:v1"].durable, true)
+    t.eq(sources["codex_run:v1"].opens_generation, "spawn_or_redrive_only")
+    t.eq(sources["codex_run:v1"].excludes_deferred_time, true)
+    t.eq(sources["codex_run:v1"].requires_live_marker, true)
+    t.eq(sources["codex_run:v1"].requires_producer, true)
+    t.eq(sources["codex_run:v1"].requires_exec_ref, true)
+    t.eq(sources["codex_run:v1"].forbids_freshness_ms, true)
   end,
 
   test_row_budget_rows_declare_state_entry_actionable_epoch = function()
@@ -277,14 +284,13 @@ return {
     t.is_true(contains_error(errors, "synthetic-live-defer-bad: state_entry:v1 is illegal for live-defer rows because deferred time can accrue before actionability"))
   end,
 
-  test_heartbeat_deferred_rows_pass_strict_contract = function()
+  test_live_defer_rows_pass_strict_contract = function()
     local by_state = rows_by_state(core.restart_transition_table())
-    local expected = {
-      implementing = "implement-attempt",
+    local heartbeat_expected = {
       reviewing = "review-converge-round",
       thinking = "converge-round",
     }
-    for state, producer in pairs(expected) do
+    for state, producer in pairs(heartbeat_expected) do
       local row = by_state[state]
       t.eq(row.actionable_epoch.source, "live_defer_heartbeat:v1", state)
       t.eq(row.defer.kind, "heartbeat", state)
@@ -296,6 +302,15 @@ return {
       t.eq(row.watchdog.on_stale.producer, producer, state)
       t.eq(#core.strict_restart_liveness_contract_errors({ row }), 0, state)
     end
+    local implementing = by_state.implementing
+    t.eq(implementing.actionable_epoch.source, "codex_run:v1")
+    t.eq(implementing.defer.kind, "codex_run")
+    t.eq(implementing.defer.producer, "implement-attempt")
+    t.eq(implementing.defer.live_marker, "implement-attempt:v1")
+    t.eq(implementing.defer.freshness_ms, nil)
+    t.eq(implementing.watchdog.on_stale.op, "redrive_receiver")
+    t.eq(implementing.watchdog.on_stale.producer, "implement-attempt")
+    t.eq(#core.strict_restart_liveness_contract_errors({ implementing }), 0, "implementing")
   end,
 
   test_heartbeat_defer_rejects_clear_fact_shape = function()
