@@ -198,7 +198,7 @@ local function run_driver(opts)
   if not ok then
     error(err, 0)
   end
-  return { github = github, exec_calls = exec_calls, files = files, dept = dept }
+  return { github = github, exec_calls = exec_calls, files = files, dept = dept, module = module }
 end
 
 local function count_kind(writes, kind)
@@ -336,6 +336,23 @@ return {
     t.is_true(comment.body:find("fkst:ratchet%-slice%-duplicate:v1") ~= nil)
     t.is_true(comment.body:find('duplicate="1160"', 1, true) ~= nil)
     t.eq(close.issue_number, 1160)
+  end,
+
+  test_poll_duplicate_slice_does_not_store_dedup_key_on_module = function()
+    local dedup = "code-dedup/slice/abc123"
+    local result = run_driver({
+      ratchet = "code-dedup",
+      dedup_key = dedup,
+      github = {
+        open_slices_json = '[{"number":1157,"state":"OPEN","author":{"login":"fkst-test-bot"},"body":"<!-- fkst:ratchet-slice:v1 ratchet=\\"code-dedup\\" dedup=\\"'
+          .. dedup
+          .. '\\" entries=\\"same-entry\\" -->"},{"number":1160,"state":"OPEN","author":{"login":"fkst-test-bot"},"body":"<!-- fkst:ratchet-slice:v1 ratchet=\\"code-dedup\\" dedup=\\"'
+          .. dedup
+          .. '\\" entries=\\"same-entry\\" -->"}]\n',
+      },
+    })
+
+    t.is_nil(result.module._ratchet_slice_dedup_key)
   end,
 
   test_poll_with_managed_sibling_existing_slice_noops = function()
