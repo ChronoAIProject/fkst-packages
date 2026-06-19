@@ -24,6 +24,11 @@
 - **缺 inevitability**：你说不出「一说出来就显然只能这样」，它只是「众多合理补丁之一」→ 还没到本质，继续找。
 - **跳过目的论**：解没问「这机制**是为了什么**」→ 从目的导出行为（重投是为了激活没在跑的 receiver，故先查在不在跑）。
 
+**关键：自评丑必被作弊 → 美的门是「对抗 + 留痕」，不是自证（这是 HARD GATE，接 competence 轴「审证据不审叙事」）**。让 AI 自问「我的解丑不丑」**必被作弊**——它有强动机答「不丑」并写一段「不丑因为…」的合理化（自评=动机推理），留痕本身救不了，只是记录了那段合理化。**这正是 self-grade 不可靠、本系统一开始就要 consensus / sshx / 对抗 review 的根本原因**；美也必须挂到这套已有的对抗机器上，**绝不新造一个可自证的自检门**。机制三层：
+1. **留痕（author 侧，是证据面不是背书）**：产出解后，留下候选 + 显式逐条六气味自查（哪条命中 / 为何都不命中），作为**给对抗者攻击的证据**，不是「我查过了没事」。
+2. **对抗（独立视角，默认「丑，直到被证明不丑」）**：由独立 perspective（sshx review triplet / consensus reviewer，独立 context、看不到 author 的合理化）专门找丑，按六条具体气味**查证据**（有没有魔法数字？有没有代理？），author 须用 ground-truth 证据反驳；美只在对抗者**按证据也找不出丑**时通过。丑则打回继续想（留痕可审：第 N 版为何被判丑、改了什么）。
+3. **跨模型 + 人兜底**：对抗也会 correlated 失明（同模型同 context 漏同样的丑）→ ChatGPT Pro 作跨模型族对抗，人（user-as-oracle）是最后 backstop（实证：#1195 的丑是人抓到、系统没抓到）。所以这是「对抗 + 跨模型 + 人兜底」的**尽力门，不是完美丑探测器**——诚实，不夸大成自动美判定。
+
 **正向（解之美的判据）**：**忠于 ground-truth（非代理）· 由目的导出 · 无参数/删掉魔法数字 · inevitable · 构造上让 bug 不可能（非事后接住）· 删无可删。** 优先那个「你还想再删却删不动」的解。**这统一了已有 doctrine，不是新增第 N 条**：「make illegal states unrepresentable」（美=构造不可能）、「Harness=唯一规范写法」（美=inevitability）、「核实数据再建叙事」（美=真值非故事）、Occam/SRP/「先找 harness」全是「美=忠于本质」的不同面。
 
 **实证落地：liveness 必须是真实执行状态，不是 receiver 可能无法刷新的自报代理。** watchdog/心跳 doctrine 有个隐藏假设——被监督的 receiver 会周期「踢狗」（自写心跳）。但 **detach/阻塞的 receiver 踢不了狗**（implement codex 阻塞在 `spawn_codex_sync`、detach 跑、无 Lua 循环写心跳），于是「心跳 defer」退化成「从 spawn 起的固定秒表」（`now − started_at`）——一个没有踢狗、只有秒表的假 watchdog，会在 receiver 活着干活时误杀它（实证 false-terminal 根）。新增任何 live-defer 态前先问「这个 receiver **能不能**自己刷新心跳？不能 → 它的 liveness 必须**外部观测**真实执行（进程 / worktree-mtime / 引擎 live-child lease），而非自报 marker 年龄」。且「盲重投」的「盲」只施于**动作**（重发驱动事件、不分析为何慢），**绝不施于前置条件**：重投 / force-terminate 前**必须查 receiver 是否还在执行**（这不是「原因分析」，是 ground state）——在跑 → drop 重投（它唯一目的是激活没在跑的）；没跑 → 激活；没跑 + 激活预算耗尽 → 终止。
