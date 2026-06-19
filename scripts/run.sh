@@ -443,6 +443,10 @@ run_self_test_with_optional_lua_coverage() {
       return 1
     fi
     if ! lua_coverage_artifact_has_line_metadata "$coverage_json"; then
+      # Engine contract: `--self-test --coverage` runs package tests only for
+      # the current directory as a folded package root. This repository stores
+      # Lua tests under packages/<pkg>/tests, so the root self-test can honestly
+      # emit an empty artifact; package `test --coverage` remains engine-owned.
       echo "warning: fkst-framework --self-test --coverage wrote no Lua line metadata; using package test coverage fallback" >&2
       LUA_COVERAGE_NEEDS_PACKAGE_FALLBACK=1
       return 0
