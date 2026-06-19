@@ -39,7 +39,7 @@ class RunShCoverageHarness:
     def close(self) -> None:
         self.tmp.cleanup()
 
-    def run_function(self) -> subprocess.CompletedProcess[str]:
+    def run_shell(self, script: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["BIN"] = str(self.framework)
         env["FKST_RUNTIME_ROOT"] = str(self.runtime)
@@ -50,10 +50,10 @@ class RunShCoverageHarness:
                 "/bin/bash",
                 "-c",
                 textwrap.dedent(
-                    """\
+                    f"""\
                     source scripts/run.sh
                     ROOT="$RUN_SH_COVERAGE_MINI_REPO"
-                    run_self_test_with_optional_lua_coverage
+                    {script}
                     """
                 ),
             ],
@@ -72,14 +72,14 @@ class RunShCoverageHarness:
 
 
 class RunShCoverageSelfTest(unittest.TestCase):
-    def test_self_test_passes_coverage_flag_with_directory_value(self) -> None:
+    def test_self_test_runs_without_coverage_flag(self) -> None:
         h = RunShCoverageHarness(
             textwrap.dedent(
                 """\
                 #!/bin/sh
                 printf '%s\\n' "$*" >> "$RUN_SH_COVERAGE_ARGV_LOG"
-                if [ "$1" = "--self-test" ] && [ "$2" = "--coverage" ] && [ -n "${3:-}" ]; then
-                  printf '{"files": []}\\n' > "$3/coverage.json"
+                pwd >> "$RUN_SH_COVERAGE_ARGV_LOG"
+                if [ "$1" = "--self-test" ] && [ "$#" -eq 1 ]; then
                   exit 0
                 fi
                 echo "unexpected argv: $*" >&2
@@ -88,42 +88,44 @@ class RunShCoverageSelfTest(unittest.TestCase):
             )
         )
         try:
-            result = h.run_function()
+            result = h.run_shell("run_self_test")
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertEqual(len(h.argv_lines()), 1)
+            self.assertEqual(len(h.argv_lines()), 2)
             argv = h.argv_lines()[0].split()
-            self.assertGreaterEqual(len(argv), 3)
-            self.assertEqual(argv[0:2], ["--self-test", "--coverage"])
-            self.assertEqual(argv[2], str(h.runtime / "lua-coverage"))
+            self.assertEqual(argv, ["--self-test"])
+            self.assertEqual(h.argv_lines()[1], str(h.mini_repo))
         finally:
             h.close()
 
-    def test_missing_coverage_value_propagates_without_plain_self_test_fallback(self) -> None:
+    def test_lua_coverage_ratchet_passes_covered_json_arguments(self) -> None:
         h = RunShCoverageHarness(
             textwrap.dedent(
                 """\
                 #!/bin/sh
-                printf '%s\\n' "$*" >> "$RUN_SH_COVERAGE_ARGV_LOG"
-                if [ "$1" = "--self-test" ] && [ "$2" = "--coverage" ]; then
-                  echo "missing value for --coverage" >&2
-                  exit 2
-                fi
-                if [ "$1" = "--self-test" ] && [ "$#" -eq 1 ]; then
-                  echo "plain self-test fallback must not run" >&2
-                  exit 0
-                fi
-                echo "unexpected argv: $*" >&2
+                echo "framework must not run" >&2
                 exit 64
                 """
             )
         )
+        check_repo = h.mini_repo_scripts / "check_repo_coverage.py"
+        write_executable(
+            check_repo,
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import os
+                import sys
+                with open(os.environ["RUN_SH_COVERAGE_ARGV_LOG"], "a", encoding="utf-8") as handle:
+                    handle.write(" ".join(sys.argv[1:]) + "\\n")
+                    handle.write(os.environ.get("FKST_LUA_COVERAGE_JSON", "") + "\\n")
+                raise SystemExit(0)
+                """
+            ),
+        )
         try:
-            result = h.run_function()
-            self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertIn("missing value for --coverage", result.stderr)
-            self.assertEqual(h.argv_lines(), [f"--self-test --coverage {h.runtime / 'lua-coverage'}"])
-            self.assertNotIn("--self-test", h.argv_lines()[1:])
-            self.assertNotIn("plain self-test fallback must not run", result.stderr + result.stdout)
+            result = h.run_shell('run_lua_coverage_ratchet --covered-json "pkg=/tmp/pkg-coverage.json"')
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(h.argv_lines(), ["--covered-json pkg=/tmp/pkg-coverage.json", "1"])
         finally:
             h.close()
 

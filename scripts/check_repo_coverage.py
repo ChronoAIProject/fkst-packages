@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -420,6 +421,10 @@ def artifact_path(root: Path) -> Path | None:
     return None
 
 
+def has_explicit_coverage_artifact() -> bool:
+    return bool(os.environ.get("FKST_LUA_COVERAGE_JSON"))
+
+
 def is_safe_base_ref(ref: str) -> bool:
     return ref not in {"", "HEAD"} and ".." not in ref and BASE_REF_RE.fullmatch(ref) is not None
 
@@ -465,11 +470,20 @@ def allowlist_at_base(root: Path, base_ref: str) -> tuple[str, set[CoverageKey] 
         shown = git(["show", base_allowlist], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         if shown.returncode != 0:
             return "unresolved", None
-        tmp = root / ".git" / "fkst-coverage-base.allowlist"
-        tmp.write_text(shown.stdout, encoding="utf-8")
+        tmp_handle = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix="fkst-coverage-base.",
+            suffix=".allowlist",
+            delete=False,
+        )
+        tmp = Path(tmp_handle.name)
         try:
+            tmp_handle.write(shown.stdout)
+            tmp_handle.close()
             return "present", load_allowlist(tmp)
         finally:
+            tmp_handle.close()
             tmp.unlink(missing_ok=True)
     except Exception:
         return "unresolved", None
@@ -573,45 +587,96 @@ def warn_disabled(message: str) -> None:
     print(f"warning: Lua coverage ratchet not enabled (no {REQUIRED_FLAG}); {message}", file=sys.stderr)
 
 
+def warn_deferred(message: str) -> None:
+    print(f"warning: Lua coverage ratchet deferred ({REQUIRED_FLAG} present); {message}", file=sys.stderr)
+
+
+def required_flag_removal_messages(root: Path, required: bool) -> list[str]:
+    if required:
+        return []
+    base_ref = selected_base_ref(root)
+    if base_ref is not None and required_flag_at_base(root, base_ref) == "present":
+        return [f"{REQUIRED_FLAG} may not be removed; coverage ratchet is enabled on base"]
+    return []
+
+
+def ratchet_input_messages(root: Path, uncovered: dict[CoverageKey, UncoveredLine]) -> list[str]:
+    required = (root / REQUIRED_FLAG).exists()
+    if not required:
+        if uncovered:
+            warn_disabled(f"{len(uncovered)} uncovered line(s) would block once enabled")
+        return []
+    allowlist = load_allowlist(root / ALLOWLIST)
+    base_ref = selected_base_ref(root)
+    if base_ref is None:
+        base_required_status, base_status, base_allowlist = "unresolved", "unresolved", None
+    else:
+        base_required_status = required_flag_at_base(root, base_ref)
+        if base_required_status == "present":
+            base_status, base_allowlist = allowlist_at_base(root, base_ref)
+        else:
+            base_status, base_allowlist = base_required_status, None
+    messages: list[str] = []
+    if base_required_status == "unresolved" or base_status == "unresolved":
+        messages.append("cannot resolve coverage base allowlist to enforce shrink-only ratchet; ensure CI provides GITHUB_BASE_REF or FKST_LUA_COVERAGE_BASE_REF")
+    messages.extend(ratchet_messages(uncovered, allowlist, base_allowlist, base_ref or "base"))
+    return messages
+
+
 def repository_messages(root: Path) -> list[str]:
     path = artifact_path(root)
     required = (root / REQUIRED_FLAG).exists()
-    if not required:
-        base_ref = selected_base_ref(root)
-        if base_ref is not None and required_flag_at_base(root, base_ref) == "present":
-            return [f"{REQUIRED_FLAG} may not be removed; coverage ratchet is enabled on base"]
+    coverage_bearing = has_explicit_coverage_artifact()
+    flag_messages = required_flag_removal_messages(root, required)
+    if flag_messages:
+        return flag_messages
     if path is None:
         if not required:
             warn_disabled("coverage artifact is absent")
+            return []
+        if not coverage_bearing:
+            warn_deferred("coverage artifact is absent in this artifact-less check")
             return []
         return ["Lua coverage artifact is required but was not found"]
     if not path.exists():
         if not required:
             warn_disabled(f"coverage artifact is missing: {path}")
             return []
+        if not coverage_bearing:
+            warn_deferred(f"coverage artifact is missing in this artifact-less check: {path}")
+            return []
         return [f"Lua coverage artifact does not exist: {path}"]
     try:
         uncovered = uncovered_from_artifact(path, root)
-        if not required:
-            if uncovered:
-                warn_disabled(f"{len(uncovered)} uncovered line(s) would block once enabled")
-            return []
-        allowlist = load_allowlist(root / ALLOWLIST)
-        base_ref = selected_base_ref(root)
-        if base_ref is None:
-            base_status, base_allowlist = "unresolved", None
-        else:
-            base_status, base_allowlist = allowlist_at_base(root, base_ref)
+        return ratchet_input_messages(root, uncovered)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         if not required:
             warn_disabled(f"coverage artifact would not parse once enabled: {exc}")
             return []
         return [f"invalid Lua coverage ratchet input: {exc}"]
-    messages: list[str] = []
-    if base_status == "unresolved":
-        messages.append("cannot resolve coverage base allowlist to enforce shrink-only ratchet; ensure CI provides GITHUB_BASE_REF or FKST_LUA_COVERAGE_BASE_REF")
-    messages.extend(ratchet_messages(uncovered, allowlist, base_allowlist, base_ref or "base"))
-    return messages
+
+
+def covered_json_messages(root: Path, artifacts: list[tuple[Path, str | None]]) -> list[str]:
+    required = (root / REQUIRED_FLAG).exists()
+    flag_messages = required_flag_removal_messages(root, required)
+    if flag_messages:
+        return flag_messages
+    if not artifacts:
+        return repository_messages(root)
+    missing = [str(path) for path, _package_name in artifacts if not path.exists()]
+    if missing:
+        if not required:
+            warn_disabled(f"coverage artifact is missing: {missing[0]}")
+            return []
+        return [f"Lua coverage artifact does not exist: {missing[0]}"]
+    try:
+        uncovered = uncovered_from_covered_sets(root, merge_covered_sets(artifacts))
+        return ratchet_input_messages(root, uncovered)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        if not required:
+            warn_disabled(f"coverage artifact would not parse once enabled: {exc}")
+            return []
+        return [f"invalid Lua coverage ratchet input: {exc}"]
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -641,7 +706,15 @@ def cli(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.write_current_uncovered is None:
-        messages = repository_messages(Path.cwd())
+        root = Path.cwd()
+        if args.covered_json:
+            try:
+                messages = covered_json_messages(root, [parse_covered_json_arg(value) for value in args.covered_json])
+            except ValueError as exc:
+                print(f"error: invalid covered coverage artifact argument: {exc}", file=sys.stderr)
+                return 1
+        else:
+            messages = repository_messages(root)
         for message in messages:
             print(message)
         return 1 if messages else 0

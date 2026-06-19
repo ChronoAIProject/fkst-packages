@@ -389,12 +389,20 @@ LUA
   echo "OK: SDK primitive truncate_utf8 is available in BIN: $BIN"
 }
 
+run_self_test() {
+  set +e
+  (cd "$ROOT" && "$BIN" --self-test)
+  local rc=$?
+  set -e
+  return "$rc"
+}
+
 run_self_test_with_optional_lua_coverage() {
   local coverage_dir="$FKST_RUNTIME_ROOT/lua-coverage" coverage_json out rc
   rm -rf "$coverage_dir"
   mkdir -p "$coverage_dir"
   set +e
-  out="$(cd "$coverage_dir" && "$BIN" --self-test --coverage "$coverage_dir" 2>&1)"
+  out="$(cd "$ROOT" && "$BIN" --self-test --coverage "$coverage_dir" 2>&1)"
   rc=$?
   set -e
   if [ "$rc" -eq 0 ]; then
@@ -414,6 +422,14 @@ run_self_test_with_optional_lua_coverage() {
   fi
   printf '%s\n' "$out" >&2
   return "$rc"
+}
+
+run_lua_coverage_ratchet() {
+  if [ "$#" -eq 0 ]; then
+    echo "error: no Lua coverage artifacts were collected" >&2
+    return 1
+  fi
+  FKST_LUA_COVERAGE_JSON=1 python3 -B "$ROOT/scripts/check_repo_coverage.py" "$@"
 }
 
 # Run "$@"; unless verbose (cmd_test's flag), drop advisory `PASS` lines from its
@@ -450,7 +466,8 @@ run_quiet_keep() {
 
 cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}"
-  local report_dir report_file
+  local report_dir report_file coverage_dir coverage_file
+  local coverage_root coverage_args=()
   # Lines worth surfacing when a package test fails: the engine's per-test FAIL
   # line (anchored at column 0 so it does not catch mid-line tag=FAILURE in the
   # info logs of tests that deliberately exercise error paths and still pass),
@@ -478,9 +495,10 @@ cmd_test() {
   echo "test hermetic: FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT (ambient overridden)"
 
   report_dir="$(mktemp -d "${TMPDIR:-/tmp}/fkst-test-reports.XXXXXX")"
+  coverage_root="$(mktemp -d "${TMPDIR:-/tmp}/fkst-lua-coverage.XXXXXX")"
 
   echo "=== self-test ==="
-  if ! run_self_test_with_optional_lua_coverage; then
+  if ! run_self_test; then
     fail=$((fail + 1))
   fi
 
@@ -507,13 +525,21 @@ cmd_test() {
       fi
     fi
     report_file="$report_dir/$name.json"
+    coverage_dir="$coverage_root/$name"
+    coverage_file="$coverage_dir/coverage.json"
+    mkdir -p "$coverage_dir"
     # Default-quiet: keep only failure-relevant lines (the --report-json that
     # drives the tally and G5 coverage is unaffected). run_quiet_keep is called
     # from `if !` so the inner pipe never trips `set -e` on a failing package;
     # the loop continues, the count is correct, and FAILED: still prints.
     if ! run_quiet_keep "$test_failure_filter" \
-        "$BIN" test --project-root "$pkg" --package-root "$pkg" --report-json "$report_file"; then
+        "$BIN" test --project-root "$pkg" --package-root "$pkg" --report-json "$report_file" --coverage "$coverage_dir"; then
       fail=$((fail + 1))
+    elif [ ! -f "$coverage_file" ]; then
+      echo "error: fkst-framework test --coverage did not write coverage.json in $coverage_dir" >&2
+      fail=$((fail + 1))
+    else
+      coverage_args+=(--covered-json "$name=$coverage_file")
     fi
   done
   if [ "$ran" -eq 0 ]; then
@@ -529,6 +555,11 @@ cmd_test() {
       fail=$((fail + 1))
     fi
     if [ "$fail" -eq 0 ]; then
+      if ! run_lua_coverage_ratchet "${coverage_args[@]}"; then
+        fail=$((fail + 1))
+      fi
+    fi
+    if [ "$fail" -eq 0 ]; then
       if ! check_test_file_coverage "$report_dir"; then
         fail=$((fail + 1))
       fi
@@ -540,10 +571,10 @@ cmd_test() {
     fi
   fi
   if [ "$fail" -ne 0 ]; then
-    rm -rf "$report_dir"
+    rm -rf "$report_dir" "$coverage_root"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
   fi
-  rm -rf "$report_dir"
+  rm -rf "$report_dir" "$coverage_root"
   echo "OK: $ran package(s)"
 }
 
