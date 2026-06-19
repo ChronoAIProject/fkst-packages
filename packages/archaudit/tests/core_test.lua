@@ -111,6 +111,30 @@ return {
     end
   end,
 
+  test_observe_predicate_fails_closed_on_non_dense_observe_lists = function()
+    for _, list_name in ipairs({ "queues", "anomalies", "dlq" }) do
+      local keyed = {
+        schema = "fkst.observe.v1",
+        queues = { { queue = "proposal", ready = 0, leased = 0, retry = 0, dlq = 0 } },
+        anomalies = {},
+        dlq = {},
+      }
+      keyed[list_name] = { keyed = {} }
+      t.raises(function() core.is_idle_observe(keyed) end)
+
+      local sparse = {
+        schema = "fkst.observe.v1",
+        queues = { { queue = "proposal", ready = 0, leased = 0, retry = 0, dlq = 0 } },
+        anomalies = {},
+        dlq = {},
+      }
+      sparse[list_name] = {}
+      sparse[list_name][1] = {}
+      sparse[list_name][3] = {}
+      t.raises(function() core.is_idle_observe(sparse) end)
+    end
+  end,
+
   test_observe_predicate_fails_closed_on_ambiguous_and_unknown_metric_groups = function()
     t.raises(function()
       core.is_idle_observe({

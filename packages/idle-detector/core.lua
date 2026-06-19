@@ -42,6 +42,20 @@ local function required_list(facts, name)
   if type(value) ~= "table" then
     error("idle-detector: malformed-observe-facts: malformed " .. name)
   end
+  local count = 0
+  local max_index = 0
+  for key, _item in pairs(value) do
+    if type(key) ~= "number" or key < 1 or math.floor(key) ~= key then
+      error("idle-detector: malformed-observe-facts: malformed " .. name)
+    end
+    count = count + 1
+    if key > max_index then
+      max_index = key
+    end
+  end
+  if max_index ~= count then
+    error("idle-detector: malformed-observe-facts: malformed " .. name)
+  end
   return value
 end
 

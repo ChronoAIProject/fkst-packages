@@ -208,6 +208,20 @@ return {
     t.eq(#result.raises, 0)
   end,
 
+  test_fake_current_observe_keyed_lists_are_structured_failure_no_issue = function()
+    for _, observe_json in ipairs({
+      '{"schema":"fkst.observe.v1","queues":{"proposal":{"ready":0,"leased":0,"retry":0,"dlq":0}},"anomalies":[],"dlq":[]}',
+      '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":{"stalled":{"queue":"proposal"}},"dlq":[]}',
+      '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","ready":0,"leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":{"proposal":{"count":1}}}',
+    }) do
+      mock_env("owner/repo", "3")
+      mock_observe(observe_json, 0)
+      local dept = fake_audit_department("[]")
+      local result = run_fake_failure_at(dept, fresh_idle_event(), core.iso_timestamp_epoch_seconds("2026-06-19T01:01:00Z"))
+      t.eq(#result.raises, 0)
+    end
+  end,
+
   test_fake_current_observe_missing_each_busy_dimension_group_is_structured_failure_no_issue = function()
     for _, observe_json in ipairs({
       '{"schema":"fkst.observe.v1","queues":[{"queue":"proposal","leased":0,"retry":0,"dlq":0}],"anomalies":[],"dlq":[]}',

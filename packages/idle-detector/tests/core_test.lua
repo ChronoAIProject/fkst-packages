@@ -45,6 +45,20 @@ return {
     t.raises(function() core.is_idle_observe(facts) end)
   end,
 
+  test_idle_predicate_fails_closed_on_non_dense_observe_lists = function()
+    for _, list_name in ipairs({ "queues", "anomalies", "dlq" }) do
+      local keyed = observe_idle()
+      keyed[list_name] = { keyed = {} }
+      t.raises(function() core.is_idle_observe(keyed) end)
+
+      local sparse = observe_idle()
+      sparse[list_name] = {}
+      sparse[list_name][1] = {}
+      sparse[list_name][3] = {}
+      t.raises(function() core.is_idle_observe(sparse) end)
+    end
+  end,
+
   test_idle_predicate_rejects_ready_work = function()
     local facts = observe_idle()
     facts.queues[1].ready = 1
