@@ -19,12 +19,12 @@ local function require_repo(repo)
   return value
 end
 
-local run_required = core.command_result_required
-
-
-
-
-
+local function run_required(result, error_class)
+  if result.exit_code ~= 0 then
+    error("github-devloop: " .. error_class .. " failed: " .. tostring(result.stderr))
+  end
+  return result
+end
 
 local function require_git_ok(result, error_class)
   if result.exit_code ~= 0 then

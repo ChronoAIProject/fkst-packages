@@ -40,15 +40,7 @@ function S.git()
   return git_handle
 end
 
-function S.install(M)
-  M.command_result_required = S.command_result_required
-end
-
-function S.command_result_required(result, error_class)
-  if result.exit_code ~= 0 then
-    error("github-devloop: " .. error_class .. " failed: " .. tostring(result.stderr))
-  end
-  return result
+function S.install()
 end
 
 return S

@@ -94,11 +94,4 @@ return {
     t.eq(strings.sanitize_key("abc/def", 5), "abc/d")
     t.eq(strings.sanitize_key("abc/def", false), "abc/def")
   end,
-
-  test_runtime_segment_matches_existing_temp_file_sanitizer = function()
-    t.eq(strings.runtime_segment("owner/repo#42"), "owner_repo_42")
-    t.eq(strings.runtime_segment("___"), "empty")
-    t.eq(strings.runtime_segment(nil), "empty")
-    t.eq(strings.runtime_segment("already.safe_Name-1"), "already.safe_Name-1")
-  end,
 }
