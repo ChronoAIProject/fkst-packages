@@ -91,7 +91,9 @@ local function new_fake_github(opts)
     table.insert(model.searches, query)
     table.insert(model.writes, { kind = "issue_search", repo = repo, query = query, fields = fields, timeout = timeout })
     local stdout = "[]\n"
-    if options.open_slice and query:find("fkst:ratchet-slice:v1", 1, true) ~= nil then
+    if options.open_slices_json and query:find("fkst:ratchet-slice:v1", 1, true) ~= nil then
+      stdout = options.open_slices_json
+    elseif options.open_slice and query:find("fkst:ratchet-slice:v1", 1, true) ~= nil then
       local ratchet = options.open_slice_all_ratchets and query_ratchet(query) or options.open_slice_ratchet or "saga-handler"
       stdout = '[{"number":121,"state":"OPEN","author":{"login":'
         .. json_string(options.open_slice_author_login or "fkst-test-bot")
@@ -306,6 +308,34 @@ return {
     t.eq(count_kind(result.github._model.writes, "issue_comment"), 0)
     t.eq(count_kind(result.github._model.writes, "issue_search"), 0)
     t.eq(#result.exec_calls, 3)
+  end,
+
+  test_poll_closes_newer_duplicate_slice_with_marker = function()
+    local dedup = "code-dedup/slice/abc123"
+    local result = run_driver({
+      ratchet = "code-dedup",
+      dedup_key = dedup,
+      github = {
+        open_slices_json = '[{"number":1157,"state":"OPEN","author":{"login":"fkst-test-bot"},"body":"<!-- fkst:ratchet-slice:v1 ratchet=\\"code-dedup\\" dedup=\\"'
+          .. dedup
+          .. '\\" entries=\\"same-entry\\" -->"},{"number":1160,"state":"OPEN","author":{"login":"fkst-test-bot"},"body":"<!-- fkst:ratchet-slice:v1 ratchet=\\"code-dedup\\" dedup=\\"'
+          .. dedup
+          .. '\\" entries=\\"same-entry\\" -->"}]\n',
+      },
+    })
+    local writes = result.github._model.writes
+    local comment = write_of_kind(writes, "issue_comment")
+    local close = write_of_kind(writes, "issue_close")
+
+    t.eq(count_kind(writes, "issue_create"), 0)
+    t.eq(count_kind(writes, "issue_add_sub_issue"), 0)
+    t.eq(count_kind(writes, "issue_comment"), 1)
+    t.eq(count_kind(writes, "issue_close"), 1)
+    t.eq(comment.issue_number, 1160)
+    t.is_true(comment.body:find("duplicate of #1157", 1, true) ~= nil)
+    t.is_true(comment.body:find("fkst:ratchet%-slice%-duplicate:v1") ~= nil)
+    t.is_true(comment.body:find('duplicate="1160"', 1, true) ~= nil)
+    t.eq(close.issue_number, 1160)
   end,
 
   test_poll_with_managed_sibling_existing_slice_noops = function()

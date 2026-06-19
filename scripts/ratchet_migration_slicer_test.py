@@ -386,6 +386,54 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
         self.assertEqual(result.issue_number, 123)
         self.assertEqual(client.created, [])
 
+    def test_reconciler_closes_trusted_newer_duplicate_slice(self) -> None:
+        spec = slicer.specs()["code-dedup"]
+        inventory = [slicer.InventorySite("packages/example/a.lua", 3, "duplicate_function: repeated abc", "entry-a")]
+        doc = slicer.slice_document(spec, inventory, 1)
+        entry_key = str(doc["sites"][0]["entry_key"])
+        client = FakeGithubClient()
+        client.search_results[("open", slicer.ratchet_slice_search_query("code-dedup"))] = [
+            {
+                "number": 1157,
+                "author": {"login": "fkst-bot"},
+                "body": '<!-- fkst:ratchet-slice:v1 schema="fkst.ratchet-slice.v1" ratchet="code-dedup" parent="1018" dedup="'
+                + str(doc["dedup_key"])
+                + '" fingerprint="canonical" entries="'
+                + entry_key
+                + '" -->',
+            },
+            {
+                "number": 1160,
+                "author": {"login": "fkst-bot"},
+                "body": '<!-- fkst:ratchet-slice:v1 schema="fkst.ratchet-slice.v1" ratchet="code-dedup" parent="1018" dedup="'
+                + str(doc["dedup_key"])
+                + '" fingerprint="'
+                + str(doc["sites_fingerprint"])
+                + '" entries="'
+                + entry_key
+                + '" -->',
+            },
+        ]
+
+        result = slicer.reconcile_ratchet(
+            spec,
+            inventory,
+            1,
+            "owner/repo",
+            client,
+            env={"FKST_GITHUB_WRITE": "1", "FKST_GITHUB_BOT_LOGIN": "fkst-bot"},
+        )
+
+        self.assertEqual(result.action, "closed-duplicate-slices")
+        self.assertEqual(result.issue_number, 1157)
+        self.assertEqual(client.closed, [1160])
+        self.assertEqual(len(client.comments), 1)
+        self.assertEqual(client.comments[0][0], 1160)
+        self.assertIn("duplicate of #1157", client.comments[0][1])
+        self.assertIn("fkst:ratchet-slice-duplicate:v1", client.comments[0][1])
+        self.assertIn('duplicate="1160"', client.comments[0][1])
+        self.assertEqual(client.created, [])
+
     def test_reconciler_dedups_parent_created_marker(self) -> None:
         spec = slicer.specs()["saga-handler"]
         inventory = [slicer.InventorySite("packages/example/a.lua", 3, "free_form_pipeline")]

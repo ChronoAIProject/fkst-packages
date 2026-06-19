@@ -492,6 +492,32 @@ def slice_overlaps_entry(open_issue: dict[str, Any], ratchet: str, entry_keys: s
     return False
 
 
+def slice_has_dedup(issue: dict[str, Any], ratchet: str, dedup_key: str) -> bool:
+    for marker in ratchet_slice_markers(record_body(issue)):
+        if marker_attribute(marker, "ratchet") == ratchet and marker_attribute(marker, "dedup") == dedup_key:
+            return True
+    return False
+
+
+def duplicate_slice_marker(ratchet: str, dedup_key: str, canonical_number: int, duplicate_number: int) -> str:
+    return (
+        '<!-- fkst:ratchet-slice-duplicate:v1'
+        f' ratchet="{ensure_marker_value(ratchet)}"'
+        f' dedup="{ensure_marker_value(dedup_key)}"'
+        f' canonical="{int(canonical_number)}"'
+        f' duplicate="{int(duplicate_number)}"'
+        " -->"
+    )
+
+
+def duplicate_slice_comment(ratchet: str, dedup_key: str, canonical_number: int, duplicate_number: int) -> str:
+    return (
+        f"Ratchet migration slice duplicate: duplicate of #{canonical_number}.\n\n"
+        + duplicate_slice_marker(ratchet, dedup_key, canonical_number, duplicate_number)
+        + "\n"
+    )
+
+
 def issue_author_login(issue: dict[str, Any]) -> str | None:
     author = issue.get("author")
     if isinstance(author, dict) and author.get("login") is not None:
@@ -638,6 +664,32 @@ def reconcile_ratchet(
         and slice_overlaps_entry(issue, spec.ratchet, entry_keys)
     ]
     if open_slices:
+        if write_enabled:
+            numbered = sorted(
+                (
+                    (number, issue)
+                    for issue in open_slices
+                    if slice_has_dedup(issue, spec.ratchet, dedup_key)
+                    and (number := issue_number(issue)) is not None
+                ),
+                key=lambda item: item[0],
+            )
+            if len(numbered) > 1:
+                canonical_number = numbered[0][0]
+                closed = []
+                for duplicate_number, duplicate in numbered[1:]:
+                    if slice_has_dedup(duplicate, spec.ratchet, dedup_key):
+                        client.issue_comment(repo, duplicate_number, duplicate_slice_comment(spec.ratchet, dedup_key, canonical_number, duplicate_number))
+                        client.issue_close(repo, duplicate_number)
+                        closed.append(duplicate_number)
+                if closed:
+                    return ReconcileResult(
+                        spec.ratchet,
+                        "closed-duplicate-slices",
+                        dedup_key,
+                        issue_number=canonical_number,
+                        parent_issue=parent_issue,
+                    )
         return ReconcileResult(
             spec.ratchet,
             "deduped-in-flight",

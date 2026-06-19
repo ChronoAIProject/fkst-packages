@@ -179,15 +179,15 @@ local function search_issues(github, repo, query, fields, timeout)
 end
 
 local function has_open_slice(github, repo, ratchet, trusted_logins)
+  local first, canonical, duplicate = nil, nil, nil
   for _, issue in ipairs(search_issues(github, repo, ratchet_slice_search_query(ratchet), "number,title,state,author,body,url", 30)) do
-    if trusted_author(issue, trusted_logins)
-      and body(issue):find("fkst:ratchet-slice:v1", 1, true) ~= nil
-      and body(issue):find('ratchet="' .. tostring(ratchet) .. '"', 1, true) ~= nil
-      and tostring(issue.state or ""):upper() ~= "CLOSED" then
-      return issue
+    local text, number = body(issue), tonumber(issue.number)
+    if trusted_author(issue, trusted_logins) and text:find("fkst:ratchet-slice:v1", 1, true) ~= nil and text:find('ratchet="' .. tostring(ratchet) .. '"', 1, true) ~= nil and tostring(issue.state or ""):upper() ~= "CLOSED" then
+      first = first or issue; local marker_dedup = text:match('<!%-%- fkst:ratchet%-slice:v1.-dedup="([^"]+)".-%-%->')
+      if marker_dedup == M._ratchet_slice_dedup_key and number ~= nil and (canonical == nil or number < canonical) then duplicate = canonical; canonical = number elseif marker_dedup == M._ratchet_slice_dedup_key and number ~= nil then duplicate = number end
     end
-  end
-  return nil
+  end; if write_enabled() and canonical ~= nil and duplicate ~= nil then local p = body_file(M._ratchet_slice_dedup_key, "duplicate"); file.write(p, "Ratchet migration slice duplicate: duplicate of #" .. tostring(canonical) .. ".\n\n<!-- fkst:ratchet-slice-duplicate:v1 ratchet=\"" .. tostring(ratchet) .. "\" dedup=\"" .. tostring(M._ratchet_slice_dedup_key) .. "\" canonical=\"" .. tostring(canonical) .. "\" duplicate=\"" .. tostring(duplicate) .. "\" -->\n"); github.issue_comment(repo, duplicate, p, 30); github.issue_close(repo, duplicate, 30) end
+  return first
 end
 
 local function has_existing_slice(github, repo, dedup_key, trusted_logins)
@@ -237,7 +237,7 @@ local function reconcile_one(github, repo, ratchet)
   end
 
   local slice = plan.next_slice
-  local dedup_key = tostring(slice.dedup_key or "")
+  local dedup_key = tostring(slice.dedup_key or ""); M._ratchet_slice_dedup_key = dedup_key
   if parent_has_issue_created_marker(parent, dedup_key, trusted_logins) then
     return "deduped-parent-ledger"
   end
