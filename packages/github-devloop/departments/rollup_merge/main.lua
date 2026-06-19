@@ -1,12 +1,12 @@
-local core, saga = require("core"), require("std.saga")
+local core = require("core")
 
+local M = {}
 
-local spec = {
+M.spec = {
   consumes = { "devloop_rollup_ready" },
   produces = {},
   stall_window = "5m",
 }
-
 
 local function log_skip(payload, reason)
   core.log_line("info", "rollup_merge", "rollup", "GATE", {
@@ -17,7 +17,7 @@ local function log_skip(payload, reason)
   })
 end
 
-return saga.department(spec, { done = function() return false end, act = function(event)
+function pipeline(event)
   local payload = event.payload or {}
   if not core.is_supported_rollup_ready(payload) then
     core.log_entry("rollup_merge", event, "rollup", core.payload_field(payload, "dedup_key"))
@@ -76,6 +76,8 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     core.log_apply("rollup_merge", "rollup", "rollup-merged", payload.head_sha, {}, {})
   end)
-end,
-  wrap = core.wrap_pipeline_failure,
-  name = "rollup_merge" })
+end
+
+pipeline = core.wrap_pipeline_failure("rollup_merge", pipeline)
+
+return M
