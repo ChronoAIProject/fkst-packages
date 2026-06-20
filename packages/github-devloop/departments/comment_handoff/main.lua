@@ -8,6 +8,7 @@ local spec = {
   produces = {
     "devloop_ready",
     "devloop_merge_ready",
+    "devloop_open_pr",
     "devloop_reconcile",
     "devloop_reviewing",
   },
@@ -52,6 +53,23 @@ local function supported_handoff(payload)
     and core.is_safe_head_sha(handoff.current_head_sha)
     and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
     return handoff
+  end
+  if handoff.kind == "github-devloop.open_pr"
+    and core.is_safe_entity_proposal_ref(handoff.proposal_id, handoff.dedup_key)
+    and core._is_bounded_string(handoff.version, core._max_dedup_len)
+    and handoff.dedup_key == handoff.version
+    and core._is_git_ref_safe(handoff.branch)
+    and core.is_safe_head_sha(handoff.head_sha)
+    and core._is_git_ref_safe(handoff.base_branch)
+    and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
+    local repo, issue_number = core.parse_issue_source_ref(handoff.source_ref)
+    if repo ~= nil
+      and issue_number ~= nil
+      and tostring(repo) == tostring(handoff.repo)
+      and tostring(issue_number) == tostring(handoff.issue_number)
+      and tostring(handoff.proposal_id) == core.proposal_id(repo, issue_number) then
+      return handoff
+    end
   end
   return nil
 end
@@ -116,6 +134,17 @@ local function act_handoff(event)
     }, handoff.source_ref)
     core.log_cas_decision("comment_handoff", handoff.proposal_id, { state = "merge-ready", version = handoff.version }, "comment-written", "devloop_merge_ready", "applied(own-write-comment-id)", "merge-ready marker comment write was acknowledged")
     core.log_raise("comment_handoff", handoff.proposal_id, "devloop_merge_ready", merge_ready)
+    return
+  end
+
+  if handoff.kind == "github-devloop.open_pr" then
+    local open_pr = core.build_devloop_open_pr_payload(handoff.repo, handoff.issue_number, {
+      proposal_id = handoff.proposal_id,
+      dedup_key = handoff.version,
+      source_ref = handoff.source_ref,
+    }, handoff.branch, handoff.head_sha, handoff.base_branch)
+    core.log_cas_decision("comment_handoff", handoff.proposal_id, { state = "implementing", version = handoff.version }, "comment-written", "devloop_open_pr", "applied(own-write-comment-id)", "implementing marker comment write was acknowledged")
+    core.log_raise("comment_handoff", handoff.proposal_id, "devloop_open_pr", open_pr)
     return
   end
 

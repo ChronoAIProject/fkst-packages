@@ -98,7 +98,11 @@ return {
       return tostring(payload.body or ""):find('attempt="2"', 1, true) ~= nil
     end).payload.body
     t.eq(core.implement_attempt_count({ comment }, event.proposal_id, event.dedup_key), 2)
-    t.eq(find_raise(result.raises, "devloop_open_pr").payload.head_sha, "def456")
+    local output = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil
+    end)
+    t.eq(find_raise(result.raises, "devloop_open_pr"), nil)
+    t.eq(output.payload.handoff.head_sha, "def456")
   end,
 
   test_implementing_redelivery_continues_to_open_pr_when_remote_branch_exists = function()
@@ -430,7 +434,11 @@ return {
     local result = run_implement(reraised.payload, opts("implement-718-roundtrip"))
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1, "re-raised ready must re-run implement, not skip-stale forever")
-    t.eq(find_raise(result.raises, "devloop_open_pr") ~= nil, true)
+    local output = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil
+    end)
+    t.eq(find_raise(result.raises, "devloop_open_pr"), nil)
+    t.eq(output.payload.handoff.kind, "github-devloop.open_pr")
   end,
 
   test_observe_reraises_reimplement_attempt_preserving_suffix = function()

@@ -82,22 +82,25 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 local codex_status = require("tests.codex_status_helpers")
+local find_comment_with
 
 local function assert_open_pr_kickoff(raises, event, branch, head_sha)
-  local kickoff = find_raise(raises, "devloop_open_pr")
+  t.eq(find_raise(raises, "devloop_open_pr"), nil)
+  local output = find_comment_with(raises, "github-devloop implementation output published")
+  local kickoff = output.payload.handoff
   local _, expected_issue_number = core.parse_issue_source_ref(event.source_ref)
-  t.eq(kickoff.payload.schema, "github-devloop.open-pr.v1")
-  t.eq(kickoff.payload.proposal_id, event.proposal_id)
-  t.eq(kickoff.payload.repo, "owner/repo")
-  t.eq(tostring(kickoff.payload.issue_number), tostring(expected_issue_number))
-  t.eq(kickoff.payload.version, event.dedup_key)
-  t.eq(kickoff.payload.branch, branch)
-  t.eq(kickoff.payload.head_sha, head_sha)
-  t.eq(kickoff.payload.base_branch, "dev")
-  t.eq(kickoff.payload.source_ref.ref, event.source_ref.ref)
+  t.eq(kickoff.kind, "github-devloop.open_pr")
+  t.eq(kickoff.proposal_id, event.proposal_id)
+  t.eq(kickoff.repo, "owner/repo")
+  t.eq(tostring(kickoff.issue_number), tostring(expected_issue_number))
+  t.eq(kickoff.version, event.dedup_key)
+  t.eq(kickoff.branch, branch)
+  t.eq(kickoff.head_sha, head_sha)
+  t.eq(kickoff.base_branch, "dev")
+  t.eq(kickoff.source_ref.ref, event.source_ref.ref)
 end
 
-local function find_comment_with(raises, text)
+function find_comment_with(raises, text)
   return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
     return tostring(payload.body or ""):find(text, 1, true) ~= nil
   end)
@@ -306,7 +309,7 @@ return {
 
     local result = run_implement(event, opts("implement-existing-branch-reuse"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     t.eq(count_issue_comment_raises(result.raises), 3)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
@@ -344,7 +347,7 @@ return {
 
     local result = run_implement(event, opts("implement-boundary-worktree"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
@@ -395,7 +398,7 @@ return {
 
     local result = run_implement(event, opts("implement-clean-ahead"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
     t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
@@ -453,7 +456,7 @@ return {
 
     local result = run_implement(event, opts("implement-existing-worktree-reuse"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
     t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
@@ -488,7 +491,7 @@ return {
 
     local result = run_implement(event, opts("implement-dirty-worktree-reuse"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
@@ -529,7 +532,7 @@ return {
 
     local result = run_implement(event, opts("implement-ignore-outside-runtime-worktree"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
@@ -570,7 +573,7 @@ return {
 
     local result = run_implement(event, opts("implement-remove-all-outside-runtime-worktrees"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
@@ -659,7 +662,7 @@ return {
 
     local visible = run_implement(ready(), opts("implement-ready-visible"))
     t.eq(visible.exit_code, 0)
-    t.eq(#visible.raises, 5)
+    t.eq(#visible.raises, 4)
     assert_implement_attempt(visible.raises, ready())
     assert_worktree_ready_state(visible.raises, ready())
     t.eq(find_label_with_added(visible.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
@@ -786,7 +789,7 @@ return {
 
     local result = run_implement(event, opts("implement-durable-ready-hand-off-marker-pending"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_worktree_ready_state(result.raises, event)
     t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
@@ -824,7 +827,7 @@ return {
 
     local result = run_implement(event, opts("implement-ready-hand-off-alternate-effects"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_worktree_ready_state(result.raises, event)
     t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")
     assert_open_pr_kickoff(result.raises, event, branch, "def456")
@@ -885,7 +888,7 @@ return {
 
     local result = run_implement(redrive, opts("implement-ready-redrive-original-hand-off"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, redrive)
     assert_worktree_ready_state(result.raises, redrive)
     t.eq(find_label_with_added(result.raises, "fkst-dev:implementing").payload.add_labels[1], "fkst-dev:implementing")

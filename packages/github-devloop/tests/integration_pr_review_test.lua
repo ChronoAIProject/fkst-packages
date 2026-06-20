@@ -132,7 +132,7 @@ return {
     mock_git_commit("def456", branch)
     local result = run_implement(event, opts("implement-success"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 4)
     local attempt_raise = find_comment_with(result.raises, "fkst:github-devloop:implement-attempt:v1")
     t.is_true(attempt_raise.payload.body:find('proposal="' .. event.proposal_id .. '"', 1, true) ~= nil)
     t.is_true(attempt_raise.payload.body:find('dedup="' .. event.dedup_key .. '"', 1, true) ~= nil)
@@ -158,12 +158,39 @@ return {
     local fact = core.implementing_fact({ comment_raise.payload.body }, event.proposal_id, event.dedup_key)
     t.eq(fact.branch, branch)
     t.eq(fact.head_sha, "def456")
-    t.eq(open_pr_raise.payload.schema, "github-devloop.open-pr.v1")
-    t.eq(open_pr_raise.payload.proposal_id, event.proposal_id)
-    t.eq(open_pr_raise.payload.version, event.dedup_key)
-    t.eq(open_pr_raise.payload.branch, branch)
-    t.eq(open_pr_raise.payload.head_sha, "def456")
-    t.eq(open_pr_raise.payload.base_branch, "dev")
+    t.eq(open_pr_raise, nil)
+    local handoff = comment_raise.payload.handoff
+    t.eq(handoff.kind, "github-devloop.open_pr")
+    t.eq(handoff.proposal_id, event.proposal_id)
+    t.eq(handoff.repo, "owner/repo")
+    t.eq(tostring(handoff.issue_number), "42")
+    t.eq(handoff.version, event.dedup_key)
+    t.eq(handoff.branch, branch)
+    t.eq(handoff.head_sha, "def456")
+    t.eq(handoff.base_branch, "dev")
+    t.eq(handoff.source_ref.ref, event.source_ref.ref)
+    local handoff_result = t.run_department("departments/comment_handoff/main.lua", {
+      queue = "github-proxy.github_comment_written",
+      payload = {
+        schema = "github-proxy.comment-written.v1",
+        repo = "owner/repo",
+        target = "issue",
+        issue_number = 42,
+        comment_id = "IC_implementing_output_1",
+        request_dedup_key = comment_raise.payload.dedup_key,
+        dedup_key = comment_raise.payload.dedup_key .. "/written/IC_implementing_output_1",
+        source_ref = event.source_ref,
+        handoff = handoff,
+      },
+    }, opts("implement-success-comment-handoff"))
+    t.eq(handoff_result.exit_code, 0)
+    t.eq(#handoff_result.raises, 1)
+    local handed_open_pr = find_raise(handoff_result.raises, "devloop_open_pr").payload
+    local expected_open_pr = core.build_devloop_open_pr_payload("owner/repo", 42, event, branch, "def456", "dev")
+    t.eq(handed_open_pr.dedup_key, expected_open_pr.dedup_key)
+    t.eq(handed_open_pr.branch, expected_open_pr.branch)
+    t.eq(handed_open_pr.head_sha, expected_open_pr.head_sha)
+    t.eq(handed_open_pr.source_ref.ref, expected_open_pr.source_ref.ref)
     local calls = t.command_calls()
     local saw_worktree_prefix = false
     local saw_prompt = false

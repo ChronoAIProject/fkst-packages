@@ -207,7 +207,12 @@ return {
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
     t.eq(core.implementing_fact({ comment.payload.body }, event.proposal_id, ready.dedup_key .. "/reimplement/2"), nil)
-    t.is_true(find_raise(result.raises, "devloop_open_pr") ~= nil)
+    local output = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil
+    end)
+    t.eq(find_raise(result.raises, "devloop_open_pr"), nil)
+    t.eq(output.payload.handoff.kind, "github-devloop.open_pr")
+    t.eq(output.payload.handoff.version, ready.dedup_key .. "/reimplement/2")
   end,
 
   test_blocked_reimplement_receiver_writes_fresh_attempt_version = function()
@@ -245,6 +250,11 @@ return {
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
     t.eq(core.implementing_fact({ comment.payload.body }, event.proposal_id, ready.dedup_key .. "/reimplement/2"), nil)
-    t.is_true(find_raise(result.raises, "devloop_open_pr") ~= nil)
+    local output = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil
+    end)
+    t.eq(find_raise(result.raises, "devloop_open_pr"), nil)
+    t.eq(output.payload.handoff.kind, "github-devloop.open_pr")
+    t.eq(output.payload.handoff.version, ready.dedup_key .. "/reimplement/2")
   end,
 }

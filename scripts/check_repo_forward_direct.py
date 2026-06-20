@@ -20,6 +20,7 @@ REDRIVE_PATHS = {
     "packages/github-devloop/core/pr_review_replayer.lua",
     "packages/github-devloop/core/ready_split.lua",
     "packages/github-devloop/core/replayer.lua",
+    "packages/github-devloop/departments/implement/progress_redrive.lua",
     "packages/github-devloop/departments/observe_issue/main.lua",
 }
 CAUSAL_PATHS = {

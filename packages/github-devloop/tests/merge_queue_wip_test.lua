@@ -988,6 +988,10 @@ return {
     local result = run_implement(event, opts("implement-wip-available", { FKST_DEVLOOP_MAX_INFLIGHT = "2" }))
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
-    t.is_true(find_raise(result.raises, "devloop_open_pr") ~= nil)
+    local output = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil
+    end)
+    t.eq(find_raise(result.raises, "devloop_open_pr"), nil)
+    t.eq(output.payload.handoff.kind, "github-devloop.open_pr")
   end,
 }

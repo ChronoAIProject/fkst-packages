@@ -160,7 +160,7 @@ function M.build_intake_decision_comment_request(repo, issue_number, candidate, 
   }, candidate.source_ref)
 end
 
-function M.build_implementing_comment_request(repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
+function M.build_implementing_comment_request(repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, handoff)
   if not M._is_git_ref_safe(branch) then
     error("github-devloop: invalid implementing branch")
   end
@@ -193,7 +193,7 @@ function M.build_implementing_comment_request(repo, issue_number, ready, worktre
       "implementing",
       tostring(ready.dedup_key),
     }),
-    source_ref = M.normalize_source_ref(ready.source_ref),
+    source_ref = M.normalize_source_ref(ready.source_ref), handoff = handoff,
   }, ready.source_ref)
 end
 

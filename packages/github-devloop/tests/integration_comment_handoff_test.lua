@@ -199,4 +199,52 @@ return {
     t.eq(merge_ready.source_ref.ref, expected.source_ref.ref)
     t.eq(core.is_supported_merge_ready(merge_ready), true)
   end,
+
+  test_comment_written_open_pr_ack_raises_byte_equivalent_payload = function()
+    local source_ref = core.issue_source_ref("owner/repo", 42)
+    local ready = {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      dedup_key = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+      source_ref = source_ref,
+    }
+    local result = run_handoff({
+      schema = "github-proxy.comment-written.v1",
+      repo = "owner/repo",
+      target = "issue",
+      issue_number = 42,
+      comment_id = "IC_open_pr_1",
+      request_dedup_key = "implement/comment/github-devloop/issue/owner/repo/42/open-pr",
+      dedup_key = "implement/comment/github-devloop/issue/owner/repo/42/open-pr/written/IC_open_pr_1",
+      source_ref = source_ref,
+      handoff = {
+        kind = "github-devloop.open_pr",
+        proposal_id = ready.proposal_id,
+        repo = "owner/repo",
+        issue_number = 42,
+        version = ready.dedup_key,
+        dedup_key = ready.dedup_key,
+        branch = "devloop-owner-repo-42-01HY",
+        head_sha = "def456",
+        base_branch = "dev",
+        source_ref = source_ref,
+      },
+    }, "comment-handoff-open-pr")
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local open_pr = find_raise(result.raises, "devloop_open_pr").payload
+    local expected = core.build_devloop_open_pr_payload("owner/repo", 42, ready, "devloop-owner-repo-42-01HY", "def456", "dev")
+    t.eq(open_pr.schema, expected.schema)
+    t.eq(open_pr.proposal_id, expected.proposal_id)
+    t.eq(open_pr.repo, expected.repo)
+    t.eq(open_pr.issue_number, expected.issue_number)
+    t.eq(open_pr.version, expected.version)
+    t.eq(open_pr.branch, expected.branch)
+    t.eq(open_pr.head_sha, expected.head_sha)
+    t.eq(open_pr.base_branch, expected.base_branch)
+    t.eq(open_pr.dedup_key, expected.dedup_key)
+    t.eq(open_pr.source_ref.kind, expected.source_ref.kind)
+    t.eq(open_pr.source_ref.ref, expected.source_ref.ref)
+    t.eq(core.is_supported_open_pr(open_pr), true)
+  end,
 }

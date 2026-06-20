@@ -1,5 +1,6 @@
 local core = require("core")
 local saga = require("std.saga")
+local progress_redrive = require("departments.implement.progress_redrive")
 local slice_gate = require("departments.implement.slice_gate")
 local transitions = require("departments.implement.transitions")
 
@@ -49,46 +50,28 @@ local function raise_implementing_state(repo, issue_number, ready, worktree, bra
 end
 
 local function raise_implementing(repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
-  local comment_request = core.build_implementing_comment_request(repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
-  local open_pr_payload = core.build_devloop_open_pr_payload(repo, issue_number, ready, branch, head_sha, base_branch)
+  local handoff = {
+    kind = "github-devloop.open_pr",
+    proposal_id = ready.proposal_id,
+    repo = repo,
+    issue_number = issue_number,
+    version = ready.dedup_key,
+    dedup_key = ready.dedup_key,
+    branch = branch,
+    head_sha = head_sha,
+    base_branch = base_branch,
+    source_ref = core.normalize_source_ref(ready.source_ref),
+  }
+  local comment_request = core.build_implementing_comment_request(repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, handoff)
   core.log_apply("implement", ready.proposal_id, "implementing", ready.dedup_key, { add = {}, remove = {} }, {
     "github-proxy.github_issue_comment_request",
-    "devloop_open_pr",
   })
   core.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-  core.log_raise("implement", ready.proposal_id, "devloop_open_pr", open_pr_payload)
 end
 
 local function raise_implement_attempt(repo, issue_number, ready, attempt, started_at, exec_ref)
   local request = core.build_implement_attempt_comment_request(repo, issue_number, ready, attempt, started_at, exec_ref)
   core.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", request)
-end
-
-local function open_pr_payload_from_fact(repo, issue_number, ready, fact)
-  return core.build_devloop_open_pr_payload(
-    repo,
-    issue_number,
-    {
-      proposal_id = ready.proposal_id,
-      dedup_key = fact.dedup_key or ready.dedup_key,
-      source_ref = ready.source_ref,
-    },
-    fact.branch,
-    fact.head_sha,
-    fact.base_branch
-  )
-end
-
-local function raise_open_pr_from_fact(repo, issue_number, ready, fact, reason)
-  core.log_cas_decision("implement", ready.proposal_id, {
-    state = "implementing",
-    version = fact.dedup_key or ready.dedup_key,
-  }, "implementing", "pr-open", "applied(progress-derived)", reason)
-  local payload = open_pr_payload_from_fact(repo, issue_number, ready, fact)
-  core.log_apply("implement", ready.proposal_id, "implementing", fact.dedup_key or ready.dedup_key, { add = {}, remove = {} }, {
-    "devloop_open_pr",
-  })
-  core.log_raise("implement", ready.proposal_id, "devloop_open_pr", payload)
 end
 
 local function remote_branch_fact(branch, base_branch, source_fact)
@@ -770,14 +753,14 @@ local function process_ready_event(event)
       if progress ~= nil then
         progress.proposal_id = ready.proposal_id
         progress.dedup_key = marker_ready.dedup_key
-        raise_open_pr_from_fact(repo, issue_number, marker_ready, progress, "implementing remote branch progress is visible")
+        progress_redrive.raise_open_pr_from_fact(repo, issue_number, marker_ready, progress, "implementing remote branch progress is visible")
         return
       end
       local base_head = prepare_base(branches)
       local local_progress = local_branch_fact(base_head, branch, branches.integration, marker_ready.dedup_key)
       if local_progress ~= nil then
         local_progress.proposal_id = ready.proposal_id
-        raise_open_pr_from_fact(repo, issue_number, marker_ready, local_progress, "local implementation branch progress is visible")
+        progress_redrive.raise_open_pr_from_fact(repo, issue_number, marker_ready, local_progress, "local implementation branch progress is visible")
         return
       end
       local attempts = core.implement_attempt_count(current.comments, ready.proposal_id, marker_ready.dedup_key)
