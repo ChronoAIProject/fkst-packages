@@ -1,4 +1,4 @@
-# Split the issue saga from the PR saga into two packages (parent issue + PR child)
+# Decompose github-devloop into per-lifecycle packages (PR split first; 4-package target)
 
 Status: DESIGN — awaiting operator approval before any implementation.
 Date: 2026-06-20
@@ -10,6 +10,17 @@ Author: operator (out-of-band, dogfood), via `sshx` adversarial exploration + op
 > capability-restriction, PREVENT) rather than a conformance scan (level ①,
 > DETECT). See §3, §4 and §16. The delegation/return/liveness contracts (§5–§9,
 > §11–§12) are unchanged — only *where the wall sits* (§3, §4, §10, §13) changed.
+>
+> Revision note 2 (sshx clustering triplet, 2026-06-20): a second adversarial round
+> (minimal/structural/delete codex workers) on "how many packages, where the seams"
+> converged on a **4-package target** — `github-devloop-intake` · `…-issue` ·
+> `…-pr` · `…-integration` — but kept **this spec's scope at exactly Ratchet 1:
+> extract `github-devloop-pr` only** (the desync fix). intake and integration are
+> real but *separate* seams, extracted as later independent ratchets; bundling them
+> here would be a big-bang. The workers verified the operator's split instinct was
+> right but the *first* seam is PR (not intake): `intake_judge` currently writes
+> issue state directly (a wide seam), while branch-promotion is the cleaner third
+> cut. See §4 (target vs scope) and §16.
 
 ## 1. Problem (the root cause, verified at source)
 
@@ -110,11 +121,36 @@ Four consequences drive every decision below:
 4. **Decompose the god-package (SRP).** issue-lifecycle and PR-lifecycle have
    independent reasons to change; splitting corrects the over-merge and bounds blast
    radius (a PR-review change cannot touch issue lifecycle — different package).
+5. **Target decomposition ≠ this spec's scope.** The full SRP-correct decomposition
+   is **four** bounded contexts (§4); this spec implements **only the first ratchet**
+   — extracting `github-devloop-pr` — because that is the desync root-cause path.
+   intake and integration are real but independent seams, each its own later ratchet.
+   One migration changes one thing (behavior-preserving + 绝不大爆改).
 
 ## 4. Package topology
 
-Two lifecycle packages plus the existing shared roots; the boundary is exactly two
-reliable queues.
+### Target (the SRP-correct end-state): four bounded contexts + `std`
+
+The sshx clustering triplet (§16) converged on four packages, each earning its
+boundary by an independent reason-to-change, executed as **three independent
+ratchets** so each migration changes one thing:
+
+| Package | departments | independent 变更原因 (the seam) | ratchet |
+|---|---|---|---|
+| **`github-devloop`** (issue) | `consensus_result, loop, observe_issue, decompose, implement` | the managed-issue parent saga | residual parent |
+| **`github-devloop-pr`** | `open_pr, observe_pr, review_*, fix, merge` | PR comment stream = sole PR-phase authority (the desync class) | **R1 (this spec)** |
+| **`github-devloop-integration`** | `sync_scan, sync_conflict, rollup_scan, rollup_merge, substrate_ref_scan, pr_freshness_scan` | branch-promotion / repo topology — *not* issue→PR→merge lifecycle | **R2 (separate)** |
+| **`github-devloop-intake`** | `intake_scan, intake_probe, intake_judge` | enable/decline policy + untrusted→managed *trust/prompt-injection* gate | **R3 (gated, see §13)** |
+
+`reconcile`, `comment_handoff`, and `liveness_scan` are current cross-saga mutators
+and split **by owning authority** (terminal/state-writing authority lives in the
+owning package; only authority-neutral builders move to `std`). Until R2/R3,
+integration and intake stay folded inside `github-devloop`.
+
+### This spec's scope = Ratchet 1 only (extract PR)
+
+The diagram below is the **R1 end-state**: PR splits out; intake + integration stay
+in the parent for now; the boundary is exactly two reliable queues.
 
 ```
                      std/ (shared, symlinked)
@@ -145,26 +181,39 @@ reliable queues.
   (`composed.deps = github-proxy, consensus`). Owns the PR transition table and all
   PR-phase departments + PR-specific core. Advances the PR from `pr-open` to a
   terminal, then raises **reliable** `devloop_pr_terminal` (`source_ref=pr`).
-- **Shared kernel → `std`** (the only blessed shared root; peer cross-package
-  require is forbidden by G9). The restart/saga/conformance *framework* is already
-  Tier S `std.saga`; the devloop-shared *domain* kernel (entity/marker/state
-  read-write, version-CAS application, `source_ref`, logging, parsers, validators,
-  the comment-handoff outbox pattern, the liveness sweep) moves to a Tier R
-  `std.devloop_*` module. Each package then defines its **own** table using the
-  shared framework. Issue-specific and PR-specific core split to their packages.
+- **Shared kernel → `std` — authority-neutral primitives ONLY, never a god-kernel**
+  (the only blessed shared root; peer cross-package require is forbidden by G9). The
+  restart/saga/conformance *framework* is already Tier S `std.saga`. Lift to a Tier R
+  `std.devloop_*` **only** what is genuinely entity-/saga-neutral: the marker
+  grammar parser/builder *parameterized by saga namespace*, `source_ref`/entity
+  helpers, version-CAS ordering, logging/error-facts, bounded validators, generic
+  queue-dispatch and restart/liveness/conformance support. **Do NOT lift a monolithic
+  `std.devloop_core`** — all three workers flagged that a god-kernel would re-smuggle
+  PR-phase symbols back into the issue package (defeating the partition). Transition
+  rows, policy, and payload/request builders stay **package-local**, split by owner —
+  not moved as `core.lua` wholesale.
 - **Boundary = two reliable queues only.** `devloop_pr_open` (parent → child
   kickoff) and `devloop_pr_terminal` (child → parent return). Both pointer-shaped
   payloads (`source_ref` + control fields); both re-derive truth from GitHub. The
   composed conformance (`github-devloop` composing `github-devloop-pr`) covers the
   wiring as a first-class package contract — the `await_child` join is now CI-typed.
 
-The integration-topology departments (`sync_scan`, `sync_conflict`, `rollup_scan`,
-`rollup_merge`, `substrate_ref_scan`) and cross-cutting observability (`doctor`,
-`observability`, `liveness_scan`, `dead_letter`, `ensure_repo`, test harness) are
-neither issue- nor PR-lifecycle; they are assigned in the migration inventory
-(§13). Default: keep with the parent unless an item is provably PR-only. A third
-package for the integration topology is **YAGNI** until it earns its own reason to
-change.
+Beyond R1, the target (§4 table) assigns the remaining clusters by their own
+reason-to-change, each as a **separate** ratchet (§13) — not bundled into the
+desync fix:
+
+- **integration-topology** (`sync_scan, sync_conflict, rollup_scan, rollup_merge,
+  substrate_ref_scan` + `pr_freshness_scan`) **earns its own package** (R2). It is a
+  branch-promotion / repo-topology control plane, not issue or PR lifecycle; leaving
+  it in the parent keeps a "lying god-package". `pr_freshness_scan` belongs here, not
+  in PR — it consumes `devloop_branch_tick` (branch-topology), not PR-phase events.
+- **intake** (`intake_scan/probe/judge`) is a **gated candidate** (R3). It is a real
+  bounded context (enable-policy + untrusted→managed trust gate), but today
+  `intake_judge` writes issue thinking state *directly* — a wide seam. R3 is allowed
+  only **after** the boundary is first narrowed to a reliable `issue_enable` event
+  (intake stops writing issue lifecycle state), then re-evaluated against over-split.
+- cross-cutting observability (`doctor`, `observability`, `dead_letter`,
+  `ensure_repo`, test harness) stays shared/parent unless provably saga-owned.
 
 ## 5. State split
 
@@ -347,15 +396,20 @@ more") close each:
 | Issue projection consumed by automation | cache becomes authority | projection is display-only (§6); automation reads the PR stream |
 | Cross-package queue mis-wired | kickoff/return silently dropped | composed conformance (§10) types the two-queue boundary; consumed-but-unrouted fails closed |
 
-## 13. Migration — harness-first god-package extraction ratchet
+## 13. Migration — three independent harness-first ratchets
+
+The four-package target (§4) is reached by **three independent inventory-ratchets**,
+**never a big-bang on the live state machine** (god-state-ratchet doctrine). One
+migration changes one thing. This spec specifies **Ratchet 1 in full**; R2 and R3
+are scoped here but specified in their own future docs.
+
+### Ratchet 1 — extract `github-devloop-pr` (this spec)
 
 The **only** intended behavior change is desync elimination. Review, fix, merge
 gates, head binding, CI checks, `source_ref` fetch behavior remain equivalent. This
 is a **refactor** under the behavior-preserving definition (same inputs ⇒ same
 effects/terminal/delivery); the one deliberate behavior change (desync elimination)
-is named and isolated, not smuggled under "refactor". Executed as an
-inventory-ratchet, **never a big-bang on the live state machine**
-(god-state-ratchet doctrine).
+is named and isolated, not smuggled under "refactor".
 
 **Step 0 — inventory + harness (no behavior change).**
 - Manifest every department + core module → `{issue, pr, shared, integration,
@@ -389,12 +443,46 @@ Old durable events normalize to PR-child authority by `source_ref=pr`; stale
 issue-phase payloads re-fetch and no-op if the parent is already `awaiting-pr` for
 the same (or a newer) child.
 
+R1 also splits the cross-saga mutators **by owning authority**: `reconcile` (today
+one department consuming `devloop_reconcile` + `devloop_review_reconcile` +
+`devloop_fix_reconcile` + `devloop_timeout_reconcile`) splits into issue-reconcile
+(stays) and review/fix-reconcile (→ PR package); `comment_handoff` and
+`liveness_scan` likewise — terminal/state-writing authority lives in the owning
+package, only authority-neutral builders move to `std`. A shared reconcile writer
+would re-introduce a cross-saga authority (the very thing being removed).
+
+### Ratchet 2 — extract `github-devloop-integration` (separate, after R1)
+
+Move `sync_scan, sync_conflict, rollup_scan, rollup_merge, substrate_ref_scan` and
+`pr_freshness_scan` (it consumes `devloop_branch_tick`, branch-topology not
+PR-phase) into `github-devloop-integration`; own core `branches/*, sync_conflict,
+rollup_health, substrate_ref, release_notes`. Justified independently of the desync
+(branch-promotion ≠ lifecycle); kept in the `github-devloop` product namespace
+(tied to `FKST_DEVLOOP` topology) — a generic `github-branch-topology` extraction is
+explicitly out of scope. **Not bundled into R1**: doing both at once is the big-bang
+the doctrine forbids.
+
+### Ratchet 3 — extract `github-devloop-intake` (gated)
+
+Allowed **only after** a precondition ratchet narrows the intake→issue boundary: make
+`intake_judge` emit a reliable `issue_enable` event consumed by the issue package,
+so intake stops writing issue lifecycle state directly. Then re-evaluate whether the
+enable-policy + trust-domain reason-to-change justifies a package vs. folding (the
+`delete` worker's over-split caution). Until then intake stays folded in
+`github-devloop`. This sequencing is the convergence of the three workers
+(structural: intake earns it *iff* the boundary is narrowed; minimal/delete: not
+worth extracting on the desync path).
+
 ## 14. Non-goals / YAGNI
 
-- **No generic hierarchical-saga engine.** Both packages use the existing
+- **No generic hierarchical-saga engine.** The packages use the existing
   `std.saga.department` shape; the child is the smallest `await_child` primitive.
-- **No third package for integration-topology** until it earns its own reason to
-  change (§4).
+- **No `std.devloop_core` god-kernel** (§4) — only authority-neutral primitives lift
+  to `std`; transition rows/policy/payloads stay package-local.
+- **No bundling R2/R3 into R1.** integration and intake are extracted as their own
+  later ratchets (§13), not in the desync fix.
+- **No generic `github-branch-topology` extraction** in R2 (kept in the
+  `github-devloop` product namespace, tied to `FKST_DEVLOOP`).
 - **No `merged → done` rename** (separate behavior-change PR if ever wanted).
 - **No `state:v2` marker flag-day** (entity-derived `saga_kind` keeps `state:v1`).
 - **No fix to the merge-ready-not-merging gate bug here** (separate; this design
@@ -452,5 +540,35 @@ structural invariant achieved with least machinery (the PR entity already owns a
 state machine via #7; reuse `std.saga.department`), satisfying BEAUTY GATE
 (删无可删 of the scan, illegal states unrepresentable) and structural integrity at
 once.
+
+### Round 2 — clustering triplet (how many packages, where the seams)
+
+A second `sshx` round (3 peer-invisible codex workers, codex-cli 0.141.0) tested the
+operator's proposed `intake | issue | pr` 3-way against the actual department +
+core-module clustering (verified at source):
+
+- **minimal** (`/tmp/sshx-split/result-minimal.json`, verdict `propose`): smallest
+  cut = **2-way** {issue+intake} | {pr}; fold integration for now; warned that
+  bundling integration is a big-bang and that a monolithic `std.devloop_core` would
+  re-smuggle PR phases into the issue package.
+- **delete** (`/tmp/sshx-split/result-delete.json`, verdict `propose`): **3-way**
+  {issue+intake} | {pr} | {branch-promotion}; *fold intake* (3 depts don't earn a
+  package; `intake_judge` writes issue state directly) and instead *delete
+  integration out of the lifecycle*.
+- **structural** (`/tmp/sshx-split/result-structural.json`, verdict `revise`):
+  **4-way** {intake} | {issue} | {pr} | {integration}; intake earns a package *iff*
+  its boundary is first narrowed to a reliable `issue_enable` event; `pr_freshness`
+  belongs to integration.
+
+**Meta-judge (round 2): `meta-layer convergence`.** Not unanimous on N (2 vs 3 vs 4),
+but compatible. Unanimous: PR earns its own package; reconcile/comment_handoff/
+liveness split by authority; **no `std.devloop_core` god-kernel**; the operator's
+intake-as-package is wrong *as proposed* (intake leaks authority today). Resolved
+conflicts: intake = real bounded context but R3-gated on a narrowed boundary
+(structural's end-state ∧ minimal/delete's caution); integration = own package but a
+separate R2 (delete/structural commit ∧ minimal's "no big-bang"); `pr_freshness` →
+integration. Converges to a **4-package target executed as 3 ratchets, R1 = this
+spec (extract PR only)**. The operator's split instinct was right; the *first* seam
+is PR, and the under-named third seam is branch-promotion, not intake.
 
 ⟦AI:FKST⟧
