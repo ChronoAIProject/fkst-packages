@@ -303,34 +303,82 @@ PR exists, `pr_source_ref = owner/repo#pr/N` is the durable child id).
 
 **CAS `implementing → awaiting-pr` fires only after** the PR start fact
 (`pr-origin:v1` + `state pr-open`) is visible/verified. Until then the issue stays
-`implementing` (its existing liveness covers the gap). This is the write/read-race
-harness across entities: the issue does not advance to "awaiting" until the thing
-it will await provably exists.
+`implementing` — a **bounded pre-start responsibility** (implement's bounded handoff
+retry; if that would violate implement's single responsibility, a small
+`awaiting-pr-start` state owns the start-ack watchdog instead). Do **not** enter
+`awaiting-pr` before the child-start fact is visible. This is the write/read-race
+harness across entities: the issue does not advance to "awaiting" until the thing it
+will await provably exists. The queue *ack* is **not** the start fact — the fact must
+prove the child exists with a durable identity (cf. Temporal's
+`ChildWorkflowExecutionStarted`).
 
-## 8. Boundary B — return (PR terminal → issue), resume only on terminal
+**Atomic entry (the §8 race partner).** The `implementing → awaiting-pr` CAS
+atomically installs the exact PR pointer, activates the `delegation_generation`,
+resets the `child_workflow_wait` actionable epoch once, and **immediately consumes any
+`pr-terminal` fact already recorded for that generation** (§8) — so a PR that finished
+before the parent committed resumes without stranding (enter-and-immediately-leave
+`awaiting-pr`, or collapse both reductions in one step).
 
-When the PR reaches a **terminal** — `merged`, `closed-unmerged`, or PR `blocked`
+**Crash-safety of `ensure_pr_child`.** The dangerous failure is *PR created → process
+crashes → local `pr-started` fact not written*. On retry, step 2 must **find and adopt
+the already-created PR** by the deterministic branch/head identity (or the
+`pr-delegation` marker) — never open a second PR from a remembered in-process API
+response. Persist the delegation intent + the `devloop_pr_open` command through a
+**transactional outbox** (durable with the state change that created it); outbox
+relays may publish more than once, so the open/terminal consumers stay idempotent
+(open key `issue + delegation_generation`).
+
+## 8. Boundary B — return (PR terminal → issue): return-first, resume only on terminal
+
+When the PR reaches a **terminal** — `merged` or `closed-unmerged` (or PR `blocked`)
 — the PR package writes the PR-local terminal marker + `pr-terminal:v1` and raises
 **reliable** `devloop_pr_terminal` (`source_ref = owner/repo#pr/N`).
 
-`ensure_parent_resumed(pr_terminal)` (in the parent package, idempotent):
+**Return-first (the stranding race — non-obvious, from cross-model review).** A PR can
+start and reach a terminal *before* the parent has committed its
+`implementing → awaiting-pr` transition (the converse of the §-invariant need not
+hold). A naive handler that **ignores the terminal unless the issue is *currently*
+`awaiting-pr`** loses the wakeup and **strands the issue**. So the terminal handler is
+**persist-then-continue**, never gate-on-current-state:
 
-1. Re-fetch the PR terminal fact and the parent issue's `awaiting-pr` + delegation.
-2. **Require** `issue.state == "awaiting-pr"` AND the delegation child id/version
-   matches the terminal's child id (no "resume from some PR for this issue").
-3. Verify the PR terminal is a trusted (bot-authored) fact and head/merge facts
-   match the delegation.
-4. Append a `child-completed` fact on the issue with idempotency key
-   `parent_proposal_id + pr_source_ref + terminal_marker_id`.
+`on_pr_terminal(pr_terminal)`:
+1. **Persist** a durable, monotonic `pr-terminal` fact keyed by the terminal
+   correlation key `repo + PR identity + delegation_generation` — *unconditionally*,
+   before any parent-state check. Losing this fact is the only unacceptable outcome.
+2. **Then attempt** `ensure_parent_resumed` (idempotent). It is *also* re-attempted
+   when the parent later enters `awaiting-pr` (§7 entry consumes an
+   already-recorded terminal), so a terminal recorded early is consumed late.
+
+`ensure_parent_resumed` (idempotent, parent package):
+1. Re-fetch the persisted terminal fact + the parent issue's `awaiting-pr` + delegation.
+2. Resume only when the issue is `awaiting-pr` AND the delegation `(child id,
+   delegation_generation)` matches the terminal's — no "resume from some PR for this
+   issue", no cross-generation resume. If the parent is not yet `awaiting-pr`,
+   **no-op** (the fact is durable; §7's entry will consume it).
+3. Verify the terminal is a trusted (bot-authored) fact; head/merge facts match.
+4. Append a `child-completed` fact with idempotency key `parent_proposal_id +
+   pr_source_ref + delegation_generation + terminal_marker_id`.
 5. CAS the issue:
-   - PR `merged` → issue `merged`, then close the issue idempotently.
-   - PR `closed-unmerged` → issue `ready` with a **new generation** (forward
-     retry), or `blocked` if the replacement budget is exhausted.
+   - PR `merged` → issue `merged`, then close idempotently.
+   - PR `closed-unmerged` → issue `ready` with a **new generation**, or `blocked` if
+     the replacement budget is exhausted.
    - PR `blocked` → issue `blocked` with WHY (or the existing decomposition flow).
 
-**Resume only on a child terminal — never on `merge-ready`.** `merge-ready` is a
-transient, head-bound capability, not a terminal; copying it back is what
-re-creates the desync. Only `merged` / `closed-unmerged` are child terminals.
+**Terminal classification + reopen.** `merged` = GitHub closed PR with `merged ==
+true`; `closed-unmerged` = closed with `merged == false`; `merge-ready` /
+review-approval are **not** terminals. **Latch the first terminal** for a
+`delegation_generation` and ignore a later PR *reopen* (or require a new generation) —
+else "terminal" is not terminal.
+
+**The delegation invariant** (enforced by §7's atomic entry): `issue.state ==
+awaiting-pr(delegation_generation)` ⟹ a durable `pr-started` fact for that generation
+exists AND the terminal-return capability is deployed AND the child is supervised by a
+bounded `child_workflow_wait` liveness. The converse need not hold — which is exactly
+why the return is persist-first.
+
+**Resume only on a child terminal — never on `merge-ready`** (a transient head-bound
+capability; copying it back re-creates the desync). Only `merged` / `closed-unmerged`
+are child terminals.
 
 ## 9. Head-bound merge-ready invariant (the head-nudge incident, encoded)
 
@@ -422,11 +470,32 @@ is named and isolated, not smuggled under "refactor".
 - Scoped state parsing: current state read by `(saga_kind, entity)`, never by
   merging issue + PR comments.
 
-**Step 1 — the delegation boundary in place (Phase-A, in current package).**
-Introduce `awaiting-pr`, `pr-delegation:v1`, the `child_workflow_wait` liveness,
-and the `devloop_pr_open` / `devloop_pr_terminal` queues *within* the current
-package; stop issue-side PR-phase writes (scan ratchet active). This ships the
-desync fix and builds the exact boundary the split needs — not throwaway work.
+**Step 1 — the delegation boundary in place (in current package).** Step 1 is
+**activation-atomic, not implementation-atomic** (cross-model review): the receiving
+substrate can be deployed *dark* first; `awaiting-pr` must not become *reachable*
+until the start-handshake, the terminal-return path, and lost-child supervision are
+all live. Sub-sequenced **return-first**:
+
+- **Step 1A — dark substrate** (behavior-preserving; `implement` does not yet emit
+  `devloop_pr_open`; no inbound edge to `awaiting-pr`): the `awaiting-pr` row +
+  `child_workflow_wait` liveness + `pr-delegation`/`pr-started`/`pr-terminal` marker
+  codecs + **idempotent open/terminal consumers + the terminal reducer/reconciliation
+  + the durable monotonic terminal fact** (§8 return-first). The G-SAGA-SPLIT ratchet
+  (Step 0) gates it. *Carried by the autonomous pipeline* (#1248) since it is dark.
+- **Step 1B — forward-edge activation** (the behavior change): wire
+  `implement → awaiting-pr` via the outbox + idempotent `ensure_pr_child`, the atomic
+  entry consuming any already-recorded terminal (§7), resume-only-on-matching-terminal
+  (§8). *Owned by the controlled `sshx` process + a first canary* — autonomous
+  consensus is **evidence, not sole release authority** for this control-plane change
+  (a wrong activation strands production issues = larger blast radius than the sshx
+  tar-pit).
+- **Step 1C — contract**: stop issue-side PR-phase writes; split `reconcile` /
+  `comment_handoff` / `liveness` by owning authority; delete the `entity.lua` band-aid
+  → the G-SAGA-SPLIT allowlist shrinks 18 → 0.
+
+This is the expand-contract / strangler-fig shape: 1A *expands* (readers + consumers
+before writers), 1B *migrates* (enable the forward edge), 1C *contracts* (remove the
+old issue-side authority).
 
 **Step 2 — extract `github-devloop-pr` (Phase-B, the structural split).**
 Move PR-phase departments + PR-specific core to the new package; lift the shared
