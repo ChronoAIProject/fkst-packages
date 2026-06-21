@@ -56,6 +56,37 @@ class MonotoneGateRatchetTest(unittest.TestCase):
         self.assertIn("planted_gate state-equality pr-open", joined)
         self.assertIn("unclassified transient lifecycle cursor read", joined)
 
+    def test_undeclared_cursor_gate_in_split_devloop_package_is_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "packages" / "github-devloop-integration" / "departments" / "pr_freshness_scan" / "main.lua"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                textwrap.dedent(
+                    """\
+                    local function planted_integration_gate(comments, proposal_id)
+                      local current = core.current_entity_state(comments, proposal_id)
+                      return current ~= nil and current.state == "reviewing"
+                    end
+                    """
+                ),
+                encoding="utf-8",
+            )
+            (root / "migration").mkdir()
+            (root / monotone.MANIFEST).write_text(
+                "# no declared monotone surfaces; github-devloop* split packages must be scanned\n",
+                encoding="utf-8",
+            )
+            (root / monotone.ALLOWLIST).write_text("", encoding="utf-8")
+
+            messages = monotone.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("packages/github-devloop-integration/departments/pr_freshness_scan/main.lua", joined)
+        self.assertIn("planted_integration_gate cursor-read current_entity_state(", joined)
+        self.assertIn("planted_integration_gate state-equality reviewing", joined)
+        self.assertIn("unclassified transient lifecycle cursor read", joined)
+
     def test_reached_gate_without_cursor_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

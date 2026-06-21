@@ -1,5 +1,12 @@
-# Seeded inventory: every current transient lifecycle cursor read in github-devloop* production code.
+# Seeded inventory: every current transient lifecycle cursor read in github-devloop* production packages and shared std/devloop* lifecycle helpers.
 # Shrink-only after this ratchet lands; new entries are CI-red against the dev baseline.
+packages/github-devloop-decompose/departments/decompose/main.lua|act_decompose|cursor-read|current_entity_state(|line=355|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+packages/github-devloop-decompose/departments/decompose/main.lua|decomposed_done|cursor-read|current_entity_state(|line=310|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+packages/github-devloop-intake/departments/intake_judge/main.lua|read_current_for_candidate|cursor-read|current_state(|line=179|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+packages/github-devloop-integration/departments/pr_freshness_scan/main.lua|candidate_reason|state-equality|fixing|line=110|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+packages/github-devloop-integration/departments/pr_freshness_scan/main.lua|candidate_reason|state-equality|merging|line=110|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+packages/github-devloop-integration/departments/pr_freshness_scan/main.lua|candidate_reason|state-equality|review-meta|line=110|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+packages/github-devloop-integration/departments/pr_freshness_scan/main.lua|process_pr|cursor-read|current_entity_state(|line=215|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop-pr/departments/fix/main.lua|act_fix|cursor-read|current_entity_state(|line=651|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop-pr/departments/fix/main.lua|validate_fix_write_gate_snapshot|cursor-read|current_entity_state(|line=526|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop-pr/departments/liveness_scan/main.lua|should_reinject_pr|cursor-read|current_entity_state(|line=55|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
@@ -88,3 +95,17 @@ packages/github-devloop/departments/observe_issue/main.lua|replay_or_timeout|sta
 packages/github-devloop/departments/reconcile/main.lua|pipeline_thinking|cursor-read|current_state(|line=58|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop/departments/reconcile/main.lua|pipeline_timeout|cursor-read|current_entity_state(|line=123|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop/departments/reconcile/main.lua|pipeline_timeout|state-equality|blocked|line=175|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_entity.lua|M.current_entity_state|cursor-read|current_state(|line=52|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_liveness_scan.lua|M.liveness_scan_maybe_timeout_action|state-equality|ready|line=115|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_merge_queue.lua|M.merge_queue_starvation_candidate|state-equality|merge-ready|line=218|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_merge_queue.lua|M.wip_capacity_allows_start|cursor-read|current_state(|line=488|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_merge_queue.lua|current_any_entity_state|cursor-read|current_state(|line=102|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_merge_queue.lua|merge_queue_entry_from_pr|cursor-read|current_entity_state(|line=143|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_merge_queue.lua|merge_ready_version_for_lane_state|state-equality|fixing|line=119|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_payloads/predicates.lua|M.is_ready_hand_off|state-equality|ready|line=120|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_replayer.lua|fetch_child_state_fact|cursor-read|current_entity_state(|line=224|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_replayer.lua|require_marker_fact|state-equality|implementing|line=287|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_restart_responsibility_contract.lua|edge_is_ready_dependency_regression|state-equality|dependency_wait|line=137|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_state.lua|compare_state_marker|state-equality|blocked|line=426|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_state.lua|compare_state_marker|state-equality|blocked|line=427|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
+std/devloop_state.lua|compare_state_marker|state-equality|ready|line=426|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate

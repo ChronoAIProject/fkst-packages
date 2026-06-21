@@ -2,9 +2,10 @@
 """Broad ratchet for monotone lifecycle gate bypasses.
 
 G-MONOTONE-GATE discovers every raw lifecycle cursor read in github-devloop*
-production code, then requires each occurrence to be classified. Legitimate
-current-routing reads live in the shrink-only allowlist; monotone gates use
-reached() or another approved milestone accessor instead.
+production packages and shared std/devloop* lifecycle helpers, then requires each
+occurrence to be classified. Legitimate current-routing reads live in the
+shrink-only allowlist; monotone gates use reached() or another approved milestone
+accessor instead.
 """
 
 from __future__ import annotations
@@ -21,7 +22,8 @@ MANIFEST = "migration/monotone-gate.inventory"
 ALLOWLIST = "migration/monotone-gate.allowlist"
 APPROVED_ACCESSORS = {"std.devloop_state.reached", "reached", "pr_origin_fact"}
 SURFACE_KINDS = {"monotone-gate", "visibility"}
-PACKAGE_NAMES = ("github-devloop", "github-devloop-pr")
+PACKAGE_GLOB = "github-devloop*"
+STD_DEVLOOP_PREFIX = "devloop"
 PHASES = (
     "thinking",
     "dependency_wait",
@@ -54,7 +56,7 @@ LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 GATE_KIND_RE = re.compile(r"\bgate_kind\s*=\s*['\"]monotone_milestone['\"]")
 RESPONSIBILITY_RE = re.compile(r"\bresponsibility_signature\s*\(")
 STRING_FIELD_RE = re.compile(r"\b(?P<field>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<quote>['\"])(?P<value>[^'\"]*)(?P=quote)")
-IMPLEMENTATION_RE = re.compile(r"^(?P<path>packages/github-devloop(?:-pr)?/[^:]+\.lua):(?P<function>[A-Za-z_][A-Za-z0-9_.:]*)$")
+IMPLEMENTATION_RE = re.compile(r"^(?P<path>packages/github-devloop[^/]*/[^:]+\.lua):(?P<function>[A-Za-z_][A-Za-z0-9_.:]*)$")
 
 
 @dataclass(frozen=True, order=True)
@@ -286,11 +288,26 @@ def load_manifest(path: Path) -> tuple[list[Surface], list[str]]:
     return surfaces, messages
 
 
+def is_cursor_definition(line: str, match_start: int) -> bool:
+    declaration = FUNCTION_RE.match(lua_code_mask(line))
+    if declaration is None:
+        return False
+    name = declaration.group("name")
+    if name is None:
+        return False
+    basename = name.replace(" ", "").split(".")[-1].split(":")[-1]
+    if basename not in {"current_state", "current_entity_state"}:
+        return False
+    return line.find(basename, declaration.start()) == match_start
+
+
 def block_violations(path: str, surface: str, block: Block) -> set[Violation]:
     violations: set[Violation] = set()
     for offset, line in enumerate(code_without_lua_line_comments(block.source).splitlines()):
         line_number = block.start + offset
         for match in CURSOR_RE.finditer(line):
+            if is_cursor_definition(line, match.start()):
+                continue
             violations.add(Violation(path, surface, "cursor-read", match.group(0).strip(), line_number))
         for match in STATE_EQ_RE.finditer(line):
             phase = match.group("phase1") or match.group("phase2") or "state"
@@ -304,6 +321,8 @@ def source_violations(path: str, source: str) -> set[Violation]:
     for line_number, line in enumerate(code_without_lua_line_comments(source).splitlines(), start=1):
         surface = surface_for_line(blocks, line_number)
         for match in CURSOR_RE.finditer(line):
+            if is_cursor_definition(line, match.start()):
+                continue
             violations.add(Violation(path, surface, "cursor-read", match.group(0).strip(), line_number))
         for match in STATE_EQ_RE.finditer(line):
             phase = match.group("phase1") or match.group("phase2") or "state"
@@ -311,12 +330,11 @@ def source_violations(path: str, source: str) -> set[Violation]:
     return violations
 
 
-def package_sources(root: Path) -> dict[str, str]:
+def production_sources(root: Path) -> dict[str, str]:
     sources: dict[str, str] = {}
     packages = root / "packages"
-    for package_name in PACKAGE_NAMES:
-        package_root = packages / package_name
-        if not package_root.exists():
+    for package_root in sorted(packages.glob(PACKAGE_GLOB)):
+        if not package_root.is_dir():
             continue
         for path in sorted(package_root.rglob("*.lua")):
             if not path.is_file():
@@ -324,7 +342,22 @@ def package_sources(root: Path) -> dict[str, str]:
             if "tests" in path.relative_to(package_root).parts:
                 continue
             sources[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8")
+    std_root = root / "std"
+    if std_root.exists():
+        for path in sorted(std_root.rglob("*.lua")):
+            if not path.is_file():
+                continue
+            relative_parts = path.relative_to(std_root).parts
+            if not relative_parts or not relative_parts[0].startswith(STD_DEVLOOP_PREFIX):
+                continue
+            if "tests" in relative_parts:
+                continue
+            sources[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8")
     return sources
+
+
+def package_sources(root: Path) -> dict[str, str]:
+    return production_sources(root)
 
 
 def accessor_references(source: str, accessor: str) -> bool:
@@ -383,7 +416,7 @@ def responsibility_binding_messages(sources: dict[str, str]) -> list[str]:
 
 
 def current_violations(root: Path) -> tuple[set[Violation], list[str]]:
-    sources = package_sources(root)
+    sources = production_sources(root)
     found: set[Violation] = set()
     for path, source in sorted(sources.items()):
         found.update(source_violations(path, source))
