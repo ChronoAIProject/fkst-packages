@@ -350,6 +350,21 @@ local function resume_thread(thread)
 end
 
 return {
+  test_body_file_path_flattens_slash_bearing_repo = function()
+    local core = require("core")
+    local prefix = "/tmp/fkst-github-external-pr-intake-"
+    local path = core.body_file_path("ChronoAIProject/fkst-packages", 1151, "issue")
+    t.eq(path:sub(1, #prefix), prefix)
+    t.is_true(path:sub(#prefix + 1):find("/", 1, true) == nil)
+  end,
+
+  test_scan_source_must_be_reliable = function()
+    local spec = load_department().spec
+    for _, queue in ipairs(spec.ephemeral or {}) do
+      t.is_true(queue ~= "external_pr_scan")
+    end
+  end,
+
   test_existing_intake_surfaces_cannot_schedule_external_pr_bridge = function()
     local proxy_raiser = read_disk_file(sibling_package_root("github-proxy") .. "/raisers/github_poll.lua")
     local proxy_poll = read_disk_file(sibling_package_root("github-proxy") .. "/departments/github_poll/main.lua")
