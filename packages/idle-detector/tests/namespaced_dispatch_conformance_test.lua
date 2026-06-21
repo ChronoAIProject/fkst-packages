@@ -63,7 +63,8 @@ return {
     conformance.assert_all_consumed_queues_route({
       t = t,
       package_name = "idle-detector",
-      test_module_name = "tests.namespaced_dispatch_conformance_test",
+      package_root = "packages/idle-detector",
+      caller_require = require,
       payload_for_queue = payload_for_queue,
       opts_for_case = opts_for_case,
     })

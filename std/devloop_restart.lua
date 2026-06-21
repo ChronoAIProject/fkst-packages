@@ -1,7 +1,7 @@
 local S = {}
 local registry = require("std.registry")
 
-function S.install(M)
+function S.install(M, caller_require)
 
 local source_ref_derivations = {
   entity = true,
@@ -21,9 +21,9 @@ local replay_payload_fields_index = M.restart_replay_payload_fields_index or "co
 local transitions_index = M.restart_transitions_index or "core.restart.transitions.index"
 local default_consumer_sources = M.restart_consumer_sources or {}
 
-local marker_fields = registry.load_indexed_map(marker_fields_index, "family", nil, nil, package_name)
+local marker_fields = registry.load_indexed_map(marker_fields_index, "family", nil, nil, package_name, caller_require)
 
-local required_replay_payload_fields = registry.load_indexed_map(replay_payload_fields_index, "state", nil, nil, package_name)
+local required_replay_payload_fields = registry.load_indexed_map(replay_payload_fields_index, "state", nil, nil, package_name, caller_require)
 
 local function fact(family, freshness)
   return { family = family, freshness = freshness }
@@ -104,7 +104,7 @@ local transition_table = registry.load_indexed_array(transitions_index, "from_st
   watchdog = watchdog,
   actionable_epoch = actionable_epoch,
   responsibility_signature = responsibility_signature, span_contract = responsibility_signature,
-}, package_name)
+}, package_name, caller_require)
 
 local audit_by_state = {}
 for _, row in ipairs(transition_table) do

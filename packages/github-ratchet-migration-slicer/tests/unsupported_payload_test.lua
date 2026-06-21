@@ -1,39 +1,10 @@
 local t = fkst.test
 
-local function package_root()
-  local source = package.searchpath("tests.unsupported_payload_test", package.path)
-  return source:match("(.+)/tests/unsupported_payload_test%.lua$")
-end
-
 local function run_department_with_logs(path, event)
   local result = t.run_department(path, event)
   t.is_true(type(result) == "table")
-
-  local captured = {}
-  local old_log = log
-
-  log = {
-    info = function(message)
-      table.insert(captured, tostring(message))
-    end,
-    warn = function(message)
-      table.insert(captured, tostring(message))
-    end,
-    error = function(message)
-      table.insert(captured, tostring(message))
-    end,
-  }
-
-  local old_pipeline = pipeline
-  local ok, err = pcall(function()
-    dofile(package_root() .. "/" .. path)
-    pipeline(event)
-  end)
-  pipeline = old_pipeline
-  log = old_log
-  return ok, tostring(err or ""), table.concat({
+  return result.exit_code == 0, tostring(result.error or ""), table.concat({
     tostring(result.error or ""),
-    table.concat(captured, "\n"),
   }, "\n")
 end
 

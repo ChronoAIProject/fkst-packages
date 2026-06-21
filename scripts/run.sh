@@ -345,6 +345,17 @@ check_sdk_primitives() {
   local probe_dir report_file
   probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/fkst-sdk-probe.XXXXXX")"
   mkdir -p "$probe_dir/tests"
+  cat > "$probe_dir/fkst.workspace.toml" <<'TOML'
+[workspace]
+units = ["."]
+TOML
+  cat > "$probe_dir/fkst.toml" <<'TOML'
+kind = "package"
+name = "sdk-probe"
+
+[code]
+root = "."
+TOML
   printf 'return {}\n' > "$probe_dir/core.lua"
   cat > "$probe_dir/tests/sdk_primitives_test.lua" <<'LUA'
 local t = fkst.test
@@ -401,7 +412,7 @@ run_self_test_with_optional_lua_coverage() {
   rm -rf "$coverage_dir"
   mkdir -p "$coverage_dir"
   set +e
-  out="$(cd "$coverage_dir" && "$BIN" --self-test --coverage "$coverage_dir" 2>&1)"
+  out="$(cd "$ROOT" && "$BIN" --self-test --coverage "$coverage_dir" 2>&1)"
   rc=$?
   set -e
   if [ "$rc" -eq 0 ]; then

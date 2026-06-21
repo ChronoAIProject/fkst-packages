@@ -1,7 +1,7 @@
 local S = {}
 local registry = require("std.registry")
 
-function S.install(M)
+function S.install(M, caller_require)
 local shared = {}
 local max_timeout_attempts = 3
 shared.max_timeout_attempts = max_timeout_attempts
@@ -102,7 +102,8 @@ local liveness_signal_producers = registry.load_indexed_map(
   "family",
   nil,
   nil,
-  M.restart_package_name or "github-devloop"
+  M.restart_package_name or "github-devloop",
+  caller_require
 )
 shared.liveness_signal_producers = liveness_signal_producers
 
@@ -168,7 +169,11 @@ local function source_contains(path, needle)
   if type(path) ~= "string" or path == "" or type(needle) ~= "string" or needle == "" then
     return false
   end
-  local ok, text = pcall(file.read, tostring(M.restart_source_root or "packages/github-devloop/") .. path)
+  local source_path = path
+  if path:sub(1, 4) ~= "std/" then
+    source_path = tostring(M.restart_source_root or "packages/github-devloop/") .. path
+  end
+  local ok, text = pcall(file.read, source_path)
   return ok and tostring(text or ""):find(needle, 1, true) ~= nil
 end
 shared.source_contains = source_contains

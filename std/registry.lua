@@ -51,17 +51,19 @@ local function entry_name(entry, module_name, key_field, owner)
   return name
 end
 
-local function require_entry(module_name, M, helpers)
-  local loaded = require(module_name)
+local function require_entry(module_name, M, helpers, caller_require)
+  local load_module = caller_require or require
+  local loaded = load_module(module_name)
   if type(loaded) == "function" then
     return loaded(M, helpers or {})
   end
   return loaded
 end
 
-function S.load_indexed_array(index_module, key_field, M, helpers, owner)
+function S.load_indexed_array(index_module, key_field, M, helpers, owner, caller_require)
   owner = owner or "registry"
-  local index = require(index_module)
+  local load_module = caller_require or require
+  local index = load_module(index_module)
   assert_sorted_unique(index_module, index, owner)
   local rows = {}
   local seen = {}
@@ -72,7 +74,7 @@ function S.load_indexed_array(index_module, key_field, M, helpers, owner)
       error(tostring(owner) .. ": registry index entry must declare a module: " .. tostring(index_module))
     end
     local module_name = base .. "." .. name
-    local entry = require_entry(module_name, M, helpers)
+    local entry = require_entry(module_name, M, helpers, caller_require)
     local key = entry_name(entry, module_name, key_field, owner)
     if expected_key == nil then
       expected_key = name
@@ -89,9 +91,9 @@ function S.load_indexed_array(index_module, key_field, M, helpers, owner)
   return rows
 end
 
-function S.load_indexed_map(index_module, key_field, M, helpers, owner)
+function S.load_indexed_map(index_module, key_field, M, helpers, owner, caller_require)
   owner = owner or "registry"
-  local rows = S.load_indexed_array(index_module, key_field, M, helpers, owner)
+  local rows = S.load_indexed_array(index_module, key_field, M, helpers, owner, caller_require)
   local map = {}
   for _, row in ipairs(rows) do
     local key = row[key_field]
@@ -106,9 +108,10 @@ function S.load_indexed_map(index_module, key_field, M, helpers, owner)
   return map
 end
 
-function S.load_indexed_installers(index_module, M, owner)
+function S.load_indexed_installers(index_module, M, owner, caller_require)
   owner = owner or "registry"
-  local index = require(index_module)
+  local load_module = caller_require or require
+  local index = load_module(index_module)
   assert_sorted_unique(index_module, index, owner)
   local base = base_module(index_module)
   for _, index_entry in ipairs(index) do
@@ -117,7 +120,7 @@ function S.load_indexed_installers(index_module, M, owner)
       error(tostring(owner) .. ": registry index entry must declare a module: " .. tostring(index_module))
     end
     local module_name = base .. "." .. name
-    local installer = require(module_name)
+    local installer = load_module(module_name)
     if type(installer) ~= "function" then
       error(tostring(owner) .. ": registry installer must return a function: " .. module_name)
     end

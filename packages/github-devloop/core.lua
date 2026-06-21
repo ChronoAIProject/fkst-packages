@@ -64,7 +64,7 @@ M.restart_consumer_sources = {
   "packages/github-devloop/core/ready_split.lua",
   "std/devloop_decompose.lua",
 }
-require("std.devloop_restart").install(M)
+require("std.devloop_restart").install(M, require)
 require("core.restart.pr_partition_contract").install(M)
 require("std.devloop_restart_liveness_contract").install(M)
 require("std.devloop_restart_responsibility_contract").install(M)
@@ -72,9 +72,9 @@ require("std.devloop_restart_actionable_epoch").install(M)
 require("core.ready_split").install(M)
 require("core.awaiting_pr_replayer").install(M)
 require("std.devloop_replayer").install(M)
-require("std.devloop_liveness").install(M)
+require("std.devloop_liveness").install(M, require)
 require("std.devloop_liveness_scan").install(M)
-require("std.devloop_prompts").install(M)
+require("std.devloop_prompts").install(M, require)
 require("std.devloop_requests").install(M)
 require("core.reconcile_requests").install(M)
 require("std.devloop_entity").install(M)

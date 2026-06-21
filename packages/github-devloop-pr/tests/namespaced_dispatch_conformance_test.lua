@@ -98,7 +98,8 @@ return {
     conformance.assert_all_consumed_queues_route({
       t = t,
       package_name = "github-devloop-pr",
-      test_module_name = "tests.namespaced_dispatch_conformance_test",
+      package_root = "packages/github-devloop-pr",
+      caller_require = require,
       payload_for_queue = payload_for_queue,
     })
   end,

@@ -57,7 +57,8 @@ return {
     conformance.assert_all_consumed_queues_route({
       t = t,
       package_name = "archaudit",
-      test_module_name = "tests.namespaced_dispatch_conformance_test",
+      package_root = "packages/archaudit",
+      caller_require = require,
       payload_for_queue = payload_for_queue,
       opts_for_case = opts_for_case,
     })
