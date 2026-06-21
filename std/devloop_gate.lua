@@ -36,6 +36,10 @@ local safe_string = {
   sub = string.sub,
   upper = string.upper,
 }
+-- Lua's shared string value metatable may still expose string.dump through
+-- ("").dump even though the sandbox string table omits it. With require/load nil,
+-- dumped bytecode is inert here; making that unreachable requires a host-owned
+-- restricted-load primitive or an isolated Lua state.
 
 local safe_table = {
   concat = table.concat,

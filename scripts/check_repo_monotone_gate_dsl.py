@@ -46,6 +46,7 @@ REQUIRE_RE = re.compile(
     r"""\brequire\s*(?:\(\s*)?(?:"([A-Za-z0-9_.\-]+)"|'([A-Za-z0-9_.\-]+)'|\[(=*)\[([A-Za-z0-9_.\-]+)\]\3\])"""
 )
 GATE_MODULE_RE = re.compile(r"^core\.gates\.[A-Za-z_][A-Za-z0-9_]*$")
+GATE_PATH_RE = re.compile(r"(?:^|[./\\])core[/\\]gates[/\\][A-Za-z_][A-Za-z0-9_]*(?:\.lua)?$")
 GATE_REQUIRE_BINDING_RE = re.compile(
     r"""\b(?:local\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*require\s*(?:\(\s*)?(?:"std\.devloop_gate"|'std\.devloop_gate'|\[(=*)\[std\.devloop_gate\]\2\])"""
 )
@@ -86,11 +87,11 @@ class Finding:
 @dataclass(frozen=True, order=True)
 class BypassFinding:
     path: str
-    module: str
+    target: str
     line: int
 
     def label(self) -> str:
-        return f"{self.path}:{self.line} loader-bypass {self.module}"
+        return f"{self.path}:{self.line} loader-bypass {self.target}"
 
 
 def _mask(chars: list[str], start: int, end: int) -> None:
@@ -110,6 +111,59 @@ def _quoted_string_end(text: str, start: int) -> int:
             return cursor + 1
         cursor += 1
     return len(text)
+
+
+def _long_bracket_match(text: str, start: int) -> tuple[int, int, int] | None:
+    match = re.match(r"\[(=*)\[", text[start:])
+    if match is None:
+        return None
+    close = "]" + match.group(1) + "]"
+    content_start = start + len(match.group(0))
+    close_start = text.find(close, content_start)
+    if close_start == -1:
+        return len(text), content_start, len(text)
+    return close_start + len(close), content_start, close_start
+
+
+def lua_string_literals(text: str) -> list[tuple[str, int]]:
+    literals: list[tuple[str, int]] = []
+    cursor = 0
+    while cursor < len(text):
+        if text.startswith("--", cursor):
+            long_comment = _long_bracket_match(text, cursor + 2)
+            if long_comment is not None:
+                cursor = long_comment[0]
+                continue
+            newline = text.find("\n", cursor)
+            cursor = len(text) if newline == -1 else newline
+            continue
+        if text[cursor] in {"'", '"'}:
+            end = _quoted_string_end(text, cursor)
+            literals.append((text[cursor + 1:end - 1], cursor))
+            cursor = end
+            continue
+        long_string = _long_bracket_match(text, cursor)
+        if long_string is not None:
+            end, content_start, content_end = long_string
+            literals.append((text[content_start:content_end], cursor))
+            cursor = end
+            continue
+        cursor += 1
+    return literals
+
+
+def literal_concat_bypass_findings(path: str, source: str) -> set[BypassFinding]:
+    literals = lua_string_literals(source)
+    findings: set[BypassFinding] = set()
+    for start in range(0, len(literals)):
+        joined = ""
+        for end in range(start, min(len(literals), start + 8)):
+            joined += literals[end][0]
+            normalized = joined.replace("\\", "/")
+            if GATE_MODULE_RE.search(joined) is not None or GATE_PATH_RE.search(normalized) is not None:
+                findings.add(BypassFinding(path, joined, line_number(source, literals[start][1])))
+                break
+    return findings
 
 
 def strip_lua_comments_and_strings(text: str) -> str:
@@ -218,6 +272,21 @@ def production_sources(root: Path) -> dict[str, str]:
     return sources
 
 
+def loader_scan_sources(root: Path) -> dict[str, str]:
+    sources: dict[str, str] = {}
+    for package in sorted((root / "packages").glob(PACKAGE_GLOB)):
+      if not package.is_dir():
+        continue
+      for path in sorted(package.rglob("*.lua")):
+        if not path.is_file():
+          continue
+        rel = path.relative_to(root).as_posix()
+        if "/core/gates/" in f"/{rel}/":
+          continue
+        sources[rel] = path.read_text(encoding="utf-8")
+    return sources
+
+
 def source_findings(path: str, source: str) -> set[Finding]:
     findings: set[Finding] = set()
     stripped = strip_lua_comments_and_strings(source)
@@ -243,7 +312,7 @@ def source_findings(path: str, source: str) -> set[Finding]:
 
 def loader_bypass_findings(root: Path) -> set[BypassFinding]:
     findings: set[BypassFinding] = set()
-    for path, source in production_sources(root).items():
+    for path, source in loader_scan_sources(root).items():
         stripped = strip_lua_comments_and_strings(source)
         for match in REQUIRE_RE.finditer(source):
             if stripped[match.start():match.start() + len("require")] != "require":
@@ -251,6 +320,10 @@ def loader_bypass_findings(root: Path) -> set[BypassFinding]:
             module = required_module(match)
             if GATE_MODULE_RE.fullmatch(module) is not None:
                 findings.add(BypassFinding(path, module, line_number(source, match.start())))
+        for literal, offset in lua_string_literals(source):
+            if GATE_MODULE_RE.fullmatch(literal) is not None or GATE_PATH_RE.search(literal) is not None:
+                findings.add(BypassFinding(path, literal, line_number(source, offset)))
+        findings.update(literal_concat_bypass_findings(path, source))
     return findings
 
 

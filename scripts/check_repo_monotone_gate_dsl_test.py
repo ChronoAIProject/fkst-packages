@@ -182,6 +182,96 @@ class MonotoneGateDslRatchetTest(unittest.TestCase):
         self.assertIn("loader-bypass core.gates.child_start_visible", joined)
         self.assertIn("restricted _ENV sandbox is authoritative", joined)
 
+    def test_any_lua_code_must_not_require_gate_defs_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "child_start_visible.lua",
+                """\
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                })
+                """,
+            )
+            bypass = root / "packages" / "github-devloop" / "tests" / "bypass_test.lua"
+            bypass.parent.mkdir(parents=True, exist_ok=True)
+            bypass.write_text(
+                textwrap.dedent(
+                    """\
+                    local gate_def = require("core.gates.child_start_visible")
+                    return gate_def
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("packages/github-devloop/tests/bypass_test.lua:1 loader-bypass core.gates.child_start_visible", joined)
+        self.assertIn("restricted _ENV sandbox is authoritative", joined)
+
+    def test_any_lua_code_must_not_path_load_gate_defs_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "child_start_visible.lua",
+                """\
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                })
+                """,
+            )
+            bypass = root / "packages" / "github-devloop" / "core" / "path_bypass.lua"
+            bypass.parent.mkdir(parents=True, exist_ok=True)
+            bypass.write_text(
+                textwrap.dedent(
+                    """\
+                    local path = package_root .. "/core/gates/child_start_visible.lua"
+                    return dofile(path)
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("loader-bypass /core/gates/child_start_visible.lua", joined)
+        self.assertIn("restricted _ENV sandbox is authoritative", joined)
+
+    def test_any_lua_code_must_not_split_literal_path_load_gate_defs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "child_start_visible.lua",
+                """\
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                })
+                """,
+            )
+            bypass = root / "packages" / "github-devloop" / "core" / "split_path_bypass.lua"
+            bypass.parent.mkdir(parents=True, exist_ok=True)
+            bypass.write_text(
+                textwrap.dedent(
+                    """\
+                    local path = package_root .. "/core/" .. "gates/" .. "child_start_visible.lua"
+                    return dofile(path)
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("loader-bypass /core/gates/child_start_visible.lua", joined)
+        self.assertIn("restricted _ENV sandbox is authoritative", joined)
+
     def test_pure_gate_definition_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
