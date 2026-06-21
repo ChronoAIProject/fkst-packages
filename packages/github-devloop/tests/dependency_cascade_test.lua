@@ -709,7 +709,7 @@ return {
     )
     local scanned = run_liveness_scan()
     t.eq(scanned.exit_code, 0)
-    local changed = find_raise(scanned.raises, "github-proxy.github_entity_changed")
+    local changed = find_raise(scanned.raises, "github-proxy.github_entity_changed_request")
     t.is_true(changed ~= nil)
 
     mock_observe_issue(

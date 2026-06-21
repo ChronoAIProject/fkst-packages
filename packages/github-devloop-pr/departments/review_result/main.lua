@@ -104,9 +104,6 @@ return saga.department(spec, { done = function() return false end, act = functio
       if current_state == to_state and same_review_version then
         return "idempotent"
       end
-      if to_state == "fixing" and current_state == "merge-ready" and same_review_version then
-        return "apply"
-      end
       if current_state ~= nil and core.stage_rank(current_state) > core.stage_rank("reviewing") then
         return "stale"
       end

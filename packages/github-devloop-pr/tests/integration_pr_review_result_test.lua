@@ -195,10 +195,9 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_review_result_reject_new_fix_round_converges_over_same_review_version_merge_ready = function()
+  test_review_result_reject_after_merge_ready_same_review_version_stale_skips = function()
     local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version
-    local fix_version = core.fix_version_from_review_version(impl_version)
     mock_pr_origin({
       core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
@@ -208,18 +207,7 @@ return {
 
     local result = run_review_result(event, opts("review-result-conflict-fixing"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
-    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    t.eq(label_raise.payload.add_labels[1], "fkst-dev:fixing")
-    t.is_true(comment_raise.payload.body:find("decision=\"reject\"", 1, true) ~= nil)
-    t.is_true(comment_raise.payload.body:find('state="fixing" version="' .. fix_version .. '"', 1, true) ~= nil)
-    local current = core.current_state({
-      core.state_marker("github-devloop/issue/owner/repo/42", "merge-ready", impl_version),
-      comment_raise.payload.body,
-    }, "github-devloop/issue/owner/repo/42")
-    t.eq(current.state, "fixing")
-    t.eq(current.version, fix_version)
+    t.eq(#result.raises, 0)
   end,
 
   test_review_result_fix_round_approve_uses_safe_review_version_consistently = function()

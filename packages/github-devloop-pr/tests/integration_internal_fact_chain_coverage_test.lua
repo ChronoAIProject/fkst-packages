@@ -452,30 +452,8 @@ return {
     })
     local rejected = run_review_result(reject, opts("internal-chain-review-reject-direct"))
     t.eq(rejected.exit_code, 0)
-    local direct_fix = find_causal_raise(rejected, "devloop_fixing")
-    t.eq(direct_fix.payload.schema, "github-devloop.fixing.v1")
-
-    local reject_fact = find_pr_comment_with(rejected.raises, "fkst:github-devloop:review-result:v1").payload.body
-    mock_pr_origin({
-      review_origin_marker(impl_version),
-      core.state_marker("github-devloop/issue/owner/repo/42", "fixing", direct_fix.payload.version),
-      reject_fact,
-    })
-    mock_issue_result_view({ "fkst-dev:fixing" }, {
-      core.state_marker("github-devloop/issue/owner/repo/42", "fixing", direct_fix.payload.version),
-      reject_fact,
-    })
-    local recovered_fix = h.run_observe_pr({
-      schema = "github-proxy.v1",
-      type = "pr",
-      repo = "owner/repo",
-      number = 7,
-      dedup_key = "owner/repo#pr#7@2026-06-04T01:02:04Z",
-      source_ref = { kind = "external", ref = "owner/repo#pr/7" },
-    }, opts("internal-chain-review-reject-recovery"))
-    t.eq(recovered_fix.exit_code, 0)
-    t.eq(find_raise(recovered_fix.raises, "devloop_fixing"), nil)
-    t.is_true(find_causal_raise(recovered_fix, "devloop_reviewing") ~= nil)
+    t.eq(find_causal_raise(rejected, "devloop_fixing"), nil)
+    t.eq(find_pr_comment_with(rejected.raises, "fkst:github-devloop:review-result:v1"), nil)
   end,
 
   test_merge_direct_cascade_and_poll_recovery_cover_terminal_and_repair_paths = function()

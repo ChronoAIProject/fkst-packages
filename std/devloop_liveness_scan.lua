@@ -187,10 +187,16 @@ end
 function M.liveness_scan_reinject(repo, entity, kind, tick)
   local proposal_id = kind == "pr" and M.pr_proposal_id(repo, entity.number) or M.proposal_id(repo, entity.number)
   local payload = M.liveness_scan_build_observe_payload(repo, entity, kind, tick)
+  local request = {
+    schema = "github-proxy.entity-changed-request.v1",
+    payload = payload,
+    dedup_key = payload.dedup_key,
+    source_ref = payload.source_ref,
+  }
   M.log_apply("liveness_scan", proposal_id, nil, nil, { add = {}, remove = {} }, {
-    "github-proxy.github_entity_changed",
+    "github-proxy.github_entity_changed_request",
   })
-  M.log_raise("liveness_scan", proposal_id, "github-proxy.github_entity_changed", payload)
+  M.log_raise("liveness_scan", proposal_id, "github-proxy.github_entity_changed_request", request)
 end
 
 end

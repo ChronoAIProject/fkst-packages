@@ -17,6 +17,7 @@ return {
     local acted = 0
     local module = saga.department({
       consumes = { "demo" },
+      published_seam = { "demo" },
       produces = { "done" },
     }, {
       name = "demo",
@@ -30,6 +31,7 @@ return {
     })
 
     t.eq(module.spec.consumes[1], "demo")
+    t.eq(module.spec.published_seam[1], "demo")
     t.eq(module.spec.produces[1], "done")
     t.eq(pipeline(event({ payload = { value = "ok" } })), "ok")
     t.eq(acted, 1)

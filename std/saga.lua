@@ -42,6 +42,7 @@ local function spec_from_spec(spec)
   return {
     consumes = spec.consumes,
     produces = spec.produces,
+    published_seam = spec.published_seam,
     stall_window = spec.stall_window,
     retry = spec.retry,
     fanout = spec.fanout,

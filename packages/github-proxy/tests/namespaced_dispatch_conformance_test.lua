@@ -69,6 +69,25 @@ local function blocked_by_payload()
   }
 end
 
+local function entity_changed_request_payload()
+  return {
+    schema = "github-proxy.entity-changed-request.v1",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = "owner/x",
+      number = 42,
+      state = "open",
+      updated_at = "2026-06-03T01:02:03Z",
+      dedup_key = "github-proxy/namespaced/entity-changed",
+      source = "namespaced-dispatch",
+      source_ref = source_ref(),
+    },
+    dedup_key = "github-proxy/namespaced/entity-changed",
+    source_ref = source_ref(),
+  }
+end
+
 local function entity_view_probe_payload()
   return {
     repo = "owner/x",
@@ -82,6 +101,7 @@ end
 local function payload_for_queue(_path, queue)
   local payloads = {
     entity_view_probe = entity_view_probe_payload(),
+    github_entity_changed_request = entity_changed_request_payload(),
     github_issue_blocked_by_request = blocked_by_payload(),
     github_issue_comment_request = issue_comment_payload(),
     github_issue_create_request = issue_create_payload(),
