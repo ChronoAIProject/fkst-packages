@@ -182,8 +182,9 @@ Add `G-MONOTONE-GATE` as a sibling repository ratchet to the existing scanners:
   boundary" (`scripts/check_repo_saga_split.py:2`, `scripts/check_repo_saga_split.py:4`,
   `scripts/check_repo_saga_split.py:21`, `scripts/check_repo_saga_split.py:22`).
 
-`G-MONOTONE-GATE` forbids transient-cursor comparisons inside forward-gate and
-visibility predicates:
+`G-MONOTONE-GATE` discovers all transient lifecycle cursor reads in
+`github-devloop*` production gate, transition, and handler code, then requires each
+occurrence to be classified:
 
 - `.state == "<lifecycle phase literal>"` in a predicate classified as a monotone
   lifecycle gate.
@@ -204,9 +205,12 @@ strongest form to substrate.
 
 The scanner must not ban all `state ==` usage. Decision and routing code can
 legitimately ask "what is the current state?" A department switching over the current
-state for a current routing decision is not a monotone milestone gate. The scan must
-only bind to predicates declared as forward-gate or visibility surfaces by
-`responsibility_signature` and a small inventory manifest during migration.
+state for a current routing decision is not a monotone milestone gate. The scan
+therefore uses broad discovery plus classification: migrated monotone gates must use
+`reached()` or another approved milestone accessor, while legitimate current-routing
+reads and not-yet-migrated debt must be listed in the shrink-only allowlist. A new
+undeclared cursor read is CI-red until it is migrated or classified; "do not declare
+gate_kind" is not an escape hatch.
 
 ## 4. `responsibility_signature` Extension
 
@@ -286,9 +290,10 @@ Use an inventory ratchet, not a mega-PR.
    as `G-MONOTONE-GATE`, matching the existing repository-check pattern
    (`scripts/check_repo.py:967`, `scripts/check_repo.py:979`,
    `scripts/check_repo.py:982`, `scripts/check_repo.py:985`).
-3. Seed `migration/monotone-gate.allowlist` with the current inventory of
-   monotone-gate cursor reads and literal phase equality sites. Each entry carries a
-   why and a tracking issue, following the shrink-only debt discipline in CLAUDE.md
+3. Seed `migration/monotone-gate.allowlist` with the current broad inventory of
+   transient cursor reads and literal phase equality sites in `github-devloop*`
+   production gate, transition, and handler code. Each entry carries a why and a
+   tracking issue, following the shrink-only debt discipline in CLAUDE.md
    (`CLAUDE.md:259`, `CLAUDE.md:261`).
 4. Migrate one slice at a time from cursor equality to `reached()`. The #1303
    `child_start_visible` fix is the proof-shape: durable start/milestone fact, not a
@@ -302,7 +307,8 @@ Acceptance:
 
 - Every monotone lifecycle gate uses `std.devloop_state.reached()` or an explicitly
   approved milestone accessor.
-- `migration/monotone-gate.allowlist` is empty.
+- `migration/monotone-gate.allowlist` accounts for the current inventory and shrinks
+  to zero over follow-up migrations; growth and stale entries are CI-red.
 - `responsibility_signature` can classify monotone milestone gates separately from
   decision/routing states.
 - Current-state routing code remains legal when declared as a decision/current-route

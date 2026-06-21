@@ -378,6 +378,9 @@ local function validate_gate_kind(row, signature, errors)
   if not non_empty_string(signature.milestone_domain) then
     table.insert(errors, state .. ": monotone_milestone gate must declare milestone_domain")
   end
+  if not non_empty_string(signature.milestone_implementation) then
+    table.insert(errors, state .. ": monotone_milestone gate must declare milestone_implementation")
+  end
   if type(signature.lineage_keys) ~= "table" or #signature.lineage_keys == 0 then
     table.insert(errors, state .. ": monotone_milestone gate must declare lineage_keys")
   end

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Scoped ratchet for monotone lifecycle gates.
+"""Broad ratchet for monotone lifecycle gate bypasses.
 
-The scanner only inspects surfaces declared as monotone gates in the migration
-inventory or a responsibility_signature block with gate_kind="monotone_milestone".
-Current-state routing code outside those declared surfaces remains legal.
+G-MONOTONE-GATE discovers every raw lifecycle cursor read in github-devloop*
+production code, then requires each occurrence to be classified. Legitimate
+current-routing reads live in the shrink-only allowlist; monotone gates use
+reached() or another approved milestone accessor instead.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ MANIFEST = "migration/monotone-gate.inventory"
 ALLOWLIST = "migration/monotone-gate.allowlist"
 APPROVED_ACCESSORS = {"std.devloop_state.reached", "reached", "pr_origin_fact"}
 SURFACE_KINDS = {"monotone-gate", "visibility"}
+PACKAGE_NAMES = ("github-devloop", "github-devloop-pr")
 PHASES = (
     "thinking",
     "dependency_wait",
@@ -51,6 +53,8 @@ FUNCTION_RE = re.compile(
 LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 GATE_KIND_RE = re.compile(r"\bgate_kind\s*=\s*['\"]monotone_milestone['\"]")
 RESPONSIBILITY_RE = re.compile(r"\bresponsibility_signature\s*\(")
+STRING_FIELD_RE = re.compile(r"\b(?P<field>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<quote>['\"])(?P<value>[^'\"]*)(?P=quote)")
+IMPLEMENTATION_RE = re.compile(r"^(?P<path>packages/github-devloop(?:-pr)?/[^:]+\.lua):(?P<function>[A-Za-z_][A-Za-z0-9_.:]*)$")
 
 
 @dataclass(frozen=True, order=True)
@@ -91,8 +95,8 @@ class Violation:
             raise ValueError(f"invalid {ALLOWLIST} WHY: {line}")
         return cls(path=path, surface=surface, kind=kind, token=token, line=int(line_part.removeprefix("line=")))
 
-    def key(self) -> tuple[str, str, str, str]:
-        return self.path, self.surface, self.kind, self.token
+    def key(self) -> tuple[str, str, str, str, str]:
+        return self.path, self.surface, self.kind, self.token, str(self.line)
 
     def label(self) -> str:
         return f"{self.path}:{self.line} {self.surface} {self.kind} {self.token}"
@@ -130,6 +134,44 @@ def code_without_lua_line_comments(source: str) -> str:
     return "\n".join(strip_lua_line_comment(line) for line in source.splitlines())
 
 
+def _mask(chars: list[str], start: int, end: int) -> None:
+    for index in range(start, end):
+        if chars[index] != "\n":
+            chars[index] = " "
+
+
+def _quoted_string_end(text: str, start: int) -> int:
+    quote = text[start]
+    cursor = start + 1
+    while cursor < len(text):
+        if text[cursor] == "\\":
+            cursor += 2
+            continue
+        if text[cursor] == quote:
+            return cursor + 1
+        cursor += 1
+    return len(text)
+
+
+def lua_code_mask(text: str) -> str:
+    chars = list(text)
+    cursor = 0
+    while cursor < len(text):
+        if text.startswith("--", cursor):
+            newline = text.find("\n", cursor)
+            end = len(text) if newline == -1 else newline
+            _mask(chars, cursor, end)
+            cursor = end
+            continue
+        if text[cursor] in {"'", '"'}:
+            end = _quoted_string_end(text, cursor)
+            _mask(chars, cursor, end)
+            cursor = end
+            continue
+        cursor += 1
+    return "".join(chars)
+
+
 def block_delta(line: str) -> int:
     tokens = LUA_WORD_RE.findall(line)
     delta = 0
@@ -144,7 +186,7 @@ def block_delta(line: str) -> int:
 
 
 def function_blocks(source: str) -> list[Block]:
-    code_lines = code_without_lua_line_comments(source).splitlines()
+    code_lines = lua_code_mask(source).splitlines()
     original_lines = source.splitlines()
     blocks: list[Block] = []
     index = 0
@@ -162,6 +204,13 @@ def function_blocks(source: str) -> list[Block]:
         blocks.append(Block(name=name, start=index + 1, end=end + 1, source="\n".join(original_lines[index:end + 1])))
         index += 1
     return blocks
+
+
+def surface_for_line(blocks: list[Block], line_number: int) -> str:
+    containing = [block for block in blocks if block.start <= line_number <= block.end]
+    if not containing:
+        return "<top-level>"
+    return max(containing, key=lambda block: block.start).name
 
 
 def block_for_function(source: str, function_name: str) -> Block | None:
@@ -191,6 +240,10 @@ def responsibility_blocks(source: str) -> list[Block]:
             blocks.append(Block(name="responsibility_signature", start=index + 1, end=end + 1, source=source_block))
         index = end + 1
     return blocks
+
+
+def string_fields(source: str) -> dict[str, str]:
+    return {match.group("field"): match.group("value") for match in STRING_FIELD_RE.finditer(source)}
 
 
 def load_manifest(path: Path) -> tuple[list[Surface], list[str]]:
@@ -245,27 +298,97 @@ def block_violations(path: str, surface: str, block: Block) -> set[Violation]:
     return violations
 
 
-def current_violations(root: Path) -> tuple[set[Violation], list[str]]:
+def source_violations(path: str, source: str) -> set[Violation]:
+    blocks = function_blocks(source)
+    violations: set[Violation] = set()
+    for line_number, line in enumerate(code_without_lua_line_comments(source).splitlines(), start=1):
+        surface = surface_for_line(blocks, line_number)
+        for match in CURSOR_RE.finditer(line):
+            violations.add(Violation(path, surface, "cursor-read", match.group(0).strip(), line_number))
+        for match in STATE_EQ_RE.finditer(line):
+            phase = match.group("phase1") or match.group("phase2") or "state"
+            violations.add(Violation(path, surface, "state-equality", phase, line_number))
+    return violations
+
+
+def package_sources(root: Path) -> dict[str, str]:
+    sources: dict[str, str] = {}
+    packages = root / "packages"
+    for package_name in PACKAGE_NAMES:
+        package_root = packages / package_name
+        if not package_root.exists():
+            continue
+        for path in sorted(package_root.rglob("*.lua")):
+            if not path.is_file():
+                continue
+            if "tests" in path.relative_to(package_root).parts:
+                continue
+            sources[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8")
+    return sources
+
+
+def accessor_references(source: str, accessor: str) -> bool:
+    basename = accessor.split(".")[-1]
+    return re.search(r"\b" + re.escape(basename) + r"\s*\(", lua_code_mask(source)) is not None
+
+
+def manifest_messages(root: Path, sources: dict[str, str]) -> list[str]:
     surfaces, messages = load_manifest(root / MANIFEST)
-    found: set[Violation] = set()
     for surface in surfaces:
-        path = root / surface.path
-        if not path.exists():
+        source = sources.get(surface.path)
+        if source is None:
             messages.append(f"manifest-stale-path: {surface.path}")
             continue
-        source = path.read_text(encoding="utf-8")
         block = block_for_function(source, surface.function)
         if block is None:
             messages.append(f"manifest-stale-function: {surface.path} {surface.function}")
             continue
-        found.update(block_violations(surface.path, surface.function, block))
-    for path in sorted((root / "packages").rglob("*.lua")) + sorted((root / "std").rglob("*.lua")):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root).as_posix()
-        source = path.read_text(encoding="utf-8")
+        if not accessor_references(block.source, surface.milestone_accessor):
+            messages.append(f"manifest-unbound-accessor: {surface.path} {surface.function} does not reference {surface.milestone_accessor}")
+        for violation in sorted(block_violations(surface.path, surface.function, block)):
+            messages.append(f"{violation.label()} reads a transient cursor inside a declared monotone milestone surface; use {surface.milestone_accessor}")
+    return messages
+
+
+def responsibility_binding_messages(sources: dict[str, str]) -> list[str]:
+    messages: list[str] = []
+    for rel, source in sorted(sources.items()):
         for block in responsibility_blocks(source):
-            found.update(block_violations(rel, block.name, block))
+            fields = string_fields(block.source)
+            accessor = fields.get("milestone_accessor", "")
+            implementation = fields.get("milestone_implementation", "")
+            if accessor not in APPROVED_ACCESSORS:
+                messages.append(f"{rel}:{block.start} monotone_milestone responsibility_signature must declare an approved milestone_accessor")
+            for violation in sorted(block_violations(rel, block.name, block)):
+                messages.append(f"{violation.label()} reads a transient cursor inside monotone_milestone responsibility metadata")
+            match = IMPLEMENTATION_RE.fullmatch(implementation)
+            if match is None:
+                messages.append(f"{rel}:{block.start} monotone_milestone responsibility_signature must bind milestone_implementation as packages/github-devloop*/...lua:function")
+                continue
+            impl_path = match.group("path")
+            impl_function = match.group("function")
+            impl_source = sources.get(impl_path)
+            if impl_source is None:
+                messages.append(f"{rel}:{block.start} monotone_milestone implementation path is stale: {impl_path}")
+                continue
+            impl_block = block_for_function(impl_source, impl_function)
+            if impl_block is None:
+                messages.append(f"{rel}:{block.start} monotone_milestone implementation function is stale: {implementation}")
+                continue
+            if not accessor_references(impl_block.source, accessor):
+                messages.append(f"{rel}:{block.start} monotone_milestone implementation {implementation} does not reference {accessor}")
+            for violation in sorted(block_violations(impl_path, impl_function, impl_block)):
+                messages.append(f"{violation.label()} reads a transient cursor inside monotone_milestone implementation {implementation}")
+    return messages
+
+
+def current_violations(root: Path) -> tuple[set[Violation], list[str]]:
+    sources = package_sources(root)
+    found: set[Violation] = set()
+    for path, source in sorted(sources.items()):
+        found.update(source_violations(path, source))
+    messages = manifest_messages(root, sources)
+    messages.extend(responsibility_binding_messages(sources))
     return found, messages
 
 
@@ -282,8 +405,6 @@ def load_allowlist(path: Path) -> set[Violation]:
 def allowlist_at_dev_base(root: Path) -> tuple[str, set[Violation] | None]:
     try:
         status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status == "absent":
-            return "present", set()
         if status != "present":
             return status, None
         assert shown is not None
@@ -296,15 +417,17 @@ def allowlist_at_dev_base(root: Path) -> tuple[str, set[Violation] | None]:
         return "unresolved", None
 
 
-def repository_messages(root: Path) -> list[str]:
-    current, messages = current_violations(root)
-    allowlist = load_allowlist(root / ALLOWLIST)
-    base_status, base_allowlist = allowlist_at_dev_base(root)
-    if base_status == "unresolved":
-        messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+def ratchet_messages(
+    current: set[Violation],
+    allowlist: set[Violation],
+    base_allowlist: set[Violation] | None = None,
+) -> list[str]:
+    messages: list[str] = []
     for violation in sorted(current):
         if not any(entry.key() == violation.key() for entry in allowlist):
-            messages.append(f"{violation.label()} reads a transient cursor inside a declared monotone gate; use std.devloop_state.reached() or an approved milestone fact")
+            messages.append(
+                f"{violation.label()} is an unclassified transient lifecycle cursor read; migrate monotone gates to std.devloop_state.reached()/approved milestone accessors or classify legitimate current-routing debt in {ALLOWLIST}"
+            )
     for entry in sorted(allowlist):
         if not any(violation.key() == entry.key() for violation in current):
             messages.append(f"{entry.label()} no longer matches monotone-gate debt; prune the stale entry")
@@ -312,4 +435,16 @@ def repository_messages(root: Path) -> list[str]:
         for entry in sorted(allowlist):
             if not any(base.key() == entry.key() for base in base_allowlist):
                 messages.append(f"{entry.label()} grows monotone-gate allowlist relative to dev; migrate to reached() instead")
+    return messages
+
+
+def repository_messages(root: Path, enforce_base: bool = True) -> list[str]:
+    current, messages = current_violations(root)
+    allowlist = load_allowlist(root / ALLOWLIST)
+    base_allowlist: set[Violation] | None = None
+    if enforce_base:
+        base_status, base_allowlist = allowlist_at_dev_base(root)
+        if base_status == "unresolved":
+            messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+    messages.extend(ratchet_messages(current, allowlist, base_allowlist))
     return messages
