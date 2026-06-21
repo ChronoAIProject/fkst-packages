@@ -1,13 +1,15 @@
 # Monotone lifecycle-gate harness - make the "transient-cursor" saga bug class CI-red, not runtime-discovered
 
-Status: DESIGN SPEC - package-side harness now, substrate primitive deferred.
+Status: DESIGN SPEC - package-side harness now (Unit A, shipped); stronger form deferred (Unit B); an engine typed-lifecycle primitive was considered and rejected on engine-layering grounds (Section 5).
 Date: 2026-06-21
 Author: sshx implementation worker, from converged minimal / structural / delete design.
 
 This spec is intentionally narrow. It defines one canonical package-side way to ask
 "has this lifecycle ever reached milestone P?", a conformance ratchet that forbids
 known bypasses, and the responsibility-signature extension that lifts the check from
-grep to schema. The stronger typed-lifecycle primitive belongs in `fkst-substrate`.
+grep to schema. The stronger form, if the residual ever becomes a real recurring case,
+stays package-side (a closed-world gate-API); it does not belong in the generic engine
+(see Section 5 for the layering rationale and the deferral decision).
 
 ## 1. Problem and Bug Class
 
@@ -264,20 +266,40 @@ language, or broad type machinery is introduced.
 
 ## 5. Substrate Level-4 Primitive, Deferred
 
-The untypeable endgame belongs in `fkst-substrate`: typed lifecycle facts where
-`MilestoneFact` and `CurrentCursor` are distinct types. A monotone gate would accept
-only `MilestoneFact`; the current cursor type would not be readable from that API, so
-the bug could not be expressed.
+Unit A leaves one honest residual: the conformance scan is textual (the inherent
+level-1 limit), so a gate that reads the marker stream and parses raw marker *text*
+(not via the scanned `current_state` / `current_entity_state` / `.state == "<phase>"`
+patterns) could still ask a non-monotone question and bypass the scan. Closing that
+residual is the "untypeable endgame": a typed surface where a monotone gate accepts
+only a milestone fact and the current cursor is not reachable from that API, so the
+bug cannot be expressed.
 
-This is the level-4 form of the harness gradient: the bypass primitive is not in
-reach. It is analogous to lifting a class of package-side discipline into a stable
-engine primitive, as described in the repository doctrine for package seams and
-`raise` authority. The package-side design in Sections 2 to 4 approximates that with
-API discipline plus conformance until the engine type lands.
+**Decision (sshx adversarial: minimal / structural / delete thinking triplet
+converged + ChatGPT Pro cross-model): DEFER Unit B, and when escalated, do it
+PACKAGE-SIDE, not in the engine.** Two findings drove this:
 
-Action: file a `fkst-substrate` issue for a typed lifecycle primitive with distinct
-`MilestoneFact` and `CurrentCursor` surfaces. Do not build heavy type machinery inside
-`fkst-packages`; that would make the package layer carry engine responsibility.
+1. **An engine typed-lifecycle would violate engine layering.** `fkst-substrate` must
+   provide only generic, project-agnostic primitives and must never encode a specific
+   project's lifecycle. The github-devloop phases (`pr-open` / `reviewing` / `merged`)
+   are package-side business semantics, and the marker stream is package-side (GitHub
+   comments), not engine-owned. A `MilestoneFact` vs `CurrentCursor` type that knows
+   the github-devloop lifecycle belongs in the package, not the generic runtime. A
+   genuinely generic engine "monotone fact vs current projection" capability is
+   conceivable but speculative — the engine does not see the marker stream — so it is
+   not justified now.
+
+2. **Rule of Three / patterns serve the current problem.** Unit A already makes the
+   known cursor-read monotone-gate class CI-red across all five packages. The
+   raw-marker-text residual is narrow and not yet a recurring, verified case. Building
+   the endgame before a second/third real instance appears is premature.
+
+Escalation path, only if the residual becomes a real recurring case: a **package-side
+closed-world gate-API typestate** — a lifecycle gate constructed through an API that
+exposes only monotone milestone queries (`reached()`), so the raw cursor and raw
+marker text are unreachable from a "gate" object, making an undeclared monotone gate
+unrepresentable rather than merely CI-red (the level-3 `make-illegal-states-
+unrepresentable` form that fits Lua). This is the next step beyond Sections 2 to 4 —
+still package-side. The engine stays out of the github-devloop lifecycle.
 
 ## 6. Migration Plan
 
