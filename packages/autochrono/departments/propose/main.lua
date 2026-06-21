@@ -6,6 +6,7 @@ local spec = {
   consumes = { "issue" },
   published_seam = { "issue" },
   produces = { "consensus.proposal" },
+  published_seam = { "issue" },
   stall_window = "30s",
 }
 

@@ -3,7 +3,7 @@ local core, saga = require("core"), require("std.saga")
 local M = {}
 
 local spec = {
-  consumes = { "github-proxy.github_entity_changed", "devloop_observe_redrive" },
+  consumes = { "github-proxy.github_entity_changed", "devloop_observe_issue" },
   produces = {
     "consensus.proposal",
     "github-proxy.github_issue_label_request",
@@ -15,7 +15,7 @@ local spec = {
     "devloop_reconcile",
     "devloop_timeout_reconcile",
   },
-  fanout = { "github-proxy.github_entity_changed", "devloop_observe_redrive" },
+  fanout = { "github-proxy.github_entity_changed" },
   stall_window = "30s",
 }
 
@@ -514,6 +514,10 @@ local function process_issue_event(event)
     core.log_forged_markers("observe_issue", proposal_id, current.comments)
     local link = core.pr_link_fact(current.comments, proposal_id)
     local issue_state = core.current_state(current.comments, proposal_id)
+    if core.is_intake_held(current.labels) then
+      core.log_cas_decision("observe_issue", proposal_id, { state = nil, version = nil }, "unmanaged", "thinking", "skip-held", "fkst-dev:hold label is present")
+      return
+    end
     local claim_checked = false
     if issue_state.state ~= nil then
       if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
@@ -666,6 +670,6 @@ end
 return saga.department(spec, { done = function() return false end, act = function(event)
   core.dispatch_consumed_queue("observe_issue", spec, event, {
     ["github-proxy.github_entity_changed"] = process_issue_event,
-    ["devloop_observe_redrive"] = process_issue_event,
+    devloop_observe_issue = process_issue_event,
   })
 end, wrap = core.wrap_pipeline_failure, name = "observe_issue" })
