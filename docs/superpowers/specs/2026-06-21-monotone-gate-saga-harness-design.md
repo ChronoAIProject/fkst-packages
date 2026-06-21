@@ -76,8 +76,9 @@ Review and tests missed the class because they were correctness-blind to the
 transient flip: the code passed composed tests and adversarial review while the
 runtime incident exposed the missing monotone invariant. Per the repository harness
 gradient, this must move from runtime discovery to a class-level CI invariant, and
-eventually to an untypeable substrate primitive: runtime -> per-case test -> CI scan
-or schema -> typed primitive. The marker stream is already append-only and
+eventually toward an untypeable typed surface: runtime -> per-case test -> CI scan
+or schema -> typed gate-API (package-side; see Section 5 for why this stays out of the
+generic engine). The marker stream is already append-only and
 event-sourced; "ever reached P" is a durable monotone fact in that stream, not a
 property of the latest cursor.
 
