@@ -266,6 +266,125 @@ return {
     end)
     t.eq(raw_table_ok, false)
   end,
+  test_devloop_gate_rejects_sparse_all_lists_and_keeps_dense_false = function()
+    local facts = gate.facts({
+      reached = function(milestone)
+        return tostring(milestone or "") == "ready"
+      end,
+      lineage_equals = function()
+        return true
+      end,
+    })
+    local dense = gate.all({
+      gate.require_reached("ready"),
+      gate.require_reached("pr-open"),
+    })
+
+    t.eq(gate.holds(dense, facts, {}), false)
+    local sparse_ok = pcall(function()
+      gate.all({
+        [1] = gate.require_reached("ready"),
+        [3] = gate.require_reached("pr-open"),
+      })
+    end)
+    t.eq(sparse_ok, false)
+    local raw_sparse_ok = pcall(function()
+      gate.holds({
+        op = "all",
+        gates = {
+          [1] = gate.require_reached("ready"),
+          [3] = gate.require_reached("pr-open"),
+        },
+      }, facts, {})
+    end)
+    t.eq(raw_sparse_ok, false)
+  end,
+  test_devloop_gate_loads_gate_defs_in_restricted_sandbox = function()
+    local spec = gate._load_gate_source_for_test([[
+      return all({
+        require_reached("pr-open", {
+          domain = "github-devloop-pr",
+          lineage = {
+            proposal_id = true,
+          },
+        }),
+      })
+    ]])
+    local facts = gate.facts({
+      reached = function(milestone, opts)
+        return tostring(milestone or "") == "pr-open"
+          and tostring(opts and opts.domain or "") == "github-devloop-pr"
+      end,
+      lineage_equals = function(field, expected)
+        return tostring(field or "") == "proposal_id"
+          and tostring(expected or "") == "github-devloop/issue/owner/repo/42"
+      end,
+    })
+
+    t.eq(gate.holds(spec, facts, { proposal_id = "github-devloop/issue/owner/repo/42" }), true)
+  end,
+  test_devloop_gate_load_gate_loads_child_start_visible = function()
+    local spec = gate.load_gate("child_start_visible")
+    local facts = gate.facts({
+      reached = function(milestone, opts)
+        return tostring(milestone or "") == "pr-open"
+          and tostring(opts and opts.domain or "") == "github-devloop-pr"
+      end,
+      lineage_equals = function(field, expected)
+        return ({
+          proposal_id = "github-devloop/issue/owner/repo/42",
+          issue_number = "42",
+          impl_version = "ready/v1",
+          branch = "feature/x",
+          base_branch = "integration-ElonSG",
+        })[field] == expected
+      end,
+    })
+
+    t.eq(gate.holds(spec, facts, {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      issue_number = "42",
+      impl_version = "ready/v1",
+      branch = "feature/x",
+      base_branch = "integration-ElonSG",
+    }), true)
+  end,
+  test_devloop_gate_sandbox_rejects_reflection_and_loader_capabilities = function()
+    local forbidden_sources = {
+      [[
+        local r = require
+        r("debug")
+        return require_reached("pr-open")
+      ]],
+      [[
+        (require)("debug")
+        return require_reached("pr-open")
+      ]],
+      [[
+        return _G
+      ]],
+      [[
+        return debug
+      ]],
+      [[
+        return load("return 1")
+      ]],
+      [[
+        return string.dump(function()
+          return 1
+        end)
+      ]],
+      [[
+        return setmetatable({}, {})
+      ]],
+    }
+    for _, source in ipairs(forbidden_sources) do
+      local ok = pcall(function()
+        gate._load_gate_source_for_test(source)
+      end)
+      t.eq(ok, false)
+    end
+  end,
   test_current_state_uses_stage_rank_for_same_issue_version = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"

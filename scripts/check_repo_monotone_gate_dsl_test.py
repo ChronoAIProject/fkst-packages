@@ -25,58 +25,178 @@ def load_module():
 dsl = load_module()
 
 
+def write_gate(root: Path, name: str, source: str) -> None:
+    target = root / "packages" / "github-devloop" / "core" / "gates" / name
+    target.parent.mkdir(parents=True)
+    target.write_text(textwrap.dedent(source), encoding="utf-8")
+    (root / "migration").mkdir(exist_ok=True)
+    (root / dsl.ALLOWLIST).write_text("", encoding="utf-8")
+
+
 class MonotoneGateDslRatchetTest(unittest.TestCase):
     def test_gate_definition_may_require_only_gate_dsl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            target = root / "packages" / "github-devloop" / "core" / "gates" / "bad.lua"
-            target.parent.mkdir(parents=True)
-            target.write_text(
-                textwrap.dedent(
-                    """\
-                    local gate = require("std.devloop_gate")
-                    local state = require("std.devloop_state")
+            write_gate(
+                root,
+                "bad.lua",
+                """\
+                local state = require("std.devloop_state")
 
-                    return gate.require_reached("pr-open", {
-                      domain = "github-devloop-pr",
-                      raw = state.current_state,
-                    })
-                    """
-                ),
-                encoding="utf-8",
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                  raw = state.current_state,
+                })
+                """,
             )
-            (root / "migration").mkdir()
-            (root / dsl.ALLOWLIST).write_text("", encoding="utf-8")
 
             messages = dsl.repository_messages(root, enforce_base=False)
 
         joined = "\n".join(messages)
         self.assertIn("require std.devloop_state", joined)
+        self.assertIn("dangerous-global require", joined)
         self.assertIn("raw-token current_state", joined)
         self.assertIn("forbidden in a core/gates DSL definition", joined)
 
-    def test_pure_gate_definition_passes(self) -> None:
+    def test_gate_definition_rejects_require_alias_as_backstop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            target = root / "packages" / "github-devloop" / "core" / "gates" / "good.lua"
-            target.parent.mkdir(parents=True)
-            target.write_text(
+            write_gate(
+                root,
+                "bad_alias_require.lua",
+                """\
+                local r = require
+                r("debug")
+
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                })
+                """,
+            )
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("dangerous-global require", joined)
+        self.assertIn("forbidden in a core/gates DSL definition", joined)
+
+    def test_gate_definition_rejects_debug_reflection_smuggle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "bad_debug.lua",
+                """\
+                local raw = debug.getupvalue(require_reached, 1)
+
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                  raw = raw,
+                })
+                """,
+            )
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("dangerous-global debug", joined)
+        self.assertIn("forbidden in a core/gates DSL definition", joined)
+
+    def test_gate_definition_rejects_monkey_patch_smuggle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "bad_patch.lua",
+                """\
+                local gate = require("std.devloop_gate")
+                gate.holds = function()
+                  return true
+                end
+
+                return gate.require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                })
+                """,
+            )
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("dangerous-global require", joined)
+        self.assertIn("monkey-patch gate", joined)
+        self.assertIn("forbidden in a core/gates DSL definition", joined)
+
+    def test_gate_definition_rejects_direct_require_monkey_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "bad_direct_patch.lua",
+                """\
+                require("std.devloop_gate").holds = function()
+                  return true
+                end
+                local gate = require("std.devloop_gate")
+
+                return gate.require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                })
+                """,
+            )
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("dangerous-global require", joined)
+        self.assertIn("monkey-patch std.devloop_gate", joined)
+        self.assertIn("forbidden in a core/gates DSL definition", joined)
+
+    def test_production_code_must_not_require_gate_defs_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "child_start_visible.lua",
+                """\
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                })
+                """,
+            )
+            bypass = root / "packages" / "github-devloop" / "core" / "bypass.lua"
+            bypass.parent.mkdir(parents=True, exist_ok=True)
+            bypass.write_text(
                 textwrap.dedent(
                     """\
-                    local gate = require("std.devloop_gate")
-
-                    return gate.require_reached("pr-open", {
-                      domain = "github-devloop-pr",
-                      lineage = {
-                        proposal_id = true,
-                      },
-                    })
+                    local gate_def = require("core.gates.child_start_visible")
+                    return gate_def
                     """
                 ),
                 encoding="utf-8",
             )
-            (root / "migration").mkdir()
-            (root / dsl.ALLOWLIST).write_text("", encoding="utf-8")
+
+            messages = dsl.repository_messages(root, enforce_base=False)
+
+        joined = "\n".join(messages)
+        self.assertIn("loader-bypass core.gates.child_start_visible", joined)
+        self.assertIn("restricted _ENV sandbox is authoritative", joined)
+
+    def test_pure_gate_definition_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gate(
+                root,
+                "good.lua",
+                """\
+                return require_reached("pr-open", {
+                  domain = "github-devloop-pr",
+                  lineage = {
+                    proposal_id = true,
+                  },
+                })
+                """,
+            )
 
             messages = dsl.repository_messages(root, enforce_base=False)
 

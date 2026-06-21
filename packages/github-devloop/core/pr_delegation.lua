@@ -2,7 +2,14 @@ local S = {}
 
 function S.install(M)
 local gate = require("std.devloop_gate")
-local child_start_visible_gate = require("core.gates.child_start_visible")
+local child_start_visible_gate = nil
+
+local function load_child_start_visible_gate()
+  if child_start_visible_gate == nil then
+    child_start_visible_gate = gate.load_gate("child_start_visible")
+  end
+  return child_start_visible_gate
+end
 
 local function issue_fields(issue, impl_version)
   if type(issue) ~= "table" then
@@ -138,22 +145,34 @@ end
 
 local function child_start_facts(comments)
   local origin = M.pr_origin_fact(comments)
+  local origin_fields = nil
+  local pr_open_reached = false
+  if origin ~= nil then
+    origin_fields = {
+      proposal_id = origin.proposal_id,
+      issue_number = origin.issue_number,
+      impl_version = origin.impl_version,
+      branch = origin.branch,
+      base_branch = origin.base_branch,
+    }
+    pr_open_reached = M.reached(comments, origin.proposal_id, "pr-open", { domain = "github-devloop-pr" })
+  end
   return gate.facts({
     reached = function(milestone, opts)
-      local state_reached = M.reached(comments, origin and origin.proposal_id, milestone, opts)
-      if state_reached then
-        return true
+      local domain = opts and (opts.domain or opts.milestone_domain)
+      if tostring(milestone or "") ~= "pr-open" or (domain ~= nil and tostring(domain) ~= "github-devloop-pr") then
+        return false
       end
-      if origin ~= nil and tostring(milestone or "") == "pr-open" then
+      if pr_open_reached or origin_fields ~= nil then
         return true
       end
       return false
     end,
     lineage_equals = function(field, expected)
-      if origin == nil then
+      if origin_fields == nil then
         return false
       end
-      return tostring(origin[field] or "") == tostring(expected)
+      return tostring(origin_fields[field] or "") == tostring(expected)
     end,
   })
 end
@@ -202,7 +221,7 @@ function M.ensure_pr_child(issue, impl_version, generation)
   local head_sha = pr.head_sha or issue.head_sha or (issue.implementation and issue.implementation.head_sha)
   local effects = {}
   local child_start_visible = gate.holds(
-    child_start_visible_gate,
+    load_child_start_visible_gate(),
     child_start_facts(issue.pr_comments or {}),
     child_start_bindings(issue_proposal_id, issue_number, impl_version, branch, base_branch)
   )

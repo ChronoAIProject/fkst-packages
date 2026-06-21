@@ -1,7 +1,5 @@
-local gate = require("std.devloop_gate")
-
-return gate.all({
-  gate.require_reached("pr-open", {
+return all({
+  require_reached("pr-open", {
     domain = "github-devloop-pr",
     lineage = {
       proposal_id = true,

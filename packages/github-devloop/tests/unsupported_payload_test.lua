@@ -287,6 +287,7 @@ local function payload_for_queue(queue)
       },
     },
     ["github-proxy.github_entity_changed"] = issue_entity_payload(),
+    devloop_observe_redrive = issue_entity_payload(),
   }
   local payload = payloads[queue]
   if payload == nil then

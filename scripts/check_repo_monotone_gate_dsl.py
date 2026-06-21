@@ -12,7 +12,6 @@ import ratchet_base
 ALLOWLIST = "migration/monotone-gate-dsl.allowlist"
 PACKAGE_GLOB = "github-devloop*"
 GATE_PARTS = ("core", "gates")
-ALLOWED_REQUIRES = {"std.devloop_gate"}
 RAW_MODULES = {"std.devloop_state", "std.devloop_markers", "std.devloop_markers.facts"}
 RAW_TOKENS = (
     "current_state",
@@ -24,8 +23,31 @@ RAW_TOKENS = (
     "fkst:github-devloop:state:v1",
     "fkst:github-devloop:pr-origin:v1",
 )
+DANGEROUS_GLOBALS = (
+    "require",
+    "debug",
+    "getfenv",
+    "setfenv",
+    "load",
+    "loadstring",
+    "dofile",
+    "loadfile",
+    "_G",
+    "_ENV",
+    "rawget",
+    "rawset",
+    "rawequal",
+    "setmetatable",
+    "getmetatable",
+    "package",
+)
+LUA_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 REQUIRE_RE = re.compile(
     r"""\brequire\s*(?:\(\s*)?(?:"([A-Za-z0-9_.\-]+)"|'([A-Za-z0-9_.\-]+)'|\[(=*)\[([A-Za-z0-9_.\-]+)\]\3\])"""
+)
+GATE_MODULE_RE = re.compile(r"^core\.gates\.[A-Za-z_][A-Za-z0-9_]*$")
+GATE_REQUIRE_BINDING_RE = re.compile(
+    r"""\b(?:local\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*require\s*(?:\(\s*)?(?:"std\.devloop_gate"|'std\.devloop_gate'|\[(=*)\[std\.devloop_gate\]\2\])"""
 )
 
 
@@ -44,7 +66,7 @@ class Finding:
         path, kind, token, line_part, issue, why = parts[:6]
         if not path.startswith("packages/github-devloop") or "/core/gates/" not in path or not path.endswith(".lua"):
             raise ValueError(f"invalid {ALLOWLIST} path: {line}")
-        if kind not in {"require", "raw-token"}:
+        if kind not in {"require", "raw-token", "dangerous-global", "monkey-patch"}:
             raise ValueError(f"invalid {ALLOWLIST} kind: {line}")
         if not line_part.startswith("line="):
             raise ValueError(f"invalid {ALLOWLIST} line number: {line}")
@@ -59,6 +81,16 @@ class Finding:
 
     def label(self) -> str:
         return f"{self.path}:{self.line} {self.kind} {self.token}"
+
+
+@dataclass(frozen=True, order=True)
+class BypassFinding:
+    path: str
+    module: str
+    line: int
+
+    def label(self) -> str:
+        return f"{self.path}:{self.line} loader-bypass {self.module}"
 
 
 def _mask(chars: list[str], start: int, end: int) -> None:
@@ -107,6 +139,57 @@ def required_module(match: re.Match[str]) -> str:
     return next(group for group in (match.group(1), match.group(2), match.group(4)) if group is not None)
 
 
+def lua_name_re(name: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+
+
+def gate_aliases(source: str, stripped: str) -> dict[str, set[int]]:
+    aliases: dict[str, set[int]] = {}
+    for match in GATE_REQUIRE_BINDING_RE.finditer(source):
+        name = match.group("name")
+        if stripped[match.start("name"):match.start("name") + len(name)] != name:
+            continue
+        aliases.setdefault(name, set()).add(match.start("name"))
+    return aliases
+
+
+def monkey_patch_findings(path: str, source: str, stripped: str) -> set[Finding]:
+    findings: set[Finding] = set()
+    aliases = gate_aliases(source, stripped)
+    for alias, binding_offsets in aliases.items():
+        direct_reassign = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(alias)}\s*=")
+        for match in direct_reassign.finditer(stripped):
+            if match.start() not in binding_offsets:
+                findings.add(Finding(path, "monkey-patch", alias, line_number(source, match.start())))
+        field_assignment = re.compile(
+            rf"(?<![A-Za-z0-9_]){re.escape(alias)}\s*(?:\.|:)\s*{LUA_NAME}\s*="
+        )
+        for match in field_assignment.finditer(stripped):
+            findings.add(Finding(path, "monkey-patch", alias, line_number(source, match.start())))
+        bracket_assignment = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(alias)}\s*\[[^\]]+\]\s*=")
+        for match in bracket_assignment.finditer(stripped):
+            findings.add(Finding(path, "monkey-patch", alias, line_number(source, match.start())))
+        function_assignment = re.compile(
+            rf"\bfunction\s+{re.escape(alias)}\s*(?:\.|:)\s*{LUA_NAME}\b"
+        )
+        for match in function_assignment.finditer(stripped):
+            findings.add(Finding(path, "monkey-patch", alias, line_number(source, match.start())))
+    direct_module_assignment = re.compile(
+        rf"\bstd\s*\.\s*devloop_gate\s*(?:(?:\.|:)\s*{LUA_NAME}|\[[^\]]+\])?\s*="
+    )
+    for match in direct_module_assignment.finditer(stripped):
+        findings.add(Finding(path, "monkey-patch", "std.devloop_gate", line_number(source, match.start())))
+    require_result_assignment = re.compile(rf"^\s*\)?\s*(?:(?:\.|:)\s*{LUA_NAME}|\[[^\]]+\])?\s*=")
+    for match in REQUIRE_RE.finditer(source):
+        if required_module(match) != "std.devloop_gate":
+            continue
+        if stripped[match.start():match.start() + len("require")] != "require":
+            continue
+        if require_result_assignment.search(stripped[match.end():]):
+            findings.add(Finding(path, "monkey-patch", "std.devloop_gate", line_number(source, match.start())))
+    return findings
+
+
 def gate_sources(root: Path) -> dict[str, str]:
     sources: dict[str, str] = {}
     for package in sorted((root / "packages").glob(PACKAGE_GLOB)):
@@ -119,13 +202,28 @@ def gate_sources(root: Path) -> dict[str, str]:
     return sources
 
 
+def production_sources(root: Path) -> dict[str, str]:
+    sources: dict[str, str] = {}
+    for package in sorted((root / "packages").glob(PACKAGE_GLOB)):
+      if not package.is_dir():
+        continue
+      for path in sorted(package.rglob("*.lua")):
+        if not path.is_file():
+          continue
+        rel = path.relative_to(root).as_posix()
+        parts = rel.split("/")
+        if "/tests/" in f"/{rel}/" or "/core/gates/" in f"/{rel}/":
+          continue
+        sources[rel] = path.read_text(encoding="utf-8")
+    return sources
+
+
 def source_findings(path: str, source: str) -> set[Finding]:
     findings: set[Finding] = set()
     stripped = strip_lua_comments_and_strings(source)
     for match in REQUIRE_RE.finditer(source):
         module = required_module(match)
-        if module not in ALLOWED_REQUIRES:
-            findings.add(Finding(path, "require", module, line_number(source, match.start())))
+        findings.add(Finding(path, "require", module, line_number(source, match.start())))
         if module in RAW_MODULES:
             findings.add(Finding(path, "require", module, line_number(source, match.start())))
     for token in RAW_TOKENS:
@@ -136,6 +234,23 @@ def source_findings(path: str, source: str) -> set[Finding]:
                 break
             findings.add(Finding(path, "raw-token", token, line_number(source, index)))
             start = index + len(token)
+    for token in DANGEROUS_GLOBALS:
+        for match in lua_name_re(token).finditer(stripped):
+            findings.add(Finding(path, "dangerous-global", token, line_number(source, match.start())))
+    findings.update(monkey_patch_findings(path, source, stripped))
+    return findings
+
+
+def loader_bypass_findings(root: Path) -> set[BypassFinding]:
+    findings: set[BypassFinding] = set()
+    for path, source in production_sources(root).items():
+        stripped = strip_lua_comments_and_strings(source)
+        for match in REQUIRE_RE.finditer(source):
+            if stripped[match.start():match.start() + len("require")] != "require":
+                continue
+            module = required_module(match)
+            if GATE_MODULE_RE.fullmatch(module) is not None:
+                findings.add(BypassFinding(path, module, line_number(source, match.start())))
     return findings
 
 
@@ -184,7 +299,9 @@ def repository_messages(root: Path, enforce_base: bool = True) -> list[str]:
             messages.append("cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for finding in sorted(current):
         if not any(entry.key() == finding.key() for entry in allowlist):
-            messages.append(f"{finding.label()} is forbidden in a core/gates DSL definition; gate definitions may require only std.devloop_gate and must not read raw marker/cursor helpers")
+            messages.append(f"{finding.label()} is forbidden in a core/gates DSL definition; gate definitions are loaded by std.devloop_gate.load_gate with injected constructors, must not require modules, must not read raw marker/cursor helpers, and must stay pure positive data construction without reflection, loaders, metatables, raw table access, globals, or monkey-patching")
+    for finding in sorted(loader_bypass_findings(root)):
+        messages.append(f"{finding.label()} is forbidden; gate definitions must be loaded only through std.devloop_gate.load_gate so the restricted _ENV sandbox is authoritative")
     for entry in sorted(allowlist):
         if not any(finding.key() == entry.key() for finding in current):
             messages.append(f"{entry.label()} no longer matches monotone-gate-dsl debt; prune the stale entry")
