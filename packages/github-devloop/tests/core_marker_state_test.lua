@@ -1,6 +1,7 @@
 local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
+local gate = require("std.devloop_gate")
 local reached = h.reached
 local unresolved = h.unresolved
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
@@ -211,6 +212,59 @@ return {
       domain = "github-devloop-pr",
       lineage_base = "ready/consensus-github-devloop/issue/owner/repo/99/2026-06-04T01-02-03Z",
     }), false)
+  end,
+  test_devloop_gate_rejects_executable_or_metatable_smuggle_paths = function()
+    local facts = gate.facts({
+      reached = function()
+        return true
+      end,
+      lineage_equals = function()
+        return true
+      end,
+    })
+    local ok_spec = gate.require_reached("pr-open", {
+      domain = "github-devloop-pr",
+      lineage = {
+        proposal_id = true,
+      },
+    })
+
+    t.eq(gate.holds(ok_spec, facts, { proposal_id = "github-devloop/issue/owner/repo/42" }), true)
+    local callback_spec = {
+      op = "reached",
+      milestone = "pr-open",
+      opts = {},
+      raw = function()
+        return true
+      end,
+    }
+    local callback_ok = pcall(function()
+      gate.holds(callback_spec, facts, {})
+    end)
+    t.eq(callback_ok, false)
+    local metatable_spec = setmetatable({
+      op = "reached",
+      milestone = "pr-open",
+      opts = {},
+    }, {})
+    local metatable_ok = pcall(function()
+      gate.holds(metatable_spec, facts, {})
+    end)
+    t.eq(metatable_ok, false)
+    local raw_table_spec = {
+      op = "reached",
+      milestone = "pr-open",
+      opts = {},
+      comments = {
+        {
+          body = core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", "v1"),
+        },
+      },
+    }
+    local raw_table_ok = pcall(function()
+      gate.holds(raw_table_spec, facts, {})
+    end)
+    t.eq(raw_table_ok, false)
   end,
   test_current_state_uses_stage_rank_for_same_issue_version = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
