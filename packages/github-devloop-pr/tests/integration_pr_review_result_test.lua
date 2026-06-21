@@ -253,6 +253,47 @@ return {
     t.eq(current.version, fix_round_version)
   end,
 
+  test_review_result_long_reviewing_version_segment_approve_marks_merge_ready = function()
+    local full_version = reviewing().version
+    for _ = 1, 6 do
+      full_version = core.next_fix_version(full_version)
+    end
+    local proposal_id = core.pr_review_proposal_id("owner/repo", 7, full_version, "def456")
+    local event = review_reached({
+      proposal_id = proposal_id,
+      dedup_key = "consensus:" .. proposal_id .. "/review",
+    })
+    local _, _, review_version = core.parse_pr_review_proposal_id(proposal_id)
+    t.is_true(core.safe_version_segment(full_version) ~= full_version)
+    t.eq(review_version, core.safe_version_segment(full_version))
+
+    mock_pr_origin({
+      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", full_version, "dev"),
+    })
+    mock_issue_result({ "fkst-dev:reviewing" }, {
+      core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", full_version),
+    })
+
+    local result = run_review_result(event, opts("review-result-long-version-approve"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    local label_raise = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.eq(label_raise.payload.add_labels[1], "fkst-dev:merge-ready")
+    t.is_true(comment_raise.payload.body:find('state="merge-ready" version="' .. full_version .. '"', 1, true) ~= nil)
+    t.eq(comment_raise.payload.handoff.kind, "github-devloop.merge_ready")
+    t.eq(comment_raise.payload.handoff.version, full_version)
+    t.eq(comment_raise.payload.handoff.review_proposal_id, proposal_id)
+    t.eq(comment_raise.payload.handoff.reviewed_head_sha, "def456")
+    t.eq(comment_raise.payload.handoff.current_head_sha, "def456")
+    local current = core.current_state({
+      core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", full_version),
+      comment_raise.payload.body,
+    }, "github-devloop/issue/owner/repo/42")
+    t.eq(current.state, "merge-ready")
+    t.eq(current.version, full_version)
+  end,
+
   test_review_result_marker_lag_retries_then_visible_marker_applies = function()
     local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version

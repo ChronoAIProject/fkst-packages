@@ -92,6 +92,26 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     core.log_forged_markers("review_result", origin.proposal_id, current_pr.comments)
     local state = core.current_entity_state(current_pr.comments, origin.proposal_id)
+    local function review_result_transition_status(review_version, to_state)
+      local current_state = state and state.state or nil
+      local current_version = state and state.version or nil
+      local safe_current = core.safe_version_segment(current_version or "")
+      local same_review_version = current_state ~= nil
+        and tostring(safe_current) == tostring(review_version)
+      if current_state == "reviewing" then
+        return same_review_version and "apply" or "stale"
+      end
+      if current_state == to_state and same_review_version then
+        return "idempotent"
+      end
+      if to_state == "fixing" and current_state == "merge-ready" and same_review_version then
+        return "apply"
+      end
+      if current_state ~= nil and core.stage_rank(current_state) > core.stage_rank("reviewing") then
+        return "stale"
+      end
+      return "pending"
+    end
     local effective_decision = reached.decision
     local gate_owned_reject = reached.decision == "reject" and core.is_gate_owned_review_gap(reached.blocking_gap)
     local out_of_contract_reject = reached.decision == "reject" and core.is_out_of_contract_review_gap(reached.blocking_gap)
@@ -108,11 +128,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       or reflection_checkpoint and "review-meta"
       or "fixing"
     local current_review_version = core.safe_version_segment(state.version or "")
-    local transition = core.cyclic_transition_status({
-      state = state.state,
-      version = current_review_version,
-      stage_rank = state.stage_rank,
-    }, { "reviewing" }, to_state, reviewed_issue_version)
+    local transition = review_result_transition_status(reviewed_issue_version, to_state)
     if transition == "idempotent" or transition == "stale" then
       core.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, core.cas_outcome(state, transition, reached.dedup_key), "review decision cannot advance current marker")
       return
