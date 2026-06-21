@@ -302,6 +302,24 @@ unrepresentable rather than merely CI-red (the level-3 `make-illegal-states-
 unrepresentable` form that fits Lua). This is the next step beyond Sections 2 to 4 —
 still package-side. The engine stays out of the github-devloop lifecycle.
 
+Cross-model (ChatGPT Pro) verdict, recorded: **Unit A is probably sufficient as the
+immediate shipped guardrail** (it CI-reds the known recurring class across all packages,
+shrink-only allowlist, planted violation). The raw-marker-text residual is real but a
+narrower, more deliberate failure mode than accidentally reading `current_state`. The
+next strengthening is justified **only if cheap**, and its concrete cheap shape is
+capability isolation by Lua module boundary, NOT a typed engine primitive: an opaque
+positive gate DSL (`require_reached(P):and_reached(Q)` — no `not`, no cursor, no raw
+marker text, no arbitrary callback) whose gates are declared as data and evaluated by a
+runner; raw-marker parsing confined to ONE private module; `gates/` forbidden (by
+conformance, like the G9 cross-package-require ban) from `require`-ing the raw-marker /
+cursor modules; Unit A's scanner kept as the outer tripwire; one planted violation that
+reparses raw marker text inside a gate. Because that shape requires restructuring (a
+`gates/` boundary + a private parse module), it is not obviously cheap today, so it stays
+deferred until the residual recurs or the restructuring becomes cheap. The generic
+substrate primitive (`MonotoneFactSet` / `CurrentProjection`) is imaginable but must be
+EXTRACTED from package policy when a second case appears, never guessed by the engine
+(dependency inversion).
+
 ## 6. Migration Plan
 
 Use an inventory ratchet, not a mega-PR.
