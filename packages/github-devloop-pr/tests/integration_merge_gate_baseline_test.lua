@@ -25,6 +25,7 @@ local find_causal_raise = h.find_causal_raise
 local check_runs_cmd = "gh api 'repos/owner/repo/commits/def456/check-runs'"
 local branch_substrate_pin = "1111111111111111111111111111111111111111"
 local base_substrate_pin = "2222222222222222222222222222222222222222"
+local substrate_dev_head = "3333333333333333333333333333333333333333"
 
 local function mock_failing_required_check_runs()
   t.mock_command(check_runs_cmd, {
@@ -52,6 +53,44 @@ local function mock_substrate_ref_pin(ref, pin)
     stdout = tostring(pin) .. "\n",
     stderr = "",
     exit_code = 0,
+  })
+end
+
+local function mock_substrate_pin_stale_proof(head_pin, upstream_pin, stale_ancestry_exit)
+  mock_substrate_ref_pin("def456", head_pin)
+  t.mock_command("git fetch 'origin' 'dev'", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git rev-parse --verify refs/remotes/'origin'/'dev'^{commit}", {
+    stdout = "ba5e9999\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_substrate_ref_pin("ba5e9999", upstream_pin)
+  if head_pin == upstream_pin then
+    return
+  end
+  t.mock_command("git fetch 'https://github.com/ChronoAIProject/fkst-substrate.git' 'refs/heads/dev:refs/remotes/fkst-substrate/dev'", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git rev-parse --verify 'refs/remotes/fkst-substrate/dev^{commit}'", {
+    stdout = substrate_dev_head .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git merge-base --is-ancestor " .. tostring(upstream_pin) .. " " .. substrate_dev_head, {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git merge-base --is-ancestor " .. tostring(head_pin) .. " " .. tostring(upstream_pin), {
+    stdout = "",
+    stderr = "",
+    exit_code = stale_ancestry_exit or 0,
   })
 end
 
@@ -119,8 +158,7 @@ return {
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_pr_merge_rollup({ origin_marker }, '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci","headSha":"def456"}]', nil, nil, nil, nil, nil, nil, nil, nil, nil, "ba5e9999")
     mock_missing_substrate_required_check_runs()
-    mock_substrate_ref_pin("def456", branch_substrate_pin)
-    mock_substrate_ref_pin("ba5e9999", base_substrate_pin)
+    mock_substrate_pin_stale_proof(branch_substrate_pin, base_substrate_pin)
 
     local result = run_merge(event, opts("merge-stale-substrate-pin-recovery", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
@@ -133,6 +171,7 @@ return {
     t.eq(fix_fact.dependency_recovery, "substrate-pin-stale")
     t.eq(count_calls("def456:.fkst/substrate-ref"), 1)
     t.eq(count_calls("ba5e9999:.fkst/substrate-ref"), 1)
+    t.eq(count_calls("git merge-base --is-ancestor " .. branch_substrate_pin .. " " .. base_substrate_pin), 1)
 
     local handoff_result = t.run_department("departments/comment_handoff/main.lua", {
       queue = "github-proxy.github_comment_written",
@@ -163,8 +202,7 @@ return {
     mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_pr_merge_rollup({ origin_marker }, '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci","headSha":"def456"}]', nil, nil, nil, nil, nil, nil, nil, nil, nil, "ba5e9999")
     mock_missing_substrate_required_check_runs()
-    mock_substrate_ref_pin("def456", base_substrate_pin)
-    mock_substrate_ref_pin("ba5e9999", base_substrate_pin)
+    mock_substrate_pin_stale_proof(base_substrate_pin, base_substrate_pin)
 
     local result = run_merge(event, opts("merge-stale-substrate-pin-without-proof", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
@@ -178,6 +216,31 @@ return {
     t.eq(count_calls("def456:.fkst/substrate-ref"), 1)
     t.eq(count_calls("ba5e9999:.fkst/substrate-ref"), 1)
     t.eq(count_calls("git fetch 'https://github.com/ChronoAIProject/fkst-substrate.git'"), 0)
+  end,
+
+  test_merge_missing_substrate_symbol_without_ancestry_proof_stays_plain_ci_red = function()
+    local event = merge_ready()
+    local origin_marker = core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge_rollup({ origin_marker }, '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci","headSha":"def456"}]', nil, nil, nil, nil, nil, nil, nil, nil, nil, "ba5e9999")
+    mock_missing_substrate_required_check_runs()
+    mock_substrate_pin_stale_proof(branch_substrate_pin, base_substrate_pin, 1)
+
+    local result = run_merge(event, opts("merge-stale-substrate-pin-without-ancestry-proof", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    local fixing_handoff = comment_raise.payload.handoff
+    t.eq(fixing_handoff.dependency_recovery, nil)
+    t.is_true(comment_raise.payload.body:find('recovery="substrate-pin-stale"', 1, true) == nil)
+    local fix_fact = core.merge_gate_fix_fact({ comment_raise.payload.body }, event.proposal_id, core.fix_version_from_review_version(event.version))
+    t.eq(fix_fact.gate_baseline_sha, "ba5e9999")
+    t.eq(fix_fact.dependency_recovery, nil)
+    t.eq(count_calls("def456:.fkst/substrate-ref"), 1)
+    t.eq(count_calls("ba5e9999:.fkst/substrate-ref"), 1)
+    t.eq(count_calls("git merge-base --is-ancestor " .. branch_substrate_pin .. " " .. base_substrate_pin), 1)
   end,
 
   test_merge_gate_marker_without_baseline_round_trips_nil = function()

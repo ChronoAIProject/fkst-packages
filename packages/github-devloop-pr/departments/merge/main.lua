@@ -571,7 +571,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       local classification = core.classify_pr_ci_gate(current_pr, {
         repo = repo,
         dept = "merge",
-        proposal_id = merge_ready.proposal_id,
+        proposal_id = merge_ready.proposal_id, upstream_branch = branches.upstream,
       })
       if classification.kind ~= "OWN_CI_RED" then
         log_gate(merge_ready, "hold", classification.reason)

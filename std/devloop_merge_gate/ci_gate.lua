@@ -14,6 +14,17 @@ local ci_classification = shared.ci_classification
 local integration_or_external_red = shared.integration_or_external_red
 local merge_gate_reason_row = shared.merge_gate_reason_row
 local substrate_ref_path = ".fkst/substrate-ref"
+local substrate_remote = "https://github.com/ChronoAIProject/fkst-substrate.git"
+local substrate_branch = "dev"
+local substrate_dev_ref = "refs/remotes/fkst-substrate/dev"
+local git_handle
+
+local function git()
+  if git_handle == nil then
+    git_handle = require("std.git").new(exec_argv)
+  end
+  return git_handle
+end
 
 function M.pr_identity_matches(pr, expected)
   if type(pr) ~= "table" then
@@ -74,7 +85,7 @@ function M.classify_pr_ci_gate(pr, opts)
     return ci_classification("OWN_CI_RED", "own-ci-red", {
       check_runs = runs,
       dependency_recovery = M.ci_dependency_recovery_hint(runs, head_sha, {
-        base_sha = pr and pr.base_ref_oid,
+        upstream_branch = opts and (opts.upstream_branch or (opts.branches and opts.branches.upstream)),
       }),
     })
   end
@@ -144,14 +155,56 @@ local function read_substrate_pin_at(ref)
   return pin:lower()
 end
 
+local function fetch_substrate_dev_head()
+  local ok, result = pcall(function()
+    return git().fetch_remote_branch_to_tracking_ref(substrate_remote, substrate_branch, substrate_dev_ref, 60)
+  end)
+  if not ok or type(result) ~= "table" or result.exit_code ~= 0 then
+    return nil
+  end
+  ok, result = pcall(function()
+    return git().rev_parse_ref_commit(substrate_dev_ref, 30)
+  end)
+  if not ok or type(result) ~= "table" or result.exit_code ~= 0 then
+    return nil
+  end
+  local head = M._trim(result.stdout)
+  if not M.is_safe_head_sha(head) then
+    return nil
+  end
+  return head:lower()
+end
+
+local function is_substrate_ancestor(ancestor_sha, descendant_sha)
+  if not M.is_safe_head_sha(ancestor_sha) or not M.is_safe_head_sha(descendant_sha) then
+    return false
+  end
+  local ok, result = pcall(function()
+    return M.git_is_ancestor(ancestor_sha, descendant_sha, 30)
+  end)
+  return ok and type(result) == "table" and result.exit_code == 0
+end
+
 local function substrate_pin_stale_proof(head_sha, opts)
-  local base_ref = tostring(opts and opts.base_ref or opts and opts.base_sha or "")
-  if not M.is_safe_head_sha(base_ref) then
+  local upstream_branch = tostring(opts and (opts.upstream_branch or (opts.branches and opts.branches.upstream)) or "")
+  if upstream_branch == "" then
+    return false
+  end
+  local upstream_head = M.current_base_head(upstream_branch)
+  if not M.is_safe_head_sha(upstream_head) then
     return false
   end
   local head_pin = read_substrate_pin_at(head_sha)
-  local base_pin = read_substrate_pin_at(base_ref)
-  return head_pin ~= nil and base_pin ~= nil and head_pin ~= base_pin
+  local upstream_pin = read_substrate_pin_at(upstream_head)
+  if head_pin == nil or upstream_pin == nil or head_pin == upstream_pin then
+    return false
+  end
+  local substrate_dev_head = fetch_substrate_dev_head()
+  if substrate_dev_head == nil then
+    return false
+  end
+  return is_substrate_ancestor(upstream_pin, substrate_dev_head)
+    and is_substrate_ancestor(head_pin, upstream_pin)
 end
 
 function M.ci_dependency_recovery_hint(runs, head_sha, opts)
