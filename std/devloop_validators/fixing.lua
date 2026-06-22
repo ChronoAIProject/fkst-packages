@@ -10,6 +10,7 @@ function M.is_supported_fixing(payload)
     or not M._is_git_sha(payload.reviewed_head_sha)
     or (payload.gate_baseline_sha ~= nil and not M._is_git_sha(payload.gate_baseline_sha))
     or (payload.predecessor_set ~= nil and not M._is_path_safe_key(payload.predecessor_set, M._max_dedup_len))
+    or (payload.dependency_recovery ~= nil and payload.dependency_recovery ~= "substrate-pin-stale")
     or (payload.gate_failure_excerpt ~= nil and not M._is_bounded_string(payload.gate_failure_excerpt, M._max_rollup_failure_summary_len))
     or (payload.framing ~= nil and not M._is_bounded_string(payload.framing, M._max_framing_len))
     or (payload.blocking_gap ~= nil and not M._is_bounded_string(payload.blocking_gap, M._max_blocking_gap_len))
@@ -33,6 +34,7 @@ function M.is_supported_fixing(payload)
     tostring(payload.review_dedup_key),
     tostring(payload.gate_baseline_sha or "nobase"),
     tostring(payload.predecessor_set or "nopred"),
+    tostring(payload.dependency_recovery or "norecovery"),
     tostring(payload.reviewed_head_sha),
   })
   return tostring(payload.dedup_key) == replay_dedup

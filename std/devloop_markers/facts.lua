@@ -205,11 +205,15 @@ local function merge_gate_fix_fact_matches_bindings(fact, opts)
     return true
   end
   local baseline_bound = opts.match_gate_baseline_sha == true or opts.gate_baseline_sha ~= nil
+  local recovery_bound = opts.match_dependency_recovery == true or opts.dependency_recovery ~= nil
   return (opts.review_proposal_id == nil or fact.review_proposal_id == tostring(opts.review_proposal_id))
     and (opts.review_dedup_key == nil or fact.review_dedup_key == tostring(opts.review_dedup_key))
     and (not baseline_bound
       or (opts.gate_baseline_sha ~= nil and fact.gate_baseline_sha == tostring(opts.gate_baseline_sha))
       or (opts.gate_baseline_sha == nil and fact.gate_baseline_sha == nil))
+    and (not recovery_bound
+      or (opts.dependency_recovery ~= nil and fact.dependency_recovery == tostring(opts.dependency_recovery))
+      or (opts.dependency_recovery == nil and fact.dependency_recovery == nil))
 end
 function M.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
   if type(comments) ~= "table" then
@@ -226,6 +230,7 @@ function M.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
       local marker_head_sha = marker:match('head_sha="([^"]+)"')
       local marker_gate_baseline_sha = marker:match('gate_baseline_sha="([^"]+)"')
       local marker_predecessor_set = marker:match('predecessor_set="([^"]+)"')
+      local marker_recovery = marker:match('recovery="([^"]+)"')
       local marker_reason = marker:match('reason="([^"]+)"')
       if marker_issue == tostring(issue_proposal_id)
         and marker_version == tostring(issue_version)
@@ -234,13 +239,15 @@ function M.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
         and M._is_bounded_string(marker_reason, M._max_key_len)
         and M._is_git_sha(marker_head_sha)
         and (marker_gate_baseline_sha == nil or M._is_git_sha(marker_gate_baseline_sha))
-        and (marker_predecessor_set == nil or M._is_path_safe_key(marker_predecessor_set, M._max_dedup_len)) then
+        and (marker_predecessor_set == nil or M._is_path_safe_key(marker_predecessor_set, M._max_dedup_len))
+        and (marker_recovery == nil or (marker_recovery == "substrate-pin-stale" and marker_reason == "own-ci-red")) then
         local fact = {
           review_proposal_id = marker_review_proposal,
           review_dedup_key = marker_review_dedup,
           reviewed_head_sha = marker_head_sha,
           gate_baseline_sha = marker_gate_baseline_sha,
           predecessor_set = marker_predecessor_set,
+          dependency_recovery = marker_recovery,
           reason = marker_reason,
           review_reason = M._comment_body(comment),
         }

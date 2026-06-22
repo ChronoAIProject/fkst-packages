@@ -715,8 +715,8 @@ return {
       blocking_gap = "rollup-red",
     }, core.pr_source_ref(fixture.repo, fixture.pr_number))
     t.is_true(defective_replay.dedup_key ~= fixing_raise.payload.dedup_key)
-    t.is_true(defective_replay.dedup_key:find("/nobase/nopred/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
-    t.is_true(fixing_raise.payload.dedup_key:find("/" .. fixture.gate_baseline_sha .. "/nopred/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
+    t.is_true(defective_replay.dedup_key:find("/nobase/nopred/norecovery/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
+    t.is_true(fixing_raise.payload.dedup_key:find("/" .. fixture.gate_baseline_sha .. "/nopred/norecovery/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
     local matching_fact = core.merge_gate_fix_fact(fixture.pr_comments, event.proposal_id, fixture.fixing_version, {
       review_proposal_id = fixture.review_proposal,
       review_dedup_key = fixture.review_dedup,

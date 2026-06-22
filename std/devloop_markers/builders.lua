@@ -63,7 +63,7 @@ function M.fix_marker(issue_proposal_id, review_proposal_id, review_dedup_key, o
     .. '" -->'
 end
 
-function M.merge_gate_marker(issue_proposal_id, pr_number, version, review_proposal_id, review_dedup_key, head_sha, gate_baseline_sha, reason, predecessor_set)
+function M.merge_gate_marker(issue_proposal_id, pr_number, version, review_proposal_id, review_dedup_key, head_sha, gate_baseline_sha, reason, predecessor_set, recovery)
   if not M._is_positive_pr_number(pr_number) or not M._is_git_sha(head_sha) then
     error("github-devloop: invalid merge-gate marker")
   end
@@ -81,6 +81,13 @@ function M.merge_gate_marker(issue_proposal_id, pr_number, version, review_propo
     end
     predecessor_field = '" predecessor_set="' .. tostring(predecessor_set)
   end
+  local recovery_field = ""
+  if recovery ~= nil then
+    if recovery ~= "substrate-pin-stale" or reason ~= "own-ci-red" then
+      error("github-devloop: invalid merge-gate recovery")
+    end
+    recovery_field = '" recovery="' .. tostring(recovery)
+  end
   return '<!-- fkst:github-devloop:merge-gate:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" pr="' .. tostring(pr_number)
     .. '" version="' .. tostring(version)
@@ -89,6 +96,7 @@ function M.merge_gate_marker(issue_proposal_id, pr_number, version, review_propo
     .. '" head_sha="' .. tostring(head_sha)
     .. baseline_field
     .. predecessor_field
+    .. recovery_field
     .. '" reason="' .. tostring(strings.sanitize_key(reason or "gate-failed", false):gsub("/", "-"))
     .. '" -->'
 end

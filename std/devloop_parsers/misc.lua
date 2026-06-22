@@ -86,6 +86,28 @@ local function check_run_entries(value)
   return value
 end
 
+local max_check_run_output_len = 4000
+
+local function bounded_check_run_output(output)
+  if type(output) ~= "table" then
+    return nil
+  end
+  local normalized = {}
+  for _, key in ipairs({ "title", "summary", "text" }) do
+    if output[key] ~= nil then
+      local text = tostring(output[key])
+      if #text > max_check_run_output_len then
+        text = text:sub(1, max_check_run_output_len)
+      end
+      normalized[key] = text
+    end
+  end
+  if normalized.title == nil and normalized.summary == nil and normalized.text == nil then
+    return nil
+  end
+  return normalized
+end
+
 function M.parse_commit_check_runs(stdout)
   local decoded = json.decode(stdout or "{}")
   local runs = {}
@@ -102,6 +124,7 @@ function M.parse_commit_check_runs(stdout)
         headSha = run.headSha,
         check_suite = run.check_suite,
         checkSuite = run.checkSuite,
+        output = bounded_check_run_output(run.output),
       })
     end
   end

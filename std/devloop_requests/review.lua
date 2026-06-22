@@ -38,6 +38,7 @@ function M.attach_fixing_handoff(request, proposal_id, pr_number, version, revie
     "gate_baseline_sha",
     "predecessor_set",
     "gate_failure_excerpt",
+    "dependency_recovery",
   }) do
     if normalized[field] ~= nil then
       request.handoff[field] = normalized[field]
@@ -237,6 +238,7 @@ function M.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready,
   if gate_baseline_sha ~= nil and not M._is_git_sha(gate_baseline_sha) then
     error("github-devloop: invalid merge-gate baseline sha")
   end
+  handoff_fields = handoff_fields or {}
   local test_command = M.neutralize_untrusted_comment_text(M.test_command())
   local state_marker = M.state_marker(merge_ready.proposal_id, "fixing", fix_version)
   local marker = M.merge_gate_marker(
@@ -248,7 +250,8 @@ function M.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready,
     merge_ready.reviewed_head_sha,
     gate_baseline_sha,
     safe_reason,
-    predecessor_set
+    predecessor_set,
+    handoff_fields and handoff_fields.dependency_recovery or nil
   )
   local request = M.build_entity_comment_request({
     kind = "pr",
@@ -265,9 +268,9 @@ function M.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready,
     tostring(merge_ready.version),
     tostring(fix_version),
     tostring(predecessor_set or "nopred"),
+    tostring(handoff_fields.dependency_recovery or "norecovery"),
     safe_reason,
   }), source_ref)
-  handoff_fields = handoff_fields or {}
   local gate_failure_excerpt = handoff_fields.gate_failure_excerpt
   if gate_failure_excerpt == nil and handoff_fields.preserve_nil_gate_failure_excerpt ~= true then
     gate_failure_excerpt = reason
@@ -280,6 +283,7 @@ function M.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready,
     gate_baseline_sha = gate_baseline_sha,
     predecessor_set = predecessor_set,
     gate_failure_excerpt = gate_failure_excerpt,
+    dependency_recovery = handoff_fields.dependency_recovery,
     current_head_sha = handoff_fields.current_head_sha,
   }, source_ref)
 end

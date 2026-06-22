@@ -7,5 +7,6 @@ return {
       review_dedup = true,
       head_sha = true,
       gate_baseline_sha = true,
+      recovery = true,
       reason = true,
 }

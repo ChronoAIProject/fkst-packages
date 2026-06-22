@@ -32,6 +32,14 @@ local function mock_failing_required_check_runs()
   })
 end
 
+local function mock_missing_substrate_required_check_runs()
+  t.mock_command(check_runs_cmd, {
+    stdout = '{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"failure","head_sha":"def456","output":{"summary":"lua: restricted_lua_load is nil"}}]}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 return {
   test_merge_ci_red_without_rollup_sha_uses_pr_base_baseline = function()
     local event = merge_ready()
@@ -85,6 +93,46 @@ return {
     t.eq(count_calls("git fetch 'origin' 'refs/pull/7/merge'"), 0)
     t.eq(count_calls("refs/remotes/'origin'/'dev'^{commit}"), 0)
     t.is_true(has_value(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.remove_labels, "fkst-dev:merge-ready"))
+  end,
+
+  test_merge_missing_substrate_symbol_handoff_marks_stale_pin_recovery = function()
+    local event = merge_ready()
+    local origin_marker = core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge_rollup({ origin_marker }, '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/test","name":"test","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"ci","headSha":"def456"}]', nil, nil, nil, nil, nil, nil, nil, nil, nil, "ba5e9999")
+    mock_missing_substrate_required_check_runs()
+
+    local result = run_merge(event, opts("merge-stale-substrate-pin-recovery", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    local fixing_handoff = comment_raise.payload.handoff
+    t.eq(fixing_handoff.dependency_recovery, "substrate-pin-stale")
+    t.is_true(comment_raise.payload.body:find('recovery="substrate-pin-stale"', 1, true) ~= nil)
+    local fix_fact = core.merge_gate_fix_fact({ comment_raise.payload.body }, event.proposal_id, core.fix_version_from_review_version(event.version))
+    t.eq(fix_fact.gate_baseline_sha, "ba5e9999")
+    t.eq(fix_fact.dependency_recovery, "substrate-pin-stale")
+
+    local handoff_result = t.run_department("departments/comment_handoff/main.lua", {
+      queue = "github-proxy.github_comment_written",
+      payload = {
+        schema = "github-proxy.comment-written.v1",
+        repo = comment_raise.payload.repo,
+        target = "pr",
+        pr_number = comment_raise.payload.pr_number,
+        comment_id = "IC_merge_stale_substrate_pin_fixing_1",
+        request_dedup_key = comment_raise.payload.dedup_key,
+        dedup_key = comment_raise.payload.dedup_key .. "/written/IC_merge_stale_substrate_pin_fixing_1",
+        source_ref = comment_raise.payload.source_ref,
+        handoff = fixing_handoff,
+      },
+    }, opts("merge-stale-substrate-pin-comment-handoff"))
+    t.eq(handoff_result.exit_code, 0)
+    local fixing_payload = find_raise(handoff_result.raises, "devloop_fixing").payload
+    t.eq(fixing_payload.dependency_recovery, "substrate-pin-stale")
+    t.eq(core.is_supported_fixing(fixing_payload), true)
   end,
 
   test_merge_gate_marker_without_baseline_round_trips_nil = function()
@@ -252,8 +300,8 @@ return {
     local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
 
     t.is_true(defective.dedup_key ~= corrected.dedup_key)
-    t.is_true(defective.dedup_key:find("/nobase/nopred/" .. event.reviewed_head_sha, 1, true) ~= nil)
-    t.is_true(corrected.dedup_key:find("/" .. event.gate_baseline_sha .. "/nopred/" .. event.reviewed_head_sha, 1, true) ~= nil)
+    t.is_true(defective.dedup_key:find("/nobase/nopred/norecovery/" .. event.reviewed_head_sha, 1, true) ~= nil)
+    t.is_true(corrected.dedup_key:find("/" .. event.gate_baseline_sha .. "/nopred/norecovery/" .. event.reviewed_head_sha, 1, true) ~= nil)
     t.eq(corrected.gate_baseline_sha, event.gate_baseline_sha)
 
     mock_bot_env()
@@ -291,6 +339,40 @@ return {
     t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(corrected.version))
     t.eq(count_calls("merge --no-edit '" .. corrected.gate_baseline_sha .. "'"), 1)
     t.eq(count_calls("git fetch 'origin' 'refs/pull/7/merge'"), 0)
+  end,
+
+  test_merge_gate_replay_dedup_includes_dependency_recovery = function()
+    local event = fixing({
+      gate_baseline_sha = "828df8d3",
+      gate_failure_excerpt = "own-ci-red",
+    })
+    local baseline = core.build_replayed_fixing_payload({
+      proposal_id = event.proposal_id,
+      impl_version = event.version,
+    }, event.pr_number, {
+      review_proposal_id = event.review_proposal_id,
+      review_dedup_key = event.review_dedup_key,
+      reviewed_head_sha = event.reviewed_head_sha,
+      gate_baseline_sha = event.gate_baseline_sha,
+      review_reason = "own-ci-red",
+    }, event.source_ref)
+    local recovery = core.build_replayed_fixing_payload({
+      proposal_id = event.proposal_id,
+      impl_version = event.version,
+    }, event.pr_number, {
+      review_proposal_id = event.review_proposal_id,
+      review_dedup_key = event.review_dedup_key,
+      reviewed_head_sha = event.reviewed_head_sha,
+      gate_baseline_sha = event.gate_baseline_sha,
+      dependency_recovery = "substrate-pin-stale",
+      review_reason = "own-ci-red",
+    }, event.source_ref)
+
+    t.is_true(baseline.dedup_key ~= recovery.dedup_key)
+    t.is_true(baseline.dedup_key:find("/norecovery/" .. event.reviewed_head_sha, 1, true) ~= nil)
+    t.is_true(recovery.dedup_key:find("/substrate-pin-stale/" .. event.reviewed_head_sha, 1, true) ~= nil)
+    t.eq(recovery.dependency_recovery, "substrate-pin-stale")
+    t.eq(core.is_supported_fixing(recovery), true)
   end,
 
   test_synthetic_rollup_sha_no_longer_drives_pr_fixing = function()

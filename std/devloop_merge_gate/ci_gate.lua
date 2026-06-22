@@ -7,6 +7,8 @@ local log_check_runs_fallback = shared.log_check_runs_fallback
 local fetch_commit_check_runs = shared.fetch_commit_check_runs
 local check_run_id = shared.check_run_id
 local check_run_head_sha = shared.check_run_head_sha
+local check_run_name = shared.check_run_name
+local check_run_state = shared.check_run_state
 local required_head_check_run_status = shared.required_head_check_run_status
 local ci_classification = shared.ci_classification
 local integration_or_external_red = shared.integration_or_external_red
@@ -68,7 +70,10 @@ function M.classify_pr_ci_gate(pr, opts)
   log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
   local head_status = required_head_check_run_status(runs, head_sha)
   if head_status == "red" then
-    return ci_classification("OWN_CI_RED", "own-ci-red", { check_runs = runs })
+    return ci_classification("OWN_CI_RED", "own-ci-red", {
+      check_runs = runs,
+      dependency_recovery = M.ci_dependency_recovery_hint(runs, head_sha),
+    })
   end
   if head_status == "pending" then
     return ci_classification("CHECKS_PENDING", "checks-pending", { check_runs = runs })
@@ -80,6 +85,72 @@ function M.classify_pr_ci_gate(pr, opts)
     return integration_or_external_red(pr, head_sha, runs)
   end
   return ci_classification("OK", "rollup-green", { check_runs = runs })
+end
+
+local function check_run_output_text(run)
+  if type(run) ~= "table" or type(run.output) ~= "table" then
+    return ""
+  end
+  return table.concat({
+    tostring(run.output.title or ""),
+    tostring(run.output.summary or ""),
+    tostring(run.output.text or ""),
+  }, "\n")
+end
+
+local missing_symbol_needles = {
+  "nil",
+  "missing",
+  "not available",
+  "not found",
+  "undefined",
+  "attempt to call",
+}
+
+local function output_reports_missing_symbol(text, symbol)
+  local lower = tostring(text or ""):lower()
+  if lower:find(tostring(symbol):lower(), 1, true) == nil then
+    return false
+  end
+  for _, needle in ipairs(missing_symbol_needles) do
+    if lower:find(needle, 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+local stale_substrate_symbols = {
+  "restricted_lua_load",
+}
+
+function M.ci_dependency_recovery_hint(runs, head_sha)
+  if type(runs) ~= "table" or not M.is_safe_head_sha(head_sha) then
+    return nil
+  end
+  local expected = tostring(head_sha):lower()
+  local required = {}
+  for _, name in ipairs(M._required_check_run_names or {}) do
+    required[tostring(name)] = true
+  end
+  for _, run in ipairs(runs) do
+    local name = check_run_name(run)
+    if required[name] then
+      local run_head = check_run_head_sha(run)
+      local state, conclusion = check_run_state(run)
+      if (run_head == nil or run_head == expected)
+        and state == "COMPLETED"
+        and tostring(conclusion or "") ~= "SUCCESS" then
+        local output = check_run_output_text(run)
+        for _, symbol in ipairs(stale_substrate_symbols) do
+          if output_reports_missing_symbol(output, symbol) then
+            return "substrate-pin-stale"
+          end
+        end
+      end
+    end
+  end
+  return nil
 end
 
 function M.rerunnable_check_run_ids_for_head(runs, head_sha)

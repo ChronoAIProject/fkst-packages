@@ -90,7 +90,7 @@ local function raise_decompose_for_max_fix_rounds(merge_ready, current_state, re
   core.log_raise("merge", merge_ready.proposal_id, "github-devloop-decompose.devloop_decompose", decompose)
 end
 
-local function raise_fixing(repo, issue_number, merge_ready, current_state, current_pr, reason, queue_position)
+local function raise_fixing(repo, issue_number, merge_ready, current_state, current_pr, reason, queue_position, dependency_recovery)
   local source_ref = core.pr_source_ref(repo, merge_ready.pr_number)
   if core.version_fix_round(current_state.version) >= core.max_fix_rounds() then
     raise_decompose_for_max_fix_rounds(merge_ready, current_state, reason, source_ref)
@@ -112,7 +112,7 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
     end
     predecessor_set = position.predecessor_set
   end
-  local comment_request = core.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready, fix_version, reason, gate_baseline_sha, source_ref, predecessor_set)
+  local comment_request = core.build_merge_gate_fix_comment_request(repo, issue_number, merge_ready, fix_version, reason, gate_baseline_sha, source_ref, predecessor_set, { dependency_recovery = dependency_recovery })
   local label_request = issue_number ~= nil and core.build_state_label_request(
     repo,
     issue_number,
@@ -579,7 +579,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
         return
       end
       log_gate(merge_ready, "fixing", classification.reason)
-      raise_fixing(repo, issue_number, merge_ready, state, current_pr, classification.reason, queue_position)
+      raise_fixing(repo, issue_number, merge_ready, state, current_pr, classification.reason, queue_position, classification.dependency_recovery)
       return
     end
     if not core.is_ci_red_reason(rollup_reason) then

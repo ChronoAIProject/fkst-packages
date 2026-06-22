@@ -147,7 +147,7 @@ local function fixing_replay_comment_request(issue, pr_number, fix_payload, feed
     {
       blocking_gap = fix_payload.blocking_gap,
       gate_failure_excerpt = fix_payload.gate_failure_excerpt,
-      preserve_nil_gate_failure_excerpt = fix_payload.gate_failure_excerpt == nil,
+      preserve_nil_gate_failure_excerpt = fix_payload.gate_failure_excerpt == nil, dependency_recovery = fix_payload.dependency_recovery,
     }
   )
   request.handoff.dedup_key = fix_payload.dedup_key

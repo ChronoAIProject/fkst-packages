@@ -161,6 +161,12 @@ function M.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
     end
     payload.predecessor_set = tostring(review_fact.predecessor_set)
   end
+  if review_fact.dependency_recovery ~= nil then
+    if review_fact.dependency_recovery ~= "substrate-pin-stale" then
+      error("github-devloop: invalid dependency recovery")
+    end
+    payload.dependency_recovery = tostring(review_fact.dependency_recovery)
+  end
   local gate_failure_excerpt = bounded_control_text(M, review_fact.gate_failure_excerpt, M._max_rollup_failure_summary_len)
   if gate_failure_excerpt ~= nil then
     payload.gate_failure_excerpt = gate_failure_excerpt
@@ -186,6 +192,7 @@ function M.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
     blocking_gap = feedback.blocking_gap,
     gate_baseline_sha = feedback.gate_baseline_sha,
     predecessor_set = feedback.predecessor_set,
+    dependency_recovery = feedback.dependency_recovery,
     gate_failure_excerpt = feedback.review_reason,
   }, source_ref)
   payload.dedup_key = M._dedup_key({
@@ -197,6 +204,7 @@ function M.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
     tostring(feedback.review_dedup_key),
     replay_fact_sha(feedback.gate_baseline_sha, "nobase"),
     tostring(feedback.predecessor_set or "nopred"),
+    tostring(feedback.dependency_recovery or "norecovery"),
     replay_fact_sha(feedback.reviewed_head_sha, "nohead"),
   })
   return payload

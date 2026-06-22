@@ -169,6 +169,90 @@ return {
     t.eq(count_calls("ls-files -u"), 2)
   end,
 
+  test_stale_substrate_pin_recovery_merges_current_base_before_codex = function()
+    local event = fixing({
+      gate_baseline_sha = "abc123",
+      gate_failure_excerpt = "own-ci-red",
+      dependency_recovery = "substrate-pin-stale",
+    })
+    local branch = core.implement_branch("owner/repo", "42", event.version)
+    local reject_comment = "github-devloop merge gate failed: own-ci-red"
+      .. "\n" .. core.state_marker(event.proposal_id, "fixing", event.version)
+      .. "\n" .. core.merge_gate_marker(
+        event.proposal_id,
+        event.pr_number,
+        event.version,
+        event.review_proposal_id,
+        event.review_dedup_key,
+        event.reviewed_head_sha,
+        event.gate_baseline_sha,
+        "own-ci-red",
+        nil,
+        "substrate-pin-stale"
+      )
+    local recovery_fact = core.merge_gate_fix_fact({ reject_comment }, event.proposal_id, event.version, {
+      review_proposal_id = event.review_proposal_id,
+      review_dedup_key = event.review_dedup_key,
+      gate_baseline_sha = event.gate_baseline_sha,
+      dependency_recovery = "substrate-pin-stale",
+      match_gate_baseline_sha = true,
+      match_dependency_recovery = true,
+    })
+    t.eq(recovery_fact.dependency_recovery, "substrate-pin-stale")
+    local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    mock_bot_env()
+    mock_write_env("1")
+    mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      reject_comment,
+    }, branch, event.version)
+    mock_pr_fix({ origin_marker }, branch, "def456")
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+      stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+      stderr = "",
+      exit_code = 0,
+    })
+    local worktree = mock_existing_fix_worktree(branch, "def456", nil, {
+      sha = "ba5e9999",
+      exit_code = 0,
+      stdout = "Merge made by the 'ort' strategy.\n",
+      stderr = "",
+    })
+    mock_implement_codex(0, "advanced substrate pin")
+    mock_git_status(" M .fkst/substrate-ref\n")
+    t.mock_command("git -C " .. worktree .. " add -A", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_git_commit("feedface", branch)
+    mock_write_env("1")
+    mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      reject_comment,
+    }, branch, event.version)
+    mock_pr_fix({ origin_marker }, branch, "def456")
+    mock_git_push(branch)
+    mock_pr_fix({ origin_marker }, branch, "feedface")
+
+    local result = run_fix(event, opts("fix-stale-substrate-pin-current-base", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
+    t.eq(count_calls("git fetch 'origin' 'dev'"), 1)
+    t.eq(count_calls("refs/remotes/'origin'/'dev'^{commit}"), 1)
+    t.eq(count_calls("merge --no-edit 'abc123'"), 0)
+    t.eq(count_calls("merge --no-edit 'ba5e9999'"), 1)
+
+    local saw_current_base_prompt = false
+    for _, call in ipairs(t.command_calls()) do
+      if call.rendered:find("codex exec", 1, true) ~= nil
+        and tostring(call.stdin or ""):find("target_sha=ba5e9999", 1, true) ~= nil then
+        saw_current_base_prompt = true
+      end
+    end
+    t.eq(saw_current_base_prompt, true)
+  end,
+
   test_fix_errors_on_leftover_conflict_markers = function()
     local event = fixing({ gate_baseline_sha = "abc123", gate_failure_excerpt = "own-ci-red" })
     local branch = core.implement_branch("owner/repo", "42", event.version)

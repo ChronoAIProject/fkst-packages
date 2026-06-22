@@ -398,7 +398,7 @@ local function run_fix_attempt(plan)
       worktree,
       plan.fix.pr_number,
       plan.branches.integration,
-      plan.merge_gate_fact and plan.merge_gate_fact.gate_baseline_sha or nil,
+      plan.merge_gate_fact and plan.merge_gate_fact.dependency_recovery ~= "substrate-pin-stale" and plan.merge_gate_fact.gate_baseline_sha or nil,
       plan.merge_gate_fact and plan.merge_gate_fact.reason or nil
     )
   end
@@ -678,9 +678,11 @@ local function act_fix(event)
         review_proposal_id = fix.review_proposal_id,
         review_dedup_key = fix.review_dedup_key,
         gate_baseline_sha = fix.gate_baseline_sha,
+        dependency_recovery = fix.dependency_recovery,
         match_gate_baseline_sha = true,
+        match_dependency_recovery = true,
       })
-      if merge_gate_fact == nil then
+      if merge_gate_fact == nil and fix.dependency_recovery == nil then
         merge_gate_fact = merge_gate_candidate
       end
     end

@@ -50,6 +50,7 @@ local function supported_handoff(payload)
     and (handoff.framing == nil or core._is_bounded_string(handoff.framing, core._max_framing_len))
     and (handoff.gate_baseline_sha == nil or core.is_safe_head_sha(handoff.gate_baseline_sha))
     and (handoff.gate_failure_excerpt == nil or core._is_bounded_string(handoff.gate_failure_excerpt, core._max_rollup_failure_summary_len))
+    and (handoff.dependency_recovery == nil or handoff.dependency_recovery == "substrate-pin-stale")
     and (handoff.predecessor_set == nil or core._is_path_safe_key(handoff.predecessor_set, core._max_dedup_len))
     and (handoff.dedup_key == nil or core._is_path_safe_key(handoff.dedup_key, core._max_dedup_len))
     and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
@@ -114,6 +115,7 @@ local function act_handoff(event)
       blocking_gap = handoff.blocking_gap,
       gate_baseline_sha = handoff.gate_baseline_sha,
       predecessor_set = handoff.predecessor_set,
+      dependency_recovery = handoff.dependency_recovery,
       gate_failure_excerpt = handoff.gate_failure_excerpt,
     }, handoff.source_ref)
     if handoff.dedup_key ~= nil then
