@@ -107,6 +107,13 @@ function S.install(M)
     return support.git().cat_file_pretty(validators.require_safe_ref(M, "object ref", ref), timeout)
   end
 
+  function M.git_show_file(ref, path, timeout)
+    if not M._is_path_safe_key(path, M._max_key_len) then
+      error("github-devloop: invalid git show path")
+    end
+    return support.git().show_file(validators.require_safe_ref(M, "file ref", ref), tostring(path), timeout)
+  end
+
   function M.git_commit_tree(tree_sha, parent_sha, message_file, timeout)
     local parent = nil
     if parent_sha ~= nil and tostring(parent_sha) ~= "" then

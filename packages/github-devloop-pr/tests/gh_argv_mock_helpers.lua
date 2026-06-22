@@ -460,6 +460,10 @@ local function append_git_mock_patterns(patterns, command)
   if ls_remote ~= nil then
     table.insert(patterns, "git ls-remote " .. ls_remote .. " refs/heads/" .. ls_branch)
   end
+  local show_file = text:match("^git show '([^']+)'$")
+  if show_file ~= nil then
+    table.insert(patterns, "git show " .. show_file)
+  end
   local worktree, branch = text:match("^git %-C '([^']+)' rev%-parse %-%-abbrev%-ref HEAD$")
   if worktree ~= nil then
     table.insert(patterns, "git -C " .. worktree .. " rev-parse --abbrev-ref HEAD")

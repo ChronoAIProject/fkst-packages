@@ -13,6 +13,7 @@ local required_head_check_run_status = shared.required_head_check_run_status
 local ci_classification = shared.ci_classification
 local integration_or_external_red = shared.integration_or_external_red
 local merge_gate_reason_row = shared.merge_gate_reason_row
+local substrate_ref_path = ".fkst/substrate-ref"
 
 function M.pr_identity_matches(pr, expected)
   if type(pr) ~= "table" then
@@ -72,7 +73,9 @@ function M.classify_pr_ci_gate(pr, opts)
   if head_status == "red" then
     return ci_classification("OWN_CI_RED", "own-ci-red", {
       check_runs = runs,
-      dependency_recovery = M.ci_dependency_recovery_hint(runs, head_sha),
+      dependency_recovery = M.ci_dependency_recovery_hint(runs, head_sha, {
+        base_sha = pr and pr.base_ref_oid,
+      }),
     })
   end
   if head_status == "pending" then
@@ -124,7 +127,34 @@ local stale_substrate_symbols = {
   "restricted_lua_load",
 }
 
-function M.ci_dependency_recovery_hint(runs, head_sha)
+local function read_substrate_pin_at(ref)
+  if not M.is_safe_head_sha(ref) then
+    return nil
+  end
+  local ok, result = pcall(function()
+    return M.git_show_file(ref, substrate_ref_path, 30)
+  end)
+  if not ok or type(result) ~= "table" or result.exit_code ~= 0 then
+    return nil
+  end
+  local pin = M._trim(result.stdout)
+  if not M.is_safe_head_sha(pin) then
+    return nil
+  end
+  return pin:lower()
+end
+
+local function substrate_pin_stale_proof(head_sha, opts)
+  local base_ref = tostring(opts and opts.base_ref or opts and opts.base_sha or "")
+  if not M.is_safe_head_sha(base_ref) then
+    return false
+  end
+  local head_pin = read_substrate_pin_at(head_sha)
+  local base_pin = read_substrate_pin_at(base_ref)
+  return head_pin ~= nil and base_pin ~= nil and head_pin ~= base_pin
+end
+
+function M.ci_dependency_recovery_hint(runs, head_sha, opts)
   if type(runs) ~= "table" or not M.is_safe_head_sha(head_sha) then
     return nil
   end
@@ -144,7 +174,10 @@ function M.ci_dependency_recovery_hint(runs, head_sha)
         local output = check_run_output_text(run)
         for _, symbol in ipairs(stale_substrate_symbols) do
           if output_reports_missing_symbol(output, symbol) then
-            return "substrate-pin-stale"
+            if substrate_pin_stale_proof(head_sha, opts) then
+              return "substrate-pin-stale"
+            end
+            return nil
           end
         end
       end
