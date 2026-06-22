@@ -100,6 +100,14 @@ class Violation:
         return self.path, self.surface, self.kind, self.token, str(self.line)
 
     def canonical_key(self) -> tuple[str, str, str, str, str]:
+        # Migration bridge for the no-growth-vs-dev comparison ONLY: this branch
+        # moved std/devloop_* -> libraries/devloop/* (the stdlib split), but dev's
+        # base allowlist still records the old std/devloop_ paths. Canonicalizing
+        # old->new lets the no-growth check see a moved entry as the SAME debt
+        # (not new growth). This is NOT a behavior shim: the branch allowlist is
+        # already fully on the new paths; this only reconciles against the OLD dev
+        # base during the rename window. Remove this once the rename has landed on
+        # dev (then dev's base carries the new paths and the remap is a no-op).
         path = self.path
         if path.startswith("std/devloop_"):
             path = "libraries/devloop/" + path.removeprefix("std/devloop_")
