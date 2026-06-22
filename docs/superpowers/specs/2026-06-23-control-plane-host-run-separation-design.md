@@ -47,7 +47,7 @@ scripts/run.sh supervise \
   --platform-packages "<names>"       # platform package names, loaded from <PKGSRC>/packages/<name>
   [--host-packages    "<names>"]      # the host's OWN packages (fkst-packages: from packages/; website: from .fkst/local-packages/)
   --durable-root      <path>          # MANDATORY, fail-closed — the stable redb store, reused across launches; NEVER defaulted
-  [--runtime-root     <path>]         # scratch, fresh per launch (defaults to a fresh temp dir)
+  [--runtime-root     <base>]         # scratch base; a fresh child is created per launch (defaults to a fresh temp dir)
   [--restart]                         # SIGKILL the prior supervise holding this durable-root, then launch
 ```
 

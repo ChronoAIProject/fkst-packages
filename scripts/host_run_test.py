@@ -68,6 +68,46 @@ def shell_quote(value: str | Path) -> str:
     return "'" + text.replace("'", "'\\''") + "'"
 
 
+def pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def wait_for_dead(pid: int, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not pid_is_alive(pid):
+            return True
+        time.sleep(0.05)
+    return not pid_is_alive(pid)
+
+
+def start_orphan_sleep(seconds: int = 60) -> int:
+    result = subprocess.run(
+        ["/bin/sh", "-c", f"sleep {seconds} >/dev/null 2>&1 & echo $!"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    return int(result.stdout.strip())
+
+
+def kill_if_alive(pid: int) -> None:
+    if not pid_is_alive(pid):
+        return
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    wait_for_dead(pid)
+
+
 class HostRunTest(unittest.TestCase):
     def test_packages_host_uses_project_packages_for_host_packages(self) -> None:
         h = HostRunHarness()
@@ -179,22 +219,12 @@ class HostRunTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_restart_kills_pid_file_supervise_process_for_same_project(self) -> None:
+    def test_restart_kills_pid_file_process_without_command_text_matching(self) -> None:
         h = HostRunHarness()
-        sleeper = subprocess.Popen(
-            [
-                "/bin/sh",
-                "-c",
-                "exec -a 'fkst-framework supervise --project-root "
-                + str(h.substrate_host)
-                + " --package-root x' sleep 60",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        pid = start_orphan_sleep()
         try:
             h.durable.mkdir()
-            (h.durable / ".fkst-supervise.pid").write_text(str(sleeper.pid) + "\n", encoding="utf-8")
+            (h.durable / ".fkst-supervise.pid").write_text(str(pid) + "\n", encoding="utf-8")
             result = h.run_helper(
                 textwrap.dedent(
                     f"""\
@@ -207,16 +237,109 @@ class HostRunTest(unittest.TestCase):
                 )
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            for _ in range(20):
-                if sleeper.poll() is not None:
-                    break
-                time.sleep(0.05)
-            self.assertIsNotNone(sleeper.poll())
+            self.assertTrue(wait_for_dead(pid), f"pid {pid} still alive")
+            self.assertFalse((h.durable / ".fkst-supervise.pid").exists())
             self.assertIn("killing prior supervise pid", result.stderr)
         finally:
-            if sleeper.poll() is None:
-                sleeper.send_signal(signal.SIGKILL)
-                sleeper.wait(timeout=5)
+            kill_if_alive(pid)
+            h.close()
+
+    def test_restart_fails_closed_when_prior_cannot_be_killed(self) -> None:
+        h = HostRunHarness()
+        pid = start_orphan_sleep()
+        try:
+            h.durable.mkdir()
+            pidfile = h.durable / ".fkst-supervise.pid"
+            pidfile.write_text(str(pid) + "\n", encoding="utf-8")
+            result = h.run_helper(
+                textwrap.dedent(
+                    f"""\
+                    set -euo pipefail
+                    source scripts/host_run.sh
+                    kill() {{
+                      if [ "${{1:-}}" = "-9" ]; then
+                        return 1
+                      fi
+                      command kill "$@"
+                    }}
+                    host_run_parse_supervise_args --project-root {shell_quote(h.substrate_host)} --platform-root {shell_quote(h.platform)} --platform-packages 'github-proxy' --durable-root {shell_quote(h.durable)} --runtime-root {shell_quote(h.runtime)} --restart
+                    host_run_validate_shape
+                    host_run_restart_prior
+                    """
+                )
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(pid_is_alive(pid), f"pid {pid} should not have been killed")
+            self.assertEqual(pidfile.read_text(encoding="utf-8").strip(), str(pid))
+            self.assertIn("failed to SIGKILL prior supervise pid", result.stderr)
+        finally:
+            kill_if_alive(pid)
+            h.close()
+
+    def test_launch_without_restart_fails_closed_when_pidfile_is_live(self) -> None:
+        h = HostRunHarness()
+        pid = start_orphan_sleep()
+        try:
+            h.durable.mkdir()
+            (h.durable / ".fkst-supervise.pid").write_text(str(pid) + "\n", encoding="utf-8")
+            result = h.run_helper(
+                textwrap.dedent(
+                    f"""\
+                    set -euo pipefail
+                    source scripts/host_run.sh
+                    host_run_parse_supervise_args --project-root {shell_quote(h.substrate_host)} --platform-root {shell_quote(h.platform)} --platform-packages 'github-proxy' --durable-root {shell_quote(h.durable)} --runtime-root {shell_quote(h.runtime)}
+                    host_run_validate_shape
+                    host_run_claim_supervise_slot
+                    """
+                )
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(pid_is_alive(pid), f"pid {pid} should still be alive")
+            self.assertIn("is still running for durable root", result.stderr)
+        finally:
+            kill_if_alive(pid)
+            h.close()
+
+    def test_explicit_runtime_root_is_fresh_child_per_launch(self) -> None:
+        h = HostRunHarness()
+        try:
+            h.runtime.mkdir()
+            (h.runtime / "stale.txt").write_text("old scratch\n", encoding="utf-8")
+            args = (
+                f"--project-root {shell_quote(h.substrate_host)} "
+                f"--platform-root {shell_quote(h.platform)} "
+                f"--platform-packages 'github-proxy' "
+                f"--durable-root {shell_quote(h.durable)} "
+                f"--runtime-root {shell_quote(h.runtime)}"
+            )
+            result = h.run_helper(
+                textwrap.dedent(
+                    f"""\
+                    set -euo pipefail
+                    source scripts/host_run.sh
+                    host_run_parse_supervise_args {args}
+                    host_run_validate_shape
+                    first="$HOST_RUN_RUNTIME_ROOT"
+                    [ "$first" != {shell_quote(h.runtime)} ]
+                    [ -d "$first" ]
+                    [ -f {shell_quote(h.runtime / "stale.txt")} ]
+                    host_run_parse_supervise_args {args}
+                    host_run_validate_shape
+                    second="$HOST_RUN_RUNTIME_ROOT"
+                    [ "$second" != {shell_quote(h.runtime)} ]
+                    [ -d "$second" ]
+                    [ "$first" != "$second" ]
+                    printf '%s\\n%s\\n' "$first" "$second"
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            first, second = result.stdout.splitlines()
+            self.assertNotEqual(first, second)
+            self.assertTrue(first.startswith(str(h.runtime) + "/fkst-host-run-rt."))
+            self.assertTrue(second.startswith(str(h.runtime) + "/fkst-host-run-rt."))
+            self.assertEqual((h.runtime / "stale.txt").read_text(encoding="utf-8"), "old scratch\n")
+        finally:
             h.close()
 
 

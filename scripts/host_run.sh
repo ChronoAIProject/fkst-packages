@@ -7,13 +7,15 @@ HOST_RUN_PLATFORM_PACKAGES=""
 HOST_RUN_HOST_PACKAGES=""
 HOST_RUN_DURABLE_ROOT=""
 HOST_RUN_RUNTIME_ROOT=""
-HOST_RUN_RUNTIME_IS_TEMP=0
+HOST_RUN_RUNTIME_BASE=""
+HOST_RUN_RUNTIME_LABEL=""
+HOST_RUN_RUNTIME_IS_EXPLICIT=0
 HOST_RUN_RESTART=0
 HOST_RUN_PACKAGE_ROOTS=()
 
 host_run_usage() {
   cat >&2 <<'EOF'
-usage: scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <path>] [--restart]
+usage: scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-base>] [--restart]
    or: scripts/run.sh supervise <package>
 EOF
 }
@@ -40,7 +42,9 @@ host_run_parse_supervise_args() {
   HOST_RUN_HOST_PACKAGES=""
   HOST_RUN_DURABLE_ROOT=""
   HOST_RUN_RUNTIME_ROOT=""
-  HOST_RUN_RUNTIME_IS_TEMP=0
+  HOST_RUN_RUNTIME_BASE=""
+  HOST_RUN_RUNTIME_LABEL=""
+  HOST_RUN_RUNTIME_IS_EXPLICIT=0
   HOST_RUN_RESTART=0
 
   while [ "$#" -gt 0 ]; do
@@ -62,7 +66,7 @@ host_run_parse_supervise_args() {
         HOST_RUN_DURABLE_ROOT="$2"; shift 2 ;;
       --runtime-root)
         [ "$#" -ge 2 ] || { echo "error: --runtime-root requires a path" >&2; return 2; }
-        HOST_RUN_RUNTIME_ROOT="$2"; shift 2 ;;
+        HOST_RUN_RUNTIME_BASE="$2"; HOST_RUN_RUNTIME_IS_EXPLICIT=1; shift 2 ;;
       --restart)
         HOST_RUN_RESTART=1; shift ;;
       -h|--help)
@@ -82,11 +86,11 @@ host_run_parse_supervise_args() {
   HOST_RUN_PROJECT_ROOT="$(host_run_abs_path "$HOST_RUN_PROJECT_ROOT")"
   HOST_RUN_PLATFORM_ROOT="$(host_run_abs_path "$HOST_RUN_PLATFORM_ROOT")"
   HOST_RUN_DURABLE_ROOT="$(host_run_abs_path "$HOST_RUN_DURABLE_ROOT")"
-  if [ -n "$HOST_RUN_RUNTIME_ROOT" ]; then
-    HOST_RUN_RUNTIME_ROOT="$(host_run_abs_path "$HOST_RUN_RUNTIME_ROOT")"
+  if [ -n "$HOST_RUN_RUNTIME_BASE" ]; then
+    HOST_RUN_RUNTIME_BASE="$(host_run_abs_path "$HOST_RUN_RUNTIME_BASE")"
   else
     HOST_RUN_RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-host-run-rt.XXXXXX")"
-    HOST_RUN_RUNTIME_IS_TEMP=1
+    HOST_RUN_RUNTIME_LABEL="fresh temp"
   fi
 }
 
@@ -94,8 +98,17 @@ host_run_validate_shape() {
   [ -d "$HOST_RUN_PROJECT_ROOT" ] || { echo "error: project root does not exist: $HOST_RUN_PROJECT_ROOT" >&2; return 1; }
   [ -d "$HOST_RUN_PLATFORM_ROOT" ] || { echo "error: platform root does not exist: $HOST_RUN_PLATFORM_ROOT" >&2; return 1; }
   [ -d "$HOST_RUN_PLATFORM_ROOT/packages" ] || { echo "error: platform root has no packages directory: $HOST_RUN_PLATFORM_ROOT/packages" >&2; return 1; }
-  mkdir -p "$HOST_RUN_RUNTIME_ROOT" "$HOST_RUN_DURABLE_ROOT"
-  if [ "$HOST_RUN_RUNTIME_ROOT" = "$HOST_RUN_DURABLE_ROOT" ]; then
+  mkdir -p "$HOST_RUN_DURABLE_ROOT"
+  if [ "$HOST_RUN_RUNTIME_IS_EXPLICIT" -eq 1 ]; then
+    mkdir -p "$HOST_RUN_RUNTIME_BASE"
+    if host_run_same_path "$HOST_RUN_RUNTIME_BASE" "$HOST_RUN_DURABLE_ROOT"; then
+      echo "error: --runtime-root and --durable-root resolved to the same directory" >&2
+      return 1
+    fi
+    HOST_RUN_RUNTIME_ROOT="$(mktemp -d "$HOST_RUN_RUNTIME_BASE/fkst-host-run-rt.XXXXXX")"
+    HOST_RUN_RUNTIME_LABEL="fresh child"
+  fi
+  if host_run_same_path "$HOST_RUN_RUNTIME_ROOT" "$HOST_RUN_DURABLE_ROOT"; then
     echo "error: --runtime-root and --durable-root resolved to the same directory" >&2
     return 1
   fi
@@ -130,61 +143,116 @@ host_run_pid_file() {
   printf '%s/.fkst-supervise.pid\n' "$HOST_RUN_DURABLE_ROOT"
 }
 
-host_run_supervise_pid_matches() {
-  local pid="$1" command_line expected
-  command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-  expected="supervise --project-root $HOST_RUN_PROJECT_ROOT"
-  [ -n "$command_line" ] && [[ "$command_line" == *"$expected"* ]]
+host_run_pid_check() {
+  local pid="$1" err
+  err="$(kill -0 "$pid" 2>&1)" && return 0
+  case "$err" in
+    *"Operation not permitted"*|*"operation not permitted"*|*"not permitted"*)
+      return 2
+      ;;
+  esac
+  return 1
+}
+
+host_run_pid_state() {
+  local pid="$1" stat
+  if [ -r "/proc/$pid/stat" ]; then
+    stat="$(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | awk '{print $1}')" || stat=""
+    [ -n "$stat" ] && { printf '%s\n' "$stat"; return 0; }
+  fi
+  stat="$(ps -o stat= -p "$pid" 2>/dev/null | awk 'NF {print $1; exit}')" || stat=""
+  [ -n "$stat" ] && { printf '%s\n' "$stat"; return 0; }
+  return 1
+}
+
+host_run_pid_is_dead() {
+  local pid="$1" state
+  host_run_pid_check "$pid"
+  case "$?" in
+    0) ;;
+    1) return 0 ;;
+    *) return 1 ;;
+  esac
+  state="$(host_run_pid_state "$pid" 2>/dev/null || true)"
+  [[ "$state" == Z* ]]
 }
 
 host_run_kill_supervise_pid() {
-  local pid="$1" source="$2"
-  kill -0 "$pid" 2>/dev/null || return 0
-  if ! host_run_supervise_pid_matches "$pid"; then
-    echo "restart: ignoring stale $source pid $pid for durable root $HOST_RUN_DURABLE_ROOT (process no longer matches project root)" >&2
+  local pid="$1" pid_file="$2" attempts=0
+  if host_run_pid_is_dead "$pid"; then
+    echo "restart: removing stale supervise pidfile for dead pid $pid at $pid_file" >&2
+    rm -f "$pid_file"
     return 0
   fi
   echo "restart: killing prior supervise pid $pid for durable root $HOST_RUN_DURABLE_ROOT" >&2
-  kill -9 "$pid" 2>/dev/null || true
+  if ! kill -9 "$pid" 2>/dev/null; then
+    echo "error: failed to SIGKILL prior supervise pid $pid from $pid_file; refusing to launch a second supervise on $HOST_RUN_DURABLE_ROOT" >&2
+    return 1
+  fi
+  while [ "$attempts" -lt 50 ]; do
+    if host_run_pid_is_dead "$pid"; then
+      rm -f "$pid_file"
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+  done
+  echo "error: prior supervise pid $pid from $pid_file is still alive after SIGKILL; refusing to launch a second supervise on $HOST_RUN_DURABLE_ROOT" >&2
+  return 1
 }
 
 host_run_restart_prior() {
-  local pid_file pid pids=() delivery_db seen
+  local pid_file pid
   [ "$HOST_RUN_RESTART" -eq 1 ] || return 0
+  pid_file="$(host_run_pid_file)"
+  [ -f "$pid_file" ] || return 0
+  pid="$(sed -n '1p' "$pid_file" 2>/dev/null || true)"
+  case "$pid" in
+    ''|*[!0-9]*)
+      echo "error: malformed supervise pidfile at $pid_file; refusing to launch a second supervise on $HOST_RUN_DURABLE_ROOT" >&2
+      return 1
+      ;;
+    *)
+      host_run_kill_supervise_pid "$pid" "$pid_file"
+      ;;
+  esac
+}
+
+host_run_claim_supervise_slot() {
+  local pid_file pid wrote=0
   pid_file="$(host_run_pid_file)"
   if [ -f "$pid_file" ]; then
     pid="$(sed -n '1p' "$pid_file" 2>/dev/null || true)"
     case "$pid" in
-      ''|*[!0-9]*) ;;
-      *) pids+=("$pid:pid-file") ;;
+      ''|*[!0-9]*)
+        echo "error: malformed supervise pidfile at $pid_file; use --restart after fixing the pidfile" >&2
+        return 1
+        ;;
+      *)
+        if ! host_run_pid_is_dead "$pid"; then
+          echo "error: supervise pid $pid from $pid_file is still running for durable root $HOST_RUN_DURABLE_ROOT; use --restart to replace it" >&2
+          return 1
+        fi
+        rm -f "$pid_file"
+        ;;
     esac
   fi
-  delivery_db="$HOST_RUN_DURABLE_ROOT/delivery.redb"
-  if [ -f "$delivery_db" ] && command -v lsof >/dev/null 2>&1; then
-    while IFS= read -r pid; do
-      case "$pid" in
-        ''|*[!0-9]*) ;;
-        *) pids+=("$pid:lsof") ;;
-      esac
-    done < <(lsof -t "$delivery_db" 2>/dev/null || true)
+  if ( set -C; printf '%s\n' "$$" > "$pid_file" ) 2>/dev/null; then
+    wrote=1
   fi
-  seen=""
-  for pid in "${pids[@]}"; do
-    local id="${pid%%:*}" source="${pid#*:}"
-    case " $seen " in
-      *" $id "*) continue ;;
-    esac
-    seen="$seen $id"
-    host_run_kill_supervise_pid "$id" "$source"
-  done
-  if [ -n "$seen" ]; then
-    sleep 1
+  if [ "$wrote" -eq 1 ]; then
+    return 0
   fi
-  rm -f "$pid_file"
-}
-
-host_run_write_pid_file() {
-  printf '%s\n' "$$" > "$(host_run_pid_file)"
+  pid="$(sed -n '1p' "$pid_file" 2>/dev/null || true)"
+  case "$pid" in
+    ''|*[!0-9]*)
+      echo "error: could not claim supervise pidfile at $pid_file" >&2
+      ;;
+    *)
+      echo "error: supervise pid $pid claimed durable root $HOST_RUN_DURABLE_ROOT before launch; use --restart to replace it" >&2
+      ;;
+  esac
+  return 1
 }
 
 host_run_print_package_roots() {
@@ -208,7 +276,7 @@ host_run_supervise_contract() {
     esac
   fi
 
-  host_run_restart_prior
+  host_run_restart_prior || return $?
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"
   export FKST_DEVLOOP_BOARD_CMD="${FKST_DEVLOOP_BOARD_CMD:-$(default_board_cmd)}"
@@ -221,7 +289,7 @@ host_run_supervise_contract() {
   args+=(--framework-bin "$BIN")
 
   echo "BIN=$BIN"
-  echo "FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT${HOST_RUN_RUNTIME_IS_TEMP:+ (fresh temp)}"
+  echo "FKST_RUNTIME_ROOT=$FKST_RUNTIME_ROOT${HOST_RUN_RUNTIME_LABEL:+ ($HOST_RUN_RUNTIME_LABEL)}"
   echo "FKST_DURABLE_ROOT=$FKST_DURABLE_ROOT"
   if [ -n "${FKST_RATE_POOL_ROOT:-}" ]; then echo "FKST_RATE_POOL_ROOT=$FKST_RATE_POOL_ROOT"; fi
   if [ -n "${FKST_GITHUB_WRITE:-}" ]; then echo "FKST_GITHUB_WRITE=$FKST_GITHUB_WRITE"; else echo "FKST_GITHUB_WRITE=<unset> (dry-run)"; fi
@@ -231,6 +299,6 @@ host_run_supervise_contract() {
   host_run_print_package_roots | sed 's/^/  /'
   echo "This starts the real supervise event loop in the foreground. Press Ctrl-C to stop."
   echo "exec: ${args[*]}"
-  host_run_write_pid_file
+  host_run_claim_supervise_slot || return $?
   exec "${args[@]}"
 }
