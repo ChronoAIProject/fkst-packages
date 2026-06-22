@@ -25,18 +25,27 @@ local function module_name_for_path(path)
   return "departments." .. department .. ".main"
 end
 
-local function load_department(path, caller_require)
-  local old_pipeline = pipeline
-  local module = caller_require(module_name_for_path(path))
-  local installed_pipeline = pipeline
-  pipeline = old_pipeline
+function C.module_name_for_path(path)
+  return module_name_for_path(path)
+end
+
+function C.loaded_departments(entries)
+  local departments = {}
+  for _, entry in ipairs(entries or {}) do
+    if type(entry) == "string" then
+      error("namespaced-dispatch: loaded department entry must include a module")
+    end
+    local path = assert(entry.path, "namespaced-dispatch: loaded department entry missing path")
+    departments[path] = assert(entry.module, "namespaced-dispatch: loaded department entry missing module")
+  end
+  return departments
+end
+
+local function normalize_department(path, module)
   if type(module) ~= "table" or type(module.spec) ~= "table" then
     error("namespaced-dispatch: department spec missing for " .. tostring(path))
   end
   local run = module.pipeline
-  if type(run) ~= "function" and type(installed_pipeline) == "function" and installed_pipeline ~= old_pipeline then
-    run = installed_pipeline
-  end
   return {
     path = path,
     spec = module.spec,
@@ -163,12 +172,16 @@ function C.assert_all_consumed_queues_route(config)
   local t = assert(config.t, "namespaced-dispatch: missing fkst.test handle")
   local package_name = assert(config.package_name, "namespaced-dispatch: missing package_name")
   local root = assert(config.package_root, "namespaced-dispatch: missing package_root")
-  local caller_require = assert(config.caller_require, "namespaced-dispatch: missing caller_require")
+  local departments = assert(config.departments, "namespaced-dispatch: missing departments")
   local payload_for_queue = assert(config.payload_for_queue, "namespaced-dispatch: missing payload_for_queue")
   local opts_for_case = config.opts_for_case
 
   for _, path in ipairs(department_paths(root)) do
-    local department = load_department(path, caller_require)
+    local module = departments[path]
+    if module == nil then
+      error("namespaced-dispatch: missing loaded department for " .. tostring(path))
+    end
+    local department = normalize_department(path, module)
     for _, queue in ipairs(department.spec.consumes or {}) do
       local event = {
         queue = production_queue_name(package_name, queue),

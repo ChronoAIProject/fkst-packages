@@ -642,7 +642,7 @@ collect_composed_package() {
 }
 
 cmd_test_composed() {
-  local pkg name args
+  local pkg name args project_root
   ensure_package_view
   COMPOSED_SEEN=()
   for pkg in "$LOCAL_PACKAGES_ROOT"/*/ "$EXTERNAL_PACKAGES_ROOT"/*/; do
@@ -657,6 +657,7 @@ cmd_test_composed() {
   fi
 
   args=()
+  project_root="$(package_root_for_name "${COMPOSED_SEEN[0]}")" || return 1
   for name in "${COMPOSED_SEEN[@]}"; do
     pkg="$(package_root_for_name "$name")" || return 1
     args+=(--package-root "$pkg")
@@ -669,7 +670,7 @@ cmd_test_composed() {
     args+=(--package-root "${pkg%/}")
   done
   echo "=== composed conformance ==="
-  run_quiet_pass "$BIN" conformance --project-root "$ROOT" "${args[@]}"
+  run_quiet_pass "$BIN" conformance --project-root "$project_root" "${args[@]}"
 }
 
 cmd_run() {

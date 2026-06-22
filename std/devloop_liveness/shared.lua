@@ -1,7 +1,7 @@
 local S = {}
-local registry = require("std.registry")
 
-function S.install(M, caller_require)
+function S.install(M, resolved)
+resolved = resolved or {}
 local shared = {}
 local max_timeout_attempts = 3
 shared.max_timeout_attempts = max_timeout_attempts
@@ -97,14 +97,8 @@ local liveness_resolver_families = {
 }
 shared.liveness_resolver_families = liveness_resolver_families
 
-local liveness_signal_producers = registry.load_indexed_map(
-  M.restart_liveness_signal_producers_index or "core.restart.liveness_signal_producers.index",
-  "family",
-  nil,
-  nil,
-  M.restart_package_name or "github-devloop",
-  caller_require
-)
+local package_name = M.restart_package_name or "github-devloop"
+local liveness_signal_producers = assert(resolved.liveness_signal_producers, package_name .. ": missing resolved liveness_signal_producers")
 shared.liveness_signal_producers = liveness_signal_producers
 
 function M.liveness_signal_producer_contract(family)

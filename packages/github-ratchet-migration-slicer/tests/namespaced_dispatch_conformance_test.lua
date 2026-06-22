@@ -1,6 +1,17 @@
 local conformance = require("std.namespaced_dispatch_conformance")
 local t = fkst.test
 
+local function load_department(path, module_name)
+  local old_pipeline = pipeline
+  local module = require(module_name)
+  pipeline = old_pipeline
+  return { path = path, module = module }
+end
+
+local departments = conformance.loaded_departments({
+  load_department("departments/ratchet_migration_driver/main.lua", "departments.ratchet_migration_driver.main"),
+})
+
 local function payload_for_queue(_path, queue)
   if queue == "ratchet_migration_poll" then
     return {
@@ -17,7 +28,7 @@ return {
       t = t,
       package_name = "github-ratchet-migration-slicer",
       package_root = "packages/github-ratchet-migration-slicer",
-      caller_require = require,
+      departments = departments,
       payload_for_queue = payload_for_queue,
     })
   end,

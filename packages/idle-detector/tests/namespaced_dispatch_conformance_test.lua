@@ -1,6 +1,17 @@
 local conformance = require("std.namespaced_dispatch_conformance")
 local t = fkst.test
 
+local function load_department(path, module_name)
+  local old_pipeline = pipeline
+  local module = require(module_name)
+  pipeline = old_pipeline
+  return { path = path, module = module }
+end
+
+local departments = conformance.loaded_departments({
+  load_department("departments/idle_gate/main.lua", "departments.idle_gate.main"),
+})
+
 local function observe_json()
   return table.concat({
     '{"schema_version":1',
@@ -64,7 +75,7 @@ return {
       t = t,
       package_name = "idle-detector",
       package_root = "packages/idle-detector",
-      caller_require = require,
+      departments = departments,
       payload_for_queue = payload_for_queue,
       opts_for_case = opts_for_case,
     })

@@ -1,7 +1,15 @@
 local S = {}
 
-function S.install(M, caller_require)
-local load_prompt = caller_require or require
+function S.install(M, resolved)
+resolved = resolved or {}
+local prompts = assert(resolved.prompts, "devloop_prompts: missing resolved prompts")
+local function load_prompt(name)
+  local prompt = prompts[name]
+  if prompt == nil then
+    error("devloop_prompts: missing resolved prompt " .. tostring(name))
+  end
+  return prompt
+end
 function M.output_language(exec)
   local lang = M._trim(M.read_env("FKST_OUTPUT_LANG", exec))
   if lang == "zh" then

@@ -1,6 +1,18 @@
 local conformance = require("std.namespaced_dispatch_conformance")
 local t = fkst.test
 
+local function load_department(path, module_name)
+  local old_pipeline = pipeline
+  local module = require(module_name)
+  pipeline = old_pipeline
+  return { path = path, module = module }
+end
+
+local departments = conformance.loaded_departments({
+  load_department("departments/inbound_glue/main.lua", "departments.inbound_glue.main"),
+  load_department("departments/outbound_glue/main.lua", "departments.outbound_glue.main"),
+})
+
 local function source_ref()
   return {
     kind = "external",
@@ -52,7 +64,7 @@ return {
       t = t,
       package_name = "github-autochrono",
       package_root = "packages/github-autochrono",
-      caller_require = require,
+      departments = departments,
       payload_for_queue = payload_for_queue,
     })
   end,
