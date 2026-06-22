@@ -53,10 +53,10 @@
 #       observe dedup), else uses .fkst/run/runtime. Never sets FKST_GITHUB_WRITE, so
 #       a read-only inbound dogfood stays read-only.
 #
-#   scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-base>] [--restart]
+#   scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-root>] [--restart]
 #       Start the real fkst-framework supervise event loop for one host. Runtime
 #       root is scratch and defaults to a fresh temp dir; explicit --runtime-root
-#       is a base directory under which a fresh child is created per launch.
+#       is used as the fresh scratch root for this launch.
 #       Durable root is mandatory and reused. --restart SIGKILLs the prior host-run supervise
 #       recorded for that durable root. FKST_GITHUB_WRITE passes through
 #       (unset = dry-run).
@@ -251,6 +251,7 @@ cmd_check() {
   python3 -B "$ROOT/scripts/bin_cache_test.py" || fail=1
   python3 -B "$ROOT/scripts/bin_bootstrap_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_run_test.py" || fail=1
+  python3 -B "$ROOT/scripts/host_run_equivalence_test.py" || fail=1
   python3 -B "$ROOT/scripts/run_sh_coverage_test.py" || fail=1
   python3 -B "$ROOT/scripts/board_test.py" || fail=1
   python3 -B "$ROOT/scripts/doctor_test.py" || fail=1

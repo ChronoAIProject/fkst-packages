@@ -239,7 +239,7 @@ clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
 }
 
 launch_one() { # $1 name, $2 restart flag (0|1)
-  local name="$1" restart="${2:-0}" ts log rt write args=()
+  local name="$1" restart="${2:-0}" ts log rt args=()
   ts=$(date +%s); log="$LOGDIR/${name}-sv-${ts}.log"; rt="$LOGDIR/dogfood-rt-${name}.${ts}"
   clean_stale_runtime_worktrees "$name" "$rt"
   [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] DEVLOOP_PKGS unset — set the platform packages to load in dogfood.config.sh (see dogfood.config.example.sh)"; return 1; }
@@ -256,8 +256,7 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   [ -n "$LOCAL_PKGS" ] && args+=(--host-packages "$LOCAL_PKGS")
   [ "$restart" = "1" ] && args+=(--restart)
 
-  write="${FKST_GITHUB_WRITE-1}"
-  BIN="$BIN" FKST_GITHUB_REPO="$REPO" FKST_GITHUB_WRITE="$write" FKST_GITHUB_BOT_LOGIN="$BOT" \
+  BIN="$BIN" FKST_GITHUB_REPO="$REPO" FKST_GITHUB_WRITE=1 FKST_GITHUB_BOT_LOGIN="$BOT" \
     FKST_DEVLOOP_UPSTREAM_BRANCH="$UPSTREAM_BRANCH" FKST_DEVLOOP_INTEGRATION_BRANCH="$INTEGRATION_BRANCH" \
     FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$MANAGED_BOT_LOGINS" \
     FKST_RATE_POOL_ROOT="$RATE_POOL" \

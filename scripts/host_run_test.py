@@ -300,11 +300,9 @@ class HostRunTest(unittest.TestCase):
             kill_if_alive(pid)
             h.close()
 
-    def test_explicit_runtime_root_is_fresh_child_per_launch(self) -> None:
+    def test_explicit_runtime_root_is_used_exactly_for_launch(self) -> None:
         h = HostRunHarness()
         try:
-            h.runtime.mkdir()
-            (h.runtime / "stale.txt").write_text("old scratch\n", encoding="utf-8")
             args = (
                 f"--project-root {shell_quote(h.substrate_host)} "
                 f"--platform-root {shell_quote(h.platform)} "
@@ -320,25 +318,20 @@ class HostRunTest(unittest.TestCase):
                     host_run_parse_supervise_args {args}
                     host_run_validate_shape
                     first="$HOST_RUN_RUNTIME_ROOT"
-                    [ "$first" != {shell_quote(h.runtime)} ]
+                    [ "$first" = {shell_quote(h.runtime)} ]
                     [ -d "$first" ]
-                    [ -f {shell_quote(h.runtime / "stale.txt")} ]
                     host_run_parse_supervise_args {args}
                     host_run_validate_shape
                     second="$HOST_RUN_RUNTIME_ROOT"
-                    [ "$second" != {shell_quote(h.runtime)} ]
-                    [ -d "$second" ]
-                    [ "$first" != "$second" ]
+                    [ "$second" = {shell_quote(h.runtime)} ]
                     printf '%s\\n%s\\n' "$first" "$second"
                     """
                 )
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             first, second = result.stdout.splitlines()
-            self.assertNotEqual(first, second)
-            self.assertTrue(first.startswith(str(h.runtime) + "/fkst-host-run-rt."))
-            self.assertTrue(second.startswith(str(h.runtime) + "/fkst-host-run-rt."))
-            self.assertEqual((h.runtime / "stale.txt").read_text(encoding="utf-8"), "old scratch\n")
+            self.assertEqual(first, str(h.runtime))
+            self.assertEqual(second, str(h.runtime))
         finally:
             h.close()
 

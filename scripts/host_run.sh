@@ -15,7 +15,7 @@ HOST_RUN_PACKAGE_ROOTS=()
 
 host_run_usage() {
   cat >&2 <<'EOF'
-usage: scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-base>] [--restart]
+usage: scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-root>] [--restart]
    or: scripts/run.sh supervise <package>
 EOF
 }
@@ -101,12 +101,12 @@ host_run_validate_shape() {
   mkdir -p "$HOST_RUN_DURABLE_ROOT"
   if [ "$HOST_RUN_RUNTIME_IS_EXPLICIT" -eq 1 ]; then
     mkdir -p "$HOST_RUN_RUNTIME_BASE"
-    if host_run_same_path "$HOST_RUN_RUNTIME_BASE" "$HOST_RUN_DURABLE_ROOT"; then
+    HOST_RUN_RUNTIME_ROOT="$HOST_RUN_RUNTIME_BASE"
+    HOST_RUN_RUNTIME_LABEL="explicit"
+    if host_run_same_path "$HOST_RUN_RUNTIME_ROOT" "$HOST_RUN_DURABLE_ROOT"; then
       echo "error: --runtime-root and --durable-root resolved to the same directory" >&2
       return 1
     fi
-    HOST_RUN_RUNTIME_ROOT="$(mktemp -d "$HOST_RUN_RUNTIME_BASE/fkst-host-run-rt.XXXXXX")"
-    HOST_RUN_RUNTIME_LABEL="fresh child"
   fi
   if host_run_same_path "$HOST_RUN_RUNTIME_ROOT" "$HOST_RUN_DURABLE_ROOT"; then
     echo "error: --runtime-root and --durable-root resolved to the same directory" >&2
@@ -279,7 +279,6 @@ host_run_supervise_contract() {
   host_run_restart_prior || return $?
   export FKST_RUNTIME_ROOT="$HOST_RUN_RUNTIME_ROOT"
   export FKST_DURABLE_ROOT="$HOST_RUN_DURABLE_ROOT"
-  export FKST_DEVLOOP_BOARD_CMD="${FKST_DEVLOOP_BOARD_CMD:-$(default_board_cmd)}"
 
   local args=() rootdir
   args=("$BIN" supervise --project-root "$HOST_RUN_PROJECT_ROOT")
