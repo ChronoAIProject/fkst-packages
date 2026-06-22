@@ -17,18 +17,6 @@ local function department_paths(root)
   return result
 end
 
-local function module_name_for_path(path)
-  local department = tostring(path or ""):match("^departments/([^/]+)/main%.lua$")
-  if department == nil then
-    error("namespaced-dispatch: unsupported department path " .. tostring(path))
-  end
-  return "departments." .. department .. ".main"
-end
-
-function C.module_name_for_path(path)
-  return module_name_for_path(path)
-end
-
 function C.loaded_departments(entries)
   local departments = {}
   for _, entry in ipairs(entries or {}) do

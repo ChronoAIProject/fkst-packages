@@ -3,7 +3,7 @@ local W = {}
 function W.prompts()
   return {
     prompts = {
-      ["prompts.sync_conflict"] = require("prompts.sync_conflict"),
+      sync_conflict = require("prompts.sync_conflict"),
     },
   }
 end

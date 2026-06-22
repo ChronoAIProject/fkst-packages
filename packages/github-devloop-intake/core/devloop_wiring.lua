@@ -3,7 +3,7 @@ local W = {}
 function W.prompts()
   return {
     prompts = {
-      ["prompts.intake"] = require("prompts.intake"),
+      intake = require("prompts.intake"),
     },
   }
 end

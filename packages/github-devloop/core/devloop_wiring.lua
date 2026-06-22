@@ -54,32 +54,17 @@ end
 function W.prompts()
   return {
     prompts = {
-      ["prompts.fix"] = require("prompts.fix"),
-      ["prompts.fix_reflection"] = require("prompts.fix_reflection"),
-      ["prompts.implement"] = require("prompts.implement"),
-      ["prompts.review_meta"] = require("prompts.review_meta"),
+      fix = require("prompts.fix"),
+      fix_reflection = require("prompts.fix_reflection"),
+      implement = require("prompts.implement"),
+      review_meta = require("prompts.review_meta"),
     },
   }
 end
 
-local child_start_visible_gate_source = [=[
-return all({
-  require_reached("pr-open", {
-    domain = "github-devloop-pr",
-    lineage = {
-      proposal_id = true,
-      issue_number = true,
-      impl_version = true,
-      branch = true,
-      base_branch = true,
-    },
-  }),
-})
-]=]
-
 function W.gate_sources()
   return {
-    child_start_visible = child_start_visible_gate_source,
+    child_start_visible = require("core.gates.child_start_visible"),
   }
 end
 
