@@ -1,6 +1,7 @@
 local S = {}
 
-function S.install(M)
+function S.install(M, resolved)
+resolved = resolved or {}
 
 local epoch_sources = {
   ["state_entry:v1"] = {
@@ -72,7 +73,13 @@ local epoch_sources = {
   },
 }
 
-local known_liveness_contract_violations = {}
+local known_liveness_contract_violations = resolved.known_liveness_contract_violations or {}
+local provenance = resolved.runtime_provenance or {}
+local codex_run_policy = resolved.codex_run or {}
+local child_workflow_wait_policy = resolved.child_workflow_wait or {}
+local default_provenance_proposal_id = "workflow/restart-liveness/provenance/1"
+local default_provenance_version = "restart-liveness-provenance"
+local default_provenance_marker_created_at = "2026-06-03T00:00:00Z"
 
 local function copy_table(map)
   local out = {}
@@ -294,41 +301,52 @@ local function validate_codex_run_defer(row, errors)
   if signal.max_age_minutes ~= nil then
     table.insert(errors, state .. ": codex_run defer signal must not declare max_age_minutes")
   end
-  if signal.family ~= "implement-attempt" or resolver ~= "implement-attempt" or signal.producer ~= "implement-attempt" then
-    table.insert(errors, state .. ": codex_run defer signal must resolve through implement-attempt exec_ref")
+  local expected_family = codex_run_policy.family or "implement-attempt"
+  local expected_resolver = codex_run_policy.resolver or expected_family
+  local expected_producer = codex_run_policy.producer or expected_family
+  local expected_role = codex_run_policy.role or "implement"
+  local expected_match = codex_run_policy.match or {
+    proposal_id = "state.proposal_id",
+    dedup_key = "state.version",
+  }
+  local expected_primitive = codex_run_policy.primitive or "fkst.codex_runs"
+  local expected_status = codex_run_policy.status or "running"
+  local expected_on_error = codex_run_policy.on_error or "fallback-to-marker-budget"
+  if signal.family ~= expected_family or resolver ~= expected_resolver or signal.producer ~= expected_producer then
+    table.insert(errors, state .. ": codex_run defer signal must resolve through " .. tostring(expected_resolver) .. " exec_ref")
   end
   local binding = type(M.liveness_signal_producer_contract) == "function"
     and M.liveness_signal_producer_contract(signal.producer)
     or nil
-  if type(binding) ~= "table" or binding.resolver ~= "implement-attempt" then
-    table.insert(errors, state .. ": codex_run defer producer must bind the implement-attempt exec_ref resolver")
+  if type(binding) ~= "table" or binding.resolver ~= expected_resolver then
+    table.insert(errors, state .. ": codex_run defer producer must bind the " .. tostring(expected_resolver) .. " exec_ref resolver")
   end
   if type(real_execution) ~= "table" then
     table.insert(errors, state .. ": codex_run defer must declare liveness_contract.real_execution")
     return
   end
-  if real_execution.primitive ~= "fkst.codex_runs" then
-    table.insert(errors, state .. ": codex_run defer real_execution.primitive must be fkst.codex_runs")
+  if real_execution.primitive ~= expected_primitive then
+    table.insert(errors, state .. ": codex_run defer real_execution.primitive must be " .. tostring(expected_primitive))
   end
   local match = real_execution.match
   if type(match) ~= "table" then
     table.insert(errors, state .. ": codex_run defer real_execution.match must declare role, proposal_id, and dedup_key")
     return
   end
-  if match.role ~= "implement" then
-    table.insert(errors, state .. ": codex_run defer real_execution.match.role must be implement")
+  if match.role ~= expected_role then
+    table.insert(errors, state .. ": codex_run defer real_execution.match.role must be " .. tostring(expected_role))
   end
-  if match.proposal_id ~= "state.proposal_id" then
-    table.insert(errors, state .. ": codex_run defer real_execution.match.proposal_id must be state.proposal_id")
+  if match.proposal_id ~= expected_match.proposal_id then
+    table.insert(errors, state .. ": codex_run defer real_execution.match.proposal_id must be " .. tostring(expected_match.proposal_id))
   end
-  if match.dedup_key ~= "state.version" then
-    table.insert(errors, state .. ": codex_run defer real_execution.match.dedup_key must be state.version")
+  if match.dedup_key ~= expected_match.dedup_key then
+    table.insert(errors, state .. ": codex_run defer real_execution.match.dedup_key must be " .. tostring(expected_match.dedup_key))
   end
-  if real_execution.status ~= "running" then
-    table.insert(errors, state .. ": codex_run defer real_execution.status must be running")
+  if real_execution.status ~= expected_status then
+    table.insert(errors, state .. ": codex_run defer real_execution.status must be " .. tostring(expected_status))
   end
-  if real_execution.on_error ~= "fallback-to-marker-budget" then
-    table.insert(errors, state .. ": codex_run defer real_execution.on_error must be fallback-to-marker-budget")
+  if real_execution.on_error ~= expected_on_error then
+    table.insert(errors, state .. ": codex_run defer real_execution.on_error must be " .. tostring(expected_on_error))
   end
 end
 
@@ -340,8 +358,13 @@ local function validate_child_workflow_wait_defer(row, errors)
   if not non_empty_string(defer.live_marker) then
     table.insert(errors, state .. ": child_workflow_wait defer must declare live_marker")
   end
-  if defer.live_marker ~= "state:v1" then
-    table.insert(errors, state .. ": child_workflow_wait defer live_marker must be state:v1")
+  local expected_live_marker = child_workflow_wait_policy.live_marker or "state:v1"
+  local expected_delegation_marker = child_workflow_wait_policy.delegation_marker or "pr-delegation:v1"
+  local expected_signal_family = child_workflow_wait_policy.signal_family or "state"
+  local expected_signal_resolver = child_workflow_wait_policy.signal_resolver or "child-state"
+  local expected_surface = child_workflow_wait_policy.surface or "pr-comment-stream"
+  if defer.live_marker ~= expected_live_marker then
+    table.insert(errors, state .. ": child_workflow_wait defer live_marker must be " .. tostring(expected_live_marker))
   end
   if not non_empty_string(defer.producer) then
     table.insert(errors, state .. ": child_workflow_wait defer must declare producer")
@@ -355,8 +378,8 @@ local function validate_child_workflow_wait_defer(row, errors)
   if not non_empty_string(defer.delegation_marker) then
     table.insert(errors, state .. ": child_workflow_wait defer must declare delegation_marker")
   end
-  if defer.delegation_marker ~= "pr-delegation:v1" then
-    table.insert(errors, state .. ": child_workflow_wait defer delegation_marker must be pr-delegation:v1")
+  if defer.delegation_marker ~= expected_delegation_marker then
+    table.insert(errors, state .. ": child_workflow_wait defer delegation_marker must be " .. tostring(expected_delegation_marker))
   end
   if type(defer.terminal_states) ~= "table" or #defer.terminal_states == 0 then
     table.insert(errors, state .. ": child_workflow_wait defer must declare terminal_states")
@@ -385,17 +408,17 @@ local function validate_child_workflow_wait_defer(row, errors)
     return
   end
   local resolver = signal.resolver or signal.family
-  if signal.family ~= "state" or resolver ~= "child-state" or signal.producer ~= defer.producer then
+  if signal.family ~= expected_signal_family or resolver ~= expected_signal_resolver or signal.producer ~= defer.producer then
     table.insert(errors, state .. ": child_workflow_wait defer signal must resolve the PR child state marker")
   end
-  if signal.surface ~= "pr-comment-stream" then
-    table.insert(errors, state .. ": child_workflow_wait defer signal must use pr-comment-stream")
+  if signal.surface ~= expected_surface then
+    table.insert(errors, state .. ": child_workflow_wait defer signal must use " .. tostring(expected_surface))
   end
   local binding = type(M.liveness_signal_producer_contract) == "function"
     and M.liveness_signal_producer_contract(signal.producer)
     or nil
-  if type(binding) ~= "table" or binding.resolver ~= "child-state" then
-    table.insert(errors, state .. ": child_workflow_wait defer producer must bind the child-state resolver")
+  if type(binding) ~= "table" or binding.resolver ~= expected_signal_resolver then
+    table.insert(errors, state .. ": child_workflow_wait defer producer must bind the " .. tostring(expected_signal_resolver) .. " resolver")
   end
 end
 
@@ -468,11 +491,14 @@ local function validate_runtime_provenance(row, errors)
   local now_seconds = 0
   if row.actionable_epoch.source == "live_defer_epoch:v1" then
     now_seconds = M.iso_timestamp_epoch_seconds("2026-06-03T00:00:01Z")
+    local proposal_id = provenance.proposal_id or default_provenance_proposal_id
+    local version = provenance.version or default_provenance_version
+    local marker_created_at = provenance.marker_created_at or default_provenance_marker_created_at
     comments = {
       {
         author_login = M.trusted_bot_login(),
-        created_at = "2026-06-03T00:00:00Z",
-        body = M.dependency_release_marker("github-devloop/issue/provenance/repo/1", "restart-liveness-provenance"),
+        created_at = marker_created_at,
+        body = M.dependency_release_marker(proposal_id, version),
       },
     }
   elseif row.actionable_epoch.source == "live_defer_heartbeat:v1" then
@@ -484,11 +510,11 @@ local function validate_runtime_provenance(row, errors)
   end
   local ok, eval = pcall(M.actionable_epoch_resolve, row, {
     state = row.from_state,
-    version = "restart-liveness-provenance",
-    proposal_id = "github-devloop/issue/provenance/repo/1",
-    marker_created_at = "2026-06-03T00:00:00Z",
+    version = provenance.version or default_provenance_version,
+    proposal_id = provenance.proposal_id or default_provenance_proposal_id,
+    marker_created_at = provenance.marker_created_at or default_provenance_marker_created_at,
   }, {
-    proposal_id = "github-devloop/issue/provenance/repo/1",
+    proposal_id = provenance.proposal_id or default_provenance_proposal_id,
     current = { comments = comments },
   }, now_seconds)
   if not ok or type(eval) ~= "table" then

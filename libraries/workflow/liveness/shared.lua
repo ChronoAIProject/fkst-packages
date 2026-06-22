@@ -97,7 +97,7 @@ local liveness_resolver_families = {
 }
 shared.liveness_resolver_families = liveness_resolver_families
 
-local package_name = M.restart_package_name or "github-devloop"
+local package_name = M.restart_package_name or "workflow"
 local liveness_signal_producers = assert(resolved.liveness_signal_producers, package_name .. ": missing resolved liveness_signal_producers")
 shared.liveness_signal_producers = liveness_signal_producers
 
@@ -164,8 +164,8 @@ local function source_contains(path, needle)
     return false
   end
   local source_path = path
-  if path:sub(1, 4) ~= "std/" and path:sub(1, 10) ~= "libraries/" then
-    source_path = tostring(M.restart_source_root or "packages/github-devloop/") .. path
+  if path:sub(1, 10) ~= "libraries/" then
+    source_path = tostring(M.restart_source_root or "") .. path
   end
   local ok, text = pcall(file.read, source_path)
   return ok and tostring(text or ""):find(needle, 1, true) ~= nil
