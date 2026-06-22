@@ -221,6 +221,14 @@ return {
     t.eq(core.is_positive_integer("2147483648"), false)
   end,
 
+  test_clamp_int_clamps_to_inclusive_range = function()
+    t.eq(core.clamp_int(3, 5, 9), 5)
+    t.eq(core.clamp_int(11, 5, 9), 9)
+    t.eq(core.clamp_int(7, 5, 9), 7)
+    t.eq(core.clamp_int(5, 5, 9), 5)
+    t.eq(core.clamp_int(9, 5, 9), 9)
+  end,
+
   test_normalize_labels_matches_department_label_inputs = function()
     local normal = core.normalize_labels({ "bug", "ready" })
     t.eq(#normal, 2)

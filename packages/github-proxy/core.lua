@@ -20,6 +20,16 @@ function M.is_positive_integer(value)
   return n ~= nil and n >= 1 and n % 1 == 0 and n <= 2147483647
 end
 
+function M.clamp_int(value, lo, hi)
+  if value < lo then
+    return lo
+  end
+  if value > hi then
+    return hi
+  end
+  return value
+end
+
 local shared_helpers = {
   strip_bot_login_suffix = M.strip_bot_login_suffix,
   is_positive_integer = M.is_positive_integer,
