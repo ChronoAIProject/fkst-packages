@@ -164,7 +164,20 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
             root = Path(tmp)
             write(
                 root / "libraries" / "workflow" / "bad.lua",
-                'local a = "github-devloop"\nlocal b = "forge.github"\nlocal c = "gh issue view"\n',
+                "\n".join(
+                    [
+                        'local a = "github-devloop"',
+                        'local b = "forge.github"',
+                        'local c = "gh issue view"',
+                        'local d = "state:v1"',
+                        'local e = "pr-delegation:v1"',
+                        'local f = "pr-comment-stream"',
+                        'local g = "implement-attempt"',
+                        'local h = "devloop_fixing"',
+                        'local i = "fkst-dev:ready"',
+                    ]
+                )
+                + "\n",
             )
             write(root / "migration" / "devloop-forge-imports.inventory", "")
             with mock.patch.object(
@@ -176,7 +189,36 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
 
         self.assertTrue(any("contains product/forge policy string 'github-devloop'" in message for message in violations))
         self.assertTrue(any("contains product/forge policy string 'forge.github'" in message for message in violations))
+        self.assertTrue(any("contains product/forge policy string 'state:v1'" in message for message in violations))
+        self.assertTrue(any("contains product/forge policy string 'pr-delegation:v1'" in message for message in violations))
+        self.assertTrue(any("contains product/forge policy string 'pr-comment-stream'" in message for message in violations))
+        self.assertTrue(any("contains product/forge policy string 'implement-attempt'" in message for message in violations))
+        self.assertTrue(any("contains product/forge policy string 'devloop_fixing'" in message for message in violations))
+        self.assertTrue(any("contains product/forge policy string 'fkst-dev:'" in message for message in violations))
         self.assertTrue(any("contains raw gh/git command text" in message for message in violations))
+
+    def test_non_devloop_family_package_cannot_depend_on_devloop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root / "libraries" / "devloop" / "liveness.lua", "return {}\n")
+            package_manifest(root / "packages" / "archaudit" / "fkst.toml", ["contract", "workflow", "devloop"])
+            write(root / "packages" / "archaudit" / "core.lua", 'local liveness = require("devloop.liveness")\n')
+            write(root / "migration" / "devloop-forge-imports.inventory", "")
+            with mock.patch.object(
+                check_repo.check_repo_std_dependency_model.ratchet_base,
+                "file_at_base",
+                return_value=("absent", None),
+            ):
+                violations, _warnings = self.run_guard(root)
+
+        self.assertTrue(
+            any("package archaudit must not declare lib_dep 'devloop'" in message for message in violations),
+            violations,
+        )
+        self.assertTrue(
+            any("packages/archaudit/core.lua:1 package archaudit must not require 'devloop.liveness'" in message for message in violations),
+            violations,
+        )
 
     def test_devloop_visibility_excludes_non_family_packages(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

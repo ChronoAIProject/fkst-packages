@@ -55,13 +55,13 @@ M.restart_consumer_sources = {
   "packages/github-devloop-pr/departments/merge/main.lua",
 }
 require("devloop.restart").install(M, wiring.restart(M))
-require("workflow.restart_liveness_contract").install(M, {
+require("workflow.restart_liveness_contract").install(M, require("devloop.liveness").with_restart_policy({
   runtime_provenance = {
     proposal_id = "github-devloop/issue/provenance/repo/1",
     version = "restart-liveness-provenance",
     marker_created_at = "2026-06-03T00:00:00Z",
   },
-})
+}))
 require("devloop.restart_responsibility_contract").install(M)
 require("devloop.restart_actionable_epoch").install(M)
 require("core.review_redrive").install(M)

@@ -73,33 +73,14 @@ local function valid_timeout(row)
 end
 shared.valid_timeout = valid_timeout
 
-local liveness_resolver_families = {
-  ["converge-round"] = {
-    ["converge-round"] = true,
-  },
-  ["dependency-hold"] = {
-    ["dependency-wait"] = true,
-    ["dependency-cycle"] = true,
-    ["dependency-unresolvable"] = true,
-  },
-  ["implement-attempt"] = {
-    ["implement-attempt"] = true,
-  },
-  ["merge-gate-wait"] = {
-    ["merge-gate-wait"] = true,
-  },
-  ["review-converge-round"] = {
-    ["review-converge-round"] = true,
-  },
-  ["child-state"] = {
-    state = true,
-  },
-}
+local package_name = M.restart_package_name or "workflow"
+local liveness_resolver_families = resolved.liveness_resolver_families or {}
 shared.liveness_resolver_families = liveness_resolver_families
 
-local package_name = M.restart_package_name or "workflow"
 local liveness_signal_producers = assert(resolved.liveness_signal_producers, package_name .. ": missing resolved liveness_signal_producers")
 shared.liveness_signal_producers = liveness_signal_producers
+shared.allowed_signal_surfaces = resolved.allowed_signal_surfaces or {}
+shared.signal_max_age_optional_resolvers = resolved.signal_max_age_optional_resolvers or {}
 
 function M.liveness_signal_producer_contract(family)
   return liveness_signal_producers[tostring(family or "")]

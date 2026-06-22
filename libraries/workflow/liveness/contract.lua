@@ -8,6 +8,8 @@ local reachable_lifecycle_states = shared.reachable_lifecycle_states
 local valid_timeout = shared.valid_timeout
 local liveness_resolver_families = shared.liveness_resolver_families
 local liveness_signal_producers = shared.liveness_signal_producers
+local allowed_signal_surfaces = shared.allowed_signal_surfaces
+local signal_max_age_optional_resolvers = shared.signal_max_age_optional_resolvers
 local numeric_minutes = shared.numeric_minutes
 local liveness_bound_minutes = shared.liveness_bound_minutes
 local source_contains = shared.source_contains
@@ -94,14 +96,14 @@ local function validate_liveness_signal_shape(M, state, signal, label, errors)
     table.insert(errors, state .. ": " .. label .. " has no resolver: " .. tostring(resolver))
   end
   local resolver = signal.resolver or signal.family
-  if resolver == "implement-attempt" then
+  if signal_max_age_optional_resolvers[resolver] == true then
     if signal.max_age_minutes ~= nil then
       table.insert(errors, state .. ": " .. label .. " must not declare max_age_minutes for codex-run liveness")
     end
   elseif numeric_minutes(signal.max_age_minutes) == nil then
     table.insert(errors, state .. ": " .. label .. " must declare finite max_age_minutes")
   end
-  if signal.surface ~= "issue-comment-stream" and signal.surface ~= "pr-comment-stream" then
+  if allowed_signal_surfaces[signal.surface] ~= true then
     table.insert(errors, state .. ": " .. label .. " must declare surface")
   end
   if signal.version_form ~= "raw" and signal.version_form ~= "safe_version_segment" then

@@ -29,6 +29,11 @@ DEVLOOP_FAMILY = {
     "github-devloop-pr",
 }
 WORKFLOW_FORBIDDEN_STRINGS = (
+    "state:v1",
+    "pr-delegation:v1",
+    "pr-comment-stream",
+    "implement-attempt",
+    "devloop_fixing",
     "github-devloop",
     "fkst-dev:",
     "forge.github",
@@ -215,6 +220,11 @@ def check_devloop_visibility(root: Path, violations: list[str], add) -> None:
         add(violations, "G-LIB-DEP", f"devloop visibility must list only {sorted(DEVLOOP_FAMILY)}; observed {sorted(observed)}")
 
 
+def devloop_family(root: Path) -> set[str]:
+    observed = load_visibility_allow(root / "libraries" / "devloop" / "fkst.toml")
+    return observed if observed else DEVLOOP_FAMILY
+
+
 def check_workflow_policy(root: Path, violations: list[str], read_text, rel, add) -> None:
     for path in library_lua_files(root, "workflow"):
         stripped = read_text(path)
@@ -230,6 +240,7 @@ def check_require_edges(root: Path, violations: list[str], warnings: list[str], 
     package_usage: dict[str, set[str]] = {package.name: set() for package in packages}
     library_edges: dict[str, set[str]] = {library: set() for library in LIBRARIES}
     devloop_forge_imports: set[tuple[str, str]] = set()
+    devloop_visible_packages = devloop_family(root)
     allowed = {
         "contract": {"contract"},
         "workflow": {"workflow", "contract"},
@@ -259,6 +270,8 @@ def check_require_edges(root: Path, violations: list[str], warnings: list[str], 
                     add(violations, "G-LIB-DEP", f'{library} module {rel_path}:{line} requires non-library module "{module}"')
     for package in packages:
         deps = package_lib_deps(package / "fkst.toml")
+        if "devloop" in deps and package.name not in devloop_visible_packages:
+            add(violations, "G-LIB-DEP", f"package {package.name} must not declare lib_dep 'devloop'")
         for path in package_lua_files(package):
             for module, line in require_literals(read_text(path), strip_lua_comments_and_strings, is_unmasked_range):
                 top = module.split(".")[0]
@@ -269,6 +282,8 @@ def check_require_edges(root: Path, violations: list[str], warnings: list[str], 
                     add(violations, "G-LIB-DEP", f"{rel(root, path)}:{line} requires unresolved module {module!r}")
                 if top not in deps:
                     add(violations, "G-LIB-DEP", f"{rel(root, path)}:{line} package {package.name} requires {module!r} but fkst.toml does not declare lib_dep {top!r}")
+                if top == "devloop" and package.name not in devloop_visible_packages:
+                    add(violations, "G-LIB-DEP", f"{rel(root, path)}:{line} package {package.name} must not require {module!r}")
     inventory_path = root / DEVLOOP_FORGE_IMPORTS_INVENTORY
     if library_lua_files(root, "devloop") or inventory_path.exists():
         current_inventory, inventory_errors = load_devloop_forge_import_inventory(inventory_path)

@@ -113,6 +113,24 @@ local function non_empty_string(value)
   return type(value) == "string" and value ~= ""
 end
 
+local function require_policy(policy, kind, fields, errors, state)
+  if type(policy) ~= "table" then
+    table.insert(errors, state .. ": policy not injected for defer kind " .. kind)
+    return nil
+  end
+  local missing = false
+  for _, field in ipairs(fields) do
+    if policy[field] == nil then
+      missing = true
+      table.insert(errors, state .. ": policy not injected for defer kind " .. kind .. " field " .. field)
+    end
+  end
+  if missing then
+    return nil
+  end
+  return policy
+end
+
 local function watchdog_budget_ms(row)
   return tonumber(row and row.watchdog and row.watchdog.budget_ms)
 end
@@ -301,17 +319,27 @@ local function validate_codex_run_defer(row, errors)
   if signal.max_age_minutes ~= nil then
     table.insert(errors, state .. ": codex_run defer signal must not declare max_age_minutes")
   end
-  local expected_family = codex_run_policy.family or "implement-attempt"
-  local expected_resolver = codex_run_policy.resolver or expected_family
-  local expected_producer = codex_run_policy.producer or expected_family
-  local expected_role = codex_run_policy.role or "implement"
-  local expected_match = codex_run_policy.match or {
-    proposal_id = "state.proposal_id",
-    dedup_key = "state.version",
-  }
-  local expected_primitive = codex_run_policy.primitive or "fkst.codex_runs"
-  local expected_status = codex_run_policy.status or "running"
-  local expected_on_error = codex_run_policy.on_error or "fallback-to-marker-budget"
+  local policy = require_policy(codex_run_policy, "codex_run", {
+    "family",
+    "resolver",
+    "producer",
+    "role",
+    "match",
+    "primitive",
+    "status",
+    "on_error",
+  }, errors, state)
+  if policy == nil then
+    return
+  end
+  local expected_family = policy.family
+  local expected_resolver = policy.resolver
+  local expected_producer = policy.producer
+  local expected_role = policy.role
+  local expected_match = policy.match
+  local expected_primitive = policy.primitive
+  local expected_status = policy.status
+  local expected_on_error = policy.on_error
   if signal.family ~= expected_family or resolver ~= expected_resolver or signal.producer ~= expected_producer then
     table.insert(errors, state .. ": codex_run defer signal must resolve through " .. tostring(expected_resolver) .. " exec_ref")
   end
@@ -358,11 +386,21 @@ local function validate_child_workflow_wait_defer(row, errors)
   if not non_empty_string(defer.live_marker) then
     table.insert(errors, state .. ": child_workflow_wait defer must declare live_marker")
   end
-  local expected_live_marker = child_workflow_wait_policy.live_marker or "state:v1"
-  local expected_delegation_marker = child_workflow_wait_policy.delegation_marker or "pr-delegation:v1"
-  local expected_signal_family = child_workflow_wait_policy.signal_family or "state"
-  local expected_signal_resolver = child_workflow_wait_policy.signal_resolver or "child-state"
-  local expected_surface = child_workflow_wait_policy.surface or "pr-comment-stream"
+  local policy = require_policy(child_workflow_wait_policy, "child_workflow_wait", {
+    "live_marker",
+    "delegation_marker",
+    "signal_family",
+    "signal_resolver",
+    "surface",
+  }, errors, state)
+  if policy == nil then
+    return
+  end
+  local expected_live_marker = policy.live_marker
+  local expected_delegation_marker = policy.delegation_marker
+  local expected_signal_family = policy.signal_family
+  local expected_signal_resolver = policy.signal_resolver
+  local expected_surface = policy.surface
   if defer.live_marker ~= expected_live_marker then
     table.insert(errors, state .. ": child_workflow_wait defer live_marker must be " .. tostring(expected_live_marker))
   end
