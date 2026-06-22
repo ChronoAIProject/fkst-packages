@@ -320,6 +320,22 @@ substrate primitive (`MonotoneFactSet` / `CurrentProjection`) is imaginable but 
 EXTRACTED from package policy when a second case appears, never guessed by the engine
 (dependency inversion).
 
+Sandbox-loader status after the substrate #152 adoption: gate definitions under
+`core/gates/` have exactly one legitimate access path, `std.devloop_gate.load_gate()`.
+`G-MONOTONE-GATE-DSL` makes direct `require("core.gates.<name>")` and direct
+`core/gates/<name>.lua` path loads CI-red outside the loader, including tests. The
+loader runs each gate definition through substrate `restricted_lua_load({ source,
+bindings, mode = "text", name })`, which evaluates the source in a fresh
+capability-isolated Lua state with an empty `_ENV` and only the positive gate
+constructors plus minimal scalar helpers explicitly granted. Ambient `require`,
+`load`, `loadstring`, `_G`, `debug`, `package`, raw table primitives, metatable
+access, `string.dump`, and the value-metatable path `("").dump` are unreachable.
+The package still validates that the returned value is plain positive gate data.
+
+The previous honest residual is closed: Lua's shared string value metatable no
+longer exposes `string.dump` to gate definitions, because the sandbox boundary is
+now host-owned and per-load instead of a package-level `_ENV` wrapper.
+
 ## 6. Migration Plan
 
 Use an inventory ratchet, not a mega-PR.

@@ -3,7 +3,9 @@ local saga = require("std.saga")
 
 local spec = {
   consumes = { "github_issue_create_request" },
+  published_seam = { "github_issue_create_request" },
   produces = { "github_issue_blocked_by_request" },
+  published_seam = { "github_issue_create_request" },
   stall_window = "30s",
 }
 

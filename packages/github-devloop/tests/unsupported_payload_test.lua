@@ -260,6 +260,7 @@ local function payload_for_queue(queue)
       },
     },
     ["github-proxy.github_entity_changed"] = issue_entity_payload(),
+    devloop_observe_issue = issue_entity_payload({ source = "liveness-scan" }),
   }
   local payload = payloads[queue]
   if payload == nil then
@@ -307,6 +308,11 @@ local cases = {
     dept = "observe_issue",
     path = "departments/observe_issue/main.lua",
     queue = "github-proxy.github_entity_changed",
+  },
+  {
+    dept = "observe_issue",
+    path = "departments/observe_issue/main.lua",
+    queue = "devloop_observe_issue",
   },
   {
     dept = "reconcile",
