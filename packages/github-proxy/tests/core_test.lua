@@ -221,12 +221,8 @@ return {
     t.eq(core.is_positive_integer("2147483648"), false)
   end,
 
-  test_clamp_int_clamps_to_inclusive_range = function()
-    t.eq(core.clamp_int(3, 5, 9), 5)
-    t.eq(core.clamp_int(11, 5, 9), 9)
-    t.eq(core.clamp_int(7, 5, 9), 7)
-    t.eq(core.clamp_int(5, 5, 9), 5)
-    t.eq(core.clamp_int(9, 5, 9), 9)
+  test_core_does_not_export_unused_clamp_int = function()
+    t.is_nil(core.clamp_int)
   end,
 
   test_normalize_labels_matches_department_label_inputs = function()
