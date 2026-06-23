@@ -27,12 +27,15 @@ class CheckRepoPublishedInterfaceTest(unittest.TestCase):
     def test_external_project_root_uses_host_package_view_and_skips_b_only_ratchets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            package = root / ".fkst" / "local-packages" / "site-board"
-            package.mkdir(parents=True)
-            (package / "core.lua").write_text(
-                'local M = {}\nfunction M.persistence_class() return "stateless_adapter" end\nreturn M\n',
-                encoding="utf-8",
-            )
+            source_package = root / "packages" / "source-board"
+            local_package = root / ".fkst" / "local-packages" / "site-board"
+            source_package.mkdir(parents=True)
+            local_package.mkdir(parents=True)
+            for package in (source_package, local_package):
+                (package / "core.lua").write_text(
+                    'local M = {}\nfunction M.persistence_class() return "stateless_adapter" end\nreturn M\n',
+                    encoding="utf-8",
+                )
 
             result = self.run_check(root)
 
@@ -46,14 +49,18 @@ class CheckRepoPublishedInterfaceTest(unittest.TestCase):
     def test_external_project_root_runs_generic_ratchets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            package = root / ".fkst" / "local-packages" / "site-board"
-            package.mkdir(parents=True)
-            (package / "core.lua").write_text("-- filler\n" * 1001, encoding="utf-8")
+            source_package = root / "packages" / "source-board"
+            local_package = root / ".fkst" / "local-packages" / "site-board"
+            source_package.mkdir(parents=True)
+            local_package.mkdir(parents=True)
+            (source_package / "core.lua").write_text("local M = {}\nreturn M\n", encoding="utf-8")
+            (local_package / "core.lua").write_text("-- filler\n" * 1001, encoding="utf-8")
 
             result = self.run_check(root)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("repository check failed:", result.stderr)
+        self.assertIn("G8: packages/source-board/core.lua must declare M.persistence_class()", result.stderr)
         self.assertIn("G1: packages/site-board/core.lua has 1001 lines; limit is 1000", result.stderr)
         self.assertIn("OK: skipped library-B-specific ratchets for external project root:", result.stdout)
 

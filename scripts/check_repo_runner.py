@@ -17,8 +17,11 @@ import check_repo_span
 
 
 def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+    sources = {}
+    for package_root in c.package_roots(root):
+        sources.update(check_repo_content_truncation.package_lua_sources(root, package_root, c.read_text, c.rel))
     current = check_repo_content_truncation.sites(
-        check_repo_content_truncation.package_lua_sources(root, c.packages_root(root), c.read_text, c.rel)
+        sources
     )
     allowlist = check_repo_content_truncation.load_allowlist(
         c.allowlist_path(root, check_repo_content_truncation.ALLOWLIST, allowlist_dir)
@@ -31,7 +34,7 @@ def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_ba
 
 
 def check_forward_direct(c, root, violations, allowlist_dir=None) -> None:
-    current = check_repo_forward_direct.current_sites(check_repo_forward_direct.sources(root))
+    current = check_repo_forward_direct.current_sites(check_repo_forward_direct.sources(root, c.package_roots(root)))
     allowlist = check_repo_forward_direct.load_allowlist(
         c.allowlist_path(root, check_repo_forward_direct.ALLOWLIST, allowlist_dir)
     )
@@ -40,13 +43,18 @@ def check_forward_direct(c, root, violations, allowlist_dir=None) -> None:
 
 
 def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
-    package_root = c.packages_root(root)
-    raisers = check_repo_producer_liveness.declared_raisers(root, package_root)
+    package_roots = c.package_roots(root)
+    raisers = set().union(*[
+        check_repo_producer_liveness.declared_raisers(root, package_root)
+        for package_root in package_roots
+    ])
     fixture_coverage = {
         package.name: check_repo_producer_liveness.package_test_fixture_coverage(package)
+        for package_root in package_roots
+        if package_root.exists()
         for package in sorted(package_root.iterdir())
         if package.is_dir()
-    } if package_root.exists() else {}
+    }
     coverage = {
         package: set().union(*by_fixture.values()) if by_fixture else set()
         for package, by_fixture in fixture_coverage.items()
@@ -63,16 +71,20 @@ def check_producer_liveness(c, root, violations, allowlist_dir=None, enforce_bas
         allowlist,
         base_allowlist,
         fixture_coverage,
-        check_repo_producer_liveness.declared_liveness_contracts(root, package_root),
+        set().union(*[
+            check_repo_producer_liveness.declared_liveness_contracts(root, package_root)
+            for package_root in package_roots
+        ]),
     )
     for message in messages:
         c.add(violations, "G-PRODUCER-LIVENESS", message)
 
 
 def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
-    if not enforce_base and not check_repo_monotone_gate.production_sources(root):
+    package_roots = c.package_roots(root)
+    if not enforce_base and not check_repo_monotone_gate.production_sources(root, package_roots):
         return
-    current, messages = check_repo_monotone_gate.current_violations(root)
+    current, messages = check_repo_monotone_gate.current_violations(root, package_roots)
     for message in messages:
         c.add(violations, "G-MONOTONE-GATE", message)
     allowlist = check_repo_monotone_gate.load_allowlist(
@@ -86,9 +98,10 @@ def check_monotone_gate(c, root, violations, allowlist_dir=None, enforce_base=Tr
 
 
 def check_monotone_gate_dsl(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
-    if not enforce_base and not check_repo_monotone_gate_dsl.gate_sources(root):
+    package_roots = c.package_roots(root)
+    if not enforce_base and not check_repo_monotone_gate_dsl.gate_sources(root, package_roots):
         return
-    gate_module_sources, gate_module_messages = check_repo_monotone_gate_dsl.gate_source_modules(root)
+    gate_module_sources, gate_module_messages = check_repo_monotone_gate_dsl.gate_source_modules(root, package_roots)
     current = set()
     for path, (source, line_offset) in gate_module_sources.items():
         current.update(check_repo_monotone_gate_dsl.source_findings(path, source, line_offset))
@@ -103,7 +116,7 @@ def check_monotone_gate_dsl(c, root, violations, allowlist_dir=None, enforce_bas
     for finding in sorted(current):
         if not any(entry.key() == finding.key() for entry in allowlist):
             c.add(violations, "G-MONOTONE-GATE-DSL", f"{finding.label()} is forbidden in a core/gates DSL definition; gate definitions are loaded by devloop.gate.load_gate with injected constructors, must not require modules, must not read raw marker/cursor helpers, and must stay pure positive data construction without reflection, loaders, metatables, raw table access, globals, or monkey-patching")
-    for finding in sorted(check_repo_monotone_gate_dsl.loader_bypass_findings(root)):
+    for finding in sorted(check_repo_monotone_gate_dsl.loader_bypass_findings(root, package_roots)):
         c.add(violations, "G-MONOTONE-GATE-DSL", f"{finding.label()} is forbidden; gate definitions must be loaded only through devloop.gate.load_gate so the restricted_lua_load sandbox is authoritative")
     for entry in sorted(allowlist):
         if not any(finding.key() == entry.key() for finding in current):
@@ -123,8 +136,9 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
     c.check_rest_pagination_guards(root, warnings); c.check_hidden_text_encoded_literals(root, violations)
     c.check_gh_rate_pool_sizing(root, violations); c.check_error_class_prefixes(root, warnings)
     c.check_persistence_classes(root, violations); c.check_cross_package_require(root, violations)
-    for message in c.check_repo_ingress.scoped_file_watch_ingress_messages(root, c.packages_root(root), c.read_text, c.rel):
-        c.add(violations, "G13", message)
+    for package_root in c.package_roots(root):
+        for message in c.check_repo_ingress.scoped_file_watch_ingress_messages(root, package_root, c.read_text, c.rel):
+            c.add(violations, "G13", message)
     c.check_no_permission_control(root, violations)
     c.check_gh_git_adapter_ratchet(root, violations, allowlists)
     c.check_code_dedup_ratchet(root, violations, allowlists, enforce_base)
@@ -133,11 +147,12 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
         c.add(violations, "G-COVERAGE", message)
     check_forward_direct(c, root, violations, allowlists)
     check_producer_liveness(c, root, violations, allowlists, enforce_base)
-    for message in check_repo_namespaced_queue.repository_messages(root, c.packages_root(root), c.read_text, c.rel, c.strip_lua_comments_and_strings, c.is_unmasked_range):
-        c.add(violations, "G-NAMESPACED-QUEUE", message)
+    for package_root in c.package_roots(root):
+        for message in check_repo_namespaced_queue.repository_messages(root, package_root, c.read_text, c.rel, c.strip_lua_comments_and_strings, c.is_unmasked_range):
+            c.add(violations, "G-NAMESPACED-QUEUE", message)
     check_monotone_gate(c, root, violations, allowlists, enforce_base); check_monotone_gate_dsl(c, root, violations, allowlists, enforce_base)
     c.check_saga_handler_ratchet(root, violations, warnings, allowlists, enforce_base)
-    sources = {c.rel(root, path): c.read_text(path) for path in sorted(c.packages_root(root).glob("*/departments/*/main.lua")) if path.is_file()}
+    sources = {c.rel(root, path): c.read_text(path) for package_root in c.package_roots(root) for path in sorted(package_root.glob("*/departments/*/main.lua")) if path.is_file()}
     for message in check_repo_saga_head.violations(sources, c.strip_lua_comments_and_strings):
         c.add(violations, "G-SAGA-HEAD", message)
 

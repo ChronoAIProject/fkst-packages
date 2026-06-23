@@ -74,14 +74,18 @@ def parse_args(argv: list[str] | None = None) -> CheckRepoConfig:
     return CheckRepoConfig(project_root=args.project_root, allowlist_dir=args.allowlist_dir)
 
 
-def package_root(project_root: Path) -> Path:
+def package_roots(project_root: Path) -> list[Path]:
     packages = project_root / "packages"
-    if packages.exists():
-        return packages
-    host_packages = project_root / ".fkst" / "local-packages"
-    if host_packages.exists():
-        return host_packages
-    return packages
+    if same_path(project_root, OWN_REPO_ROOT):
+        return [packages]
+    local_packages = project_root / ".fkst" / "local-packages"
+    roots = [packages, local_packages]
+    existing = [root for root in roots if root.exists()]
+    return existing if existing else [packages]
+
+
+def package_root(project_root: Path) -> Path:
+    return package_roots(project_root)[0]
 
 
 def allowlist_path(root: Path, allowlist_dir: Path | None, relpath: str) -> Path:
