@@ -41,6 +41,15 @@ local function compare_guard_token(left, right)
   return left_text > right_text and 1 or -1
 end
 
+local function compare_marker_order_key(left, right)
+  local left_key = core.marker_order_key(left.version, left.state)
+  local right_key = core.marker_order_key(right.version, right.state)
+  if left_key == right_key then
+    return 0
+  end
+  return left_key > right_key and 1 or -1
+end
+
 local function guard_attrs_current(comments, proposal_id)
   local current = nil
   local order_by = { "marker_order_key", "version_order_key", "stage_rank" }
@@ -69,6 +78,43 @@ local function guard_attrs_current(comments, proposal_id)
   return current
 end
 
+local function assert_marker_order_pair(left, right)
+  local canonical = core.compare_state_marker_order({
+    state = left.state,
+    version = left.version,
+  }, right.state, right.version)
+  t.eq(compare_marker_order_key(left, right), canonical)
+  local reverse_canonical = core.compare_state_marker_order({
+    state = right.state,
+    version = right.version,
+  }, left.state, left.version)
+  t.eq(compare_marker_order_key(right, left), reverse_canonical)
+end
+
+local function assert_guard_selects_canonical(left, right)
+  local proposal_id = "github-devloop/issue/owner/repo/42"
+  for _, comments in ipairs({
+    {
+      core.state_marker(proposal_id, left.state, left.version),
+      core.state_marker(proposal_id, right.state, right.version),
+    },
+    {
+      core.state_marker(proposal_id, right.state, right.version),
+      core.state_marker(proposal_id, left.state, left.version),
+    },
+  }) do
+    local canonical = core.current_state(comments, proposal_id)
+    local guarded = guard_attrs_current(comments, proposal_id)
+    t.eq(guarded.state, canonical.state)
+    t.eq(guarded.version, canonical.version)
+  end
+end
+
+local function assert_marker_order_invariant(left, right)
+  assert_marker_order_pair(left, right)
+  assert_guard_selects_canonical(left, right)
+end
+
 return {
   test_version_order_key_public_surface_delegates_to_std_contract = function()
     t.eq(
@@ -77,40 +123,24 @@ return {
     )
   end,
 
-  test_marker_order_key_matches_canonical_transition_order_for_representative_pairs = function()
+  test_marker_order_key_matches_canonical_transition_order_invariant = function()
     local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local pairs = {
-      { older = base .. "/loop/9", newer = base .. "/loop/10" },
-      { older = base .. "/fix/9", newer = base .. "/fix/10" },
-      { older = base .. "/review-loop/1", newer = base .. "/review-loop/2" },
-      { older = base .. "/review-meta-action/1", newer = base .. "/review-meta-action/2" },
-      { older = base .. "/review-meta-action/9/fix/1", newer = base .. "/fix/2" },
+      { left = { state = "thinking", version = base .. "/loop/9" }, right = { state = "thinking", version = base .. "/loop/10" } },
+      { left = { state = "fixing", version = base .. "/fix/9" }, right = { state = "fixing", version = base .. "/fix/10" } },
+      { left = { state = "implementing", version = base .. "/reimplement/1" }, right = { state = "implementing", version = base .. "/reimplement/2" } },
+      { left = { state = "ready", version = base .. "/timeout/ready/1" }, right = { state = "ready", version = base .. "/timeout/ready/2" } },
+      { left = { state = "review-meta", version = base .. "/review-meta-action/1" }, right = { state = "review-meta", version = base .. "/review-meta-action/2" } },
+      { left = { state = "reviewing", version = base .. "/review-loop/1" }, right = { state = "reviewing", version = base .. "/review-loop/2" } },
+      { left = { state = "ready", version = base .. "/ready-split/1" }, right = { state = "ready", version = base .. "/ready-split/2" } },
+      { left = { state = "review-meta", version = base .. "/review-meta-action/9/fix/1" }, right = { state = "fixing", version = base .. "/fix/2" } },
+      { left = { state = "pr-open", version = "ready-consensus-v1" }, right = { state = "reviewing", version = "ready/consensus/v1" } },
+      { left = { state = "pr-open", version = base }, right = { state = "reviewing", version = base } },
     }
 
     for _, pair in ipairs(pairs) do
-      t.eq(core.compare_state_marker_order({
-        state = "fixing",
-        version = pair.older,
-      }, "fixing", pair.newer), -1)
-      t.is_true(core.marker_order_key(pair.newer, "fixing") > core.marker_order_key(pair.older, "fixing"))
+      assert_marker_order_invariant(pair.left, pair.right)
     end
-    t.is_true(core.marker_order_key(base, "merge-ready") > core.marker_order_key(base, "reviewing"))
-  end,
-
-  test_marker_order_key_guard_current_matches_canonical_current = function()
-    local proposal_id = "github-devloop/issue/owner/repo/42"
-    local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
-    local comments = {
-      core.state_marker(proposal_id, "review-meta", base .. "/review-meta-action/9/fix/1"),
-      core.state_marker(proposal_id, "fixing", base .. "/fix/2"),
-    }
-
-    local canonical = core.current_state(comments, proposal_id)
-    local guarded = guard_attrs_current(comments, proposal_id)
-
-    t.eq(canonical.state, "fixing")
-    t.eq(guarded.state, canonical.state)
-    t.eq(guarded.version, canonical.version)
   end,
 
   test_marker_label_and_comment_builders = function()

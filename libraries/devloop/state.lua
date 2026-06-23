@@ -219,12 +219,19 @@ function M.next_review_loop_version(version)
   return base .. "/review-loop/" .. tostring(next_n)
 end
 
+local strip_transition_version_suffixes
+local comparable_transition_base
+
 local function version_primary_key(version)
-  local updated_at = M.version_updated_at(version)
+  if version == nil then
+    return ""
+  end
+  local base = comparable_transition_base(version)
+  local updated_at = M.version_updated_at(base)
   if updated_at ~= "" then
     return updated_at
   end
-  return source_ref.version_order_key(version)
+  return source_ref.version_order_key(M.safe_version_segment(base))
 end
 
 local function version_sort_key(version, stage_rank)
@@ -323,7 +330,7 @@ local function versions_equivalent(left, right)
   return M.safe_version_segment(left) == M.safe_version_segment(right)
 end
 
-local function strip_transition_version_suffixes(version)
+strip_transition_version_suffixes = function(version)
   local text = tostring(version or "")
   local previous = nil
   while previous ~= text do
@@ -358,7 +365,7 @@ end
 -- Normalize a transition version to its stable lineage base.
 M.strip_transition_version_suffixes = strip_transition_version_suffixes
 
-local function comparable_transition_base(version)
+comparable_transition_base = function(version)
   local text = strip_transition_version_suffixes(version)
   return text:match("^consensus:(.+)$") or text
 end
