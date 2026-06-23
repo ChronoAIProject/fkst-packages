@@ -28,6 +28,9 @@ function M.build_pr_state_label_request(repo, issue_number, pr_number, proposal_
     target_number = pr_number,
     pr_number = pr_number,
     issue_number = issue_number,
+    expected_proposal_id = proposal_id,
+    expected_state = to_state,
+    expected_version = version,
     add_labels = add_labels,
     remove_labels = remove_labels,
     label_colors = label_colors_for(add_labels),
@@ -54,6 +57,26 @@ function M.build_reconcile_pr_state_label_request(repo, issue_number, pr_number,
     }),
     source_ref,
     current_labels
+  )
+end
+
+function M.pr_state_label_request_guard_visible(comments, label_request)
+  if type(label_request) ~= "table" then
+    return false
+  end
+  if label_request.target_kind ~= "pr" then
+    return true
+  end
+  if label_request.expected_proposal_id == nil
+    or label_request.expected_state == nil
+    or label_request.expected_version == nil then
+    return false
+  end
+  return M.has_state_marker(
+    comments,
+    label_request.expected_proposal_id,
+    label_request.expected_state,
+    label_request.expected_version
   )
 end
 

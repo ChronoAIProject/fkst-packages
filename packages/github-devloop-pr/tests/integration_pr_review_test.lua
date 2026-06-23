@@ -90,6 +90,11 @@ local function count_label_raises(raises, target_kind)
   end
   return count
 end
+local function assert_pr_label_guard(payload, expected_state, expected_version)
+  t.eq(payload.expected_proposal_id, "github-devloop/issue/owner/repo/42")
+  t.eq(payload.expected_state, expected_state)
+  t.eq(payload.expected_version, expected_version)
+end
 local function mock_decompose_child_issue_list(proposal_id, version, pr_number, indexes)
   local repo = core.parse_proposal_id(proposal_id)
   local rendered = {}
@@ -129,9 +134,8 @@ return {
       },
     }, opts("observe-pr-reviewing"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 1)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    local pr_label_raise = find_label_raise(result.raises, "pr")
     t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
     t.is_true(comment_raise.payload.body:find("state=\"reviewing\"", 1, true) ~= nil)
     t.eq(comment_raise.payload.handoff.kind, "github-devloop.reviewing")
@@ -139,13 +143,15 @@ return {
     t.eq(comment_raise.payload.handoff.pr_number, 7)
     t.eq(comment_raise.payload.handoff.version, impl_version)
     t.eq(find_label_raise(result.raises, "issue"), nil)
+    t.eq(find_label_raise(result.raises, "pr"), nil)
+    local handoff = h.run_comment_handoff_from_request(comment_raise.payload, "IC_devloop_reviewing_2", "observe-pr-reviewing-label-handoff")
+    local pr_label_raise = find_label_raise(handoff.raises, "pr")
+    t.is_true(pr_label_raise ~= nil)
     t.eq(pr_label_raise.payload.target_kind, "pr")
     t.eq(pr_label_raise.payload.target_number, 7)
     t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(pr_label_raise.payload.label_colors["fkst-dev:reviewing"], "5319E7")
-    t.is_nil(pr_label_raise.payload.expected_proposal_id)
-    t.is_nil(pr_label_raise.payload.expected_state)
-    t.is_nil(pr_label_raise.payload.expected_version)
+    assert_pr_label_guard(pr_label_raise.payload, "reviewing", impl_version)
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
     t.eq(reviewing_raise.payload.schema, "github-devloop.reviewing.v1")
     t.eq(reviewing_raise.payload.proposal_id, "github-devloop/issue/owner/repo/42")
@@ -181,7 +187,7 @@ return {
     t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(pr_label_raise.payload.label_colors["fkst-dev:reviewing"], "5319E7")
     t.eq(pr_label_raise.payload.target_number, 7)
-    t.is_nil(pr_label_raise.payload.expected_state)
+    assert_pr_label_guard(pr_label_raise.payload, "reviewing", impl_version)
   end,
   test_observe_pr_does_not_reconcile_issue_label_from_pr_fixing_state = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -214,7 +220,7 @@ return {
       t.eq(pr_label_raise.payload.target_number, 7)
       t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:fixing")
       t.eq(pr_label_raise.payload.label_colors["fkst-dev:fixing"], "D93F0B")
-      t.is_nil(pr_label_raise.payload.expected_state)
+      assert_pr_label_guard(pr_label_raise.payload, "fixing", fix_version)
     end
   end,
   test_observe_pr_removes_stale_reviewing_label_from_blocked_pr_marker = function()
@@ -243,7 +249,7 @@ return {
     t.eq(pr_label_raise.payload.target_number, 7)
     t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:blocked")
     t.eq(pr_label_raise.payload.label_colors["fkst-dev:blocked"], "1B1F23")
-    t.is_nil(pr_label_raise.payload.expected_state)
+    assert_pr_label_guard(pr_label_raise.payload, "blocked", impl_version .. "/blocked")
     t.is_true(has_value(pr_label_raise.payload.remove_labels, "fkst-dev:reviewing"))
   end,
   test_observe_pr_reraises_merge_ready_for_poll_self_heal = function()
@@ -377,7 +383,7 @@ return {
     local label_raise = find_label_raise(result.raises, "pr")
     t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
     t.eq(label_raise.payload.label_colors["fkst-dev:reviewing"], "5319E7")
-    t.is_nil(label_raise.payload.expected_version)
+    assert_pr_label_guard(label_raise.payload, "reviewing", fix_round_version)
     t.eq(reviewing_raise.payload.version, fix_round_version .. "/review-loop/1")
     mock_bot_env()
     mock_issue_review({ "fkst-dev:reviewing" }, {
