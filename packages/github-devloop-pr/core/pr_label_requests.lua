@@ -1,6 +1,19 @@
 local S = {}
 
 function S.install(M)
+  local function label_colors_for(add_labels)
+    local colors = {}
+    local has_color = false
+    for _, label in ipairs(add_labels or {}) do
+      local color = M._label_colors and M._label_colors[tostring(label)]
+      if color ~= nil then
+        colors[tostring(label)] = color
+        has_color = true
+      end
+    end
+    return has_color and colors or nil
+  end
+
 function M.build_pr_state_label_request(repo, issue_number, pr_number, proposal_id, to_state, version, dedup_key_value, source_ref, current_labels)
   local add_labels, remove_labels
   if current_labels ~= nil then
@@ -15,11 +28,9 @@ function M.build_pr_state_label_request(repo, issue_number, pr_number, proposal_
     target_number = pr_number,
     pr_number = pr_number,
     issue_number = issue_number,
-    expected_proposal_id = proposal_id,
-    expected_state = to_state,
-    expected_version = version,
     add_labels = add_labels,
     remove_labels = remove_labels,
+    label_colors = label_colors_for(add_labels),
     dedup_key = dedup_key_value,
     source_ref = M.normalize_source_ref(source_ref),
   }, issue_number ~= nil and M.issue_source_ref(repo, issue_number) or nil)

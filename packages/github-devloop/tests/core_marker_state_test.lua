@@ -93,6 +93,7 @@ return {
     local label = core.build_result_label_request("owner/repo", "42", reached())
     t.eq(label.schema, "github-proxy.label.v1")
     t.eq(label.add_labels[1], "fkst-dev:ready")
+    t.eq(label.label_colors["fkst-dev:ready"], "0E8A16")
     t.is_true(h.has_value(label.remove_labels, "fkst-dev:thinking"))
     t.is_true(h.has_value(label.remove_labels, "fkst-dev:implementing"))
     t.is_true(h.has_value(label.remove_labels, "fkst-dev:pr-open"))
@@ -102,6 +103,16 @@ return {
     t.is_true(h.has_value(label.remove_labels, "fkst-dev:impl-failed"))
     t.eq(#label.remove_labels, 12)
     t.eq(label.issue_number, "42")
+
+    local awaiting = core.build_state_label_request(
+      "owner/repo",
+      "42",
+      "awaiting-pr",
+      "github-devloop/issue/owner/repo/42/label/awaiting-pr",
+      { kind = "external", ref = "owner/repo#issue/42" }
+    )
+    t.eq(awaiting.add_labels[1], "fkst-dev:awaiting-pr")
+    t.is_nil(awaiting.label_colors)
 
     t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "reviewing"), true)
     t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "reviewing"), false)

@@ -83,7 +83,10 @@ local function assert_conflict_redrive(result, expected_from_state)
   t.is_true(pr_label_raise ~= nil)
   t.is_true(fixing_raise ~= nil)
   t.eq(issue_label_raise.payload.add_labels[1], "fkst-dev:fixing")
-  t.eq(pr_label_raise.payload.expected_state, "fixing")
+  t.eq(issue_label_raise.payload.label_colors["fkst-dev:fixing"], "D93F0B")
+  t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:fixing")
+  t.eq(pr_label_raise.payload.label_colors["fkst-dev:fixing"], "D93F0B")
+  t.is_nil(pr_label_raise.payload.expected_state)
   t.eq(fixing_raise.payload.proposal_id, proposal_id)
   t.eq(fixing_raise.payload.pr_number, 7)
   t.eq(fixing_raise.payload.version, version .. "/fix/1")
@@ -170,6 +173,8 @@ return {
       return tostring(payload.target_kind or "") == "pr"
     end)
     t.is_true(pr_label_raise ~= nil)
-    t.eq(pr_label_raise.payload.expected_state, "fixing")
+    t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:fixing")
+    t.eq(pr_label_raise.payload.label_colors["fkst-dev:fixing"], "D93F0B")
+    t.is_nil(pr_label_raise.payload.expected_state)
   end,
 }

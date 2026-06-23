@@ -141,8 +141,11 @@ return {
     t.eq(find_label_raise(result.raises, "issue"), nil)
     t.eq(pr_label_raise.payload.target_kind, "pr")
     t.eq(pr_label_raise.payload.target_number, 7)
-    t.eq(pr_label_raise.payload.expected_state, "reviewing")
-    t.eq(pr_label_raise.payload.expected_version, impl_version)
+    t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(pr_label_raise.payload.label_colors["fkst-dev:reviewing"], "5319E7")
+    t.is_nil(pr_label_raise.payload.expected_proposal_id)
+    t.is_nil(pr_label_raise.payload.expected_state)
+    t.is_nil(pr_label_raise.payload.expected_version)
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
     t.eq(reviewing_raise.payload.schema, "github-devloop.reviewing.v1")
     t.eq(reviewing_raise.payload.proposal_id, "github-devloop/issue/owner/repo/42")
@@ -176,8 +179,9 @@ return {
     t.is_true(pr_label_raise ~= nil)
     t.eq(find_label_raise(result.raises, "issue"), nil)
     t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(pr_label_raise.payload.label_colors["fkst-dev:reviewing"], "5319E7")
     t.eq(pr_label_raise.payload.target_number, 7)
-    t.eq(pr_label_raise.payload.expected_state, "reviewing")
+    t.is_nil(pr_label_raise.payload.expected_state)
   end,
   test_observe_pr_does_not_reconcile_issue_label_from_pr_fixing_state = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -208,8 +212,9 @@ return {
     if pr_label_raise ~= nil then
       t.eq(pr_label_raise.payload.target_kind, "pr")
       t.eq(pr_label_raise.payload.target_number, 7)
-      t.eq(pr_label_raise.payload.expected_state, "fixing")
       t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:fixing")
+      t.eq(pr_label_raise.payload.label_colors["fkst-dev:fixing"], "D93F0B")
+      t.is_nil(pr_label_raise.payload.expected_state)
     end
   end,
   test_observe_pr_removes_stale_reviewing_label_from_blocked_pr_marker = function()
@@ -236,8 +241,9 @@ return {
     t.eq(result.exit_code, 0)
     local pr_label_raise = find_label_raise(result.raises, "pr")
     t.eq(pr_label_raise.payload.target_number, 7)
-    t.eq(pr_label_raise.payload.expected_state, "blocked")
     t.eq(pr_label_raise.payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(pr_label_raise.payload.label_colors["fkst-dev:blocked"], "1B1F23")
+    t.is_nil(pr_label_raise.payload.expected_state)
     t.is_true(has_value(pr_label_raise.payload.remove_labels, "fkst-dev:reviewing"))
   end,
   test_observe_pr_reraises_merge_ready_for_poll_self_heal = function()
@@ -368,7 +374,10 @@ return {
     t.eq(result.exit_code, 0)
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
     t.is_true(reviewing_raise ~= nil)
-    t.eq(find_label_raise(result.raises, "pr").payload.expected_version, fix_round_version)
+    local label_raise = find_label_raise(result.raises, "pr")
+    t.eq(label_raise.payload.add_labels[1], "fkst-dev:reviewing")
+    t.eq(label_raise.payload.label_colors["fkst-dev:reviewing"], "5319E7")
+    t.is_nil(label_raise.payload.expected_version)
     t.eq(reviewing_raise.payload.version, fix_round_version .. "/review-loop/1")
     mock_bot_env()
     mock_issue_review({ "fkst-dev:reviewing" }, {

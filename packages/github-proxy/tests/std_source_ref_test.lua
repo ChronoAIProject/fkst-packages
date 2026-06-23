@@ -23,7 +23,7 @@ return {
     t.eq(source_ref.version_order_key("consensus:plain-version"), "plain-version")
     t.eq(source_ref.version_order_key("ready/consensus-plain-version"), "plain-version")
     t.eq(
-      source_ref.version_order_key("consensus:github-devloop/issue/1/intake/2026-06-17T22:18:19Z"),
+      source_ref.version_order_key("consensus:generic-workflow/issue/1/intake/2026-06-17T22:18:19Z"),
       "2026-06-17T22-18-19Z/loop/000000000000"
     )
     t.eq(
