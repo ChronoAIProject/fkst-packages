@@ -13,6 +13,8 @@ local marker_current = '<!-- fkst:generic-workflow:state:v1 proposal="generic-wo
 local marker_superseded = '<!-- fkst:generic-workflow:state:v1 proposal="generic-workflow/issue/owner/x/42" state="merge-ready" version="v1" stage_rank="725" -->'
 local marker_current_timestamp = '<!-- fkst:generic-workflow:state:v1 proposal="generic-workflow/issue/owner/x/42" state="reviewing" version="ready/consensus-generic-workflow/issue/owner/x/42/2026-06-17T22-18-19Z" stage_rank="675" -->'
 local marker_newer_same_state = '<!-- fkst:generic-workflow:state:v1 proposal="generic-workflow/issue/owner/x/42" state="reviewing" version="ready/consensus-generic-workflow/issue/owner/x/42/2026-06-17T23-18-19Z" stage_rank="675" -->'
+local marker_stale_merge_ready = '<!-- fkst:generic-workflow:state:v1 proposal="generic-workflow/issue/owner/x/42" state="merge-ready" version="ready/consensus-generic-workflow/issue/owner/x/42/2026-06-17T22-18-19Z" stage_rank="690" -->'
+local marker_newer_reviewing = '<!-- fkst:generic-workflow:state:v1 proposal="generic-workflow/issue/owner/x/42" state="reviewing" version="ready/consensus-generic-workflow/issue/owner/x/42/2026-06-17T23-18-19Z" stage_rank="675" -->'
 
 local function label_event(extra)
   local payload = {
@@ -212,6 +214,47 @@ return {
         },
       },
     }), opts("pr-label-guard-version-superseded", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 1)
+    t.eq(count_calls("gh label list"), 0)
+    t.eq(count_calls("gh pr edit"), 0)
+  end,
+
+  test_pr_label_request_skips_stale_higher_stage_marker_when_version_order_is_newer = function()
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_comment_view({ marker_stale_merge_ready, marker_newer_reviewing })
+    mock_repo_label_list({ "adapter-merge-ready", "adapter-reviewing" })
+    t.mock_command("gh pr edit", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("gh api repos/owner/x/issues/42", {
+      stdout = '{"assignees":[{"login":"fkst-test-bot"}]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = t.run_department("departments/github_issue_label/main.lua", guarded_label_event({
+      add_labels = { "adapter-merge-ready" },
+      remove_labels = { "adapter-reviewing" },
+      marker_guard = {
+        namespace = "generic-workflow",
+        marker = "state",
+        version = "v1",
+        match = {
+          proposal = "generic-workflow/issue/owner/x/42",
+        },
+        expected = {
+          state = "merge-ready",
+          version = "ready/consensus-generic-workflow/issue/owner/x/42/2026-06-17T22-18-19Z",
+        },
+        order_by = {
+          "version_order_key",
+          "stage_rank",
+        },
+      },
+    }), opts("pr-label-guard-version-newer-lower-stage", {
       FKST_GITHUB_WRITE = "1",
     }))
 
