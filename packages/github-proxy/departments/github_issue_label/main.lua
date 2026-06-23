@@ -79,6 +79,10 @@ end
 
 local function marker_guard_allows_write(payload, repo, kind, number, add_labels, remove_labels)
   if payload.marker_guard == nil then
+    if payload.require_marker_guard == true or kind == "pr" then
+      log_skip(payload, repo, add_labels, remove_labels, "marker-guard-required")
+      return false
+    end
     return true
   end
   local bot_login = core.assert_trusted_bot_configured()

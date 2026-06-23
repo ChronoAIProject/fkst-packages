@@ -48,6 +48,7 @@ function M.build_pr_state_label_request(repo, issue_number, pr_number, proposal_
     target_number = pr_number,
     pr_number = pr_number,
     issue_number = issue_number,
+    require_marker_guard = true,
     expected_proposal_id = proposal_id,
     expected_state = to_state,
     expected_version = version,
