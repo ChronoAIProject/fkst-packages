@@ -506,9 +506,7 @@ local function process_pr_event(event)
       return
     end
     if state.state == "pr-open" and tostring(current_pr.state or ""):lower() ~= "open" then
-      if replay_pr_local_state(origin, pr.number, current_pr, state, source_ref) and core.has_state_marker(current_pr.comments, origin.proposal_id, state.state, state.version) then
-        maybe_label_hints(origin, pr.number, current_pr, state, source_ref)
-      end
+      replay_pr_local_state(origin, pr.number, current_pr, state, source_ref)
       return
     end
     if transition ~= "apply" and transition ~= "idempotent" then

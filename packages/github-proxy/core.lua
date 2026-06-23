@@ -37,6 +37,7 @@ require("core.rest_view").install(M)
 require("core.entity_view").install(M)
 require("core.gh_rate").install(M)
 require("core.comment").install(M, shared_helpers)
+require("core.marker_guard").install(M)
 require("core.claims").install(M)
 
 local allowed_env = {

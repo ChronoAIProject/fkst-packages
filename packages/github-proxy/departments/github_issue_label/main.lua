@@ -77,6 +77,20 @@ local function log_skip(payload, repo, add_labels, remove_labels, reason)
   core.log_line("info", "github_issue_label", "SKIP", fields)
 end
 
+local function marker_guard_allows_write(payload, repo, kind, number, add_labels, remove_labels)
+  if payload.marker_guard == nil then
+    return true
+  end
+  local bot_login = core.assert_trusted_bot_configured()
+  local comments = core.fetch_marker_guard_comments(repo, kind, number)
+  local ok, reason = core.marker_guard_current(comments, payload.marker_guard, bot_login)
+  if not ok then
+    log_skip(payload, repo, add_labels, remove_labels, reason or "marker-guard-failed")
+    return false
+  end
+  return true
+end
+
 local function act(event)
   local payload = event.payload or {}
   if payload.schema ~= "github-proxy.label.v1" then
@@ -118,6 +132,9 @@ local function act(event)
     end
     if kind == "issue"
       and not core.verify_issue_claim_before_write(payload, repo, number, "github_issue_label") then
+      return
+    end
+    if not marker_guard_allows_write(payload, repo, kind, number, add_labels, remove_labels) then
       return
     end
     if kind == "pr" then

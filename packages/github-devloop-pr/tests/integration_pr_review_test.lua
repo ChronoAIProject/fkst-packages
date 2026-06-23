@@ -462,6 +462,14 @@ return {
     local terminal = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(terminal ~= nil)
     t.is_true(terminal.payload.body:find('state="closed-unmerged"', 1, true) ~= nil)
+    t.is_true(terminal.payload.handoff ~= nil)
+    t.eq(terminal.payload.handoff.kind, "github-devloop.closed_unmerged")
+    t.eq(find_label_raise(result.raises, "pr"), nil)
+    local handoff = h.run_comment_handoff_from_request(terminal.payload, "IC_closed_unmerged_1", "closed-unmerged-comment-handoff")
+    local label = find_label_raise(handoff.raises, "pr")
+    t.is_true(label ~= nil)
+    t.eq(label.payload.expected_state, "closed-unmerged")
+    t.eq(label.payload.marker_guard.expected.state, "closed-unmerged")
   end,
   test_observe_pr_ignores_forged_backpointer_and_uses_pr_native_origin = function()
     mock_pr_origin({

@@ -37,6 +37,13 @@ local function supported_handoff(payload)
     and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
     return handoff
   end
+  if handoff.kind == "github-devloop.closed_unmerged"
+    and core.is_safe_entity_proposal_ref(handoff.proposal_id, handoff.version)
+    and core.is_safe_pr_number(handoff.pr_number)
+    and core._is_bounded_string(handoff.version, core._max_dedup_len)
+    and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
+    return handoff
+  end
   if handoff.kind == "github-devloop.merge_ready"
     and core.is_safe_entity_proposal_ref(handoff.proposal_id, handoff.version)
     and core.is_safe_pr_number(handoff.pr_number)
@@ -118,6 +125,9 @@ local function handoff_state(handoff)
   end
   if handoff.kind == "github-devloop.blocked" then
     return "blocked"
+  end
+  if handoff.kind == "github-devloop.closed_unmerged" then
+    return "closed-unmerged"
   end
   if handoff.kind == "github-devloop.fixing" then
     return "fixing"
@@ -222,6 +232,14 @@ local function act_handoff(event)
   end
 
   if handoff.kind == "github-devloop.blocked" then
+    if not issue_claim_ok(payload, handoff) then
+      return
+    end
+    maybe_raise_pr_label(payload, handoff)
+    return
+  end
+
+  if handoff.kind == "github-devloop.closed_unmerged" then
     if not issue_claim_ok(payload, handoff) then
       return
     end

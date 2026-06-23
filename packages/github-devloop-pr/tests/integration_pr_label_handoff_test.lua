@@ -36,6 +36,16 @@ local function reviewing_handoff(version)
   }
 end
 
+local function closed_unmerged_handoff(version)
+  return {
+    kind = "github-devloop.closed_unmerged",
+    proposal_id = "github-devloop/issue/owner/repo/42",
+    pr_number = 7,
+    version = version or "v1",
+    source_ref = core.pr_source_ref("owner/repo", 7),
+  }
+end
+
 local function mock_marker_comment(comment_id, body, author_login)
   t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/" .. tostring(comment_id) .. "'", {
     stdout = '{"body":"' .. json_string(body or "") .. '","user":{"login":"' .. tostring(author_login or "fkst-test-bot") .. '"}}\n',
@@ -61,8 +71,35 @@ return {
     t.eq(label.payload.expected_proposal_id, handoff.proposal_id)
     t.eq(label.payload.expected_state, "reviewing")
     t.eq(label.payload.expected_version, handoff.version)
+    t.eq(label.payload.marker_guard.namespace, "github-devloop")
+    t.eq(label.payload.marker_guard.marker, "state")
+    t.eq(label.payload.marker_guard.version, "v1")
+    t.eq(label.payload.marker_guard.match.proposal, handoff.proposal_id)
+    t.eq(label.payload.marker_guard.expected.state, "reviewing")
+    t.eq(label.payload.marker_guard.expected.version, handoff.version)
+    t.eq(label.payload.marker_guard.order_by[1], "stage_rank")
+    t.eq(label.payload.marker_guard.order_by[2], "version_order_key")
     t.eq(label.payload.add_labels[1], "fkst-dev:reviewing")
     t.is_true(has_value(label.payload.remove_labels, "fkst-dev:pr-open"))
+  end,
+
+  test_comment_handoff_projects_pr_label_after_closed_unmerged_marker_is_verified = function()
+    local handoff = closed_unmerged_handoff("v1")
+    mock_bot_env()
+    mock_default_issue_claim("owner/repo", 42)
+    mock_marker_comment("IC_closed_unmerged_1", core.state_marker(handoff.proposal_id, "closed-unmerged", handoff.version))
+
+    local result = run_handoff(handoff, "IC_closed_unmerged_1", "pr-label-handoff-closed-unmerged")
+
+    t.eq(result.exit_code, 0)
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.is_true(label ~= nil)
+    t.eq(label.payload.target_kind, "pr")
+    t.eq(label.payload.expected_state, "closed-unmerged")
+    t.eq(label.payload.marker_guard.expected.state, "closed-unmerged")
+    t.eq(label.payload.marker_guard.expected.version, handoff.version)
+    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+    t.is_true(has_value(label.payload.remove_labels, "fkst-dev:reviewing"))
   end,
 
   test_comment_handoff_retries_pr_label_when_reviewing_marker_is_not_causally_visible = function()
