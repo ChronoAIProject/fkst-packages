@@ -48,6 +48,8 @@ function M.producer_liveness_contracts()
       max_silence_seconds = audit_poll_interval_seconds,
       max_skip_budget = 0,
       progress_output = "github-proxy.github_issue_create_request",
+      runtime_gate = "idle_when_not_overdue",
+      adversarial_fixture = "busy_overdue",
     },
   }
 end
@@ -87,6 +89,18 @@ local function non_empty_string(contract, field, errors)
   return value
 end
 
+local function optional_non_empty_string(contract, field, errors)
+  local value = contract and contract[field]
+  if value == nil then
+    return nil
+  end
+  if type(value) ~= "string" or value == "" then
+    append_error(errors, tostring(contract and contract.producer_id or "?") .. ": " .. field .. " must be a non-empty string when declared")
+    return nil
+  end
+  return value
+end
+
 local function output_queues(contract, errors)
   local queues = contract and contract.output_queues
   if type(queues) ~= "table" or #queues == 0 then
@@ -113,10 +127,16 @@ local function producer_liveness_row(contract, errors)
   local trigger_source = non_empty_string(contract, "trigger_source", errors)
   non_empty_string(contract, "eligibility_predicate", errors)
   local progress_output = non_empty_string(contract, "progress_output", errors)
+  local runtime_gate = optional_non_empty_string(contract, "runtime_gate", errors)
+  local adversarial_fixture = optional_non_empty_string(contract, "adversarial_fixture", errors)
   local outputs = output_queues(contract, errors)
   local staleness_minutes = positive_minute_seconds(contract, "max_staleness_seconds", errors)
   local silence_minutes = positive_minute_seconds(contract, "max_silence_seconds", errors)
   local skip_budget = non_negative_integer(contract, "max_skip_budget", errors)
+  if runtime_gate ~= nil and adversarial_fixture == nil then
+    append_error(errors, tostring(contract and contract.producer_id or "?") .. ": runtime_gate must declare adversarial_fixture")
+    return nil
+  end
   if producer_id == nil or trigger_source == nil or progress_output == nil or outputs == nil
     or staleness_minutes == nil or silence_minutes == nil or skip_budget == nil then
     return nil
@@ -169,6 +189,10 @@ local function producer_liveness_row(contract, errors)
     actionable_epoch = {
       source = "state_entry:v1",
       generation_source = "same_as_actionable_epoch",
+    },
+    producer_liveness = {
+      runtime_gate = runtime_gate,
+      adversarial_fixture = adversarial_fixture,
     },
   }
 end
@@ -588,6 +612,23 @@ function M.audit_run_dedup_key(repo, now_seconds, max_staleness_seconds)
     strings.decimal_checksum(seed),
   }, "/")
   return readable:sub(1, github_proxy_limits.dedup_key)
+end
+
+function M.audit_run_dedup_bucket(now_seconds, max_staleness_seconds)
+  if type(now_seconds) ~= "number" or type(max_staleness_seconds) ~= "number" or max_staleness_seconds < 1 then
+    error("archaudit: invalid-audit-run-dedup-input: timestamps and staleness budget must be numeric")
+  end
+  return math.floor(now_seconds / max_staleness_seconds)
+end
+
+function M.audit_run_current_window_seen(latest_seconds, now_seconds, max_staleness_seconds)
+  if latest_seconds == nil then
+    return false
+  end
+  if type(latest_seconds) ~= "number" or latest_seconds > now_seconds then
+    return true
+  end
+  return M.audit_run_dedup_bucket(latest_seconds, max_staleness_seconds) == M.audit_run_dedup_bucket(now_seconds, max_staleness_seconds)
 end
 
 function M.build_issue_create_request(repo, finding, label_available, trigger_reason)
