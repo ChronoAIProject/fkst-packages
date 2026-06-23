@@ -20,7 +20,7 @@ FORGE_STRINGS_SPLIT_IMPORTS = {
     ("libraries/devloop/parsers/misc.lua", "forge.strings"),
 }
 LIBRARIES = ("contract", "workflow", "testkit", "forge", "devloop")
-CONTRACT_MODULES = {"error_facts", "payload", "registry", "source_ref", "strings"}
+CONTRACT_MODULES = {"error_facts", "payload", "source_ref", "strings"}
 DEVLOOP_FAMILY = {
     "fkst-substrate-ref-maintainer",
     "github-devloop",

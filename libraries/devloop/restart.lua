@@ -1,5 +1,5 @@
 local S = {}
-local registry = require("contract.registry")
+local registry = require("workflow.registry")
 
 local source_ref_derivations = {
   entity = true,

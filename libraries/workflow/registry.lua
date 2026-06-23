@@ -1,4 +1,4 @@
--- contract.registry: sorted/unique indexed registry builders shared across packages.
+-- workflow.registry: sorted/unique indexed registry builders for workflow-sized registries.
 local S = {}
 
 local function index_name(index_entry)

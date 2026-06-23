@@ -56,7 +56,7 @@ def inventory_line(path: str, module: str) -> str:
 class LibraryDependencyModelGuardTest(unittest.TestCase):
     def seed_contract(self, root: Path) -> None:
         manifest(root / "libraries" / "contract" / "fkst.toml", "contract", [], public=True)
-        for module in ("error_facts", "payload", "registry", "source_ref", "strings"):
+        for module in ("error_facts", "payload", "source_ref", "strings"):
             write(root / "libraries" / "contract" / f"{module}.lua", "return {}\n")
 
     def seed_devloop_manifest(self, root: Path, allow: list[str] | None = None) -> None:
@@ -124,7 +124,7 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.seed_contract(root)
-            write(root / "libraries" / "contract" / "saga.lua", "return {}\n")
+            write(root / "libraries" / "contract" / "registry.lua", "return {}\n")
             manifest(root / "libraries" / "contract" / "fkst.toml", "contract", ["workflow"], public=True)
             self.seed_devloop_manifest(root)
             write(root / "migration" / "devloop-forge-imports.inventory", "")
