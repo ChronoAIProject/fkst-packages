@@ -27,6 +27,7 @@ function S.install(M)
         version = tostring(version),
       },
       order_by = {
+        "marker_order_key",
         "version_order_key",
         "stage_rank",
       },

@@ -77,8 +77,9 @@ return {
     t.eq(label.payload.marker_guard.match.proposal, handoff.proposal_id)
     t.eq(label.payload.marker_guard.expected.state, "reviewing")
     t.eq(label.payload.marker_guard.expected.version, handoff.version)
-    t.eq(label.payload.marker_guard.order_by[1], "version_order_key")
-    t.eq(label.payload.marker_guard.order_by[2], "stage_rank")
+    t.eq(label.payload.marker_guard.order_by[1], "marker_order_key")
+    t.eq(label.payload.marker_guard.order_by[2], "version_order_key")
+    t.eq(label.payload.marker_guard.order_by[3], "stage_rank")
     t.eq(label.payload.add_labels[1], "fkst-dev:reviewing")
     t.is_true(has_value(label.payload.remove_labels, "fkst-dev:pr-open"))
   end,

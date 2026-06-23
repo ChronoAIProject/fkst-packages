@@ -1,5 +1,18 @@
 local S = {}
 local source_ref = require("contract.source_ref")
+local order_number_width = 12
+
+local function marker_attrs(marker)
+  local attrs = {}
+  for key, value in tostring(marker or ""):gmatch('([%w._-]+)="([^"]*)"') do
+    attrs[key] = value
+  end
+  return attrs
+end
+
+local function padded_order_number(value)
+  return string.format("%0" .. tostring(order_number_width) .. "d", tonumber(value) or 0)
+end
 
 function S.install(M)
 function M.has_label(labels, expected)
@@ -44,6 +57,7 @@ function M.state_marker(proposal_id, state, version, effects)
     .. '" state="' .. tostring(state)
     .. '" version="' .. tostring(version)
     .. '" stage_rank="' .. tostring(M._state_stage_rank[state])
+    .. '" marker_order_key="' .. M.marker_order_key(version, state)
     .. '"'
     .. effects_field
     .. ' -->'
@@ -227,15 +241,35 @@ local function version_sort_key(version, stage_rank)
   }
 end
 
+function M.marker_order_key(version, state_or_stage_rank)
+  local stage_rank = tonumber(state_or_stage_rank)
+  if stage_rank == nil then
+    stage_rank = M.stage_rank(state_or_stage_rank)
+  end
+  local key = version_sort_key(version, stage_rank)
+  return table.concat({
+    tostring(key.primary or ""),
+    padded_order_number(key.loop_n),
+    padded_order_number(key.fix_n),
+    padded_order_number(key.reimplement_n),
+    padded_order_number(key.timeout_n),
+    padded_order_number(key.review_meta_action_n),
+    padded_order_number(key.review_loop_n),
+    padded_order_number(key.ready_split_n),
+    padded_order_number(key.stage_rank),
+  }, "/")
+end
+
 local function marker_stage_rank(marker, state)
   local explicit_rank = tonumber(marker:match('stage_rank="(%d+)"'))
   return explicit_rank or M.stage_rank(state)
 end
 
 local function state_marker_fact(marker, comment)
-  local marker_proposal = marker:match('proposal="([^"]+)"')
-  local marker_state = marker:match('state="([^"]+)"')
-  local marker_version = marker:match('version="([^"]*)"')
+  local attrs = marker_attrs(marker)
+  local marker_proposal = attrs.proposal
+  local marker_state = attrs.state
+  local marker_version = attrs.version
   if marker_proposal == nil or M._label_by_state[marker_state] == nil then
     return nil
   end
@@ -582,10 +616,16 @@ function M.has_state_marker(comments, proposal_id, state, version)
   if type(comments) ~= "table" then
     return false
   end
-  local marker = M.state_marker(proposal_id, state, version)
+  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(M._trusted_marker_comments(comments)) do
-    if M._comment_body(comment):find(marker, 1, true) ~= nil then
-      return true
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      local candidate = state_marker_fact(marker, comment)
+      if candidate ~= nil
+        and candidate.proposal_id == proposal_id
+        and candidate.state == state
+        and candidate.version == version then
+        return true
+      end
     end
   end
   return false
@@ -595,11 +635,19 @@ function M.state_marker_comment_id(comments, proposal_id, state, version, effect
   if type(comments) ~= "table" then
     return nil
   end
-  local marker = M.state_marker(proposal_id, state, version, effects)
+  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(M._trusted_marker_comments(comments)) do
-    if M._comment_body(comment):find(marker, 1, true) ~= nil
-      and M.is_safe_comment_id(comment.id) then
-      return tostring(comment.id)
+    for marker in M._comment_body(comment):gmatch(marker_pattern) do
+      local candidate = state_marker_fact(marker, comment)
+      local attrs = marker_attrs(marker)
+      if candidate ~= nil
+        and candidate.proposal_id == proposal_id
+        and candidate.state == state
+        and candidate.version == version
+        and tostring(attrs.effects or "") == tostring(effects or "")
+        and M.is_safe_comment_id(comment.id) then
+        return tostring(comment.id)
+      end
     end
   end
   return nil

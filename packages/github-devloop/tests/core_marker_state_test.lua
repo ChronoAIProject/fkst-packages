@@ -7,6 +7,68 @@ local unresolved = h.unresolved
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
 local verdict_summary_label = "Three-angle verdicts: "
 
+local function marker_attrs(marker)
+  local attrs = {}
+  for key, value in tostring(marker or ""):gmatch('([%w._-]+)="([^"]*)"') do
+    attrs[key] = value
+  end
+  return attrs
+end
+
+local function guard_order_value(attrs, key)
+  if key == "version_order_key" then
+    return core.version_order_key(attrs.version)
+  end
+  return attrs[key]
+end
+
+local function compare_guard_token(left, right)
+  local left_missing = left == nil or tostring(left) == ""
+  local right_missing = right == nil or tostring(right) == ""
+  if left_missing ~= right_missing then
+    return left_missing and -1 or 1
+  end
+  local left_number = tonumber(left)
+  local right_number = tonumber(right)
+  if left_number ~= nil and right_number ~= nil and left_number ~= right_number then
+    return left_number > right_number and 1 or -1
+  end
+  local left_text = tostring(left or "")
+  local right_text = tostring(right or "")
+  if left_text == right_text then
+    return 0
+  end
+  return left_text > right_text and 1 or -1
+end
+
+local function guard_attrs_current(comments, proposal_id)
+  local current = nil
+  local order_by = { "marker_order_key", "version_order_key", "stage_rank" }
+  for _, body in ipairs(comments or {}) do
+    for marker in tostring(body):gmatch("<!%-%- fkst:github%-devloop:state:v1.-%-%->") do
+      local attrs = marker_attrs(marker)
+      if attrs.proposal == proposal_id then
+        local newer = current == nil
+        for _, key in ipairs(order_by) do
+          if not newer then
+            local cmp = compare_guard_token(guard_order_value(attrs, key), guard_order_value(current, key))
+            if cmp > 0 then
+              newer = true
+              break
+            elseif cmp < 0 then
+              break
+            end
+          end
+        end
+        if newer then
+          current = attrs
+        end
+      end
+    end
+  end
+  return current
+end
+
 return {
   test_version_order_key_public_surface_delegates_to_std_contract = function()
     t.eq(
@@ -15,16 +77,53 @@ return {
     )
   end,
 
+  test_marker_order_key_matches_canonical_transition_order_for_representative_pairs = function()
+    local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
+    local pairs = {
+      { older = base .. "/loop/9", newer = base .. "/loop/10" },
+      { older = base .. "/fix/9", newer = base .. "/fix/10" },
+      { older = base .. "/review-loop/1", newer = base .. "/review-loop/2" },
+      { older = base .. "/review-meta-action/1", newer = base .. "/review-meta-action/2" },
+      { older = base .. "/review-meta-action/9/fix/1", newer = base .. "/fix/2" },
+    }
+
+    for _, pair in ipairs(pairs) do
+      t.eq(core.compare_state_marker_order({
+        state = "fixing",
+        version = pair.older,
+      }, "fixing", pair.newer), -1)
+      t.is_true(core.marker_order_key(pair.newer, "fixing") > core.marker_order_key(pair.older, "fixing"))
+    end
+    t.is_true(core.marker_order_key(base, "merge-ready") > core.marker_order_key(base, "reviewing"))
+  end,
+
+  test_marker_order_key_guard_current_matches_canonical_current = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
+    local comments = {
+      core.state_marker(proposal_id, "review-meta", base .. "/review-meta-action/9/fix/1"),
+      core.state_marker(proposal_id, "fixing", base .. "/fix/2"),
+    }
+
+    local canonical = core.current_state(comments, proposal_id)
+    local guarded = guard_attrs_current(comments, proposal_id)
+
+    t.eq(canonical.state, "fixing")
+    t.eq(guarded.state, canonical.state)
+    t.eq(guarded.version, canonical.version)
+  end,
+
   test_marker_label_and_comment_builders = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local thinking_marker = core.state_marker(proposal_id, "thinking", "v1")
-    t.is_true(thinking_marker:find('fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="thinking" version="v1"', 1, true) ~= nil)
-    t.is_true(thinking_marker:find('stage_rank="100"', 1, true) ~= nil)
+    local thinking_state = core.current_state({ thinking_marker }, proposal_id)
+    t.eq(thinking_state.state, "thinking")
+    t.eq(thinking_state.version, "v1")
+    t.eq(thinking_state.stage_rank, core.stage_rank("thinking"))
+    t.is_true(thinking_marker:find('marker_order_key="', 1, true) ~= nil)
     local ready_effects_marker = core.state_marker(proposal_id, "ready", "v2", "result-marker,ready-label,devloop-ready")
-    t.eq(
-      ready_effects_marker,
-      '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="ready" version="v2" stage_rank="500" effects="result-marker,ready-label,devloop-ready" -->'
-    )
+    t.is_true(ready_effects_marker:find('marker_order_key="', 1, true) ~= nil)
+    t.is_true(ready_effects_marker:find('effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
     local ready_effects_state = core.current_state({ ready_effects_marker }, proposal_id)
     t.eq(ready_effects_state.state, "ready")
     t.eq(ready_effects_state.version, "v2")
@@ -145,8 +244,9 @@ return {
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
     t.is_true(comment.body:find('fkst:github-devloop:result:v1 proposal="github-devloop/issue/owner/repo/42"', 1, true) ~= nil)
     t.is_true(comment.body:find('fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="ready"', 1, true) ~= nil)
+    t.is_true(comment.body:find('stage_rank="500"', 1, true) ~= nil)
+    t.is_true(comment.body:find('marker_order_key="', 1, true) ~= nil)
     t.is_true(comment.body:find('effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
-    t.is_true(comment.body:find('stage_rank="500" effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
     local comment_version = tostring(completed.dedup_key):gsub(":", "-")
     t.eq(
       comment.dedup_key,
@@ -489,6 +589,22 @@ return {
     t.eq(core.stage_rank("reviewing") > core.stage_rank("pr-open"), true)
     t.eq(current.state, "reviewing")
     t.eq(current.version, slash_version)
+  end,
+  test_current_state_prefers_canonical_fix_round_over_generic_segment_order = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
+    local generic_would_win = base .. "/review-meta-action/9/fix/1"
+    local canonical_winner = base .. "/fix/2"
+
+    local current = core.current_state({
+      core.state_marker(proposal_id, "review-meta", generic_would_win),
+      core.state_marker(proposal_id, "fixing", canonical_winner),
+    }, proposal_id)
+
+    t.is_true(core.version_order_key(generic_would_win) > core.version_order_key(canonical_winner))
+    t.eq(core.compare_state_marker_order({ state = "review-meta", version = generic_would_win }, "fixing", canonical_winner), -1)
+    t.eq(current.state, "fixing")
+    t.eq(current.version, canonical_winner)
   end,
   test_current_state_converges_same_version_fixing_to_review_meta = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"

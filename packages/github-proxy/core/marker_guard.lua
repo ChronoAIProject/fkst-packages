@@ -75,6 +75,11 @@ function S.install(M)
   end
 
   local function compare_token(left, right)
+    local left_missing = left == nil or tostring(left) == ""
+    local right_missing = right == nil or tostring(right) == ""
+    if left_missing ~= right_missing then
+      return left_missing and -1 or 1
+    end
     local left_number = tonumber(left)
     local right_number = tonumber(right)
     if left_number ~= nil and right_number ~= nil and left_number ~= right_number then
