@@ -84,12 +84,17 @@ return {
     t.eq(git._model.writes[1].path, ".fkst/substrate-ref")
   end,
 
-  test_substrate_pin_refresh_skips_empty_missing_base_result_with_git_fake = function()
+  test_substrate_pin_refresh_propagates_git_error_with_git_fake = function()
     local git = substrate_pin_git({
       abc123 = { [".fkst/substrate-ref"] = { stdout = "", stderr = "", exit_code = 128 } },
     })
-    substrate_pin.refresh("/tmp/fkst-packages-test/github-devloop/empty-no-pin-worktree", "devloop-owner-repo-42-01HY", "abc123", true, { git = git })
 
+    local ok, err = pcall(function()
+      substrate_pin.refresh("/tmp/fkst-packages-test/github-devloop/git-error-pin-worktree", "devloop-owner-repo-42-01HY", "abc123", true, { git = git })
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("implement-substrate-pin-read-failed", 1, true) ~= nil)
     t.eq(#git._model.writes, 1)
     t.eq(git._model.writes[1].ref, "abc123")
   end,

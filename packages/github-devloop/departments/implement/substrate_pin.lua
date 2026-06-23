@@ -23,29 +23,25 @@ local function trim(value)
   return tostring(value or ""):gsub("%s+$", "")
 end
 
-local function is_missing_pin_result(result)
-  if result == nil then
-    return true
-  end
-  if result.exit_code == 0 then
+local function is_substrate_ref_absent_in_tree(result)
+  if type(result) ~= "table" then
     return false
   end
-  local text = tostring(result.stderr or "") .. "\n" .. tostring(result.stdout or "")
-  if text:gsub("%s+", "") == "" then
-    return true
+  if result.exit_code ~= 128 or trim(result.stdout) ~= "" then
+    return false
   end
-  return text:find(substrate_ref_path, 1, true) ~= nil
-    and (
-      text:find(substrate_ref_path .. "' does not exist", 1, true) ~= nil
-      or text:find(substrate_ref_path .. "' exists on disk, but not in", 1, true) ~= nil
-    )
+  local stderr = tostring(result.stderr or "")
+  local absent = "fatal: path '" .. substrate_ref_path .. "' does not exist in '"
+  local absent_but_on_disk = "fatal: path '" .. substrate_ref_path .. "' exists on disk, but not in '"
+  return stderr:find(absent, 1, true) ~= nil
+    or stderr:find(absent_but_on_disk, 1, true) ~= nil
 end
 
 local function show_pin(ref, opts)
   opts = opts or {}
   local result = git(opts).show_file(ref, substrate_ref_path, 30)
   if result == nil or result.exit_code ~= 0 then
-    if is_missing_pin_result(result) and opts.missing_ok then
+    if opts.missing_ok and is_substrate_ref_absent_in_tree(result) then
       return nil
     end
     error("github-devloop: implement-substrate-pin-read-failed: " .. tostring(result and result.stderr or "nil git result"))
@@ -75,7 +71,7 @@ function M.refresh(worktree, branch, base_head, merge_clean, opts)
   local base_pin = show_pin(base_head, { missing_ok = true, git = opts and opts.git })
   if base_pin == nil then
     core.log_line("info", "implement", "substrate-pin", "IMPLEMENT", {
-      "reason=no .fkst/substrate-ref to refresh (repo does not pin substrate)",
+      "reason=substrate-pin: .fkst/substrate-ref absent — repo does not pin substrate, nothing to refresh",
       "base_head=" .. tostring(base_head),
     })
     return
