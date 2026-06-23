@@ -1,154 +1,243 @@
-# Conformance harness for host repos: a published, versioned rule-pack tool (no per-repo rebuild)
+# Host-repo harness: one coordinate per source, atomic SHA consolidation now, a typed pack-execution contract later
 
-Status: DESIGN — sshx adversarial (minimal/structural/delete triplet + ChatGPT Pro), converged `implement`.
-Date: 2026-06-23
-Scope: fkst-substrate (engine + published conformance tool), fkst-packages (rule packs + migration), host repos (fkst-website + others: thin runner, delete the copy).
+Status: SPLIT after Round-2 adversarial REVIEW (3 Codex + ChatGPT Pro, all `reject` → `fix`).
+- **Part A (§4) — atomic fkst-packages SHA consolidation in fkst-website: READY TO IMPLEMENT.** All four
+  reviewers agree it can proceed independently provided EVERY consumer of the pin is migrated atomically.
+- **Part B (§5–§7) — the structural pack-distribution + execution contract: DESIGN-INCOMPLETE.** Round-2
+  review showed the earlier draft designed *where rule-pack bytes are pinned* but NOT *the public semantic
+  contract by which those bytes become mandatory, correctly-scoped conformance*. Part B is now a set of
+  explicit OPEN design questions, not a converged `implement`. It must NOT be implemented as-is.
+Date: 2026-06-24 (revised; original 2026-06-23 draft + Round-1 in git history)
+Scope: fkst-substrate (engine validator + conformance runner + resolver), fkst-packages (rule-pack data +
+migration), host repos (fkst-website first; substrate-dogfood + future hosts).
 
-## 1. Problem (verified at source)
+## 0. Verified current state (2026-06-24 — seek truth from facts)
 
-The conformance/harness is SPLIT and DUPLICATED per repo:
-- fkst-packages has ~25 Python static ratchets `scripts/check_repo*.py` (G-ADAPTER gh/git boundary, G-DEDUP,
-  G-PRODUCER-LIVENESS, saga-handler, ingress, forward_direct, monotone_gate, content_truncation, coverage,
-  fkst_layout, dogfood_boundary, github_devloop_helpers, ...) + Lua runtime conformance in `testkit`
-  (`saga_conformance.lua`, `namespaced_dispatch_conformance.lua`) run by the engine in test mode.
-- **The host repo fkst-website ALREADY has a COPIED `scripts/check_repo.py` + `check_repo_test.py`** — it
-  rebuilt the infrastructure. Every host repo with its own packages (fkst-website's `site-board`, substrate's
-  own dogfood packages) would re-copy the ratchet stack. The copy DRIFTS: it silently falls behind
-  fkst-packages' ratchets, so a host's own package escapes a ratchet the platform already enforces.
+Round-1's premise ("fkst-website has a COPIED check_repo.py") is STALE. The copy is gone, replaced by
+**fetch + a new lock**, and the defect evolved into a worse one. Verified by reading both repos:
 
-Boundary (CLAUDE.md): `forge`/`testkit` are PRIVATE to library B; host repos compose B's PACKAGES only via
-`pkg.queue` limited names and must NOT consume B's private libraries/scripts unless B publishes a
-named/versioned public API. So the shared mechanism must be a PUBLISHED seam, not host repos reaching into B.
+- fkst-website has NO `check_repo*.py` copy. `scripts/run.sh check` clones fkst-packages at the SHA in
+  `.fkst-packages-ref` into `.fkst/run/fkst-packages-conformance/` and runs THAT (B-private)
+  `check_repo.py --project-root <website>`, then `$BIN conformance`.
+- A new cross-repo dependency mechanism exists: `fkst.workspace.toml` `[[external_sources]]`
+  (`id=fkst-packages-platform`, git+rev, `libraries=["contract"]`) resolved into `fkst.lock`
+  (`[external_source.resolved] rev` + `tree_sha256`, `[[external_source.libraries]] contract exports_sha256`).
+- **VERIFIED UGLY — two divergent pins to the same upstream (a split brain):**
+  `.fkst-packages-ref` = `45ef0324…` (harness fetch) vs `fkst.lock` `external_source.resolved.rev` =
+  `1734c42e…` (contract library). They are not merely different: `45ef0324` is the commit that ADDS the
+  host-facing ratchet interface (`scripts/check_repo_config.py` + `check_repo.py --project-root`), and
+  `1734c42e` predates it (verified by the quality reviewer via `git show <rev>:scripts/check_repo_config.py`).
+  `scripts/run.sh:108` even prints "bump .fkst-packages-ref to a Track P commit with the shared host-repo
+  interface". So the conformance result is the accidental product of two clocks pointing at incompatible
+  commits.
+- `.fkst-packages-ref` (or its checkout) has FOUR consumers (verified):
+  1. `scripts/run.sh` `run_shared_source_ratchets` → fetched `check_repo.py --project-root` (run.sh:103-124).
+  2. `scripts/run.sh` `build_engine_package_root_args` → resolves `.fkst/conformance/package-roots` entry
+     `fkst-packages:packages/idle-detector` from the SAME checkout (run.sh:127-155, 258).
+  3. `.github/workflows/ci.yml:26-35` independently reads `.fkst-packages-ref` and pre-clones the checkout
+     BEFORE `scripts/run.sh` runs.
+  4. `scripts/run.sh:72-82` `FKST_PACKAGES_CONFORMANCE_ROOT` — a local-only override (a second checkout
+     authority).
+- `check_repo.py` is host-aware: `check_repo_config.is_own_repo` gates the ~8 github-devloop-hardcoded
+  ratchets (skipped for an external project-root). This is a compatibility PATCH, not a public API: the
+  inverted-dependency ugly (a "generic" harness hardcoding one package's name) survives under a blanket.
+
+Verified current-state corrections to the earlier draft (do not assert these as already-solved):
+- The engine `fkst-framework conformance` command EXISTS, but `host_conformance.rs` registers only an
+  `EngineRulePack` + layout/schema/graph checks (runtime-layout, project-layout, locale-catalogs,
+  graph-scan, department-non-empty, schema-validation). It does **not** demonstrably run testkit/devloop
+  Lua saga/dispatch conformance via `--config`; `conformance --config` currently parses the TOML into an
+  untyped value and otherwise **ignores** it (registry comment reserves future pack selection). Whether
+  behavioral Lua conformance runs via `test`/`--self-test` mode vs the `conformance` command is TO-VERIFY,
+  not an established fact.
+- The resolver currently models ONLY `libraries`: `ExternalSourceDecl` / `ExternalSourceLock` carry
+  `libraries` only, and `validate_source_decl` REJECTS an external source with no libraries
+  (`manifest_workspace.rs`, `manifest_external.rs`). Typed `conformance_packs` / `tools` / external
+  `packages` are unimplemented resolver work.
+- The external `idle-detector` package is NOT a locked external artifact today; it is consumed by an
+  untyped `fkst-packages:*` path in `.fkst/conformance/package-roots`.
+
+## 1. The corrected thesis (Round-2 converged direction; the contract is still TBD — see Part B)
+
+> A host should consume harness through its declared dependency graph: per dependency source, ONE
+> authoritative coordinate; ONE public engine command executes conformance; package-owned policy travels
+> with the package, not by host copies or a redundant second pin into the same upstream.
+
+Two precise corrections the review forced:
+- **"One lock" means one authoritative coordinate PER dependency source, NOT one universal lock for
+  everything.** `.fkst-substrate-ref` (the engine toolchain pin) is a LEGITIMATE separate coordinate — like
+  `Cargo.lock` pinning dependencies while NOT pinning the `cargo`/`rustc` binary interpreting it. The pin to
+  DELETE is the *redundant second fkst-packages* pin (`.fkst-packages-ref`), not the substrate toolchain pin.
+- **Rejecting a standalone `event-conformance` product with its own pin is right; but "ride the lock" only
+  fixes provenance/integrity of bytes. It does NOT by itself define the execution contract** (how a pack is
+  declared, activated, scoped, versioned, trusted). That contract is the real structural design (Part B), not
+  a downstream implementation detail.
 
 ## 2. Harness (prior art)
 
-- **Versioned linter platform with rule packs** (ESLint shareable configs + plugins; Python entry-point
-  plugins): generic rules authored once, distributed as a versioned product; each consumer provides config
-  (which rules, baselines/waivers) and invokes the CLI. "Shared CI tooling" is only the invocation, not the
-  ownership model.
-- **Policy-as-code** (OPA/Conftest): policies authored centrally, evaluated against each repo's facts.
-- **Compiler analysis passes**: intrinsic-validity checks belong in the compiler (engine); style/architecture
-  checks are a separable linter.
-- CLAUDE.md «框架做稳定公共部分»/«通用>枚举·原语层>业务语义层»/«分层归属»/«Harness本质 PREVENT>DETECT».
+- **Lockfile single-source-of-truth** (Cargo/npm): one resolver owns each upstream coordinate; the lock
+  records every artifact obtained from it. A lock prevents *unintended* drift; it deliberately permits
+  *indefinite staleness* — preventing stale pins needs a SEPARATE min-supported-version / expiry / update
+  policy (so "a host cannot silently fall behind" is NOT a property of an ordinary lock and must not be claimed).
+- **Versioned linter platform / policy-as-code** (ESLint plugins + shareable configs; OPA/Conftest): generic
+  policy authored once and distributed as versioned data; BUT only meaningful with a published pack format,
+  activation model, and runner protocol — not just pinned bytes.
+- **Compiler vs linter ownership / capability-vs-scan**: intrinsic validity is the engine's (capability);
+  static source policy is separable data owned by whoever owns the semantics; a runtime library must not
+  secretly scan source (the Round-1 trap).
+- **Published API vs private consumption**: consuming declared, versioned artifacts is clean; reaching into a
+  repo's private `scripts/check_repo.py` by filesystem path is not.
+- CLAUDE.md «守住包边界 / published seam»·«分层归属»·«Harness本质 PREVENT>DETECT»·«通用>枚举»·«迁移=inventory ratchet»·«DRY 单一真相源»·«禁 god-package».
 
-## 3. Design — three tiers by ownership (the converged invariant)
+## 3. Tiers by ownership (the stable frame; tier-2 execution contract is Part B)
 
-> Generic, project-agnostic conformance is authored ONCE as an engine-owned, INDEPENDENTLY VERSIONED,
-> PUBLISHED product (a rule-pack linter platform). Any repo — library B or a host — gets it by INVOKING its
-> CLI with only its repo-specific config (package roots + baselines/allowlists). Host repos consume only the
-> CLI + config schema; they import NOTHING from library B. Per-repo `check_repo*.py` copies are deleted.
-
-| Tier | Home | Owns | Must NOT own |
+| Tier | Home (code) | Owns | Must NOT own |
 |---|---|---|---|
-| **1. Engine built-in validator** | fkst-substrate (engine runtime) | INTRINSIC package invalidity: malformed package metadata, duplicate runtime identifiers, impossible saga graphs, unresolved refs in a closed-world composition (the engine already does graph-contract / published-seam) | org-specific architecture, migration ratchets, allowlists, B conventions |
-| **2. Published `event-conformance` tool** | fkst-substrate monorepo but SEPARATELY RELEASABLE from the runtime; versioned + pinned | generic SOURCE-architecture ratchets as RULE PACKS (engine generic pack: adapter-boundary, dedup, producer-liveness, line/file limits, ingress, forward-direct, monotone-gate, content-truncation, coverage, layout) + an OPTIONAL B-public rule pack; baselines/waivers (the allowlists); rule orchestration; diagnostics (SARIF/JSON + exit status) | B PRIVATE layout knowledge; host-specific rules |
-| **3. Engine-run Lua conformance** | fkst-substrate engine test mode (driver) + testkit (the Lua rules) | properties needing EXECUTION: saga runtime/compensation, scheduling, ordering, event-flow, runtime liveness, namespaced dispatch | filesystem traversal / static source scanning |
+| **1. Engine built-in validator** | fkst-substrate runtime | intrinsic package invalidity: malformed metadata, duplicate runtime identifiers, impossible saga graphs, unresolved refs, published-seam legality | org/package policy, migration ratchets, allowlists |
+| **2. Static rule packs** (policy-as-DATA, executed by the public runner) | authored by the OWNER of the semantics; executed by `fkst-framework conformance` | generic source rules (engine/std-owned pack) + per-package rule packs (package-owned). **The declaration/activation/scope/version/trust contract is UNDESIGNED — Part B.** | a monolithic "B god-pack"; B-private layout baked into the generic pack; arbitrary unsandboxed code |
+| **3. Engine-run Lua conformance** | fkst-substrate test driver + testkit/devloop Lua, via lib_deps | properties needing EXECUTION (saga runtime, scheduling, ordering, liveness, dispatch). NOTE: whether the `conformance` command runs these today is TO-VERIFY (see §0). | static source scanning smuggled into a runtime library |
 
-Host invocation (the published seam):
-```
-host repo:  conformance.toml  (which rule packs + baselines/waivers + package roots)
-            <pinned engine + conformance tool version>
-   ▼  invoke ONE public command (thin runner: pin/build fkst-framework, run --self-test + the conformance CLI)
-event-conformance CLI
-   ├── engine generic rule pack        (tier 2, shared)
-   ├── optional B public rule pack      (tier 2, B's published conventions)
-   ├── static source/facts analyzer     (tier 2 engine)
-   └── engine-run Lua conformance driver (tier 3)
-   ▼  diagnostics (SARIF/JSON) + exit status
-```
+---
 
-## 4. Generic-vs-specific split (the rule-pack boundary)
+# PART A — atomic fkst-packages SHA consolidation in fkst-website (READY TO IMPLEMENT)
 
-- **Generic (engine generic rule pack — shared by every repo)**: package-root discovery/layout, file line
-  limits, Lua test shape + helper reachability, gh/git adapter boundary, dedup, producer-liveness, ingress
-  fail-closed, forward-direct, monotone-gate, content-truncation, coverage. These apply to ANY fkst package.
-- **Library-B-specific (stay in B's own conformance config / a B-private pack)**: `github_devloop_helpers`,
-  `dogfood_boundary`, devloop product knowledge. NOT in the shared generic pack.
-- **Repo-specific config (each repo provides)**: which packs to enable, the baselines/allowlists (each repo's
-  `migration/*.allowlist` become the tool's per-repo waivers), the package roots.
+## 4. Kill the split brain: one coordinate, atomically, across all four consumers
 
-## 5. Versioning (no silent drift — the key trap GPT Pro flagged)
+Goal: eliminate the divergent second pin so conformance runs against ONE coherent platform commit. This is
+independent of Part B and unanimously endorsed, with a hard atomicity condition.
 
-- The `event-conformance` tool is INDEPENDENTLY VERSIONED + PINNED per repo (a lock, like `event-packages.lock`).
-- A host CANNOT silently fall behind: the runner pins a version; a stale pin is visible (the lock), and the
-  shared CI surfaces the tool version. (Contrast the current copied check_repo.py: invisible drift.)
-- A host CANNOT silently opt out of a generic rule: enabling the engine generic pack is the default; disabling
-  a rule requires an explicit, visible waiver in `conformance.toml`, not a silent absence.
+Acceptance criteria (ALL must hold; the change is NOT done until each is true):
+1. `fkst.lock`'s `external_source.resolved.rev` is bumped to a SINGLE coherent fkst-packages commit that
+   satisfies EVERY consumer: it contains the host-facing ratchet interface (`scripts/check_repo_config.py` +
+   `check_repo.py --project-root`), `packages/idle-detector`, and the `contract` library. The lock is
+   REGENERATED (re-resolve `tree_sha256` + `contract exports_sha256`) — not hand-edited. (The current lock
+   rev `1734c42e` is BEHIND the host interface, so adopting it as-is would regress; the consolidation bumps
+   the lock to ≥ the `.fkst-packages-ref` rev, i.e. a Track-P commit with the host interface.)
+2. `scripts/run.sh` derives its single fkst-packages checkout from the lock's resolved rev (one
+   `ensure_fkst_packages_checkout` keyed on the lock, not on `.fkst-packages-ref`), and BOTH
+   `run_shared_source_ratchets` and `build_engine_package_root_args` consume that same checkout; the engine
+   invocation still includes `packages/idle-detector`.
+3. `.github/workflows/ci.yml` hydration step (lines 26-35) resolves the checkout from the lock rev, not from
+   `.fkst-packages-ref`.
+4. `FKST_PACKAGES_CONFORMANCE_ROOT` local override is removed, OR retained only with an explicit assertion
+   that its `git rev-parse HEAD` equals the lock's `external_source.resolved.rev` (no second checkout authority).
+5. `.fkst-packages-ref` is DELETED, along with `read_fkst_packages_pin` / `FKST_PACKAGES_PIN_FILE` and the
+   README/CLAUDE references to it.
+6. A concrete CI guard (a real test, not prose): assert that (a) no `.fkst-packages-ref` (or any second
+   `*-ref` side pin to the fkst-packages git URL) exists, and (b) the resolved fkst-packages checkout's
+   `git rev-parse HEAD` equals `fkst.lock`'s `external_source(id=fkst-packages-platform).resolved.rev`.
+   `.fkst-substrate-ref` is a DISTINCT, legitimate toolchain coordinate and is explicitly out of scope of
+   this guard.
+7. `scripts/run.sh check && scripts/run.sh test` pass green on fkst-website after the change (the lock bump
+   also moves the `contract` library that `site-board` consumes — verify nothing regresses).
 
-## 6. Host repos: thin runner + DELETE the copy
+Honestly-inventoried migration DEBT (Part A does not pretend to be the one-resolver end state):
+- The host still MANUALLY clones the lock rev because the engine `deps` command fetches/validates locked
+  external sources but does NOT expose a public source-root lookup, and a manual clone may bypass the lock's
+  `tree_sha256` verification. This is acknowledged shrink-only debt, tracked toward Part B, NOT the final
+  form. Part A's win is precise and real: one coordinate, no split brain, every consumer coherent — today.
+- The host still fetch-runs B-private `check_repo.py`. Tolerated as shrink-only debt until Part B lands; it
+  now runs at the SAME locked commit as everything else, so it is no longer a second clock.
 
-- Each host repo keeps only a THIN runner (`scripts/run.sh`): pin/build fkst-framework + the conformance
-  tool, run `--self-test`, run the conformance CLI with `conformance.toml`. NO `check_repo*.py`.
-- **DELETE fkst-website's copied `scripts/check_repo.py` + `check_repo_test.py`** (and any other host copy),
-  replaced by the CLI invocation. This is the «删» — N copies collapse to 1 published seam.
+---
 
-## 7. Migration — phased inventory-ratchet (not big-bang)
+# PART B — structural pack distribution + execution contract (DESIGN-INCOMPLETE — OPEN QUESTIONS)
 
-Per «迁移=inventory ratchet»: do NOT rewrite all 25 ratchets at once.
-1. **Engine command skeleton** (fkst-substrate): `fkst-framework conformance --project-root --package-root
-   --config conformance.toml` that runs the EXISTING engine graph/saga conformance + a rule-pack registry
-   (empty generic pack initially). Ship it; pin it.
-2. **Move generic ratchets into the engine generic rule pack** one-by-one (an inventory manifest of the ~25;
-   each migrated ratchet is removed from fkst-packages `scripts/` and added to the pack; fkst-packages itself
-   switches to invoking the CLI, proving the seam). Shrink-only: the `scripts/check_repo*.py` count ratchets
-   to 0 (B-specific ones move to a B-private pack).
-3. **Host adoption**: fkst-website (and substrate's own dogfood) replace their copied `check_repo.py` with the
-   thin runner + `conformance.toml`; delete the copies.
-4. **At 0**: one generic rule pack, authored once; every repo (B + hosts) invokes it; zero duplication.
+Round-2 review (esp. ChatGPT Pro) showed the earlier "add `[[conformance_packs]]` to the lock" draft solved
+only WHERE bytes are pinned, leaving the load-bearing contract undesigned. Pinning bytes without this
+contract yields exactly the failures the design claims to remove: hardcode package names into the engine
+(inverted dependency), execute arbitrary transitive code (god-runner), or reach into another repo by private
+path (private consumption). Part B must NOT be implemented until these are answered.
 
-## 8. Parallel implementation (the user's 并行实施)
+## 5. The missing tier-2 execution contract (the blocking structural gap)
 
-Independent tracks (parallelizable):
-- **Track E (fkst-substrate)**: the `fkst-framework conformance` command + rule-pack registry + the engine
-  built-in validator tier-1 + the Lua driver tier-3. (engine PRs)
-- **Track P (fkst-packages)**: expose the generic ratchets as the engine generic rule pack (migrate one-by-one,
-  inventory-ratchet); a B-private pack for B-specific ratchets; switch fkst-packages' own `run.sh` to the CLI.
-- **Track H (host repos)**: the thin runner + `conformance.toml` + DELETE the copied check_repo; first
-  fkst-website (site-board), then substrate's own dogfood packages.
-Track E unblocks P and H (the CLI must exist first); within E/P the ratchet migration is per-ratchet parallel.
-COORDINATE with the other machine's `libraries/` refactor (testkit moves) — the tier-3 Lua rules live in
-testkit; note the seam.
+One concrete vertical contract is required before any pack work:
+- **Pack declaration + identity**: how a package/library declares it provides (or depends on) a named static
+  rule pack; stable pack id + version.
+- **Activation graph edge**: the PRECISE edge that activates a pack for a host — a typed `conformance_deps` /
+  `lint_deps`, or `lib_deps`, or package composition, or explicit workspace binding. Without a typed seam a
+  package can be present while its static rules are silently absent — the exact failure "default-on" claims
+  to prevent. ("Selected by ownership and graph reachability" is a promise with no graph edge today.)
+- **Runner/pack protocol version**: which runner versions understand which pack format; compat metadata.
+- **Fact model + scope**: what a source scan may inspect, and whether scope is the package's own source, the
+  consumer's source, or the whole workspace.
+- **Form + trust**: declarative rule IR over a versioned fact model, OR a deliberately sandboxed plugin ABI.
+  A raw `checkout/path/to/script.py` lock entry is just disguised private-script consumption / arbitrary
+  transitive code execution — both forbidden.
+- **Failure + conflict semantics**: fail-closed for missing/unsupported reachable packs; duplicate-id and
+  version-conflict rules; waiver identity + lifecycle (host-owned baselines).
+
+## 6. Resolver work (the storage half — also required, not yet done)
+
+- Extend the workspace/lock schema beyond `libraries` to typed external `packages` (so `idle-detector` is a
+  locked artifact, not an untyped path) and typed `conformance_packs` / `tools`; relax the
+  "external source must have ≥1 library" rule accordingly.
+- Make `fkst-framework conformance --config` actually consume the config: a pack registry that selects packs
+  per the §5 activation edge, instead of the current parse-but-ignore + static `EngineRulePack`.
+- Expose a public source-root lookup from the resolver so hosts stop manually cloning (removes Part A's debt).
+
+## 7. Bootstrap / toolchain + ownership-honesty questions
+
+- **Bootstrap circle**: the runner cannot both be pinned-and-built by the thin runner AND be a `tools` lock
+  entry that the runner itself must read. Decide explicitly: either the runner is part of the publicly
+  versioned `fkst-framework` toolchain (one legitimate `.fkst-substrate-ref` coordinate + pack-compat
+  metadata in `fkst.lock`), OR a small bootstrap launcher resolves a locked tool artifact then execs it.
+- **Ownership honesty**: do not call a pack "engine-generic" while having fkst-packages publish it. If a rule
+  is truly engine-generic it is substrate/std-owned (else the inverted dependency persists and future hosts
+  couple to B); if it is org policy, name it as a public policy pack owned honestly.
+- **Per-owner, not god-pack**: github-devloop's static rules become the github-devloop package's pack,
+  activated only when that package is referenced; delete `is_own_repo` + the hardcoding when its pack lands.
+  A B-aggregate pack may exist only as a convenience COMPOSITION of per-package packs, never the primitive.
+
+## 8. Migration order (inventory-ratchet, not big-bang)
+
+1. **Part A now** (§4): atomic SHA consolidation in fkst-website. Independent, unblocked today.
+2. **Part B design**: answer §5 (the execution contract) FIRST; it gates everything else. Then §6 resolver
+   work in fkst-substrate, then §7 decisions.
+3. **Then** migrate generic ratchets into the engine/std generic pack one-by-one (inventory-ratchet; the
+   `scripts/check_repo*.py` count shrinks to 0); per-package packs for package rules; fkst-packages switches
+   to invoking the CLI (proving symmetry: it is just another consumer); delete `is_own_repo` + hardcoding;
+   retire host execution of B-private `check_repo.py`.
+4. At 0: one coordinate per source, one public command, per-owner typed packs; zero duplication, zero second
+   fkst-packages pin, zero private-script consumption.
 
 ## 9. Non-goals
 
 - Not a runtime change (conformance is build/CI-time).
-- Not baking org-specific ratchets into the engine (those stay in repo config / B-private pack).
-- Not a big-bang rewrite (phased inventory-ratchet to 0).
-- The tool is separately releasable from the engine runtime (versioned independently).
+- Not baking org/package policy into the engine.
+- Not a big-bang rewrite.
+- Not a second package manager / second fkst-packages pin / host config that duplicates the workspace graph.
+- Part A is NOT the one-resolver end state (it is honest interim debt); Part B is NOT implementable until §5
+  is answered.
 
 ## 10. Adversarial record
 
-`sshx`: minimal/structural/delete triplet (3× propose) + ChatGPT Pro, converged `implement`.
-- **minimal**: engine-first — extend `fkst-framework conformance` (it already owns --project-root/--package-root);
-  host keeps a thin runner that pins/builds the engine + runs the CLI.
-- **structural**: engine for true package-shape/graph invariants; a published VERSIONED package for the
-  generic source ratchets; host invokes with config only (repo root, package roots, baselines).
-- **delete**: engine/fkst-substrate as a published versioned package-repo conformance command shipped with the
-  engine; host runs ONE public command with repo config; DELETE the copies.
-- **ChatGPT Pro**: make it an engine-owned, INDEPENDENTLY VERSIONED, PUBLISHED product (`event-conformance`),
-  separately releasable from the runtime; hosts consume only its CLI + config schema, import nothing from B;
-  the 3-tier split (engine built-in / published tool / engine-run Lua); rule packs (engine generic + optional
-  B public); versioning/pinning so hosts can't silently drift or opt out; mature name = versioned linter
-  platform with rule packs (ESLint shareable configs + plugins).
+### Round-2 REVIEW (2026-06-24) — 3 Codex (architecture/quality/tests) + ChatGPT Pro, ALL `reject` → `fix`
+- **quality** (reject): the two revs are functionally incompatible (`45ef0324` has the host ratchet interface,
+  `1734c42e` does not); deleting the side pin while keeping the stale lock rev regresses `run.sh check`; the
+  pin has multiple consumers — the first step is a proxy fix unless it is an atomic single-rev move.
+- **architecture** (reject): a THIRD consumer — `.github/workflows/ci.yml` pre-hydrates from
+  `.fkst-packages-ref` independently; plus `FKST_PACKAGES_CONFORMANCE_ROOT` local override is a second
+  checkout authority; verified the resolver schema is libraries-only (substrate source).
+- **tests** (reject): the CI guard was under-specified to be a real test; the "engine conformance already
+  loads testkit/devloop Lua conformance" claim is NOT supported by `host_conformance.rs` (6 checks +
+  EngineRulePack, no testkit/saga runner); "~25" unverified; `conformance --config` currently ignores config.
+- **ChatGPT Pro** (reject): keystone — the spec designed WHERE bytes are pinned, not the public semantic
+  CONTRACT that makes them mandatory/scoped (pack declaration → named activation graph edge → fact model →
+  declarative-IR-or-sandboxed-ABI → fail-closed → trust). "One lock" overstated → bootstrap circle
+  (`.fkst-substrate-ref` is a legitimate toolchain coordinate; decide externally-pinned-toolchain vs
+  bootstrapped-lock-artifact). `deps fetch` discards checkout locations (no public source-root lookup) →
+  Part A is honest debt, not the one-resolver form. "Host cannot silently fall behind" is false for a lock.
+  External `idle-detector` is not a locked artifact. Strongest objection (blocking): without the execution
+  contract, implementation collapses to inverted-dependency / god-runner / private-consumption.
+  Verdict: the SHA-consolidation can proceed independently if all consumers migrate atomically; the
+  structural spec must not merge in its present form.
 
-```
-[goal: host repos' own packages get conformance WITHOUT rebuilding] ──resolved-by──> [published versioned rule-pack tool]
-   │ converges-to (minimal+structural+delete+GPT Pro)                      │
-[copied check_repo.py drifts/duplicates] ──deleted-by──────────────────────┘
-   │ depends-on                                                            │ depends-on
-   ▼                                                                       ▼
-[3 tiers: engine built-in / published tool / engine-run Lua] ◀─agree─ GPT Pro (the ownership split)
-   │ depends-on                                                            │
-   ▼                                                                       ▼
-[host invokes CLI with config only; imports nothing from B] ──boundary──> [published seam, not private consumption]
-   │ depends-on
-   ▼
-[independently versioned + pinned → no silent drift / no silent opt-out]
-```
+Meta-judge exit: `fix` → this revision SPLITS the spec: Part A (atomic consolidation) is implementable now;
+Part B is downgraded to explicit open design questions (no false `implement`).
 
-Meta-judge `implement`: unanimous on engine-owned-published-tool + 3-tier ownership + host-thin-runner +
-delete-the-copy + phased inventory-ratchet; ChatGPT Pro's "independently versioned, separately releasable,
-hosts consume only CLI+schema" + the 3-tier table is the keystone resolving where each class lives. No
-unresolved conflict edge. Parallel tracks E/P/H, E unblocks P+H.
+### Round-2 THINKING (2026-06-24) — converged the direction (one coordinate / per-owner packs / no standalone product)
+minimal/structural `revise`, delete `reject (the standalone product)`, ChatGPT Pro `refute-shape/keep-thesis`.
+### Round-1 (2026-06-23) — established published-seam thesis + 3-tier ownership (superseded in shape). History in git.
 
 ⟦AI:FKST⟧
