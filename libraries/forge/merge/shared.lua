@@ -1,5 +1,6 @@
 local S = {}
 local check_runs = require("forge.github.check_runs")
+local registry = require("contract.registry")
 local strings = require("contract.strings")
 
 local merge_gate_reason_classes_index = require("forge.merge.reason_classes.index")
@@ -9,39 +10,6 @@ local merge_gate_reason_class_entries = {
   require("forge.merge.reason_classes.own_ci_red"),
   require("forge.merge.reason_classes.rollup_red"),
 }
-
-local function build_reason_class_map(index, entries)
-  if type(index) ~= "table" or type(entries) ~= "table" then
-    error("forge.merge: reason class registry must be table-backed")
-  end
-  local result = {}
-  for position, row in ipairs(index) do
-    if type(row) ~= "table" or tostring(row.key or "") == "" then
-      error("forge.merge: invalid reason class index row")
-    end
-    local entry = entries[position]
-    if type(entry) ~= "table" then
-      error("forge.merge: missing reason class entry for " .. tostring(row.key))
-    end
-    if tostring(entry.reason or "") ~= tostring(row.key) then
-      error("forge.merge: reason class entry does not match index key " .. tostring(row.key))
-    end
-    if result[row.key] ~= nil then
-      error("forge.merge: duplicate reason class " .. tostring(row.key))
-    end
-    local value = {}
-    for key, field in pairs(entry) do
-      if key ~= "reason" then
-        value[key] = field
-      end
-    end
-    result[row.key] = value
-  end
-  if entries[#index + 1] ~= nil then
-    error("forge.merge: reason class entries exceed index length")
-  end
-  return result
-end
 
 function S.install(M)
 local is_open_pr = check_runs.is_open_pr
@@ -96,7 +64,15 @@ local function integration_or_external_red(pr, head_sha, runs)
   return ci_classification("EXTERNAL_CI_RED", "external-ci-red", { check_runs = runs })
 end
 
-local merge_gate_reason_classes = build_reason_class_map(merge_gate_reason_classes_index, merge_gate_reason_class_entries)
+local merge_gate_reason_classes = registry.build_indexed_map(
+  "forge.merge.reason_classes.index",
+  merge_gate_reason_classes_index,
+  merge_gate_reason_class_entries,
+  "reason",
+  M,
+  nil,
+  "forge.merge"
+)
 
 local function merge_gate_reason_row(reason)
   local text = tostring(reason or "")

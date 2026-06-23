@@ -1,5 +1,5 @@
 local W = {}
-local registry = require("workflow.registry")
+local registry = require("contract.registry")
 local issue_lifecycle = require("devloop.restart.issue_lifecycle")
 
 local package_name = "github-devloop"
