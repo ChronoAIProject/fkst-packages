@@ -492,6 +492,11 @@ PY
   FKST_LUA_COVERAGE_JSON="$output" python3 -B "$ROOT/scripts/check_repo.py"
 }
 
+# Run "$@"; unless verbose (cmd_test's flag), drop advisory `PASS` lines from its
+# combined output so only failures surface. Returns the command's own exit code
+# (via PIPESTATUS, not grep's). The `set +e`/`set -e` guard makes it safe in any
+# caller context: the inner grep matching nothing on an all-pass run must not
+# trip the script-wide `set -e`.
 run_quiet_pass() {
   if [ -n "${verbose:-}${FKST_TEST_VERBOSE:-}" ]; then "$@"; return $?; fi
   local rc
@@ -502,6 +507,12 @@ run_quiet_pass() {
   return "$rc"
 }
 
+# Run "$2..."; unless verbose, KEEP only stdout lines matching the regex in $1
+# (the inverse of run_quiet_pass — allowlist for the noisy engine test stream).
+# Returns the command's own exit code via PIPESTATUS, not grep's, so an all-pass
+# run (grep still matches the tally) and a failing run both report correctly.
+# Same `set +e`/`set -e` guard so a failing package neither aborts the run nor is
+# swallowed: the loop continues and the count stays accurate.
 run_quiet_keep() {
   local keep="$1"; shift
   if [ -n "${verbose:-}${FKST_TEST_VERBOSE:-}" ]; then "$@"; return $?; fi
@@ -513,11 +524,13 @@ run_quiet_keep() {
   return "$rc"
 }
 
+load_composed_test_roots() { local script; script="$(bash "$ROOT/scripts/composed_test_graph_roots.sh" "$1" "$2")" || return 1; eval "$script"; }
+
 cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}"
   local report_dir report_file coverage_report_dir coverage_dir coverage_file
   local coverage_artifacts=()
-  local test_root_file test_project_root test_pkg_args
+  local test_project_root test_pkg_args
   # Lines worth surfacing when a package test fails: the engine's per-test FAIL
   # line (anchored at column 0 so it does not catch mid-line tag=FAILURE in the
   # info logs of tests that deliberately exercise error paths and still pass),
@@ -578,31 +591,21 @@ cmd_test() {
     coverage_dir="$coverage_report_dir/$name"
     rm -rf "$coverage_dir"
     mkdir -p "$coverage_dir"
-    test_root_file=""
     test_project_root="$pkg"; test_pkg_args=(--package-root "$pkg")
-    if [ -f "$pkg/composed.deps" ]; then
-      test_root_file="$(mktemp "${TMPDIR:-/tmp}/fkst-composed-roots.XXXXXX")"
-      if ! bash "$ROOT/scripts/composed_test_graph_roots.sh" normal "$name" "$test_root_file"; then
-        fail=$((fail + 1))
-        continue
-      fi
-      # shellcheck source=/dev/null
-      . "$test_root_file"
-    fi
+    if [ -f "$pkg/composed.deps" ] && ! load_composed_test_roots normal "$name"; then fail=$((fail + 1)); continue; fi
+    # Default-quiet: keep only failure-relevant lines (the --report-json that
+    # drives the tally and G5 coverage is unaffected). run_quiet_keep is called
+    # from `if !` so the inner pipe never trips `set -e` on a failing package;
+    # the loop continues, the count is correct, and FAILED: still prints.
     if ! run_quiet_keep "$test_failure_filter" \
         "$BIN" test --project-root "$test_project_root" "${test_pkg_args[@]}" --report-json "$report_file" --coverage "$coverage_dir"; then
       fail=$((fail + 1))
     else
       if [ -f "$pkg/composed.deps" ] && compgen -G "$pkg/tests/run_graph*_test.lua" >/dev/null; then
-        test_root_file="$(mktemp "${TMPDIR:-/tmp}/fkst-composed-roots.XXXXXX")"
-        if ! bash "$ROOT/scripts/composed_test_graph_roots.sh" graph "$name" "$test_root_file"; then
-          fail=$((fail + 1)); continue
-        fi
-        # shellcheck source=/dev/null
-        . "$test_root_file"
-        if ! run_quiet_keep "$test_failure_filter" \
+        if ! load_composed_test_roots graph "$name" || ! run_quiet_keep "$test_failure_filter" \
             "$BIN" test --project-root "$test_project_root" "${test_pkg_args[@]}" --report-json "$report_dir/$name.graph.json" --coverage "$coverage_dir.graph"; then
-          fail=$((fail + 1)); continue
+          fail=$((fail + 1))
+          continue
         fi
       fi
       coverage_file="$coverage_dir/coverage.json"
