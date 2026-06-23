@@ -46,6 +46,16 @@ class HostEntryHarness:
             encoding="utf-8",
         )
 
+    def write_host_metadata(self) -> None:
+        (self.host / "fkst.workspace.toml").write_text(
+            '[workspace]\nmembers = [".fkst/local-packages/site-board"]\n',
+            encoding="utf-8",
+        )
+        (self.host / ".fkst-packages-ref").write_text("local-test-ref\n", encoding="utf-8")
+        allowlists = self.config_dir / "allowlists"
+        allowlists.mkdir()
+        (allowlists / "README").write_text("host allowlists fixture\n", encoding="utf-8")
+
     def run_helper(self, body: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["/bin/bash", "-c", body],
@@ -170,6 +180,65 @@ class HostEntryTest(unittest.TestCase):
                     "--runtime-root",
                     str(runtime),
                     "--restart",
+                ],
+            )
+        finally:
+            h.close()
+
+    def test_check_success_runs_source_ratchets_and_engine_conformance(self) -> None:
+        h = HostEntryHarness()
+        fake_bin = h.root / "fake-framework"
+        engine_argv = h.root / "engine-argv"
+        fake_bin.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' \"$@\" > " + shell_quote(engine_argv) + "\n"
+            "if [ \"${1:-}\" = \"conformance\" ]; then\n"
+            "  printf '%s\\n' '{\"ok\":true}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 99\n",
+            encoding="utf-8",
+        )
+        fake_bin.chmod(0o755)
+        try:
+            h.write_host_metadata()
+            (h.config_dir / "package-roots").write_text(
+                ".fkst/local-packages/site-board\nfkst-packages:packages/idle-detector\n",
+                encoding="utf-8",
+            )
+            result = h.run_helper(
+                textwrap.dedent(
+                    f"""\
+                    set -euo pipefail
+                    source scripts/run.sh
+                    resolve_bin() {{ BIN={shell_quote(fake_bin)}; export BIN; }}
+                    ensure_fresh_bin() {{ :; }}
+                    host_entry_run_shared_source_ratchets() {{
+                      host_entry_source_ratchet_args
+                      printf 'ratchets'
+                      printf ' <%s>' "${{HOST_ENTRY_SOURCE_RATCHET_ARGS[@]}}"
+                      printf '\\n'
+                    }}
+                    cmd_host --host-root {shell_quote(h.host)} --platform-root {shell_quote(h.platform)} -- check
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('{"ok":true}', result.stdout)
+            self.assertIn(
+                f"ratchets <--project-root> <{h.host}> <--allowlist-dir> <{h.config_dir / 'allowlists'}>",
+                result.stdout,
+            )
+            self.assertEqual(
+                engine_argv.read_text(encoding="utf-8").splitlines(),
+                [
+                    "conformance",
+                    "--project-root",
+                    str(h.host),
+                    "--package-root",
+                    str(h.local_packages / "site-board"),
+                    "--package-root",
+                    str(h.platform / "packages" / "idle-detector"),
                 ],
             )
         finally:
