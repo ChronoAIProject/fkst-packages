@@ -417,7 +417,7 @@ class RunScriptContractTest(unittest.TestCase):
             scripts.mkdir(parents=True)
             pkg.mkdir(parents=True)
 
-            for name in ("run.sh", "bin_bootstrap.sh", "host_run.sh", "check_repo.py", "check_repo_content_truncation.py", "check_repo_coverage.py", "check_repo_dedup.py", "check_repo_forward_direct.py", "check_repo_gh_git_adapter.py", "check_repo_github_devloop_helpers.py", "check_repo_ingress.py", "check_repo_monotone_gate.py", "check_repo_monotone_gate_dsl.py", "check_repo_namespaced_queue.py", "check_repo_perm.py", "check_repo_saga_head.py", "check_repo_saga_split.py", "check_repo_span.py", "check_repo_std_dependency_model.py", "ratchet_base.py"):
+            for name in ("run.sh", "bin_bootstrap.sh", "host_run.sh", "check_repo.py", "check_repo_content_truncation.py", "check_repo_coverage.py", "check_repo_dedup.py", "check_repo_forward_direct.py", "check_repo_gh_git_adapter.py", "check_repo_github_devloop_helpers.py", "check_repo_ingress.py", "check_repo_monotone_gate.py", "check_repo_monotone_gate_dsl.py", "check_repo_namespaced_queue.py", "check_repo_perm.py", "check_repo_producer_liveness.py", "check_repo_saga_head.py", "check_repo_saga_split.py", "check_repo_span.py", "check_repo_std_dependency_model.py", "ratchet_base.py"):
                 shutil.copy2(root / "scripts" / name, scripts / name)
             for name in ("check_repo_coverage_test.py", "check_repo_dedup_test.py", "check_repo_forward_direct_test.py", "check_repo_content_truncation_test.py", "check_repo_monotone_gate_test.py", "check_repo_monotone_gate_dsl_test.py", "check_repo_test_graphql.py", "check_repo_test.py", "check_repo_std_dependency_model_test.py", "check_repo_saga_head_test.py", "check_repo_namespaced_queue_test.py", "check_repo_span_test.py", "check_repo_fkst_layout.py", "check_repo_fkst_layout_test.py", "check_repo_github_devloop_helpers_test.py", "bin_cache_test.py", "bin_bootstrap_test.py", "host_run_test.py", "host_run_equivalence_test.py", "run_sh_coverage_test.py", "board_test.py", "doctor_test.py", "ratchet_migration_slicer_test.py", "ratchet_base_test.py"):
                 (scripts / name).write_text("#!/usr/bin/env python3\nraise SystemExit(0)\n", encoding="utf-8")
@@ -795,6 +795,22 @@ class SagaHandlerRatchetTest(unittest.TestCase):
 
         self.assertEqual(warnings, [])
         self.assertEqual(violations, [])
+
+
+class ProducerLivenessRatchetTest(unittest.TestCase):
+    def test_fire_raiser_trace_assertion_and_allowlist_rules(self) -> None:
+        p = check_repo.check_repo_producer_liveness
+        raiser = p.ProducerRaiser("example", "poll", "packages/example/raisers/poll.lua", ("tick",))
+        good = 'return {\n test_poll = function()\n local trace = t.fire_raiser("poll")\n t.eq(trace.consumer_result.status, "accepted")\n end,\n}\n'
+        bad = 'return { test_poll = function() t.fire_raiser("poll") -- local trace = t.fire_raiser("commented")\n fkst.test.run_department("consume", { payload = { source_payload = true } }) end }\n'
+        helper_call = 'return { test_poll = function() local trace = helper.fire_raiser("poll")\n t.eq(trace.consumer_result.status, "accepted") end }\n'
+        self.assertEqual(p.covered_raisers_in_source(good), {"poll"})
+        self.assertEqual(p.covered_raisers_in_source(bad), set())
+        self.assertEqual(p.covered_raisers_in_source(helper_call), set())
+        self.assertIn("lacks a trace-asserting fire_raiser test", p.ratchet_messages({raiser}, {"example": set()}, set(), set())[0])
+        self.assertEqual(p.ratchet_messages({raiser}, {"example": set()}, {"example.poll"}, {"example.poll"}), [])
+        self.assertIn("is covered; prune the stale entry", p.ratchet_messages({raiser}, {"example": {"poll"}}, {"example.poll"}, {"example.poll"})[0])
+        self.assertIn("grows migration/producer-liveness.allowlist relative to dev", p.ratchet_messages({raiser}, {"example": set()}, {"example.poll"}, set())[0])
 
 
 class GhGitAdapterRatchetTest(unittest.TestCase):
