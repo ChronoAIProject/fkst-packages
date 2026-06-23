@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE_PACKAGES_ROOT="$ROOT/packages"
+SOURCE_LIBRARIES_ROOT="$ROOT/libraries"
+LOCAL_PACKAGES_ROOT="$ROOT/.fkst/local-packages"
+EXTERNAL_PACKAGES_ROOT="$ROOT/.fkst/packages"
+
+usage() {
+  echo "usage: scripts/composed_test_graph_roots.sh <normal|graph> <target-package> <output-file>" >&2
+}
+
+package_root_for_name() {
+  local name="$1"
+  if [ -d "$LOCAL_PACKAGES_ROOT/$name" ]; then
+    printf '%s\n' "$LOCAL_PACKAGES_ROOT/$name"
+    return 0
+  fi
+  if [ -d "$EXTERNAL_PACKAGES_ROOT/$name" ]; then
+    printf '%s\n' "$EXTERNAL_PACKAGES_ROOT/$name"
+    return 0
+  fi
+  return 1
+}
+
+trim_dep_line() {
+  local dep="$1"
+  dep="${dep%%#*}"
+  dep="${dep#"${dep%%[![:space:]]*}"}"
+  dep="${dep%"${dep##*[![:space:]]}"}"
+  printf '%s\n' "$dep"
+}
+
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+write_test_roots() {
+  local project_root="$1"; shift
+  {
+    printf 'test_project_root='
+    shell_quote "$project_root"
+    printf '\n'
+    printf 'test_pkg_args=('
+    while [ "$#" -gt 0 ]; do
+      printf -- '--package-root '
+      shell_quote "$1"
+      [ "$#" -gt 1 ] && printf ' '
+      shift
+    done
+    printf ')\n'
+  } > "$output_file"
+}
+
+collect_package() {
+  local name="$1" pkg dep
+  pkg="$(package_root_for_name "$name")" || {
+    echo "error: composed package dependency not found: $name" >&2
+    return 1
+  }
+  case " ${seen[*]-} " in
+    *" $name "*) return 0 ;;
+  esac
+  seen+=("$name")
+  if [ -f "$pkg/composed.deps" ]; then
+    while IFS= read -r dep || [ -n "$dep" ]; do
+      dep="$(trim_dep_line "$dep")"
+      [ -n "$dep" ] || continue
+      collect_package "$dep" || return 1
+    done < "$pkg/composed.deps"
+  fi
+}
+
+copy_package_normal() {
+  local name="$1" src dest
+  src="$(package_root_for_name "$name")" || return 1
+  dest="$work/packages/$name"
+  mkdir -p "$dest"
+  (cd "$src" && LC_ALL=C tar --exclude './tests/run_graph*_test.lua' -cf - .) \
+    | (cd "$dest" && LC_ALL=C tar xf -)
+}
+
+copy_package_graph_target() {
+  local name="$1" src dest
+  src="$(package_root_for_name "$name")" || return 1
+  dest="$work/packages/$name"
+  mkdir -p "$dest"
+  (cd "$src" && LC_ALL=C tar --exclude './departments/test_*' --exclude './tests/*_test.lua' -cf - .) \
+    | (cd "$dest" && LC_ALL=C tar xf -)
+  if compgen -G "$src/tests/run_graph*_test.lua" >/dev/null; then
+    mkdir -p "$dest/tests"
+    cp "$src"/tests/run_graph*_test.lua "$dest/tests/"
+  fi
+}
+
+copy_package_graph_dependency() {
+  local name="$1" src dest
+  src="$(package_root_for_name "$name")" || return 1
+  dest="$work/packages/$name"
+  mkdir -p "$dest"
+  (cd "$src" && LC_ALL=C tar --exclude './departments/test_*' --exclude './tests' -cf - .) \
+    | (cd "$dest" && LC_ALL=C tar xf -)
+}
+
+copy_libraries() {
+  local lib dest
+  mkdir -p "$work/libraries"
+  for lib in "$SOURCE_LIBRARIES_ROOT"/*; do
+    [ -d "$lib" ] || continue
+    dest="$work/libraries/$(basename "$lib")"
+    mkdir -p "$dest"
+    (cd "$lib" && LC_ALL=C tar -cf - .) | (cd "$dest" && LC_ALL=C tar xf -)
+  done
+}
+
+write_workspace() {
+  cat > "$work/fkst.workspace.toml" <<'TOML'
+[workspace]
+units = ["packages/*", "libraries/*"]
+packages = ["packages/*"]
+libraries = ["libraries/*"]
+
+[registries]
+workspace = "workspace"
+TOML
+}
+
+if [ "$#" -ne 3 ]; then
+  usage
+  exit 2
+fi
+
+mode="$1"
+target="$2"
+output_file="$3"
+target_root="$(package_root_for_name "$target")" || {
+  echo "error: package not found: $target" >&2
+  exit 1
+}
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/fkst-composed-test.XXXXXX")"
+mkdir -p "$work/packages"
+copy_libraries
+write_workspace
+
+case "$mode" in
+  normal)
+    copy_package_normal "$target"
+    write_test_roots "$work/packages/$target" "$work/packages/$target"
+    ;;
+  graph)
+    seen=()
+    collect_package "$target"
+    roots=()
+    for name in "${seen[@]}"; do
+      if [ "$name" = "$target" ]; then
+        copy_package_graph_target "$name"
+      else
+        copy_package_graph_dependency "$name"
+      fi
+      roots+=("$work/packages/$name")
+    done
+    write_test_roots "$work" "${roots[@]}"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
