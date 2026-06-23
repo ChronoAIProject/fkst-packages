@@ -296,6 +296,16 @@ local function audit_run_body(trigger_reason)
   }, "\n")
 end
 
+local function is_audit_poll_raiser(raiser)
+  if raiser == "audit_poll" then
+    return true
+  end
+  if type(raiser) ~= "string" then
+    return false
+  end
+  return raiser:match("^[A-Za-z0-9_%-]+%.audit_poll$") ~= nil
+end
+
 function M.normalize_audit_tick_event(event)
   if type(event) ~= "table" then
     return nil, "missing-event"
@@ -308,7 +318,7 @@ function M.normalize_audit_tick_event(event)
   if type(payload) ~= "table" then
     return nil, "missing-payload"
   end
-  if payload.raiser ~= "audit_poll" then
+  if not is_audit_poll_raiser(payload.raiser) then
     return nil, "wrong-raiser"
   end
   local slot = payload.slot or payload.cron_slot or payload.detected_at or event.ts

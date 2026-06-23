@@ -57,7 +57,7 @@ local function stale_tick_event(slot)
   return {
     queue = "archaudit.archaudit_tick",
     ts = tick_slot,
-    payload = { raiser = "audit_poll" },
+    payload = { raiser = "archaudit.audit_poll" },
   }
 end
 
