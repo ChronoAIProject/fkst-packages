@@ -805,7 +805,7 @@ cmd_doctor() {
   local pkg="${1:-}"
   shift
   case "$pkg" in
-    github-devloop|github-devloop-ops)
+    github-devloop-ops)
       if [ "$#" -ne 0 ]; then
         echo "usage: scripts/run.sh doctor github-devloop-ops" >&2
         exit 2
@@ -827,15 +827,15 @@ cmd_doctor() {
         | grep -vE '^RAISED:'
       ;;
     --running|--system)
-      if [ "${1:-}" != "github-devloop-ops" ] && [ "${1:-}" != "github-devloop" ]; then
-        echo "usage: scripts/run.sh doctor [github-devloop-ops|github-devloop|--running github-devloop-ops|--system github-devloop-ops]" >&2
+      if [ "${1:-}" != "github-devloop-ops" ]; then
+        echo "usage: scripts/run.sh doctor [github-devloop-ops|--running github-devloop-ops|--system github-devloop-ops]" >&2
         exit 2
       fi
       shift
       cmd_doctor github-devloop-ops "$@"
       ;;
     *)
-      echo "usage: scripts/run.sh doctor [github-devloop-ops|github-devloop|--running github-devloop-ops|--system github-devloop-ops]" >&2
+      echo "usage: scripts/run.sh doctor [github-devloop-ops|--running github-devloop-ops|--system github-devloop-ops]" >&2
       exit 2
       ;;
   esac

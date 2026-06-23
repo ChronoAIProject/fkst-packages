@@ -195,12 +195,32 @@ class DoctorScriptTest(unittest.TestCase):
         finally:
             h.close()
 
+    def test_saga_doctor_rejects_old_devloop_package_name(self) -> None:
+        h = DoctorHarness()
+        try:
+            result = h.run_doctor("github-devloop")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("usage: scripts/run.sh doctor", result.stderr)
+            self.assertNotIn("packages/github-devloop-ops/departments/doctor/main.lua", result.stdout)
+        finally:
+            h.close()
+
     def test_saga_doctor_running_alias_accepts_ops_package(self) -> None:
         h = DoctorHarness()
         try:
             result = h.run_doctor("--running", "github-devloop-ops")
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertIn("packages/github-devloop-ops/departments/doctor/main.lua", result.stdout)
+        finally:
+            h.close()
+
+    def test_saga_doctor_running_alias_rejects_old_devloop_package_name(self) -> None:
+        h = DoctorHarness()
+        try:
+            result = h.run_doctor("--running", "github-devloop")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("usage: scripts/run.sh doctor", result.stderr)
+            self.assertNotIn("packages/github-devloop-ops/departments/doctor/main.lua", result.stdout)
         finally:
             h.close()
 

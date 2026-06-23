@@ -4,16 +4,23 @@ local t = h.t
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-local authoritative_transition_modules = {
-  ["awaiting-pr"] = "packages/github-devloop/core/restart/transitions/awaiting_pr.lua",
-  blocked = "packages/github-devloop/core/restart/transitions/blocked.lua",
-  dependency_wait = "packages/github-devloop/core/restart/transitions/dependency_wait.lua",
-  ["impl-failed"] = "packages/github-devloop/core/restart/transitions/impl_failed.lua",
-  implementing = "packages/github-devloop/core/restart/transitions/implementing.lua",
-  merged = "packages/github-devloop/core/restart/transitions/merged.lua",
-  ready = "packages/github-devloop/core/restart/transitions/ready.lua",
-  thinking = "packages/github-devloop/core/restart/transitions/thinking.lua",
-}
+
+local function authoritative_transition_index()
+  local rows = {}
+  local body = file.read("packages/github-devloop/core/restart/transitions/index.lua")
+  for module, key in body:gmatch('{%s*module%s*=%s*"([^"]+)"%s*,%s*key%s*=%s*"([^"]+)"%s*}') do
+    rows[#rows + 1] = { module = module, key = key }
+  end
+  return rows
+end
+
+local authoritative_transition_modules = {}
+local authoritative_transition_count = 0
+for _, row in ipairs(authoritative_transition_index()) do
+  authoritative_transition_count = authoritative_transition_count + 1
+  authoritative_transition_modules[row.key] =
+    "packages/github-devloop/core/restart/transitions/" .. row.module .. ".lua"
+end
 
 local function parse_minutes_expression(expr)
   if expr == nil then
@@ -105,7 +112,7 @@ return {
       t.eq(actual.driving_queue, expected.driving_queue)
       t.eq(actual.budget and tonumber(actual.budget.minutes) or nil, expected.budget_minutes)
     end
-    t.eq(seen, 8)
+    t.eq(seen, authoritative_transition_count)
   end,
 
   test_core_doctor_classifies_stuck_past_budget = function()
