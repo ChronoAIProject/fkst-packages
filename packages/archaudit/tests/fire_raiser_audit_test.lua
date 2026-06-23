@@ -56,9 +56,10 @@ return {
   test_fire_raiser_audit_poll_busy_overdue_produces_issue_create_request = function()
     local root = helper.setup_workspace("busy-overdue", helper.fire_raiser_child([[
   test_busy_overdue_terminal_fire = function()
+    local past_force_at_but_before_raw_deadline = '[{"number":77,"title":"Archaudit: audit completed with zero findings","state":"OPEN","body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"stale\\" -->","createdAt":"2026-06-19T02:15:00Z","author":{"login":"fkst-test-bot"},"url":"https://github.com/owner/repo/issues/77"}]'
     mock_env("owner/repo", "3")
-    mock_busy_observe()
-    mock_production_github("[]", "[]")
+    mock_busy_observe_at(1781917260000)
+    mock_production_github(past_force_at_but_before_raw_deadline, "[]")
     mock_codex_findings("[]", 0)
 
     local trace = t.fire_raiser("audit_poll")
@@ -81,10 +82,10 @@ return {
   test_fire_raiser_audit_poll_busy_not_overdue_skips_issue_create_request = function()
     local root = helper.setup_workspace("busy-not-overdue", helper.fire_raiser_child([[
   test_busy_not_overdue_skips = function()
-    local recent = '[{"number":77,"title":"Archaudit: packages/archaudit/core.lua:1 SRP","state":"OPEN","body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"stale\\" -->","createdAt":"2026-06-19T23:30:00Z","author":{"login":"fkst-test-bot"},"url":"https://github.com/owner/repo/issues/77"}]'
+    local just_before_force_at = '[{"number":77,"title":"Archaudit: audit completed with zero findings","state":"OPEN","body":"<!-- fkst:archaudit:audit-run:v1 reason=\\"stale\\" -->","createdAt":"2026-06-19T02:17:00Z","author":{"login":"fkst-test-bot"},"url":"https://github.com/owner/repo/issues/77"}]'
     mock_env("owner/repo", "3")
     mock_busy_observe_at(1781917260000)
-    mock_production_github(recent, "[]")
+    mock_production_github(just_before_force_at, "[]")
 
     local trace = t.fire_raiser("audit_poll")
     t.eq(trace.source_payload.raiser, "archaudit.audit_poll")

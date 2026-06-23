@@ -19,6 +19,11 @@ local github_proxy_limits = {
 local observe_schema_version = 1
 local audit_due_staleness_seconds = 24 * 60 * 60
 local audit_poll_interval_seconds = 30 * 60
+-- Starting at the raw staleness deadline is too late: cron dispatch, durable
+-- admission, audit codex runtime, and handoff/retry slack must all complete
+-- before max staleness. Budget two poll intervals for schedule/admission jitter
+-- plus 15 minutes for the current sub-10-minute audit runtime and downstream slack.
+local audit_due_completion_budget_seconds = 2 * audit_poll_interval_seconds + 15 * 60
 local audit_poll_interval = tostring(math.floor(audit_poll_interval_seconds / 60)) .. "m"
 
 function M.persistence_class()
@@ -33,6 +38,20 @@ function M.audit_poll_interval_seconds()
   return audit_poll_interval_seconds
 end
 
+function M.audit_due_completion_budget_seconds()
+  return audit_due_completion_budget_seconds
+end
+
+function M.audit_due_force_at_seconds(max_staleness_seconds, completion_budget_seconds)
+  local staleness = max_staleness_seconds or audit_due_staleness_seconds
+  local completion_budget = completion_budget_seconds or audit_due_completion_budget_seconds
+  if type(staleness) ~= "number" or type(completion_budget) ~= "number"
+    or staleness < 1 or completion_budget < 1 or completion_budget >= staleness then
+    error("archaudit: invalid-audit-force-at-input: staleness and completion budget must be numeric and bounded")
+  end
+  return staleness - completion_budget
+end
+
 function M.audit_poll_interval()
   return audit_poll_interval
 end
@@ -45,6 +64,8 @@ function M.producer_liveness_contracts()
       output_queues = { "github-proxy.github_issue_create_request" },
       eligibility_predicate = "overdue",
       max_staleness_seconds = audit_due_staleness_seconds,
+      completion_budget_seconds = audit_due_completion_budget_seconds,
+      force_at_seconds = M.audit_due_force_at_seconds(audit_due_staleness_seconds, audit_due_completion_budget_seconds),
       max_silence_seconds = audit_poll_interval_seconds,
       max_skip_budget = 0,
       progress_output = "github-proxy.github_issue_create_request",
@@ -758,10 +779,11 @@ function M.latest_audit_issue_seconds(issues, trusted_login)
   return latest
 end
 
-function M.audit_due_verdict(issues, trusted_login, now_seconds, max_staleness_seconds)
+function M.audit_due_verdict(issues, trusted_login, now_seconds, max_staleness_seconds, completion_budget_seconds)
   if type(now_seconds) ~= "number" or type(max_staleness_seconds) ~= "number" or max_staleness_seconds < 1 then
     error("archaudit: invalid-audit-staleness-input: timestamps and staleness budget must be numeric")
   end
+  local force_at_seconds = M.audit_due_force_at_seconds(max_staleness_seconds, completion_budget_seconds)
   local latest = M.latest_audit_issue_seconds(issues, trusted_login)
   if latest == nil then
     return true, "no durable audit issue marker", nil
@@ -769,8 +791,12 @@ function M.audit_due_verdict(issues, trusted_login, now_seconds, max_staleness_s
   if latest > now_seconds then
     return false, "latest audit issue marker is in the future", latest
   end
-  if now_seconds - latest >= max_staleness_seconds then
+  local age_seconds = now_seconds - latest
+  if age_seconds >= max_staleness_seconds then
     return true, "audit max staleness elapsed", latest
+  end
+  if age_seconds >= force_at_seconds then
+    return true, "audit completion budget threshold elapsed", latest
   end
   return false, "recent audit issue marker", latest
 end

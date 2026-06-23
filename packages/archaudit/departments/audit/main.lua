@@ -277,7 +277,14 @@ local function make_department(ports)
       fail(event, "audit-search-failed", issues_or_err)
     end
     local staleness_seconds = core.audit_due_staleness_seconds()
-    local due, due_why, latest_audit = core.audit_due_verdict(issues_or_err, bot_login(), observe_now_or_err, staleness_seconds)
+    local completion_budget_seconds = core.audit_due_completion_budget_seconds()
+    local due, due_why, latest_audit = core.audit_due_verdict(
+      issues_or_err,
+      bot_login(),
+      observe_now_or_err,
+      staleness_seconds,
+      completion_budget_seconds
+    )
     if not due then
       if core.audit_run_current_window_seen(latest_audit, observe_now_or_err, staleness_seconds) then
         log_fact("warn", "audit", "SKIP", "terminal-skip", event, due_why, true)
