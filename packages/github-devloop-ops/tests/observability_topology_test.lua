@@ -155,7 +155,7 @@ local function topology_fixture()
   b.department("github-devloop.fix", { "github-devloop.devloop_fixing" }, { "github-devloop.devloop_reviewing", "github-devloop.devloop_review_meta" })
   b.department("github-devloop.liveness_scan", { "github-devloop.devloop_liveness_tick" }, { "github-devloop.devloop_observe_redrive", "consensus.proposal" })
   b.department("github-devloop.loop", { "consensus.consensus_converge" }, { "consensus.proposal", "github-devloop.devloop_reconcile" })
-  b.department("github-devloop-ops.observability", { "github-devloop-ops.devloop_observe_tick" }, { "github-proxy.github_issue_create_request", "github-devloop.devloop_merge_queue_tick" })
+  b.department("github-devloop-ops.observability", { "github-devloop-ops.devloop_observe_tick" }, { "github-proxy.github_issue_create_request" })
   b.department("branch-topology.pr_freshness_scan", { "branch-topology.devloop_branch_tick" }, { "branch-topology.devloop_sync_conflict" })
   b.department("github-devloop.reconcile", {
     "github-devloop.devloop_reconcile",
@@ -208,6 +208,16 @@ local function count_literal(haystack, needle)
   end
 end
 
+local function assert_ops_departments_do_not_produce_devloop_lifecycle_queues(graph)
+  for _, node in ipairs(graph.nodes or {}) do
+    if node.kind == "department" and node.package == "github-devloop-ops" then
+      for _, produced in ipairs(node.produces or {}) do
+        t.is_true(tostring(produced):match("^github%-devloop%.devloop_") == nil)
+      end
+    end
+  end
+end
+
 return {
   test_observability_declares_graph_json_authorization = function()
     local module = require("departments.observability.main")
@@ -239,6 +249,7 @@ return {
 
   test_topology_mermaid_is_deterministic_and_derived = function()
     local graph = topology_fixture()
+    assert_ops_departments_do_not_produce_devloop_lifecycle_queues(graph)
     local mermaid = topology.render_mermaid(graph)
     local permuted = topology.render_mermaid(permuted_graph(graph))
 
@@ -265,6 +276,19 @@ return {
     t.eq(mermaid:find("#42", 1, true), nil)
     t.eq(mermaid:find("quota", 1, true), nil)
     t.eq(mermaid:find("queue depth", 1, true), nil)
+  end,
+
+  test_ops_observability_fixture_matches_real_published_outputs = function()
+    local graph = topology_fixture()
+    assert_ops_departments_do_not_produce_devloop_lifecycle_queues(graph)
+    for _, node in ipairs(graph.nodes or {}) do
+      if node.kind == "department" and node.id == "department:github-devloop-ops.observability" then
+        t.eq(#node.produces, 1)
+        t.eq(node.produces[1], "github-proxy.github_issue_create_request")
+        return
+      end
+    end
+    error("missing github-devloop-ops observability department fixture")
   end,
 
   test_topology_mermaid_normalizes_ids_and_escapes_labels = function()

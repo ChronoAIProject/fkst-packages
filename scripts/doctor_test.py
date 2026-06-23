@@ -37,6 +37,10 @@ class DoctorHarness:
                 if [ "$1" = "--self-test" ]; then
                   exit 0
                 fi
+                if [ "$1" = "run" ]; then
+                  echo "fkst-framework $*"
+                  exit 0
+                fi
                 echo "fkst-framework $*" >&2
                 exit 1
                 """
@@ -74,15 +78,15 @@ class DoctorHarness:
                 """
             ),
         )
-        for tool in ["head", "dirname", "pwd", "grep", "tail", "cut", "sed"]:
+        for tool in ["head", "dirname", "pwd", "grep", "tail", "cut", "sed", "basename", "mkdir", "ln"]:
             path = shutil.which(tool)
             if path is None:
                 raise RuntimeError(f"required test tool missing: {tool}")
             write_executable(self.fake_bin / tool, f"#!/bin/sh\n{path} \"$@\"\n")
 
-    def run_doctor(self) -> subprocess.CompletedProcess[str]:
+    def run_doctor(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["/bin/bash", "scripts/run.sh", "doctor"],
+            ["/bin/bash", "scripts/run.sh", "doctor", *args],
             cwd=self.root,
             env=self.env,
             text=True,
@@ -179,6 +183,26 @@ class DoctorScriptTest(unittest.TestCase):
         self.assertNotIn("doctor_resolve_bin", source)
         self.assertNotIn("command -v fkst-framework", source)
         self.assertNotIn("../fkst-substrate/target/debug/fkst-framework", source)
+
+    def test_saga_doctor_runs_from_ops_package(self) -> None:
+        h = DoctorHarness()
+        try:
+            result = h.run_doctor("github-devloop-ops")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("packages/github-devloop-ops/departments/doctor/main.lua", result.stdout)
+            self.assertIn("--owner-namespace github-devloop-ops", result.stdout)
+            self.assertIn('"queue":"devloop_doctor_tick"', result.stdout)
+        finally:
+            h.close()
+
+    def test_saga_doctor_running_alias_accepts_ops_package(self) -> None:
+        h = DoctorHarness()
+        try:
+            result = h.run_doctor("--running", "github-devloop-ops")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("packages/github-devloop-ops/departments/doctor/main.lua", result.stdout)
+        finally:
+            h.close()
 
 
 if __name__ == "__main__":

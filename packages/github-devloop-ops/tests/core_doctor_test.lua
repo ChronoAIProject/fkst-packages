@@ -4,6 +4,47 @@ local t = h.t
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local authoritative_transition_modules = {
+  ["awaiting-pr"] = "packages/github-devloop/core/restart/transitions/awaiting_pr.lua",
+  blocked = "packages/github-devloop/core/restart/transitions/blocked.lua",
+  dependency_wait = "packages/github-devloop/core/restart/transitions/dependency_wait.lua",
+  ["impl-failed"] = "packages/github-devloop/core/restart/transitions/impl_failed.lua",
+  implementing = "packages/github-devloop/core/restart/transitions/implementing.lua",
+  merged = "packages/github-devloop/core/restart/transitions/merged.lua",
+  ready = "packages/github-devloop/core/restart/transitions/ready.lua",
+  thinking = "packages/github-devloop/core/restart/transitions/thinking.lua",
+}
+
+local function parse_minutes_expression(expr)
+  if expr == nil then
+    return nil
+  end
+  local product = 1
+  local found = false
+  for number in tostring(expr):gmatch("%d+") do
+    product = product * tonumber(number)
+    found = true
+  end
+  if not found then
+    return nil
+  end
+  return product
+end
+
+local function authoritative_lifecycle_row(state)
+  local body = file.read(assert(authoritative_transition_modules[state], "missing authoritative transition path"))
+  local decompose_queue_name = body:match("local%s+decompose_queue%s*=%s*M%.decompose_package_queue%(%)") ~= nil
+  local driving_queue = body:match('driving_queue%s*=%s*"([^"]+)"')
+  if driving_queue == nil and decompose_queue_name then
+    driving_queue = "github-devloop-decompose.devloop_decompose"
+  end
+  return {
+    from_state = body:match('from_state%s*=%s*"([^"]+)"'),
+    terminal = body:match("terminal%s*=%s*(%a+)") == "true",
+    driving_queue = driving_queue,
+    budget_minutes = parse_minutes_expression(body:match("budget%s*=%s*budget%(([%d%s%*]+),")),
+  }
+end
 
 local function bot_comment(body, created_at)
   return {
@@ -50,6 +91,21 @@ return {
 
     t.eq(result.verdict, "OK")
     t.eq(result.state, "thinking")
+  end,
+
+  test_core_doctor_lifecycle_rows_match_authoritative_restart_rows = function()
+    local seen = 0
+    for state, _ in pairs(authoritative_transition_modules) do
+      seen = seen + 1
+      local expected = authoritative_lifecycle_row(state)
+      local actual = core.lifecycle_transition_row(state)
+      t.is_true(actual ~= nil)
+      t.eq(actual.from_state, expected.from_state)
+      t.eq(actual.terminal, expected.terminal)
+      t.eq(actual.driving_queue, expected.driving_queue)
+      t.eq(actual.budget and tonumber(actual.budget.minutes) or nil, expected.budget_minutes)
+    end
+    t.eq(seen, 8)
   end,
 
   test_core_doctor_classifies_stuck_past_budget = function()
