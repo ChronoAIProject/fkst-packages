@@ -294,7 +294,7 @@ host_entry_cmd_check() {
 }
 
 host_entry_cmd_test() {
-  local target="" pkg name ran=0 fail=0 report_dir report_file engine_args=() conf_cmd=() test_cmd=()
+  local target="" pkg name ran=0 fail=0 report_dir report_file conf_cmd=() test_cmd=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -v|--verbose) FKST_TEST_VERBOSE=1; export FKST_TEST_VERBOSE ;;
@@ -307,9 +307,6 @@ host_entry_cmd_test() {
   host_entry_build_package_roots
   resolve_bin
   ensure_fresh_bin
-  while IFS= read -r arg; do
-    engine_args+=("$arg")
-  done < <(host_entry_engine_args)
 
   trap 'rm -rf "${HOST_TEST_RUNTIME_ROOT:-}" "${HOST_TEST_DURABLE_ROOT:-}"' EXIT
   HOST_TEST_RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-host-test-rt.XXXXXX")"
@@ -324,6 +321,10 @@ host_entry_cmd_test() {
   echo "=== self-test ==="
   if ! run_self_test_with_optional_lua_coverage; then fail=$((fail + 1)); fi
 
+  if [ -z "$target" ]; then
+    if ! host_entry_run_engine_conformance; then fail=$((fail + 1)); fi
+  fi
+
   if [ "${#HOST_ENTRY_HOST_PACKAGE_ROOTS[@]}" -gt 0 ]; then
     for pkg in "${HOST_ENTRY_HOST_PACKAGE_ROOTS[@]}"; do
       name="$(basename "$pkg")"
@@ -333,20 +334,14 @@ host_entry_cmd_test() {
       if [ -f "$pkg/composed.deps" ] || grep -q '^kind = "package\.composed"' "$pkg/fkst.toml" 2>/dev/null; then
         echo "skip single-package conformance for composed package: $name"
       else
-        conf_cmd=("$BIN" conformance --project-root "$pkg")
-        if [ "${#engine_args[@]}" -gt 0 ]; then
-          conf_cmd+=("${engine_args[@]}")
-        fi
+        conf_cmd=("$BIN" conformance --project-root "$HOST_ENTRY_HOST_ROOT" --package-root "$pkg")
         if ! run_quiet_pass "${conf_cmd[@]}"; then
           fail=$((fail + 1))
           continue
         fi
       fi
       report_file="$report_dir/$name.json"
-      test_cmd=("$BIN" test --project-root "$pkg")
-      if [ "${#engine_args[@]}" -gt 0 ]; then
-        test_cmd+=("${engine_args[@]}")
-      fi
+      test_cmd=("$BIN" test --project-root "$HOST_ENTRY_HOST_ROOT" --package-root "$pkg")
       test_cmd+=(--report-json "$report_file")
       if ! run_quiet_keep '^FAIL |passed, [0-9]+ failed|panic' "${test_cmd[@]}"; then
         fail=$((fail + 1))
