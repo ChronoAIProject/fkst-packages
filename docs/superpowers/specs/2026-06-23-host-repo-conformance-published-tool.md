@@ -1,12 +1,14 @@
 # Host-repo harness: one coordinate per source, atomic SHA consolidation now, a typed pack-execution contract later
 
-Status: SPLIT after Round-2 adversarial REVIEW (3 Codex + ChatGPT Pro, all `reject` → `fix`).
-- **Part A (§4) — atomic fkst-packages SHA consolidation in fkst-website: READY TO IMPLEMENT.** All four
-  reviewers agree it can proceed independently provided EVERY consumer of the pin is migrated atomically.
-- **Part B (§5–§7) — the structural pack-distribution + execution contract: DESIGN-INCOMPLETE.** Round-2
-  review showed the earlier draft designed *where rule-pack bytes are pinned* but NOT *the public semantic
-  contract by which those bytes become mandatory, correctly-scoped conformance*. Part B is now a set of
-  explicit OPEN design questions, not a converged `implement`. It must NOT be implemented as-is.
+Status: Part A IMPLEMENTED; Part B DESIGN CONVERGED (Round-3), ready to implement as a vertical slice.
+- **Part A (§4) — atomic fkst-packages SHA consolidation in fkst-website: IMPLEMENTED** (fkst-website PR;
+  one fkst.lock coordinate, all four pin consumers migrated, `.fkst-packages-ref` deleted, single-pin guard).
+- **Part B (§5–§8) — package-owned declarative conformance packs that travel with the package: DESIGN
+  CONVERGED** after Round-3 sshx (3 Codex + ChatGPT Pro). Round-2 had left the execution contract as open
+  questions; Round-3 answered them: declarative rule DATA in the package + one generic engine interpreter +
+  typed locked artifacts + reachability activation + a hard owner-only scope boundary. Implement as Slice 1
+  (mechanism + host-travel) then Slice 2 (ownership-deletion), each landing across substrate + fkst-packages
+  + host. Engine Rust lands in fkst-substrate; rule DATA in fkst-packages; binding in the host.
 Date: 2026-06-24 (revised; original 2026-06-23 draft + Round-1 in git history)
 Scope: fkst-substrate (engine validator + conformance runner + resolver), fkst-packages (rule-pack data +
 migration), host repos (fkst-website first; substrate-dogfood + future hosts).
@@ -141,65 +143,127 @@ Honestly-inventoried migration DEBT (Part A does not pretend to be the one-resol
 
 ---
 
-# PART B — structural pack distribution + execution contract (DESIGN-INCOMPLETE — OPEN QUESTIONS)
+# PART B — package-owned declarative conformance packs (CONCRETE DESIGN — Round-3 converged)
 
-Round-2 review (esp. ChatGPT Pro) showed the earlier "add `[[conformance_packs]]` to the lock" draft solved
-only WHERE bytes are pinned, leaving the load-bearing contract undesigned. Pinning bytes without this
-contract yields exactly the failures the design claims to remove: hardcode package names into the engine
-(inverted dependency), execute arbitrary transitive code (god-runner), or reach into another repo by private
-path (private consumption). Part B must NOT be implemented until these are answered.
+Round-3 sshx (minimal/structural/delete + ChatGPT Pro) converged the execution contract that Round-2 left
+open. The shape: a package ships its static rules as DECLARATIVE DATA inside the package; the engine runs
+them via ONE generic compiled interpreter; a typed lock makes the pack a content-hashed artifact resolved
+from the one upstream coordinate; activation follows package reachability so referencing a package activates
+its owned rules; and a hard scope boundary keeps a package's pack from scanning anything but its own tree +
+graph facts that reference it. This removes the inverted dependency (no engine/repo-global hardcoded package
+name), the god-runner (no arbitrary code — declarative only), and private consumption (no path-to-script, no
+host copy).
 
-## 5. The missing tier-2 execution contract (the blocking structural gap)
+## 5. The execution contract (the converged tier-2 design)
 
-One concrete vertical contract is required before any pack work:
-- **Pack declaration + identity**: how a package/library declares it provides (or depends on) a named static
-  rule pack; stable pack id + version.
-- **Activation graph edge**: the PRECISE edge that activates a pack for a host — a typed `conformance_deps` /
-  `lint_deps`, or `lib_deps`, or package composition, or explicit workspace binding. Without a typed seam a
-  package can be present while its static rules are silently absent — the exact failure "default-on" claims
-  to prevent. ("Selected by ownership and graph reachability" is a promise with no graph edge today.)
-- **Runner/pack protocol version**: which runner versions understand which pack format; compat metadata.
-- **Fact model + scope**: what a source scan may inspect, and whether scope is the package's own source, the
-  consumer's source, or the whole workspace.
-- **Form + trust**: declarative rule IR over a versioned fact model, OR a deliberately sandboxed plugin ABI.
-  A raw `checkout/path/to/script.py` lock entry is just disguised private-script consumption / arbitrary
-  transitive code execution — both forbidden.
-- **Failure + conflict semantics**: fail-closed for missing/unsupported reachable packs; duplicate-id and
-  version-conflict rules; waiver identity + lifecycle (host-owned baselines).
+- **Form = declarative rule IR as DATA, interpreted by ONE generic Rust pack.** NOT compiled Rust per package
+  (a Lua package can't ship Rust without an engine rebuild), NOT a Lua/path-to-script scanner (arbitrary
+  transitive code), NOT a sandboxed plugin ABI (worst complexity/value here), NOT a Rego/OPA clone (a second
+  language). It is "typed grep over known facts." Add `crates/fkst-framework/src/declarative_conformance.rs`
+  with a `DeclarativeRulePack` implementing the existing `RulePack` trait, registered through the reserved
+  `RulePackRegistry::from_options` seam (#159).
+- **Pack file (TOML)** at `packages/<pkg>/.fkst/conformance/pack.toml`, declared from the package manifest
+  `packages/<pkg>/fkst.package.toml` `[conformance] pack = ".fkst/conformance/pack.toml"`. The pack repeats
+  its owner: `schema = 1`, `runner_protocol = "fkst-declarative-rulepack@1"`, `owner_package = "<pkg>"`,
+  `[[rules]] id, severity="error", kind, scope, ...selectors..., message`. The engine validates: the manifest
+  names `<pkg>`; the pack path is package-relative and inside the package root (no `..`/abs/symlink escape);
+  `owner_package` equals the unit name; the lock records the same owner. **The host cannot override the pack
+  path** (else rules stop traveling with the package).
+- **v1 rule kinds (small, stable):** `max_line_count` (per included text file ≤ N), `text_forbid_regex`,
+  `text_require_regex` (Rust `regex`, static message, no capture interpolation), `path_exists`, `path_forbid`,
+  and `graph_field_regex` (regex over a fixed enum of normalized parsed-`Config` fields — package/queue/
+  department/raiser/limit refs — NOT raw source). Each rule has `include`/`exclude` globs.
+- **🔑 Scope boundary (the ugliest risk, fenced by construction):** a package-owned pack may inspect ONLY
+  (a) `owner_package_files` — files under its own resolved package root — and (b) `graph_refs_to_owner` —
+  parsed graph facts that reference the owner package. It may NOT read host files or other packages.
+  Otherwise any transitive dependency could ship regex probes over a private host repo (a transitive
+  host-source scanner — privacy, false positives, dependency-driven lint language) even without code
+  execution. Generic HOST-wide linting is a different ownership model (a standalone published lint pack via an
+  explicit `conformance_deps`), out of Part B's package-owned scope.
+- **Strict + fail-closed:** unknown fields/kinds/scopes, unsupported `schema`/`runner_protocol`, invalid
+  glob/regex, absolute/escaping paths, hash mismatch, a referenced package missing from the artifact index,
+  and a referenced package that declares-but-is-missing its pack ALL fail conformance (non-zero exit, a
+  `HostCheck` from an `engine.conformance-pack-loader` id). Absence of a pack file for a package that declares
+  none is NOT a failure. No `includes`, no subprocess, no network, no fs reads outside the resolved roots.
 
-## 6. Resolver work (the storage half — also required, not yet done)
+## 6. Activation + resolver + lock (host names PACKAGES, packs are auto-discovered)
 
-- Extend the workspace/lock schema beyond `libraries` to typed external `packages` (so `idle-detector` is a
-  locked artifact, not an untyped path) and typed `conformance_packs` / `tools`; relax the
-  "external source must have ≥1 library" rule accordingly.
-- Make `fkst-framework conformance --config` actually consume the config: a pack registry that selects packs
-  per the §5 activation edge, instead of the current parse-but-ignore + static `EngineRulePack`.
-- Expose a public source-root lookup from the resolver so hosts stop manually cloning (removes Part A's debt).
+- **Activation = package reachability, reusing the package edge (do NOT add `conformance_deps` for owned
+  packs).** Build the active-package set from package roots + the normalized graph's package references
+  (`event_deps.packages` and any package-ref field). For each active package, resolve it to exactly ONE typed
+  package artifact (coordinate = `external_source.id + package.name`; ambiguous short names fail until the
+  binding is explicit), load its owned pack, validate, and run. So `site-board event_deps.packages=
+  ["idle-detector"]` → `idle-detector`'s pack is active in fkst-website automatically. (A separate typed
+  `conformance_deps` is reserved ONLY for later standalone generic lint packs that scan host files — a
+  different ownership model — never for package-owned rules.)
+- **Host lists PACKAGES, not packs.** `[[external_sources]] ... packages = ["idle-detector"]`. The resolver
+  DISCOVERS the package-owned pack from the package manifest and locks it automatically — the rule travels
+  with the package, it is NOT an opt-in the host could omit. `conformance_packs = [...]` is only for
+  standalone non-owned packs.
+- **Typed lock + resolver** (the verified 10-step extension): add `packages`/`conformance_packs` to
+  `ExternalSourceDecl`; RELAX `validate_source_decl` from "≥1 library" to "≥1 artifact of any kind" (but never
+  empty); add `ExternalPackageLock{name, unit, exports_sha256}` and `ExternalConformancePackLock{name,
+  owner_package, unit, pack_sha256, schema, runner_protocol}` + arrays on `ExternalSourceLock`; extend
+  cataloging from libraries-only to all artifact kinds (same `resolved.tree_sha256` content-addressed store —
+  no new hash layer; plus a per-pack `pack_sha256` for reviewability/integrity); **stop discarding the
+  `ExternalSourceCheckout.root`** in `deps_cli` (the runner needs it to read locked pack + scan locked source).
+- **Symmetry (deletes `is_own_repo`):** fkst-packages resolves the SAME way via a workspace-local source
+  (`source_id="workspace"`, root = repo root; packages/<pkg> cataloged with the same structs, just not
+  serialized as external lock entries). The runner converts both local and external into ONE `ActivePackage
+  {source_id, package_name, package_root, conformance_pack_path, tree_sha256?, pack_sha256, origin}` and does
+  not care which. After this, the `is_own_repo` gate + the github-devloop hardcoding in `scripts/check_repo*`
+  are deleted: a rule runs because its OWNER package is active, not because of repo identity.
 
-## 7. Bootstrap / toolchain + ownership-honesty questions
+## 7. Trust, conflict, waivers, bootstrap, ownership-honesty
 
-- **Bootstrap circle**: the runner cannot both be pinned-and-built by the thin runner AND be a `tools` lock
-  entry that the runner itself must read. Decide explicitly: either the runner is part of the publicly
-  versioned `fkst-framework` toolchain (one legitimate `.fkst-substrate-ref` coordinate + pack-compat
-  metadata in `fkst.lock`), OR a small bootstrap launcher resolves a locked tool artifact then execs it.
-- **Ownership honesty**: do not call a pack "engine-generic" while having fkst-packages publish it. If a rule
-  is truly engine-generic it is substrate/std-owned (else the inverted dependency persists and future hosts
-  couple to B); if it is org policy, name it as a public policy pack owned honestly.
-- **Per-owner, not god-pack**: github-devloop's static rules become the github-devloop package's pack,
-  activated only when that package is referenced; delete `is_own_repo` + the hardcoding when its pack lands.
-  A B-aggregate pack may exist only as a convenience COMPOSITION of per-package packs, never the primitive.
+- **Trust:** declarative data only — engine owns all capabilities; bounded regex/glob; package-local paths;
+  owner match; no eval/shell/network/foreign-fs. The beautiful form is "engine owns capabilities, package
+  supplies bounded policy data," not "a safer script."
+- **Conflict:** pack coordinate `(source_id, owner_package, pack_name)` appears once; two active packs may not
+  emit the same `pack/id` for the same package unless byte-identical by `pack_sha256`; conflicting severities
+  fail closed (not last-writer-wins).
+- **Waivers are HOST-owned, never package self-exemption:** `.fkst/conformance/waivers.toml` keyed by
+  `{pack_coordinate, rule_id, target_package, target_path?, expires?, reason, owner}`. A consuming host does
+  NOT honor an upstream package's self-waiver unless copied into the host waiver file. Owners publish
+  invariants; consumers own local exceptions; neither silently disables the other's checks.
+- **Bootstrap / toolchain:** `.fkst-substrate-ref` stays a DISTINCT toolchain coordinate (Cargo.lock pins deps,
+  not rustc). The runner is part of the publicly-versioned `fkst-framework` toolchain; the lock pins package
+  DATA (+ `runner_protocol` compat metadata), NOT the interpreter. No second package manager, no `tools`-lock
+  self-reference circle.
+- **Ownership honesty:** package-specific rules are package-owned packs (per-owner, never a B god-pack).
+  Truly universal invariants do NOT become a "B engine-generic pack"; they are promoted into the engine
+  schema/capability (see §8) so future hosts don't couple to B.
 
-## 8. Migration order (inventory-ratchet, not big-bang)
+## 8. Migration order — promote / travel / delete, inventory-ratchet to 0
 
-1. **Part A now** (§4): atomic SHA consolidation in fkst-website. Independent, unblocked today.
-2. **Part B design**: answer §5 (the execution contract) FIRST; it gates everything else. Then §6 resolver
-   work in fkst-substrate, then §7 decisions.
-3. **Then** migrate generic ratchets into the engine/std generic pack one-by-one (inventory-ratchet; the
-   `scripts/check_repo*.py` count shrinks to 0); per-package packs for package rules; fkst-packages switches
-   to invoking the CLI (proving symmetry: it is just another consumer); delete `is_own_repo` + hardcoding;
-   retire host execution of B-private `check_repo.py`.
-4. At 0: one coordinate per source, one public command, per-owner typed packs; zero duplication, zero second
-   fkst-packages pin, zero private-script consumption.
+The ~8 github-devloop-hardcoded ratchets split three ways (don't preserve weak scans as the final form):
+- **Promote to engine schema/capability** (make illegal states unrepresentable; substrate work, not data):
+  produces ⊆ own+published-seam, namespaced-queue fidelity, event_deps/composed.deps shape, source_ref-on-
+  reliable shape, saga spec-head/restart-row + liveness budget/actionable-epoch/responsibility_signature,
+  span-contract completeness, monotone-gate declarations. (Anything a graph/schema fact can make impossible.)
+- **Travel as package DATA** (pure static source-shape residue): e.g. G14 helper-clone, G-SPAN wording,
+  G-FORWARD-DIRECT marker-gated allowlist (interim, until queue authority is typed).
+- **Delete as scaffolding** once the structural field exists: G-SAGA-SPLIT, G-MONOTONE-GATE(-DSL), and the
+  source-scan parts of G8/G11/G12 after their concept is a typed restart-table/capability field.
+
+Sequence (each migrated rule is deleted from Python in the SAME PR that adds its data/engine form — no dual
+enforcement; a `migration/devloop-hardcoded-ratchets.inventory` shrinks N→0):
+1. **Part A now** (§4) — done in fkst-website (split-brain consolidation), independent.
+2. **Slice 1 (mechanism + host-travel proof):** substrate `DeclarativeRulePack` v1 + typed `packages`/
+   `conformance_packs` lock/resolver + expose checkout root + scope boundary + activation; `idle-detector`
+   ships one real declarative rule (`max_line_count`); fkst-website declares `packages=["idle-detector"]`,
+   regenerates `fkst.lock`, drops the `.fkst/conformance/package-roots` entry for it, and runs
+   `fkst-framework conformance` so the SAME rule fires in fkst-packages (local self) AND fkst-website (locked
+   external). Proves transport + symmetry across both repos.
+3. **Slice 2 (ownership-deletion proof):** port `github-devloop/G-FORWARD-DIRECT` from `scripts/check_repo*.py`
+   into `packages/github-devloop/.fkst/conformance/pack.toml` as `text_forbid_regex`, delete the Python branch
+   + its `is_own_repo` gating. Proves the inverted dependency is removed (a github-devloop rule runs because
+   github-devloop is the active owner, not because of repo identity).
+4. **Then** inventory-ratchet the rest (promote/travel/delete per the split above) to N=0; retire host
+   execution of B-private `check_repo.py`; `is_own_repo` deleted entirely.
+5. **At 0:** one coordinate per source, one public command, per-owner typed packs that travel with the
+   package, identical in fkst-packages and every host; zero duplication, zero second pin, zero private-script
+   consumption, zero engine/repo-global hardcoded package names.
 
 ## 9. Non-goals
 
@@ -207,10 +271,31 @@ One concrete vertical contract is required before any pack work:
 - Not baking org/package policy into the engine.
 - Not a big-bang rewrite.
 - Not a second package manager / second fkst-packages pin / host config that duplicates the workspace graph.
-- Part A is NOT the one-resolver end state (it is honest interim debt); Part B is NOT implementable until §5
-  is answered.
+- Not a general policy language (no Rego/OPA clone, no per-package code, no host-file scanning by package packs).
+- Part A is NOT the one-resolver end state (it is honest interim debt); the v1 rule IR is deliberately tiny —
+  rules that can be made structural belong in engine schema (§8), not preserved as ever-cleverer regex.
 
 ## 10. Adversarial record
+
+### Round-3 DESIGN (2026-06-24) — 3 Codex (minimal/structural/delete) + ChatGPT Pro, converged on the §5–§8 contract
+- **delete** (revise): the root issue is repo-global Python conflating structural engine invariants (promote)
+  with a small package-owned source-scan residue (travel as data); avoid a general declarative IR / mini-OPA;
+  one tiny data pattern-pack interpreted by one Rust pack.
+- **minimal** (propose): the smallest proof is one declarative `max_line_count` rule carried by `idle-detector`
+  (already referenced by fkst-website), one generic runner, activated by package reachability — proves
+  transport + symmetry with the fewest moving parts; the lock/resolver typed-artifact is the irreducible
+  engine work.
+- **structural** (propose): make it a versioned fact contract (`rule_ir`/`runner_protocol`, fail-closed),
+  per-owner pack coordinates, host-owned waivers, conflict fail-closed; don't overload `event_deps` for
+  cross-package lint (reserve a later `conformance_deps` for standalone host-scanning packs only).
+- **ChatGPT Pro** (keystone): host names PACKAGES (pack auto-discovered + locked from the package manifest, so
+  rules travel and are not opt-in); the ugliest risk is a package pack scanning arbitrary HOST files — fence
+  the scope to `owner_package_files` + `graph_refs_to_owner` only; v1 IR = "typed grep over known facts"
+  (max_line_count / text_forbid_regex / text_require_regex / path_exists / path_forbid / graph_field_regex);
+  first slice should DELETE a real hardcoded github-devloop ratchet (G-FORWARD-DIRECT), but the HOST-travel
+  proof must use a package the host actually references (idle-detector) — do not add a fake host dependency.
+Meta-judge `meta-layer convergence`: the §5–§8 design; Slice 1 (idle-detector, host-travel) + Slice 2
+(github-devloop/G-FORWARD-DIRECT, ownership-deletion). No unresolved conflict edge.
 
 ### Round-2 REVIEW (2026-06-24) — 3 Codex (architecture/quality/tests) + ChatGPT Pro, ALL `reject` → `fix`
 - **quality** (reject): the two revs are functionally incompatible (`45ef0324` has the host ratchet interface,
