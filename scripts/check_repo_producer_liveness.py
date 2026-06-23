@@ -11,7 +11,7 @@ import ratchet_base
 
 
 ALLOWLIST = "migration/producer-liveness.allowlist"
-TRACE_FIELDS = ("consumer_result", "source_payload", "raised")
+TRACE_FIELDS = ("consumer_result", "source_payload", "raised", "routed_to")
 RAISER_NAME_RE = re.compile(r"\b(?:name|raiser)\s*=\s*(?P<quote>[\"'])(?P<name>[A-Za-z0-9_.-]+)(?P=quote)")
 PRODUCES_STRING_RE = re.compile(r"\bproduces\s*=\s*(?P<quote>[\"'])(?P<queue>[A-Za-z0-9_.-]+)(?P=quote)")
 PRODUCES_TABLE_RE = re.compile(r"\bproduces\s*=\s*\{(?P<body>.*?)\}", re.DOTALL)
@@ -24,6 +24,14 @@ FIRE_RAISER_RE = re.compile(
     r"(?:(?:local\s+)?(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*)?"
     r"\bt\s*\.\s*fire_raiser\s*\(\s*"
     r"(?P<quote>[\"'])(?P<raiser>[A-Za-z0-9_.-]+)(?P=quote)\s*\)"
+)
+FIRE_RAISER_HEAD_RE = re.compile(r"\bt\s*\.\s*fire_raiser\b")
+ASSERTION_CALL_RE = re.compile(r"\b(?:t\s*\.\s*(?:eq|is_true|assert)|assert|error|fail)\s*\(")
+IF_HEAD_RE = re.compile(r"\bif\b")
+IF_THEN_RE = re.compile(r"\bif\b(?P<condition>.*?)\bthen\b", re.DOTALL)
+IF_ASSERTION_ACTION_RE = re.compile(r"\b(?:error|fail)\s*\(|\breturn\s+false\b")
+FIRE_RAISER_CHILD_PREFIX_RE = re.compile(
+    r"\b(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?fire_raiser_child\s*\(\s*$"
 )
 LUA_WORD_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
@@ -181,21 +189,134 @@ def trace_field_re(var: str) -> re.Pattern[str]:
     )
 
 
-def call_asserts_trace(block: str, match: re.Match[str]) -> bool:
-    var = match.group("var")
-    if var is not None and trace_field_re(var).search(block) is not None:
+def visible_regex_at(pattern: re.Pattern[str], masked: str, start: int) -> bool:
+    return pattern.match(masked, start) is not None
+
+
+def visible_fire_raiser_call(masked: str, match: re.Match[str]) -> bool:
+    head = FIRE_RAISER_HEAD_RE.search(match.group(0))
+    if head is None:
+        return False
+    return visible_regex_at(FIRE_RAISER_HEAD_RE, masked, match.start() + head.start())
+
+
+def trace_field_spans(source: str, masked: str, var: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for match in trace_field_re(var).finditer(source):
+        if masked[match.start() : match.start() + len(var)].strip():
+            spans.append((match.start(), match.end()))
+    return spans
+
+
+def matching_paren_end(masked: str, open_index: int) -> int:
+    depth = 0
+    for index in range(open_index, len(masked)):
+        if masked[index] == "(":
+            depth += 1
+        elif masked[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return len(masked)
+
+
+def assertion_call_spans(source: str, masked: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for match in ASSERTION_CALL_RE.finditer(source):
+        if visible_regex_at(ASSERTION_CALL_RE, masked, match.start()):
+            spans.append((match.start(), matching_paren_end(masked, match.end() - 1)))
+    return spans
+
+
+def span_inside(inner: tuple[int, int], outer: tuple[int, int]) -> bool:
+    return outer[0] <= inner[0] and inner[1] <= outer[1]
+
+
+def action_in_span(source: str, masked: str, start: int, end: int) -> bool:
+    for match in IF_ASSERTION_ACTION_RE.finditer(source, start, end):
+        if visible_regex_at(IF_ASSERTION_ACTION_RE, masked, match.start()):
+            return True
+    return False
+
+
+def if_assertion_spans(source: str, masked: str, refs: list[tuple[int, int]]) -> bool:
+    for match in IF_THEN_RE.finditer(source):
+        if not visible_regex_at(IF_HEAD_RE, masked, match.start()):
+            continue
+        condition = (match.start("condition"), match.end("condition"))
+        if not any(span_inside(ref, condition) for ref in refs):
+            continue
+        end_match = re.search(r"\bend\b", masked[match.end() :])
+        body_end = len(masked) if end_match is None else match.end() + end_match.start()
+        if action_in_span(source, masked, match.end(), body_end):
+            return True
+    return False
+
+
+def assertion_contains_trace(source: str, masked: str, refs: list[tuple[int, int]]) -> bool:
+    assertions = assertion_call_spans(source, masked)
+    if any(any(span_inside(ref, assertion) for ref in refs) for assertion in assertions):
         return True
-    tail = block[match.end() : match.end() + 240]
-    return re.search(r"^\s*\.\s*(?:" + "|".join(TRACE_FIELDS) + r")\b", tail) is not None
+    return if_assertion_spans(source, masked, refs)
+
+
+def call_asserts_trace(block: str, match: re.Match[str]) -> bool:
+    source = strip_lua_comments(block)
+    masked = mask_lua_comments_and_strings(block)
+    var = match.group("var")
+    if var is not None:
+        return assertion_contains_trace(source, masked, trace_field_spans(source, masked, var))
+    tail = source[match.end() : match.end() + 240]
+    tail_match = re.search(r"^\s*\.\s*(?:" + "|".join(TRACE_FIELDS) + r")\b", tail)
+    if tail_match is None:
+        return False
+    ref = (match.start(), match.end() + tail_match.end())
+    return assertion_contains_trace(source, masked, [ref])
+
+
+def embedded_fire_raiser_child_sources(source: str) -> list[str]:
+    bodies: list[str] = []
+    cursor = 0
+    while cursor < len(source):
+        if source.startswith("--", cursor):
+            bracket = long_bracket_at(source, cursor + 2)
+            if bracket is not None:
+                opener_len, closer = bracket
+                cursor = end_of_long_bracket(source, cursor + 2 + opener_len, closer)
+            else:
+                newline = source.find("\n", cursor)
+                cursor = len(source) if newline == -1 else newline
+            continue
+        char = source[cursor]
+        if char in ("'", '"'):
+            cursor = end_of_quoted_string(source, cursor)
+            continue
+        if char == "[":
+            bracket = long_bracket_at(source, cursor)
+            if bracket is not None:
+                opener_len, closer = bracket
+                body_start = cursor + opener_len
+                close_start = source.find(closer, body_start)
+                body_end = len(source) if close_start == -1 else close_start
+                end = len(source) if close_start == -1 else close_start + len(closer)
+                prefix = source[max(0, cursor - 160) : cursor]
+                if FIRE_RAISER_CHILD_PREFIX_RE.search(prefix) is not None:
+                    bodies.append(source[body_start:body_end])
+                cursor = end
+                continue
+        cursor += 1
+    return bodies
 
 
 def covered_raisers_in_source(source: str) -> set[str]:
     covered: set[str] = set()
-    for block in test_blocks(source):
-        searchable = strip_lua_comments(block)
-        for match in FIRE_RAISER_RE.finditer(searchable):
-            if call_asserts_trace(searchable, match):
-                covered.add(match.group("raiser"))
+    for candidate in [source, *embedded_fire_raiser_child_sources(source)]:
+        for block in test_blocks(candidate):
+            searchable = strip_lua_comments(block)
+            masked = mask_lua_comments_and_strings(block)
+            for match in FIRE_RAISER_RE.finditer(searchable):
+                if visible_fire_raiser_call(masked, match) and call_asserts_trace(block, match):
+                    covered.add(match.group("raiser"))
     return covered
 
 
@@ -278,7 +399,7 @@ def ratchet_messages(
 
     for key in sorted(uncovered - allowlist):
         messages.append(
-            f"{declared_by_key[key].label()} lacks a trace-asserting fire_raiser test; add fire_raiser(\"{declared_by_key[key].name}\") with consumer_result/source_payload/raised assertions or list existing debt in {ALLOWLIST}"
+            f"{declared_by_key[key].label()} lacks a trace-asserting fire_raiser test; add fire_raiser(\"{declared_by_key[key].name}\") with consumer_result/source_payload/raised/routed_to assertions or list existing debt in {ALLOWLIST}"
         )
     for key in sorted(allowlist - uncovered):
         detail = "is covered" if key in covered else "has no declared raiser"

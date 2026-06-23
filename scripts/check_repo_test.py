@@ -801,11 +801,19 @@ class ProducerLivenessRatchetTest(unittest.TestCase):
     def test_fire_raiser_trace_assertion_and_allowlist_rules(self) -> None:
         p = check_repo.check_repo_producer_liveness
         raiser = p.ProducerRaiser("example", "poll", "packages/example/raisers/poll.lua", ("tick",))
-        good = 'return {\n test_poll = function()\n local trace = t.fire_raiser("poll")\n t.eq(trace.consumer_result.status, "accepted")\n end,\n}\n'
-        bad = 'return { test_poll = function() t.fire_raiser("poll") -- local trace = t.fire_raiser("commented")\n fkst.test.run_department("consume", { payload = { source_payload = true } }) end }\n'
+        good = 'function test_poll()\n local trace = t.fire_raiser("poll")\n t.eq(trace.consumer_result.status, "accepted")\n t.is_true(trace.routed_to[1] ~= nil)\nend\n'
+        ref_only = 'function test_poll()\n local trace = t.fire_raiser("poll")\n local result = trace.consumer_result\nend\n'
+        comment_only = 'function test_poll()\n -- local trace = t.fire_raiser("poll")\n local trace = { consumer_result = true }\n t.eq(trace.consumer_result.status, "accepted")\nend\n'
+        string_only = 'function test_poll()\n local text = [[ local trace = t.fire_raiser("poll") t.eq(trace.consumer_result.status, "accepted") ]]\nend\n'
+        if_error = 'function test_poll()\n local trace = t.fire_raiser("poll")\n if trace.consumer_result.status ~= "accepted" then error(trace.consumer_result.message) end\nend\n'
+        embedded_child = 'return { test_parent = function() helper.fire_raiser_child([[\nfunction test_poll()\n local trace = t.fire_raiser("poll")\n t.eq(trace.consumer_result.status, "accepted")\nend\n]]) end }\n'
         helper_call = 'return { test_poll = function() local trace = helper.fire_raiser("poll")\n t.eq(trace.consumer_result.status, "accepted") end }\n'
         self.assertEqual(p.covered_raisers_in_source(good), {"poll"})
-        self.assertEqual(p.covered_raisers_in_source(bad), set())
+        self.assertEqual(p.covered_raisers_in_source(ref_only), set())
+        self.assertEqual(p.covered_raisers_in_source(comment_only), set())
+        self.assertEqual(p.covered_raisers_in_source(string_only), set())
+        self.assertEqual(p.covered_raisers_in_source(if_error), {"poll"})
+        self.assertEqual(p.covered_raisers_in_source(embedded_child), {"poll"})
         self.assertEqual(p.covered_raisers_in_source(helper_call), set())
         self.assertIn("lacks a trace-asserting fire_raiser test", p.ratchet_messages({raiser}, {"example": set()}, set(), set())[0])
         self.assertEqual(p.ratchet_messages({raiser}, {"example": set()}, {"example.poll"}, {"example.poll"}), [])
