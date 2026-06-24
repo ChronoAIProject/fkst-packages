@@ -42,6 +42,32 @@ local result = exec_argv({ argv = { BIN, "doctor" }, timeout = 30 })
 
         self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
 
+    def test_detects_pcall_wrapped_run_argv_to_engine_binary(self) -> None:
+        source = """
+local ok, res = pcall(run_argv, { argv = { bin, "observe", "--json" }, timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
+
+    def test_detects_xpcall_wrapped_exec_alias_to_engine_binary(self) -> None:
+        source = """
+local run = exec.exec_argv
+local ok, res = xpcall(run, debug.traceback, { argv = { BIN, "observe", "--json" } })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=3:argv:engine-binary"})
+
+    def test_detects_executor_alias_call_to_engine_binary(self) -> None:
+        source = """
+local sh = exec_argv
+sh({ argv = { BIN, "observe" }, timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=3:argv:engine-binary"})
+
     def test_detects_split_constructed_argv_to_engine_binary(self) -> None:
         source = """
 local framework_bin = os.getenv("BIN")
@@ -51,6 +77,17 @@ local result = exec_argv({ argv = argv, timeout = 30 })
         sites = self.sites(source)
 
         self.assertEqual(sites, {"packages/example/core.lua:line=4:argv:engine-binary"})
+
+    def test_detects_split_exec_alias_to_engine_binary(self) -> None:
+        source = """
+local local_bin = os.getenv("BIN")
+local argv = { local_bin, "observe", "--json" }
+local sh = exec_argv
+local result = sh({ argv = argv, timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=5:argv:engine-binary"})
 
     def test_detects_run_argv_literal_engine_binary(self) -> None:
         source = """
@@ -96,6 +133,14 @@ local result = run_sync({ cmd = cmd, timeout = 30 })
 
         self.assertEqual(sites, {"packages/example/core.lua:line=4:sync:engine-binary"})
 
+    def test_detects_sync_string_shell_out_when_engine_binary_is_not_first_token(self) -> None:
+        source = """
+local result = exec_sync({ cmd = "cd /tmp && $BIN observe --json", timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:sync:engine-binary"})
+
     def test_detects_exec_argv_table_alias_head_from_bin_alias(self) -> None:
         source = """
 local local_bin = BIN
@@ -105,6 +150,28 @@ exec_argv({ timeout = 30, argv = argv })
         sites = self.sites(source)
 
         self.assertEqual(sites, {"packages/example/core.lua:line=4:argv:engine-binary"})
+
+    def test_uses_top_level_argv_when_nested_metadata_comes_first(self) -> None:
+        source = """
+exec_argv({
+  metadata = { argv = { "git", "status" } },
+  argv = { BIN, "observe", "--json" },
+})
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
+
+    def test_ignores_nested_metadata_argv_when_top_level_argv_is_benign(self) -> None:
+        source = """
+exec_argv({
+  metadata = { argv = { BIN, "observe", "--json" } },
+  argv = { "git", "status" },
+})
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, set())
 
     def test_ignores_comments(self) -> None:
         source = """
@@ -137,10 +204,27 @@ local function inline()
   return exec_argv({ argv = { BIN, "doctor" }, timeout = 30 })
 end
 
+local function wrapped()
+  local ok, res = pcall(run_argv, { argv = { BIN, "observe", "--json" } })
+  return ok, res
+end
+
+local function alias()
+  local sh = exec_argv
+  return sh({ argv = { BIN, "observe" }, timeout = 30 })
+end
+
 local function split()
   local framework_bin = os.getenv("BIN")
   local argv = { framework_bin, "observe", "--json" }
   return exec_argv({ argv = argv, timeout = 30 })
+end
+
+local function nested()
+  return exec_argv({
+    metadata = { argv = { "git", "status" } },
+    argv = { BIN, "observe", "--json" },
+  })
 end
 """,
                 encoding="utf-8",
@@ -149,10 +233,13 @@ end
             violations: list[str] = []
             check_repo.check_shell_out_to_self_ratchet(root, violations)
 
-        self.assertEqual(len(violations), 2)
+        self.assertEqual(len(violations), 5)
         self.assertTrue(all("G-SHELL-OUT-TO-SELF" in violation for violation in violations))
         self.assertTrue(any("line=3:argv:engine-binary" in violation for violation in violations))
-        self.assertTrue(any("line=9:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=7:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=13:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=19:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=23:argv:engine-binary" in violation for violation in violations))
 
     def test_allowlist_and_stale_entries(self) -> None:
         site = "packages/example/core.lua:line=2:argv:engine-binary"

@@ -9,11 +9,13 @@ from typing import Callable, Iterable
 
 ALLOWLIST = "migration/shell-out-to-self.allowlist"
 # This ratchet is best-effort DETECT coverage. The true PREVENT follow-up is an
-# engine capability boundary where package code never receives the engine binary.
+# engine capability boundary where package code never receives the engine binary
+# path or BIN at runtime, so package code cannot shell out to the framework.
 ENGINE_BASE_NAMES = {"BIN", "bin", "framework_bin"}
 ARGV_EXEC_NAMES = {"exec_argv", "run_argv"}
 SYNC_EXEC_NAMES = {"exec_sync", "run_sync"}
 EXEC_CALL_RE = re.compile(r"\b(?P<name>exec_argv|exec_sync|run_argv|run_sync)\s*\(")
+ANY_CALL_RE = re.compile(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(")
 ASSIGN_RE = re.compile(r"\b(?:local\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=")
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -187,12 +189,28 @@ def split_top_level_args(text: str) -> list[str]:
     return args
 
 
-def field_expr(text: str, field: str, strip_lua_comments_and_strings: Callable[[str], str]) -> str | None:
-    masked = strip_lua_comments_and_strings(text)
-    for match in re.finditer(rf"\b{re.escape(field)}\s*=", masked):
-        start = match.end()
-        end = expression_end(text, start)
-        return text[start:end].strip()
+def top_level_table_field_expr(expr: str, field: str) -> str | None:
+    text = strip_outer_parens(expr)
+    start = skip_ws(text, 0)
+    if start >= len(text) or text[start] != "{":
+        return None
+    end = find_matching(text, start, "{", "}")
+    body = text[start + 1 : end - 1]
+    for arg in split_top_level_args(body):
+        candidate = arg.strip()
+        if not candidate:
+            continue
+        bare = re.match(r"^(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=(?P<value>.*)\Z", candidate, re.DOTALL)
+        if bare is not None and bare.group("key") == field:
+            return bare.group("value").strip()
+        indexed = re.match(
+            r"^\[\s*(?P<quote>['\"])(?P<key>[A-Za-z_][A-Za-z0-9_]*)"
+            r"(?P=quote)\s*\]\s*=(?P<value>.*)\Z",
+            candidate,
+            re.DOTALL,
+        )
+        if indexed is not None and indexed.group("key") == field:
+            return indexed.group("value").strip()
     return None
 
 
@@ -221,6 +239,10 @@ def table_head_expr(expr: str) -> str | None:
 def literal_is_engine_binary(content: str) -> bool:
     tokens = content.strip().split()
     head = tokens[0] if tokens else content
+    if re.search(r"\$(?:\{BIN\}|BIN\b)", content):
+        return True
+    if re.search(r"(?:^|[\s;&|()])(?:\S*/)?fkst-framework(?:$|[\s;&|()])", content):
+        return True
     return (
         head == "fkst-framework"
         or head.endswith("/fkst-framework")
@@ -292,12 +314,93 @@ def first_call_arg(call_args: str) -> str:
     return args[0].strip() if args else ""
 
 
+def call_arg(call_args: str, index: int) -> str:
+    args = split_top_level_args(call_args)
+    return args[index].strip() if index < len(args) else ""
+
+
+def call_option_field(call_args: str, field: str) -> str | None:
+    first_arg = first_call_arg(call_args)
+    return top_level_table_field_expr(first_arg, field)
+
+
+def exec_function_kind(
+    expr: str,
+    argv_exec_vars: set[str] | None = None,
+    sync_exec_vars: set[str] | None = None,
+) -> str | None:
+    argv_names = ARGV_EXEC_NAMES if argv_exec_vars is None else argv_exec_vars
+    sync_names = SYNC_EXEC_NAMES if sync_exec_vars is None else sync_exec_vars
+    text = strip_outer_parens(expr)
+    compact = re.sub(r"\s+", "", text)
+    name = compact.split(".")[-1]
+    if name in argv_names:
+        return "argv"
+    if name in sync_names:
+        return "sync"
+    return None
+
+
+def collect_exec_function_bindings(
+    source: str,
+    strip_lua_comments_and_strings: Callable[[str], str],
+) -> tuple[set[str], set[str]]:
+    argv_exec_vars = set(ARGV_EXEC_NAMES)
+    sync_exec_vars = set(SYNC_EXEC_NAMES)
+    assignments: list[tuple[str, str]] = []
+    stripped = strip_lua_comments(source)
+    masked = strip_lua_comments_and_strings(stripped)
+    for match in ASSIGN_RE.finditer(masked):
+        expr_start = match.end()
+        expr = stripped[expr_start:expression_end(stripped, expr_start)].strip()
+        if expr:
+            assignments.append((match.group("name"), expr))
+
+    changed = True
+    while changed:
+        changed = False
+        for name, expr in assignments:
+            kind = exec_function_kind(expr, argv_exec_vars, sync_exec_vars)
+            if kind == "argv" and name not in argv_exec_vars:
+                argv_exec_vars.add(name)
+                changed = True
+            elif kind == "sync" and name not in sync_exec_vars:
+                sync_exec_vars.add(name)
+                changed = True
+    return argv_exec_vars, sync_exec_vars
+
+
+def add_argv_site_if_engine(
+    current: set[str],
+    relpath: str,
+    line: int,
+    argv_expr: str,
+    engine_vars: set[str],
+    argv_vars: set[str],
+) -> None:
+    if argv_expr_uses_engine_head(argv_expr, engine_vars, argv_vars):
+        current.add(f"{relpath}:line={line}:argv:engine-binary")
+
+
+def add_sync_site_if_engine(
+    current: set[str],
+    relpath: str,
+    line: int,
+    cmd_expr: str,
+    engine_vars: set[str],
+) -> None:
+    if sync_expr_uses_engine_head(cmd_expr, engine_vars):
+        current.add(f"{relpath}:line={line}:sync:engine-binary")
+
+
 def exec_call_sites(
     relpath: str,
     source: str,
     strip_lua_comments_and_strings: Callable[[str], str],
     engine_vars: set[str],
     argv_vars: set[str],
+    argv_exec_vars: set[str],
+    sync_exec_vars: set[str],
 ) -> set[str]:
     current: set[str] = set()
     stripped = strip_lua_comments(source)
@@ -309,13 +412,39 @@ def exec_call_sites(
         call_args = stripped[call_start + 1 : call_end - 1]
         line = source.count("\n", 0, match.start()) + 1
         if name in ARGV_EXEC_NAMES:
-            argv_expr = field_expr(call_args, "argv", strip_lua_comments_and_strings) or first_call_arg(call_args)
-            if argv_expr_uses_engine_head(argv_expr, engine_vars, argv_vars):
-                current.add(f"{relpath}:line={line}:argv:engine-binary")
+            argv_expr = call_option_field(call_args, "argv") or first_call_arg(call_args)
+            add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars)
         elif name in SYNC_EXEC_NAMES:
-            cmd_expr = field_expr(call_args, "cmd", strip_lua_comments_and_strings) or first_call_arg(call_args)
-            if sync_expr_uses_engine_head(cmd_expr, engine_vars):
-                current.add(f"{relpath}:line={line}:sync:engine-binary")
+            cmd_expr = call_option_field(call_args, "cmd") or first_call_arg(call_args)
+            add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars)
+    for match in ANY_CALL_RE.finditer(masked):
+        name = match.group("name")
+        call_start = match.end() - 1
+        call_end = find_matching(stripped, call_start, "(", ")")
+        call_args = stripped[call_start + 1 : call_end - 1]
+        line = source.count("\n", 0, match.start()) + 1
+        if name in {"pcall", "xpcall"}:
+            kind = exec_function_kind(first_call_arg(call_args), argv_exec_vars, sync_exec_vars)
+            if kind == "argv":
+                for index in (1, 2):
+                    argv_expr = top_level_table_field_expr(call_arg(call_args, index), "argv")
+                    if argv_expr is not None:
+                        add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars)
+                        break
+            elif kind == "sync":
+                for index in (1, 2):
+                    cmd_expr = top_level_table_field_expr(call_arg(call_args, index), "cmd")
+                    if cmd_expr is not None:
+                        add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars)
+                        break
+            continue
+
+        argv_expr = call_option_field(call_args, "argv")
+        if argv_expr is not None:
+            add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars)
+        cmd_expr = call_option_field(call_args, "cmd")
+        if cmd_expr is not None:
+            add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars)
     return current
 
 
@@ -328,7 +457,16 @@ def load_allowlist(path: Path) -> set[str]:
 def source_sites(relpath: str, source: str, strip_lua_comments_and_strings: Callable[[str], str], lua_string_literals: Callable[[str], Iterable]) -> set[str]:
     del lua_string_literals
     engine_vars, argv_vars = collect_engine_bindings(source, strip_lua_comments_and_strings)
-    return exec_call_sites(relpath, source, strip_lua_comments_and_strings, engine_vars, argv_vars)
+    argv_exec_vars, sync_exec_vars = collect_exec_function_bindings(source, strip_lua_comments_and_strings)
+    return exec_call_sites(
+        relpath,
+        source,
+        strip_lua_comments_and_strings,
+        engine_vars,
+        argv_vars,
+        argv_exec_vars,
+        sync_exec_vars,
+    )
 
 
 def sites(root: Path, package_roots: list[Path], read_text, rel, strip_lua_comments_and_strings, lua_string_literals) -> set[str]:
