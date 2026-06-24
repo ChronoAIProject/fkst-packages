@@ -50,6 +50,14 @@ local ok, res = pcall(run_argv, { argv = { bin, "observe", "--json" }, timeout =
 
         self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
 
+    def test_detects_pcall_wrapped_positional_run_argv_to_engine_binary(self) -> None:
+        source = """
+local ok, res = pcall(run_argv, { bin, "observe", "--json" })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
+
     def test_detects_xpcall_wrapped_exec_alias_to_engine_binary(self) -> None:
         source = """
 local run = exec.exec_argv
@@ -63,6 +71,15 @@ local ok, res = xpcall(run, debug.traceback, { argv = { BIN, "observe", "--json"
         source = """
 local sh = exec_argv
 sh({ argv = { BIN, "observe" }, timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=3:argv:engine-binary"})
+
+    def test_detects_positional_executor_alias_call_to_engine_binary(self) -> None:
+        source = """
+local sh = exec_argv
+sh({ BIN, "observe" })
 """
         sites = self.sites(source)
 
@@ -123,6 +140,15 @@ local result = exec_sync("$BIN observe --json")
 
         self.assertEqual(sites, {"packages/example/core.lua:line=2:sync:engine-binary"})
 
+    def test_detects_sync_executor_alias_call_to_engine_binary(self) -> None:
+        source = """
+local sh = exec_sync
+sh("$BIN observe")
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=3:sync:engine-binary"})
+
     def test_detects_sync_engine_alias(self) -> None:
         source = """
 local framework_bin = os.getenv("BIN")
@@ -146,6 +172,16 @@ local result = exec_sync({ cmd = "cd /tmp && $BIN observe --json", timeout = 30 
 local local_bin = BIN
 local argv = { local_bin, "--self-test" }
 exec_argv({ timeout = 30, argv = argv })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=4:argv:engine-binary"})
+
+    def test_detects_simple_variable_opts_passed_to_exec_alias(self) -> None:
+        source = """
+local opts = { argv = { BIN, "observe" } }
+local sh = exec_argv
+sh(opts)
 """
         sites = self.sites(source)
 
@@ -209,9 +245,24 @@ local function wrapped()
   return ok, res
 end
 
+local function wrapped_positional()
+  local ok, res = pcall(run_argv, { BIN, "observe", "--json" })
+  return ok, res
+end
+
 local function alias()
   local sh = exec_argv
   return sh({ argv = { BIN, "observe" }, timeout = 30 })
+end
+
+local function alias_positional()
+  local sh = exec_argv
+  return sh({ BIN, "observe" })
+end
+
+local function alias_sync()
+  local sh = exec_sync
+  return sh("$BIN observe")
 end
 
 local function split()
@@ -233,13 +284,16 @@ end
             violations: list[str] = []
             check_repo.check_shell_out_to_self_ratchet(root, violations)
 
-        self.assertEqual(len(violations), 5)
+        self.assertEqual(len(violations), 8)
         self.assertTrue(all("G-SHELL-OUT-TO-SELF" in violation for violation in violations))
         self.assertTrue(any("line=3:argv:engine-binary" in violation for violation in violations))
         self.assertTrue(any("line=7:argv:engine-binary" in violation for violation in violations))
-        self.assertTrue(any("line=13:argv:engine-binary" in violation for violation in violations))
-        self.assertTrue(any("line=19:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=12:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=18:argv:engine-binary" in violation for violation in violations))
         self.assertTrue(any("line=23:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=28:sync:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=34:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=38:argv:engine-binary" in violation for violation in violations))
 
     def test_allowlist_and_stale_entries(self) -> None:
         site = "packages/example/core.lua:line=2:argv:engine-binary"

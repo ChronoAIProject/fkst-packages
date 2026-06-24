@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 ALLOWLIST = "migration/shell-out-to-self.allowlist"
-# This ratchet is best-effort DETECT coverage. The true PREVENT follow-up is an
-# engine capability boundary where package code never receives the engine binary
-# path or BIN at runtime, so package code cannot shell out to the framework.
+# This ratchet is best-effort DETECT coverage. The true PREVENT follow-up is the
+# filed engine capability boundary where package code never receives the engine
+# binary path or BIN at runtime, so package code cannot shell out to the framework.
 ENGINE_BASE_NAMES = {"BIN", "bin", "framework_bin"}
 ARGV_EXEC_NAMES = {"exec_argv", "run_argv"}
 SYNC_EXEC_NAMES = {"exec_sync", "run_sync"}
@@ -324,21 +324,44 @@ def call_option_field(call_args: str, field: str) -> str | None:
     return top_level_table_field_expr(first_arg, field)
 
 
-def exec_function_kind(
+def argv_expr_from_exec_arg(expr: str) -> str | None:
+    text = strip_outer_parens(expr)
+    if not text:
+        return None
+    return top_level_table_field_expr(text, "argv") or text
+
+
+def sync_expr_from_exec_arg(expr: str) -> str | None:
+    text = strip_outer_parens(expr)
+    if not text:
+        return None
+    return top_level_table_field_expr(text, "cmd") or text
+
+
+def argv_expr_from_call_args(call_args: str) -> str | None:
+    return argv_expr_from_exec_arg(first_call_arg(call_args))
+
+
+def sync_expr_from_call_args(call_args: str) -> str | None:
+    return sync_expr_from_exec_arg(first_call_arg(call_args))
+
+
+def exec_function_kinds(
     expr: str,
     argv_exec_vars: set[str] | None = None,
     sync_exec_vars: set[str] | None = None,
-) -> str | None:
+) -> tuple[str, ...]:
     argv_names = ARGV_EXEC_NAMES if argv_exec_vars is None else argv_exec_vars
     sync_names = SYNC_EXEC_NAMES if sync_exec_vars is None else sync_exec_vars
     text = strip_outer_parens(expr)
     compact = re.sub(r"\s+", "", text)
     name = compact.split(".")[-1]
+    kinds = []
     if name in argv_names:
-        return "argv"
+        kinds.append("argv")
     if name in sync_names:
-        return "sync"
-    return None
+        kinds.append("sync")
+    return tuple(kinds)
 
 
 def collect_exec_function_bindings(
@@ -360,11 +383,11 @@ def collect_exec_function_bindings(
     while changed:
         changed = False
         for name, expr in assignments:
-            kind = exec_function_kind(expr, argv_exec_vars, sync_exec_vars)
-            if kind == "argv" and name not in argv_exec_vars:
+            kinds = exec_function_kinds(expr, argv_exec_vars, sync_exec_vars)
+            if "argv" in kinds and name not in argv_exec_vars:
                 argv_exec_vars.add(name)
                 changed = True
-            elif kind == "sync" and name not in sync_exec_vars:
+            if "sync" in kinds and name not in sync_exec_vars:
                 sync_exec_vars.add(name)
                 changed = True
     return argv_exec_vars, sync_exec_vars
@@ -377,9 +400,11 @@ def add_argv_site_if_engine(
     argv_expr: str,
     engine_vars: set[str],
     argv_vars: set[str],
-) -> None:
+) -> bool:
     if argv_expr_uses_engine_head(argv_expr, engine_vars, argv_vars):
         current.add(f"{relpath}:line={line}:argv:engine-binary")
+        return True
+    return False
 
 
 def add_sync_site_if_engine(
@@ -388,9 +413,11 @@ def add_sync_site_if_engine(
     line: int,
     cmd_expr: str,
     engine_vars: set[str],
-) -> None:
+) -> bool:
     if sync_expr_uses_engine_head(cmd_expr, engine_vars):
         current.add(f"{relpath}:line={line}:sync:engine-binary")
+        return True
+    return False
 
 
 def exec_call_sites(
@@ -412,11 +439,13 @@ def exec_call_sites(
         call_args = stripped[call_start + 1 : call_end - 1]
         line = source.count("\n", 0, match.start()) + 1
         if name in ARGV_EXEC_NAMES:
-            argv_expr = call_option_field(call_args, "argv") or first_call_arg(call_args)
-            add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars)
+            argv_expr = argv_expr_from_call_args(call_args)
+            if argv_expr is not None:
+                add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars)
         elif name in SYNC_EXEC_NAMES:
-            cmd_expr = call_option_field(call_args, "cmd") or first_call_arg(call_args)
-            add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars)
+            cmd_expr = sync_expr_from_call_args(call_args)
+            if cmd_expr is not None:
+                add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars)
     for match in ANY_CALL_RE.finditer(masked):
         name = match.group("name")
         call_start = match.end() - 1
@@ -424,19 +453,29 @@ def exec_call_sites(
         call_args = stripped[call_start + 1 : call_end - 1]
         line = source.count("\n", 0, match.start()) + 1
         if name in {"pcall", "xpcall"}:
-            kind = exec_function_kind(first_call_arg(call_args), argv_exec_vars, sync_exec_vars)
-            if kind == "argv":
+            kinds = exec_function_kinds(first_call_arg(call_args), argv_exec_vars, sync_exec_vars)
+            detected = False
+            if "argv" in kinds:
                 for index in (1, 2):
-                    argv_expr = top_level_table_field_expr(call_arg(call_args, index), "argv")
-                    if argv_expr is not None:
-                        add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars)
+                    argv_expr = argv_expr_from_exec_arg(call_arg(call_args, index))
+                    if argv_expr is not None and add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars):
+                        detected = True
                         break
-            elif kind == "sync":
+            if not detected and "sync" in kinds:
                 for index in (1, 2):
-                    cmd_expr = top_level_table_field_expr(call_arg(call_args, index), "cmd")
-                    if cmd_expr is not None:
-                        add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars)
+                    cmd_expr = sync_expr_from_exec_arg(call_arg(call_args, index))
+                    if cmd_expr is not None and add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars):
                         break
+            continue
+
+        if name in argv_exec_vars:
+            argv_expr = argv_expr_from_call_args(call_args)
+            if argv_expr is not None and add_argv_site_if_engine(current, relpath, line, argv_expr, engine_vars, argv_vars):
+                continue
+        if name in sync_exec_vars:
+            cmd_expr = sync_expr_from_call_args(call_args)
+            if cmd_expr is not None:
+                add_sync_site_if_engine(current, relpath, line, cmd_expr, engine_vars)
             continue
 
         argv_expr = call_option_field(call_args, "argv")
