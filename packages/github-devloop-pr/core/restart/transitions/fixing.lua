@@ -42,7 +42,7 @@ return function(M, h)
           dedup_key = "state.version",
         },
         status = "running",
-        on_error = "fallback-to-marker-budget",
+        on_error = "fail-safe-defer",
       },
     }),
     on_timeout = timeout("devloop_fixing"),

@@ -791,7 +791,7 @@ return {
     t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
   end,
 
-  test_codex_runs_error_falls_back_to_budget_decision = function()
+  test_codex_runs_error_fail_safe_defers_without_timeout_decision = function()
     local event = ready()
     local row = core.restart_transition_row("implementing")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
@@ -821,8 +821,8 @@ return {
         error("synthetic codex_runs failure")
       end
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
-      t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(due, false)
+      t.eq(age, nil)
       local raised, logs = capture_timeout_raises_and_logs(function()
         local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
           repo = repo,
@@ -831,16 +831,12 @@ return {
         }, state, row, facts)
         t.eq(applied, true)
       end)
-      local reraised = captured_raise(raised, "devloop_ready")
-      t.is_true(reraised ~= nil)
-      t.eq(reraised.payload.proposal_id, event.proposal_id)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt:v2", 1, true) ~= nil)
+      t.eq(captured_raise(raised, "devloop_ready"), nil)
+      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
       t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
       local logged_fallback = false
       for _, log in ipairs(logs) do
-        if log.tag == "CODEX_RUNS" and table.concat(log.fields or {}, " "):find("fallback-to-marker-budget", 1, true) ~= nil then
+        if log.tag == "CODEX_RUNS" and table.concat(log.fields or {}, " "):find("fail-safe-defer", 1, true) ~= nil then
           logged_fallback = true
         end
       end
