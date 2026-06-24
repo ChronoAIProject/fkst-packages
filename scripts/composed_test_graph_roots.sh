@@ -56,16 +56,23 @@ collect_package() {
     *" $name "*) return 0 ;;
   esac
   seen+=("$name")
-  if deps="$(composition_siblings_of "$pkg")"; then
-    while IFS= read -r dep || [ -n "$dep" ]; do
-      [ -n "$dep" ] || continue
-      collect_package "$dep" || return 1
-    done <<< "$deps"
-  else
-    rc=$?
-    [ "$rc" -eq 10 ] && return 0
-    return 1
-  fi
+  set +e
+  deps="$(composition_siblings_of "$pkg")"
+  rc=$?
+  set -e
+  case "$rc" in
+    0)
+      while IFS= read -r dep || [ -n "$dep" ]; do
+        [ -n "$dep" ] || continue
+        collect_package "$dep" || return 1
+      done <<< "$deps"
+      ;;
+    1) return 0 ;;
+    *)
+      echo "error: failed to read package composition for $pkg" >&2
+      return 1
+      ;;
+  esac
 }
 
 copy_package() {

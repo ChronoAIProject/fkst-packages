@@ -109,20 +109,22 @@ class ComposedManifestTest(unittest.TestCase):
                     """\
                     set -euo pipefail
                     source scripts/composed_manifest.sh
-                    if is_composed "$COMPOSED_PKG"; then echo composed; fi
-                    if is_composed "$FLAT_PKG"; then echo wrong; else
-                      rc=$?
-                      echo "flat_rc=$rc"
-                    fi
+                    composed_rc=0
+                    is_composed "$COMPOSED_PKG"
+                    composed_rc=$?
+                    flat_rc=0
+                    is_composed "$FLAT_PKG" || flat_rc=$?
+                    echo "composed_rc=$composed_rc"
+                    echo "flat_rc=$flat_rc"
                     """
                 )
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.splitlines(), ["composed", "flat_rc=1"])
+            self.assertEqual(result.stdout.splitlines(), ["composed_rc=0", "flat_rc=1"])
         finally:
             h.close()
 
-    def test_manifest_errors_are_not_flat(self) -> None:
+    def test_helpers_use_unified_flat_and_error_codes(self) -> None:
         h = ComposedManifestHarness()
         try:
             result = h.run_helper(
@@ -130,18 +132,102 @@ class ComposedManifestTest(unittest.TestCase):
                     """\
                     set -euo pipefail
                     source scripts/composed_manifest.sh
-                    if is_composed "$BAD_PKG"; then
-                      echo wrong
-                    else
-                      rc=$?
-                      echo "bad_rc=$rc"
-                      exit "$rc"
-                    fi
+                    is_bad_rc=0
+                    is_composed "$BAD_PKG" >/dev/null || is_bad_rc=$?
+                    deps_flat_rc=0
+                    composition_siblings_of "$FLAT_PKG" >/dev/null || deps_flat_rc=$?
+                    deps_bad_rc=0
+                    composition_siblings_of "$BAD_PKG" >/dev/null || deps_bad_rc=$?
+                    echo "is_bad_rc=$is_bad_rc"
+                    echo "deps_flat_rc=$deps_flat_rc"
+                    echo "deps_bad_rc=$deps_bad_rc"
                     """
                 )
             )
-            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-            self.assertIn("bad_rc=2", result.stdout)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                result.stdout.splitlines(),
+                ["is_bad_rc=2", "deps_flat_rc=1", "deps_bad_rc=2"],
+            )
+            self.assertIn("manifest composition query failed", result.stderr)
+        finally:
+            h.close()
+
+    def test_missing_bin_is_helper_error(self) -> None:
+        h = ComposedManifestHarness()
+        try:
+            result = h.run_helper(
+                textwrap.dedent(
+                    """\
+                    set -euo pipefail
+                    source scripts/composed_manifest.sh
+                    unset BIN
+                    is_rc=0
+                    is_composed "$COMPOSED_PKG" >/dev/null || is_rc=$?
+                    deps_rc=0
+                    composition_siblings_of "$COMPOSED_PKG" >/dev/null || deps_rc=$?
+                    echo "is_rc=$is_rc"
+                    echo "deps_rc=$deps_rc"
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ["is_rc=2", "deps_rc=2"])
+            self.assertIn("BIN is required", result.stderr)
+        finally:
+            h.close()
+
+    def test_is_composed_call_site_hard_fails_manifest_errors(self) -> None:
+        h = ComposedManifestHarness()
+        try:
+            result = h.run_helper(
+                textwrap.dedent(
+                    """\
+                    set -euo pipefail
+                    source scripts/composed_manifest.sh
+                    rc=0; is_composed "$BAD_PKG" || rc=$?
+                    case "$rc" in
+                      0) echo composed ;;
+                      1) echo flat ;;
+                      2) echo "hard-fail"; exit 1 ;;
+                      *) echo "unexpected rc=$rc"; exit 1 ;;
+                    esac
+                    echo after
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.strip(), "hard-fail")
+            self.assertNotIn("after", result.stdout)
+            self.assertIn("manifest composition query failed", result.stderr)
+        finally:
+            h.close()
+
+    def test_command_substitution_call_site_hard_fails_manifest_errors(self) -> None:
+        h = ComposedManifestHarness()
+        try:
+            result = h.run_helper(
+                textwrap.dedent(
+                    """\
+                    set -euo pipefail
+                    source scripts/composed_manifest.sh
+                    set +e
+                    deps="$(composition_siblings_of "$BAD_PKG")"
+                    rc=$?
+                    set -e
+                    case "$rc" in
+                      0) printf 'deps=%s\\n' "$deps" ;;
+                      1) echo flat ;;
+                      2) echo "hard-fail"; exit 1 ;;
+                      *) echo "unexpected rc=$rc"; exit 1 ;;
+                    esac
+                    echo after
+                    """
+                )
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.strip(), "hard-fail")
+            self.assertNotIn("after", result.stdout)
             self.assertIn("manifest composition query failed", result.stderr)
         finally:
             h.close()

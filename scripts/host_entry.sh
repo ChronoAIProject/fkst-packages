@@ -356,17 +356,25 @@ host_entry_cmd_test() {
       echo "=== $name ==="
       ran=$((ran + 1))
       project_root="$(host_entry_package_test_project_root "$pkg")"
-      if is_composed "$pkg"; then
-        echo "skip single-package conformance for composed package: $name"
-      else
-        rc=$?
-        if [ "$rc" -ne 1 ]; then fail=$((fail + 1)); continue; fi
-        conf_cmd=("$BIN" conformance --project-root "$project_root" --package-root "$pkg")
-        if ! run_quiet_pass "${conf_cmd[@]}"; then
+      rc=0
+      is_composed "$pkg" || rc=$?
+      case "$rc" in
+        0)
+          echo "skip single-package conformance for composed package: $name"
+          ;;
+        1)
+          conf_cmd=("$BIN" conformance --project-root "$project_root" --package-root "$pkg")
+          if ! run_quiet_pass "${conf_cmd[@]}"; then
+            fail=$((fail + 1))
+            continue
+          fi
+          ;;
+        *)
+          echo "error: failed to read package composition for $pkg" >&2
           fail=$((fail + 1))
           continue
-        fi
-      fi
+          ;;
+      esac
       report_file="$report_dir/$name.json"
       test_cmd=("$BIN" test --project-root "$project_root" --package-root "$pkg")
       test_cmd+=(--report-json "$report_file")

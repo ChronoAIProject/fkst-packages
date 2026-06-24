@@ -562,13 +562,12 @@ cmd_test() {
     if [ -n "$target" ] && [ "$name" != "$target" ]; then continue; fi
     echo "=== $name ==="
     ran=$((ran + 1))
-    is_pkg_composed=0
-    if is_composed "$pkg"; then
-      is_pkg_composed=1
-    else
-      rc=$?
-      if [ "$rc" -ne 1 ]; then fail=$((fail + 1)); continue; fi
-    fi
+    rc=0; is_composed "$pkg" || rc=$?
+    case "$rc" in
+      0) is_pkg_composed=1 ;;
+      1) is_pkg_composed=0 ;;
+      *) echo "error: failed to read package composition for $pkg" >&2; fail=$((fail + 1)); continue ;;
+    esac
     if [ "$is_pkg_composed" -eq 1 ]; then
       echo "skip single-package conformance for composed package: $name"
     else
@@ -653,16 +652,17 @@ collect_composed_package() {
     *" $name "*) return 0 ;;
   esac
   COMPOSED_SEEN+=("$name")
-  if deps="$(composition_siblings_of "$pkg")"; then
-    while IFS= read -r dep || [ -n "$dep" ]; do
-      [ -n "$dep" ] || continue
-      collect_composed_package "$dep" || return 1
-    done <<< "$deps"
-  else
-    rc=$?
-    [ "$rc" -eq 10 ] && return 0
-    return 1
-  fi
+  set +e; deps="$(composition_siblings_of "$pkg")"; rc=$?; set -e
+  case "$rc" in
+    0)
+      while IFS= read -r dep || [ -n "$dep" ]; do
+        [ -n "$dep" ] || continue
+        collect_composed_package "$dep" || return 1
+      done <<< "$deps"
+      ;;
+    1) return 0 ;;
+    *) echo "error: failed to read package composition for $pkg" >&2; return 1 ;;
+  esac
 }
 
 cmd_test_composed() {
@@ -671,13 +671,12 @@ cmd_test_composed() {
   COMPOSED_SEEN=()
   for pkg in "$LOCAL_PACKAGES_ROOT"/*/ "$EXTERNAL_PACKAGES_ROOT"/*/; do
     [ -d "$pkg" ] || continue
-    if is_composed "$pkg"; then
-      :
-    else
-      rc=$?
-      [ "$rc" -eq 1 ] && continue
-      return 1
-    fi
+    rc=0; is_composed "$pkg" || rc=$?
+    case "$rc" in
+      0) ;;
+      1) continue ;;
+      *) echo "error: failed to read package composition for $pkg" >&2; return 1 ;;
+    esac
     name="$(basename "$pkg")"
     collect_composed_package "$name" || return 1
   done
