@@ -37,8 +37,8 @@ local function observe_facts(opts)
     queues = opts.queues or {
       { queue = "proposal", depth = 0, pending = 0, in_flight = 0, retrying = 0, oldest_pending_age_ms = nil },
     },
-    deliveries = opts.deliveries or {},
-    dead_letters = opts.dead_letters or {},
+    deliveries = opts.deliveries or json.decode("[]"),
+    dead_letters = opts.dead_letters or json.decode("[]"),
   }
   if not opts.omit_generated_at then
     facts.generated_at_ms = opts.generated_at_ms or 1781830860000
@@ -235,8 +235,8 @@ return {
         observe = observe_facts({ truncated = { deliveries = "false", dead_letters = false } }),
       },
       {
-        name = "non-integer-limits",
-        observe = observe_facts({ limits = { max_deliveries = 1.5, max_dead_letters = 500 }, queues = {} }),
+        name = "non-object-limits",
+        observe = observe_facts({ limits = "bad", queues = {} }),
       },
       {
         name = "non-table-queues",

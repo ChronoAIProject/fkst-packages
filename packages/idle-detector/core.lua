@@ -100,6 +100,9 @@ function M.observe(opts)
     if message:find("FKST_DURABLE_ROOT", 1, true) ~= nil then
       error("idle-detector: observe-durable-root-unresolved: " .. message)
     end
+    if message:find("fkst.observe snapshot", 1, true) ~= nil then
+      error("idle-detector: malformed-observe-facts: " .. message)
+    end
     error("idle-detector: observe-unreadable: " .. message)
   end
   return validate_observe_facts(facts)

@@ -17,8 +17,8 @@ local function observe_idle()
       { queue = "idle_tick", depth = 0, pending = 0, in_flight = 0, retrying = 0, oldest_pending_age_ms = nil },
       { queue = "github_poll_tick", depth = 0, pending = 0, in_flight = 0, retrying = 0, oldest_pending_age_ms = nil },
     },
-    deliveries = {},
-    dead_letters = {},
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
   }
 end
 

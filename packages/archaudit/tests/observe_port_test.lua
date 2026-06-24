@@ -19,8 +19,8 @@ local function observe_idle()
     queues = {
       { queue = "proposal", depth = 0, pending = 0, in_flight = 0, retrying = 0 },
     },
-    deliveries = {},
-    dead_letters = {},
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
   }
 end
 

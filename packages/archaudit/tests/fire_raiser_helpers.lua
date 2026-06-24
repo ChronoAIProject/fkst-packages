@@ -123,8 +123,8 @@ local function observe_facts(generated_at_ms, queue)
     queues = {
       queue,
     },
-    deliveries = {},
-    dead_letters = {},
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
   }
 end
 

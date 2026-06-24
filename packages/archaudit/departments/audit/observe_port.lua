@@ -12,6 +12,9 @@ function M.facts(opts)
     if message:find("FKST_DURABLE_ROOT", 1, true) ~= nil then
       error("archaudit: observe-durable-root-unresolved: " .. message)
     end
+    if message:find("fkst.observe snapshot", 1, true) ~= nil then
+      error("archaudit: observe-malformed: " .. message)
+    end
     error("archaudit: observe-unreadable: " .. message)
   end
   return core.validate_observe_facts(facts)
