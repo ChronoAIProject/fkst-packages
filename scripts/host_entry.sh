@@ -308,7 +308,7 @@ host_entry_cmd_check() {
 }
 
 host_entry_cmd_test() {
-  local target="" pkg name project_root ran=0 fail=0 report_dir report_file conf_cmd=() test_cmd=() test_roots=()
+  local target="" pkg name project_root ran=0 fail=0 report_dir report_file conf_cmd=() test_cmd=() test_roots=() rc
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -v|--verbose) FKST_TEST_VERBOSE=1; export FKST_TEST_VERBOSE ;;
@@ -356,9 +356,11 @@ host_entry_cmd_test() {
       echo "=== $name ==="
       ran=$((ran + 1))
       project_root="$(host_entry_package_test_project_root "$pkg")"
-      if [ -f "$pkg/composed.deps" ] || grep -q '^kind = "package\.composed"' "$pkg/fkst.toml" 2>/dev/null; then
+      if is_composed "$pkg"; then
         echo "skip single-package conformance for composed package: $name"
       else
+        rc=$?
+        if [ "$rc" -ne 1 ]; then fail=$((fail + 1)); continue; fi
         conf_cmd=("$BIN" conformance --project-root "$project_root" --package-root "$pkg")
         if ! run_quiet_pass "${conf_cmd[@]}"; then
           fail=$((fail + 1))
