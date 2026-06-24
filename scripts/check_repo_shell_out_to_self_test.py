@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -33,16 +34,25 @@ class ShellOutToSelfRatchetTest(unittest.TestCase):
             check_repo.lua_string_literals,
         )
 
-    def test_detects_exec_argv_to_framework_observe(self) -> None:
+    def test_detects_inline_exec_argv_to_engine_binary(self) -> None:
         source = """
-local bin = "/tmp/fkst-framework"
-local result = exec_argv({ argv = { bin, "observe", "--json" }, timeout = 30 })
+local result = exec_argv({ argv = { BIN, "doctor" }, timeout = 30 })
 """
         sites = self.sites(source)
 
-        self.assertEqual(sites, {"packages/example/core.lua:line=3:argv:observe"})
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
 
-    def test_detects_run_argv_to_named_framework_test(self) -> None:
+    def test_detects_split_constructed_argv_to_engine_binary(self) -> None:
+        source = """
+local framework_bin = os.getenv("BIN")
+local argv = { framework_bin, "observe", "--json" }
+local result = exec_argv({ argv = argv, timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=4:argv:engine-binary"})
+
+    def test_detects_run_argv_literal_engine_binary(self) -> None:
         source = """
 local result = run_argv({
   argv = { "fkst-framework", "test", "--package-root", root },
@@ -50,15 +60,51 @@ local result = run_argv({
 """
         sites = self.sites(source)
 
-        self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:test"})
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
 
-    def test_detects_string_shell_out_to_bin_observe(self) -> None:
+    def test_detects_positional_exec_argv_to_engine_binary(self) -> None:
         source = """
-local cmd = "$BIN observe --json"
+local result = exec_argv({ BIN, "observe" })
 """
         sites = self.sites(source)
 
-        self.assertEqual(sites, {"packages/example/core.lua:line=2:string:observe"})
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:argv:engine-binary"})
+
+    def test_detects_sync_string_shell_out_to_engine_binary(self) -> None:
+        source = """
+local result = exec_sync({ cmd = "$BIN observe --json", timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:sync:engine-binary"})
+
+    def test_detects_positional_sync_string_shell_out_to_engine_binary(self) -> None:
+        source = """
+local result = exec_sync("$BIN observe --json")
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=2:sync:engine-binary"})
+
+    def test_detects_sync_engine_alias(self) -> None:
+        source = """
+local framework_bin = os.getenv("BIN")
+local cmd = framework_bin .. " health"
+local result = run_sync({ cmd = cmd, timeout = 30 })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=4:sync:engine-binary"})
+
+    def test_detects_exec_argv_table_alias_head_from_bin_alias(self) -> None:
+        source = """
+local local_bin = BIN
+local argv = { local_bin, "--self-test" }
+exec_argv({ timeout = 30, argv = argv })
+"""
+        sites = self.sites(source)
+
+        self.assertEqual(sites, {"packages/example/core.lua:line=4:argv:engine-binary"})
 
     def test_ignores_comments(self) -> None:
         source = """
@@ -66,8 +112,50 @@ local cmd = "$BIN observe --json"
 """
         self.assertEqual(self.sites(source), set())
 
+    def test_current_tree_has_zero_violations(self) -> None:
+        root = scripts_dir.parent
+        sites = shell_out.sites(
+            root,
+            check_repo.package_roots(root),
+            check_repo.read_text,
+            check_repo.rel,
+            check_repo.strip_lua_comments_and_strings,
+            check_repo.lua_string_literals,
+        )
+
+        self.assertEqual(sites, set())
+
+    def test_repository_ratchet_catches_inline_and_split_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "packages" / "example"
+            package.mkdir(parents=True)
+            (package / "fkst.toml").write_text('name = "example"\n', encoding="utf-8")
+            (package / "core.lua").write_text(
+                """
+local function inline()
+  return exec_argv({ argv = { BIN, "doctor" }, timeout = 30 })
+end
+
+local function split()
+  local framework_bin = os.getenv("BIN")
+  local argv = { framework_bin, "observe", "--json" }
+  return exec_argv({ argv = argv, timeout = 30 })
+end
+""",
+                encoding="utf-8",
+            )
+
+            violations: list[str] = []
+            check_repo.check_shell_out_to_self_ratchet(root, violations)
+
+        self.assertEqual(len(violations), 2)
+        self.assertTrue(all("G-SHELL-OUT-TO-SELF" in violation for violation in violations))
+        self.assertTrue(any("line=3:argv:engine-binary" in violation for violation in violations))
+        self.assertTrue(any("line=9:argv:engine-binary" in violation for violation in violations))
+
     def test_allowlist_and_stale_entries(self) -> None:
-        site = "packages/example/core.lua:line=2:argv:observe"
+        site = "packages/example/core.lua:line=2:argv:engine-binary"
         current = {site}
 
         self.assertEqual(shell_out.ratchet_messages(current, {site}), [])

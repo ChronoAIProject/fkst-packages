@@ -8,27 +8,14 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 ALLOWLIST = "migration/shell-out-to-self.allowlist"
-ENGINE_SELF_SUBCOMMANDS = {
-    "observe",
-    "test",
-    "run",
-    "supervise",
-    "health",
-    "conformance",
-    "self-test",
-    "--self-test",
-}
-ARGV_RE = re.compile(
-    r"\b(?:exec_argv|run_argv)\s*\([^)]*\bargv\s*=\s*\{[^}]*"
-    r"(?:\b(?:BIN|bin|framework_bin)\b|['\"]fkst-framework['\"])[^}]*,\s*"
-    r"['\"](?P<subcommand>[A-Za-z0-9_-]+)['\"]",
-    re.DOTALL,
-)
-SYNC_RE = re.compile(
-    r"\b(?:exec_sync|run_sync)\s*\([^)]*(?:fkst-framework|\bBIN\b|\bbin\b|\bframework_bin\b)"
-    r"[^)]*['\"](?P<subcommand>[A-Za-z0-9_-]+)['\"]",
-    re.DOTALL,
-)
+# This ratchet is best-effort DETECT coverage. The true PREVENT follow-up is an
+# engine capability boundary where package code never receives the engine binary.
+ENGINE_BASE_NAMES = {"BIN", "bin", "framework_bin"}
+ARGV_EXEC_NAMES = {"exec_argv", "run_argv"}
+SYNC_EXEC_NAMES = {"exec_sync", "run_sync"}
+EXEC_CALL_RE = re.compile(r"\b(?P<name>exec_argv|exec_sync|run_argv|run_sync)\s*\(")
+ASSIGN_RE = re.compile(r"\b(?:local\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=")
+IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
@@ -40,6 +27,19 @@ def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
     if cursor >= len(text) or text[cursor] != "[":
         return None
     return cursor - index + 1, "]" + ("=" * (cursor - index - 1)) + "]"
+
+
+def end_of_quoted_string(text: str, start: int) -> int:
+    quote = text[start]
+    cursor = start + 1
+    while cursor < len(text):
+        if text[cursor] == "\\":
+            cursor += 2
+            continue
+        if text[cursor] == quote:
+            return cursor + 1
+        cursor += 1
+    return len(text)
 
 
 def end_of_long_bracket(text: str, body_start: int, closer: str) -> int:
@@ -68,8 +68,255 @@ def strip_lua_comments(text: str) -> str:
             mask_span(chars, cursor, end)
             cursor = end
             continue
+        if text[cursor] in ("'", '"'):
+            cursor = end_of_quoted_string(text, cursor)
+            continue
+        bracket = long_bracket_at(text, cursor)
+        if bracket is not None:
+            opener_len, closer = bracket
+            cursor = end_of_long_bracket(text, cursor + opener_len, closer)
+            continue
         cursor += 1
     return "".join(chars)
+
+
+def skip_ws(text: str, cursor: int) -> int:
+    while cursor < len(text) and text[cursor].isspace():
+        cursor += 1
+    return cursor
+
+
+def skip_lua_string(text: str, cursor: int) -> int:
+    if cursor >= len(text):
+        return cursor
+    if text[cursor] in ("'", '"'):
+        return end_of_quoted_string(text, cursor)
+    bracket = long_bracket_at(text, cursor)
+    if bracket is not None:
+        opener_len, closer = bracket
+        return end_of_long_bracket(text, cursor + opener_len, closer)
+    return cursor + 1
+
+
+def find_matching(text: str, start: int, opener: str, closer: str) -> int:
+    depth = 0
+    cursor = start
+    while cursor < len(text):
+        if text[cursor] in ("'", '"') or long_bracket_at(text, cursor) is not None:
+            cursor = skip_lua_string(text, cursor)
+            continue
+        if text[cursor] == opener:
+            depth += 1
+        elif text[cursor] == closer:
+            depth -= 1
+            if depth == 0:
+                return cursor + 1
+        cursor += 1
+    return len(text)
+
+
+def expression_end(text: str, start: int) -> int:
+    cursor = skip_ws(text, start)
+    if cursor >= len(text):
+        return cursor
+    if text[cursor] == "{":
+        return find_matching(text, cursor, "{", "}")
+    depth = 0
+    while cursor < len(text):
+        if text[cursor] in ("'", '"') or long_bracket_at(text, cursor) is not None:
+            cursor = skip_lua_string(text, cursor)
+            continue
+        char = text[cursor]
+        if char in "({[":
+            depth += 1
+        elif char in ")}]":
+            if depth == 0:
+                return cursor
+            depth -= 1
+        elif depth == 0 and char in ",\n":
+            return cursor
+        cursor += 1
+    return cursor
+
+
+def parse_literal_content(expr: str) -> str | None:
+    text = expr.strip()
+    if not text:
+        return None
+    if text[0] in ("'", '"'):
+        end = end_of_quoted_string(text, 0)
+        if end <= len(text) and end > 1 and text[end - 1] == text[0]:
+            return text[1 : end - 1]
+        return text[1:end]
+    bracket = long_bracket_at(text, 0)
+    if bracket is None:
+        return None
+    opener_len, closer = bracket
+    body_start = opener_len
+    close_start = text.find(closer, body_start)
+    body_end = len(text) if close_start == -1 else close_start
+    return text[body_start:body_end]
+
+
+def strip_outer_parens(expr: str) -> str:
+    text = expr.strip()
+    while text.startswith("(") and find_matching(text, 0, "(", ")") == len(text):
+        text = text[1:-1].strip()
+    return text
+
+
+def split_top_level_args(text: str) -> list[str]:
+    args: list[str] = []
+    start = 0
+    depth = 0
+    cursor = 0
+    while cursor < len(text):
+        if text[cursor] in ("'", '"') or long_bracket_at(text, cursor) is not None:
+            cursor = skip_lua_string(text, cursor)
+            continue
+        char = text[cursor]
+        if char in "({[":
+            depth += 1
+        elif char in ")}]":
+            depth = max(depth - 1, 0)
+        elif char == "," and depth == 0:
+            args.append(text[start:cursor])
+            start = cursor + 1
+        cursor += 1
+    args.append(text[start:])
+    return args
+
+
+def field_expr(text: str, field: str, strip_lua_comments_and_strings: Callable[[str], str]) -> str | None:
+    masked = strip_lua_comments_and_strings(text)
+    for match in re.finditer(rf"\b{re.escape(field)}\s*=", masked):
+        start = match.end()
+        end = expression_end(text, start)
+        return text[start:end].strip()
+    return None
+
+
+def table_head_expr(expr: str) -> str | None:
+    text = strip_outer_parens(expr)
+    start = skip_ws(text, 0)
+    if start >= len(text) or text[start] != "{":
+        return None
+    end = find_matching(text, start, "{", "}")
+    body = text[start + 1 : end - 1]
+    for arg in split_top_level_args(body):
+        candidate = arg.strip()
+        if not candidate:
+            continue
+        indexed = re.match(r"^\[\s*1\s*\]\s*=(?P<value>.*)\Z", candidate, re.DOTALL)
+        if indexed is not None:
+            return indexed.group("value").strip()
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*=", candidate):
+            continue
+        if candidate.startswith("["):
+            continue
+        return candidate
+    return None
+
+
+def literal_is_engine_binary(content: str) -> bool:
+    tokens = content.strip().split()
+    head = tokens[0] if tokens else content
+    return (
+        head == "fkst-framework"
+        or head.endswith("/fkst-framework")
+        or head in {"$BIN", "${BIN}"}
+        or content == "fkst-framework"
+        or content.endswith("/fkst-framework")
+    )
+
+
+def expr_mentions_engine(expr: str, engine_vars: set[str]) -> bool:
+    text = strip_outer_parens(expr)
+    literal = parse_literal_content(text)
+    if literal is not None:
+        return literal_is_engine_binary(literal)
+    if "fkst-framework" in text or "$BIN" in text or "${BIN}" in text:
+        return True
+    if re.search(r"\bos\s*\.\s*getenv\s*\(\s*['\"]BIN['\"]\s*\)", text):
+        return True
+    return any(re.search(rf"\b{re.escape(name)}\b", text) for name in engine_vars)
+
+
+def collect_engine_bindings(source: str, strip_lua_comments_and_strings: Callable[[str], str]) -> tuple[set[str], set[str]]:
+    engine_vars = set(ENGINE_BASE_NAMES)
+    argv_vars: set[str] = set()
+    assignments: list[tuple[str, str]] = []
+    stripped = strip_lua_comments(source)
+    masked = strip_lua_comments_and_strings(stripped)
+    for match in ASSIGN_RE.finditer(masked):
+        expr_start = match.end()
+        expr = stripped[expr_start:expression_end(stripped, expr_start)].strip()
+        if expr:
+            assignments.append((match.group("name"), expr))
+
+    changed = True
+    while changed:
+        changed = False
+        for name, expr in assignments:
+            head = table_head_expr(expr)
+            if head is not None and expr_mentions_engine(head, engine_vars):
+                if name not in argv_vars:
+                    argv_vars.add(name)
+                    changed = True
+                continue
+            if expr_mentions_engine(expr, engine_vars):
+                if name not in engine_vars:
+                    engine_vars.add(name)
+                    changed = True
+    return engine_vars, argv_vars
+
+
+def argv_expr_uses_engine_head(expr: str, engine_vars: set[str], argv_vars: set[str]) -> bool:
+    text = strip_outer_parens(expr)
+    if text in argv_vars:
+        return True
+    if IDENT_RE.fullmatch(text) and text in engine_vars:
+        return True
+    head = table_head_expr(text)
+    if head is not None:
+        return expr_mentions_engine(head, engine_vars)
+    return False
+
+
+def sync_expr_uses_engine_head(expr: str, engine_vars: set[str]) -> bool:
+    return expr_mentions_engine(expr, engine_vars)
+
+
+def first_call_arg(call_args: str) -> str:
+    args = split_top_level_args(call_args)
+    return args[0].strip() if args else ""
+
+
+def exec_call_sites(
+    relpath: str,
+    source: str,
+    strip_lua_comments_and_strings: Callable[[str], str],
+    engine_vars: set[str],
+    argv_vars: set[str],
+) -> set[str]:
+    current: set[str] = set()
+    stripped = strip_lua_comments(source)
+    masked = strip_lua_comments_and_strings(stripped)
+    for match in EXEC_CALL_RE.finditer(masked):
+        name = match.group("name")
+        call_start = match.end() - 1
+        call_end = find_matching(stripped, call_start, "(", ")")
+        call_args = stripped[call_start + 1 : call_end - 1]
+        line = source.count("\n", 0, match.start()) + 1
+        if name in ARGV_EXEC_NAMES:
+            argv_expr = field_expr(call_args, "argv", strip_lua_comments_and_strings) or first_call_arg(call_args)
+            if argv_expr_uses_engine_head(argv_expr, engine_vars, argv_vars):
+                current.add(f"{relpath}:line={line}:argv:engine-binary")
+        elif name in SYNC_EXEC_NAMES:
+            cmd_expr = field_expr(call_args, "cmd", strip_lua_comments_and_strings) or first_call_arg(call_args)
+            if sync_expr_uses_engine_head(cmd_expr, engine_vars):
+                current.add(f"{relpath}:line={line}:sync:engine-binary")
+    return current
 
 
 def load_allowlist(path: Path) -> set[str]:
@@ -78,30 +325,10 @@ def load_allowlist(path: Path) -> set[str]:
     return {line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.lstrip().startswith("#")}
 
 
-def literal_sites(relpath: str, literal) -> set[str]:
-    content = literal.content
-    if "fkst-framework" not in content and " observe " not in content and " test " not in content and " run " not in content:
-        return set()
-    tokens = content.split()
-    if not any(token.endswith("fkst-framework") or token == "fkst-framework" or "$BIN" in token or "${BIN}" in token for token in tokens):
-        return set()
-    return {f"{relpath}:line={literal.line}:string:{token}" for token in tokens if token in ENGINE_SELF_SUBCOMMANDS}
-
-
 def source_sites(relpath: str, source: str, strip_lua_comments_and_strings: Callable[[str], str], lua_string_literals: Callable[[str], Iterable]) -> set[str]:
-    current: set[str] = set()
-    stripped = strip_lua_comments(source)
-    for match in ARGV_RE.finditer(stripped):
-        subcommand = match.group("subcommand")
-        if subcommand in ENGINE_SELF_SUBCOMMANDS:
-            current.add(f"{relpath}:line={source.count(chr(10), 0, match.start()) + 1}:argv:{subcommand}")
-    for match in SYNC_RE.finditer(stripped):
-        subcommand = match.group("subcommand")
-        if subcommand in ENGINE_SELF_SUBCOMMANDS:
-            current.add(f"{relpath}:line={source.count(chr(10), 0, match.start()) + 1}:sync:{subcommand}")
-    for literal in lua_string_literals(source):
-        current.update(literal_sites(relpath, literal))
-    return current
+    del lua_string_literals
+    engine_vars, argv_vars = collect_engine_bindings(source, strip_lua_comments_and_strings)
+    return exec_call_sites(relpath, source, strip_lua_comments_and_strings, engine_vars, argv_vars)
 
 
 def sites(root: Path, package_roots: list[Path], read_text, rel, strip_lua_comments_and_strings, lua_string_literals) -> set[str]:
@@ -118,7 +345,7 @@ def sites(root: Path, package_roots: list[Path], read_text, rel, strip_lua_comme
 
 def ratchet_messages(current: set[str], allowlist: set[str]) -> list[str]:
     messages = [
-        f"{site} shells out to the framework binary; use the in-process SDK primitive instead or list pre-existing debt in {ALLOWLIST}"
+        f"{site} shells out to the framework binary; use an in-process SDK primitive instead or list pre-existing debt in {ALLOWLIST}"
         for site in sorted(current - allowlist)
     ]
     messages.extend(
