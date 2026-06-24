@@ -791,17 +791,23 @@ return {
     t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
   end,
 
-  test_codex_runs_error_fail_safe_defers_without_timeout_decision = function()
+  test_codex_runs_error_falls_back_to_marker_budget_timeout_decision = function()
     local event = ready()
     local row = core.restart_transition_row("implementing")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
+    local timeout_version = event.dedup_key .. "/timeout/implementing/2"
     local state = {
       state = "implementing",
-      version = event.dedup_key,
+      version = timeout_version,
       proposal_id = event.proposal_id,
       marker_created_at = "2026-06-03T00:00:00Z",
     }
     local comments = {
+      {
+        body = core.state_marker(event.proposal_id, "implementing", timeout_version),
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T00:00:00Z",
+      },
       {
         body = core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 60), exec_ref),
         author_login = "fkst-test-bot",
@@ -821,8 +827,11 @@ return {
         error("synthetic codex_runs failure")
       end
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
-      t.eq(due, false)
-      t.eq(age, nil)
+      t.eq(due, true)
+      t.eq(age, 180)
+      local eval = facts.actionable_epoch_eval
+      table.insert(comments, timeout_attempt_v2_comment(row, eval.generation_key, 1, "2026-06-03T00:01:00Z"))
+      table.insert(comments, timeout_attempt_v2_comment(row, eval.generation_key, 2, "2026-06-03T00:02:00Z"))
       local raised, logs = capture_timeout_raises_and_logs(function()
         local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
           repo = repo,
@@ -833,10 +842,13 @@ return {
       end)
       t.eq(captured_raise(raised, "devloop_ready"), nil)
       t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.round, 3)
       local logged_fallback = false
       for _, log in ipairs(logs) do
-        if log.tag == "CODEX_RUNS" and table.concat(log.fields or {}, " "):find("fail-safe-defer", 1, true) ~= nil then
+        if log.tag == "CODEX_RUNS" and table.concat(log.fields or {}, " "):find("marker-budget-fallback", 1, true) ~= nil then
           logged_fallback = true
         end
       end

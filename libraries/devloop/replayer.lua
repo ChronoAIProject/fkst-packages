@@ -531,8 +531,8 @@ local function replay_implementing(dept, issue, state, row, facts)
     end
   end
   local live = M.restart_row_liveness_signal(row, state, facts, facts.now_seconds or now())
-  if live.live or live.codex_runs_fallback == true or live.indeterminate == true then
-    return log_skip(dept, proposal_id, state, "implementing", row.driving_queue, "skip-pending(codex-run-live)", "matching implement codex run is still running or cannot be safely bounded")
+  if live.live then
+    return log_skip(dept, proposal_id, state, "implementing", row.driving_queue, "skip-pending(codex-run-live)", "matching implement codex run is still running")
   end
   -- Pass the INNER (unwrapped) version: build_devloop_ready_payload re-applies
   -- the "ready/" wrapper, so re-wrapping the already-wrapped state.version would

@@ -51,7 +51,7 @@ local function devloop_restart_liveness_policy()
     codex_run = {
       primitive = "fkst.codex_runs",
       status = "running",
-      on_error = "fail-safe-defer",
+      on_error = "marker-budget-fallback",
     },
     child_workflow_wait = {
       live_marker = "state:v1",
