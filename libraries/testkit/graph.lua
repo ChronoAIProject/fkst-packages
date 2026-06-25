@@ -67,7 +67,7 @@ end
 -- reads the static `covers` declarations, trusting them because this assertion
 -- would fail the test otherwise.
 function M.parse_coverage_edge(edge)
-  local queue, consumer = tostring(edge):match("^%s*(.-)%s*%-%->%s*(.-)%s*$")
+  local queue, consumer = tostring(edge):match("^%s*(.-)%s*%->%s*(.-)%s*$")
   if not queue or queue == "" or not consumer or consumer == "" then
     error("invalid coverage edge id (want '<queue> -> <pkg.dept>'): " .. tostring(edge), 3)
   end
