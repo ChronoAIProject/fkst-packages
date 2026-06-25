@@ -1,2 +1,0 @@
-{"edge":"consensus.consensus_converge -> github-devloop-pr.review_loop","reason":"baseline"}
-{"edge":"consensus.consensus_reached -> github-devloop-pr.review_result","reason":"baseline"}
