@@ -27,7 +27,7 @@ local function mock_bot_env()
   end
 end
 
-local function mock_repo_env()
+local function mock_repo_env(repo)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
     stdout = "dev",
     stderr = "",
@@ -44,7 +44,7 @@ local function mock_repo_env()
     exit_code = 0,
   })
   t.mock_command('printf %s "$FKST_GITHUB_REPO"', {
-    stdout = "owner/repo",
+    stdout = repo or "owner/repo",
     stderr = "",
     exit_code = 0,
   })
@@ -82,11 +82,11 @@ local function mock_scan_view(number, labels)
   }, "title,labels,comments,state,assignees,author")
 end
 
-local function run_scan()
+local function run_scan(test_name)
   return t.run_department("departments/intake_scan/main.lua", {
     queue = "devloop_intake_tick",
     payload = { schema = "github-devloop.intake-tick.v1" },
-  }, opts("intake-scan-claim-permission-denied"))
+  }, opts(test_name or "intake-scan-claim-permission-denied"))
 end
 
 return {
