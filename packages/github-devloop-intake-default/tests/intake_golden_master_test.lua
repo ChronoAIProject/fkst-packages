@@ -52,20 +52,6 @@ local function mock_issue_list(issues)
   })
 end
 
-local function mock_intake_scan_view(fields)
-  entity_read_mocks.mock_issue_view_selector(t, {
-    number = fields.number,
-    title = fields.title or "Issue",
-    body = fields.body or "",
-    updated_at = fields.updated_at or "2026-06-03T01:02:03Z",
-    state = fields.state or "OPEN",
-    labels = fields.labels or {},
-    comments = fields.comments or {},
-    assignees = fields.assignees or { "fkst-test-bot" },
-    author_login = fields.author_login or "fkst-test-bot",
-  }, "title,labels,comments,state,assignees,author")
-end
-
 local function mock_intake_judge_view(labels, comments, extra)
   local fields = extra or {}
   local assignees_json = fields.assignees_json or '{"login":"fkst-test-bot"}'

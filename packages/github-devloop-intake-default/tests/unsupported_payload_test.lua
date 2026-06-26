@@ -38,8 +38,6 @@ end
 local function payload_for_queue(queue)
   local payloads = {
     ["github-devloop-intake.devloop_intake_candidate"] = core.build_devloop_intake_candidate_payload("owner/repo", "42", "2026-06-03T01:02:03Z"),
-    devloop_intake_probe_tick = { schema = "github-devloop.intake-probe-tick.v1" },
-    devloop_intake_tick = { schema = "github-devloop.intake-tick.v1" },
   }
   local payload = payloads[queue]
   if payload == nil then

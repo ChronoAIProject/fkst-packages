@@ -38,9 +38,18 @@ end
 local function payload_for_queue(queue)
   local payloads = {
     cache_seed = { key = "github-devloop-intake/test-cache", value = "1" },
-    devloop_intake_candidate = core.build_devloop_intake_candidate_payload("owner/repo", "42", "2026-06-03T01:02:03Z"),
-    devloop_intake_probe_tick = { schema = "github-devloop.intake-probe-tick.v1" },
-    devloop_intake_tick = { schema = "github-devloop.intake-tick.v1" },
+    ["github-proxy.github_entity_changed"] = {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = "owner/repo",
+      number = 42,
+      title = "Namespaced dispatch probe",
+      state = "CLOSED",
+      labels = {},
+      updated_at = "2026-06-03T01:02:03Z",
+      dedup_key = "owner/repo#issue#42@2026-06-03T01:02:03Z",
+      source_ref = core.issue_source_ref("owner/repo", 42),
+    },
   }
   local payload = payloads[queue]
   if payload == nil then

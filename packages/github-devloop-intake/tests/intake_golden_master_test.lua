@@ -12,58 +12,45 @@ local function mock_repo_env(repo)
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
 end
 
-local function encode_labels_json(labels)
-  local rendered = {}
-  for _, label in ipairs(labels or {}) do
-    table.insert(rendered, string.format('{"name":"%s"}', h.encode_json_string(label)))
-  end
-  return table.concat(rendered, ",")
+local function source_ref(number)
+  return core.issue_source_ref("owner/repo", number or 42)
 end
 
-local function comments_json(comments)
-  local rendered = {}
-  for _, comment in ipairs(comments or {}) do
-    table.insert(rendered, h.render_comment(comment))
-  end
-  return table.concat(rendered, ",")
+local function event(fields)
+  local f = fields or {}
+  local number = f.number or 42
+  local updated_at = f.updated_at or "2026-06-03T01:02:03Z"
+  return {
+    queue = "github-proxy.github_entity_changed",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = "owner/repo",
+      number = number,
+      title = f.title or "Issue",
+      state = f.state or "OPEN",
+      labels = f.labels or {},
+      updated_at = updated_at,
+      dedup_key = "owner/repo#issue#" .. tostring(number) .. "@" .. tostring(updated_at),
+      source_ref = source_ref(number),
+    },
+    source_ref = source_ref(number),
+  }
 end
 
-local function issue_list_json(issues)
-  local rendered = {}
-  for _, issue in ipairs(issues or {}) do
-    table.insert(rendered, string.format(
-      '{"number":%d,"title":"%s","body":"%s","createdAt":"%s","updatedAt":"%s","labels":[%s],"assignees":[%s],"author":{"login":"%s"}}',
-      issue.number,
-      h.encode_json_string(issue.title or "Issue"),
-      h.encode_json_string(issue.body or ""),
-      h.encode_json_string(issue.created_at or "2026-06-03T01:00:00Z"),
-      h.encode_json_string(issue.updated_at or "2026-06-03T01:02:03Z"),
-      encode_labels_json(issue.labels or {}),
-      issue.assignees_json or '{"login":"fkst-test-bot"}',
-      h.encode_json_string(issue.author_login or "fkst-test-bot")
-    ))
-  end
-  return "[" .. table.concat(rendered, ",") .. "]"
-end
-
-local function mock_issue_list(issues)
-  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_intake_cmd("owner/repo", 100), {
-    stdout = issue_list_json(issues) .. "\n",
-  })
-end
-
-local function mock_intake_scan_view(fields)
+local function mock_issue(fields)
+  local f = fields or {}
   entity_read_mocks.mock_issue_view_selector(t, {
-    number = fields.number,
-    title = fields.title or "Issue",
-    body = fields.body or "",
-    updated_at = fields.updated_at or "2026-06-03T01:02:03Z",
-    state = fields.state or "OPEN",
-    labels = fields.labels or {},
-    comments = fields.comments or {},
-    assignees = fields.assignees or { "fkst-test-bot" },
-    author_login = fields.author_login or "fkst-test-bot",
-  }, "title,labels,comments,state,assignees,author")
+    number = f.number or 42,
+    title = f.title or "Issue",
+    body = f.body or "",
+    updated_at = f.updated_at or "2026-06-03T01:02:03Z",
+    state = f.state or "OPEN",
+    labels = f.labels or {},
+    comments = f.comments or {},
+    assignees = f.assignees or { "fkst-test-bot" },
+    author_login = f.author_login or "fkst-test-bot",
+  }, "title,body,updatedAt,labels,comments,state,assignees,author")
 end
 
 local function trusted_reintake_command(id)
@@ -75,11 +62,8 @@ local function trusted_reintake_command(id)
   }
 end
 
-local function run_scan(run_opts)
-  return t.run_department("departments/intake_scan/main.lua", {
-    queue = "devloop_intake_tick",
-    payload = { schema = "github-devloop.intake-tick.v1" },
-  }, run_opts)
+local function run_admission(run_opts)
+  return t.run_department("departments/admission/main.lua", event(), run_opts)
 end
 
 local function assert_queues(raises, expected)
@@ -113,7 +97,7 @@ local function assert_no_codex_or_issue_edit()
   t.eq(h.count_calls("gh issue edit"), 0)
 end
 
-local function assert_scan_candidate_delivery_key(payload)
+local function assert_admission_candidate_delivery_key(payload)
   local prefix = "intake-candidate/"
     .. tostring(payload.proposal_id)
     .. "/"
@@ -130,13 +114,12 @@ local function assert_scan_candidate_delivery_key(payload)
 end
 
 return {
-  test_golden_scan_open_unmanaged_raises_candidate = function()
+  test_golden_admission_open_unmanaged_raises_candidate = function()
     h.mock_bot_env()
     mock_repo_env()
-    mock_issue_list({ { number = 42, labels = {}, title = "Issue", body = "", updated_at = "2026-06-03T01:02:03Z" } })
-    mock_intake_scan_view({ number = 42, labels = {}, title = "Issue", body = "" })
+    mock_issue({ number = 42, labels = {}, title = "Issue", body = "" })
 
-    local result = run_scan(opts("golden-scan-open-unmanaged"))
+    local result = run_admission(opts("golden-admission-open-unmanaged"))
 
     t.eq(result.exit_code, 0)
     assert_queues(result.raises, { "devloop_intake_candidate" })
@@ -146,19 +129,18 @@ return {
     t.eq(payload.issue_number, "42")
     t.eq(payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(payload.effect_id, core.intake_decision_dedup_key(payload.proposal_id, { title = "Issue", body = "" }))
-    assert_scan_candidate_delivery_key(payload)
+    assert_admission_candidate_delivery_key(payload)
     assert_source_ref(payload)
   end,
 
-  test_golden_scan_refuses_reintake_without_existing_intake = function()
+  test_golden_admission_refuses_reintake_without_existing_intake = function()
     local command = trusted_reintake_command("IC_reintake_no_marker")
     local command_fact = core.operator_command_fact({ command }, "reintake")
     h.mock_bot_env()
     mock_repo_env()
-    mock_issue_list({ { number = 42, labels = {} } })
-    mock_intake_scan_view({ number = 42, labels = {}, comments = { command } })
+    mock_issue({ number = 42, labels = {}, comments = { command } })
 
-    local result = run_scan(opts("golden-scan-reintake-refusal"))
+    local result = run_admission(opts("golden-admission-reintake-refusal"))
 
     t.eq(result.exit_code, 0)
     assert_queues(result.raises, { "github-proxy.github_issue_comment_request" })
@@ -175,31 +157,18 @@ return {
     t.is_true(request.body:find('outcome="refused"', 1, true) ~= nil)
   end,
 
-  test_golden_scan_claim_skip_known_state_hold_and_foreign_assignee = function()
+  test_golden_admission_claim_skip_known_state_hold_and_foreign_assignee = function()
     local cases = {
-      {
-        name = "known-state",
-        list = { number = 42, labels = { "fkst-dev:thinking" } },
-        view = { number = 42, labels = { "fkst-dev:thinking" } },
-      },
-      {
-        name = "hold",
-        list = { number = 42, labels = { "fkst-dev:hold" } },
-        view = { number = 42, labels = { "fkst-dev:hold" } },
-      },
-      {
-        name = "foreign-assignee",
-        list = { number = 42, labels = {} },
-        view = { number = 42, labels = {}, assignees = { "other-bot" } },
-      },
+      { name = "known-state", view = { labels = { "fkst-dev:thinking" } } },
+      { name = "hold", view = { labels = { "fkst-dev:hold" } } },
+      { name = "foreign-assignee", view = { labels = {}, assignees = { "other-bot" } } },
     }
     for _, case in ipairs(cases) do
       h.mock_bot_env()
       mock_repo_env()
-      mock_issue_list({ case.list })
-      mock_intake_scan_view(case.view)
+      mock_issue(case.view)
 
-      local result = run_scan(opts("golden-scan-skip-" .. case.name))
+      local result = run_admission(opts("golden-admission-skip-" .. case.name))
 
       t.eq(result.exit_code, 0)
       t.eq(#result.raises, 0)
