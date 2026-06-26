@@ -9,4 +9,4 @@ root = "."
 libraries = ["contract", "workflow", "testkit", "forge", "devloop"]
 
 [event_deps]
-packages = ["github-proxy", "consensus"]
+packages = ["github-proxy"]

@@ -38,9 +38,18 @@ end
 local function payload_for_queue(queue)
   local payloads = {
     cache_seed = { key = "github-devloop-intake/test-cache", value = "1" },
-    devloop_intake_candidate = core.build_devloop_intake_candidate_payload("owner/repo", "42", "2026-06-03T01:02:03Z"),
-    devloop_intake_probe_tick = { schema = "github-devloop.intake-probe-tick.v1" },
-    devloop_intake_tick = { schema = "github-devloop.intake-tick.v1" },
+    ["github-proxy.github_entity_changed"] = {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = "owner/repo",
+      number = 42,
+      title = "Namespaced dispatch probe",
+      state = "CLOSED",
+      labels = {},
+      updated_at = "2026-06-03T01:02:03Z",
+      dedup_key = "owner/repo#issue#42@2026-06-03T01:02:03Z",
+      source_ref = core.issue_source_ref("owner/repo", 42),
+    },
   }
   local payload = payloads[queue]
   if payload == nil then
@@ -69,14 +78,6 @@ local function assert_no_unsupported_queue_fallthrough(path, queue, _ok, err, lo
   end
 end
 
-local cases = {
-  {
-    dept = "intake_judge",
-    path = "departments/intake_judge/main.lua",
-    queue = "devloop_intake_candidate",
-  },
-}
-
 return {
   test_all_departments_accept_production_namespaced_consumed_queues = function()
     for _, path in ipairs(department_paths()) do
@@ -88,20 +89,6 @@ return {
         }
         local ok, err, logs = run_department_with_logs(path, event)
         assert_no_unsupported_queue_fallthrough(path, queue, ok, err, logs)
-      end
-    end
-  end,
-
-  test_unsupported_payload_consumers_skip_non_table_payloads = function()
-    for _, case in ipairs(cases) do
-      for _, payload in ipairs({ false, "foreign-payload", 42 }) do
-        local result = t.run_department(case.path, {
-          queue = case.queue,
-          payload = payload,
-        })
-
-        t.eq(result.exit_code, 0)
-        t.eq(#result.raises, 0)
       end
     end
   end,
