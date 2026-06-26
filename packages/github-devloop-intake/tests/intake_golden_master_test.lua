@@ -266,34 +266,15 @@ local function assert_enable_successor(raises, offset, payload, expected_key, se
     end
   end
 
-  local thinking_comment = raises[offset + 1].payload
-  assert_common_issue_request(thinking_comment, "github-proxy.v1", core._dedup_key({
-    payload.proposal_id,
-    "comment",
-    "thinking",
-    expected_key,
-  }))
-  t.is_true(thinking_comment.body:find(core.state_marker(payload.proposal_id, "thinking", expected_key), 1, true) ~= nil)
-
-  local thinking_label = raises[offset + 2].payload
-  assert_common_issue_request(thinking_label, "github-proxy.label.v1", expected_key .. "/label/thinking")
-  t.eq(thinking_label.add_labels[1], "fkst-dev:thinking")
-  t.eq(thinking_label.label_colors["fkst-dev:thinking"], "8250DF")
-  t.is_true(has_value(thinking_label.remove_labels, "fkst-dev:ready"))
-  t.is_true(has_value(thinking_label.remove_labels, "fkst-dev:blocked"))
-
-  local proposal = raises[offset + 3].payload
-  t.eq(proposal.schema, "consensus.proposal.v1")
-  t.eq(proposal.verdict_mode, "converge")
-  t.eq(proposal.proposal_id, payload.proposal_id)
-  t.eq(proposal.dedup_key, expected_key)
-  t.eq(proposal.effect_version, expected_key)
-  assert_source_ref(proposal)
-  t.eq(proposal.intake_hand_off.kind, "own-intake-decision")
-  t.eq(proposal.intake_hand_off.decision, "enable")
-  t.eq(proposal.intake_hand_off.dedup_key, expected_key)
-  assert_source_ref(proposal.intake_hand_off)
-  t.is_true(tostring(proposal.content_fetch or ""):find("^runtime%-cache:") ~= nil)
+  local request = raises[offset + 1].payload
+  t.eq(request.schema, "github-devloop.execution-request.v1")
+  t.eq(request.proposal_id, payload.proposal_id)
+  t.eq(request.dedup_key, expected_key)
+  t.eq(request.service_class, service_class)
+  assert_source_ref(request)
+  t.eq(request.origin.package, "github-devloop-intake")
+  t.eq(request.origin.route, "intake_judge")
+  t.eq(request.origin.decision, "enable")
 end
 
 local function assert_no_codex_or_issue_edit()
@@ -408,9 +389,7 @@ return {
     assert_queues(result.raises, {
       "github-proxy.github_issue_comment_request",
       "github-proxy.github_issue_label_request",
-      "github-proxy.github_issue_comment_request",
-      "github-proxy.github_issue_label_request",
-      "consensus.proposal",
+      "github-devloop.devloop_execute_request",
     })
     assert_decision_comment(result.raises[1].payload, "enable", "expedite", expected_key, "Clear bounded implementation task.")
     assert_enable_successor(result.raises, 2, payload, expected_key, "expedite")

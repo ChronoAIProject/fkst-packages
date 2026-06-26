@@ -108,26 +108,20 @@ end
 local function expected_scan_effect_key(proposal_id, issue, command)
   return core.intake_decision_dedup_key(proposal_id, { title = issue and issue.title or "Issue", body = issue and issue.body or "" }, command)
 end
-local function assert_direct_enable_chain(raises, payload, extra, reintake_command)
+local function assert_execution_request_chain(raises, payload, extra, reintake_command, service_class)
   local expected_dedup = expected_decision_key(payload, extra, reintake_command)
-  local proposal = find_raise(raises, "consensus.proposal").payload
-  t.eq(proposal.schema, "consensus.proposal.v1")
-  t.eq(proposal.proposal_id, payload.proposal_id)
-  t.eq(proposal.dedup_key, expected_dedup)
-  t.eq(proposal.effect_version, expected_dedup)
-  t.eq(proposal.source_ref.ref, payload.source_ref.ref)
-  t.eq(proposal.intake_hand_off.kind, "own-intake-decision")
-  t.eq(proposal.intake_hand_off.proposal_id, payload.proposal_id)
-  t.eq(proposal.intake_hand_off.decision, "enable")
-  t.eq(proposal.intake_hand_off.dedup_key, expected_dedup)
-  t.eq(proposal.intake_hand_off.source_ref.ref, payload.source_ref.ref)
-  t.is_true(tostring(proposal.content_fetch or ""):find("^runtime%-cache:") ~= nil)
-
-  local thinking_comment = find_comment_body(raises, 'state="thinking"')
-  local thinking_label = find_label_add(raises, "fkst-dev:thinking")
-  t.is_true(thinking_comment ~= nil)
-  t.is_true(thinking_comment.body:find(core.state_marker(payload.proposal_id, "thinking", expected_dedup), 1, true) ~= nil)
-  t.is_true(thinking_label ~= nil)
+  local request = find_raise(raises, "github-devloop.devloop_execute_request").payload
+  t.eq(request.schema, "github-devloop.execution-request.v1")
+  t.eq(request.proposal_id, payload.proposal_id)
+  t.eq(request.dedup_key, expected_dedup)
+  t.eq(request.service_class, service_class or "standard")
+  t.eq(request.source_ref.ref, payload.source_ref.ref)
+  t.eq(request.origin.package, "github-devloop-intake")
+  t.eq(request.origin.route, "intake_judge")
+  t.eq(request.origin.decision, "enable")
+  t.eq(find_raise(raises, "consensus.proposal"), nil)
+  t.eq(find_comment_body(raises, 'state="thinking"'), nil)
+  t.eq(find_label_add(raises, "fkst-dev:thinking"), nil)
 end
 local function has_value(values, expected)
   for _, value in ipairs(values or {}) do
@@ -460,7 +454,7 @@ return {
 
     local result = run_judge(payload, opts("intake-positive"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 3)
     local comment = find_comment_body(result.raises, 'decision="enable"')
     local label = find_label_add(result.raises, "fkst-dev:enabled")
     t.is_true(comment.body:find('fkst:github-devloop:intake-decision:v1', 1, true) ~= nil)
@@ -470,7 +464,7 @@ return {
     t.eq(label.add_labels[2], "fkst-class:expedite")
     t.is_true(has_value(label.remove_labels, "fkst-class:standard"))
     t.is_true(has_value(label.remove_labels, "fkst-class:background"))
-    assert_direct_enable_chain(result.raises, payload)
+    assert_execution_request_chain(result.raises, payload, nil, nil, "expedite")
     assert_intake_judgment_call()
   end,
 
@@ -735,13 +729,13 @@ return {
 
     local result = run_judge(payload, opts("intake-escalate-class-no-stable-key"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 3)
     local comment = find_comment_body(result.raises, 'decision="enable"')
     local label = find_label_add(result.raises, "fkst-dev:enabled")
     t.is_true(comment.body:find('decision="enable"', 1, true) ~= nil)
     t.is_true(comment.body:find("No stable recurring-class identity was found", 1, true) ~= nil)
     t.eq(label.add_labels[1], "fkst-dev:enabled")
-    assert_direct_enable_chain(result.raises, payload, {
+    assert_execution_request_chain(result.raises, payload, {
       title = "Repair widget sync timeout residual",
       body = "Another instance after #80 and #81, but the siblings have no stable recurrence label.",
     })
@@ -760,10 +754,10 @@ return {
 
     local result = run_judge(payload, opts("intake-class-carrier-enable"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 5)
+    t.eq(#result.raises, 3)
     t.is_true(find_comment_body(result.raises, 'decision="enable"').body:find('decision="enable"', 1, true) ~= nil)
     t.eq(find_label_add(result.raises, "fkst-dev:enabled").add_labels[1], "fkst-dev:enabled")
-    assert_direct_enable_chain(result.raises, payload, {
+    assert_execution_request_chain(result.raises, payload, {
       title = "Recurrence-aware widget sync policy",
       body = "This issue cites #80 and #81 and proposes the class-level retry policy.",
     })
@@ -818,10 +812,10 @@ return {
     mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Implementation request; downstream consensus can narrow scope.")
     local ambiguous = run_judge(payload, opts("intake-enable-ambiguous"))
     t.eq(ambiguous.exit_code, 0)
-    t.eq(#ambiguous.raises, 5)
+    t.eq(#ambiguous.raises, 3)
     t.is_true(find_comment_body(ambiguous.raises, 'decision="enable"').body:find('decision="enable"', 1, true) ~= nil)
     t.eq(find_label_add(ambiguous.raises, "fkst-dev:enabled").add_labels[1], "fkst-dev:enabled")
-    assert_direct_enable_chain(ambiguous.raises, payload, {
+    assert_execution_request_chain(ambiguous.raises, payload, {
       title = "Make sync less flaky",
       body = "The sync behavior is ambiguous and needs investigation to find the right code change.",
     })
@@ -835,7 +829,7 @@ return {
     mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Cross-repository uncertainty is not a human gate.")
     local cross_repo = run_judge(candidate({ updated_at = "2026-06-03T01:03:03Z" }), opts("intake-enable-cross-repo"))
     t.eq(cross_repo.exit_code, 0)
-    t.eq(#cross_repo.raises, 5)
+    t.eq(#cross_repo.raises, 3)
     t.is_true(find_comment_body(cross_repo.raises, 'decision="enable"').body:find('decision="enable"', 1, true) ~= nil)
     t.eq(find_label_add(cross_repo.raises, "fkst-dev:enabled").add_labels[1], "fkst-dev:enabled")
 
@@ -848,7 +842,7 @@ return {
     mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Insufficient detail should converge downstream.")
     local insufficient = run_judge(candidate({ updated_at = "2026-06-03T01:04:03Z" }), opts("intake-enable-insufficient"))
     t.eq(insufficient.exit_code, 0)
-    t.eq(#insufficient.raises, 5)
+    t.eq(#insufficient.raises, 3)
     t.is_true(find_comment_body(insufficient.raises, 'decision="enable"').body:find('decision="enable"', 1, true) ~= nil)
     t.eq(find_label_add(insufficient.raises, "fkst-dev:enabled").add_labels[1], "fkst-dev:enabled")
   end,
@@ -877,7 +871,7 @@ return {
     local result = run_judge(payload, opts("intake-seen-candidate-no-marker"))
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
-    assert_direct_enable_chain(result.raises, payload)
+    assert_execution_request_chain(result.raises, payload, nil, nil, "expedite")
   end,
 
   test_judge_replays_enable_successor_after_visible_intake_marker = function()
@@ -890,9 +884,9 @@ return {
 
     local result = run_judge(payload, opts("intake-enable-successor-replay"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
+    t.eq(#result.raises, 2)
     t.eq(count_calls("codex exec"), 0)
-    assert_direct_enable_chain(result.raises, payload)
+    assert_execution_request_chain(result.raises, payload, nil, nil, "expedite")
     local enabled_label = find_label_add(result.raises, "fkst-dev:enabled")
     t.eq(enabled_label.add_labels[1], "fkst-dev:enabled")
     t.eq(enabled_label.add_labels[2], "fkst-class:expedite")
@@ -924,14 +918,14 @@ return {
 
     local result = run_judge(payload, opts("intake-reintake"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 6)
+    t.eq(#result.raises, 4)
     local command_comment = find_comment_body(result.raises, "operator command accepted: reintake")
     local intake_comment = find_comment_body(result.raises, 'decision="enable"')
     t.is_true(command_comment ~= nil)
     t.is_true(intake_comment ~= nil)
     t.is_true(command_comment.body:find('command="reintake"', 1, true) ~= nil)
     t.eq(find_label_add(result.raises, "fkst-dev:enabled").add_labels[1], "fkst-dev:enabled")
-    assert_direct_enable_chain(result.raises, payload, nil, command)
+    assert_execution_request_chain(result.raises, payload, nil, command)
     t.eq(count_calls("codex exec"), 1)
   end,
 
