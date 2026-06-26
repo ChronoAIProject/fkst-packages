@@ -842,6 +842,13 @@ REQUIRE_RE = re.compile(
 SAGA_REQUIRE_RE = re.compile(r"""\brequire\s*(?:\(\s*)?["']workflow\.saga["']""")
 SAGA_DEPARTMENT_RE = re.compile(r"\.\s*department\s*[({]")
 FREE_FORM_PIPELINE_RE = re.compile(r"(?m)^\s*(?:function\s+pipeline\s*\(|pipeline\s*=\s*function\b)")
+SPEC_TABLE_START_RE = re.compile(r"\b(?:M\s*\.\s*spec|local\s+spec)\s*=\s*\{")
+STATELESS_GENERATOR_KIND_RE = re.compile(r"\bkind\s*=\s*(?P<quote>[\"'])stateless_generator(?P=quote)")
+CONSUMES_TABLE_RE = re.compile(r"\bconsumes\s*=\s*\{[^}]*\}", re.S)
+PRODUCES_TABLE_RE = re.compile(r"\bproduces\s*=\s*\{[^}]*\}", re.S)
+EMPTY_CONSUMES_RE = re.compile(r"\bconsumes\s*=\s*\{\s*\}", re.S)
+EMPTY_PRODUCES_RE = re.compile(r"\bproduces\s*=\s*\{\s*\}", re.S)
+STATELESS_GENERATOR_FORBIDDEN_RE = re.compile(r"\b(?:(?:raise|with_lock|once|cache_[A-Za-z0-9_]*|emit|enqueue|publish|ack|nack|retry|compensate|spawn_codex(?:_sync)?|await_all)\s*\(|await_all\b|[A-Za-z_][A-Za-z0-9_]*(?:marker|Marker|CAS|cas)[A-Za-z0-9_]*\b)")
 
 
 def cross_package_require_names(
@@ -915,6 +922,36 @@ def check_no_permission_control(root: Path, violations: list[str]) -> None: chec
 def is_saga_handler_source(source: str) -> bool:
     return SAGA_REQUIRE_RE.search(source) is not None and SAGA_DEPARTMENT_RE.search(strip_lua_comments_and_strings(source)) is not None
 
+def has_only_empty_table_assignments(source: str, stripped: str, table_re: re.Pattern[str], empty_re: re.Pattern[str]) -> bool:
+    saw_assignment = False
+    for match in table_re.finditer(stripped):
+        saw_assignment = True
+        if empty_re.fullmatch(stripped[match.start():match.end()]) is None or empty_re.fullmatch(source[match.start():match.end()]) is None:
+            return False
+    return saw_assignment
+
+def spec_table_ranges(stripped: str):
+    for match in SPEC_TABLE_START_RE.finditer(stripped):
+        depth = 0
+        for index in range(match.end() - 1, len(stripped)):
+            char = stripped[index]
+            if char == "{": depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    yield match.start(), index + 1
+                    break
+
+def is_stateless_generator_source(source: str) -> bool:
+    stripped = strip_lua_comments_and_strings(source)
+    if STATELESS_GENERATOR_FORBIDDEN_RE.search(stripped) is not None: return False
+    ranges = list(spec_table_ranges(stripped))
+    if len(ranges) != 1: return False
+    start, end = ranges[0]
+    spec_source, spec_stripped = source[start:end], stripped[start:end]
+    has_kind = any(is_unmasked_range(source, stripped, match.start(), match.start("quote")) for match in STATELESS_GENERATOR_KIND_RE.finditer(source, start, end))
+    return has_kind and has_only_empty_table_assignments(spec_source, spec_stripped, CONSUMES_TABLE_RE, EMPTY_CONSUMES_RE) and has_only_empty_table_assignments(spec_source, spec_stripped, PRODUCES_TABLE_RE, EMPTY_PRODUCES_RE)
+
 def saga_handler_ratchet_violations(sources: dict[str, str], allowlist: set[str], base_allowlist: set[str] | None = None) -> list[str]:
     violations: list[str] = []
     for path, source in sorted(sources.items()):
@@ -923,7 +960,7 @@ def saga_handler_ratchet_violations(sources: dict[str, str], allowlist: set[str]
             violations.append(f"G10: {path} saga-shaped department remains on saga-handler allowlist; remove it")
         if saga_shaped and FREE_FORM_PIPELINE_RE.search(strip_lua_comments_and_strings(source)) is not None:
             violations.append(f"G10: {path} saga-shaped department still defines free-form top-level pipeline")
-        if not saga_shaped and path not in allowlist:
+        if not saga_shaped and path not in allowlist and not is_stateless_generator_source(source):
             violations.append(f"G10: {path} free-form department not on saga-handler allowlist; migrate to workflow.saga.department or (only for pre-existing) keep listed")
     for path in sorted(allowlist - set(sources)):
         violations.append(f"G10: {path} listed in saga-handler allowlist but does not exist")
