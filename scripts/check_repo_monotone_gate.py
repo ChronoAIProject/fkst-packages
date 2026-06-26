@@ -151,8 +151,12 @@ class Violation:
             line = merge_executor_extraction_lines.get((self.surface, self.kind, self.token, self.line), line)
         intake_execute_start_extraction_lines = {
             ("read_current_for_candidate", "cursor-read", "current_state(", 151): "179",
+            ("read_current_for_candidate", "cursor-read", "current_state(", 152): "179",
         }
         if path == "packages/github-devloop-intake/departments/intake_judge/main.lua":
+            line = intake_execute_start_extraction_lines.get((self.surface, self.kind, self.token, self.line), line)
+        if path == "packages/github-devloop-intake-default/departments/intake_judge/main.lua":
+            path = "packages/github-devloop-intake/departments/intake_judge/main.lua"
             line = intake_execute_start_extraction_lines.get((self.surface, self.kind, self.token, self.line), line)
         reconcile_timeout_pr_guard_lines = {
             ("pipeline_thinking", "cursor-read", "current_state(", 116): "58",

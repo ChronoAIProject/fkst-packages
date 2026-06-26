@@ -2,7 +2,7 @@ local core = require("core")
 local saga = require("workflow.saga")
 
 local spec = {
-  consumes = { "devloop_intake_candidate" },
+  consumes = { "github-devloop-intake.devloop_intake_candidate" },
   produces = {
     "github-devloop.devloop_execute_request",
     "github-proxy.github_issue_comment_request",
@@ -38,8 +38,8 @@ local function build_enable_request(candidate, decision_dedup_key)
     dedup_key = decision_dedup_key or candidate.dedup_key,
     source_ref = candidate.source_ref,
     origin = {
-      package = "github-devloop-intake",
-      route = "intake_judge",
+      package = "github-devloop-intake-default",
+      route = "default",
       decision = "enable",
     },
     service_class = candidate.service_class,
