@@ -123,6 +123,9 @@ function M.liveness_scan_maybe_timeout_action(entity, state, facts)
     end
   end
   local proposal_id = facts.proposal_id or state.proposal_id
+  if row.liveness_class_id == "child_workflow_wait" and M.restart_observe_replay_due(row, "liveness_scan", state, facts, facts.now_seconds or now()) then
+    return "reinject"
+  end
   if M.restart_row_liveness_deferred(row, state, facts, facts.now_seconds or now()) then
     M.log_cas_decision("liveness_scan", proposal_id, state, row.from_state, row.driving_queue, "skip-active-output-obligation", "receiver liveness contract signal is still fresh")
     return nil

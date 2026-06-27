@@ -201,16 +201,15 @@ local function child_pr_delegation_fact(facts)
 end
 
 local function fetch_child_state_fact(facts)
-  if facts.child_state ~= nil then
-    return facts.child_state
-  end
+  local proof = facts.current_pr_freshness
+  local fresh_child = type(proof) == "table" and proof.source == "force_fresh" and facts.current_pr ~= nil
   local delegation = child_pr_delegation_fact(facts)
   if delegation == nil then
     return nil
   end
   facts.pr_delegation = delegation
   facts["pr-delegation"] = delegation
-  if facts.current_pr == nil then
+  if facts.current_pr == nil or not (fresh_child and tostring(proof.pr_number or "") == tostring(delegation.pr_number or "")) then
     local view = M.fetch_pr_view_origin(facts.issue.repo, delegation.pr_number, nil, {
       force_fresh = true,
       consumer = "replay_child_state",
@@ -220,6 +219,7 @@ local function fetch_child_state_fact(facts)
     end
     facts.current_pr = M.parse_pr_view_origin(view.stdout)
     facts.current_pr.number = delegation.pr_number
+    facts.current_pr_freshness = { source = "force_fresh", pr_number = delegation.pr_number, consumer = "replay_child_state" }
   end
   facts.child_state = M.current_entity_state(facts.current_pr.comments, delegation.proposal_id)
   return facts.child_state

@@ -67,11 +67,13 @@ local function should_reinject_issue(repo, issue, limits, deadline)
     current_pr.number = delegation.pr_number
     snapshot.comments = current.comments or {}
   end
+  local current_pr_freshness = current_pr ~= nil and { source = "force_fresh", pr_number = delegation.pr_number, consumer = "liveness_scan" } or nil
   local timeout_action = core.liveness_scan_maybe_timeout_action(core.liveness_scan_issue_entity(repo, issue.number), state, {
     proposal_id = proposal_id,
     current = { comments = current.comments or {}, labels = current.labels or {} },
     current_issue = current,
     current_pr = current_pr,
+    current_pr_freshness = current_pr_freshness,
     ["pr-delegation"] = delegation,
     pr_delegation = delegation,
     snapshot = snapshot,
@@ -82,6 +84,9 @@ local function should_reinject_issue(repo, issue, limits, deadline)
   })
   if timeout_action == "handled" then
     return false
+  end
+  if timeout_action == "reinject" then
+    return true
   end
   return true
 end

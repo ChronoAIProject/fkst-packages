@@ -124,8 +124,8 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
   if pr_repo ~= issue.repo or tostring(pr_number or "") ~= tostring(delegation.pr_number or "") then
     return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-stale(pr-delegation-child)", "pr-delegation child identity is malformed or cross-repo")
   end
-  local current_pr = facts.current_pr or read_delegated_child_pr(dept, issue, delegation)
-  local child_state = facts.child_state or M.current_entity_state(current_pr.comments, delegation.proposal_id)
+  local current_pr = (type(facts.current_pr_freshness) == "table" and facts.current_pr_freshness.source == "force_fresh" and tostring(facts.current_pr_freshness.pr_number or "") == tostring(delegation.pr_number or "") and facts.current_pr) or read_delegated_child_pr(dept, issue, delegation)
+  local child_state = M.current_entity_state(current_pr.comments, delegation.proposal_id)
   if child_state == nil or child_state.state == nil then
     return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-pending(child-state-missing)", "delegated child PR has no trusted state marker")
   end
@@ -137,8 +137,8 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
   end
   local next_state = parent_state_for_child_terminal(state, child_state)
   if next_state.to_state == "merged" then
-    local landed, outcome, reason = M.awaiting_pr_merged_child_head_landed_on_upstream(dept, issue, state, delegation, current_pr)
-    if not landed then
+    local merged, outcome, reason = M.awaiting_pr_child_has_durable_merged_fact(dept, issue, state, delegation, current_pr)
+    if not merged then
       return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", outcome, reason)
     end
   end
@@ -182,28 +182,17 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
   return raise_effects(dept, proposal_id, next_state.to_state, next_state.version, { add = add_labels, remove = remove_labels }, effects)
 end
 
-function M.awaiting_pr_merged_child_head_landed_on_upstream(dept, issue, state, delegation, current_pr)
-  local branches = M.branch_config()
-  if tostring(branches.integration or "") == tostring(branches.upstream or "") then
-    return true
-  end
+function M.awaiting_pr_child_has_durable_merged_fact(_dept, issue, state, delegation, current_pr)
   local origin = M.pr_origin_fact(current_pr.comments)
   if origin == nil
-    or origin.pr_native == true
     or tostring(origin.proposal_id or "") ~= tostring(delegation.proposal_id or "")
     or tostring(origin.issue_number or "") ~= tostring(issue.number or "")
-    or tostring(origin.branch or "") ~= tostring(current_pr.head_ref_name or "")
-    or tostring(origin.base_branch or "") ~= tostring(branches.integration or "") then
-    return false, "skip-stale(pr-origin-rollup-lineage)", "merged child PR lacks current split-topology origin facts"
+    or tostring(origin.branch or "") ~= tostring(current_pr.head_ref_name or "") then
+    return false, "skip-stale(pr-origin-lineage)", "merged child PR lacks current delegated origin facts"
   end
   local merged = M.merged_fact(current_pr.comments, delegation.proposal_id, delegation.pr_number, state.version)
   if merged == nil then
     return false, "skip-pending(merged-head-missing)", "merged child PR has no trusted merged head marker"
-  end
-  M.fetch_branch(branches.upstream, "awaiting-pr upstream fetch")
-  local upstream_head = M.remote_head(branches.upstream, "awaiting-pr upstream head", "unsafe awaiting-pr upstream head")
-  if not M.is_ancestor(merged.head_sha, upstream_head, "awaiting-pr rollup ancestry") then
-    return false, "skip-pending(rollup-not-landed)", "merged child PR head is not contained in upstream branch"
   end
   return true
 end

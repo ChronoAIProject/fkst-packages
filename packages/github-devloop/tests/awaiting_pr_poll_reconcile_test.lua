@@ -13,7 +13,6 @@ local delegation = "g1"
 local head_sha = "0123456789abcdef0123456789abcdef01234567"
 local integration_branch = "integration/dev"
 local upstream_branch = "dev"
-local upstream_head_sha = "fedcba9876543210fedcba9876543210fedcba98"
 
 local function comment(body, author, created_at)
   return {
@@ -123,34 +122,19 @@ local function mock_real_write_env()
   })
 end
 
-local function mock_branch_config(split)
-  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
-    stdout = upstream_branch,
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
-    stdout = split == false and upstream_branch or integration_branch,
+local function mock_repo()
+  t.mock_command(core.read_env_command("FKST_GITHUB_REPO"), {
+    stdout = repo,
     stderr = "",
     exit_code = 0,
   })
 end
 
-local function mock_rollup_ancestry(exit_code)
-  t.mock_command(core.git_fetch_branch_cmd("origin", upstream_branch), {
-    stdout = "",
+local function mock_issue_list()
+  t.mock_command(core.gh_issue_list_observe_cmd(repo), {
+    stdout = '[{"number":42,"state":"open","updated_at":"2026-06-03T01:02:03Z"}]\n',
     stderr = "",
     exit_code = 0,
-  })
-  t.mock_command(core.git_remote_branch_head_cmd("origin", upstream_branch), {
-    stdout = upstream_head_sha .. "\n",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git merge-base --is-ancestor " .. head_sha .. " " .. upstream_head_sha, {
-    stdout = "",
-    stderr = "",
-    exit_code = exit_code,
   })
 end
 
@@ -164,6 +148,14 @@ local function mock_reads(issue_comments, pr_comments, opts)
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
   }, "title,body,comments,labels,state,updatedAt,assignees,author")
+  entity_mocks.mock_issue_read_forms(t, {
+    repo = repo,
+    number = issue_number,
+    labels = options.labels or { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+    comments = issue_comments,
+    assignees = { "fkst-test-bot" },
+    author_login = "fkst-test-bot",
+  })
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = options.pr_number or pr_number,
@@ -174,6 +166,39 @@ local function mock_reads(issue_comments, pr_comments, opts)
     base_branch = options.base_branch or integration_branch,
     labels = {},
   }, entity_mocks.pr_origin_selector, options.pr_view_times)
+end
+
+local function run_liveness_scan(issue_comments, pr_comments)
+  mock_env()
+  mock_repo()
+  mock_issue_list()
+  mock_reads(issue_comments, pr_comments, { pr_state = "MERGED" })
+  return t.run_department("departments/liveness_scan/main.lua", {
+    queue = "devloop_liveness_tick",
+    payload = {
+      schema = "github-devloop.tick.v1",
+    },
+    ts = "2026-06-03T01:32:03Z",
+  }, h.opts("awaiting-pr-liveness-scan-child-terminal"))
+end
+
+local function run_reinjected_observe(payload, issue_comments, pr_comments, opts)
+  local options = opts or {}
+  if options.write == "real" then
+    mock_real_write_env()
+  else
+    mock_env()
+  end
+  mock_reads(issue_comments, pr_comments, options)
+  return t.run_department("departments/observe_issue/main.lua", {
+    queue = "devloop_observe_issue",
+    payload = h.issue({
+      dedup_key = payload.dedup_key,
+      source = payload.source,
+      source_ref = payload.source_ref,
+      updated_at = payload.updated_at,
+    }),
+  })
 end
 
 local function run_observe(issue_comments, pr_comments, opts)
@@ -232,8 +257,6 @@ end
 return {
   test_child_merged_reconciles_parent_to_merged = function()
     mock_issue_close()
-    mock_branch_config()
-    mock_rollup_ancestry(0)
     local result = run_observe(parent_comments(), child_comments("merged"), { write = "real" })
 
     t.eq(result.exit_code, 0)
@@ -246,8 +269,6 @@ return {
 
   test_pr_entity_changed_child_merged_reconciles_parent_to_merged = function()
     mock_issue_close()
-    mock_branch_config()
-    mock_rollup_ancestry(0)
     local result = run_pr_observe(parent_comments(), child_comments("merged"), { write = "real" })
 
     t.eq(result.exit_code, 0)
@@ -258,10 +279,57 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
   end,
 
+  test_pr_entity_changed_stale_child_view_is_refetched_before_replay = function()
+    mock_issue_close()
+    mock_real_write_env()
+    mock_reads(parent_comments(), child_comments("merge-ready"), {
+      pr_view_times = 1,
+    })
+    entity_mocks.mock_pr_view_selector(t, {
+      repo = repo,
+      number = pr_number,
+      comments = child_comments("merged"),
+      head = "devloop-owner-repo-42-01HY",
+      head_sha = head_sha,
+      state = "MERGED",
+      base_branch = integration_branch,
+      labels = {},
+    }, entity_mocks.pr_origin_selector, 1)
+    entity_mocks.mock_pr_read_forms(t, {
+      repo = repo,
+      number = pr_number,
+      comments = child_comments("merged"),
+      head = "devloop-owner-repo-42-01HY",
+      head_sha = head_sha,
+      state = "MERGED",
+      base_branch = integration_branch,
+      labels = {},
+      times = 1,
+    })
+
+    local result = t.run_department("departments/observe_issue/main.lua", {
+      queue = "github-proxy.github_entity_changed",
+      payload = {
+        schema = "github-proxy.v1",
+        type = "pr",
+        repo = repo,
+        number = pr_number,
+        state = "MERGED",
+        updated_at = "2026-06-03T02:03:04Z",
+        dedup_key = "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        source_ref = core.pr_source_ref(repo, pr_number),
+      },
+    })
+
+    t.eq(result.exit_code, 0)
+    local resume = resume_comment(result)
+    t.is_true(resume ~= nil)
+    t.is_true(resume.payload.body:find('state="merged"', 1, true) ~= nil)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
   test_child_merged_with_kept_issue_promotion_closes_issue_once = function()
     mock_issue_close()
-    mock_branch_config()
-    mock_rollup_ancestry(0)
     local result = run_observe(parent_comments(), child_merged_comments_with_kept_promotion(), { write = "real" })
 
     t.eq(result.exit_code, 0)
@@ -271,21 +339,43 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
   end,
 
-  test_split_topology_child_merged_waits_until_rollup_lands_on_upstream = function()
+  test_split_topology_child_merged_reconciles_without_head_ancestry = function()
     mock_issue_close()
-    mock_branch_config()
-    mock_rollup_ancestry(1)
     local result = run_observe(parent_comments(), child_comments("merged"), { write = "real" })
 
     t.eq(result.exit_code, 0)
-    t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
-    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
-    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
+    local resume = resume_comment(result)
+    t.is_true(resume ~= nil)
+    t.is_true(resume.payload.body:find('state="merged"', 1, true) ~= nil)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_calls("git fetch 'origin' '" .. upstream_branch .. "'"), 0)
+    t.eq(count_calls("git merge-base --is-ancestor"), 0)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_liveness_poll_reinjects_awaiting_pr_and_observe_resumes_parent = function()
+    local issue_comments = parent_comments()
+    local pr_comments = child_comments("merged")
+    local scanned = run_liveness_scan(issue_comments, pr_comments)
+
+    t.eq(scanned.exit_code, 0)
+    local reinject = find_raise(scanned.raises, "devloop_observe_issue")
+    t.is_true(reinject ~= nil)
+    t.eq(reinject.payload.source, "liveness-scan")
+    t.eq(reinject.payload.type, "issue")
+
+    mock_issue_close()
+    local observed = run_reinjected_observe(reinject.payload, issue_comments, pr_comments, { write = "real", pr_state = "MERGED" })
+
+    t.eq(observed.exit_code, 0)
+    local resume = resume_comment(observed)
+    t.is_true(resume ~= nil)
+    t.is_true(resume.payload.body:find('state="merged"', 1, true) ~= nil)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
   end,
 
   test_single_branch_topology_child_merged_does_not_require_rollup_probe = function()
     mock_issue_close()
-    mock_branch_config(false)
     local result = run_observe(parent_comments(), child_comments("merged"), {
       base_branch = upstream_branch,
       write = "real",
