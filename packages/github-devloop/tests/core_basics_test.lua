@@ -30,10 +30,7 @@ return {
     t.eq(config.rollup_merge, "auto")
     t.eq(core.test_command(exec), "scripts/run.sh test")
     local local_command = core.local_iteration_test_command()
-    t.is_true(local_command:find('base="${FKST_DEVLOOP_UPSTREAM_BRANCH:-dev}"', 1, true) ~= nil)
-    t.is_true(local_command:find('git diff --name-only "origin/$base"', 1, true) ~= nil)
-    t.is_true(local_command:find("git ls-files --others --exclude-standard", 1, true) ~= nil)
-    t.is_true(local_command:find('scripts/run.sh test "$package"', 1, true) ~= nil)
+    t.eq(local_command, "scripts/run.sh test-affected")
     t.is_nil(local_command:find("FKST_DEVLOOP_TEST_COMMAND", 1, true))
 
     t.eq(core.env_present_command("GH_TOKEN"), 'if [ -n "${GH_TOKEN:-}" ]; then printf present; fi')
@@ -99,30 +96,6 @@ return {
     t.eq(paths[1], "a.lua")
     t.eq(paths[2], "b.lua")
     t.eq(paths[3], "c.lua")
-  end,
-  test_local_iteration_classifier_scopes_package_only_changes = function()
-    local plan = core.local_iteration_test_plan({
-      "packages/github-devloop/core.lua",
-      "packages/github-devloop/tests/core_basics_test.lua",
-      "packages/github-devloop/core/new_module.lua",
-    })
-    t.eq(plan.full, false)
-    t.eq(#plan.packages, 1)
-    t.eq(plan.packages[1], "github-devloop")
-    t.eq(plan.command, "scripts/run.sh test github-devloop")
-  end,
-  test_local_iteration_classifier_runs_full_suite_for_broad_changes = function()
-    local broad_sets = {
-      { "libraries/devloop/config.lua" },
-      { "scripts/run.sh" },
-      { ".github/workflows/ci.yml" },
-      { "fkst.workspace.toml" },
-    }
-    for _, paths in ipairs(broad_sets) do
-      local plan = core.local_iteration_test_plan(paths)
-      t.eq(plan.full, true)
-      t.eq(plan.command, "scripts/run.sh test")
-    end
   end,
   test_core_shared_judgment_worktree_reads_runtime_root_and_mkdirs = function()
     local worktree = core.judgment_worktree_path("/tmp/fkst-runtime\n", "review-meta", "dedup/key")
