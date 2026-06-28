@@ -102,7 +102,13 @@ def ratchet_messages(current: dict, baseline: dict | None):
 
 
 def repository_messages(root: Path):
-    """Entry point mirrored on the other repository_messages(root) checks."""
+    """Entry point mirrored on the other repository_messages(root) checks.
+
+    No-op when there is no libraries/devloop to govern (external/synthetic repos),
+    so this ratchet only enforces where the god-PATTERN can actually exist.
+    """
+    if not (root / DEVLOOP).is_dir():
+        return
     yield from ratchet_messages(measure(root), load_baseline(root))
 
 
