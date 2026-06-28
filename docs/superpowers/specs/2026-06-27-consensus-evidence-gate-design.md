@@ -101,6 +101,16 @@ EVIDENCE (origin_class protected_*): protected-runner CI / build / typecheck / l
 analysis / proof checking / symbolic exec / differential tests / fuzz / mutation / canary telemetry
 / protected benchmarks; trusted_baseline = git/forge facts the system re-derives. The patch must not
 silently weaken the harness (an author-modified workflow/test is `author_controlled`).
+**LR-value + origin_class provenance (post-v2 cross-family re-review fix, §13 — the one near-blocking
+hole):** citing a non-author EvidenceItem prevents EMPTY support but does NOT make the numeric
+`LikelihoodFact.lr` trusted — an LLM judge could mint a strong `lr` while citing a protected item, re-
+introducing model opinion as the gate. So `LikelihoodFact.lr` MUST itself be capability-generated (a
+deterministic / calibrated LR factory or an explicitly approved statistical model, carrying
+`generator_id` / `model_version` / `calibration_ref` / cited `evidence_item_id`s); LLM workers may
+propose LR hypotheses or evidence gaps but MUST NOT mint `LikelihoodFact.lr`. Likewise `origin_class`
+MUST be capability-DERIVED from runner identity / provenance, never trusted because it appears in a
+schema field — a forged `origin_class=protected_runner` capsule must be impossible by construction,
+not merely invalid by convention.
 
 ### 3.4 Evidence ladder by risk/reversibility (feasibility: don't ground everything)
 Ground every risk-bearing claim that affects the gate with the cheapest trusted evidence that can
@@ -247,8 +257,12 @@ seam); content-not-in-payload; no magic numbers (threshold computed from loss mo
 ## 11. Review record (this draft)
 arch=COMMENT (seam pinned via §3.2 opaque capsule + §4 egress ratchet); qual=REJECT FIXED (§3.1 total
 + fail-closed routing guarantees non-identifiable termination); tests=REJECT FIXED (§4 Mechanical
-Conformance Contract: typed schemas + per-invariant enforcement tier; taint made unrepresentable;
-terminal payload defined; closed enums). Residual reviewer-only gaps named in §4 / §9.
+Conformance Contract: typed schemas + per-invariant enforcement tier; author EvidenceItems made
+unweightable by type; terminal payload defined; closed enums). **A post-v2 cross-family re-review
+(§13) found the "taint made unrepresentable" claim OVERSTATED: author *items* cannot carry weight, but
+`LikelihoodFact.lr` value-provenance and `origin_class` authenticity are NOT yet unrepresentable — they
+are open capability requirements before implementation (§3.3, §13).** Residual reviewer-only gaps named
+in §4 / §9 / §13.
 
 ## 12. Provenance
 sshx inline consensus: Round 1 (5 independent formalizations: probability / information-theory /
@@ -257,5 +271,40 @@ foundation (§2). Round 2 high-adversarial (map / open-problems / red-team + Cha
 revised it: T3 qualified, T11 downgraded, "consensus executes evidence" rejected on package
 boundary, decision-typing added as keystone. Review round (architecture / quality / tests +
 ChatGPT-Pro) produced 2 rejects, fixed in v2 (§4, §3.1, §3.3, §3.6). No reject-and-reshape survived.
+Post-v2 cross-family re-review (ChatGPT-Pro, independent, closing the "v2 not yet re-reviewed" honest
+gap): verdict MERGE_WITH_NOTED_CAVEATS — the direction is validated; two near-blocking caveats are
+recorded in §13 and must be fixed before v2 is treated as implementation-ready.
 Artifacts: meta_r1.md, meta_r2.md, r1_*/r2_*/rev_* worker logs.
+
+## 13. Cross-family re-review caveats (post-v2, independent ChatGPT-Pro)
+An independent cross-model-family re-review (closing §11's "v2 not yet re-reviewed" gap) returned
+**MERGE_WITH_NOTED_CAVEATS**: merge-worthy as a docs-only DESIGN RECORD because the central move —
+delete voting-as-correctness, replace it with a bounded, loss-aware, trusted-evidence adequacy gate —
+is internally coherent and aligned with §2 / §3.1 / §3.5 / §4; NOT merge-worthy as
+"implementation-ready". The implementable-detail gaps (exact capsule fields per producer; exact
+dependence-discount formula; EVOI approximation; calibration package interface; saga naming cleanup)
+are acceptable draft gaps. Two caveats are near-blocking for IMPLEMENTATION and must be fixed first:
+
+- **C1 — LikelihoodFact.lr provenance hole (the one near-category error; §3.3, §4 invariant 3).** v2
+  taints author EvidenceItems but NOT likelihood-ratio GENERATION: a citation to a non-author item
+  blocks empty support, but the `lr` number can still be LLM-minted (model opinion re-enters as the
+  gate). Fix: `LikelihoodFact.lr` must be capability-generated / calibrated (generator_id /
+  model_version / calibration_ref); LLM workers propose hypotheses, never mint `lr`. And `origin_class`
+  must be capability-derived from runner identity, not a trusted schema field (forged
+  `protected_runner` impossible by construction).
+- **C2 — LossModel / risk-framing provenance (§3.5, §4 invariant 2).** Because proposal text is
+  attacker-controllable (T12), `loss_model` / `risk_tier_policy_ref` must be policy- or owner-derived
+  and capability-bound, never proposal-carried; otherwise an attacker lowers the approval threshold by
+  manipulating `L_approve_bad` / `L_reject_good` / priors / risk framing. Invariant 2 should bind the
+  threshold to a protected policy/loss-model input, not merely "forbid numeric literals" (some
+  constants — 0, 1, caps, tolerances — are structurally unavoidable).
+
+Also-noted (not blocking, sharpen during implementation): "no agreement gate" (§4 inv.1) needs
+capability-level isolation so the gate path cannot reconstruct agreement from judge IDs / counts /
+concurrence, not just a missing field + scan; the §3.3 neutralizer should be framed as "hostile text
+is always quoted data, never affects weight or capability" rather than "strip hostile lines"; T4
+identifiability is a runtime *witness* check, not a runtime *proof* of semantic identifiability; §3.1
+totality is syntactic (exhaustive dispatch), not semantic (correct A/B/C/D classification) — the
+fail-closed "when unsure, classify NON-A" doctrine carries that gap; the §3.8 proxy gap (CI-green !=
+true) remains fundamental, managed not solved.
 [AI:FKST]
