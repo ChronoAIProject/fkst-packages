@@ -106,12 +106,12 @@ return saga.department(spec, { done = function() return false end, act = functio
     local high_risk_angle_not_approved = false
     if effective_decision == "approve" then
       local name_result = core.gh_pr_diff_name_only(repo, pr_number, 30)
-      if name_result.exit_code ~= 0 then
-        error("github-devloop: gh pr diff name-only failed for review result risk: " .. tostring(name_result.stderr))
-      end
-      local paths = core.github_diff_name_paths(name_result.stdout)
-      high_risk_paths = core.github_high_risk_paths(paths)
-      if #high_risk_paths > 0 then
+      local risk = core.github_diff_name_risk(name_result)
+      high_risk_paths = risk.high_risk_paths or {}
+      if risk.known == false then
+        core.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", "merge-ready", "retry-pending(high-risk-review-evidence:" .. tostring(risk.reason or "unknown") .. ")", "review diff risk is undecidable")
+        error("github-devloop: review diff risk is undecidable; retrying")
+      elseif risk.high_risk == true then
         local high_risk_approved = false
         if type(reached.angle_results) == "table" then
           for _, item in ipairs(reached.angle_results) do
@@ -134,7 +134,7 @@ return saga.department(spec, { done = function() return false end, act = functio
           comment_reached.body = "High-risk PR approval did not include an approving high-risk angle."
         end
         if effective_decision == "approve" then
-          paths_digest = core.github_paths_digest(paths)
+          paths_digest = core.github_paths_digest(risk.paths)
           angle_digest = core.converge_angles_digest(reached.angle_results)
         end
       end

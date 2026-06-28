@@ -23,6 +23,14 @@ local function mock_high_risk_name_only()
   })
 end
 
+local function mock_unknown_risk_name_only()
+  t.mock_command("gh pr diff '7' --repo 'owner/repo' --name-only", {
+    stdout = "",
+    stderr = "diff unavailable",
+    exit_code = 1,
+  })
+end
+
 local function reviewed_state(event)
   mock_pr_origin({
     core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
@@ -248,6 +256,31 @@ return {
     t.is_true(evidence_raise.payload.body:find('verdict="approve"', 1, true) ~= nil)
     t.is_true(evidence_raise.payload.body:find("fkst:github-devloop:merge-ready:v1", 1, true) == nil)
     t.eq(evidence_raise.payload.handoff, nil)
+  end,
+
+  test_unknown_risk_approve_with_high_risk_angle_defers_without_merge_ready = function()
+    local event = approve_event({
+      angle_results = {
+        { angle = "minimal", verdict = "approve" },
+        { angle = "structural", verdict = "approve" },
+        { angle = "delete", verdict = "approve" },
+        { angle = "high-risk", verdict = "approve" },
+      },
+    })
+    local reviewing_event = reviewing()
+    reviewed_state(reviewing_event)
+    mock_unknown_risk_name_only()
+
+    local result = run_review_result(event, opts("unknown-risk-approve-defers"))
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:review-result:v1", 1, true) ~= nil
+    end)
+    local fixing_raise = find_causal_raise(result, "devloop_fixing")
+    t.eq(result.exit_code, 1)
+    t.eq(comment_raise, nil)
+    t.eq(high_risk_evidence_raise(result), nil)
+    t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
+    t.eq(fixing_raise, nil)
   end,
 
   test_forged_standalone_evidence_marker_without_angle_verdict_is_ignored = function()
