@@ -39,6 +39,29 @@ function M.github_high_risk_paths(paths)
   end
   return result
 end
+
+function M.github_diff_name_paths(stdout)
+  local paths = {}
+  for line in tostring(stdout or ""):gmatch("([^\r\n]+)") do
+    local path = line:gsub("^%s+", ""):gsub("%s+$", "")
+    if path ~= "" then
+      table.insert(paths, path)
+    end
+  end
+  return paths
+end
+
+function M.github_paths_digest(paths)
+  local selected = {}
+  for _, path in ipairs(paths or {}) do
+    table.insert(selected, tostring(path))
+  end
+  table.sort(selected)
+  return M.source_ref_digest({
+    kind = "github-paths",
+    ref = table.concat(selected, "\n"),
+  })
+end
 end
 
 return S
