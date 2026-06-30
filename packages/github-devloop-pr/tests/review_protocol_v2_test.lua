@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local fixtures = require("tests.production_fixture_helpers")
 local core = h.core
@@ -235,7 +237,7 @@ return {
     })
     local impl_version = h.reviewing().version
     h.mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     h.mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
@@ -338,7 +340,7 @@ return {
     })
     local impl_version = h.reviewing().version
     h.mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     h.mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
@@ -367,7 +369,7 @@ return {
     })
     local impl_version = h.reviewing().version
     h.mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     h.mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
@@ -391,7 +393,7 @@ return {
     })
     local impl_version = h.reviewing().version
     h.mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     h.mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
@@ -414,7 +416,7 @@ return {
     })
     local impl_version = h.reviewing().version
     h.mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     h.mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
@@ -433,7 +435,7 @@ return {
     event.blocking_gap = nil
     local impl_version = h.reviewing().version
     h.mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
 
     local result = h.run_review_result(event, h.opts("review-v2-reject-missing-gap"))
@@ -515,7 +517,7 @@ return {
       event.source_ref
     )
     t.is_true(request.body:find('gap="first line second"', 1, true) ~= nil)
-    local fact = core.review_reject_fact({ { body = request.body, author_login = "fkst-test-bot" } }, "github-devloop/issue/owner/repo/42", fix_version)
+    local fact = markers_facts.review_reject_fact(core, { { body = request.body, author_login = "fkst-test-bot" } }, "github-devloop/issue/owner/repo/42", fix_version)
     t.eq(fact.blocking_gap, "first line second")
   end,
 
@@ -524,19 +526,19 @@ return {
     local fix_version = core.next_fix_version(issue_version)
     local review_id = core.pr_review_proposal_id("owner/repo", 7, issue_version, "def456")
     local foreign = {
-      body = core.review_result_marker(review_id, "github-devloop/issue/owner/repo/42", "reject", "consensus:foreign/review", 1, "foreign gap"),
+      body = markers_builders.review_result_marker(core, review_id, "github-devloop/issue/owner/repo/42", "reject", "consensus:foreign/review", 1, "foreign gap"),
       author_login = "fkst-test-bot",
     }
     local current = {
-      body = core.review_result_marker(review_id, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. review_id .. "/review", 1, "current gap"),
+      body = markers_builders.review_result_marker(core, review_id, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. review_id .. "/review", 1, "current gap"),
       author_login = "fkst-test-bot",
     }
 
-    local fact = core.review_reject_fact({ foreign }, "github-devloop/issue/owner/repo/42", fix_version)
+    local fact = markers_facts.review_reject_fact(core, { foreign }, "github-devloop/issue/owner/repo/42", fix_version)
     t.is_nil(fact)
-    fact = core.review_reject_fact({ foreign, current }, "github-devloop/issue/owner/repo/42", fix_version)
+    fact = markers_facts.review_reject_fact(core, { foreign, current }, "github-devloop/issue/owner/repo/42", fix_version)
     t.eq(fact.blocking_gap, "current gap")
-    local ledger = core.review_prior_round_ledger({ foreign }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
+    local ledger = markers_facts.review_prior_round_ledger(core, { foreign }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
     t.is_nil(ledger)
   end,
 
@@ -546,15 +548,15 @@ return {
     local current_review = core.pr_review_proposal_id("owner/repo", 7, current_version, "def456")
     local stale_review = core.pr_review_proposal_id("owner/repo", 7, stale_version, "def456")
     local trusted_stale = {
-      body = core.review_result_marker(stale_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. stale_review .. "/review", 1, "stale gap"),
+      body = markers_builders.review_result_marker(core, stale_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. stale_review .. "/review", 1, "stale gap"),
       author_login = "fkst-test-bot",
     }
     local untrusted_current = {
-      body = core.review_result_marker(current_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. current_review .. "/review", 0, "untrusted gap"),
+      body = markers_builders.review_result_marker(core, current_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. current_review .. "/review", 0, "untrusted gap"),
       author_login = "mallory",
     }
     local fix_version = core.next_fix_version(current_version)
-    t.is_nil(core.review_prior_round_ledger({ trusted_stale, untrusted_current }, "github-devloop/issue/owner/repo/42", fix_version))
+    t.is_nil(markers_facts.review_prior_round_ledger(core, { trusted_stale, untrusted_current }, "github-devloop/issue/owner/repo/42", fix_version))
   end,
 
   test_prior_round_ledger_uses_highest_round_when_comments_are_out_of_order = function()
@@ -565,19 +567,19 @@ return {
     local round1_review = core.pr_review_proposal_id("owner/repo", 7, base_version, "def456")
     local round2_review = core.pr_review_proposal_id("owner/repo", 7, round2_fix, "feedface")
     local round1 = {
-      body = core.review_result_marker(round1_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. round1_review .. "/review", 1, "round one gap")
+      body = markers_builders.review_result_marker(core, round1_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. round1_review .. "/review", 1, "round one gap")
         .. "\nFix-round summary: Closed round one."
         .. "\n" .. core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", round2_fix),
       author_login = "fkst-test-bot",
     }
     local round2 = {
-      body = core.review_result_marker(round2_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. round2_review .. "/review", 3, "round three gap")
+      body = markers_builders.review_result_marker(core, round2_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. round2_review .. "/review", 3, "round three gap")
         .. "\nFix-round summary: Closed round three."
         .. "\n" .. core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", round3_fix),
       author_login = "fkst-test-bot",
     }
 
-    local ledger = core.review_prior_round_ledger({ round2, round1 }, "github-devloop/issue/owner/repo/42", core.next_fix_version(round3_fix))
+    local ledger = markers_facts.review_prior_round_ledger(core, { round2, round1 }, "github-devloop/issue/owner/repo/42", core.next_fix_version(round3_fix))
     t.is_true(ledger:find("Last named blocking gap: round three gap", 1, true) ~= nil)
     t.is_true(ledger:find("Latest fix-round summary: Closed round three.", 1, true) ~= nil)
     t.is_nil(ledger:find("round one", 1, true))
@@ -589,7 +591,7 @@ return {
     local review = core.pr_review_proposal_id("owner/repo", 7, base_version, "def456")
     local cjk = fixtures.cjk_char()
     local reject = {
-      body = core.review_result_marker(
+      body = markers_builders.review_result_marker(core,
         review,
         "github-devloop/issue/owner/repo/42",
         "reject",
@@ -605,7 +607,7 @@ return {
       author_login = "fkst-test-bot",
     }
 
-    local ledger = core.review_prior_round_ledger({ reject, fix }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
+    local ledger = markers_facts.review_prior_round_ledger(core, { reject, fix }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
     assert_valid_utf8(ledger)
     t.is_true(#ledger <= core._max_review_ledger_len)
   end,

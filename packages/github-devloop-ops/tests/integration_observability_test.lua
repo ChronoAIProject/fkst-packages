@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
@@ -312,7 +313,7 @@ end
 local function mock_reaper_pr(proposal_id, issue_number, pr_number, comments)
   local branch = devloop_branch(issue_number)
   local all_comments = {
-    render_comment(core.pr_origin_marker(proposal_id, tostring(issue_number), branch, "v1", "integration/dev"), "fkst-test-bot"),
+    render_comment(markers_builders.pr_origin_marker(core, proposal_id, tostring(issue_number), branch, "v1", "integration/dev"), "fkst-test-bot"),
   }
   for _, comment in ipairs(comments or {}) do
     table.insert(all_comments, comment)
@@ -450,10 +451,10 @@ return {
     mock_pr_list({})
     mock_issue_view({
       render_comment(core.state_marker(proposal_id, "pr-open", impl_version), "fkst-test-bot", "2026-06-03T01:02:03Z"),
-      render_comment(core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42", impl_version, "integration/dev")),
+      render_comment(markers_builders.pr_link_marker(core, proposal_id, 7, "devloop-owner-repo-42", impl_version, "integration/dev")),
     })
     mock_pr_view({
-      render_comment(core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42", impl_version, "integration/dev")),
+      render_comment(markers_builders.pr_origin_marker(core, proposal_id, "42", "devloop-owner-repo-42", impl_version, "integration/dev")),
       render_comment(core.state_marker(proposal_id, "reviewing", impl_version), "fkst-test-bot", "2026-06-03T02:03:04Z"),
     })
 
@@ -471,7 +472,7 @@ return {
     mock_all_issue_lists({})
     mock_pr_list({ 8 })
     mock_pr_view({
-      render_comment(core.pr_origin_marker(proposal_id, "43", "devloop-owner-repo-43", "v1", "integration/dev")),
+      render_comment(markers_builders.pr_origin_marker(core, proposal_id, "43", "devloop-owner-repo-43", "v1", "integration/dev")),
       render_comment(core.state_marker(proposal_id, "merge-ready", "v1"), "fkst-test-bot", "2026-06-03T03:03:04Z"),
     }, { number = 8, head_ref_name = "devloop-owner-repo-43" })
 
@@ -573,7 +574,7 @@ return {
     mock_all_issue_lists({})
     mock_pr_list({ 7 })
     mock_reaper_pr(proposal_id, 42, 7, {
-      render_comment(core.orphan_reaped_marker(proposal_id, 7, "parent-closed"), "fkst-test-bot"),
+      render_comment(markers_builders.orphan_reaped_marker(core, proposal_id, 7, "parent-closed"), "fkst-test-bot"),
     })
     mock_dashboard_issue_list()
     mock_dashboard_create()

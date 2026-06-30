@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local convergence_shared = require("devloop.convergence.shared")
 local contract_time = require("contract.time")
 local transition_version = require("contract.transition_version")
@@ -123,10 +124,10 @@ end
 
 local function fixing_comments(event, version)
   return {
-    trusted_comment(core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")),
+    trusted_comment(markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")),
     trusted_comment(core.state_marker(event.proposal_id, "fixing", version or event.version)),
-    trusted_comment(core.review_result_marker(event.review_proposal_id, event.proposal_id, "reject", event.review_dedup_key, 1, "missing regression guard")),
-    trusted_comment(core.merge_gate_marker(
+    trusted_comment(markers_builders.review_result_marker(core, event.review_proposal_id, event.proposal_id, "reject", event.review_dedup_key, 1, "missing regression guard")),
+    trusted_comment(markers_builders.merge_gate_marker(core,
       event.proposal_id,
       event.pr_number,
       event.version,
@@ -141,10 +142,10 @@ end
 
 local function review_meta_comments(event, version)
   return {
-    trusted_comment(core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")),
+    trusted_comment(markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")),
     trusted_comment(core.state_marker(event.proposal_id, "review-meta", version or event.version)),
-    trusted_comment(core.review_meta_marker(event.proposal_id, event.dedup_key)),
-    trusted_comment(core.review_result_marker(event.review_proposal_id, event.proposal_id, "reject", event.review_dedup_key, 1, "missing regression guard")),
+    trusted_comment(markers_builders.review_meta_marker(core, event.proposal_id, event.dedup_key)),
+    trusted_comment(markers_builders.review_result_marker(core, event.review_proposal_id, event.proposal_id, "reject", event.review_dedup_key, 1, "missing regression guard")),
     trusted_comment(core.review_converge_round_marker(
       event.review_proposal_id,
       event.proposal_id,
@@ -325,7 +326,7 @@ local function mock_fix_dispatch_context(event, branch, rejection)
     core.state_marker(event.proposal_id, "fixing", event.version),
     rejection,
   }, branch, event.version)
-  mock_pr_fix({ core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev") }, branch, event.reviewed_head_sha)
+  mock_pr_fix({ markers_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev") }, branch, event.reviewed_head_sha)
 end
 
 local function run_liveness_scan(name, run_opts)
@@ -473,7 +474,7 @@ return {
     mock_write_env("1")
     mock_fix_dispatch_context(event, branch, rejection)
     mock_git_push(branch)
-    mock_pr_fix({ core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev") }, branch, "feedface")
+    mock_pr_fix({ markers_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev") }, branch, "feedface")
 
     local result = run_fix(event, run_opts)
     t.eq(result.exit_code, 0)

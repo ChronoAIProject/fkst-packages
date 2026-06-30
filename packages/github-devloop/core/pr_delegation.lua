@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local parsers_pr = require("devloop.parsers.pr")
 local S = {}
 local config = require("devloop.config")
@@ -98,8 +100,8 @@ local function build_pr_open_comment_request(repo, pr_number, pr_proposal_id, is
     error("github-devloop: invalid pr-delegation head sha")
   end
   local body = "github-devloop PR child open"
-    .. "\n\n" .. M.pr_origin_marker(issue_proposal_id, issue_number, branch, impl_version, base_branch)
-    .. "\n" .. M.pr_link_marker(issue_proposal_id, pr_number, branch, impl_version, base_branch)
+    .. "\n\n" .. markers_builders.pr_origin_marker(M, issue_proposal_id, issue_number, branch, impl_version, base_branch)
+    .. "\n" .. markers_builders.pr_link_marker(M, issue_proposal_id, pr_number, branch, impl_version, base_branch)
     .. "\n" .. M.state_marker(issue_proposal_id, "pr-open", impl_version)
   return M.build_entity_comment_request({
     kind = "pr",
@@ -114,7 +116,7 @@ local function build_pr_open_comment_request(repo, pr_number, pr_proposal_id, is
 end
 
 local function build_issue_delegation_comment_request(repo, issue_number, issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation, source_ref)
-  local marker = M.pr_delegation_marker(issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation)
+  local marker = markers_builders.pr_delegation_marker(M, issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation)
   return M.build_entity_comment_request({
     kind = "issue",
     repo = repo,
@@ -133,7 +135,7 @@ end
 local function build_parent_awaiting_comment(repo, issue_number, ready, child)
   local body = "github-devloop delegated implementation to PR #" .. tostring(child.pr_number)
     .. "\n\n" .. M.state_marker(ready.proposal_id, "awaiting-pr", ready.dedup_key)
-    .. "\n" .. M.pr_delegation_marker(
+    .. "\n" .. markers_builders.pr_delegation_marker(M,
       ready.proposal_id,
       child.pr_proposal_id,
       child.pr_number,
@@ -165,7 +167,7 @@ local function build_parent_awaiting_label(repo, issue_number, ready, child)
 end
 
 local function existing_delegation(issue, issue_proposal_id, delegation)
-  local fact = M.pr_delegation_fact(issue and issue.comments, issue_proposal_id, nil, delegation)
+  local fact = markers_facts.pr_delegation_fact(M, issue and issue.comments, issue_proposal_id, nil, delegation)
   if fact == nil then
     return nil
   end
@@ -181,7 +183,7 @@ local function existing_delegation(issue, issue_proposal_id, delegation)
 end
 
 local function child_start_facts(comments)
-  local origin = M.pr_origin_fact(comments)
+  local origin = markers_facts.pr_origin_fact(M, comments)
   local origin_fields = nil
   local pr_open_reached = false
   if origin ~= nil then

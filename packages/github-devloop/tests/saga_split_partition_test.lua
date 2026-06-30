@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
@@ -106,7 +107,7 @@ return {
   end,
 
   test_pr_delegation_marker_shape_is_declared = function()
-    local marker_text = core.pr_delegation_marker(
+    local marker_text = markers_builders.pr_delegation_marker(core,
       proposal_id,
       "github-devloop/pr/owner/repo/7",
       7,

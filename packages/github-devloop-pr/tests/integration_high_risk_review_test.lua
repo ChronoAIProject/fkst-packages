@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -33,7 +34,7 @@ end
 
 local function reviewed_state(event)
   mock_pr_origin({
-    core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
   })
   mock_issue_result({ "fkst-dev:reviewing" }, {
     core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -183,7 +184,7 @@ return {
     })
     local event = reviewing()
     mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     })
     mock_issue_review({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -287,7 +288,7 @@ return {
     local event = approve_event()
     local reviewing_event = reviewing()
     mock_pr_origin({
-      core.pr_origin_marker(reviewing_event.proposal_id, "42", "devloop-owner-repo-42-01HY", reviewing_event.version, "dev"),
+      markers_builders.pr_origin_marker(core, reviewing_event.proposal_id, "42", "devloop-owner-repo-42-01HY", reviewing_event.version, "dev"),
       '<!-- fkst:github-devloop:high-risk-review-evidence:v1 proposal="github-devloop/issue/owner/repo/42" version="' .. reviewing_event.version .. '" pr="7" head_sha="def456" review_proposal="' .. event.proposal_id .. '" review_dedup="' .. event.dedup_key .. '" risk="high" angle="high-risk" verdict="approve" paths_digest="spoof" angle_digest="spoof" -->',
     })
     mock_issue_result({ "fkst-dev:reviewing" }, {

@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -480,7 +481,7 @@ return {
     local current = reached()
     h.mock_issue_result({ "fkst-dev:ready" }, {
       core.state_marker(current.proposal_id, "dependency_wait", current.dedup_key),
-      core.result_marker(current.proposal_id, current.decision, current.dedup_key),
+      markers_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key),
     })
     mock_blocked_by(42, { { number = 51 } })
     mock_blocked_by(51, {})

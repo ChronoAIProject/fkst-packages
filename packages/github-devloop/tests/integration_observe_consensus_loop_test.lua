@@ -1,7 +1,9 @@
+local markers_builders = require("devloop.markers.builders")
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_helpers")
 local forks = require("devloop.forks")
 local config = require("devloop.config")
+require("tests.cache_seed_helpers")
 local t = h.t
 local core = h.core
 local action_label = h.action_label
@@ -84,6 +86,16 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
+local function seed_cache(key, value, run_opts)
+  return t.run_department("departments/test_cache_seed/main.lua", {
+    queue = "cache_seed",
+    payload = {
+      key = key,
+      value = tostring(value),
+    },
+  }, run_opts)
+end
+
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
     mock_issue_state({ "fkst-dev:enabled" })
@@ -109,9 +121,9 @@ return {
   end,
 
   test_observe_other_authored_unmanaged_issue_inside_grace_does_not_fork = function()
-    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "human", os.date("!%Y-%m-%dT%H:%M:%SZ", now()))
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "human")
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
-      stdout = '{"title":"Issue title","createdAt":"' .. os.date("!%Y-%m-%dT%H:%M:%SZ", now()) .. '","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"human"}}\n',
+      stdout = '{"title":"Issue title","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"human"}}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -125,9 +137,11 @@ return {
 
   test_observe_other_authored_unmanaged_issue_after_grace_raises_fork_request_only = function()
     local run_opts = opts("observe-other-author-fork")
-    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "human", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1))
+    local seeded = seed_cache(core.fork_first_observed_key("owner/repo", 42, "2026-06-03T01:02:03Z"), now() - (3 * 60 * 60) - 1, run_opts)
+    t.eq(seeded.exit_code, 0)
+    mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "human")
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
-      stdout = '{"title":"Issue title","createdAt":"' .. os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1) .. '","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"human"}}\n',
+      stdout = '{"title":"Issue title","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"human"}}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -334,7 +348,7 @@ return {
     t.eq(find_raise(stale_ready.raises, "devloop_ready"), nil)
 
     local completed = reached()
-    local marker = core.result_marker(completed.proposal_id, completed.decision, completed.dedup_key)
+    local marker = markers_builders.result_marker(core, completed.proposal_id, completed.decision, completed.dedup_key)
     mock_issue_result({ "fkst-dev:ready" }, { marker })
 
     local complete = run_result(completed, opts("result-approve-complete"))
@@ -402,7 +416,7 @@ return {
 
   test_consensus_result_raises_label_when_result_marker_present_without_terminal_label = function()
     local current = reached()
-    local marker = core.result_marker(current.proposal_id, current.decision, current.dedup_key)
+    local marker = markers_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key)
     mock_issue_result({ "fkst-dev:thinking" }, { marker })
 
     local result = run_result(current, opts("result-marker"))
@@ -415,7 +429,7 @@ return {
 
   test_consensus_result_skips_when_terminal_label_and_result_marker_present = function()
     local current = reached()
-    local marker = core.result_marker(current.proposal_id, current.decision, current.dedup_key)
+    local marker = markers_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key)
     mock_issue_result({ "fkst-dev:ready" }, { marker })
 
     local result = run_result(current, opts("result-complete"))
@@ -425,7 +439,7 @@ return {
 
   test_consensus_result_same_decision_without_thinking_skips = function()
     local current = reached()
-    local stale_marker = core.result_marker(current.proposal_id, "approve", current.dedup_key)
+    local stale_marker = markers_builders.result_marker(core, current.proposal_id, "approve", current.dedup_key)
     mock_issue_result({ "fkst-dev:ready" }, { stale_marker })
 
     local result = run_result(current, opts("result-stale-same-marker"))
@@ -445,7 +459,7 @@ return {
     local current = reached({
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/v2",
     })
-    local older_marker = core.result_marker(current.proposal_id, "approve", "consensus:github-devloop/issue/owner/repo/42/v1")
+    local older_marker = markers_builders.result_marker(core, current.proposal_id, "approve", "consensus:github-devloop/issue/owner/repo/42/v1")
     mock_issue_result({ "fkst-dev:thinking" }, {
       core.state_marker(current.proposal_id, "thinking", current.dedup_key),
       older_marker,
@@ -455,7 +469,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(comment_raise.payload.body:find(core.result_marker(current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find(markers_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
     t.is_true(comment_raise.payload.dedup_key:find("/v2", 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
@@ -474,7 +488,7 @@ return {
     t.eq(#result.raises, 2)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment_raise.payload.body:find(core.state_marker(current.proposal_id, "ready", current.effect_version, "result-marker,ready-label,devloop-ready"), 1, true) ~= nil)
-    t.is_true(comment_raise.payload.body:find(core.result_marker(current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find(markers_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
     t.eq(comment_raise.payload.handoff.marker_version, current.effect_version)
   end,

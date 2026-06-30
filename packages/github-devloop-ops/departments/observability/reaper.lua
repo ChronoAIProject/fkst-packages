@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local parsers_misc = require("devloop.parsers.misc")
 local common = require("departments.observability.common")
 local strings = require("contract.strings")
@@ -109,7 +111,7 @@ local function reaper_comment_body(proposal_id, pr_number, reason)
     .. "Reason: " .. reason_text .. "\n"
     .. "Successors: " .. successor_summary(reason and reason.successors or {}, nil) .. "\n"
     .. "Branch cleanup is intentionally left to a separate manual or managed path.\n\n"
-    .. core.orphan_reaped_marker(proposal_id, pr_number, reason and reason.code or "parent-terminal")
+    .. markers_builders.orphan_reaped_marker(core, proposal_id, pr_number, reason and reason.code or "parent-terminal")
     .. "\n"
 end
 
@@ -131,7 +133,7 @@ local function reap_orphan_pr(repo, entity)
   if tostring(entity.pr.state or ""):upper() ~= "OPEN" then
     return
   end
-  if core.has_orphan_reaped_marker(entity.pr.comments, proposal_id, pr_number) then
+  if markers_facts.has_orphan_reaped_marker(core, entity.pr.comments, proposal_id, pr_number) then
     log.info(orphan_reap_log_line(repo, pr_number, proposal_id, "skip-idempotent", "orphan-reaped-marker-visible"))
     return
   end

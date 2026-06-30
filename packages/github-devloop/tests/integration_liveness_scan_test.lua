@@ -1,5 +1,5 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
-local cache_seed_helpers = require("tests.cache_seed_helpers")
 local contract_time = require("contract.time")
 local t = h.t
 local core = h.core
@@ -20,7 +20,6 @@ local mock_issue_reconcile = h.mock_issue_reconcile
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local codex_status = require("tests.codex_status_helpers")
 local ISSUE_REDRIVE_QUEUE = "devloop_observe_issue"
-local _cache_seed_helpers = cache_seed_helpers
 
 local function restart_transition_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
@@ -524,9 +523,9 @@ return {
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
       timeout_state_comment("blocked", version, "2026-06-01T00:00:00Z"),
-      core.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
+      markers_builders.pr_link_marker(core, proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
       decompose_lib.decomposed_marker(core, proposal_id, version, 7, 1),
-      core.review_result_marker(review_proposal, proposal_id, "reject", "consensus:" .. review_proposal .. "/review", 1, "missing decomposition"),
+      markers_builders.review_result_marker(core, review_proposal, proposal_id, "reject", "consensus:" .. review_proposal .. "/review", 1, "missing decomposition"),
     })
     t.mock_command(core.gh_issue_list_decompose_children_cmd(repo, proposal_id), {
       stdout = "[]\n",

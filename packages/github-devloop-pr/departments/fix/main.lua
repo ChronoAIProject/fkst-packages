@@ -1,3 +1,4 @@
+local markers_facts = require("devloop.markers.facts")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local core = require("core")
@@ -675,15 +676,15 @@ local function act_fix(event)
       core.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(version-mismatch)", "fix event version does not match canonical issue marker")
       return
     end
-    local reject_fact = core.review_reject_fact(current_pr.comments, fix.proposal_id, fix.version)
+    local reject_fact = markers_facts.review_reject_fact(core, current_pr.comments, fix.proposal_id, fix.version)
     local meta_fix_fact = nil
     if reject_fact == nil then
-      meta_fix_fact = core.review_meta_fix_fact(current_pr.comments, fix.proposal_id, fix.version)
+      meta_fix_fact = markers_facts.review_meta_fix_fact(core, current_pr.comments, fix.proposal_id, fix.version)
     end
     local merge_gate_fact = nil
     if reject_fact == nil and meta_fix_fact == nil then
-      local merge_gate_candidate = core.merge_gate_fix_fact(current_pr.comments, fix.proposal_id, fix.version)
-      merge_gate_fact = core.merge_gate_fix_fact(current_pr.comments, fix.proposal_id, fix.version, {
+      local merge_gate_candidate = markers_facts.merge_gate_fix_fact(core, current_pr.comments, fix.proposal_id, fix.version)
+      merge_gate_fact = markers_facts.merge_gate_fix_fact(core, current_pr.comments, fix.proposal_id, fix.version, {
         review_proposal_id = fix.review_proposal_id,
         review_dedup_key = fix.review_dedup_key,
         gate_baseline_sha = fix.gate_baseline_sha,
@@ -726,7 +727,7 @@ local function act_fix(event)
       feedback_reason = merge_gate_fact.review_reason
     end
 
-    local origin = core.pr_origin_fact(current_pr.comments)
+    local origin = markers_facts.pr_origin_fact(core, current_pr.comments)
     if origin == nil then
       origin = core.pr_native_origin(repo, fix.pr_number, current_pr)
     end

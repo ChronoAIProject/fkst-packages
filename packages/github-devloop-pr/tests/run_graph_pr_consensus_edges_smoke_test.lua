@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local convergence_shared = require("devloop.convergence.shared")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
@@ -36,7 +37,7 @@ local function state_marker(state)
 end
 
 local function pr_origin_marker()
-  return core.pr_origin_marker(issue_proposal_id, tostring(issue_number), "devloop-owner-repo-42-01HY", reviewed_version, "dev")
+  return markers_builders.pr_origin_marker(core, issue_proposal_id, tostring(issue_number), "devloop-owner-repo-42-01HY", reviewed_version, "dev")
 end
 
 local function mock_env(times)

@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local t = fkst.test
 local forge_validators = require("devloop.forge_validators")
 local marker_builders = require("devloop.markers.builders")
@@ -80,7 +81,7 @@ return {
       safe_marker_attr = function(_, value) return tostring(value or "") end,
     })
 
-    local marker = M.implementing_marker(
+    local marker = markers_builders.implementing_marker(M,
       "github-devloop/issue/owner/repo/42",
       "dedup-key",
       "feature/foo",

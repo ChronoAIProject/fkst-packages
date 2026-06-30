@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -15,7 +16,7 @@ local blocked_comments
 
 local function mock_pr_view(event, comments, updated_at)
   local selected = {
-    core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
   }
   for _, comment in ipairs(comments) do
     table.insert(selected, comment)
@@ -114,7 +115,7 @@ end
 
 blocked_comments = function(event, extra)
   local comments = {
-    core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     core.state_marker(event.proposal_id, "blocked", event.version),
     core.fix_reconcile_marker(event.proposal_id, event.version, "drop"),
   }

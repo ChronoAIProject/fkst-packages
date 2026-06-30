@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -63,7 +64,7 @@ return {
       },
       event.source_ref
     ).body
-    local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = markers_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -115,7 +116,7 @@ return {
       },
       event.source_ref
     ).body
-    local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = markers_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -166,7 +167,7 @@ return {
       },
       event.source_ref
     ).body
-    local origin_marker = core.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = markers_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {

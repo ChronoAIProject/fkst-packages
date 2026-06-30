@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local transition_version = require("contract.transition_version")
 local t = h.t
@@ -18,7 +19,7 @@ local count_calls = h.count_calls
 local config = require("devloop.config")
 
 local function origin_marker(version)
-  return core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
+  return markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
 end
 
 local function fix_round_version(round)
@@ -44,7 +45,7 @@ end
 local function reject_marker(version, created_at)
   local proposal_id = core.pr_review_proposal_id("owner/repo", 7, version, "feedface")
   return {
-    body = core.review_result_marker(
+    body = markers_builders.review_result_marker(core,
       proposal_id,
       "github-devloop/issue/owner/repo/42",
       "reject",

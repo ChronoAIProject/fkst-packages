@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -95,7 +96,7 @@ return {
     local new_head = "feedface"
     local base_head = "ba5e1234"
     mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     }, "devloop-owner-repo-42-01HY", new_head)
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_base_fetch(base_head)
@@ -152,7 +153,7 @@ return {
     local old_head = event.reviewed_head_sha
     local advanced_head = "feedface"
     mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     }, "devloop-owner-repo-42-01HY", old_head)
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
 
@@ -162,7 +163,7 @@ return {
     t.eq(unchanged_merge.payload.dedup_key, event.dedup_key)
 
     mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     }, "devloop-owner-repo-42-01HY", advanced_head)
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_base_fetch("ba5e1234")
@@ -187,7 +188,7 @@ return {
     local event = h.merge_ready()
     local new_head = "feedface"
     mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     }, "devloop-owner-repo-42-01HY", new_head)
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
     mock_base_fetch("ba5e1234")
@@ -207,10 +208,10 @@ return {
     local new_head = "feedface"
     local new_review = core.pr_review_proposal_id("owner/repo", 7, event.version, new_head)
     local comments = merge_comments(event)
-    table.insert(comments, core.review_result_marker(new_review, event.proposal_id, "approve", "consensus:" .. new_review .. "/review"))
-    table.insert(comments, core.merge_ready_marker(event.proposal_id, event.pr_number, event.version, new_review, "consensus:" .. new_review .. "/review", new_head))
+    table.insert(comments, markers_builders.review_result_marker(core, new_review, event.proposal_id, "approve", "consensus:" .. new_review .. "/review"))
+    table.insert(comments, markers_builders.merge_ready_marker(core, event.proposal_id, event.pr_number, event.version, new_review, "consensus:" .. new_review .. "/review", new_head))
     mock_pr_origin({
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     }, "devloop-owner-repo-42-01HY", new_head)
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, comments)
     mock_base_fetch("ba5e1234")

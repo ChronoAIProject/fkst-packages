@@ -1,3 +1,4 @@
+local markers_facts = require("devloop.markers.facts")
 local parsers_issue = require("devloop.parsers.issue")
 local core = require("core")
 local operator_commands = require("devloop.operator_commands")
@@ -37,7 +38,7 @@ local function handle_pending_reintake(repo, issue, current, proposal_id, source
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an open issue", source_ref)
     return true
   end
-  if not core.has_intake_decision_marker(current.comments, proposal_id) then
+  if not markers_facts.has_intake_decision_marker(core, current.comments, proposal_id) then
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an existing intake decision", source_ref)
     return true
   end
@@ -75,7 +76,7 @@ local function admit_issue_event(event, entity)
   local proposal_id = core.proposal_id(repo, issue_number)
   core.assert_trusted_bot_configured()
 
-  local view = core.gh_issue_view(repo, issue_number, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author", 30)
+  local view = core.gh_issue_view(repo, issue_number, "title,body,updatedAt,labels,comments,state,assignees,author", 30)
   if view.exit_code ~= 0 then
     error("github-devloop-intake: gh-issue-admission-view-failed: gh issue admission view failed: " .. tostring(view.stderr))
   end
@@ -102,7 +103,7 @@ local function admit_issue_event(event, entity)
     core.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-known-state", "fresh issue labels show an active devloop state")
     return
   end
-  if core.has_intake_decision_marker(current.comments, proposal_id) then
+  if markers_facts.has_intake_decision_marker(core, current.comments, proposal_id) then
     core.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
   end

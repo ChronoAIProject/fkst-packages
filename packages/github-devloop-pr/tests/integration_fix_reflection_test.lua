@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -31,7 +33,7 @@ end
 local function mock_reflection_context(event, ledger)
   mock_issue_review_meta({ "fkst-dev:review-meta" }, {
     core.state_marker(event.proposal_id, "review-meta", event.version),
-    core.fix_reflection_marker(event.proposal_id, event.dedup_key, "checkpoint", event.version, 3),
+    markers_builders.fix_reflection_marker(core, event.proposal_id, event.dedup_key, "checkpoint", event.version, 3),
     ledger,
   })
   h.mock_context_bundle()
@@ -56,7 +58,7 @@ return {
     })
     local reflection_version = core.fix_version_from_review_version(review_version)
     mock_pr_origin({
-      core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", review_version, "dev"),
+      markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", review_version, "dev"),
     })
     mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", review_version),
@@ -98,7 +100,7 @@ return {
     t.is_true(comment:find("fkst:github-devloop:fix-reflection:v1", 1, true) ~= nil)
     t.is_true(comment:find('verdict="continue"', 1, true) ~= nil)
     t.is_true(comment:find("fkst:github-devloop:review-meta:v1", 1, true) ~= nil)
-    t.eq(core.review_meta_fix_fact({ comment }, event.proposal_id, exit_version).blocking_gap, "missing regression guard")
+    t.eq(markers_facts.review_meta_fix_fact(core, { comment }, event.proposal_id, exit_version).blocking_gap, "missing regression guard")
   end,
 
   test_fix_reflection_replay_fact_restores_blocking_gap = function()
@@ -117,8 +119,8 @@ return {
         author_login = core._test_bot_login,
         body = table.concat({
           core.state_marker("github-devloop/issue/owner/repo/42", "review-meta", issue_version),
-          core.review_result_marker(review_proposal, "github-devloop/issue/owner/repo/42", "reject", review_dedup, 3, "missing regression guard"),
-          core.fix_reflection_marker("github-devloop/issue/owner/repo/42", review_dedup, "checkpoint", issue_version, 3),
+          markers_builders.review_result_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", "reject", review_dedup, 3, "missing regression guard"),
+          markers_builders.fix_reflection_marker(core, "github-devloop/issue/owner/repo/42", review_dedup, "checkpoint", issue_version, 3),
         }, "\n"),
         created_at = "2026-06-03T01:02:03Z",
       },

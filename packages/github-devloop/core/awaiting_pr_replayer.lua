@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local parsers_pr = require("devloop.parsers.pr")
 local config = require("devloop.config")
 -- `awaiting-pr` is the issue-side `dependency_wait` twin: poll-reconcile the delegated PR's terminal fact and never drive `github-devloop-pr` internal lifecycle queues; the PR package owns those queues.
@@ -97,7 +99,7 @@ local function resume_terminal_markers(issue, next_state, delegation, current_pr
     reviewed_head_sha = head_sha,
   }
   local autonomy_record = autonomy_ledger.autonomy_result_record(M, issue.repo, issue.number, merge_ready, issue, autonomy_post_merge_pr(current_pr))
-  return "\n" .. M.merged_marker(delegation.proposal_id, delegation.pr_number, next_state.version, head_sha, autonomy_record)
+  return "\n" .. markers_builders.merged_marker(M, delegation.proposal_id, delegation.pr_number, next_state.version, head_sha, autonomy_record)
     .. "\n" .. autonomy_ledger.autonomy_result_marker(M, autonomy_record)
 end
 
@@ -221,7 +223,7 @@ canonical_pr_is_merged = function(current_pr)
 end
 
 origin_matches_delegation = function(issue, delegation, current_pr, branches)
-  local origin = M.pr_origin_fact(current_pr and current_pr.comments)
+  local origin = markers_facts.pr_origin_fact(M, current_pr and current_pr.comments)
   if origin == nil
     or origin.pr_native == true
     or tostring(origin.proposal_id or "") ~= tostring(delegation.proposal_id or "")

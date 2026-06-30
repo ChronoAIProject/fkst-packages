@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -61,7 +62,7 @@ local function mock_delegated_blocker_issue()
     labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
     comments = {
       core.state_marker(blocker_proposal, "awaiting-pr", blocker_version),
-      core.pr_delegation_marker(blocker_proposal, child_pr_proposal, child_pr_number, blocker_version, "g1"),
+      markers_builders.pr_delegation_marker(core, blocker_proposal, child_pr_proposal, child_pr_number, blocker_version, "g1"),
     },
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
@@ -77,9 +78,9 @@ local function mock_merged_child_pr()
     head_sha = child_head_sha,
     base_branch = "dev",
     comments = {
-      core.pr_origin_marker(blocker_proposal, blocker_number, "devloop-owner-repo-61-01HY", blocker_version, "dev"),
+      markers_builders.pr_origin_marker(core, blocker_proposal, blocker_number, "devloop-owner-repo-61-01HY", blocker_version, "dev"),
       core.state_marker(blocker_proposal, "merged", blocker_version),
-      core.merged_marker(blocker_proposal, child_pr_number, blocker_version, child_head_sha),
+      markers_builders.merged_marker(core, blocker_proposal, child_pr_number, blocker_version, child_head_sha),
     },
   }, entity_read_mocks.pr_origin_selector)
 end

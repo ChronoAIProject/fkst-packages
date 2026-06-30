@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local parsers_issue = require("devloop.parsers.issue")
 local h = require("tests.devloop_core_helpers")
 local core = h.core
@@ -211,7 +212,7 @@ return {
     t.eq(core.compare_state_marker_order({ state = "merge-ready", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z" }, "reviewing", review_version), -1)
     t.eq(core.compare_state_marker_order({ state = "pr-open", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-06T01-02-03Z" }, "reviewing", review_version), 1)
 
-    local marker = core.result_marker(
+    local marker = markers_builders.result_marker(core,
       proposal_id,
       "approve",
       "consensus:github-devloop/issue/owner/repo/42/v1"
@@ -682,7 +683,7 @@ return {
     local current = core.current_state({
       core.state_marker(proposal_id, "fixing", version),
       core.state_marker(proposal_id, "reviewing", new_version),
-      core.fix_marker(proposal_id, "github-devloop/pr-review/owner-repo-0000000000/7/v1/def456", "review", "def456", sha_like_lower_version),
+      markers_builders.fix_marker(core, proposal_id, "github-devloop/pr-review/owner-repo-0000000000/7/v1/def456", "review", "def456", sha_like_lower_version),
     }, proposal_id)
 
     t.eq(core.version_fix_round(new_version), core.version_fix_round(version) + 1)

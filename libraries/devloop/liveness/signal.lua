@@ -1,3 +1,4 @@
+local markers_facts = require("devloop.markers.facts")
 local parsers_misc = require("devloop.parsers.misc")
 local S = {}
 local convergence_shared = require("devloop.convergence.shared")
@@ -323,12 +324,12 @@ local function pr_delegation_child_state_proposal_id(M, facts, parent_proposal_i
   if child_state_proposal_id ~= nil then
     return child_state_proposal_id
   end
-  if type(M.pr_delegation_fact) ~= "function" then
+  if type(markers_facts.pr_delegation_fact) ~= "function" then
     return nil
   end
   return fact_child_state_proposal_id(
     M,
-    M.pr_delegation_fact(delegation_comments(facts), parent_proposal_id, delegation_version),
+    markers_facts.pr_delegation_fact(M, delegation_comments(facts), parent_proposal_id, delegation_version),
     parent_proposal_id,
     delegation_version
   )

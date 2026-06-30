@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -67,7 +68,7 @@ local function mock_intake_judge_view(labels, comments, extra)
     assignees_json,
     h.encode_json_string(fields.author_login or "fkst-test-bot")
   )
-  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author", {
+  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,updatedAt,labels,comments,state,assignees,author", {
     stdout = stdout_with_assignees,
   }, 2)
   entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,updatedAt,labels,comments,state", {
@@ -422,7 +423,7 @@ return {
     payload.dedup_key = core.intake_candidate_delivery_dedup_key(payload.proposal_id, payload.effect_id, payload.effect_id)
     h.mock_bot_env()
     mock_intake_judge_view({ "fkst-dev:thinking" }, {
-      core.intake_decision_marker(payload.proposal_id, "decline", payload.effect_id, "standard"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "decline", payload.effect_id, "standard"),
       command,
     })
 

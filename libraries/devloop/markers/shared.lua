@@ -1,8 +1,7 @@
-local S = {}
+local C = {}
 
-S.valid_round = require("devloop.rounds").valid_round
-S.strings = require("contract.strings")
-S.max_attr_len = 240
+local rounds = require("devloop.rounds")
+local max_attr_len = 240
 
 local intake_service_class_set = {
   expedite = true,
@@ -10,7 +9,11 @@ local intake_service_class_set = {
   background = true,
 }
 
-function S.normalize_intake_service_class(value)
+function C.valid_round(_M, value)
+  return rounds.valid_round(value)
+end
+
+function C.normalize_intake_service_class(_M, value)
   local text = tostring(value or ""):lower()
   if intake_service_class_set[text] then
     return text
@@ -18,28 +21,28 @@ function S.normalize_intake_service_class(value)
   return "standard"
 end
 
-function S.is_intake_service_class(value)
+function C.is_intake_service_class(_M, value)
   return intake_service_class_set[tostring(value or "")] == true
 end
 
-function S.marker_attr(marker, name)
+function C.marker_attr(_M, marker, name)
   return marker:match(name .. '="([^"]*)"')
 end
 
-function S.safe_marker_attr(M, value, limit)
+function C.safe_marker_attr(M, value, limit)
   local text = tostring(value or "")
   text = text:gsub("<!%-%- fkst:[^\n]*%-%->", " ")
   text = text:gsub("&lt;!%-%- fkst:[^\n]*%-%-&gt;", " ")
   text = text:gsub("%c", " "):gsub('"', "'"):gsub("[<>]", ""):gsub("%s+", " ")
   text = text:gsub("^%s+", ""):gsub("%s+$", "")
-  local cap = limit or S.max_attr_len
+  local cap = limit or max_attr_len
   if #text > cap then
     text = M.truncate_utf8(text, cap)
   end
   return text
 end
 
-function S.decode_marker_attr(value)
+function C.decode_marker_attr(_M, value)
   if type(value) ~= "string" or value == "" then
     return nil
   end
@@ -49,4 +52,4 @@ function S.decode_marker_attr(value)
   return value
 end
 
-return S
+return C

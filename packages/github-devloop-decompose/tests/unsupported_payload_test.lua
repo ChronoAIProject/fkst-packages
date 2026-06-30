@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local t = fkst.test
 local core = require("core")
 local h = require("tests.devloop_helpers")
@@ -29,7 +30,7 @@ return {
     }, "title,body,labels,comments")
     entity_read_mocks.mock_pr_view_selector(t, {
       comments = {
-        core.pr_origin_marker(payload.proposal_id, "42", "devloop-owner-repo-42-01HY", payload.version, "dev"),
+        markers_builders.pr_origin_marker(core, payload.proposal_id, "42", "devloop-owner-repo-42-01HY", payload.version, "dev"),
         core.state_marker(payload.proposal_id, "blocked", payload.version),
         core.fix_reconcile_marker(payload.proposal_id, payload.version, "drop"),
       },

@@ -1,4 +1,6 @@
+local markers_facts = require("devloop.markers.facts")
 local parsers_issue = require("devloop.parsers.issue")
+local markers_shared = require("devloop.markers.shared")
 local core = require("core")
 local execution_start = require("devloop.execution_start")
 local operator_commands = require("devloop.operator_commands")
@@ -115,7 +117,7 @@ local function read_current_for_candidate(repo, issue_number, candidate, event_t
 
   local reintake_command = operator_commands.operator_command_fact(core, current.comments, "reintake")
   local has_pending_reintake = reintake_command ~= nil and not operator_commands.has_operator_command_response(core, current.comments, reintake_command)
-  if has_pending_reintake and not core.has_intake_decision_marker(current.comments, candidate.proposal_id) then
+  if has_pending_reintake and not markers_facts.has_intake_decision_marker(core, current.comments, candidate.proposal_id) then
     local refusal = operator_commands.build_operator_issue_command_refusal_request(
       core,
       repo,
@@ -153,7 +155,7 @@ local function read_current_for_candidate(repo, issue_number, candidate, event_t
     core.log_cas_decision("intake_judge", candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline|escalate-to-class", "skip-stale(decision-dedup-changed)", "issue intake inputs changed while codex was running")
     return nil
   end
-  local intake_fact = core.intake_decision_fact(current.comments, candidate.proposal_id)
+  local intake_fact = markers_facts.intake_decision_fact(core, current.comments, candidate.proposal_id)
   local authoritative_state = core.current_state(current.comments, candidate.proposal_id)
   local can_replay_enable_successor = intake_fact ~= nil
     and intake_fact.decision == "enable"
@@ -239,10 +241,10 @@ local function act_intake_judge(event)
   local parsed = core.parse_intake_action(result.stdout)
   if parsed == nil then
     parsed = decline_result()
-    parsed.service_class = core.normalize_intake_service_class(nil)
+    parsed.service_class = markers_shared.normalize_intake_service_class(core, nil)
     core.log_codex_result("intake_judge", candidate.proposal_id, "intake", result, "action=decline reason=parse-failed", nil)
   else
-    parsed.service_class = core.normalize_intake_service_class(parsed.service_class)
+    parsed.service_class = markers_shared.normalize_intake_service_class(core, parsed.service_class)
     core.log_codex_result("intake_judge", candidate.proposal_id, "intake", result, "action=" .. tostring(parsed.action) .. " class=" .. tostring(parsed.service_class) .. " reason=" .. tostring(parsed.reason), nil)
   end
 

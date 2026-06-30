@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -50,7 +51,7 @@ local function mock_issue(number, fields)
     comments = f.comments or {},
     assignees = f.assignees or { "fkst-test-bot" },
     author_login = f.author_login or "fkst-test-bot",
-  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author")
+  }, "title,body,updatedAt,labels,comments,state,assignees,author")
 end
 
 local function run_admission(event, run_opts)
@@ -100,7 +101,7 @@ return {
         view = {
           number = 45,
           comments = {
-            core.intake_decision_marker("github-devloop/issue/owner/repo/45", "decline", "intake/github-devloop/issue/owner/repo/45/v1", "standard"),
+            markers_builders.intake_decision_marker(core, "github-devloop/issue/owner/repo/45", "decline", "intake/github-devloop/issue/owner/repo/45/v1", "standard"),
           },
         },
       },
@@ -138,7 +139,7 @@ return {
     mock_repo_env()
     mock_issue(42, {
       comments = {
-        core.intake_decision_marker(proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
+        markers_builders.intake_decision_marker(core, proposal_id, "escalate-to-class", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
         command,
       },
     })
@@ -176,7 +177,7 @@ return {
     mock_issue(42, {
       labels = { "fkst-dev:thinking" },
       comments = {
-        core.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
+        markers_builders.intake_decision_marker(core, proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
         trusted_reintake_command("IC_reintake_active"),
       },
     })
@@ -197,7 +198,7 @@ return {
     mock_repo_env()
     mock_issue(42, {
       comments = {
-        core.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
+        markers_builders.intake_decision_marker(core, proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
         untrusted_reintake_command("IC_reintake_forged"),
       },
     })
@@ -213,7 +214,7 @@ return {
     mock_issue(42, {
       comments = {
         {
-          body = core.intake_decision_marker("github-devloop/issue/owner/repo/42", "decline", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
+          body = markers_builders.intake_decision_marker(core, "github-devloop/issue/owner/repo/42", "decline", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
           author_login = "ordinary-user",
         },
       },

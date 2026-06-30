@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -61,10 +62,10 @@ end
 local function comments_for(event, created_at, state, state_version)
   local entity = core.parse_entity_proposal_id(event.proposal_id)
   local comments = {
-    core.pr_origin_marker(event.proposal_id, entity and entity.issue_number or 42, branch_for_pr(event.pr_number), event.version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, entity and entity.issue_number or 42, branch_for_pr(event.pr_number), event.version, "dev"),
     core.state_marker(event.proposal_id, "merge-ready", event.version),
-    core.merge_ready_marker(event.proposal_id, event.pr_number, event.version, event.review_proposal_id, event.review_dedup_key, event.reviewed_head_sha),
-    core.review_result_marker(event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
+    markers_builders.merge_ready_marker(core, event.proposal_id, event.pr_number, event.version, event.review_proposal_id, event.review_dedup_key, event.reviewed_head_sha),
+    markers_builders.review_result_marker(core, event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
   }
   if state ~= nil then
     table.insert(comments, core.state_marker(event.proposal_id, state, state_version or event.version))
@@ -124,12 +125,12 @@ end
 local function mock_merged_pr_view(event)
   local entity = core.parse_entity_proposal_id(event.proposal_id)
   local comments = {
-    core.pr_origin_marker(event.proposal_id, entity and entity.issue_number or 42, branch_for_pr(event.pr_number), event.version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, entity and entity.issue_number or 42, branch_for_pr(event.pr_number), event.version, "dev"),
     core.state_marker(event.proposal_id, "merge-ready", event.version),
-    core.merge_ready_marker(event.proposal_id, event.pr_number, event.version, event.review_proposal_id, event.review_dedup_key, event.reviewed_head_sha),
-    core.review_result_marker(event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
+    markers_builders.merge_ready_marker(core, event.proposal_id, event.pr_number, event.version, event.review_proposal_id, event.review_dedup_key, event.reviewed_head_sha),
+    markers_builders.review_result_marker(core, event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
     core.state_marker(event.proposal_id, "merging", event.version),
-    core.merging_marker(event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha),
+    markers_builders.merging_marker(core, event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha),
   }
   local rendered = {}
   for _, comment in ipairs(comments) do
@@ -254,7 +255,7 @@ return {
 
   test_merge_direct_merge_ready_accepts_unassigned_self_authored_issue = function()
     local current = merge_ready()
-    local origin_marker = core.pr_origin_marker(current.proposal_id, "42", "devloop-owner-repo-42-01HY", current.version, "dev")
+    local origin_marker = markers_builders.pr_origin_marker(core, current.proposal_id, "42", "devloop-owner-repo-42-01HY", current.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_claim(42, {}, "fkst-test-bot")

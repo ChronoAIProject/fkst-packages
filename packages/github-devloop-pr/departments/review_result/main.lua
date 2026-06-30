@@ -1,3 +1,4 @@
+local markers_facts = require("devloop.markers.facts")
 local parsers_pr = require("devloop.parsers.pr")
 local convergence_shared, github_risk = require("devloop.convergence.shared"), require("devloop.github_risk")
 local core, saga = require("core"), require("workflow.saga")
@@ -47,7 +48,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     error("github-devloop: gh pr origin view failed for review result: " .. tostring(pr_view.stderr))
   end
   local current_pr = parsers_pr.parse_pr_view_origin(core, pr_view.stdout)
-  local origin = core.pr_origin_fact(current_pr.comments)
+  local origin = markers_facts.pr_origin_fact(core, current_pr.comments)
   if origin == nil then
     origin = core.pr_native_origin(repo, pr_number, current_pr)
   end

@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local S = {}
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local comment_strings = require("devloop.strings")
@@ -6,7 +7,7 @@ function S.install(M, shared)
 function M.build_merging_comment_body(merge_ready)
   return comment_strings.comment_string(M, "is_merging_pr_prefix") .. tostring(merge_ready.pr_number)
     .. "\n\n" .. M.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
-    .. "\n" .. M.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
+    .. "\n" .. markers_builders.merging_marker(M, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
 end
 
 function M.build_merged_comment_body(merge_ready, autonomy_record)
@@ -16,9 +17,9 @@ function M.build_merged_comment_body(merge_ready, autonomy_record)
   end
   return comment_strings.comment_string(M, "merged_pr_prefix") .. tostring(merge_ready.pr_number)
     .. "\n\n" .. M.state_marker(merge_ready.proposal_id, "merging", merge_ready.version)
-    .. "\n" .. M.merging_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
+    .. "\n" .. markers_builders.merging_marker(M, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha)
     .. "\n" .. M.state_marker(merge_ready.proposal_id, "merged", merge_ready.version)
-    .. "\n" .. M.merged_marker(merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha, autonomy_record)
+    .. "\n" .. markers_builders.merged_marker(M, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha, autonomy_record)
     .. autonomy_marker
 end
 end

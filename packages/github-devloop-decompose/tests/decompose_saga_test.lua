@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local saga_conformance = require("testkit.saga_conformance")
 local forge_saga_conformance = require("forge.saga_conformance")
@@ -12,7 +13,7 @@ local first_delivery_facts = nil
 
 local function blocked_comments(event, extra)
   local comments = {
-    core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     core.state_marker(event.proposal_id, "blocked", event.version),
     core.fix_reconcile_marker(event.proposal_id, event.version, "drop"),
   }
@@ -76,7 +77,7 @@ end
 
 local function mock_pr_view(event, comments)
   local selected = {
-    core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
   }
   for _, comment in ipairs(comments) do
     table.insert(selected, comment)

@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local t = fkst.test
 local core = require("core")
 local gh_argv = require("testkit.gh_argv_mock")
@@ -205,7 +206,7 @@ local function fixing(extra)
 end
 
 local function pr_link_marker_for_fix(fix, branch, impl_version)
-  return core.pr_link_marker(fix.proposal_id, fix.pr_number, branch, impl_version or fix.version, "dev")
+  return markers_builders.pr_link_marker(core, fix.proposal_id, fix.pr_number, branch, impl_version or fix.version, "dev")
 end
 
 local function review_meta_event(extra)
@@ -365,7 +366,7 @@ end
 local function run_review_reconcile(payload, run_opts)
   local cached = take_pr_phase_comments()
   if cached ~= nil then
-    local comments = { core.pr_origin_marker(payload.proposal_id, "42", "devloop-owner-repo-42-01HY", payload.issue_version, "dev") }
+    local comments = { markers_builders.pr_origin_marker(core, payload.proposal_id, "42", "devloop-owner-repo-42-01HY", payload.issue_version, "dev") }
     for _, comment in ipairs(cached) do
       table.insert(comments, comment)
     end
@@ -380,7 +381,7 @@ end
 local function run_fix_reconcile(payload, run_opts)
   local cached = take_pr_phase_comments()
   if cached ~= nil then
-    local comments = { core.pr_origin_marker(payload.proposal_id, "42", "devloop-owner-repo-42-01HY", payload.issue_version, "dev") }
+    local comments = { markers_builders.pr_origin_marker(core, payload.proposal_id, "42", "devloop-owner-repo-42-01HY", payload.issue_version, "dev") }
     for _, comment in ipairs(cached) do
       table.insert(comments, comment)
     end
@@ -457,7 +458,7 @@ local function run_fix(payload, run_opts)
     local head = pending and pending.head or "devloop-owner-repo-42-01HY"
     local base_branch = pending and pending.base_branch or "dev"
     local state = pending and pending.state or "OPEN"
-    for _, comment in ipairs(pending and pending.comments or { core.pr_origin_marker(payload.proposal_id, "42", head, payload.version, base_branch) }) do
+    for _, comment in ipairs(pending and pending.comments or { markers_builders.pr_origin_marker(core, payload.proposal_id, "42", head, payload.version, base_branch) }) do
       table.insert(comments, comment)
     end
     for _, comment in ipairs(cached or {}) do
@@ -547,7 +548,7 @@ local function encode_assignees_json(assignees)
   return table.concat(rendered, ",")
 end
 
-local function mock_issue_state(labels, state, comments, assignees, author_login, created_at)
+local function mock_issue_state(labels, state, comments, assignees, author_login)
   local selected_comments = {}
   if comments ~= nil then
     for _, comment in ipairs(comments) do
@@ -580,17 +581,16 @@ local function mock_issue_state(labels, state, comments, assignees, author_login
       table.insert(selected_comments, state_marker)
     end
   end
-  entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:enabled" }, selected_comments, { state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at })
+  entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:enabled" }, selected_comments, { state = state or "OPEN", assignees = assignees, author_login = author_login })
   entity_read_mocks.mock_issue_read_forms(t, {
     labels = labels or { "fkst-dev:enabled" },
     comments = selected_comments,
     state = state or "OPEN",
     assignees = assignees,
     author_login = author_login,
-    created_at = created_at,
   })
-  entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,updatedAt,assignees")
-  entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login }, "title,body,comments,labels,state,updatedAt,assignees")
+  entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login }, "title,body,comments,labels,state,updatedAt,assignees,author")
 end
 
 local function state_from_labels(labels)
@@ -705,7 +705,7 @@ mock_pr_origin_from_cached = function(payload, head_sha)
       table.insert(comments, comment)
     end
   elseif cached ~= nil then
-    table.insert(comments, core.pr_origin_marker(payload.proposal_id, "42", head, payload.version or reviewing().version, base_branch))
+    table.insert(comments, markers_builders.pr_origin_marker(core, payload.proposal_id, "42", head, payload.version or reviewing().version, base_branch))
   end
   for _, comment in ipairs(cached or {}) do
     table.insert(comments, comment)

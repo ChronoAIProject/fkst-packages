@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -58,7 +60,7 @@ local function find_pr_label_raise(raises)
 end
 
 local function review_origin_marker(version, head_sha)
-  return core.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
+  return markers_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
 end
 
 local function mock_issue_result_view(labels, comments, extra)
@@ -319,7 +321,7 @@ local function advanced_fixing_fixture(extra)
     source_ref = event.source_ref,
   }, event.source_ref).body
   local comments = {
-    core.pr_origin_marker(event.proposal_id, "42", branch, previous_version, "dev"),
+    markers_builders.pr_origin_marker(core, event.proposal_id, "42", branch, previous_version, "dev"),
     core.state_marker(event.proposal_id, "fixing", version),
     feedback,
   }
@@ -432,7 +434,7 @@ return {
 
     mock_pr_origin({
       review_origin_marker(impl_version),
-      core.review_result_marker(
+      markers_builders.review_result_marker(core,
         direct_merge.payload.review_proposal_id,
         "github-devloop/issue/owner/repo/42",
         "approve",
@@ -546,9 +548,9 @@ return {
   test_observe_pr_blocked_decomposed_marker_reraises_missing_children = function()
     local event = core.build_devloop_decompose_payload(h.fix_reconcile())
     local comments = {
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
       core.state_marker(event.proposal_id, "blocked", event.version),
-      core.merge_gate_marker(
+      markers_builders.merge_gate_marker(core,
         event.proposal_id,
         event.pr_number,
         event.version,
@@ -583,9 +585,9 @@ return {
   test_observe_pr_reconciles_stale_state_label_when_expected_label_is_present = function()
     local event = core.build_devloop_decompose_payload(h.fix_reconcile())
     local comments = {
-      core.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      markers_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
       core.state_marker(event.proposal_id, "blocked", event.version),
-      core.merge_gate_marker(
+      markers_builders.merge_gate_marker(core,
         event.proposal_id,
         event.pr_number,
         event.version,
@@ -728,7 +730,7 @@ return {
     t.is_true(defective_replay.dedup_key ~= fixing_raise.payload.dedup_key)
     t.is_true(defective_replay.dedup_key:find("/nobase/nopred/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
     t.is_true(fixing_raise.payload.dedup_key:find("/" .. fixture.gate_baseline_sha .. "/nopred/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
-    local matching_fact = core.merge_gate_fix_fact(fixture.pr_comments, event.proposal_id, fixture.fixing_version, {
+    local matching_fact = markers_facts.merge_gate_fix_fact(core, fixture.pr_comments, event.proposal_id, fixture.fixing_version, {
       review_proposal_id = fixture.review_proposal,
       review_dedup_key = fixture.review_dedup,
       gate_baseline_sha = fixing_raise.payload.gate_baseline_sha,

@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -152,7 +153,7 @@ local function mock_intake_judge_view(labels, comments, extra)
     encode_json_string(fields.updated_at or "2026-06-03T01:02:03Z"), encode_json_string(fields.state or "OPEN"),
     encode_labels_json(labels or {}), comments_json(comments or {}), assignees_json,
     encode_json_string(fields.author_login or "fkst-test-bot"))
-  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author", {
+  entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,updatedAt,labels,comments,state,assignees,author", {
     stdout = assignee_stdout,
   }, 2)
   entity_read_mocks.mock_issue_view_raw_selector(t, {}, "title,body,updatedAt,labels,comments,state", {
@@ -642,7 +643,7 @@ return {
     local payload = candidate()
     mock_bot_env()
     mock_intake_judge_view({ "fkst-dev:tracking" }, {
-      core.intake_decision_marker(payload.proposal_id, "track", expected_decision_key(payload), "standard"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "track", expected_decision_key(payload), "standard"),
     })
 
     local result = run_judge(payload, opts("intake-track-idempotent"))
@@ -701,7 +702,7 @@ return {
     local payload = candidate()
     mock_bot_env()
     mock_intake_judge_view({}, {
-      core.intake_decision_marker(payload.proposal_id, "decline", expected_decision_key(payload), "standard"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "decline", expected_decision_key(payload), "standard"),
     })
 
     local result = run_judge(payload, opts("intake-idempotent"))
@@ -728,7 +729,7 @@ return {
     local payload = candidate()
     mock_bot_env()
     mock_intake_judge_view({ "fkst-dev:enabled" }, {
-      core.intake_decision_marker(payload.proposal_id, "enable", expected_decision_key(payload), "expedite"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "enable", expected_decision_key(payload), "expedite"),
     })
     h.mock_context_bundle()
 
@@ -746,7 +747,7 @@ return {
     local payload = candidate()
     mock_bot_env()
     mock_intake_judge_view({ "fkst-dev:enabled", "fkst-dev:thinking" }, {
-      core.intake_decision_marker(payload.proposal_id, "enable", expected_decision_key(payload), "expedite"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "enable", expected_decision_key(payload), "expedite"),
       core.state_marker(payload.proposal_id, "thinking", expected_decision_key(payload)),
     })
 
@@ -761,7 +762,7 @@ return {
     local payload = reintake_candidate(command)
     mock_bot_env()
     mock_intake_judge_view({}, {
-      core.intake_decision_marker(payload.proposal_id, "escalate-to-class", expected_decision_key(payload, nil, command), "standard"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "escalate-to-class", expected_decision_key(payload, nil, command), "standard"),
       command,
     })
     mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Class-level carrier; reintake enables after calibration.")
@@ -784,7 +785,7 @@ return {
     local command = trusted_reintake_command("IC_reintake_stale")
     mock_bot_env()
     mock_intake_judge_view({}, {
-      core.intake_decision_marker(payload.proposal_id, "decline", expected_decision_key(payload), "standard"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "decline", expected_decision_key(payload), "standard"),
       command,
     })
 
@@ -799,7 +800,7 @@ return {
     local payload = reintake_candidate(command)
     mock_bot_env()
     mock_intake_judge_view({ "fkst-dev:thinking" }, {
-      core.intake_decision_marker(payload.proposal_id, "decline", expected_decision_key(payload, nil, command), "standard"),
+      markers_builders.intake_decision_marker(core, payload.proposal_id, "decline", expected_decision_key(payload, nil, command), "standard"),
       command,
     })
 

@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -29,7 +30,7 @@ end
 local function awaiting_pr_comments()
   return {
     core.state_marker(issue_proposal_id, "awaiting-pr", impl_version),
-    core.pr_delegation_marker(issue_proposal_id, pr_proposal_id, 7, impl_version, "g1"),
+    markers_builders.pr_delegation_marker(core, issue_proposal_id, pr_proposal_id, 7, impl_version, "g1"),
   }
 end
 
@@ -69,9 +70,9 @@ end
 
 return {
   test_awaiting_pr_parent_replay_noops_while_child_pr_is_nonterminal = function()
-    mock_issue_at_awaiting_pr("number,title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+    mock_issue_at_awaiting_pr("number,title,body,comments,labels,state,updatedAt,assignees,author")
     mock_pr_with_comments({
-      core.pr_origin_marker(issue_proposal_id, 42, branch, impl_version, "dev"),
+      markers_builders.pr_origin_marker(core, issue_proposal_id, 42, branch, impl_version, "dev"),
       core.state_marker(issue_proposal_id, "reviewing", impl_version),
     })
 

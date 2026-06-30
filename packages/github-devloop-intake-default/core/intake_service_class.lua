@@ -1,10 +1,11 @@
 local S = {}
+local markers_shared = require("devloop.markers.shared")
 
 local classes = { "expedite", "standard", "background" }
 
 function S.install(M)
 function M.intake_service_class_label(value)
-  return "fkst-class:" .. M.normalize_intake_service_class(value)
+  return "fkst-class:" .. markers_shared.normalize_intake_service_class(M, value)
 end
 
 function M.intake_service_class_labels()
@@ -16,7 +17,7 @@ function M.intake_service_class_labels()
 end
 
 function M.intake_service_class_label_changes(value)
-  local class = M.normalize_intake_service_class(value)
+  local class = markers_shared.normalize_intake_service_class(M, value)
   local add = { M.intake_service_class_label(class) }
   local remove = {}
   for _, candidate in ipairs(classes) do

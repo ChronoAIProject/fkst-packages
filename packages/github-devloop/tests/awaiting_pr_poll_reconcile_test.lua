@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
 local contract_time = require("contract.time")
@@ -78,7 +80,7 @@ local function parent_comments(fields)
     comment(core.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
   }
   if f.delegation ~= false then
-    table.insert(comments, comment(core.pr_delegation_marker(
+    table.insert(comments, comment(markers_builders.pr_delegation_marker(core,
       f.parent or parent,
       f.child or child_pr,
       f.pr_number or pr_number,
@@ -93,10 +95,10 @@ local function child_comments(state, child_version, opts)
   local options = opts or {}
   local effective_version = child_version or version
   local base_branch = options.base_branch or integration_branch
-  local body = core.pr_origin_marker(parent, issue_number, "devloop-owner-repo-42-01HY", effective_version, base_branch)
+  local body = markers_builders.pr_origin_marker(core, parent, issue_number, "devloop-owner-repo-42-01HY", effective_version, base_branch)
     .. "\n" .. core.state_marker(parent, state, effective_version)
   if state == "merged" then
-    body = body .. "\n" .. core.merged_marker(parent, pr_number, effective_version, head_sha)
+    body = body .. "\n" .. markers_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
   end
   return {
     comment(body, core._test_bot_login, "2026-06-03T01:04:03Z"),
@@ -105,15 +107,15 @@ end
 
 local function child_origin_only_comments()
   return {
-    comment(core.pr_origin_marker(parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch), core._test_bot_login, "2026-06-03T01:04:03Z"),
+    comment(markers_builders.pr_origin_marker(core, parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch), core._test_bot_login, "2026-06-03T01:04:03Z"),
   }
 end
 
 local function child_merged_comments_with_kept_promotion()
   return {
-    comment(core.pr_origin_marker(parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch)
+    comment(markers_builders.pr_origin_marker(core, parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch)
       .. "\n" .. core.state_marker(parent, "merged", version)
-      .. "\n" .. core.merged_marker(parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
+      .. "\n" .. markers_builders.merged_marker(core, parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
   }
 end
 
@@ -179,7 +181,7 @@ local function mock_reads(issue_comments, pr_comments, opts)
     comments = issue_comments,
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  }, "title,body,comments,labels,state,updatedAt,assignees,author")
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = options.pr_number or pr_number,
@@ -525,7 +527,7 @@ return {
       source_ref = core.issue_source_ref(repo, issue_number),
       current = { comments = comments },
       current_pr = { comments = {} },
-      ["pr-delegation"] = core.pr_delegation_fact(comments, parent, state.version),
+      ["pr-delegation"] = markers_facts.pr_delegation_fact(core, comments, parent, state.version),
       fresh_current_state = state,
       now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-12-01T01:02:03Z"),
     }

@@ -1,4 +1,5 @@
 local M = {}
+local markers_facts = require("devloop.markers.facts")
 local github_risk = require("devloop.github_risk")
 
 function M.require_evidence(core, repo, comments, merge_ready)
@@ -12,7 +13,7 @@ function M.require_evidence(core, repo, comments, merge_ready)
   end
   local paths_digest = nil
   paths_digest = github_risk.github_paths_digest(risk.paths)
-  local fact = core.high_risk_review_evidence_fact(
+  local fact = markers_facts.high_risk_review_evidence_fact(core,
     comments,
     merge_ready.proposal_id,
     merge_ready.version,

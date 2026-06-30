@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -76,7 +77,7 @@ local function mock_claim_and_reads(payload)
     repo = "owner/repo",
     number = 7,
     comments = {
-      core.pr_origin_marker(payload.proposal_id, 7, "devloop-owner-repo-42-01HY", payload.version, "dev"),
+      markers_builders.pr_origin_marker(core, payload.proposal_id, 7, "devloop-owner-repo-42-01HY", payload.version, "dev"),
       core.state_marker(payload.proposal_id, "blocked", payload.version),
       core.fix_reconcile_marker(payload.proposal_id, payload.version, "drop"),
     },

@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -64,7 +65,7 @@ end
 
 local function visible_child_comments(event, branch)
   return {
-    core.pr_origin_marker(event.proposal_id, 42, branch, event.dedup_key, "dev")
+    markers_builders.pr_origin_marker(core, event.proposal_id, 42, branch, event.dedup_key, "dev")
       .. "\n" .. core.state_marker(event.proposal_id, "pr-open", event.dedup_key),
   }
 end
@@ -72,8 +73,8 @@ end
 local function visible_issue_comments(event, branch)
   return {
     core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-    core.implementing_marker(event.proposal_id, event.dedup_key, branch, head_sha, "dev", base_sha),
-    core.pr_delegation_marker(event.proposal_id, pr_proposal_id, 7, event.dedup_key, "g1"),
+    markers_builders.implementing_marker(core, event.proposal_id, event.dedup_key, branch, head_sha, "dev", base_sha),
+    markers_builders.pr_delegation_marker(core, event.proposal_id, pr_proposal_id, 7, event.dedup_key, "g1"),
   }
 end
 

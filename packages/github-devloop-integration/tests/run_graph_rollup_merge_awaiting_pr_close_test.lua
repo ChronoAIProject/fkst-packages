@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
 local entity_mocks = require("tests.entity_read_mock_helpers")
@@ -43,16 +44,16 @@ end
 local function parent_comments()
   return {
     comment(core.state_marker(parent, "awaiting-pr", version), "2026-06-03T01:02:03Z"),
-    comment(core.pr_delegation_marker(parent, child_pr, child_pr_number, version, "g1"), "2026-06-03T01:03:03Z"),
+    comment(markers_builders.pr_delegation_marker(core, parent, child_pr, child_pr_number, version, "g1"), "2026-06-03T01:03:03Z"),
   }
 end
 
 local function child_pr_comments(state)
   local child_state = state or "merged"
-  local body = core.pr_origin_marker(parent, issue_number, child_branch, version, integration_branch)
+  local body = markers_builders.pr_origin_marker(core, parent, issue_number, child_branch, version, integration_branch)
     .. "\n" .. core.state_marker(parent, child_state, version)
   if child_state == "merged" then
-    body = body .. "\n" .. core.merged_marker(parent, child_pr_number, version, child_head_sha)
+    body = body .. "\n" .. markers_builders.merged_marker(core, parent, child_pr_number, version, child_head_sha)
   end
   return {
     comment(body, "2026-06-03T01:04:03Z"),
@@ -177,7 +178,7 @@ local function mock_liveness_scan_inputs(child_state)
     comments = parent_comments(),
     assignees = { core._test_bot_login },
     author_login = core._test_bot_login,
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  }, "title,body,comments,labels,state,updatedAt,assignees,author")
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = child_pr_number,
@@ -227,7 +228,7 @@ local function mock_observe_issue_inputs(child_state, landed)
     comments = parent_comments(),
     assignees = { core._test_bot_login },
     author_login = core._test_bot_login,
-  }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+  }, "title,body,comments,labels,state,updatedAt,assignees,author")
   entity_mocks.mock_pr_view_selector(t, {
     repo = repo,
     number = child_pr_number,

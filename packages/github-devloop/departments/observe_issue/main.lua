@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local core, saga, replay_fields = require("core"), require("workflow.saga"), require("devloop.replay_fields")
@@ -440,7 +442,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     core.log_cas_decision("observe_issue", proposal_id, state, "impl-failed", "implementing", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
-  local link = core.pr_link_fact(current.comments, proposal_id)
+  local link = markers_facts.pr_link_fact(core, current.comments, proposal_id)
   local blocked_reentry = state.state == "blocked" and linked_open_pr(snapshot, link and link.pr_number) ~= nil
   if state.state ~= "impl-failed" and not blocked_reentry then
     core.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)", "implementing", "refused(invalid-state)", "operator reimplement requires impl-failed or blocked state with an open linked PR")
@@ -530,7 +532,7 @@ local function process_issue_event(event)
       return
     end
     core.log_forged_markers("observe_issue", proposal_id, current.comments)
-    local link = core.pr_link_fact(current.comments, proposal_id)
+    local link = markers_facts.pr_link_fact(core, current.comments, proposal_id)
     local issue_state = core.current_state(current.comments, proposal_id)
     if core.is_intake_held(current.labels) then
       core.log_cas_decision("observe_issue", proposal_id, { state = nil, version = nil }, "unmanaged", "thinking", "skip-held", "fkst-dev:hold label is present")
@@ -585,7 +587,7 @@ local function process_issue_event(event)
       local delegation = "g" .. tostring(core.implementation_retry_attempt(issue_state.version) or 1)
       local comment_body = "github-devloop canonicalized legacy issue PR state to delegated PR child"
         .. "\n\n" .. core.state_marker(proposal_id, "awaiting-pr", issue_state.version)
-        .. "\n" .. core.pr_delegation_marker(proposal_id, pr_proposal_id, link.pr_number, issue_state.version, delegation)
+        .. "\n" .. markers_builders.pr_delegation_marker(core, proposal_id, pr_proposal_id, link.pr_number, issue_state.version, delegation)
       local comment_request = core.build_entity_comment_request({
         kind = "issue",
         repo = issue.repo,
@@ -721,7 +723,7 @@ local function process_pr_event(event)
   local current_pr = parsers_pr.parse_pr_view_origin(core, pr_view.stdout)
   current_pr.number = pr.number
   current_pr.force_fresh = true
-  local origin = core.pr_origin_fact(current_pr.comments)
+  local origin = markers_facts.pr_origin_fact(core, current_pr.comments)
   if origin == nil or origin.pr_native == true or origin.repo ~= pr.repo or tonumber(origin.issue_number) == nil then
     core.log_entry("observe_issue", event, "unknown", core.payload_field(pr, "dedup_key"))
     core.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr-origin)", "PR entity change has no issue-backed devloop origin")

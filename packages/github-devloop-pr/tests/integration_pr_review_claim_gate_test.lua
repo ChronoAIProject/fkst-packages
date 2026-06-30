@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -27,7 +28,7 @@ local function pr_event()
 end
 
 local function origin_marker(version)
-  return core.pr_origin_marker(
+  return markers_builders.pr_origin_marker(core,
     "github-devloop/issue/owner/repo/42",
     "42",
     "devloop-owner-repo-42-01HY",
@@ -45,7 +46,7 @@ local function pr_open_state_marker(version)
 end
 
 local function unmanaged_origin_marker(version, base_branch)
-  return core.pr_origin_marker(
+  return markers_builders.pr_origin_marker(core,
     "github-devloop/issue/owner/repo/42",
     "42",
     "devloop-owner-repo-42-01HY",

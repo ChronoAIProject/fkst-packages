@@ -1,3 +1,5 @@
+local markers_facts = require("devloop.markers.facts")
+local markers_builders = require("devloop.markers.builders")
 local parsers_pr = require("devloop.parsers.pr")
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_core_helpers")
@@ -371,7 +373,7 @@ return {
     local review_proposal = core.pr_review_proposal_id("owner/repo", 7, core._strip_latest_fix_version_suffix(version), "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
     local comments = {
-      core.merge_gate_marker(proposal_id, 7, version, review_proposal, review_dedup, "def456", nil, "rollup-red"),
+      markers_builders.merge_gate_marker(core, proposal_id, 7, version, review_proposal, review_dedup, "def456", nil, "rollup-red"),
     }
     local fact = {
       proposal_id = proposal_id,
@@ -493,21 +495,21 @@ return {
       "/tmp/fkst-rt"
     ))
 
-    local marker = core.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
+    local marker = markers_builders.implementing_marker(core, ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
     t.is_true(marker:find("fkst:github-devloop:implementing:v1", 1, true) ~= nil)
-    t.eq(core.has_implementing_marker({ marker }, ready.proposal_id, ready.dedup_key), true)
-    local branch_marker = core.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
-    local fact = core.implementing_fact({ branch_marker }, ready.proposal_id, ready.dedup_key)
+    t.eq(markers_facts.has_implementing_marker(core, { marker }, ready.proposal_id, ready.dedup_key), true)
+    local branch_marker = markers_builders.implementing_marker(core, ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
+    local fact = markers_facts.implementing_fact(core, { branch_marker }, ready.proposal_id, ready.dedup_key)
     t.eq(fact.branch, "devloop-owner-repo-42-01HY")
     t.eq(fact.head_sha, "abc123")
     t.eq(fact.base_branch, "dev")
     t.eq(fact.base_sha, "abc123")
-    t.is_nil(core.implementing_fact({
+    t.is_nil(markers_facts.implementing_fact(core, {
       '<!-- fkst:github-devloop:implementing:v1 proposal="' .. ready.proposal_id
         .. '" dedup="' .. ready.dedup_key
         .. '" branch="devloop-owner-repo-42-01HY" head_sha="abc123" base_sha="abc123" -->',
     }, ready.proposal_id, ready.dedup_key))
-    t.is_nil(core.implementing_fact({
+    t.is_nil(markers_facts.implementing_fact(core, {
       '<!-- fkst:github-devloop:implementing:v1 proposal="' .. ready.proposal_id
         .. '" dedup="' .. ready.dedup_key
         .. '" branch="devloop-owner-repo-42-01HY" head_sha="abc123" base_branch="dev" -->',
@@ -584,23 +586,23 @@ return {
     t.eq(current.state, "impl-failed")
     t.eq(current.version, ready.dedup_key)
 
-    local origin = core.pr_origin_fact({
-      core.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+    local origin = markers_facts.pr_origin_fact(core, {
+      markers_builders.pr_origin_marker(core, ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
     })
     t.eq(origin.proposal_id, ready.proposal_id)
     t.eq(origin.issue_number, "42")
     t.eq(origin.branch, "devloop-owner-repo-42-01HY")
-    t.is_nil(core.pr_origin_fact({
+    t.is_nil(markers_facts.pr_origin_fact(core, {
       '<!-- fkst:github-devloop:pr-origin:v1 proposal="' .. ready.proposal_id
         .. '" issue="42" branch="devloop-owner-repo-42-01HY" impl_version="' .. ready.dedup_key .. '" -->',
     }))
 
-    local link = core.pr_link_fact({
-      core.pr_link_marker(ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+    local link = markers_facts.pr_link_fact(core, {
+      markers_builders.pr_link_marker(core, ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
     }, ready.proposal_id)
     t.eq(link.pr_number, 7)
     t.eq(link.base_branch, "dev")
-    t.is_nil(core.pr_link_fact({
+    t.is_nil(markers_facts.pr_link_fact(core, {
       '<!-- fkst:github-devloop:pr-link:v1 proposal="' .. ready.proposal_id
         .. '" pr="7" branch="devloop-owner-repo-42-01HY" impl_version="' .. ready.dedup_key .. '" -->',
     }, ready.proposal_id))
@@ -763,7 +765,7 @@ return {
     -- Real gh form (observed via dogfood): a merged / branch-deleted PR returns
     -- headRepository.nameWithOwner as an empty string; fall back to owner/name so
     -- the same-repo check is not fooled into treating it as cross-repo.
-    local origin = parsers_pr.parse_pr_view_origin(core, 
+    local origin = parsers_pr.parse_pr_view_origin(core,
       '{"headRefName":"b","headRefOid":"ABC123","state":"MERGED","headRepository":{"name":"fkst-packages","nameWithOwner":""},"headRepositoryOwner":{"login":"ChronoAIProject"},"isCrossRepository":false,"comments":[]}'
     )
     t.eq(origin.head_repository, "ChronoAIProject/fkst-packages")

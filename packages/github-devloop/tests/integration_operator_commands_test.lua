@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_helpers")
 local t = h.t
@@ -299,7 +300,7 @@ return {
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
       core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
-      core.pr_link_marker(proposal_id, "7", "devloop-owner-repo-42-01HY", ready_version, "dev"),
+      markers_builders.pr_link_marker(core, proposal_id, "7", "devloop-owner-repo-42-01HY", ready_version, "dev"),
       core.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
         terminal_version = blocked_version,
         from_state = "ready",
@@ -309,7 +310,7 @@ return {
       command,
     })
     mock_pr_origin({
-      core.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", ready_version, "dev"),
+      markers_builders.pr_origin_marker(core, proposal_id, "42", "devloop-owner-repo-42-01HY", ready_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
 
     local result = run_observe(event, opts("operator-issue-reready-timeout-pr-link"))

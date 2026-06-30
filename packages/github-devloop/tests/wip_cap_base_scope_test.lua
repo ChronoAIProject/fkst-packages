@@ -1,3 +1,4 @@
+local markers_builders = require("devloop.markers.builders")
 local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
@@ -48,7 +49,7 @@ local function mock_wip_state(issue_number, state_name, base_branch)
   local comments = { render_comment(core.state_marker(proposal_id, state_name, version)) }
   if base_branch ~= nil then
     local branch = "devloop/issue/owner/repo/" .. tostring(issue_number) .. "/work"
-    table.insert(comments, render_comment(core.pr_link_marker(proposal_id, issue_number + 500, branch, version, base_branch)))
+    table.insert(comments, render_comment(markers_builders.pr_link_marker(core, proposal_id, issue_number + 500, branch, version, base_branch)))
   end
   t.mock_command(core.gh_issue_view_state_cmd(REPO, issue_number), {
     stdout = string.format(

@@ -37,6 +37,7 @@ end
 
 local function payload_for_queue(queue)
   local payloads = {
+    cache_seed = { key = "github-devloop-intake/test-cache", value = "1" },
     ["github-proxy.github_entity_changed"] = {
       schema = "github-proxy.v1",
       type = "issue",

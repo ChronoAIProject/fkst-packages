@@ -1,3 +1,4 @@
+local markers_facts = require("devloop.markers.facts")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
@@ -105,7 +106,7 @@ local function load_timeout_issue_surface(repo, issue_number, proposal_id, state
   if timeout_reconcile_needs_pr_surface(state_name) then
     local snapshot = core.linked_pr_surface_snapshot(repo, proposal_id, current_issue.comments)
     local current_pr = nil
-    local link = core.pr_link_fact(snapshot.comments, proposal_id)
+    local link = markers_facts.pr_link_fact(core, snapshot.comments, proposal_id)
     if link ~= nil then
       for _, item in ipairs(snapshot.prs or {}) do
         if tostring(item.number or "") == tostring(link.pr_number or "") then
