@@ -17,18 +17,22 @@ class FkstLayoutGuardTest(unittest.TestCase):
         root.mkdir()
         subprocess.run(["git", "init"], cwd=root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         (root / ".fkst").mkdir()
+        (root / ".fkst" / "host-profiles").mkdir()
         (root / ".fkst" / "substrate-ref").write_text("dev\n", encoding="utf-8")
         (root / ".fkst" / "env.example").write_text("BIN=/path/to/fkst-framework\n", encoding="utf-8")
+        (root / ".fkst" / "host-profiles" / "example.env").write_text("FKST_HOST_ROOT=/path/to/host\n", encoding="utf-8")
         (root / ".gitignore").write_text(
             "# Local, machine-specific config. Tracked template lives in .fkst/env.example.\n"
             "/.fkst/packages\n"
             "/.fkst/local-packages\n"
             "/.fkst/run/\n"
-            "/.fkst/env\n",
+            "/.fkst/env\n"
+            "/.fkst/host-profiles/*.env\n"
+            "!/.fkst/host-profiles/example.env\n",
             encoding="utf-8",
         )
         subprocess.run(
-            ["git", "add", ".gitignore", ".fkst/substrate-ref", ".fkst/env.example"],
+            ["git", "add", ".gitignore", ".fkst/substrate-ref", ".fkst/env.example", ".fkst/host-profiles/example.env"],
             cwd=root,
             check=True,
             stdout=subprocess.DEVNULL,
@@ -50,6 +54,14 @@ class FkstLayoutGuardTest(unittest.TestCase):
         root = self.make_repo()
 
         self.assertEqual(self.violations(root), [])
+
+    def test_tracked_concrete_host_profile_fails(self) -> None:
+        root = self.make_repo()
+        tracked = root / ".fkst" / "host-profiles" / "dogfood.env"
+        tracked.write_text("FKST_HOST_ROOT=/tmp/host\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-f", ".fkst/host-profiles/dogfood.env"], cwd=root, check=True)
+
+        self.assertViolationContains(root, "host profiles are local-only except .fkst/host-profiles/example.env")
 
     def test_tracked_runtime_package_dir_fails(self) -> None:
         root = self.make_repo()
@@ -109,7 +121,9 @@ class FkstLayoutGuardTest(unittest.TestCase):
             "/.fkst/packages\n"
             "/.fkst/local-packages\n"
             "/.fkst/run/\n"
-            "/.fkst/env\n",
+            "/.fkst/env\n"
+            "/.fkst/host-profiles/*.env\n"
+            "!/.fkst/host-profiles/example.env\n",
             encoding="utf-8",
         )
 
@@ -121,11 +135,26 @@ class FkstLayoutGuardTest(unittest.TestCase):
             "# Local, machine-specific config. Tracked template lives in .fkst/env.example.\n"
             "/.fkst/packages\n"
             "/.fkst/local-packages\n"
-            "/.fkst/env\n",
+            "/.fkst/env\n"
+            "/.fkst/host-profiles/*.env\n"
+            "!/.fkst/host-profiles/example.env\n",
             encoding="utf-8",
         )
 
         self.assertViolationContains(root, "missing required .gitignore line: /.fkst/run/")
+
+    def test_gitignore_missing_host_profile_ignore_fails(self) -> None:
+        root = self.make_repo()
+        (root / ".gitignore").write_text(
+            "# Local, machine-specific config. Tracked template lives in .fkst/env.example.\n"
+            "/.fkst/packages\n"
+            "/.fkst/local-packages\n"
+            "/.fkst/run/\n"
+            "/.fkst/env\n",
+            encoding="utf-8",
+        )
+
+        self.assertViolationContains(root, "missing required .gitignore line: /.fkst/host-profiles/*.env")
 
     def test_missing_substrate_ref_fails(self) -> None:
         root = self.make_repo()

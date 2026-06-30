@@ -57,6 +57,14 @@ For a read-only host preflight:
 scripts/run.sh doctor
 ```
 
+To keep host-specific launch facts outside repository checkouts:
+
+```sh
+scripts/run.sh host-profile init dogfood
+scripts/run.sh host-profile dogfood -- check
+scripts/run.sh host-profile dogfood -- supervise --restart
+```
+
 For a one-shot department run:
 
 ```sh
@@ -111,8 +119,9 @@ Runtime package roots live only under `.fkst/`. In this library repository, `.fk
 is a regenerated relative symlink to `packages/` and represents this repo's own packages.
 `.fkst/packages/` is reserved for external referenced packages assembled by the operator or
 dogfood host; it is empty for the package library itself. Both paths are runtime-only and
-gitignored. The committed `.fkst/` contents are only `.fkst/substrate-ref` and `.fkst/env.example`;
-generated runtime, durable, and board-cache state goes under `.fkst/run/`.
+gitignored. The committed `.fkst/` contents are `.fkst/substrate-ref`, `.fkst/env.example`, and the
+host-profile template `.fkst/host-profiles/example.env`; generated runtime, durable, and board-cache
+state goes under `.fkst/run/`.
 
 ## Package Catalog
 
@@ -203,11 +212,18 @@ need host-stable runtime, durable, and rate-pool roots:
 - `FKST_RATE_POOL_ROOT`: shared host path for external-command rate pools.
 - `FKST_RATE_POOL_GH`: host-owned GitHub rate-pool sizing for the named pool `gh`.
 
+For multi-host or no-repo-pollution runs, put these host-specific facts in a global profile under
+`$XDG_CONFIG_HOME/fkst/host-profiles/<name>.env` and launch with `scripts/run.sh host-profile
+<name> -- <check|test|supervise>`. See
+[`docs/user/global-host-profiles.md`](docs/user/global-host-profiles.md).
+
 ## Documentation
 
 - [`docs/README.md`](docs/README.md): documentation index by audience.
 - [`docs/user/new-package-repo-bootstrap.md`](docs/user/new-package-repo-bootstrap.md): package-repo
   scaffold checklist.
+- [`docs/user/global-host-profiles.md`](docs/user/global-host-profiles.md): user-level host profiles
+  for no-repo-pollution runs.
 - [`docs/dev/devloop-design.md`](docs/dev/devloop-design.md): `github-devloop` state machine and
   design notes.
 - [`docs/dev/consensus-converge-redesign.md`](docs/dev/consensus-converge-redesign.md): consensus

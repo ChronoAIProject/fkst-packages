@@ -3,6 +3,8 @@
 /.fkst/local-packages
 /.fkst/run/
 /.fkst/env
+/.fkst/host-profiles/*.env
+!/.fkst/host-profiles/example.env
 
 # Python bytecode
 __pycache__/

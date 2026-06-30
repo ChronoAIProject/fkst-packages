@@ -13,12 +13,15 @@ REQUIRED_GITIGNORE_LINES = (
     "/.fkst/local-packages",
     "/.fkst/run/",
     "/.fkst/env",
+    "/.fkst/host-profiles/*.env",
+    "!/.fkst/host-profiles/example.env",
 )
 RUNTIME_TRACKED_PREFIXES = (
     ".fkst/packages",
     ".fkst/local-packages",
     ".fkst/run/",
 )
+HOST_PROFILE_EXAMPLE = ".fkst/host-profiles/example.env"
 LEGACY_TRACKED_PATHS = (
     ".fkst/runtime",
     ".fkst/durable",
@@ -74,6 +77,8 @@ def check_layout(root: Path) -> list[str]:
     for path in tracked:
         if path in pending_removal:
             continue
+        if path.startswith(".fkst/host-profiles/") and path != HOST_PROFILE_EXAMPLE:
+            violations.append(f"FKST-LAYOUT: host profiles are local-only except {HOST_PROFILE_EXAMPLE}: {path}")
         for prefix in RUNTIME_TRACKED_PREFIXES:
             if is_path_or_child(path, prefix):
                 violations.append(f"FKST-LAYOUT: {prefix} must be runtime-only, not tracked: {path}")

@@ -14,6 +14,11 @@
 #       only its root/config; this runner owns BIN resolution, source ratchets,
 #       engine package-root wiring, and host_run.sh supervise delegation.
 #
+#   scripts/run.sh host-profile <name> -- <check|test|supervise [args]>
+#       Load a user-level host profile from $FKST_HOST_PROFILE_DIR or
+#       $XDG_CONFIG_HOME/fkst/host-profiles, then delegate to the same host
+#       entrypoint. Use `scripts/run.sh host-profile init <name>` to scaffold one.
+#
 #   scripts/run.sh doctor
 #       Run read-only preflight checks for git/cargo/rustc, fkst-framework BIN,
 #       codex, gh auth, and relevant FKST_* host facts.
@@ -84,6 +89,15 @@ DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
 . "$ROOT/scripts/host_run.sh"
 # shellcheck source=scripts/host_entry.sh
 . "$ROOT/scripts/host_entry.sh"
+if [ -f "$ROOT/scripts/host_profile.sh" ]; then
+  # shellcheck source=scripts/host_profile.sh
+  . "$ROOT/scripts/host_profile.sh"
+else
+  cmd_host_profile() {
+    echo "error: host-profile helper is missing: $ROOT/scripts/host_profile.sh" >&2
+    return 1
+  }
+fi
 # shellcheck source=scripts/composed_manifest.sh
 . "$ROOT/scripts/composed_manifest.sh"
 # shellcheck source=scripts/test_affected.sh
@@ -225,7 +239,7 @@ ensure_fresh_bin() {
 }
 
 usage() {
-  sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,75p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd_check() {
@@ -252,6 +266,7 @@ cmd_check() {
   python3 -B "$ROOT/scripts/bin_cache_test.py" || fail=1
   python3 -B "$ROOT/scripts/bin_bootstrap_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_entry_test.py" || fail=1
+  python3 -B "$ROOT/scripts/host_profile_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_run_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_run_equivalence_test.py" || fail=1
   python3 -B "$ROOT/scripts/run_sh_coverage_test.py" || fail=1
@@ -941,6 +956,7 @@ main() {
   case "${1:-}" in
     check) shift; cmd_check "$@" ;;
     host) shift; cmd_host "$@" ;;
+    host-profile) shift; cmd_host_profile "$@" ;;
     doctor) shift; cmd_doctor "$@" ;;
     board) shift; resolve_bin; ensure_fresh_bin; cmd_board "$@" ;;
     health) shift; resolve_bin; ensure_fresh_bin; cmd_health "$@" ;;

@@ -59,6 +59,11 @@ The host supervise loads the platform trio from the pinned PKGSRC and its own pa
 `.fkst/local-packages/`, all on the same engine BIN — see `docs/user/github-devloop-dogfood-topology.md` for
 the dogfood directory layout.
 
+For machines that run multiple hosts, keep the machine-local launch facts in global host profiles
+instead of writing checkout-local `.fkst/env` files. A profile only preloads `BIN` / `FKST_*` data and
+then delegates to this same host entrypoint; it does not replace the host-run contract. See
+[`global-host-profiles.md`](global-host-profiles.md).
+
 Before launching `fkst-framework supervise`, the host-run contract reads every `[[external_source]]` entry in
 the host's `fkst.lock` and ensures `<HOST>/.fkst/run/<id>/` is a checkout of that entry's
 `resolved.rev`. This hydration is an idempotent pre-launch step only: the explicit `--platform-root` remains
