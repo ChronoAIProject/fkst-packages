@@ -54,7 +54,8 @@ LOGDIR="${DOGFOOD_LOGDIR:-${LOGDIR:-$DOGFOOD_ROOT}}"
 UPSTREAM_BRANCH="${FKST_DEVLOOP_UPSTREAM_BRANCH:-${UPSTREAM_BRANCH:-dev}}"
 INTEGRATION_BRANCH="${FKST_DEVLOOP_INTEGRATION_BRANCH:-${INTEGRATION_BRANCH:-integration}}"  # e.g. integration-<device> on a 2nd machine
 ROLLUP_MERGE="${FKST_DEVLOOP_ROLLUP_MERGE:-${ROLLUP_MERGE:-auto}}"
-MANAGED_BOT_LOGINS="${FKST_DEVLOOP_MANAGED_BOT_LOGINS:-${MANAGED_BOT_LOGINS:-}}"  # collaborating managed-bot logins (this device + peers); lets external-pr-intake skip our own automation
+FKST_DEVLOOP_MANAGED_BOT_LOGINS="${FKST_DEVLOOP_MANAGED_BOT_LOGINS:-${MANAGED_BOT_LOGINS:-}}"  # collaborating managed-bot logins (this device + peers); lets external-pr-intake skip our own automation
+MANAGED_BOT_LOGINS="$FKST_DEVLOOP_MANAGED_BOT_LOGINS"
 GITHUB_PROXY_POLL_LABEL_PREFIX="${FKST_GITHUB_PROXY_POLL_LABEL_PREFIX:-${GITHUB_PROXY_POLL_LABEL_PREFIX:-fkst-dev:}}"
 GH_ORG="${GH_ORG:-ChronoAIProject}"
 DOGFOOD_REPOS="${DOGFOOD_REPOS:-packages substrate website}"             # repos this host drives ('all' / board default expand here)
@@ -164,7 +165,7 @@ board_managed_bot_login() { # $1 login
   local target raw login normalized
   target="$(board_normalize_login "${1:-}")"
   [ -n "$target" ] || return 1
-  raw="${MANAGED_BOT_LOGINS//,/ }"
+  raw="${FKST_DEVLOOP_MANAGED_BOT_LOGINS//,/ }"
   for login in "$BOT" $raw; do
     normalized="$(board_normalize_login "$login")"
     [ -n "$normalized" ] || continue
@@ -449,7 +450,7 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   BIN="$BIN" FKST_GITHUB_REPO="$REPO" FKST_GITHUB_WRITE=1 FKST_GITHUB_BOT_LOGIN="$BOT" \
     FKST_GITHUB_PROXY_POLL_LABEL_PREFIX="$GITHUB_PROXY_POLL_LABEL_PREFIX" \
     FKST_DEVLOOP_UPSTREAM_BRANCH="$UPSTREAM_BRANCH" FKST_DEVLOOP_INTEGRATION_BRANCH="$INTEGRATION_BRANCH" \
-    FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$MANAGED_BOT_LOGINS" \
+    FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$FKST_DEVLOOP_MANAGED_BOT_LOGINS" \
     FKST_RATE_POOL_ROOT="$RATE_POOL" \
     nohup "${args[@]}" > "$log" 2>&1 &
   local pid=$!

@@ -33,7 +33,7 @@ class DogfoodBoardHarness:
                 DOGFOOD_ROOT={self.root}/dogfood
                 DOGFOOD_REPOS=packages
                 GH_ORG=ChronoAIProject
-                MANAGED_BOT_LOGINS=loning,ElonSG
+                FKST_DEVLOOP_MANAGED_BOT_LOGINS=loning,ElonSG
                 """
             ),
             encoding="utf-8",
