@@ -152,6 +152,91 @@ issue_label_has() { # $1 comma-separated labels, $2 label
   esac
 }
 
+board_normalize_login() { # $1 login
+  local login="${1:-}"
+  case "$login" in
+    *"[bot]") login="${login%?????}" ;;
+  esac
+  echo "$login"
+}
+
+board_managed_bot_login() { # $1 login
+  local target raw login normalized
+  target="$(board_normalize_login "${1:-}")"
+  [ -n "$target" ] || return 1
+  raw="${MANAGED_BOT_LOGINS//,/ }"
+  for login in "$BOT" $raw; do
+    normalized="$(board_normalize_login "$login")"
+    [ -n "$normalized" ] || continue
+    [ "$target" = "$normalized" ] && return 0
+  done
+  return 1
+}
+
+board_fork_dedup_key() { # $1 repo, $2 issue-number
+  echo "github-devloop/fork/$1/issue/$2/v1"
+}
+
+board_fork_grace_hours() {
+  local raw="${FKST_DEVLOOP_FORK_GRACE_HOURS:-${FORK_GRACE_HOURS:-}}"
+  [ -n "$raw" ] || { echo 3; return 0; }
+  case "$raw" in
+    ''|*[!0-9.]*|.*|*.*.*) echo 3; return 0 ;;
+  esac
+  awk -v h="$raw" 'BEGIN { if (h <= 0 || h > 168) print 3; else print h }'
+}
+
+board_comment_mentions_fork() { # $1 comment-body, $2 repo, $3 issue-number, $4 dedup-key
+  local body="$1" repo="$2" num="$3" dedup="$4"
+  [[ "$body" == *"fkst:github-proxy:issue-created:v1"* && "$body" == *"dedup=\"$dedup\""* ]] && return 0
+  [[ "$body" == *"fkst:github-devloop:fork-origin:v1"* && "$body" == *"repo=\"$repo\""* && "$body" == *"issue=\"$num\""* ]] && return 0
+  return 1
+}
+
+issue_has_trusted_fork_present() { # $1 repo, $2 issue-number
+  local repo="$1" num="$2" dedup comments login body
+  dedup="$(board_fork_dedup_key "$repo" "$num")"
+  if ! comments=$(gh api --paginate "repos/$repo/issues/$num/comments?per_page=100" \
+      --jq '.[]|[.user.login // .author.login // .author_login // "", .body // ""]|@tsv' 2>/dev/null); then
+    return 2
+  fi
+  while IFS=$'\t' read -r login body; do
+    [ -n "$login$body" ] || continue
+    if board_managed_bot_login "$login" && board_comment_mentions_fork "$body" "$repo" "$num" "$dedup"; then
+      return 0
+    fi
+  done <<< "$comments"
+  return 1
+}
+
+stateless_issue_recency_class() { # $1 repo, $2 issue-number, $3 all-labels, $4 author, $5 updated-age-hours, $6 stale-hours, $7 created-age-hours
+  local repo="$1" num="$2" labels="$3" author="$4" age="$5" stale="$6" created_age="$7" fork_status fork_grace
+  fork_grace="$(board_fork_grace_hours)"
+  if awk -v age="$age" -v stale="$stale" -v created_age="$created_age" -v grace="$fork_grace" 'BEGIN { exit ! (age < stale || created_age < grace) }'; then
+    echo "✓ waiting intake ${age}h"
+    return 0
+  fi
+  if issue_label_has "$labels" "fkst-dashboard"; then
+    echo "parked(dashboard)"
+    return 0
+  fi
+  if board_managed_bot_login "$author"; then
+    echo "parked(managed-bot)"
+    return 0
+  fi
+  if [ -z "$author" ]; then
+    echo "⚠ UNKNOWN stateless author ${age}h"
+    return 0
+  fi
+  issue_has_trusted_fork_present "$repo" "$num"
+  fork_status=$?
+  case "$fork_status" in
+    0) echo "✓ forked" ;;
+    2) echo "⚠ UNKNOWN stateless fork-ledger ${age}h" ;;
+    *) echo "⚠ STRANDED stateless ${age}h" ;;
+  esac
+}
+
 issue_primary_state() { # $1 comma-separated fkst-dev labels
   local labels="$1" label state fallback="" old_ifs="$IFS"
   IFS=,
@@ -585,12 +670,20 @@ board_one() { # $1 name, $2 stale_hours
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
   done
   echo "── issues (by fkst-dev state) ──"
-  gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|"\(.number)\t\(.updated_at)\t\(if ($labels|length)==0 then "__fkst_stateless__" else ($labels|join(",")) end)\t\(.title[0:38])"' 2>/dev/null | \
-  while IFS=$'\t' read -r num upd label title; do
-    local a st cls; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
+  gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $state_labels|([.labels[].name]) as $all_labels|(.user.login // .author.login // .author_login // "__fkst_unknown_author__") as $author|"\(.number)\t\(.updated_at)\t\(.created_at // .createdAt // .updated_at)\t\(if ($state_labels|length)==0 then "__fkst_stateless__" else ($state_labels|join(",")) end)\t\(if ($all_labels|length)==0 then "__fkst_no_labels__" else ($all_labels|join(",")) end)\t\($author)\t\(.title[0:38])"' 2>/dev/null | \
+  while IFS=$'\t' read -r num upd created label all_labels author title; do
+    [ "$all_labels" = "__fkst_no_labels__" ] && all_labels=""
+    [ "$author" = "__fkst_unknown_author__" ] && author=""
+    local a created_age upd_epoch created_epoch st cls
+    upd_epoch="$(epoch_utc "$upd")"
+    created_epoch="$(epoch_utc "$created")"
+    [ "$created_epoch" -eq 0 ] && created_epoch="$upd_epoch"
+    a=$(( (now - upd_epoch) / 3600 ))
+    created_age=$(( (now - created_epoch) / 3600 ))
+    st="$(issue_primary_state "$label")"
     if [ -z "$label" ] || [ "$label" = "__fkst_stateless__" ]; then
       st="stateless"
-      if [ "$a" -ge "$stale" ]; then cls="⚠ STRANDED stateless ${a}h"; else cls="✓ waiting intake ${a}h"; fi
+      cls="$(stateless_issue_recency_class "$REPO" "$num" "$all_labels" "$author" "$a" "$stale" "$created_age")"
     else
       cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")" || continue
     fi
