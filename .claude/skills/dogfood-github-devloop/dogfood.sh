@@ -350,6 +350,17 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] DEVLOOP_PKGS unset — set the platform packages to load in dogfood.config.sh (see dogfood.config.example.sh)"; return 1; }
   [ -x "$PKGSRC/scripts/run.sh" ] || { echo "[$name] missing host-run contract: $PKGSRC/scripts/run.sh"; return 1; }
 
+  # Non-`packages` hosts (HOST != PKGSRC) consume the platform trio via [[external_sources]], which the engine
+  # gates behind a fkst.lock whose resolved.rev must match the trusted --platform-root HEAD. That HEAD is the
+  # LOCAL PKGSRC clone and it MOVES every restart, so a committed/remote-pinned lock never matches; regenerate
+  # the lock against the just-synced PKGSRC before every start (host lock --package-root, substrate#228).
+  if [ "$HOST" != "$PKGSRC" ]; then
+    local lockargs=(host lock --project-root "$HOST") p
+    for p in $DEVLOOP_PKGS; do lockargs+=(--package-root "$PKGSRC/packages/$p"); done
+    FKST_NO_AUTOBUILD=1 "$BIN" "${lockargs[@]}" >/dev/null 2>&1 \
+      || echo "[$name] WARN: host lock --package-root failed; supervise may fail the fkst.lock gate"
+  fi
+
   args=(
     "$PKGSRC/scripts/run.sh" supervise
     --project-root "$HOST"
