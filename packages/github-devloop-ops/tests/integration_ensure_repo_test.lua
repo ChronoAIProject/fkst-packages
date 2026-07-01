@@ -38,7 +38,7 @@ local function label_json(label)
   )
 end
 
-local function mock_env(write_mode, integration)
+local function mock_env(write_mode, integration, managed_bot_logins)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
     stdout = "dev",
     stderr = "",
@@ -73,6 +73,13 @@ local function mock_env(write_mode, integration)
       exit_code = 0,
     })
   end
+  for _ = 1, 2 do
+    t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', {
+      stdout = managed_bot_logins or "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function labels_list_command()
@@ -103,14 +110,14 @@ local function mock_labels(labels)
   })
 end
 
-local function mock_dashboard_anchor(present, has_label)
+local function mock_dashboard_anchor(present, has_label, author)
   local stdout = "[[]]\n"
   if present then
     local labels = ""
     if has_label ~= false then
       labels = ',"labels":[{"name":"fkst-dashboard"}]'
     end
-    stdout = '[[{"number":268,"title":"fkst-dev board","user":{"login":"fkst-test-bot"},"body":"'
+    stdout = '[[{"number":268,"title":"fkst-dev board","user":{"login":"' .. encode_json_string(author or "fkst-test-bot") .. '"},"body":"'
       .. core.dashboard_marker("anchor", "1970-01-01T00:00:00Z"):gsub('"', '\\"')
       .. '"'
       .. labels
@@ -220,6 +227,26 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --method POST 'repos/owner/repo/issues'"), 0)
     t.eq(count_calls(dashboard_issue_add_label_command(268)), 1)
+    t.eq(count_calls(dashboard_issue_list_command()), 1)
+  end,
+
+  test_real_mode_reuses_managed_peer_dashboard_anchor = function()
+    local labels = canonical_labels()
+    table.insert(labels, {
+      name = core.dashboard_label(),
+      color = "ededed",
+      description = "fkst observability dashboard singleton",
+    })
+    mock_env("1", nil, "fkst-test-bot,ElonSG")
+    mock_labels(labels)
+    mock_dashboard_anchor(true, true, "ElonSG[bot]")
+    mock_topology(0)
+
+    local result = run_ensure(opts("ensure-peer-anchor-real", { FKST_GITHUB_WRITE = "1" }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --method POST 'repos/owner/repo/issues'"), 0)
+    t.eq(count_calls(dashboard_issue_add_label_command(268)), 0)
     t.eq(count_calls(dashboard_issue_list_command()), 1)
   end,
 

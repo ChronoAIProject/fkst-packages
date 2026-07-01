@@ -5,7 +5,7 @@ local dashboard_commands = require("devloop.commands.dashboard")
 require("departments.observability.main")
 local unpack_results = table.unpack or unpack
 
-local function mock_env(write_mode)
+local function mock_env(write_mode, bot_login, managed_bot_logins)
   for _ = 1, 8 do
     t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
       stdout = write_mode or "1",
@@ -15,7 +15,14 @@ local function mock_env(write_mode)
   end
   for _ = 1, 8 do
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-      stdout = "fkst-test-bot",
+      stdout = bot_login or "fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 8 do
+    t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', {
+      stdout = managed_bot_logins or "",
       stderr = "",
       exit_code = 0,
     })
@@ -38,6 +45,15 @@ local function dashboard_issue_list_stdout(body)
     return "[[]]\n"
   end
   return '[[{"number":99,"title":"fkst-dev board","user":{"login":"fkst-test-bot"},"body":"'
+    .. encode_body(body)
+    .. '"}]]\n'
+end
+
+local function dashboard_issue_list_stdout_author(body, author)
+  if body == nil then
+    return "[[]]\n"
+  end
+  return '[[{"number":99,"title":"fkst-dev board","user":{"login":"' .. encode_body(author or "fkst-test-bot") .. '"},"body":"'
     .. encode_body(body)
     .. '"}]]\n'
 end
@@ -227,6 +243,58 @@ return {
 
     t.eq(ok, false)
     t.is_true(tostring(err):find("dashboard issue list failed: empty output", 1, true) ~= nil)
+    t.eq(create_calls, 0)
+  end,
+
+  test_dashboard_publish_adopts_managed_peer_board_as_repo_singleton = function()
+    mock_env("1", "loning", "loning,ElonSG")
+    local old_body = "old\n" .. core.dashboard_marker("old", "2026-06-01T00:00:00Z")
+    local old_label_get = dashboard_commands.gh_dashboard_label_get
+    local old_issue_list = dashboard_commands.gh_dashboard_issue_list
+    local old_issue_get = dashboard_commands.gh_dashboard_issue_get
+    local old_issue_update = dashboard_commands.gh_dashboard_issue_update
+    local old_issue_create = dashboard_commands.gh_dashboard_issue_create
+    local create_calls = 0
+    local update_calls = 0
+    dashboard_commands.gh_dashboard_label_get = function(repo, label)
+      if repo == "owner/repo" and label == core.dashboard_label() then
+        return { stdout = '{"name":"fkst-dashboard"}\n', stderr = "", exit_code = 0 }
+      end
+      error("unexpected dashboard label get")
+    end
+    dashboard_commands.gh_dashboard_issue_list = function(repo, label)
+      if repo == "owner/repo" and label == core.dashboard_label() then
+        return { stdout = dashboard_issue_list_stdout_author(old_body, "ElonSG[bot]"), stderr = "", exit_code = 0 }
+      end
+      error("unexpected dashboard issue list")
+    end
+    dashboard_commands.gh_dashboard_issue_get = function(repo, issue_number)
+      if repo == "owner/repo" and tonumber(issue_number) == 99 then
+        return { stdout = 'HTTP/2.0 200 OK\netag: "dashboard-peer-etag"\n\n{"number":99,"title":"fkst-dev board","author":{"login":"ElonSG[bot]"},"body":"' .. encode_body(old_body) .. '"}\n', stderr = "", exit_code = 0 }
+      end
+      error("unexpected dashboard issue get")
+    end
+    dashboard_commands.gh_dashboard_issue_update = function(repo, issue_number)
+      if repo == "owner/repo" and tonumber(issue_number) == 99 then
+        update_calls = update_calls + 1
+        return { stdout = '{"number":99}\n', stderr = "", exit_code = 0 }
+      end
+      error("unexpected dashboard issue update")
+    end
+    dashboard_commands.gh_dashboard_issue_create = function()
+      create_calls = create_calls + 1
+      return { stdout = '{"number":101}\n', stderr = "", exit_code = 0 }
+    end
+
+    local result = core.publish_observability_dashboard("owner/repo", dashboard_fixture(), core.observability_limits(), now() + 90)
+    dashboard_commands.gh_dashboard_label_get = old_label_get
+    dashboard_commands.gh_dashboard_issue_list = old_issue_list
+    dashboard_commands.gh_dashboard_issue_get = old_issue_get
+    dashboard_commands.gh_dashboard_issue_update = old_issue_update
+    dashboard_commands.gh_dashboard_issue_create = old_issue_create
+
+    t.eq(result, "updated")
+    t.eq(update_calls, 1)
     t.eq(create_calls, 0)
   end,
 

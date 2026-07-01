@@ -255,9 +255,27 @@ local function ensure_dashboard_anchor_label(repo, mode, issue)
   return true
 end
 
+function M.dashboard_author_trust_set(bot_login)
+  local trust_set = m_claims.managed_bot_logins(M)
+  if type(trust_set) ~= "table" then
+    trust_set = {}
+  end
+  local normalized = devloop_base.strip_bot_login_suffix(bot_login)
+  if normalized ~= nil and normalized ~= "" then
+    trust_set[normalized] = true
+  end
+  return trust_set
+end
+
+function M.is_trusted_dashboard_author(author_login, trust_set)
+  local normalized = devloop_base.strip_bot_login_suffix(author_login)
+  return normalized ~= nil and normalized ~= "" and type(trust_set) == "table" and trust_set[normalized] == true
+end
+
 local function ensure_dashboard_anchor(repo, mode, issues, bot_login)
+  local trust_set = M.dashboard_author_trust_set(bot_login)
   for _, issue in ipairs(issues or {}) do
-    if devloop_base.strip_bot_login_suffix(issue.author_login or "") == devloop_base.strip_bot_login_suffix(bot_login or "")
+    if M.is_trusted_dashboard_author(issue.author_login, trust_set)
       and tostring(issue.title or "") == dashboard_title
       and tostring(issue.body or ""):find(dashboard_marker_prefix, 1, true) ~= nil then
       local label_added = ensure_dashboard_anchor_label(repo, mode, issue)
