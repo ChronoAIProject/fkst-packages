@@ -1,8 +1,8 @@
 local h = require("tests.devloop_helpers")
 local cache_seed_helpers = require("tests.cache_seed_helpers")
 local contract_time = require("contract.time")
-local conv_reconcile = require("devloop.convergence.reconcile")
-local conv_attempts = require("devloop.convergence.attempts")
+local conv_reconcile, conv_attempts = require("devloop.convergence.reconcile"), require("devloop.convergence.attempts")
+local m_rae = require("devloop.restart_actionable_epoch")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -208,7 +208,7 @@ local function mock_linked_pr_state(comments, state, exit_code, times, run_opts)
     exit_code = exit_code or 0,
   }, times or 1)
   if exit_code == nil or exit_code == 0 then
-    t.run_department("departments/test_cache_seed/main.lua", { queue = "cache_seed", payload = { key = core.entity_view_cache_key(repo, "pr", 7), value = '{"updated_at":"2026-06-04T01:02:03Z","producer":"observe_pr","stdout":"' .. json_string(stdout) .. '"}' } }, run_opts or opts("liveness-scan-linked-pr-cache-seed"))
+    t.run_department("departments/test_cache_seed/main.lua", { queue = "cache_seed", payload = { key = require("devloop.github_proxy_entity_view").entity_view_cache_key(core, repo, "pr", 7), value = '{"updated_at":"2026-06-04T01:02:03Z","producer":"observe_pr","stdout":"' .. json_string(stdout) .. '"}' } }, run_opts or opts("liveness-scan-linked-pr-cache-seed"))
     entity_read_mocks.mock_pr_read_forms(t, {
       repo = repo,
       number = 7,
@@ -785,7 +785,7 @@ return {
       fkst.codex_runs = function()
         return { running = {}, recent = {} }
       end
-      eval = core.actionable_epoch_resolve(row, state, {
+      eval = m_rae.actionable_epoch_resolve(core, row, state, {
         proposal_id = event.proposal_id,
         current = { comments = { attempt_comment } },
       }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))

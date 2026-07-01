@@ -23,7 +23,10 @@ require("forge.github_debug_stamp").install(M)
 require("core.github_graphql").install(M)
 require("devloop.commands").install(M)
 require("forge.merge_commands").install(M)
-require("devloop.github_proxy_entity_view").install(M)
+local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
+M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(M, ...) end
+M.fetch_pr_view_origin = function(...) return github_proxy_entity_view.fetch_pr_view_origin(M, ...) end
+M.invalidate_entity_after_write = function(...) return github_proxy_entity_view.invalidate_entity_after_write(M, ...) end
 require("devloop.pr_safety").install(M)
 require("forge.merge").install(M)
 require("devloop.git_mechanics").install(M)
@@ -65,7 +68,8 @@ require("workflow.restart_liveness_contract").install(M, restart_liveness_resolv
 local restart_responsibility_contract = require("devloop.restart_responsibility_contract")
 M.restart_responsibility_inventory_errors = function(...) return restart_responsibility_contract.restart_responsibility_inventory_errors(M, ...) end
 M.strict_restart_responsibility_contract_errors = function(...) return restart_responsibility_contract.strict_restart_responsibility_contract_errors(M, ...) end
-require("devloop.restart_actionable_epoch").install(M)
+local restart_actionable_epoch = require("devloop.restart_actionable_epoch")
+M.actionable_epoch_resolve = function(...) return restart_actionable_epoch.actionable_epoch_resolve(M, ...) end
 local ready_split_replayers = require("core.ready_split").install(M)
 local awaiting_pr_replayers = require("core.awaiting_pr_replayer").install(M)
 M.replayer_registry = {
