@@ -87,7 +87,7 @@ local function raise_implement_attempt(repo, issue_number, ready, attempt, start
 end
 
 local function publish_implementation_branch(repo, issue_number, ready, worktree, branch)
-  if config.write_mode(core) ~= "real" then
+  if config.write_mode() ~= "real" then
     devloop_logging.log_line("info", "implement", ready.proposal_id, "OUTBOUND", {
       "mode=dry-run",
       "repo=" .. tostring(repo),

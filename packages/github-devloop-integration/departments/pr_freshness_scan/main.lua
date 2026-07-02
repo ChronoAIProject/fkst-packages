@@ -170,7 +170,7 @@ local function write_refresh_commit(worktree, runtime, repo, branch, integration
 end
 
 local function push_if_real(repo, branch, branch_sha, worktree)
-  if config.write_mode(core) ~= "real" then
+  if config.write_mode() ~= "real" then
     devloop_logging.log_line("info", "pr_freshness_scan", "pr-freshness", "OUTBOUND", {
       "mode=dry-run",
       "repo=" .. tostring(repo),

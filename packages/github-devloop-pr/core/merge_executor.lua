@@ -431,7 +431,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-foreign(pr-origin)", "PR origin/link does not match immutable PR branch")
     return
   end
-  local write_enabled = (write_mode or config.write_mode(core)) == "real"
+  local write_enabled = (write_mode or config.write_mode()) == "real"
   local pr_ok, pr_reason = assert_open_same_repo_pr(merge_ready, current_pr, repo, origin.branch, merge_ready.reviewed_head_sha)
   if not pr_ok then
     if core.is_merged_pr(current_pr)
@@ -879,7 +879,7 @@ local function process_merge_queue_tick(event)
     merge_ready._merge_pass = "poll"
     devloop_logging.log_entry("merge", event, merge_ready.proposal_id, merge_ready.dedup_key)
     local selected_is_fifo_head = queue_starvation_cause_matches_entry(cause, head)
-    local write_mode = config.write_mode(core)
+    local write_mode = config.write_mode()
     local outcome = process_merge_ready_locked(repo, entity.issue_number, merge_ready, branches, nil, {
       enforce_queue = false,
       write_mode = write_mode,

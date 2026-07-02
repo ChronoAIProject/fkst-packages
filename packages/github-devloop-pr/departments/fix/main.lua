@@ -357,7 +357,7 @@ local function raise_stale_speculation_refix(repo, issue_number, fix, current_st
 end
 
 local function assert_fix_write_gate(fix, repo, issue_number)
-  local write_enabled = config.write_mode(core) == "real"
+  local write_enabled = config.write_mode() == "real"
   if write_enabled then
     return true
   end

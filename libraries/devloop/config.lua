@@ -71,7 +71,7 @@ function C.env_present(M, name, exec)
   return ok and type(out) == "table" and out.exit_code == 0 and out.stdout ~= ""
 end
 
-function C.write_mode(M, exec)
+function C.write_mode(exec)
   return C.read_env("FKST_GITHUB_WRITE", exec) == "1" and "real" or "dry-run"
 end
 
@@ -207,7 +207,7 @@ function C.devloop_config(M, exec)
   return {
     repo = C.read_env("FKST_GITHUB_REPO", exec),
     bot_login = C.read_env("FKST_GITHUB_BOT_LOGIN", exec),
-    write_mode = C.write_mode(M, exec),
+    write_mode = C.write_mode(exec),
     upstream_branch = branches.upstream,
     integration_branch = branches.integration,
     rollup_merge = rollup_merge,
