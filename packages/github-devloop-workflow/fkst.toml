@@ -1,0 +1,17 @@
+kind = "package.composed"
+name = "github-devloop-workflow"
+persistence_class = "saga"
+
+[code]
+root = "."
+
+[lib_deps]
+# devloop is intentionally omitted until increment 2, when the first department
+# consumes devloop and the library visibility boundary is settled.
+libraries = ["contract", "workflow", "testkit", "forge"]
+
+[event_deps]
+packages = ["github-proxy"]
+
+[conformance]
+function = "core.conformance_errors"
