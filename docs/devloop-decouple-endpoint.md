@@ -115,6 +115,51 @@ than "the whole god-table renamed kernel" is **cohesion + the sanctioned mechani
   must not grow into a general dependency hub. High fan-in on a stable boring surface (logging)
   is fine; a *widening* surface is the signal it is turning back into a god-table and must split.
 
+## Installer-coupling ratchet + pure-helper extraction (measured, capped, refined)
+
+The facade ratchet (`G-DEVLOOP-DECOUPLE`) measures only the copy-onto-M facade and is blind to
+the `install(M)` composed-core reads. A second ratchet, **`G-DEVLOOP-INSTALLER`**
+(`scripts/check_repo_devloop_installer.py`), now **measures and caps** that composed-core kernel:
+it resolves each package core's `require("devloop.<mod>").install(M)` surfaces and counts the
+`(core|M).<installer-symbol>(` reads (baseline captured in `migration/devloop-installer.inventory`).
+This makes the kernel's size **visible** and **shrink-only** — the kernel can be pared as
+cleanly-separable helpers move out, and it can never silently *grow* back into a god-table.
+
+Within each kernel module, the methods split into a **cohesive cross-cutting core** and
+**cleanly-separable pure helpers**, decided per method by ground-truth (library-caller count +
+conformance/test instrumentation), not by name:
+
+- **Cohesive cross-cutting core stays on `M`.** For `devloop.logging` the observable-effect
+  methods `log_raise` / `log_cas_decision` / `log_apply` / `log_line` are called from ~54
+  `libraries/devloop/*.lua` sites through the injected `M` and are the **single
+  state-machine-advancement instrumentation seam** that `hidden_state_conformance.lua`'s
+  `with_effect_capture` patches (plus 9 test monkey-patches). For `devloop.state` the version-CAS
+  lifecycle methods `cas_outcome` / `stage_rank` / `state_marker` / `current_state` /
+  `versioned_transition_status` / `version_fix_round` are likewise called from ~60 library sites
+  and are used by the conformance fixtures. Relocating these to a required module would **not
+  remove the essential coupling** — it would relocate the same pervasive instrumentation
+  dependency from `core.X` to `module.X`; `core.X` is arguably the better seam because the
+  conformance verifies composed-core state-machine advancement, not a module in isolation. This
+  is the recognized injected-logger / cross-cutting-concern pattern, adversarially re-adjudicated
+  cross-model (ChatGPT Pro: `migrate-pure-helpers-only`, `observable_effect_is_kernel = yes`), and
+  it is the honest, ground-truth-validated reason these methods are kernel rather than debt.
+- **Cleanly-separable pure helpers move to a self-contained module.** `devloop.logging`'s 8 pure
+  helpers (`log_entry` / `log_outbound` / `log_codex_*` / `log_error_fact` / `wrap_pipeline_failure`
+  / `error_fingerprint` / `error_class_from_message`) were rewired from `core.X`/`M.X` to
+  `require("devloop.logging").X` (logging is now a self-contained module whose `S.install(M)` only
+  binds a compat scaffold). These are cleanly separable because they do not call the kept-on-core
+  observable-effect methods internally in an instrumentation-sensitive way.
+- **Where the "helpers" are internally entangled with the kernel, they are kernel too.** Ground-truth
+  on `devloop.state` shows its non-lifecycle readers (`cyclic_transition_status`,
+  `next_review_loop_version`, `reached`, `fix_version_from_review_version`, …) are **not** leaf:
+  they call the version-CAS kernel methods internally (`stage_rank`, `version_fix_round`,
+  `is_at_or_after`, `next_fix_version`, …). Migrating them to a module would relocate the same
+  internal-dispatch seam that the kernel methods are instrumented on (`stage_rank` alone is
+  monkey-patched by 12 tests), for no separation gain — the readers *depend on* the lifecycle
+  kernel. So `devloop.state` is an even more cohesive version-CAS kernel than logging: only a
+  handful of genuinely leaf formatters are separable, and extracting them is not worth relocating
+  the seam. `devloop.state` stays the composed-core version-CAS lifecycle kernel.
+
 ## Endpoint
 
 The god-table facade anti-pattern is dissolved (659 → 27 explicit facade reads, of which 25
