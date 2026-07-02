@@ -5,13 +5,12 @@ persistence_class = "saga"
 [code]
 root = "."
 
-# Only declare libraries actually required. Increments 1-2a use `contract`
-# (blueprint digest checksum). `devloop` (claims/markers/judgment), `workflow`
-# (saga), and `forge` (gh) are added in increment 2b when the workflow_select
-# department requires them; adding github-devloop-workflow to the devloop
-# visibility family + DEVLOOP_FAMILY is deferred to 2b for the same reason.
+# Only declare libraries actually required. Increment 2b-1 uses `devloop` for
+# co-located blueprint/intake markers, deterministic dedup keys, source_ref
+# normalization, and issue-claim attachment. `workflow` (saga) and `forge` (gh)
+# remain deferred until the workflow_select department exists in 2b-2.
 [lib_deps]
-libraries = ["contract"]
+libraries = ["contract", "devloop"]
 
 [event_deps]
 packages = ["github-proxy"]
