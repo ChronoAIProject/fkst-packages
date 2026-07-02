@@ -94,9 +94,19 @@ local function has_existing_blueprint_on_current(current, candidate)
   })
 end
 
-local function has_workflow_lineage_header(_ctx)
-  -- TODO(2b-2b-ii/increment-3): detect the trusted child-of-workflow-step lineage marker once
-  -- materialization owns writing it. Descendants remain ordinary default-intake issues here.
+local function has_workflow_lineage_header(ctx)
+  local current = ctx.current or {}
+  -- Child issue bodies are authored by the workflow materializer through github-proxy
+  -- create, so a body lineage header is treated as bot-authored provenance. Comment
+  -- lineage still crosses the normal GitHub comment seam and must be bot-trusted.
+  if core.marker.parse_lineage_header(current.body or "") ~= nil then
+    return true
+  end
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(core, current.comments or {})) do
+    if core.marker.parse_lineage_header(parsers_misc.comment_body(core, comment)) ~= nil then
+      return true
+    end
+  end
   return false
 end
 

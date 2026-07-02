@@ -18,6 +18,16 @@ local function ctx_with_comments(comments)
   }
 end
 
+local function with_catalog_loader(loader, fn)
+  local previous = workflow_select.load_catalog_for_ctx
+  workflow_select.load_catalog_for_ctx = loader
+  local ok, err = pcall(fn)
+  workflow_select.load_catalog_for_ctx = previous
+  if not ok then
+    error(err, 0)
+  end
+end
+
 local function blueprint(id, selector)
   return {
     id = id,
@@ -49,6 +59,103 @@ return {
     })), false)
 
     t.eq(workflow_select.workflow_prefilter(ctx_with_comments({})), false)
+  end,
+
+  test_lineage_header_in_body_falls_through_before_catalog = function()
+    local payload = candidate()
+    local lineage, err = core.marker.build_lineage_header(payload.proposal_id, "d-1234567890", "slot-one")
+    t.is_nil(err)
+
+    with_catalog_loader(function()
+      error("catalog should not load for workflow descendants")
+    end, function()
+      t.eq(workflow_select.workflow_prefilter({
+        candidate = payload,
+        current = {
+          body = lineage .. "\n\nChild issue body.",
+          comments = {},
+        },
+      }), false)
+    end)
+  end,
+
+  test_lineage_header_in_trusted_comment_falls_through_before_catalog = function()
+    local payload = candidate()
+    local lineage, err = core.marker.build_lineage_header(payload.proposal_id, "d-1234567890", "slot-one")
+    t.is_nil(err)
+
+    with_catalog_loader(function()
+      error("catalog should not load for workflow descendants")
+    end, function()
+      t.eq(workflow_select.workflow_prefilter({
+        candidate = payload,
+        current = {
+          body = "ordinary body",
+          comments = {
+            {
+              body = lineage,
+              author_login = "fkst-test-bot",
+            },
+          },
+        },
+      }), false)
+    end)
+  end,
+
+  test_absent_or_untrusted_lineage_does_not_short_circuit_prefilter = function()
+    local payload = candidate()
+    local lineage, err = core.marker.build_lineage_header(payload.proposal_id, "d-1234567890", "slot-one")
+    t.is_nil(err)
+    local catalog_reads = 0
+
+    with_catalog_loader(function()
+      catalog_reads = catalog_reads + 1
+      return {
+        valid = {},
+        errors = {},
+        duplicates = {},
+      }, "/tmp"
+    end, function()
+      t.eq(workflow_select.workflow_prefilter({
+        candidate = payload,
+        current = {
+          comments = {},
+        },
+      }), false)
+      t.eq(workflow_select.workflow_prefilter({
+        candidate = payload,
+        current = {
+          comments = {
+            {
+              body = lineage,
+              author_login = "someone-else",
+            },
+          },
+        },
+      }), false)
+    end)
+    t.eq(catalog_reads, 2)
+  end,
+
+  test_origin_without_lineage_remains_selector_eligible = function()
+    with_catalog_loader(function()
+      return {
+        valid = {
+          matched = {
+            path = "/tmp/workflow.json",
+            blueprint = blueprint("matched", { labels_any = { "workflow" } }),
+          },
+        },
+        errors = {},
+        duplicates = {},
+      }, "/tmp"
+    end, function()
+      local eligible = workflow_select.prefilter_eligible_blueprints({
+        labels = { "workflow" },
+      }, workflow_select.load_catalog_for_ctx({}))
+      t.eq(#eligible, 1)
+      t.eq(eligible[1].id, "matched")
+    end)
   end,
 
   test_selector_prefilter_matches_labels_title_and_selectorless_blueprints = function()
