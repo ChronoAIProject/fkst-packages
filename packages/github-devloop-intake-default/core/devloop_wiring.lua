@@ -3,7 +3,7 @@ local W = {}
 function W.prompts()
   return {
     prompts = {
-      intake = require("prompts.intake"),
+      intake = require("devloop.intake.prompt"),
     },
   }
 end

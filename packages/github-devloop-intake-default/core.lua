@@ -71,13 +71,34 @@ M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
 require("devloop.logging").install(M)
 require("devloop.state").install(M)
-require("core.intake_service_class").install(M)
+local intake_service_class = require("devloop.intake.service_class")
+M.intake_service_class_label = intake_service_class.intake_service_class_label
+M.intake_service_class_labels = intake_service_class.intake_service_class_labels
+M.intake_service_class_label_changes = intake_service_class.intake_service_class_label_changes
 local prompts = require("devloop.prompts")
 prompts.install(M, wiring.prompts(), {
   intake = true,
   intake_parser = true,
 })
-require("core.intake_class").install(M)
+local intake_class = require("devloop.intake.class")
+local intake_caps = {
+  _max_title_len = M._max_title_len,
+  _max_body_len = M._max_body_len,
+  _max_meta_reason_len = M._max_meta_reason_len,
+  _label_colors = M._label_colors,
+  _test_bot_login = M._test_bot_login,
+  state_label_changes = M.state_label_changes,
+}
+M.intake_class_identity = intake_class.intake_class_identity
+M.intake_class_carrier_marker = intake_class.intake_class_carrier_marker
+M.intake_class_followup_marker = intake_class.intake_class_followup_marker
+M.build_intake_service_class_label_request = function(...) return intake_service_class.build_intake_service_class_label_request(intake_caps, ...) end
+M.fetch_recent_closed_intake_class_issues = function(...) return intake_class.fetch_recent_closed_intake_class_issues(intake_caps, ...) end
+M.intake_class_issue_title = function(...) return intake_class.intake_class_issue_title(intake_caps, ...) end
+M.find_open_intake_class_carrier = function(...) return intake_class.find_open_intake_class_carrier(intake_caps, ...) end
+M.build_intake_class_followup_comment_request = function(...) return intake_class.build_intake_class_followup_comment_request(intake_caps, ...) end
+M.build_intake_class_folded_label_request = function(...) return intake_class.build_intake_class_folded_label_request(intake_caps, ...) end
+M.build_intake_class_issue_create_request = function(...) return intake_class.build_intake_class_issue_create_request(intake_caps, ...) end
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
 

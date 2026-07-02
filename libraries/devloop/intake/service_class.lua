@@ -1,11 +1,10 @@
 local base_ids = require("devloop.base_ids")
 local requests_labels = require("devloop.requests.labels")
 local m_shared = require("devloop.markers.shared")
-local S = {}
+local M = {}
 
 local classes = { "expedite", "standard", "background" }
 
-function S.install(M)
 function M.intake_service_class_label(value)
   return "fkst-class:" .. m_shared.normalize_intake_service_class(value)
 end
@@ -30,9 +29,9 @@ function M.intake_service_class_label_changes(value)
   return add, remove
 end
 
-function M.build_intake_service_class_label_request(repo, issue_number, candidate)
+function M.build_intake_service_class_label_request(caps, repo, issue_number, candidate)
   local add_labels, remove_labels = M.intake_service_class_label_changes(candidate and candidate.service_class)
-  return requests_labels.build_label_request(M,
+  return requests_labels.build_label_request(caps,
     repo,
     issue_number,
     add_labels,
@@ -47,6 +46,4 @@ function M.build_intake_service_class_label_request(repo, issue_number, candidat
   )
 end
 
-end
-
-return S
+return M

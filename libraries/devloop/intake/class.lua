@@ -4,10 +4,9 @@ local base_ids = require("devloop.base_ids")
 local requests_labels = require("devloop.requests.labels")
 local parsers_issue = require("devloop.parsers.issue")
 local devloop_commands = require("devloop.commands")
-local S = {}
+local M = {}
 local comment_strings = require("devloop.strings")
 
-function S.install(M)
 local ai_sentinel = "⟦AI:FKST⟧"
 
 local stable_class_label_prefixes = {
@@ -136,12 +135,12 @@ local function class_identity_label(class_key)
   return title or tostring(class_key or "unknown")
 end
 
-function M.fetch_recent_closed_intake_class_issues(repo)
+function M.fetch_recent_closed_intake_class_issues(caps, repo)
   local listed = devloop_commands.gh_issue_list_recent_closed(repo, 30, 30)
   if listed.exit_code ~= 0 then
     error("github-devloop: gh issue intake class sibling lookup failed: " .. tostring(listed.stderr))
   end
-  return parsers_issue.parse_issue_list_intake(M, listed.stdout)
+  return parsers_issue.parse_issue_list_intake(caps, listed.stdout)
 end
 
 function M.intake_class_carrier_marker(class_key)
@@ -151,24 +150,24 @@ function M.intake_class_carrier_marker(class_key)
   return '<!-- fkst:github-devloop:intake-class-carrier:v1 class_key="' .. tostring(class_key) .. '" -->'
 end
 
-function M.intake_class_issue_title(current, issue_number, class_key)
+function M.intake_class_issue_title(caps, current, issue_number, class_key)
   local source_title = tostring(current and current.title or ("Issue #" .. tostring(issue_number or "unknown")))
   local title = "Class fix needed: " .. class_identity_label(class_key or ("title:" .. source_title))
-  if #title > M._max_title_len then
-    title = base_ids.truncate_utf8(title, M._max_title_len)
+  if #title > caps._max_title_len then
+    title = base_ids.truncate_utf8(title, caps._max_title_len)
   end
   return title
 end
 
-function M.find_open_intake_class_carrier(repo, issue_number, current, class_key)
+function M.find_open_intake_class_carrier(caps, repo, issue_number, current, class_key)
   local wanted_marker = M.intake_class_carrier_marker(class_key)
-  local wanted_title = M.intake_class_issue_title(current, issue_number, class_key)
-  local fallback_title = M.intake_class_issue_title(current, issue_number)
+  local wanted_title = M.intake_class_issue_title(caps, current, issue_number, class_key)
+  local fallback_title = M.intake_class_issue_title(caps, current, issue_number)
   local listed = devloop_commands.gh_issue_list_intake(repo, 100, 30)
   if listed.exit_code ~= 0 then
     error("github-devloop: gh issue intake class lookup failed: " .. tostring(listed.stderr))
   end
-  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(M, listed.stdout)) do
+  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(caps, listed.stdout)) do
     if tostring(issue.number) ~= tostring(issue_number)
       and (tostring(issue.body or ""):find(wanted_marker, 1, true) ~= nil
         or tostring(issue.title or "") == wanted_title
@@ -193,15 +192,15 @@ function M.intake_class_followup_marker(proposal_id, carrier_number, outcome, de
     .. '" -->'
 end
 
-function M.build_intake_class_followup_comment_request(repo, issue_number, candidate, carrier, outcome, reason)
+function M.build_intake_class_followup_comment_request(caps, repo, issue_number, candidate, carrier, outcome, reason)
   local carrier_number = carrier and carrier.number or "pending-create"
   local marker = M.intake_class_followup_marker(candidate.proposal_id, carrier_number, outcome, candidate.dedup_key)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
-    safe_reason = comment_strings.comment_string(M, "no_reason_provided")
+    safe_reason = comment_strings.comment_string(caps, "no_reason_provided")
   end
-  if #safe_reason > M._max_meta_reason_len then
-    safe_reason = base_ids.truncate_utf8(safe_reason, M._max_meta_reason_len)
+  if #safe_reason > caps._max_meta_reason_len then
+    safe_reason = base_ids.truncate_utf8(safe_reason, caps._max_meta_reason_len)
   end
   local carrier_line = "Class carrier: "
   if carrier and carrier.number ~= nil then
@@ -227,8 +226,8 @@ function M.build_intake_class_followup_comment_request(repo, issue_number, candi
   }), candidate.source_ref)
 end
 
-function M.build_intake_class_folded_label_request(repo, issue_number, candidate)
-  return requests_labels.build_state_label_request(M,
+function M.build_intake_class_folded_label_request(caps, repo, issue_number, candidate)
+  return requests_labels.build_state_label_request(caps,
     repo,
     issue_number,
     "blocked",
@@ -243,8 +242,8 @@ function M.build_intake_class_folded_label_request(repo, issue_number, candidate
   )
 end
 
-function M.build_intake_class_issue_create_request(repo, issue_number, candidate, current, reason, class_key)
-  local title = M.intake_class_issue_title(current, issue_number, class_key)
+function M.build_intake_class_issue_create_request(caps, repo, issue_number, candidate, current, reason, class_key)
+  local title = M.intake_class_issue_title(caps, current, issue_number, class_key)
   local body = "Class escalation follow-through for instance issue #" .. tostring(issue_number or "unknown")
     .. "\n\nReason:\n" .. devloop_base.neutralize_untrusted_comment_text(reason or "")
     .. "\n\nClass identity: " .. tostring(class_key or "")
@@ -254,8 +253,8 @@ function M.build_intake_class_issue_create_request(repo, issue_number, candidate
     .. "- Close the instance as folded only after the class carrier exists, or keep it enabled as the class carrier if it already states the class solution.\n"
     .. "\nSource proposal: " .. tostring(candidate and candidate.proposal_id or "")
     .. "\n\n" .. M.intake_class_carrier_marker(class_key)
-  if #body > M._max_body_len then
-    body = base_ids.truncate_utf8(body, M._max_body_len)
+  if #body > caps._max_body_len then
+    body = base_ids.truncate_utf8(body, caps._max_body_len)
   end
   return {
     schema = "github-proxy.issue-create.v1",
@@ -275,6 +274,4 @@ function M.build_intake_class_issue_create_request(repo, issue_number, candidate
   }
 end
 
-end
-
-return S
+return M
