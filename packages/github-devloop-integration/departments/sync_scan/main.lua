@@ -182,8 +182,8 @@ end
 
 local function act(event)
   devloop_logging.log_entry("sync_scan", event, "branch-sync", event and event.queue or "")
-  local branches = config.branch_config(core)
-  local cfg = config.devloop_config(core)
+  local branches = config.branch_config()
+  local cfg = config.devloop_config()
   local repo = require_repo(cfg.repo)
 
   if branches.integration == branches.upstream then

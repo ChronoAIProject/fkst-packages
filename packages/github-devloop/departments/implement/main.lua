@@ -668,7 +668,7 @@ local function process_ready_event(event)
       return
     end
 
-    local branches = config.branch_config(core)
+    local branches = config.branch_config()
     local implementation_version = core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt)
     local branch_version = core.implementation_base_version(ready.dedup_key)
     local marker_ready = ready_for_implementation_version(ready, implementation_version)

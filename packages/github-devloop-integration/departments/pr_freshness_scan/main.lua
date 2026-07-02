@@ -272,8 +272,8 @@ end
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   devloop_logging.log_entry("pr_freshness_scan", event, "pr-freshness", event and event.queue or "")
-  local branches = config.branch_config(core)
-  local cfg = config.devloop_config(core)
+  local branches = config.branch_config()
+  local cfg = config.devloop_config()
   local repo = require_repo(cfg.repo)
   if branches.integration == branches.upstream then
     devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = "same-branch", version = branches.integration }, "tick", "freshness", "skip-idempotent(same-branch)", "integration branch equals upstream branch")

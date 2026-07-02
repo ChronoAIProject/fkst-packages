@@ -656,7 +656,7 @@ local function act_fix(event)
   local attempt_plan = nil
   with_lock(lock_key, function()
     devloop_base.assert_trusted_bot_configured()
-    local branches = config.branch_config(core)
+    local branches = config.branch_config()
 
     local pr_view = devloop_commands.gh_pr_view_fix(repo, fix.pr_number, 30)
     if pr_view.exit_code ~= 0 then

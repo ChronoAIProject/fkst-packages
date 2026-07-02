@@ -47,7 +47,7 @@ local function parent_state_for_child_terminal(state, child_state)
     }
   end
   if child_state.state == "closed-unmerged" then
-    if devloop_state.version_reimplement_round(state.version) >= config.max_fix_rounds(M) then
+    if devloop_state.version_reimplement_round(state.version) >= config.max_fix_rounds() then
       return {
         to_state = "blocked",
         version = tostring(state.version or "") .. "/blocked/replacement-budget-exhausted",
@@ -264,7 +264,7 @@ canonical_merged_child_state = function(issue, state, delegation, current_pr)
 end
 
 merged_child_landed_on_upstream = function(dept, issue, state, delegation, current_pr)
-  local branches = config.branch_config(M)
+  local branches = config.branch_config()
   if not origin_matches_delegation(issue, delegation, current_pr, branches) then
     return false, "skip-stale(pr-origin-rollup-lineage)", "merged child PR lacks current split-topology origin facts"
   end
