@@ -1,9 +1,13 @@
 local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
+local digest = require("core.digest")
+local marker = require("core.marker")
 
 local M = {
   blueprint = blueprint,
   catalog = catalog,
+  digest = digest,
+  marker = marker,
 }
 
 function M.conformance_errors()
@@ -15,6 +19,8 @@ end
 function M.install(target)
   blueprint.install(target)
   catalog.install(target)
+  digest.install(target)
+  marker.install(target)
 end
 
 M.install(M)
