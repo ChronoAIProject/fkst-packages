@@ -316,4 +316,5 @@ function S.install(M)
 end
 C.install = S.install
 
+for k, v in pairs(S) do if C[k] == nil then C[k] = v end end
 return C

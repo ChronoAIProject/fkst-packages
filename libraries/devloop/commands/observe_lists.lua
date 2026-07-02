@@ -37,12 +37,7 @@ end
 function S.observe_list_repo_key(repo)
   local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
   if owner ~= nil and name ~= nil then
-    function S.install(M)
-  for _, n in ipairs({"gh_issue_list_observe", "gh_issue_list_observe_opts", "gh_issue_list_observe_read_coalesce", "gh_pr_list_observe", "gh_pr_list_observe_opts", "gh_pr_list_observe_read_coalesce"}) do M[n] = C[n] end
-end
-C.install = S.install
-
-return C.read_coalesce_key_segment(owner, "owner") .. "/" .. S.read_coalesce_key_segment(name, "repo")
+    return S.read_coalesce_key_segment(owner, "owner") .. "/" .. S.read_coalesce_key_segment(name, "repo")
   end
   return S.read_coalesce_key_segment(repo, "repo")
 end
@@ -117,4 +112,10 @@ end
     }
   end
 
-return S
+function S.install(M)
+  for _, n in ipairs({"gh_issue_list_observe", "gh_issue_list_observe_opts", "gh_issue_list_observe_read_coalesce", "gh_pr_list_observe", "gh_pr_list_observe_opts", "gh_pr_list_observe_read_coalesce"}) do M[n] = C[n] end
+end
+C.install = S.install
+
+for k, v in pairs(S) do if C[k] == nil then C[k] = v end end
+return C
