@@ -93,6 +93,11 @@ local function mock_env()
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command('printf %s "$FKST_WORKFLOW_CATALOG_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop-workflow/no-catalog",
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function mock_issue_view(current, times)

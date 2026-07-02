@@ -185,6 +185,8 @@ local function read_current_for_candidate(package_core, dept, repo, issue_number
   }
 end
 
+M.read_current_for_candidate = read_current_for_candidate
+
 function M.act(package_core, event, opts)
   opts = opts or {}
   local dept = opts.dept or "intake_judge"
