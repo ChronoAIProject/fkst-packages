@@ -31,6 +31,7 @@ end
 local function build_materialization_or_error(state, child_issue)
   local built, err = marker.build_materialization_marker(
     origin,
+    digest,
     slot,
     pred_digest,
     gen_contract_digest,
@@ -48,6 +49,7 @@ end
 local function materialization_rejects(args, expected)
   local built, err = marker.build_materialization_marker(
     args.origin or origin,
+    args.blueprint_digest or digest,
     args.slot or slot,
     args.pred_digest or pred_digest,
     args.gen_contract_digest or gen_contract_digest,
@@ -154,6 +156,7 @@ local tests = {
       local built = build_materialization_or_error(state, "108")
       local parsed = marker.parse_materialization_marker("prefix\n" .. built, origin, slot)
       t.eq(parsed.origin, origin)
+      t.eq(parsed.blueprint_digest, digest)
       t.eq(parsed.slot, slot)
       t.eq(parsed.pred_digest, pred_digest)
       t.eq(parsed.gen_contract_digest, gen_contract_digest)
@@ -180,6 +183,10 @@ local tests = {
       path = "predecessor_result_digest",
       code = "too_large",
     })
+    materialization_rejects({ blueprint_digest = string.rep("d", marker.MAX_MATERIALIZATION_DIGEST_BYTES + 1) }, {
+      path = "blueprint_digest",
+      code = "too_large",
+    })
     materialization_rejects({ gen_contract_digest = 'bad"digest' }, {
       path = "generator_contract_digest",
       code = "invalid_marker_attr",
@@ -204,6 +211,7 @@ local tests = {
 
   test_parse_materialization_marker_fail_closed_for_malformed = function()
     local body = '<!-- fkst:github-devloop-workflow:materialization:v1 origin="' .. origin
+      .. '" blueprint_digest="' .. digest
       .. '" slot="' .. slot
       .. '" pred_digest="' .. pred_digest
       .. '" gen_contract_digest="' .. gen_contract_digest
@@ -217,6 +225,7 @@ local tests = {
     local older_created = build_materialization_or_error("created", "108")
     local later_pending = marker.build_materialization_marker(
       origin,
+      digest,
       slot,
       "d-4444444444",
       gen_contract_digest,
@@ -227,6 +236,7 @@ local tests = {
     )
     local other_slot = marker.build_materialization_marker(
       origin,
+      digest,
       "slot-two",
       pred_digest,
       gen_contract_digest,
@@ -244,6 +254,7 @@ local tests = {
     local first_generated = build_materialization_or_error("generated", nil)
     local later_generated = marker.build_materialization_marker(
       origin,
+      digest,
       slot,
       pred_digest,
       gen_contract_digest,

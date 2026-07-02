@@ -1,7 +1,11 @@
 local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
+local child_result = require("core.child_result")
 local digest = require("core.digest")
+local frontier = require("core.frontier")
+local generator = require("core.generator")
 local marker = require("core.marker")
+local materialization = require("core.materialization")
 local select_request = require("core.select_request")
 local devloop_base = require("devloop.base")
 local intake_install = require("devloop.intake.install")
@@ -16,8 +20,12 @@ end
 M = {
   blueprint = blueprint,
   catalog = catalog,
+  child_result = child_result,
   digest = digest,
+  frontier = frontier,
+  generator = generator,
   marker = marker,
+  materialization = materialization,
   conformance_errors = conformance_errors,
 }
 
@@ -28,8 +36,12 @@ M._test_bot_login = devloop_base._test_bot_login
 function M.install(target)
   blueprint.install(target)
   catalog.install(target)
+  child_result.install(target)
   digest.install(target)
+  frontier.install(target)
+  generator.install(target)
   marker.install(target)
+  materialization.install(target)
   select_request.install(target)
   intake_install.install(target)
 end
