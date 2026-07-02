@@ -61,6 +61,7 @@ public = [
   "devloop.hidden_state_conformance.poll_fakes",
   "devloop.intake.class",
   "devloop.intake.default_intake",
+  "devloop.intake.install",
   "devloop.intake.prompt",
   "devloop.intake.service_class",
   "devloop.liveness",

@@ -5,15 +5,11 @@ persistence_class = "saga"
 [code]
 root = "."
 
-# Only declare libraries actually required. Increment 2b-1 uses `devloop` for
-# co-located blueprint/intake markers, deterministic dedup keys, source_ref
-# normalization, and issue-claim attachment. `workflow` (saga) and `forge` (gh)
-# remain deferred until the workflow_select department exists in 2b-2.
 [lib_deps]
-libraries = ["contract", "devloop"]
+libraries = ["contract", "devloop", "testkit", "workflow"]
 
 [event_deps]
-packages = ["github-proxy"]
+packages = ["github-devloop-intake", "github-devloop", "github-proxy"]
 
 [conformance]
 function = "core.conformance_errors"

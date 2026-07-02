@@ -10,6 +10,7 @@ from pathlib import Path
 
 INTAKE_PACKAGE = "github-devloop-intake"
 CANDIDATE_QUEUE = "github-devloop-intake.devloop_intake_candidate"
+INTAKE_POLICY_SET = {"github-devloop-intake-default", "github-devloop-workflow"}
 LIFECYCLE_FORWARD_QUEUES = {
     "devloop_ready",
     "devloop_reviewing",
@@ -215,7 +216,9 @@ def candidate_consuming_packages(all_sources: list[Source]) -> dict[str, list[st
 
 def candidate_consumer_messages(all_sources: list[Source]) -> list[str]:
     consumers = candidate_consuming_packages(all_sources)
-    if len(consumers) == 1:
+    consumer_packages = set(consumers)
+    unexpected = consumer_packages - INTAKE_POLICY_SET
+    if consumers and not unexpected:
         return []
     if not consumers:
         found = "found none"
@@ -224,7 +227,8 @@ def candidate_consumer_messages(all_sources: list[Source]) -> list[str]:
             f"{package} ({', '.join(paths)})" for package, paths in sorted(consumers.items())
         )
     return [
-        f"expected exactly one package to consume {CANDIDATE_QUEUE}; {found}"
+        f"expected candidate-consuming production packages to be a non-empty subset of "
+        f"{sorted(INTAKE_POLICY_SET)} for {CANDIDATE_QUEUE}; {found}"
     ]
 
 
