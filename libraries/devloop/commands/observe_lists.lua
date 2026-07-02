@@ -1,4 +1,5 @@
 local S = {}
+local C = {}
 local support = require("devloop.commands.support")
 
 local observe_list_timeout = 10
@@ -36,7 +37,12 @@ end
 function S.observe_list_repo_key(repo)
   local owner, name = tostring(repo or ""):match("^([^/]+)/([^/]+)$")
   if owner ~= nil and name ~= nil then
-    return S.read_coalesce_key_segment(owner, "owner") .. "/" .. S.read_coalesce_key_segment(name, "repo")
+    function S.install(M)
+  for _, n in ipairs({"gh_issue_list_observe", "gh_issue_list_observe_opts", "gh_issue_list_observe_read_coalesce", "gh_pr_list_observe", "gh_pr_list_observe_opts", "gh_pr_list_observe_read_coalesce"}) do M[n] = C[n] end
+end
+C.install = S.install
+
+return C.read_coalesce_key_segment(owner, "owner") .. "/" .. S.read_coalesce_key_segment(name, "repo")
   end
   return S.read_coalesce_key_segment(repo, "repo")
 end
@@ -55,14 +61,13 @@ function S.observe_list_read_coalesce(key)
   }
 end
 
-function S.install(M)
-  function M.gh_issue_list_observe(repo, label, page, include_headers, timeout)
+  function C.gh_issue_list_observe(repo, label, page, include_headers, timeout)
     return support.gh_result(function()
       return support.github().issue_list_observe(repo, label, S.bounded_page_number(page), include_headers, timeout or observe_list_timeout)
     end)
   end
 
-  function M.gh_issue_list_observe_read_coalesce(repo, label, page)
+  function C.gh_issue_list_observe_read_coalesce(repo, label, page)
     return S.observe_list_read_coalesce(table.concat({
       "github-devloop",
       "observe-list",
@@ -75,23 +80,23 @@ function S.install(M)
     }, "/"))
   end
 
-  function M.gh_issue_list_observe_opts(repo, label, page, include_headers)
+  function C.gh_issue_list_observe_opts(repo, label, page, include_headers)
     return {
       run = function(timeout)
-        return M.gh_issue_list_observe(repo, label, page, include_headers, timeout)
+        return C.gh_issue_list_observe(repo, label, page, include_headers, timeout)
       end,
       timeout = observe_list_timeout,
-      read_coalesce = M.gh_issue_list_observe_read_coalesce(repo, label, page),
+      read_coalesce = C.gh_issue_list_observe_read_coalesce(repo, label, page),
     }
   end
 
-  function M.gh_pr_list_observe(repo, page, include_headers, timeout)
+  function C.gh_pr_list_observe(repo, page, include_headers, timeout)
     return support.gh_result(function()
       return support.github().pr_list_observe(repo, S.bounded_page_number(page), include_headers, timeout or observe_list_timeout)
     end)
   end
 
-  function M.gh_pr_list_observe_read_coalesce(repo, page)
+  function C.gh_pr_list_observe_read_coalesce(repo, page)
     return S.observe_list_read_coalesce(table.concat({
       "github-devloop",
       "observe-list",
@@ -102,15 +107,14 @@ function S.install(M)
     }, "/"))
   end
 
-  function M.gh_pr_list_observe_opts(repo, page, include_headers)
+  function C.gh_pr_list_observe_opts(repo, page, include_headers)
     return {
       run = function(timeout)
-        return M.gh_pr_list_observe(repo, page, include_headers, timeout)
+        return C.gh_pr_list_observe(repo, page, include_headers, timeout)
       end,
       timeout = observe_list_timeout,
-      read_coalesce = M.gh_pr_list_observe_read_coalesce(repo, page),
+      read_coalesce = C.gh_pr_list_observe_read_coalesce(repo, page),
     }
   end
-end
 
 return S
