@@ -3,6 +3,58 @@ local payloads_builders = require("devloop.payloads.builders")
 local workflow_select = require("core.workflow_select")
 local t = fkst.test
 
+local function shell_quote(value)
+  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function test_root()
+  local token = tostring({}):gsub("[^A-Za-z0-9]", "")
+  return "/tmp/fkst-workflow-select-prefilter-" .. token
+end
+
+local function cleanup(root)
+  os.remove(root .. "/custom-flow.json")
+  os.remove(root .. "/software-dev-flow.json")
+  os.execute("rmdir " .. shell_quote(root) .. " >/dev/null 2>&1")
+end
+
+local function mkdir_p(path)
+  local ok = os.execute("mkdir -p " .. shell_quote(path))
+  if ok ~= true and ok ~= 0 then
+    error("failed to create temp workflow catalog")
+  end
+end
+
+local function with_catalog(files, fn)
+  local root = test_root()
+  cleanup(root)
+  mkdir_p(root)
+  for name, source in pairs(files or {}) do
+    file.write(root .. "/" .. name, source)
+  end
+  local ok, err = pcall(function()
+    fn(root)
+  end)
+  cleanup(root)
+  if not ok then
+    error(err, 0)
+  end
+end
+
+local function workflow_json(id)
+  return [[{
+    "schema": "fkst.workflow.v1",
+    "id": "]] .. id .. [[",
+    "version": "1",
+    "summary": "External workflow summary.",
+    "applies_when": "The origin issue asks for this external workflow.",
+    "selector": {"title_contains_any": ["external"]},
+    "steps": [
+      {"id":"first","title":"First external step","content":{"kind":"static","intent":"Implement the external workflow step."}}
+    ]
+  }]]
+end
+
 local function candidate()
   return payloads_builders.build_devloop_intake_candidate_payload(core, "owner/repo", 42, "2026-06-03T01:02:03Z")
 end
@@ -184,10 +236,9 @@ return {
   test_catalog_root_resolution_accepts_injected_temp_root = function()
     local root = "/tmp/fkst-workflow-catalog-root-injected"
     t.eq(workflow_select.resolve_catalog_root({ workflow_catalog_root = root .. "/" }), root)
-    t.eq(workflow_select.resolve_catalog_root({ catalog_root = root }), root)
   end,
 
-  test_catalog_root_resolution_expands_home_when_env_root_is_absent = function()
+  test_catalog_root_resolution_returns_nil_when_env_root_is_absent = function()
     local calls = {}
     local root = workflow_select.resolve_catalog_root({
       exec = function(command)
@@ -195,15 +246,60 @@ return {
         if command == 'printf %s "$FKST_WORKFLOW_CATALOG_ROOT"' then
           return { stdout = "", stderr = "", exit_code = 0 }
         end
-        if command == 'printf %s "$HOME"' then
-          return { stdout = "/tmp/fkst-workflow-home\n", stderr = "", exit_code = 0 }
-        end
         return { stdout = "", stderr = "unexpected", exit_code = 1 }
       end,
     })
 
-    t.eq(root, "/tmp/fkst-workflow-home/.fkst/workflow")
+    t.is_nil(root)
     t.eq(calls[1], 'printf %s "$FKST_WORKFLOW_CATALOG_ROOT"')
-    t.eq(calls[2], 'printf %s "$HOME"')
+    t.is_nil(calls[2])
+  end,
+
+  test_load_catalog_for_ctx_always_loads_builtin_default_without_external_root = function()
+    local calls = {}
+    local loaded, root = workflow_select.load_catalog_for_ctx({
+      exec = function(command)
+        calls[#calls + 1] = command
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end,
+    })
+
+    t.is_nil(root)
+    t.eq(calls[1], 'printf %s "$FKST_WORKFLOW_CATALOG_ROOT"')
+    t.is_nil(calls[2])
+    t.eq(#loaded.errors, 0)
+    t.eq(loaded.valid["software-dev-flow"].path, "builtin:software-dev-flow")
+  end,
+
+  test_load_catalog_for_ctx_merges_builtin_default_and_external_catalog = function()
+    with_catalog({
+      ["custom-flow.json"] = workflow_json("custom-flow"),
+    }, function(root)
+      local loaded, resolved = workflow_select.load_catalog_for_ctx({
+        workflow_catalog_root = root,
+      })
+
+      t.eq(resolved, root)
+      t.eq(#loaded.errors, 0)
+      t.eq(loaded.valid["software-dev-flow"].path, "builtin:software-dev-flow")
+      t.is_true(loaded.valid["custom-flow"].path:sub(-16) == "custom-flow.json")
+    end)
+  end,
+
+  test_load_catalog_for_ctx_duplicate_builtin_and_external_id_fails_closed = function()
+    with_catalog({
+      ["software-dev-flow.json"] = workflow_json("software-dev-flow"),
+    }, function(root)
+      local loaded = workflow_select.load_catalog_for_ctx({
+        workflow_catalog_root = root,
+      })
+
+      t.is_nil(loaded.valid["software-dev-flow"])
+      t.eq(#loaded.duplicates, 1)
+      t.eq(loaded.duplicates[1].id, "software-dev-flow")
+      t.eq(loaded.duplicates[1].paths[1], "builtin:software-dev-flow")
+      t.is_true(loaded.duplicates[1].paths[2]:sub(-22) == "software-dev-flow.json")
+      t.eq(loaded.errors[1].error.code, "duplicate_id")
+    end)
   end,
 }

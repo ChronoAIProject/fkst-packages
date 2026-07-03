@@ -1,6 +1,8 @@
 local core = require("core")
 local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
+local default_catalog = require("core.default_catalog")
+local fail = require("core.errors").fail
 local default_intake = require("devloop.intake.default_intake")
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
@@ -16,7 +18,7 @@ local workflow_select_prompt = require("prompts.workflow_select")
 local M = {}
 
 M.WORKFLOW_SELECT_LABEL = "⟦FKST:WORKFLOW_SELECT⟧"
-M.MAX_WORKFLOW_SELECT_BLUEPRINTS = catalog.MAX_CATALOG_FILES
+M.MAX_WORKFLOW_SELECT_BLUEPRINTS = catalog.MAX_CATALOG_FILES + #default_catalog.records()
 
 local function empty_catalog()
   return {
@@ -27,7 +29,7 @@ local function empty_catalog()
 end
 
 local function catalog_env_command(name)
-  if name ~= "FKST_WORKFLOW_CATALOG_ROOT" and name ~= "HOME" then
+  if name ~= "FKST_WORKFLOW_CATALOG_ROOT" then
     error("github-devloop-workflow: invalid-env-name: env name is not allowed")
   end
   return 'printf %s "$' .. name .. '"'
@@ -45,7 +47,7 @@ end
 
 function M.resolve_catalog_root(opts)
   opts = opts or {}
-  local injected = clean_path(opts.workflow_catalog_root or opts.catalog_root)
+  local injected = clean_path(opts.workflow_catalog_root)
   if injected ~= nil then
     return injected
   end
@@ -55,22 +57,40 @@ function M.resolve_catalog_root(opts)
   if configured ~= nil then
     return configured
   end
-
-  local home = clean_path(read_catalog_env("HOME", run))
-  if home == nil then
-    return nil
-  end
-  return home .. "/.fkst/workflow"
+  return nil
 end
 
 function M.load_catalog_for_ctx(ctx)
   local root = M.resolve_catalog_root(ctx or {})
-  if root == nil then
-    return empty_catalog(), nil
+  local records = {}
+  local errors = {}
+  for _, record in ipairs(default_catalog.records()) do
+    table.insert(records, record)
+  end
+
+  if root ~= nil then
+    local ok, collection = pcall(function()
+      return catalog.collect_file_records(root)
+    end)
+    if ok and type(collection) == "table" then
+      for _, record in ipairs(collection.records or {}) do
+        table.insert(records, record)
+      end
+      for _, err in ipairs(collection.errors or {}) do
+        table.insert(errors, err)
+      end
+    else
+      table.insert(errors, {
+        path = root,
+        error = fail("root_dir", "file_list_failed", "file.list failed", {
+          error = tostring(collection),
+        }),
+      })
+    end
   end
 
   local ok, loaded = pcall(function()
-    return catalog.load_catalog(root)
+    return catalog.validate_records(records, errors)
   end)
   if not ok or type(loaded) ~= "table" then
     return empty_catalog(), root
@@ -308,7 +328,7 @@ local function build_blueprint_request(ctx, record)
     ctx.candidate,
     record.id,
     plan_digest,
-    "Selected workflow " .. record.id .. " from the user-authored workflow catalog."
+    "Selected workflow " .. record.id .. " from the workflow catalog."
   )
 end
 

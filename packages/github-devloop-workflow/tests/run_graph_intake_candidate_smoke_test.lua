@@ -29,7 +29,7 @@ end
 local function issue_view_json()
   return string.format(
     '{"title":"%s","body":"%s","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[%s],"comments":[],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
-    json_string("Add retry backoff to failed widget sync"),
+    json_string("Repair retry backoff for failed widget sync"),
     json_string("Implement exponential backoff for widget sync retries."),
     encode_labels_json({})
   )

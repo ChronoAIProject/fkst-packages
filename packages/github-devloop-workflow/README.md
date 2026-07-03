@@ -1,10 +1,10 @@
 # github-devloop-workflow
 
 A **workflow-orchestration layer** on top of the stable `issue → consensus → PR → merge`
-autonomous-development atom. A user authors a bounded, multi-step **workflow template** under
-`~/.fkst/workflow/`; when an incoming issue matches, the system runs the atom repeatedly — one
-issue per step, in order — where each next step's issue content may be **generated from the merged
-result of the prior step**.
+autonomous-development atom. The package ships a built-in software-development workflow, and hosts
+may add bounded, multi-step **workflow templates** through `FKST_WORKFLOW_CATALOG_ROOT`. When an
+incoming issue matches, the system runs the atom repeatedly — one issue per step, in order — where
+each next step's issue content may be **generated from the merged result of the prior step**.
 
 This is a **composed package** (an intake-policy sibling of `github-devloop-intake-default`). It is
 additive: it does not modify the atom. Static ("run a fixed N-step plan") is the degenerate case of
@@ -42,8 +42,11 @@ by a deterministic dedup key.
 
 ## Template format
 
-`~/.fkst/workflow/**/*.json` (one workflow per file; JSON today, TOML is a possible future UX
-choice). Schema `fkst.workflow.v1`:
+The built-in `software-dev-flow` catalog entry is embedded in Lua and validates through the same
+catalog validator as external files. It materializes implementable code increments: scaffold, full
+implementation, then tests. Additional host-authored workflows can be placed under
+`FKST_WORKFLOW_CATALOG_ROOT` as `**/*.json` files (one workflow per file; JSON today, TOML is a
+possible future UX choice). Schema `fkst.workflow.v1`:
 
 ```json
 {
@@ -99,7 +102,9 @@ colliding ids.
 
 ## Running it
 
-- **Catalog root**: the department resolves `FKST_WORKFLOW_CATALOG_ROOT` if set, else `$HOME/.fkst/workflow`.
+- **Catalog root**: the built-in default catalog is always loaded. If `FKST_WORKFLOW_CATALOG_ROOT`
+  is set, its files are loaded additively and duplicate workflow ids across built-in and external
+  sources fail closed. There is no `$HOME/.fkst/workflow` fallback.
 - **Topology**: a workflow-enabled topology loads `github-devloop-workflow` as the active intake
   policy. The `INTAKE_POLICY_SET` ratchet allows exactly `github-devloop-intake-default` **or**
   `github-devloop-workflow` to consume the intake-candidate seam per topology (a third consumer is

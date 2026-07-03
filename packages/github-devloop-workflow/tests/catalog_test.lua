@@ -1,4 +1,5 @@
 local catalog = require("core.catalog")
+local default_catalog = require("core.default_catalog")
 local t = fkst.test
 
 local function shell_quote(value)
@@ -94,6 +95,54 @@ local tests = {
       t.eq(duplicate.error.meta.id, "dup")
       t.eq(#duplicate.error.meta.peers, 2)
     end)
+  end,
+
+  test_validate_records_is_shared_by_builtin_catalog = function()
+    local records = default_catalog.records()
+    local loaded = catalog.validate_records(records)
+    local record = loaded.valid["software-dev-flow"]
+
+    t.eq(#loaded.errors, 0)
+    t.eq(#loaded.duplicates, 0)
+    t.eq(record.path, "builtin:software-dev-flow")
+    t.eq(record.blueprint.id, "software-dev-flow")
+  end,
+
+  test_builtin_software_dev_flow_steps_are_generated_code_increments = function()
+    local loaded = catalog.validate_records(default_catalog.records())
+    local blueprint = loaded.valid["software-dev-flow"].blueprint
+    local expected = {
+      scaffold = "MERGED result of the previous step",
+      implement = "MERGED result of the previous step",
+      test = "MERGED result of the previous step",
+    }
+
+    t.eq(#blueprint.steps, 3)
+    for _, step in ipairs(blueprint.steps) do
+      t.eq(step.content.kind, "generated")
+      t.is_true(step.content.generator:find("Implement", 1, true) ~= nil)
+      t.is_true(step.content.generator:find(expected[step.id], 1, true) ~= nil)
+    end
+    t.eq(blueprint.steps[1].id, "scaffold")
+    t.eq(blueprint.steps[2].id, "implement")
+    t.eq(blueprint.steps[3].id, "test")
+  end,
+
+  test_validate_records_rejects_duplicate_ids_across_sources = function()
+    local records = default_catalog.records()
+    table.insert(records, {
+      path = "external/software-dev-flow.json",
+      blueprint = records[1].blueprint,
+    })
+
+    local loaded = catalog.validate_records(records)
+
+    t.is_nil(loaded.valid["software-dev-flow"])
+    t.eq(#loaded.duplicates, 1)
+    t.eq(loaded.duplicates[1].id, "software-dev-flow")
+    t.eq(loaded.duplicates[1].paths[1], "builtin:software-dev-flow")
+    t.eq(loaded.duplicates[1].paths[2], "external/software-dev-flow.json")
+    t.eq(error_with_code(loaded.errors, "duplicate_id").error.meta.id, "software-dev-flow")
   end,
 
   test_rejects_invalid_root_dir = function()

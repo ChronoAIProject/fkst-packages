@@ -443,7 +443,7 @@ local tests = {
       ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"],"title_contains_any":["workflow"]}', "Do the workflow step."),
     }, function(root)
       local _result, calls = run_fallthrough_case(root, {
-        title = "Add ordinary retry backoff",
+        title = "Repair ordinary retry backoff",
         labels = { "bug" },
       }, nil)
 

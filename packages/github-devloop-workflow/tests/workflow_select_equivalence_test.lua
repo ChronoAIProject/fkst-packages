@@ -47,7 +47,7 @@ local function issue_view_stdout(fields)
   local f = fields or {}
   return string.format(
     '{"title":"%s","body":"%s","createdAt":"%s","updatedAt":"%s","state":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"%s"}],"author":{"login":"%s"}}\n',
-    json_string(f.title or "Add retry backoff to failed widget sync"),
+    json_string(f.title or "Repair retry backoff for failed widget sync"),
     json_string(f.body or "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries."),
     json_string(f.created_at or "2026-06-03T01:00:00Z"),
     json_string(f.updated_at or "2026-06-03T01:02:03Z"),
