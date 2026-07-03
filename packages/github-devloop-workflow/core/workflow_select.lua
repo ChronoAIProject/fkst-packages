@@ -18,7 +18,7 @@ local workflow_select_prompt = require("prompts.workflow_select")
 local M = {}
 
 M.WORKFLOW_SELECT_LABEL = "⟦FKST:WORKFLOW_SELECT⟧"
-M.MAX_WORKFLOW_SELECT_BLUEPRINTS = catalog.MAX_CATALOG_FILES + #default_catalog.records()
+M.MAX_WORKFLOW_SELECT_BLUEPRINTS = catalog.MAX_CATALOG_FILES + default_catalog.count
 
 local function empty_catalog()
   return {

@@ -55,6 +55,11 @@ local function parse_json_blueprint(source)
   return decoded, nil
 end
 
+-- Shared JSON→blueprint decode used by BOTH the file source (collect_file_records)
+-- and the built-in default source (default_catalog), so host and non-host catalogs
+-- are authored in one JSON writing style and flow through one decode + validator.
+M.parse_json_blueprint = parse_json_blueprint
+
 function M.collect_file_records(root_dir)
   local collection = empty_collection()
   if type(root_dir) ~= "string" or root_dir == "" then
