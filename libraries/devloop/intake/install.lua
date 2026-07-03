@@ -173,6 +173,12 @@ local function install_state(target)
   target.has_label = state.has_label
   target.state_label_changes = state.state_label_changes
   target.state_marker = state.state_marker
+  -- board.lua's state_label() calls target.is_state_label to pick the state
+  -- label from an issue's labels for the board digest. Every default_intake host
+  -- (intake-default AND the workflow adapter) builds that board digest, so
+  -- provision it here; without it the board hits a nil field and crashes only
+  -- under a real supervise intake path (tests mock the board).
+  target.is_state_label = state.is_state_label
 end
 
 local function install_intake_class(target)
