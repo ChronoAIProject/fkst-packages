@@ -88,6 +88,8 @@ DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
 . "$ROOT/scripts/host_entry.sh"
 # shellcheck source=scripts/composed_manifest.sh
 . "$ROOT/scripts/composed_manifest.sh"
+# shellcheck source=scripts/composed_conformance.sh
+. "$ROOT/scripts/composed_conformance.sh"
 # shellcheck source=scripts/test_affected.sh
 . "$ROOT/scripts/test_affected.sh"
 
@@ -621,64 +623,6 @@ cmd_test() {
   fi
   rm -rf "$report_dir"
   echo "OK: $ran package(s)"
-}
-
-collect_composed_package() {
-  local name="$1" pkg dep deps rc
-  pkg="$(package_root_for_name "$name")" || { echo "error: composed package dependency not found: $name" >&2; return 1; }
-  [ -d "$pkg" ] || { echo "error: composed package dependency not found: $name" >&2; return 1; }
-  case " ${COMPOSED_SEEN[*]-} " in
-    *" $name "*) return 0 ;;
-  esac
-  COMPOSED_SEEN+=("$name")
-  set +e; deps="$(composition_siblings_of "$pkg")"; rc=$?; set -e
-  case "$rc" in
-    0)
-      while IFS= read -r dep || [ -n "$dep" ]; do
-        [ -n "$dep" ] || continue
-        collect_composed_package "$dep" || return 1
-      done <<< "$deps"
-      ;;
-    1) return 0 ;;
-    *) echo "error: failed to read package composition for $pkg" >&2; return 1 ;;
-  esac
-}
-
-cmd_test_composed() {
-  local pkg name args project_root rc
-  ensure_package_view
-  COMPOSED_SEEN=()
-  for pkg in "$LOCAL_PACKAGES_ROOT"/*/ "$EXTERNAL_PACKAGES_ROOT"/*/; do
-    [ -d "$pkg" ] || continue
-    rc=0; is_composed "$pkg" || rc=$?
-    case "$rc" in
-      0) ;;
-      1) continue ;;
-      *) echo "error: failed to read package composition for $pkg" >&2; return 1 ;;
-    esac
-    name="$(basename "$pkg")"
-    collect_composed_package "$name" || return 1
-  done
-  if [ "${#COMPOSED_SEEN[@]}" -eq 0 ]; then
-    echo "no composed packages matched"
-    return 0
-  fi
-
-  args=()
-  project_root="$(package_root_for_name "${COMPOSED_SEEN[0]}")" || return 1
-  for name in "${COMPOSED_SEEN[@]}"; do
-    pkg="$(package_root_for_name "$name")" || return 1
-    args+=(--package-root "$pkg")
-  done
-  for pkg in "$LOCAL_PACKAGES_ROOT"/*/ "$EXTERNAL_PACKAGES_ROOT"/*/; do
-    [ -d "$pkg" ] || continue
-    case " ${COMPOSED_SEEN[*]} " in
-      *" $(basename "$pkg") "*) continue ;;
-    esac
-    args+=(--package-root "${pkg%/}")
-  done
-  echo "=== composed conformance ==="
-  run_quiet_pass "$BIN" conformance --project-root "$project_root" "${args[@]}"
 }
 
 cmd_run() {

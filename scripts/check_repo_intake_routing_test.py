@@ -33,6 +33,27 @@ class IntakeRoutingRatchetTest(unittest.TestCase):
         (root / "packages" / "github-devloop-intake-default" / "departments" / "intake_judge").mkdir(parents=True)
         (root / "packages" / "github-devloop-workflow" / "departments" / "workflow_select").mkdir(parents=True)
         (root / "packages" / "github-devloop-intake" / "core").mkdir(parents=True)
+        (root / "scripts").mkdir()
+        (root / "scripts" / "intake_policy_slots.json").write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "schema": "fkst.package-topology-policy-slots.v1",
+                  "policy_slots": [
+                    {
+                      "name": "intake-policy",
+                      "consumer_queue": "github-devloop-intake.devloop_intake_candidate",
+                      "implementations": [
+                        {"package": "github-devloop-intake-default", "topology": "default"},
+                        {"package": "github-devloop-workflow", "topology": "workflow"}
+                      ]
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
         self.write_intake_admission(root)
         self.write_default_consumer(root)
         (root / "packages" / "github-devloop-intake" / "core.lua").write_text(
@@ -115,6 +136,44 @@ class IntakeRoutingRatchetTest(unittest.TestCase):
         with tmp:
             self.write_workflow_consumer(root)
             self.assertEqual(self.messages(root), [])
+            topology_messages = intake_routing.topology_exclusivity_messages(
+                root,
+                {"github-devloop-intake-default", "github-devloop-workflow"},
+            )
+            self.assert_message_contains(topology_messages, "policy slot 'intake-policy'")
+            self.assert_message_contains(topology_messages, "github-devloop-intake-default")
+            self.assert_message_contains(topology_messages, "github-devloop-workflow")
+
+    def test_policy_slot_manifest_declares_legal_topology_exclusions(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+
+        slot = intake_routing.intake_policy_slot(root)
+        rows = {topology.name: set(topology.excluded_packages) for topology in intake_routing.legal_topologies(root)}
+
+        self.assertEqual(slot.name, "intake-policy")
+        self.assertEqual(slot.consumer_queue, "github-devloop-intake.devloop_intake_candidate")
+        self.assertEqual(
+            slot.packages,
+            {"github-devloop-intake-default", "github-devloop-workflow"},
+        )
+        self.assertEqual(rows["default"], {"github-devloop-workflow"})
+        self.assertEqual(rows["workflow"], {"github-devloop-intake-default"})
+
+    def test_each_legal_topology_loads_exactly_one_policy(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        all_policy_packages = intake_routing.intake_policy_slot(root).packages
+
+        for topology in intake_routing.legal_topologies(root):
+            loaded = all_policy_packages - set(topology.excluded_packages)
+            with self.subTest(topology=topology.name):
+                self.assertEqual(intake_routing.topology_exclusivity_messages(root, loaded), [])
+
+    def test_topology_without_policy_fails(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+
+        messages = intake_routing.topology_exclusivity_messages(root, set())
+
+        self.assert_message_contains(messages, "loaded none")
 
     def test_self_poll_raiser_fails(self) -> None:
         tmp, root = self.make_repo()
