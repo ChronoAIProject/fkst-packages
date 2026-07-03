@@ -69,18 +69,20 @@ function M.find_step(plan, slot_id)
   return nil
 end
 
-local function build_comment_request(repo, issue_number, origin, body, dedup_key)
+local function build_comment_request(repo, issue_number, origin, body, dedup_components)
+  -- dedup_components is an array of deterministic string parts (slot, digests,
+  -- state, ...). Spread them into the key so the dedup_key is deterministic;
+  -- tostring()-ing the whole table would collapse it to a Lua address.
+  local key_parts = { "workflow", "comment", tostring(origin) }
+  for _, part in ipairs(dedup_components) do
+    key_parts[#key_parts + 1] = tostring(part)
+  end
   return {
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = tonumber(issue_number),
     body = body,
-    dedup_key = base_ids.dedup_key({
-      "workflow",
-      "comment",
-      tostring(origin),
-      tostring(dedup_key),
-    }),
+    dedup_key = base_ids.dedup_key(key_parts),
     source_ref = safe_source_ref(repo, issue_number),
   }
 end
