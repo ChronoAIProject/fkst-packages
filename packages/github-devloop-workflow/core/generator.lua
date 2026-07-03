@@ -54,7 +54,7 @@ local function build_generated_prompt(ctx, slot, predecessor_result_ref, content
     or predecessor_result_ref
   local fetch_clause = ""
   if content_fetch_ref ~= nil and tostring(content_fetch_ref) ~= "" then
-    fetch_clause = "\nContent fetch reference:\n" .. tostring(content_fetch_ref)
+    fetch_clause = "\nOptional local predecessor context (best-effort snapshot; if absent or unreadable, fetch from the source_ref above):\n" .. tostring(content_fetch_ref)
   end
   return table.concat({
     "You are generating exactly one GitHub issue spec for a bounded fkst workflow slot.",
@@ -110,13 +110,17 @@ local function generated_spec(deps, ctx, slot, predecessor_result_ref)
   if predecessor_result_ref == nil then
     return nil, "missing-predecessor-result"
   end
+  -- The pre-fetch is a best-effort OPTIMIZATION: it hands the codex a local
+  -- snapshot of the predecessor result. It is NOT the dependency — the codex
+  -- already has the predecessor source_ref (+ full access) and is instructed to
+  -- fetch it directly. So a pre-fetch failure (e.g. an unavailable devloop board
+  -- in one-shot run) must NOT block materialization; we fall back to source_ref.
   local content_fetch_ref = nil
   if type(deps.content_fetch) == "function" then
     local ok, value = pcall(deps.content_fetch, predecessor_result_ref, ctx)
-    if not ok then
-      return nil, "predecessor-content-fetch-failed"
+    if ok then
+      content_fetch_ref = value
     end
-    content_fetch_ref = value
   end
 
   local prompt = build_generated_prompt(ctx or {}, slot, predecessor_result_ref, content_fetch_ref)
