@@ -4,7 +4,7 @@ local strings = require("contract.strings")
 
 local M = {}
 
-M.EMPTY_PREDECESSOR_RESULT_DIGEST = "d-0000000000"
+M.EMPTY_PREDECESSOR_REF_DIGEST = "d-0000000000"
 
 local function digest_string(prefix, value)
   return "d-" .. strings.decimal_checksum(prefix .. "\n" .. tostring(value or ""))
@@ -39,19 +39,19 @@ function M.generator_contract_digest(slot)
   return digest_string("generator-contract:v1", table.concat(parts, "\n"))
 end
 
-function M.materialization_key(origin, blueprint_digest, slot_id, predecessor_result_digest)
+function M.materialization_key(origin, blueprint_digest, slot_id, predecessor_ref_digest)
   return table.concat({
     tostring(origin or ""),
     tostring(blueprint_digest or ""),
     tostring(slot_id or ""),
-    tostring(predecessor_result_digest or M.EMPTY_PREDECESSOR_RESULT_DIGEST),
+    tostring(predecessor_ref_digest or M.EMPTY_PREDECESSOR_REF_DIGEST),
   }, "|")
 end
 
-function M.child_dedup_key(origin, slot_id, predecessor_result_digest)
+function M.child_dedup_key(origin, slot_id, predecessor_ref_digest)
   return "workflow/materialize/" .. strings.sanitize_key(origin, false)
     .. "/" .. strings.sanitize_key(slot_id, false)
-    .. "/" .. tostring(predecessor_result_digest or M.EMPTY_PREDECESSOR_RESULT_DIGEST)
+    .. "/" .. tostring(predecessor_ref_digest or M.EMPTY_PREDECESSOR_REF_DIGEST)
 end
 
 function M.key_from_parts(parts)
@@ -60,14 +60,14 @@ function M.key_from_parts(parts)
   end
   if parts.origin == nil or parts.blueprint_digest == nil
     or (parts.slot_id == nil and parts.slot == nil)
-    or (parts.predecessor_result_digest == nil and parts.pred_digest == nil) then
+    or parts.predecessor_ref_digest == nil then
     return nil
   end
   return M.materialization_key(
     parts.origin,
     parts.blueprint_digest,
     parts.slot_id or parts.slot,
-    parts.predecessor_result_digest or parts.pred_digest
+    parts.predecessor_ref_digest
   )
 end
 
@@ -162,7 +162,7 @@ function M.latch_generated(ledger_facts, key, generated_spec)
   }
 end
 
-function M.write_generated_entry(origin, blueprint_digest, slot, predecessor_result_digest, generated_spec)
+function M.write_generated_entry(origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec)
   local gen_contract_digest = M.generator_contract_digest(slot)
   local gen_spec_digest = M.generated_spec_digest(generated_spec)
   if blueprint_digest == nil or gen_contract_digest == nil or gen_spec_digest == nil then
@@ -172,10 +172,10 @@ function M.write_generated_entry(origin, blueprint_digest, slot, predecessor_res
     origin = origin,
     blueprint_digest = blueprint_digest,
     slot = slot.id,
-    pred_digest = predecessor_result_digest or M.EMPTY_PREDECESSOR_RESULT_DIGEST,
+    predecessor_ref_digest = predecessor_ref_digest or M.EMPTY_PREDECESSOR_REF_DIGEST,
     gen_contract_digest = gen_contract_digest,
     gen_spec_digest = gen_spec_digest,
-    child_dedup = M.child_dedup_key(origin, slot.id, predecessor_result_digest),
+    child_dedup = M.child_dedup_key(origin, slot.id, predecessor_ref_digest),
     state = "generated",
   }
 end

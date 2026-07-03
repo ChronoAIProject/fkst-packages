@@ -190,7 +190,7 @@ function M.build_materialization_marker(
   origin_proposal_id,
   blueprint_digest,
   slot_id,
-  predecessor_result_digest,
+  predecessor_ref_digest,
   generator_contract_digest,
   generated_spec_digest,
   child_dedup_key,
@@ -203,7 +203,7 @@ function M.build_materialization_marker(
   if not ok then return nil, err end
   ok, err = validate_slot(slot_id, "slot_id")
   if not ok then return nil, err end
-  ok, err = validate_materialization_digest(predecessor_result_digest, "predecessor_result_digest")
+  ok, err = validate_materialization_digest(predecessor_ref_digest, "predecessor_ref_digest")
   if not ok then return nil, err end
   ok, err = validate_materialization_digest(generator_contract_digest, "generator_contract_digest")
   if not ok then return nil, err end
@@ -220,7 +220,7 @@ function M.build_materialization_marker(
   return '<!-- fkst:github-devloop-workflow:materialization:v1 origin="' .. origin_proposal_id
     .. '" blueprint_digest="' .. blueprint_digest
     .. '" slot="' .. slot_id
-    .. '" pred_digest="' .. predecessor_result_digest
+    .. '" predecessor_ref_digest="' .. predecessor_ref_digest
     .. '" gen_contract_digest="' .. generator_contract_digest
     .. '" gen_spec_digest="' .. generated_spec_digest
     .. '" child_dedup="' .. child_dedup_key
@@ -234,7 +234,7 @@ local function materialization_fact_from_marker(marker, origin_proposal_id, slot
   local origin = attr(marker, "origin")
   local blueprint_digest = attr(marker, "blueprint_digest")
   local slot = attr(marker, "slot")
-  local pred_digest = attr(marker, "pred_digest")
+  local predecessor_ref_digest = attr(marker, "predecessor_ref_digest")
   local gen_contract_digest = attr(marker, "gen_contract_digest")
   local gen_spec_digest = attr(marker, "gen_spec_digest")
   local child_dedup = attr(marker, "child_dedup")
@@ -247,7 +247,7 @@ local function materialization_fact_from_marker(marker, origin_proposal_id, slot
   if not ok then return nil end
   ok = validate_slot(slot, "slot")
   if not ok then return nil end
-  ok = validate_materialization_digest(pred_digest, "pred_digest")
+  ok = validate_materialization_digest(predecessor_ref_digest, "predecessor_ref_digest")
   if not ok then return nil end
   ok = validate_materialization_digest(gen_contract_digest, "gen_contract_digest")
   if not ok then return nil end
@@ -270,7 +270,7 @@ local function materialization_fact_from_marker(marker, origin_proposal_id, slot
     origin = origin,
     blueprint_digest = blueprint_digest,
     slot = slot,
-    pred_digest = pred_digest,
+    predecessor_ref_digest = predecessor_ref_digest,
     gen_contract_digest = gen_contract_digest,
     gen_spec_digest = gen_spec_digest,
     child_dedup = child_dedup,

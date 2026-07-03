@@ -5,7 +5,7 @@ local origin = "github-devloop/issue/owner/repo/42"
 local workflow_id = "workflow-one"
 local digest = "d-1234567890"
 local slot = "slot-one"
-local pred_digest = "d-1111111111"
+local predecessor_ref_digest = "d-1111111111"
 local gen_contract_digest = "d-2222222222"
 local gen_spec_digest = "d-3333333333"
 local child_dedup = "workflow/owner/repo/42/slot-one"
@@ -33,7 +33,7 @@ local function build_materialization_or_error(state, child_issue)
     origin,
     digest,
     slot,
-    pred_digest,
+    predecessor_ref_digest,
     gen_contract_digest,
     gen_spec_digest,
     child_dedup,
@@ -51,7 +51,7 @@ local function materialization_rejects(args, expected)
     args.origin or origin,
     args.blueprint_digest or digest,
     args.slot or slot,
-    args.pred_digest or pred_digest,
+    args.predecessor_ref_digest or predecessor_ref_digest,
     args.gen_contract_digest or gen_contract_digest,
     args.gen_spec_digest or gen_spec_digest,
     args.child_dedup or child_dedup,
@@ -158,7 +158,7 @@ local tests = {
       t.eq(parsed.origin, origin)
       t.eq(parsed.blueprint_digest, digest)
       t.eq(parsed.slot, slot)
-      t.eq(parsed.pred_digest, pred_digest)
+      t.eq(parsed.predecessor_ref_digest, predecessor_ref_digest)
       t.eq(parsed.gen_contract_digest, gen_contract_digest)
       t.eq(parsed.gen_spec_digest, gen_spec_digest)
       t.eq(parsed.child_dedup, child_dedup)
@@ -179,8 +179,8 @@ local tests = {
       path = "state",
       code = "invalid_materialization_state",
     })
-    materialization_rejects({ pred_digest = string.rep("d", marker.MAX_MATERIALIZATION_DIGEST_BYTES + 1) }, {
-      path = "predecessor_result_digest",
+    materialization_rejects({ predecessor_ref_digest = string.rep("d", marker.MAX_MATERIALIZATION_DIGEST_BYTES + 1) }, {
+      path = "predecessor_ref_digest",
       code = "too_large",
     })
     materialization_rejects({ blueprint_digest = string.rep("d", marker.MAX_MATERIALIZATION_DIGEST_BYTES + 1) }, {
@@ -213,7 +213,7 @@ local tests = {
     local body = '<!-- fkst:github-devloop-workflow:materialization:v1 origin="' .. origin
       .. '" blueprint_digest="' .. digest
       .. '" slot="' .. slot
-      .. '" pred_digest="' .. pred_digest
+      .. '" predecessor_ref_digest="' .. predecessor_ref_digest
       .. '" gen_contract_digest="' .. gen_contract_digest
       .. '" gen_spec_digest="bad digest" child_dedup="' .. child_dedup
       .. '" child_issue="" state="pending" -->'
@@ -238,7 +238,7 @@ local tests = {
       origin,
       digest,
       "slot-two",
-      pred_digest,
+      predecessor_ref_digest,
       gen_contract_digest,
       gen_spec_digest,
       "workflow/owner/repo/42/slot-two",
@@ -256,7 +256,7 @@ local tests = {
       origin,
       digest,
       slot,
-      pred_digest,
+      predecessor_ref_digest,
       gen_contract_digest,
       "d-5555555555",
       child_dedup,

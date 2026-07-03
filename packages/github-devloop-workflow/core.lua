@@ -5,6 +5,7 @@ local digest = require("core.digest")
 local frontier = require("core.frontier")
 local generator = require("core.generator")
 local marker = require("core.marker")
+local materialize_reconcile = require("core.materialize_reconcile")
 local materialization = require("core.materialization")
 local select_request = require("core.select_request")
 local devloop_base = require("devloop.base")
@@ -25,6 +26,7 @@ M = {
   frontier = frontier,
   generator = generator,
   marker = marker,
+  materialize_reconcile = materialize_reconcile,
   materialization = materialization,
   conformance_errors = conformance_errors,
 }
