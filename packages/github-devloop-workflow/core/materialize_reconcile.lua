@@ -153,6 +153,19 @@ local function perform_materialize(core, deps, repo, issue_number, origin, recor
     return terminal(core, deps, repo, issue_number, origin, "error", "frontier-slot-missing")
   end
 
+  -- The first slot has no prior child; its "predecessor result" is the ORIGIN
+  -- idea itself, so a GENERATED slot 1 reads the origin issue via source_ref
+  -- (SPEC §6). A static slot 1 ignores this. The CAS key/digest stay derived
+  -- from decision.predecessor (empty for slot 1), so static-slot behavior and
+  -- the ledger key are unchanged; only the generator's content source is filled.
+  local predecessor = decision.predecessor
+  if predecessor == nil then
+    predecessor = {
+      proposal_id = origin,
+      source_ref = { kind = "external", ref = tostring(repo) .. "#issue/" .. tostring(issue_number) },
+    }
+  end
+
   local predecessor_ref_digest = actions.predecessor_ref_digest(decision.predecessor)
   local key = materialization.materialization_key(origin, blueprint_digest, slot.id, predecessor_ref_digest)
   local existing = actions.best_fact_for_key(facts, key)
@@ -176,7 +189,7 @@ local function perform_materialize(core, deps, repo, issue_number, origin, recor
     predecessor_ref_digest = predecessor_ref_digest,
     event_ts = event and event.ts,
     worktree = generator_worktree(deps, slot, planned_child_dedup),
-  }, slot, decision.predecessor)
+  }, slot, predecessor)
   if generated_spec == nil then
     return terminal(core, deps, repo, issue_number, origin, "error", gen_reason)
   end

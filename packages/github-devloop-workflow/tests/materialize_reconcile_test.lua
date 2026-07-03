@@ -223,6 +223,43 @@ local tests = {
     t.is_true(raised[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)
   end,
 
+  -- Regression (found by real dogfood): a GENERATED first slot has no prior
+  -- child; its predecessor result is the ORIGIN idea itself, so it must read the
+  -- origin via content_fetch and generate — NOT error with missing-predecessor-result.
+  test_generated_first_slot_reads_origin_not_missing_predecessor = function()
+    local gen_bp = {
+      schema = "fkst.workflow.v1",
+      id = "workflow-one",
+      version = "1",
+      summary = "Generated first slot.",
+      applies_when = "The origin idea.",
+      steps = {
+        { id = "first", title = "Analyze", content = { kind = "generated", generator = "Analyze the origin idea." } },
+      },
+    }
+    local gen_marker = marker.build_blueprint_marker(origin, "workflow-one", digest.blueprint_digest(gen_bp))
+    local fetched_ref = nil
+    local raised = run_with({
+      blueprint = gen_bp,
+      current = issue({ comment(gen_marker) }),
+      content_fetch = function(predecessor_ref, _ctx)
+        fetched_ref = predecessor_ref and (predecessor_ref.source_ref or predecessor_ref) or nil
+        return "runtime-cache:origin-content"
+      end,
+      spawn_codex = function()
+        return { exit_code = 0, stdout = '{"title":"Architecture analysis","body":"Components and data flow."}' }
+      end,
+    })
+    -- materializes (writes a generated marker), not a terminal missing-predecessor error
+    t.eq(#raised, 1)
+    t.is_true(raised[1].payload.body:find('state="generated"', 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find("Architecture analysis", 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find("missing-predecessor", 1, true) == nil)
+    -- content_fetch was called with the ORIGIN's source_ref (predecessor is the origin, not nil)
+    t.is_true(fetched_ref ~= nil)
+    t.is_true(tostring(fetched_ref.ref or fetched_ref):find("#issue/" .. tostring(origin_issue), 1, true) ~= nil)
+  end,
+
   test_generated_fact_raises_one_issue_create_request_with_lineage = function()
     local spec = generated_spec("first")
     local entry = build_entry("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, spec)
