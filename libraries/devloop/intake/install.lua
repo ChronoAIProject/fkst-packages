@@ -149,6 +149,13 @@ local function install_base(target)
   target._enabled_label = base._enabled_label
   target._tracking_label = base._tracking_label
   target._label_colors = base._label_colors
+  -- Board/context-bundle delimiters: default_intake builds a context bundle whose
+  -- board digest wraps feed-through in these untrusted-data markers (board.lua).
+  -- Provision them here so every default_intake host (intake-default AND the
+  -- workflow adapter) has them; without this the board concatenation hits a nil
+  -- field and crashes only under a real supervise board (tests mock the board).
+  target._untrusted_issue_data_begin = base._untrusted_issue_data_begin
+  target._untrusted_issue_data_end = base._untrusted_issue_data_end
 end
 
 local function install_commands(target)
