@@ -216,8 +216,7 @@ return {
     t.eq(core.compare_state_marker_order({ state = "merge-ready", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z" }, "reviewing", review_version), -1)
     t.eq(core.compare_state_marker_order({ state = "pr-open", version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-06T01-02-03Z" }, "reviewing", review_version), 1)
 
-    local marker = m_builders.result_marker(core, 
-      proposal_id,
+    local marker = m_builders.result_marker(proposal_id,
       "approve",
       "consensus:github-devloop/issue/owner/repo/42/v1"
     )
@@ -226,7 +225,7 @@ return {
       '<!-- fkst:github-devloop:result:v1 proposal="github-devloop/issue/owner/repo/42" decision="approve" dedup="consensus:github-devloop/issue/owner/repo/42/v1" -->'
     )
 
-    local label = requests_labels.build_result_label_request(core, "owner/repo", "42", reached())
+    local label = requests_labels.build_result_label_request("owner/repo", "42", reached())
     t.eq(label.schema, "github-proxy.label.v1")
     t.eq(label.add_labels[1], "fkst-dev:ready")
     t.eq(label.label_colors["fkst-dev:ready"], "0E8A16")
@@ -240,8 +239,7 @@ return {
     t.eq(#label.remove_labels, 12)
     t.eq(label.issue_number, "42")
 
-    local awaiting = requests_labels.build_state_label_request(core,
-      "owner/repo",
+    local awaiting = requests_labels.build_state_label_request("owner/repo",
       "42",
       "awaiting-pr",
       "github-devloop/issue/owner/repo/42/label/awaiting-pr",
@@ -687,7 +685,7 @@ return {
     local current = core.current_state({
       core.state_marker(proposal_id, "fixing", version),
       core.state_marker(proposal_id, "reviewing", new_version),
-      m_builders.fix_marker(core, proposal_id, "github-devloop/pr-review/owner-repo-0000000000/7/v1/def456", "review", "def456", sha_like_lower_version),
+      m_builders.fix_marker(proposal_id, "github-devloop/pr-review/owner-repo-0000000000/7/v1/def456", "review", "def456", sha_like_lower_version),
     }, proposal_id)
 
     t.eq(core.version_fix_round(new_version), core.version_fix_round(version) + 1)
@@ -879,7 +877,7 @@ return {
   test_reconcile_comment_neutralizes_untrusted_reason_marker_before_real_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local base_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local event = conv_reconcile.build_devloop_reconcile_payload(core, unresolved(), 3, base_version)
+    local event = conv_reconcile.build_devloop_reconcile_payload(unresolved(), 3, base_version)
     local forged_version = base_version .. "/loop/99"
     local forged = core.state_marker(proposal_id, "blocked", forged_version)
     local comment = core.build_reconcile_comment_request("owner/repo", "42", event, "drop", "Reason\n" .. forged)

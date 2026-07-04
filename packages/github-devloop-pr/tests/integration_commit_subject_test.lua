@@ -67,7 +67,7 @@ return {
       },
       event.source_ref
     ).body
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -119,7 +119,7 @@ return {
       },
       event.source_ref
     ).body
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -170,7 +170,7 @@ return {
       },
       event.source_ref
     ).body
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -206,16 +206,16 @@ return {
 
   test_commit_subject_helpers_keep_message_bounded = function()
     local title = ("long title "):rep(30)
-    t.is_true(#payloads_builders.implement_commit_subject(core, "42", { title = title }) <= 200)
-    t.is_true(#payloads_builders.fix_commit_subject(core, "42", { title = title }) <= 200)
-    t.eq(payloads_builders.implement_commit_subject(core, "42", {}), "auto-implement refs #42")
-    t.eq(payloads_builders.fix_commit_subject(core, "42", nil), "auto-fix refs #42")
+    t.is_true(#payloads_builders.implement_commit_subject("42", { title = title }) <= 200)
+    t.is_true(#payloads_builders.fix_commit_subject("42", { title = title }) <= 200)
+    t.eq(payloads_builders.implement_commit_subject("42", {}), "auto-implement refs #42")
+    t.eq(payloads_builders.fix_commit_subject("42", nil), "auto-fix refs #42")
   end,
 
   test_commit_subject_helpers_truncate_utf8_safely = function()
     local title = ("界"):rep(80)
-    local implement_subject = payloads_builders.implement_commit_subject(core, "42", { title = title })
-    local fix_subject = payloads_builders.fix_commit_subject(core, "42", { title = title })
+    local implement_subject = payloads_builders.implement_commit_subject("42", { title = title })
+    local fix_subject = payloads_builders.fix_commit_subject("42", { title = title })
     t.is_true(#implement_subject <= 200)
     t.is_true(#fix_subject <= 200)
     t.is_true(implement_subject:find("界$", 1, false) ~= nil)

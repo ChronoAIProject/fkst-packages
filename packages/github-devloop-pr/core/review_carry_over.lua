@@ -20,7 +20,7 @@ local function carry_over_risk_gate(repo, pr_number, issue_proposal_id, version,
   end
   local new_review_proposal = devloop_base.pr_review_proposal_id(repo, pr_number, version, current_head_sha)
   local new_review_dedup = "consensus:" .. new_review_proposal .. "/review"
-  local fact = m_facts.high_risk_review_evidence_fact(M, 
+  local fact = m_facts.high_risk_review_evidence_fact(
     comments,
     issue_proposal_id,
     version,
@@ -40,7 +40,7 @@ function M.approved_lineage_carry_over(repo, pr_number, issue_proposal_id, versi
   if type(comments) ~= "table" or not require("devloop.pr_safety").is_safe_head_sha(current_head_sha) then
     return nil, "invalid-carry-over-input"
   end
-  local fact = m_facts.merge_ready_fact(M, comments, issue_proposal_id, version, pr_number)
+  local fact = m_facts.merge_ready_fact(comments, issue_proposal_id, version, pr_number)
   if fact == nil then
     return nil, "missing-merge-ready-fact"
   end
@@ -55,7 +55,7 @@ function M.approved_lineage_carry_over(repo, pr_number, issue_proposal_id, versi
     review_dedup_key = fact.review_dedup_key,
     reviewed_head_sha = fact.head_sha,
   }
-  local approval_ok = m_facts.review_result_approval_matches_event(M, comments, approved)
+  local approval_ok = m_facts.review_result_approval_matches_event(comments, approved)
   if not approval_ok then
     return nil, "missing-review-result-approve"
   end
@@ -103,7 +103,7 @@ function M.raise_review_carry_over(dept, repo, pr_number, issue_proposal_id, ver
     return nil, reason
   end
   local source_ref = entity_lib.pr_source_ref(repo, pr_number)
-  local comment_request = requests_review.build_review_carry_over_comment_request(M, repo, pr_number, issue_proposal_id, version, carry, source_ref)
+  local comment_request = requests_review.build_review_carry_over_comment_request(repo, pr_number, issue_proposal_id, version, carry, source_ref)
   devloop_logging.log_cas_decision(dept, issue_proposal_id, current_state, "merge-ready", "merge-ready", "applied(review-carry-over)", "approved head is ancestor and resolution delta is empty")
   devloop_logging.log_apply(dept, issue_proposal_id, "merge-ready", version, { add = {}, remove = {} }, {
     "github-proxy.github_pr_comment_request",

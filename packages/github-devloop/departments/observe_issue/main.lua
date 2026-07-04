@@ -194,7 +194,7 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
 end
 
 local function ensure_managed_issue_claim(issue, proposal_id, current, state)
-  local claim_state = m_claims.issue_claim_state(core, current.assignees, m_claims.claim_owner(), current.labels)
+  local claim_state = m_claims.issue_claim_state(current.assignees, m_claims.claim_owner(), current.labels)
   if claim_state == "other" then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, state.state, state.state, "skip-claim-lost", "CLAIM lost before managed issue handling")
     return false
@@ -206,19 +206,17 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
 end
 
 local function maybe_apply_issue_rereview_command(issue, proposal_id, current, state, event_ts)
-  local command = operator_commands.operator_command_fact(core, current.comments, "rereview")
+  local command = operator_commands.operator_command_fact(current.comments, "rereview")
   if command == nil then
     return false
   end
-  if operator_commands.has_operator_command_response(core, current.comments, command) then
+  if operator_commands.has_operator_command_response(current.comments, command) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
   if state.state ~= "thinking" then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "thinking", "thinking", "refused(invalid-state)", "operator rereview requires thinking")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(
-      core,
-      issue.repo,
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
       "rereview requires thinking state",
@@ -230,9 +228,7 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
   if not replayer.has_thinking_converge_replay(core, current, proposal_id, state, issue.source_ref)
     and not thinking_state_budget_exceeded(state) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "refused(active-thinking)", "operator rereview requires stalled thinking")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(
-      core,
-      issue.repo,
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
       "rereview requires stalled thinking state",
@@ -245,9 +241,7 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
   local proposal = replayer.build_thinking_replay_proposal(core, issue, proposal_id, state, current, event_ts)
   if proposal == nil then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "refused(cannot-rebuild-proposal)", "operator rereview could not rebuild thinking proposal")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(
-      core,
-      issue.repo,
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
       "rereview could not rebuild the current thinking proposal",
@@ -257,9 +251,7 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
     return true
   end
 
-  local comment_request = operator_commands.build_operator_issue_rereview_comment_request(
-    core,
-    issue.repo,
+  local comment_request = operator_commands.build_operator_issue_rereview_comment_request(issue.repo,
     issue.number,
     command,
     proposal,
@@ -276,17 +268,16 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
 end
 
 local function raise_stale_dependency_label_clear(issue, proposal_id, state, labels)
-  if state.state == "ready" or state.state == "dependency_wait" or not devloop_state.has_label(labels, core._blocked_on_dependency_label) then
+  if state.state == "ready" or state.state == "dependency_wait" or not devloop_state.has_label(labels, devloop_base._blocked_on_dependency_label) then
     return false
   end
-  devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version, { add = {}, remove = { core._blocked_on_dependency_label } }, {
+  devloop_logging.log_apply("observe_issue", proposal_id, state.state, state.version, { add = {}, remove = { devloop_base._blocked_on_dependency_label } }, {
     "github-proxy.github_issue_label_request",
   })
-  devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(core,
-    issue.repo,
+  devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(issue.repo,
     issue.number,
     {},
-    { core._blocked_on_dependency_label },
+    { devloop_base._blocked_on_dependency_label },
     base_ids.dedup_key({ "dependency", "label", "clear", tostring(proposal_id), tostring(state.version or "unversioned") }),
     issue.source_ref
   ))
@@ -324,11 +315,11 @@ local function timeout_reconcile_reready_reentry_state(current, proposal_id, sta
 end
 
 local function maybe_apply_issue_reready_command(issue, proposal_id, current, state, link)
-  local command = operator_commands.operator_command_fact(core, current.comments, "reready")
+  local command = operator_commands.operator_command_fact(current.comments, "reready")
   if command == nil then
     return false
   end
-  if operator_commands.has_operator_command_response(core, current.comments, command) then
+  if operator_commands.has_operator_command_response(current.comments, command) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
@@ -339,9 +330,7 @@ local function maybe_apply_issue_reready_command(issue, proposal_id, current, st
   end
   if replay_state == nil then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "refused(invalid-state)", "operator reready requires ready state")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(
-      core,
-      issue.repo,
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
       refusal_reason or "reready requires ready or dependency_wait state",
@@ -371,19 +360,17 @@ local function has_unmet_blocker(gate, blocker_number)
 end
 
 local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, current, state)
-  local command = operator_commands.operator_command_fact(core, current.comments, "dependency-waiver")
+  local command = operator_commands.operator_command_fact(current.comments, "dependency-waiver")
   if command == nil then
     return false
   end
-  if operator_commands.has_operator_command_response(core, current.comments, command) then
+  if operator_commands.has_operator_command_response(current.comments, command) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
   if state.state ~= "dependency_wait" then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "dependency_wait", "ready", "refused(invalid-state)", "operator dependency waiver requires dependency_wait state")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(
-      core,
-      issue.repo,
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
       "dependency-waiver requires dependency_wait state",
@@ -403,9 +390,7 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
     or gate.reason ~= "dependency-waiver-required"
     or not has_unmet_blocker(gate, blocker_number) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "ready", "ready", "refused(invalid-dependency-waiver)", "operator dependency waiver requires a matching completed blocker without merged marker")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(
-      core,
-      issue.repo,
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
       "dependency-waiver requires a matching completed blocker without merged marker",
@@ -448,21 +433,19 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
 end
 
 local function maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot)
-  local command = operator_commands.operator_command_fact(core, current.comments, "reimplement")
+  local command = operator_commands.operator_command_fact(current.comments, "reimplement")
   if command == nil then
     return false
   end
-  if operator_commands.has_operator_command_response(core, current.comments, command) then
+  if operator_commands.has_operator_command_response(current.comments, command) then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed", "implementing", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
-  local link = m_facts.pr_link_fact(core, current.comments, proposal_id)
+  local link = m_facts.pr_link_fact(current.comments, proposal_id)
   local blocked_reentry = state.state == "blocked" and linked_open_pr(snapshot, link and link.pr_number) ~= nil
   if state.state ~= "impl-failed" and not blocked_reentry then
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)", "implementing", "refused(invalid-state)", "operator reimplement requires impl-failed or blocked state with an open linked PR")
-    local refusal = operator_commands.build_operator_issue_command_refusal_request(
-      core,
-      issue.repo,
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
       "reimplement requires impl-failed or blocked state with an open linked PR",
@@ -496,9 +479,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     }
   end
   local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
-  local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(
-    core,
-    issue.repo,
+  local comment_request = operator_commands.build_operator_issue_reimplement_comment_request(issue.repo,
     issue.number,
     command,
     attempt,
@@ -516,7 +497,7 @@ end
 
 local function process_issue_event(event)
   local issue = event.payload or {}
-  if not v_issue.is_supported_issue(core, issue) then
+  if not v_issue.is_supported_issue(issue) then
     devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(issue, "dedup_key"))
     devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "unmanaged", "thinking", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -528,11 +509,11 @@ local function process_issue_event(event)
   with_lock(lock_key, function()
     devloop_base.assert_trusted_bot_configured()
 
-    local state_view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(core, issue.repo, issue.number, issue.updated_at, {
+    local state_view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(issue.repo, issue.number, issue.updated_at, {
       force_fresh = true,
     })
     if state_view.exit_code ~= 0 then
-      error("github-devloop: gh issue state view failed: " .. tostring(state_view.stderr))
+      error("github-devloop: issue-read-failed: gh issue state view failed: " .. tostring(state_view.stderr))
     end
 
     local current = parsers_issue.parse_issue_view_state(core, state_view.stdout)
@@ -546,7 +527,7 @@ local function process_issue_event(event)
       return
     end
     devloop_logging.log_forged_markers("observe_issue", proposal_id, current.comments)
-    local link = m_facts.pr_link_fact(core, current.comments, proposal_id)
+    local link = m_facts.pr_link_fact(current.comments, proposal_id)
     local issue_state = devloop_state.current_state(current.comments, proposal_id)
     if devloop_base.is_intake_held(current.labels) then
       devloop_logging.log_cas_decision("observe_issue", proposal_id, { state = nil, version = nil }, "unmanaged", "thinking", "skip-held", "fkst-dev:hold label is present")
@@ -601,7 +582,7 @@ local function process_issue_event(event)
       local delegation = "g" .. tostring(core.implementation_retry_attempt(issue_state.version) or 1)
       local comment_body = "github-devloop canonicalized legacy issue PR state to delegated PR child"
         .. "\n\n" .. devloop_state.state_marker(proposal_id, "awaiting-pr", issue_state.version)
-        .. "\n" .. m_builders.pr_delegation_marker(core, proposal_id, pr_proposal_id, link.pr_number, issue_state.version, delegation)
+        .. "\n" .. m_builders.pr_delegation_marker(proposal_id, pr_proposal_id, link.pr_number, issue_state.version, delegation)
       local comment_request = entity_lib.build_entity_comment_request({
         kind = "issue",
         repo = issue.repo,
@@ -613,7 +594,7 @@ local function process_issue_event(event)
         tostring(issue_state.version),
         tostring(link.pr_number),
       }), issue.source_ref)
-      local label_request = requests_labels.build_state_label_request(core, issue.repo, issue.number, "awaiting-pr", base_ids.dedup_key({
+      local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "awaiting-pr", base_ids.dedup_key({
         "canonicalize",
         "pr-open",
         "label",
@@ -650,8 +631,7 @@ local function process_issue_event(event)
       local label_state = issue_label_projection_state(issue_state, link, snapshot)
       local add_labels, remove_labels = devloop_state.state_label_reconcile_changes(current.labels, label_state.state)
       if #add_labels > 0 or #remove_labels > 0 then
-        local label_request = requests_labels.build_label_request(core,
-          issue.repo,
+        local label_request = requests_labels.build_label_request(issue.repo,
           issue.number,
           add_labels,
           remove_labels,
@@ -684,7 +664,7 @@ local function process_issue_event(event)
     end
     if transition == "pending" then
       devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "unmanaged", "thinking", devloop_state.cas_outcome(state, transition, issue.dedup_key), "unmanaged state marker pending for observe")
-      error("github-devloop: unmanaged state marker pending for observe; retrying")
+      error("github-devloop: state-marker-pending: unmanaged state marker pending for observe; retrying")
     end
     if not m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id) then
       return
@@ -700,13 +680,13 @@ local function process_issue_event(event)
       tick = event.ts,
     })
     local proposal = payloads_builders.build_board_proposal(core, issue, event.ts)
-    if not v_validate_proposal.validate_proposal(core, proposal) then
+    if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id) .. " tag=SKIP reason=cannot-build-valid-proposal")
       return
     end
 
     local comment_request = requests_lifecycle.build_observe_comment_request(core, issue, proposal)
-    local label_request = requests_labels.build_thinking_label_request(core, issue, proposal)
+    local label_request = requests_labels.build_thinking_label_request(issue, proposal)
     local add_labels, remove_labels = devloop_state.state_label_changes("thinking")
     devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, { add = add_labels, remove = remove_labels }, {
       "consensus.proposal",
@@ -721,7 +701,7 @@ end
 
 local function process_pr_event(event)
   local pr = event.payload or {}
-  if not v_pr.is_supported_pr(core, pr) then
+  if not v_pr.is_supported_pr(pr) then
     devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(pr, "dedup_key"))
     devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr)", "unsupported PR payload")
     return
@@ -732,12 +712,12 @@ local function process_pr_event(event)
     consumer = "observe_issue",
   })
   if pr_view.exit_code ~= 0 then
-    error("github-devloop: observe-issue-pr-view-failed: " .. tostring(pr_view.stderr))
+    error("github-devloop: pr-read-failed: observe-issue-pr-view-failed: " .. tostring(pr_view.stderr))
   end
-  local current_pr = parsers_pr.parse_pr_view_origin(core, pr_view.stdout)
+  local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
   current_pr.number = pr.number
   current_pr.force_fresh = true
-  local origin = m_facts.pr_origin_fact(core, current_pr.comments)
+  local origin = m_facts.pr_origin_fact(current_pr.comments)
   if origin == nil or origin.pr_native == true or origin.repo ~= pr.repo or tonumber(origin.issue_number) == nil then
     devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(pr, "dedup_key"))
     devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr-origin)", "PR entity change has no issue-backed devloop origin")
@@ -779,4 +759,4 @@ return saga.department(spec, { done = function() return false end, act = functio
     end,
     devloop_observe_issue = process_issue_event,
   })
-end, wrap = core.wrap_pipeline_failure, name = "observe_issue" })
+end, wrap = devloop_logging.wrap_pipeline_failure, name = "observe_issue" })

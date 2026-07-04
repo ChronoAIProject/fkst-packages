@@ -117,7 +117,7 @@ local function with_catalog(files, fn)
 end
 
 local function candidate()
-  return payloads_builders.build_devloop_intake_candidate_payload(core, "owner/repo", 42, "2026-06-03T01:02:03Z")
+  return payloads_builders.build_devloop_intake_candidate_payload("owner/repo", 42, "2026-06-03T01:02:03Z")
 end
 
 local function decision_key_for_current(payload, current)
@@ -296,7 +296,7 @@ local function blueprint_comment(payload, workflow_id, plan_digest)
 end
 
 local function intake_decision_comment(payload)
-  return devloop_marker_builders.intake_decision_marker(core, payload.proposal_id, "track", decision_key_for_current(payload), "standard")
+  return devloop_marker_builders.intake_decision_marker(payload.proposal_id, "track", decision_key_for_current(payload), "standard")
 end
 
 local tests = {
@@ -331,7 +331,7 @@ local tests = {
       t.eq(blueprint_marker.workflow, "workflow-alpha")
       t.eq(blueprint_marker.digest, plan_digest)
 
-      local intake = devloop_facts.intake_decision_fact(core, {
+      local intake = devloop_facts.intake_decision_fact({
         { body = request.body, author_login = "fkst-test-bot", created_at = "2026-07-03T00:00:00Z" },
       }, payload.proposal_id)
       t.eq(intake.decision, "track")

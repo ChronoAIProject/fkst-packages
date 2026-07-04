@@ -29,7 +29,7 @@ local high_risk_merge_gate = require("core.high_risk_merge_gate")
 local m_builders = require("devloop.markers.builders")
 
 local function origin_marker(event)
-  return m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+  return m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
 end
 
 local function comments_with_untrusted_evidence(event)
@@ -179,7 +179,7 @@ return {
 
   test_high_risk_evidence_lookup_requires_paths_digest = function()
     local event = merge_ready()
-    local fact = m_facts.high_risk_review_evidence_fact(core, 
+    local fact = m_facts.high_risk_review_evidence_fact(
       merge_comments_with_high_risk_evidence(event),
       event.proposal_id,
       event.version,
@@ -194,7 +194,7 @@ return {
 
   test_high_risk_evidence_lookup_uses_newest_valid_matching_digest = function()
     local event = merge_ready()
-    local fact = m_facts.high_risk_review_evidence_fact(core, 
+    local fact = m_facts.high_risk_review_evidence_fact(
       comments_with_older_matching_evidence_before_newer(event),
       event.proposal_id,
       event.version,

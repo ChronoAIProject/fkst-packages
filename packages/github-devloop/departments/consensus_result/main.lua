@@ -32,14 +32,14 @@ local function dependency_hold_effects_complete(current, reached, version)
   return devloop_state.has_state_marker(current.comments, reached.proposal_id, "dependency_wait", version)
     and core.dependency_hold_fact(current.comments, reached.proposal_id) ~= nil
     and devloop_state.state_label_hint_matches(current.labels, "dependency_wait")
-    and devloop_state.has_label(current.labels, core._blocked_on_dependency_label)
+    and devloop_state.has_label(current.labels, devloop_base._blocked_on_dependency_label)
 end
 
 local function raise_result_effects(repo, issue_number, reached, current, state, gate, reason, version, to_state)
   version = version or result_version(reached)
   to_state = to_state or (gate and gate.ok and "ready" or "dependency_wait")
   local comment_request = requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
-  local label_request = requests_labels.build_result_label_request(core, repo, issue_number, reached)
+  local label_request = requests_labels.build_result_label_request(repo, issue_number, reached)
   local dependency_comment_request = nil
   local dependency_label_request = nil
   local dependency_release_comment_request = nil
@@ -58,10 +58,9 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
       marker,
       reached.source_ref
     )
-    dependency_label_request = requests_labels.build_label_request(core,
-      repo,
+    dependency_label_request = requests_labels.build_label_request(repo,
       issue_number,
-      { core._blocked_on_dependency_label },
+      { devloop_base._blocked_on_dependency_label },
       {},
       base_ids.dedup_key({ "dependency", "label", "hold", tostring(reached.proposal_id), version, tostring(gate.kind) }),
       reached.source_ref
@@ -76,7 +75,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
       reached.source_ref
     )
   end
-  table.insert(label_request.remove_labels, core._blocked_on_dependency_label)
+  table.insert(label_request.remove_labels, devloop_base._blocked_on_dependency_label)
 
   local raised = {}
   if not devloop_state.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key) then
@@ -134,7 +133,7 @@ local function make_department(ports)
       devloop_logging.log_cas_decision("consensus_result", tostring(reached.proposal_id or "unknown"), { state = nil, version = nil }, "thinking", "ready", "skip-unsupported(decision)", "issue consensus does not support reject")
       return
     end
-    if not v_result.is_supported_result(core, reached) then
+    if not v_result.is_supported_result(reached) then
       devloop_logging.log_entry("consensus_result", event, "unknown", devloop_logging.payload_field(reached, "dedup_key"))
       devloop_logging.log_cas_decision("consensus_result", "unknown", { state = nil, version = nil }, "thinking", "ready", "skip-foreign(proposal_id)", "unsupported event payload")
       return
@@ -176,7 +175,7 @@ local function make_department(ports)
       if transition == "idempotent" or transition == "stale" then
         if transition == "idempotent" and tostring(state.version or "") == tostring(version) then
           local complete = gate.ok
-            and requests_lifecycle.result_effects_complete(core, current, reached)
+            and requests_lifecycle.result_effects_complete(current, reached)
             or dependency_hold_effects_complete(current, reached, version)
           if complete then
             devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, "skip-idempotent(result effects complete)", "all declared result effects are derivable")
@@ -200,7 +199,7 @@ local function make_department(ports)
       end
       if transition == "pending" then
         devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, devloop_state.cas_outcome(state, transition, version), "thinking state marker not yet visible")
-        error("github-devloop: thinking state marker not yet visible for consensus result; retrying")
+        error("github-devloop: state-marker-pending: thinking state marker not yet visible for consensus result; retrying")
       end
       devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, devloop_state.cas_outcome(state, transition, version), "consensus decision=" .. tostring(reached.decision))
 
@@ -212,7 +211,7 @@ local function make_department(ports)
   local department = saga.department(spec, {
     done = result_done,
     act = act_result,
-    wrap = core.wrap_pipeline_failure,
+    wrap = devloop_logging.wrap_pipeline_failure,
     name = "consensus_result",
   })
   department.pipeline = _G.pipeline

@@ -1,4 +1,4 @@
-local materialize_reconcile = require("core.materialize_reconcile")
+local materialize_reconcile = require("materialize_reconcile")
 local saga = require("workflow.saga")
 
 local spec = {

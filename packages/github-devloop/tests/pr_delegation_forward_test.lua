@@ -130,8 +130,8 @@ return {
 
   test_ensure_pr_child_rerun_with_visible_facts_is_idempotent = function()
     local pr_proposal = "github-devloop/pr/owner/repo/7"
-    local delegated = m_builders.pr_delegation_marker(core, issue_proposal, pr_proposal, 7, impl_version, "g1")
-    local visible_pr_open = m_builders.pr_origin_marker(core, issue_proposal, issue_number, branch, impl_version, base_branch)
+    local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")
+    local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
       .. "\n" .. core.state_marker(issue_proposal, "pr-open", impl_version)
     mock_branch_list(7)
 
@@ -150,8 +150,8 @@ return {
 
   test_child_start_stays_visible_after_child_pr_advances_past_pr_open = function()
     local pr_proposal = "github-devloop/pr/owner/repo/7"
-    local delegated = m_builders.pr_delegation_marker(core, issue_proposal, pr_proposal, 7, impl_version, "g1")
-    local advanced_child = m_builders.pr_origin_marker(core, issue_proposal, issue_number, branch, impl_version, base_branch)
+    local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")
+    local advanced_child = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
       .. "\n" .. core.state_marker(issue_proposal, "reviewing", impl_version .. "/review/1")
     mock_branch_list(7)
 
@@ -170,9 +170,9 @@ return {
   end,
 
   test_child_start_dsl_gate_matches_visible_child_start_markers = function()
-    local delegated = m_builders.pr_delegation_marker(core, issue_proposal, pr_proposal(7), 7, impl_version, "g1")
-    local matching_origin = m_builders.pr_origin_marker(core, issue_proposal, issue_number, branch, impl_version, base_branch)
-    local mismatched_origin = m_builders.pr_origin_marker(core, issue_proposal, issue_number, branch .. "-old", impl_version, base_branch)
+    local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(7), 7, impl_version, "g1")
+    local matching_origin = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
+    local mismatched_origin = m_builders.pr_origin_marker(issue_proposal, issue_number, branch .. "-old", impl_version, base_branch)
     local advanced_child = matching_origin .. "\n" .. core.state_marker(issue_proposal, "reviewing", impl_version .. "/review/1")
     mock_branch_list(7, 7, 7)
 
@@ -206,7 +206,7 @@ return {
     t.eq(pr_effect.payload.handoff.pr_number, 7)
     t.eq(pr_effect.payload.handoff.version, impl_version)
 
-    local visible_pr_open = m_builders.pr_origin_marker(core, issue_proposal, issue_number, branch, impl_version, base_branch)
+    local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
       .. "\n" .. core.state_marker(issue_proposal, "pr-open", impl_version)
     local second = core.ensure_pr_child(issue({
       comments = { render_comment(issue_effect.payload.body) },
@@ -223,7 +223,7 @@ return {
   end,
 
   test_existing_delegation_for_different_generation_is_not_current = function()
-    local old_delegation = m_builders.pr_delegation_marker(core, issue_proposal, pr_proposal(7), 7, impl_version, "g1")
+    local old_delegation = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(7), 7, impl_version, "g1")
     mock_branch_list(nil, 8)
     t.mock_command("gh pr create", { stdout = "https://github.example/owner/repo/pull/8\n", stderr = "", exit_code = 0 })
 
@@ -242,9 +242,9 @@ return {
   end,
 
   test_existing_delegation_scan_finds_requested_generation_after_prior_attempt = function()
-    local old_delegation = m_builders.pr_delegation_marker(core, issue_proposal, pr_proposal(7), 7, impl_version, "g1")
-    local current_delegation = m_builders.pr_delegation_marker(core, issue_proposal, pr_proposal(8), 8, impl_version, "g2")
-	    local visible_pr_open = m_builders.pr_origin_marker(core, issue_proposal, issue_number, branch, impl_version, base_branch)
+    local old_delegation = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(7), 7, impl_version, "g1")
+    local current_delegation = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(8), 8, impl_version, "g2")
+	    local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
 	      .. "\n" .. core.state_marker(issue_proposal, "pr-open", impl_version)
     mock_branch_list(8)
 
@@ -265,8 +265,8 @@ return {
 
   test_existing_delegation_same_generation_adopts_pr_but_rewrites_current_version = function()
     local prior_version = impl_version .. "/prior"
-    local delegated = m_builders.pr_delegation_marker(core, issue_proposal, pr_proposal(7), 7, prior_version, "g1")
-	    local visible_pr_open = m_builders.pr_origin_marker(core, issue_proposal, issue_number, branch, impl_version, base_branch)
+    local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(7), 7, prior_version, "g1")
+	    local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
 	      .. "\n" .. core.state_marker(issue_proposal, "pr-open", impl_version)
 
     local result = core.ensure_pr_child(issue({

@@ -82,8 +82,7 @@ local function parent_comments(fields)
     comment(core.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
   }
   if f.delegation ~= false then
-    table.insert(comments, comment(m_builders.pr_delegation_marker(core, 
-      f.parent or parent,
+    table.insert(comments, comment(m_builders.pr_delegation_marker(f.parent or parent,
       f.child or child_pr,
       f.pr_number or pr_number,
       f.delegation_version or state_version,
@@ -97,7 +96,7 @@ local function child_comments(state, child_version, opts)
   local options = opts or {}
   local effective_version = child_version or version
   local base_branch = options.base_branch or integration_branch
-  local body = m_builders.pr_origin_marker(core, parent, issue_number, "devloop-owner-repo-42-01HY", effective_version, base_branch)
+  local body = m_builders.pr_origin_marker(parent, issue_number, "devloop-owner-repo-42-01HY", effective_version, base_branch)
     .. "\n" .. core.state_marker(parent, state, effective_version)
   if state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
@@ -109,13 +108,13 @@ end
 
 local function child_origin_only_comments()
   return {
-    comment(m_builders.pr_origin_marker(core, parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch), core._test_bot_login, "2026-06-03T01:04:03Z"),
+    comment(m_builders.pr_origin_marker(parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch), core._test_bot_login, "2026-06-03T01:04:03Z"),
   }
 end
 
 local function child_merged_comments_with_kept_promotion()
   return {
-    comment(m_builders.pr_origin_marker(core, parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch)
+    comment(m_builders.pr_origin_marker(parent, issue_number, "devloop-owner-repo-42-01HY", version, integration_branch)
       .. "\n" .. core.state_marker(parent, "merged", version)
       .. "\n" .. m_builders.merged_marker(core, parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
   }
@@ -257,7 +256,7 @@ local function assert_resume_has_autonomy_result(resume)
   t.is_true(resume.payload.body:find("fkst:github-devloop:autonomy-result:v1", 1, true) ~= nil)
   local merged_marker = resume.payload.body:match("<!%-%- fkst:github%-devloop:merged:v1.-%-%->")
   t.is_true(merged_marker:find('autonomy_result="v1"', 1, true) ~= nil)
-  local avm = autonomy_ledger.autonomy_result_fact(core, { resume.payload.body }, parent, pr_number, version, head_sha)
+  local avm = autonomy_ledger.autonomy_result_fact({ resume.payload.body }, parent, pr_number, version, head_sha)
   t.is_true(avm ~= nil)
   t.eq(avm.issue_number, issue_number)
   t.eq(avm.pr_number, pr_number)
@@ -529,7 +528,7 @@ return {
       source_ref = entity_lib.issue_source_ref(repo, issue_number),
       current = { comments = comments },
       current_pr = { comments = {} },
-      ["pr-delegation"] = m_facts.pr_delegation_fact(core, comments, parent, state.version),
+      ["pr-delegation"] = m_facts.pr_delegation_fact(comments, parent, state.version),
       fresh_current_state = state,
       now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-12-01T01:02:03Z"),
     }

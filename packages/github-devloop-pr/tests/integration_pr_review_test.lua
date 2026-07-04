@@ -108,7 +108,7 @@ local function mock_decompose_child_issue_list(proposal_id, version, pr_number, 
       '{"number":%d,"title":"Child %d","state":"OPEN","author":{"login":"fkst-test-bot"},"body":"%s","url":"https://github.example/owner/repo/issues/%d"}',
       100 + index,
       index,
-      json_string(decompose_lib.decompose_child_marker(core, proposal_id, version, pr_number, index)),
+      json_string(decompose_lib.decompose_child_marker(proposal_id, version, pr_number, index)),
       100 + index
     ))
   end
@@ -122,7 +122,7 @@ return {
   test_observe_pr_backpointer_advances_issue_to_reviewing = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:thinking" })
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
@@ -168,7 +168,7 @@ return {
   test_observe_pr_reconciles_regressed_label_to_reviewing_marker = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:thinking" })
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
@@ -198,7 +198,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local fix_version = core.next_fix_version(impl_version)
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "fixing", fix_version),
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:pr-open" })
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
@@ -231,9 +231,9 @@ return {
   test_observe_pr_removes_stale_reviewing_label_from_blocked_pr_marker = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "blocked", impl_version .. "/blocked"),
-      decompose_lib.decomposed_marker(core, "github-devloop/issue/owner/repo/42", impl_version .. "/blocked", 7, 1),
+      decompose_lib.decomposed_marker("github-devloop/issue/owner/repo/42", impl_version .. "/blocked", 7, 1),
     }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev", nil, { "fkst-dev:reviewing" })
     mock_decompose_child_issue_list("github-devloop/issue/owner/repo/42", impl_version .. "/blocked", 7, {})
 
@@ -260,7 +260,7 @@ return {
   test_observe_pr_reraises_merge_ready_for_poll_self_heal = function()
     local event = merge_ready()
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     })
     mock_issue_reviewing({ "fkst-dev:merge-ready" }, merge_comments(event))
     local result = run_observe_pr({
@@ -289,7 +289,7 @@ return {
     local comments = merge_comments(event)
     table.insert(comments, core.state_marker(event.proposal_id, "merging", event.version))
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     })
     mock_issue_reviewing({ "fkst-dev:merging" }, comments)
     local result = run_observe_pr({
@@ -316,7 +316,7 @@ return {
   test_observe_pr_idempotent_reviewing_marker_reraises_until_review_result_visible = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     mock_issue_reviewing({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
@@ -340,11 +340,11 @@ return {
 
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, reviewing_raise.payload.version, "def456")
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     mock_issue_reviewing({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", reviewing_raise.payload.version),
-      m_builders.review_result_marker(core, review_id, "github-devloop/issue/owner/repo/42", "approve", "consensus:" .. review_id .. "/review"),
+      m_builders.review_result_marker(review_id, "github-devloop/issue/owner/repo/42", "approve", "consensus:" .. review_id .. "/review"),
     })
     local reviewed = run_observe_pr({
       schema = "github-proxy.v1",
@@ -366,7 +366,7 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local fix_round_version = core.next_fix_version(impl_version)
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
     mock_issue_reviewing({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", fix_round_version),
@@ -395,7 +395,7 @@ return {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", reviewing_raise.payload.version),
     })
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
     local review = run_review_pr(reviewing_raise.payload, opts("observe-pr-reviewing-fix-round-rereview"))
     t.eq(review.exit_code, 0)
@@ -446,7 +446,7 @@ return {
   test_observe_pr_closed_pr_redrives_ready_without_advancing_to_reviewing = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "def456", "CLOSED")
     mock_issue_reviewing({ "fkst-dev:pr-open" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", impl_version),
@@ -479,7 +479,7 @@ return {
   test_observe_pr_ignores_forged_backpointer_and_uses_pr_native_origin = function()
     mock_pr_origin({
       {
-        body = m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", "v1", "dev"),
+        body = m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", "v1", "dev"),
         author_login = "ordinary-user",
       },
     })
@@ -524,7 +524,7 @@ return {
     t.is_nil(proposal.body:find("+return true", 1, true))
     t.is_true(proposal.body:find("Reviewed PR head: def456", 1, true) ~= nil)
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
-    t.eq(v_validate_proposal.validate_proposal(core, proposal), true)
+    t.eq(v_validate_proposal.validate_proposal(proposal), true)
     t.eq(count_calls("gh pr diff"), 2)
   end,
 
@@ -562,7 +562,7 @@ return {
       source_ref = proposal.source_ref,
     }
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+      m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     })
     mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker(event.proposal_id, "reviewing", event.version),
@@ -659,7 +659,7 @@ return {
       repo = repo,
       number = 7,
       comments = {
-        m_builders.pr_origin_marker(core, issue_proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+        m_builders.pr_origin_marker(issue_proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
         core.state_marker(issue_proposal_id, "reviewing", version),
       },
       head = "devloop-owner-repo-42-01HY",
@@ -672,7 +672,7 @@ return {
     local proposal = result.raises[1].payload
     t.is_true(#proposal.proposal_id <= 200)
     t.eq(proposal.proposal_id, devloop_base.pr_review_proposal_id(repo, 7, version, "def456"))
-    t.eq(v_validate_proposal.validate_proposal(core, proposal), true)
+    t.eq(v_validate_proposal.validate_proposal(proposal), true)
   end,
 
   test_review_pr_long_issue_body_does_not_grow_payload = function()
@@ -746,7 +746,7 @@ return {
     mock_pr_origin_sequence({
       {
         comments = {
-          m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+          m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
         },
         head = "devloop-owner-repo-42-01HY",
         head_sha = "def456",

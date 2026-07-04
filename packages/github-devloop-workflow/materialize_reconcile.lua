@@ -51,7 +51,7 @@ local function load_blueprint(deps, ctx, workflow_id)
   if type(deps.load_blueprint) == "function" then
     return deps.load_blueprint(ctx, workflow_id)
   end
-  local workflow_select = require("core.workflow_select")
+  local workflow_select = require("workflow_select")
   local catalog = workflow_select.load_catalog_for_ctx(ctx or {})
   local record = catalog and catalog.valid and catalog.valid[workflow_id] or nil
   return record
@@ -62,7 +62,7 @@ local function verify_claim(core, deps, repo, issue_number, origin)
     return deps.verify_issue_claim(core, repo, issue_number, origin)
   end
   local owner = devloop_claims.claim_owner()
-  return devloop_claims.verify_issue_claim(core, repo, issue_number, owner)
+  return devloop_claims.verify_issue_claim(repo, issue_number, owner)
 end
 
 local function content_fetch(core, predecessor_ref, ctx)

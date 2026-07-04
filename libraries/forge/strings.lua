@@ -18,11 +18,41 @@ function S.split_repo(repo)
   return owner, name
 end
 
+local function is_repo_segment(value)
+  return type(value) == "string" and value ~= "" and value:find("/", 1, true) == nil
+end
+
+function S.join_repo(owner, name)
+  if not is_repo_segment(owner) or not is_repo_segment(name) then
+    return nil
+  end
+  return owner .. "/" .. name
+end
+
 function S.comment_body(comment)
   if type(comment) == "table" then
     return tostring(comment.body or "")
   end
   return tostring(comment or "")
+end
+
+function S.count(s, sub)
+  local haystack = tostring(s or "")
+  local needle = tostring(sub or "")
+  if needle == "" then
+    return 0
+  end
+
+  local total = 0
+  local pos = 1
+  while true do
+    local start_pos, end_pos = haystack:find(needle, pos, true)
+    if start_pos == nil then
+      return total
+    end
+    total = total + 1
+    pos = end_pos + 1
+  end
 end
 
 function S.is_git_ref_safe(value)

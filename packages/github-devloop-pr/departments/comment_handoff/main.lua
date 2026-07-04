@@ -29,8 +29,8 @@ local spec = {
 local function valid_base_pr_handoff(handoff)
   return entity_lib.is_safe_entity_proposal_ref(handoff.proposal_id, handoff.version)
     and require("devloop.pr_safety").is_safe_pr_number(handoff.pr_number)
-    and strings.is_bounded_string(handoff.version, core._max_dedup_len)
-    and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len)
+    and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
+    and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len)
 end
 
 local function valid_review_handoff(handoff)
@@ -47,12 +47,12 @@ end
 local function valid_fixing_handoff(handoff)
   return valid_review_handoff(handoff)
     and (handoff.current_head_sha == nil or require("devloop.pr_safety").is_safe_head_sha(handoff.current_head_sha))
-    and (handoff.blocking_gap == nil or strings.is_bounded_string(handoff.blocking_gap, core._max_blocking_gap_len))
-    and (handoff.framing == nil or strings.is_bounded_string(handoff.framing, core._max_framing_len))
+    and (handoff.blocking_gap == nil or strings.is_bounded_string(handoff.blocking_gap, devloop_base._max_blocking_gap_len))
+    and (handoff.framing == nil or strings.is_bounded_string(handoff.framing, devloop_base._max_framing_len))
     and (handoff.gate_baseline_sha == nil or require("devloop.pr_safety").is_safe_head_sha(handoff.gate_baseline_sha))
     and (handoff.gate_failure_excerpt == nil or strings.is_bounded_string(handoff.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len))
-    and (handoff.predecessor_set == nil or strings.is_path_safe_key(handoff.predecessor_set, core._max_dedup_len))
-    and (handoff.dedup_key == nil or strings.is_path_safe_key(handoff.dedup_key, core._max_dedup_len))
+    and (handoff.predecessor_set == nil or strings.is_path_safe_key(handoff.predecessor_set, devloop_base._max_dedup_len))
+    and (handoff.dedup_key == nil or strings.is_path_safe_key(handoff.dedup_key, devloop_base._max_dedup_len))
 end
 
 local function issue_claim_ok(payload, handoff)
@@ -67,7 +67,7 @@ local function issue_claim_ok(payload, handoff)
     end
     return entity.repo == repo and tostring(entity.pr_number) == tostring(handoff.pr_number)
   end
-  return m_claims.verify_pr_review_issue_claim(core, "comment_handoff", entity.repo, entity.issue_number, nil, handoff.proposal_id)
+  return m_claims.verify_pr_review_issue_claim("comment_handoff", entity.repo, entity.issue_number, nil, handoff.proposal_id)
 end
 
 local function verified_pr_state(repo, handoff, comment_id, state)
@@ -96,7 +96,7 @@ end
 local maybe_raise_pr_label
 
 local function emit_merge_ready(payload, handoff)
-  local merge_ready = payloads_builders.build_devloop_merge_ready_payload(core, handoff.proposal_id, handoff.pr_number, handoff.version, {
+  local merge_ready = payloads_builders.build_devloop_merge_ready_payload(handoff.proposal_id, handoff.pr_number, handoff.version, {
     review_proposal_id = handoff.review_proposal_id,
     review_dedup_key = handoff.review_dedup_key,
     reviewed_head_sha = handoff.reviewed_head_sha,
@@ -108,7 +108,7 @@ local function emit_merge_ready(payload, handoff)
 end
 
 local function emit_fixing(payload, handoff)
-  local fixing = payloads_builders.build_devloop_fixing_payload(core, {
+  local fixing = payloads_builders.build_devloop_fixing_payload({
     proposal_id = handoff.proposal_id,
     impl_version = handoff.version,
   }, handoff.pr_number, {
@@ -180,7 +180,7 @@ local function emit_reviewing(payload, handoff)
   if not issue_claim_ok(payload, handoff) then
     return
   end
-  local reviewing = payloads_builders.build_devloop_reviewing_payload(core, {
+  local reviewing = payloads_builders.build_devloop_reviewing_payload({
     proposal_id = handoff.proposal_id,
     impl_version = handoff.version,
     reviewing_comment_id = payload.comment_id,
@@ -226,7 +226,7 @@ local handoff_strategies = {
 local function supported_handoff(payload)
   if type(payload) ~= "table"
     or payload.schema ~= "github-proxy.comment-written.v1"
-    or not payloads_predicates.is_safe_comment_id(core, payload.comment_id)
+    or not payloads_predicates.is_safe_comment_id(payload.comment_id)
     or type(payload.handoff) ~= "table" then
     return nil
   end
@@ -275,13 +275,13 @@ maybe_raise_pr_label = function(payload, handoff)
     repo = select(1, devloop_base.parse_pr_source_ref(handoff.source_ref))
   end
   if repo == nil then
-    error("github-devloop: PR label handoff missing repo")
+    error("github-devloop: pr-label-handoff-missing-repo: PR label handoff missing repo")
   end
   local verified_state, reason = verified_pr_state(repo, handoff, payload.comment_id, state)
   if verified_state == nil then
     if retryable_visibility_reason(reason) then
       devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = nil, version = nil }, "comment-written", "github-proxy.github_issue_label_request", "retry-pending(" .. tostring(state) .. " marker not visible)", tostring(state) .. " marker comment write was acknowledged but exact marker is not visible")
-      error("github-devloop: " .. tostring(state) .. " marker not visible for PR label handoff; retrying")
+      error("github-devloop: pr-label-marker-missing: " .. tostring(state) .. " marker not visible for PR label handoff; retrying")
     end
     devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = nil, version = nil }, "comment-written", "github-proxy.github_issue_label_request", "skip-stale(" .. tostring(reason) .. ")", "state marker handoff no longer matches PR label precondition")
     return
@@ -319,6 +319,6 @@ return saga.department(spec, {
   done = handoff_done,
   act = act_handoff,
   on_skip_foreign = log_pr_unsupported_handoff,
-  wrap = core.wrap_pipeline_failure,
+  wrap = devloop_logging.wrap_pipeline_failure,
   name = "comment_handoff",
 })

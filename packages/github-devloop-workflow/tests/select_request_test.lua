@@ -47,7 +47,7 @@ local tests = {
     t.eq(blueprint.workflow, "workflow-one")
     t.eq(blueprint.digest, "d-1234567890")
 
-    local intake = devloop_facts.intake_decision_fact(core, {
+    local intake = devloop_facts.intake_decision_fact({
       {
         body = request.body,
         author_login = "fkst-test-bot",

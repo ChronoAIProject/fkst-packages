@@ -21,7 +21,7 @@ local config = require("devloop.config")
 local m_builders = require("devloop.markers.builders")
 
 local function origin_marker(version)
-  return m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
+  return m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
 end
 
 local function fix_round_version(round)
@@ -47,8 +47,7 @@ end
 local function reject_marker(version, created_at)
   local proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, version, "feedface")
   return {
-    body = m_builders.review_result_marker(core, 
-      proposal_id,
+    body = m_builders.review_result_marker(proposal_id,
       "github-devloop/issue/owner/repo/42",
       "reject",
       "consensus:" .. proposal_id .. "/review",
@@ -132,7 +131,7 @@ return {
     t.is_true(comment.body:find("github-devloop fix reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("fix-loop-max-rounds-after-3-rounds", 1, true) ~= nil)
     t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", event.issue_version), 1, true) ~= nil)
-    t.is_true(comment.body:find(conv_reconcile.fix_reconcile_marker(core, event.proposal_id, event.issue_version, "drop"), 1, true) ~= nil)
+    t.is_true(comment.body:find(conv_reconcile.fix_reconcile_marker(event.proposal_id, event.issue_version, "drop"), 1, true) ~= nil)
     t.eq(label.add_labels[1], "fkst-dev:blocked")
     t.eq(label.remove_labels[1], "fkst-dev:thinking")
     t.eq(count_calls("codex exec"), 0)

@@ -13,25 +13,25 @@ M = {
 }
 
 function M.parse_pr_view_merge(stdout)
-  return parsers_pr.parse_pr_view_merge(M, stdout)
+  return parsers_pr.parse_pr_view_merge(stdout)
 end
 
 function M.rollup_failure_gate_sha(pr)
-  return parsers_misc.rollup_failure_gate_sha(M, pr)
+  return parsers_misc.rollup_failure_gate_sha(pr)
 end
 
 
 local base = require("devloop.base")
 local function dept_exec_sync(...) return exec_sync(...) end
-M.safe_updated_at = function(...) return base.safe_updated_at(M, ...) end
-M.intake_dedup_key = function(...) return base.intake_dedup_key(M, ...) end
-M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(M, ...) end
-M.ci_selfheal_once_key = function(...) return base.ci_selfheal_once_key(M, ...) end
-M.ci_missing_status_first_observed_key = function(...) return base.ci_missing_status_first_observed_key(M, ...) end
+M.safe_updated_at = function(...) return base.safe_updated_at(...) end
+M.intake_dedup_key = function(...) return base.intake_dedup_key(...) end
+M.intake_candidate_delivery_dedup_key = function(...) return base.intake_candidate_delivery_dedup_key(...) end
+M.ci_selfheal_once_key = function(...) return base.ci_selfheal_once_key(...) end
+M.ci_missing_status_first_observed_key = function(...) return base.ci_missing_status_first_observed_key(...) end
 M.judgment_worktree_path = base.judgment_worktree_path
-M.max_body_len = function(...) return base.max_body_len(M, ...) end
-M.quote_untrusted_prompt_text = function(...) return base.quote_untrusted_prompt_text(M, ...) end
-M.gh_exec_opts = function(...) return base.gh_exec_opts(M, ...) end
+M.max_body_len = function(...) return base.max_body_len(...) end
+M.quote_untrusted_prompt_text = function(...) return base.quote_untrusted_prompt_text(...) end
+M.gh_exec_opts = function(...) return base.gh_exec_opts(...) end
 M._max_key_len = base._max_key_len
 M._max_dedup_len = base._max_dedup_len
 M._max_title_len = base._max_title_len
@@ -84,7 +84,7 @@ require("devloop.logging").install(M)
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
-M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(M, ...) end
+M.cached_entity_view = function(...) return github_proxy_entity_view.cached_entity_view(...) end
 M.fetch_pr_view_origin = github_proxy_entity_view.fetch_pr_view_origin
 M.invalidate_entity_after_write = github_proxy_entity_view.invalidate_entity_after_write
 require("core.substrate_ref").install(M)

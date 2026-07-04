@@ -33,9 +33,7 @@ local function raise_effects(dept, proposal_id, apply_state, version, label_chan
 end
 
 local function next_reimplementation_version(version)
-  local base = tostring(version or "")
-  local next_n = devloop_state.version_reimplement_round(base) + 1
-  return base .. "/reimplement/" .. tostring(next_n)
+  return transition_version.next_reimplement(version)
 end
 
 local function parent_state_for_child_terminal(state, child_state)
@@ -75,7 +73,7 @@ local function read_delegated_child_pr(dept, issue, delegation)
   if pr_view.exit_code ~= 0 then
     error("github-devloop: awaiting-pr-child-view-failed: " .. tostring(pr_view.stderr))
   end
-  local current_pr = parsers_pr.parse_pr_view_origin(M, pr_view.stdout)
+  local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
   current_pr.number, current_pr.force_fresh = delegation.pr_number, true
   return current_pr
 end
@@ -108,7 +106,7 @@ local function resume_terminal_markers(issue, next_state, delegation, current_pr
   }
   local autonomy_record = autonomy_ledger.autonomy_result_record(M, issue.repo, issue.number, merge_ready, issue, autonomy_post_merge_pr(current_pr))
   return "\n" .. m_builders.merged_marker(M, delegation.proposal_id, delegation.pr_number, next_state.version, head_sha, autonomy_record)
-    .. "\n" .. autonomy_ledger.autonomy_result_marker(M, autonomy_record)
+    .. "\n" .. autonomy_ledger.autonomy_result_marker(autonomy_record)
 end
 
 local function build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
@@ -154,7 +152,7 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
     return log_skip(dept, proposal_id, state, "awaiting-pr", "awaiting-pr", "skip-stale(pr-delegation-child)", "pr-delegation child identity is malformed or cross-repo")
   end
   local current_pr = (facts.current_pr ~= nil and facts.current_pr.force_fresh == true) and facts.current_pr or read_delegated_child_pr(dept, issue, delegation)
-  local child_state = facts.child_state or facts["child-state"] or require("devloop.entity").current_entity_state(M, current_pr.comments, delegation.proposal_id)
+  local child_state = facts.child_state or facts["child-state"] or require("devloop.entity").current_entity_state(current_pr.comments, delegation.proposal_id)
   local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
   if canonical_merged_state ~= nil then
     child_state = canonical_merged_state
@@ -187,8 +185,7 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
   end
 
   local comment_request = build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
-  local label_request = requests_labels.build_state_label_request(M,
-    issue.repo,
+  local label_request = requests_labels.build_state_label_request(issue.repo,
     issue.number,
     next_state.to_state,
     base_ids.dedup_key({
@@ -231,7 +228,7 @@ canonical_pr_is_merged = function(current_pr)
 end
 
 origin_matches_delegation = function(issue, delegation, current_pr, branches)
-  local origin = m_facts.pr_origin_fact(M, current_pr and current_pr.comments)
+  local origin = m_facts.pr_origin_fact(current_pr and current_pr.comments)
   if origin == nil
     or origin.pr_native == true
     or tostring(origin.proposal_id or "") ~= tostring(delegation.proposal_id or "")

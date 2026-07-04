@@ -84,7 +84,7 @@ local function ok_reason(row, state, age)
 end
 
 local function pr_open_orphan(M, entity, _state, facts)
-  local link = m_facts.pr_link_fact(M, entity.comments, entity.proposal_id)
+  local link = m_facts.pr_link_fact(entity.comments, entity.proposal_id)
   if link == nil then
     return true, "state pr-open has no trusted pr-link marker", "restore the pr-link fact or re-run observe/open-pr"
   end
@@ -99,14 +99,14 @@ local function pr_open_orphan(M, entity, _state, facts)
 end
 
 local function blocked_orphan(M, entity, state, facts)
-  local link = m_facts.pr_link_fact(M, entity.comments, entity.proposal_id)
-  local decomposed = decompose_lib.decomposed_fact(M, entity.comments, entity.proposal_id, state and state.version, link and link.pr_number)
-    or decompose_lib.decomposed_fact(M, entity.comments, entity.proposal_id)
+  local link = m_facts.pr_link_fact(entity.comments, entity.proposal_id)
+  local decomposed = decompose_lib.decomposed_fact(entity.comments, entity.proposal_id, state and state.version, link and link.pr_number)
+    or decompose_lib.decomposed_fact(entity.comments, entity.proposal_id)
   if decomposed == nil then
     return false, nil, nil
   end
   local child_issues = type(facts) == "table" and facts.decompose_children or {}
-  local complete, completed_count = decompose_lib.decompose_children_complete(M,
+  local complete, completed_count = decompose_lib.decompose_children_complete(
     entity.comments,
     child_issues,
     entity.proposal_id,
@@ -185,7 +185,7 @@ local function read_repo()
 end
 
 local function fetch_issue_entity(repo, issue)
-  local view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(M, repo, issue.number, issue.updated_at, {
+  local view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(repo, issue.number, issue.updated_at, {
     consumer = "saga_doctor",
   })
   if view.exit_code ~= 0 then
@@ -201,7 +201,7 @@ local function fetch_issue_entity(repo, issue)
     labels = current.labels,
     comments = current.comments,
     open_state = current.state,
-    current_state = require("devloop.entity").current_entity_state(M, current.comments, proposal_id),
+    current_state = require("devloop.entity").current_entity_state(current.comments, proposal_id),
   }
 end
 
@@ -212,8 +212,8 @@ local function fetch_pr_entity(repo, pr)
   if view.exit_code ~= 0 then
     error("github-devloop: saga-doctor-pr-view-failed: " .. tostring(view.stderr))
   end
-  local current = parsers_pr.parse_pr_view_origin(M, view.stdout)
-  local origin = m_facts.pr_origin_fact(M, current.comments)
+  local current = parsers_pr.parse_pr_view_origin(view.stdout)
+  local origin = m_facts.pr_origin_fact(current.comments)
   local proposal_id = origin and origin.proposal_id or entity_lib.pr_proposal_id(repo, pr.number)
   return {
     kind = "pr",
@@ -223,7 +223,7 @@ local function fetch_pr_entity(repo, pr)
     labels = current.labels or {},
     comments = current.comments,
     open_state = current.state,
-    current_state = require("devloop.entity").current_entity_state(M, current.comments, proposal_id),
+    current_state = require("devloop.entity").current_entity_state(current.comments, proposal_id),
   }
 end
 
@@ -235,7 +235,7 @@ local function list_open_issues(repo, poll_key)
   if result.exit_code ~= 0 then
     error("github-devloop: saga-doctor-issue-list-failed: " .. tostring(result.stderr))
   end
-  return parsers_issue.parse_issue_list_observe(M, result.stdout)
+  return parsers_issue.parse_issue_list_observe(result.stdout)
 end
 
 local function list_open_prs(repo, poll_key)
@@ -246,7 +246,7 @@ local function list_open_prs(repo, poll_key)
   if result.exit_code ~= 0 then
     error("github-devloop: saga-doctor-pr-list-failed: " .. tostring(result.stderr))
   end
-  return parsers_pr.parse_pr_list_observe(M, result.stdout)
+  return parsers_pr.parse_pr_list_observe(result.stdout)
 end
 
 local function open_pr_number_set(prs)
@@ -262,14 +262,14 @@ local function maybe_decompose_children(repo, entity)
   if state == nil or state.state ~= "blocked" then
     return nil
   end
-  if decompose_lib.decomposed_fact(M, entity.comments, entity.proposal_id) == nil then
+  if decompose_lib.decomposed_fact(entity.comments, entity.proposal_id) == nil then
     return nil
   end
   local result = devloop_commands.gh_issue_list_decompose_children(repo, entity.proposal_id, 30)
   if result.exit_code ~= 0 then
     error("github-devloop: saga-doctor-decompose-child-list-failed: " .. tostring(result.stderr))
   end
-  return decompose_lib.parse_decompose_child_issue_list(M, result.stdout)
+  return decompose_lib.parse_decompose_child_issue_list(result.stdout)
 end
 
 function M.saga_doctor_collect(opts)

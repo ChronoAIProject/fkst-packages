@@ -85,7 +85,7 @@ local function ownership_json(logins, author_login, labels)
     .. '"},"labels":[' .. table.concat(rendered_labels, ",") .. "]}\n"
 end
 
-local claimed_label = m_claims.claimed_label(core)
+local claimed_label = m_claims.claimed_label()
 
 return {
   -- (a) [bot] normalization on BOTH sides of the author-vs-bot comparison.
@@ -108,46 +108,46 @@ return {
   end,
 
   test_comment_author_login_normalizes_bracket_bot_suffix = function()
-    t.eq(parsers_misc.comment_author_login(core, { author_login = "chronoai-bot[bot]" }), "chronoai-bot")
-    t.eq(parsers_misc.comment_author_login(core, { author = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
-    t.eq(parsers_misc.comment_author_login(core, { user = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
-    t.eq(parsers_misc.comment_author_login(core, { author_login = "octocat" }), "octocat")
+    t.eq(parsers_misc.comment_author_login({ author_login = "chronoai-bot[bot]" }), "chronoai-bot")
+    t.eq(parsers_misc.comment_author_login({ author = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
+    t.eq(parsers_misc.comment_author_login({ user = { login = "chronoai-bot[bot]" } }), "chronoai-bot")
+    t.eq(parsers_misc.comment_author_login({ author_login = "octocat" }), "octocat")
   end,
 
   test_authorless_comment_is_not_trusted_by_default_test_bot_login = function()
     devloop_base.configure_trusted_bot_login(nil)
     t.eq(devloop_base.trusted_bot_login(), core._test_bot_login)
-    t.is_nil(parsers_misc.comment_author_login(core, { body = "authorless" }))
-    t.eq(parsers_misc._is_trusted_comment(core, { body = "authorless" }), false)
-    t.eq(parsers_misc._is_trusted_comment(core, { author = nil, user = nil, body = "authorless" }), false)
+    t.is_nil(parsers_misc.comment_author_login({ body = "authorless" }))
+    t.eq(parsers_misc._is_trusted_comment({ body = "authorless" }), false)
+    t.eq(parsers_misc._is_trusted_comment({ author = nil, user = nil, body = "authorless" }), false)
   end,
 
   -- Bare-config vs [bot]-author: trusted.
   test_bare_config_trusts_bracket_bot_author = function()
     devloop_base.configure_trusted_bot_login("chronoai-bot")
-    t.eq(parsers_misc._is_trusted_comment(core, { author_login = "chronoai-bot[bot]", body = "x" }), true)
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot[bot]", body = "x" }), true)
     devloop_base.configure_trusted_bot_login(nil)
   end,
 
   -- [bot]-config vs [bot]-author: trusted.
   test_bracket_bot_config_trusts_bracket_bot_author = function()
     devloop_base.configure_trusted_bot_login("chronoai-bot[bot]")
-    t.eq(parsers_misc._is_trusted_comment(core, { author_login = "chronoai-bot[bot]", body = "x" }), true)
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot[bot]", body = "x" }), true)
     devloop_base.configure_trusted_bot_login(nil)
   end,
 
   -- bare-config vs bare-author: trusted (and unrelated logins untrusted).
   test_bare_config_trusts_bare_author_and_rejects_others = function()
     devloop_base.configure_trusted_bot_login("chronoai-bot")
-    t.eq(parsers_misc._is_trusted_comment(core, { author_login = "chronoai-bot", body = "x" }), true)
-    t.eq(parsers_misc._is_trusted_comment(core, { author_login = "someone-else", body = "x" }), false)
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot", body = "x" }), true)
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "someone-else", body = "x" }), false)
     devloop_base.configure_trusted_bot_login(nil)
   end,
 
   -- [bot]-config vs bare-author: also trusted (both sides normalized).
   test_bracket_bot_config_trusts_bare_author = function()
     devloop_base.configure_trusted_bot_login("chronoai-bot[bot]")
-    t.eq(parsers_misc._is_trusted_comment(core, { author_login = "chronoai-bot", body = "x" }), true)
+    t.eq(parsers_misc._is_trusted_comment({ author_login = "chronoai-bot", body = "x" }), true)
     devloop_base.configure_trusted_bot_login(nil)
   end,
 
@@ -155,20 +155,20 @@ return {
   test_label_mode_claim_state_derives_from_claimed_label = function()
     mock_env("fkst-test-bot", "label", "")
     -- No claimed label => unclaimed regardless of assignees.
-    t.eq(m_claims.issue_claim_state(core, {}, "fkst-test-bot", {}), "unassigned")
-    t.eq(m_claims.issue_claim_state(core, { { login = "someone" } }, "fkst-test-bot", { "fkst-dev:enabled" }), "unassigned")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", {}), "unassigned")
+    t.eq(m_claims.issue_claim_state({ { login = "someone" } }, "fkst-test-bot", { "fkst-dev:enabled" }), "unassigned")
     -- Claimed label present => self.
-    t.eq(m_claims.issue_claim_state(core, {}, "fkst-test-bot", { claimed_label }), "self")
-    t.eq(m_claims.issue_claim_state(core, {}, "fkst-test-bot", { "fkst-dev:enabled", claimed_label }), "self")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { claimed_label }), "self")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { "fkst-dev:enabled", claimed_label }), "self")
   end,
 
   test_label_mode_is_self_owned_uses_label_presence = function()
     mock_env("fkst-test-bot", "label", "")
-    t.eq(m_claims.is_self_owned_issue(core, { assignees = {}, labels = { claimed_label }, author_login = "human" }, "fkst-test-bot"), true)
+    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = { claimed_label }, author_login = "human" }, "fkst-test-bot"), true)
     -- Unassigned + self author still self-owned (fork-and-block isolation).
-    t.eq(m_claims.is_self_owned_issue(core, { assignees = {}, labels = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), true)
+    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "fkst-test-bot" }, "fkst-test-bot"), true)
     -- Unclaimed + other author => not self-owned.
-    t.eq(m_claims.is_self_owned_issue(core, { assignees = {}, labels = {}, author_login = "human" }, "fkst-test-bot"), false)
+    t.eq(m_claims.is_self_owned_issue({ assignees = {}, labels = {}, author_login = "human" }, "fkst-test-bot"), false)
   end,
 
   test_label_mode_claim_adds_label_then_verifies_winner = function()
@@ -251,7 +251,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.eq(m_claims.verify_issue_claim(core, "owner/repo", 42, "fkst-test-bot"), true)
+    t.eq(m_claims.verify_issue_claim("owner/repo", 42, "fkst-test-bot"), true)
 
     mock_env("fkst-test-bot", "label", "")
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author,labels", {
@@ -259,7 +259,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.eq(m_claims.verify_issue_claim(core, "owner/repo", 42, "fkst-test-bot"), false)
+    t.eq(m_claims.verify_issue_claim("owner/repo", 42, "fkst-test-bot"), false)
   end,
 
   test_label_mode_claim_view_projects_labels = function()
@@ -269,33 +269,33 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    local ownership = m_claims.read_current_issue_ownership(core, "owner/repo", 42)
+    local ownership = m_claims.read_current_issue_ownership("owner/repo", 42)
     t.eq(ownership.labels[1], claimed_label)
-    t.eq(m_claims.issue_claim_state(core, ownership.assignees, "fkst-test-bot", ownership.labels), "self")
+    t.eq(m_claims.issue_claim_state(ownership.assignees, "fkst-test-bot", ownership.labels), "self")
   end,
 
   -- (c) assignee-mode (default) is unchanged: unknown/empty claim mode behaves
   -- exactly like today's assignee claim.
   test_default_mode_is_assignee_claim_state = function()
     mock_env("fkst-test-bot", "", "")
-    t.eq(m_claims.issue_claim_state(core, {}, "fkst-test-bot"), "unassigned")
-    t.eq(m_claims.issue_claim_state(core, { { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
-    t.eq(m_claims.issue_claim_state(core, { { login = "human" } }, "fkst-test-bot"), "other")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot"), "unassigned")
+    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
+    t.eq(m_claims.issue_claim_state({ { login = "human" } }, "fkst-test-bot"), "other")
     -- A claimed label is irrelevant in assignee-mode.
-    t.eq(m_claims.issue_claim_state(core, {}, "fkst-test-bot", { claimed_label }), "unassigned")
+    t.eq(m_claims.issue_claim_state({}, "fkst-test-bot", { claimed_label }), "unassigned")
   end,
 
   test_unknown_mode_falls_back_to_assignee = function()
     mock_env("fkst-test-bot", "bogus-mode", "")
     t.eq(config.claim_mode(), "assignee")
-    t.eq(m_claims.issue_claim_state(core, { { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
+    t.eq(m_claims.issue_claim_state({ { login = "fkst-test-bot" } }, "fkst-test-bot"), "self")
     t.mock_command("gh issue view 42 --repo owner/repo --json assignees,author", {
       stdout = ownership_json({ "fkst-test-bot" }, "fkst-test-bot"),
       stderr = "",
       exit_code = 0,
     })
-    local ownership = m_claims.read_current_issue_ownership(core, "owner/repo", 42)
-    t.eq(m_claims.issue_claim_state(core, ownership.assignees, "fkst-test-bot", ownership.labels), "self")
+    local ownership = m_claims.read_current_issue_ownership("owner/repo", 42)
+    t.eq(m_claims.issue_claim_state(ownership.assignees, "fkst-test-bot", ownership.labels), "self")
   end,
 
   test_assignee_mode_claim_assigns_then_verifies = function()

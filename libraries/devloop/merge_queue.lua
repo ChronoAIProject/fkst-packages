@@ -1,5 +1,6 @@
 local git_mechanics = require("devloop.git_mechanics")
 local devloop_base = require("devloop.base")
+local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local parsers_misc = require("devloop.parsers.misc")
@@ -54,9 +55,9 @@ local function compare_merge_queue_entries(left, right)
   return tonumber(left.pr_number or 0) < tonumber(right.pr_number or 0)
 end
 
-local function entry_age_minutes(M, entry, now_seconds)
+local function entry_age_minutes(entry, now_seconds)
   local version = tostring(entry and entry.version or "")
-  local updated_at = M.version_updated_at(version)
+  local updated_at = devloop_state.version_updated_at(version)
   if updated_at == "" then
     return nil
   end
@@ -109,8 +110,8 @@ end
 local function current_any_entity_state(M, entity_comments)
   local best = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, entity_comments or {})) do
-    for marker in parsers_misc._comment_body(M, comment):gmatch(marker_pattern) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(entity_comments or {})) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
       if marker_proposal ~= nil and entity_lib.parse_entity_proposal_id(marker_proposal) ~= nil then
         local candidate = M.current_state(entity_comments, marker_proposal)
@@ -148,17 +149,17 @@ local function merge_queue_entry_from_pr(M, repo, pr_number, pr, expected_base)
     return nil
   end
   local current_head_sha = tostring(pr.head_sha or "")
-  local fact = m_facts.merge_ready_fact(M, pr.comments, state.proposal_id or "", merge_ready_version_for_lane_state(M, state), pr_number, current_head_sha)
+  local fact = m_facts.merge_ready_fact(pr.comments, state.proposal_id or "", merge_ready_version_for_lane_state(M, state), pr_number, current_head_sha)
   if fact == nil then
-    for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, pr.comments)) do
-      for marker in parsers_misc._comment_body(M, comment):gmatch("<!%-%- fkst:github%-devloop:merge%-ready:v1.-%-%->") do
+    for _, comment in ipairs(parsers_misc._trusted_marker_comments(pr.comments)) do
+      for marker in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:merge%-ready:v1.-%-%->") do
         local marker_issue = marker:match('proposal="([^"]+)"')
         if marker_issue ~= nil then
-          local candidate_state = require("devloop.entity").current_entity_state(M, pr.comments, marker_issue)
+          local candidate_state = require("devloop.entity").current_entity_state(pr.comments, marker_issue)
           local merge_ready_version = merge_ready_version_for_lane_state(M, candidate_state)
           if merge_queue_lane_states[candidate_state.state]
             and tostring(merge_ready_version or "") == tostring(marker:match('version="([^"]*)"') or "") then
-            fact = m_facts.merge_ready_fact(M, pr.comments, marker_issue, merge_ready_version, pr_number, current_head_sha)
+            fact = m_facts.merge_ready_fact(pr.comments, marker_issue, merge_ready_version, pr_number, current_head_sha)
             state = candidate_state
             break
           end
@@ -201,14 +202,14 @@ function C.merge_queue_head(M, repo, base_branch, current)
   if list.exit_code ~= 0 then
     error("github-devloop: merge queue PR list failed: " .. tostring(list.stderr))
   end
-  for _, pr_item in ipairs(parsers_pr.parse_pr_list_merge_queue(M, list.stdout)) do
+  for _, pr_item in ipairs(parsers_pr.parse_pr_list_merge_queue(list.stdout)) do
     local pr_number = tonumber(pr_item.number)
     if pr_number ~= nil and not seen[tostring(pr_number)] then
       local view = support.github().gh_pr_view_merge(repo, pr_number, 30)
       if view.exit_code ~= 0 then
         error("github-devloop: merge queue PR view failed: " .. tostring(view.stderr))
       end
-      local pr = parsers_pr.parse_pr_view_merge(M, view.stdout)
+      local pr = parsers_pr.parse_pr_view_merge(view.stdout)
       local entry = merge_queue_entry_from_pr(M, repo, pr_number, pr, base_branch)
       if entry ~= nil then
         table.insert(entries, entry)
@@ -220,7 +221,7 @@ function C.merge_queue_head(M, repo, base_branch, current)
   return entries[1], entries
 end
 
-function C.merge_queue_starvation_candidate(M, entries, threshold_minutes, now_seconds)
+function C.merge_queue_starvation_candidate(entries, threshold_minutes, now_seconds)
   local threshold = tonumber(threshold_minutes)
   local current_seconds = tonumber(now_seconds) or now()
   if threshold == nil or threshold < 0 then
@@ -228,7 +229,7 @@ function C.merge_queue_starvation_candidate(M, entries, threshold_minutes, now_s
   end
   local selected = nil
   for _, entry in ipairs(entries or {}) do
-    local age = entry_age_minutes(M, entry, current_seconds)
+    local age = entry_age_minutes(entry, current_seconds)
     if entry.state == "merge-ready" and age ~= nil and age > threshold then
       local candidate = {
         entry = entry,
@@ -268,11 +269,11 @@ function C.merge_queue_position(M, repo, base_branch, current)
   return {
     is_head = #predecessors == 0,
     predecessors = predecessors,
-    predecessor_set = C.merge_queue_predecessor_set(M, predecessors),
+    predecessor_set = C.merge_queue_predecessor_set(predecessors),
   }, "ok"
 end
 
-function C.merge_queue_predecessor_set(M, entries)
+function C.merge_queue_predecessor_set(entries)
   local values = {}
   for _, entry in ipairs(entries or {}) do
     table.insert(values, predecessor_identity(entry))
@@ -351,7 +352,7 @@ function C.merge_queue_allows_event(M, repo, base_branch, merge_ready, current_p
   return true, "merge-queue-head"
 end
 
-function C.merge_queue_tick_dedup_key(M, repo, merged_pr_number, next_entry)
+function C.merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry)
   if type(next_entry) ~= "table" then
     error("github-devloop: invalid merge queue next entry")
   end
@@ -367,13 +368,13 @@ function C.merge_queue_tick_dedup_key(M, repo, merged_pr_number, next_entry)
   })
 end
 
-function C.merge_queue_tick_payload(M, repo, merged_pr_number, next_entry)
+function C.merge_queue_tick_payload(repo, merged_pr_number, next_entry)
   if type(next_entry) ~= "table" then
     return nil
   end
   return {
     schema = "github-devloop.merge-queue-tick.v1",
-    dedup_key = C.merge_queue_tick_dedup_key(M, repo, merged_pr_number, next_entry),
+    dedup_key = C.merge_queue_tick_dedup_key(repo, merged_pr_number, next_entry),
     source_ref = entity_lib.pr_source_ref(repo, next_entry.pr_number),
     cause = {
       kind = "merge-progress",
@@ -384,7 +385,7 @@ function C.merge_queue_tick_payload(M, repo, merged_pr_number, next_entry)
   }
 end
 
-function C.merge_queue_starvation_tick_payload(M, repo, incident_identity, head_entry, attempt_key)
+function C.merge_queue_starvation_tick_payload(repo, incident_identity, head_entry, attempt_key)
   if type(head_entry) ~= "table" then
     return nil
   end
@@ -411,17 +412,17 @@ function C.merge_queue_starvation_tick_payload(M, repo, incident_identity, head_
   }
 end
 
-function C.queue_starvation_reconcile_marker(M, issue_proposal_id, pr_number, version, head_sha, incident_identity, attempt_key, outcome)
+function C.queue_starvation_reconcile_marker(issue_proposal_id, pr_number, version, head_sha, incident_identity, attempt_key, outcome)
   if not forge_validators.is_positive_pr_number(pr_number) or not forge_validators.is_git_sha(head_sha) then
     error("github-devloop: invalid queue-starvation reconcile marker")
   end
   local incident = strings.sanitize_key(tostring(incident_identity or "merge-ready"), false)
   local attempt = strings.sanitize_key(tostring(attempt_key or "attempt"), false)
   local proof = strings.sanitize_key(tostring(outcome or "head-redriven"), false):gsub("/", "-")
-  if not strings.is_bounded_string(version, M._max_dedup_len)
-    or not strings.is_path_safe_key(incident, M._max_dedup_len)
-    or not strings.is_path_safe_key(attempt, M._max_dedup_len)
-    or not strings.is_bounded_string(proof, M._max_key_len) then
+  if not strings.is_bounded_string(version, devloop_base._max_dedup_len)
+    or not strings.is_path_safe_key(incident, devloop_base._max_dedup_len)
+    or not strings.is_path_safe_key(attempt, devloop_base._max_dedup_len)
+    or not strings.is_bounded_string(proof, devloop_base._max_key_len) then
     error("github-devloop: invalid queue-starvation reconcile marker")
   end
   return '<!-- fkst:github-devloop:queue-starvation-reconcile:v1 proposal="' .. tostring(issue_proposal_id)
@@ -434,12 +435,11 @@ function C.queue_starvation_reconcile_marker(M, issue_proposal_id, pr_number, ve
     .. '" -->'
 end
 
-function C.merge_ready_payload_from_queue_entry(M, entry, source_ref)
+function C.merge_ready_payload_from_queue_entry(entry, source_ref)
   if type(entry) ~= "table" then
     return nil
   end
-  return payloads_builders.build_devloop_merge_ready_payload(M,
-    entry.proposal_id,
+  return payloads_builders.build_devloop_merge_ready_payload(entry.proposal_id,
     entry.pr_number,
     entry.version,
     {
@@ -468,7 +468,7 @@ function C.merge_queue_changed_files(M, repo, entry)
   }, "changed-files-ok"
 end
 
-function C.merge_queue_files_disjoint(M, left, right)
+function C.merge_queue_files_disjoint(left, right)
   local path = intersecting_path(left and left.set, right and right.set)
   if path ~= nil then
     return false, path
@@ -490,7 +490,7 @@ function C.wip_capacity_allows_start(M, repo, current_issue_number)
   end
 
   local count = 0
-  for _, issue in ipairs(parsers_issue.parse_issue_number_list(M, list.stdout)) do
+  for _, issue in ipairs(parsers_issue.parse_issue_number_list(list.stdout)) do
     local issue_number = tonumber(issue.number)
     if issue_number ~= nil and tostring(issue_number) ~= tostring(current_issue_number) then
       local view = M.gh_issue_view_state(repo, issue_number, 30)
@@ -504,7 +504,7 @@ function C.wip_capacity_allows_start(M, repo, current_issue_number)
       if classification.counts then
         count = count + 1
       elseif classification.reason ~= "state-not-active-wip" then
-        C.log_wip_exclusion(M, proposal_id, classification)
+        C.log_wip_exclusion(proposal_id, classification)
       end
     end
   end
@@ -519,7 +519,7 @@ local function pr_merge_view_for_wip(M, repo, pr_number)
   if view.exit_code ~= 0 then
     error("github-devloop: WIP PR state view failed: " .. tostring(view.stderr))
   end
-  return parsers_pr.parse_pr_view_merge(M, view.stdout)
+  return parsers_pr.parse_pr_view_merge(view.stdout)
 end
 
 local merge_gate_wait_wip_states = {
@@ -537,7 +537,7 @@ function C.wip_admission_classification(M, repo, proposal_id, issue_comments, st
     }
   end
 
-  local link = m_facts.pr_link_fact(M, issue_comments, proposal_id)
+  local link = m_facts.pr_link_fact(issue_comments, proposal_id)
   if link ~= nil and tostring(link.base_branch or "") ~= tostring(integration_branch or "") then
     return {
       counts = false,
@@ -577,7 +577,7 @@ function C.wip_admission_classification(M, repo, proposal_id, issue_comments, st
   }
 end
 
-function C.log_wip_exclusion(M, proposal_id, classification)
+function C.log_wip_exclusion(proposal_id, classification)
   local fields = {
     "reason=" .. tostring(classification.reason),
     "state=" .. tostring(classification.state),

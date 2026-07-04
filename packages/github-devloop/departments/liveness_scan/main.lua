@@ -38,7 +38,7 @@ local function should_reinject_issue(repo, issue, limits, deadline)
     return nil, "deadline"
   end
   local proposal_id = base_ids.proposal_id(repo, issue.number)
-  local state_view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(core, repo, issue.number, issue.updated_at, {
+  local state_view = require("devloop.github_proxy_entity_view").fetch_issue_view_state(repo, issue.number, issue.updated_at, {
     consumer = "liveness_scan",
     timeout = sweep_bounds.sweep_call_timeout(limits, deadline),
   })
@@ -55,12 +55,12 @@ local function should_reinject_issue(repo, issue, limits, deadline)
     return false
   end
 
-  local state = require("devloop.entity").current_entity_state(core, current.comments, proposal_id)
+  local state = require("devloop.entity").current_entity_state(current.comments, proposal_id)
   if not liveness_scan.liveness_scan_should_reinject_state(core, proposal_id, state) then
     return false
   end
   local snapshot = { comments = current.comments or {}, prs = {}, absent_prs = {}, state = state }
-  local delegation = state.state == "awaiting-pr" and m_facts.pr_delegation_fact(core, current.comments, proposal_id, state.version) or nil
+  local delegation = state.state == "awaiting-pr" and m_facts.pr_delegation_fact(current.comments, proposal_id, state.version) or nil
   local current_pr = nil
   if delegation ~= nil then
     local pr_view = devloop_entity_view.fetch_pr_view_origin(repo, delegation.pr_number, nil, {
@@ -73,12 +73,12 @@ local function should_reinject_issue(repo, issue, limits, deadline)
       end
       error("github-devloop: liveness-scan-awaiting-pr-view-failed: " .. tostring(pr_view.stderr))
     end
-    current_pr = parsers_pr.parse_pr_view_origin(core, pr_view.stdout)
+    current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
     current_pr.number = delegation.pr_number
     current_pr.force_fresh = true
     snapshot.comments = current.comments or {}
   end
-  local timeout_action = liveness_scan.liveness_scan_maybe_timeout_action(core, liveness_scan.liveness_scan_issue_entity(core, repo, issue.number), state, {
+  local timeout_action = liveness_scan.liveness_scan_maybe_timeout_action(core, liveness_scan.liveness_scan_issue_entity(repo, issue.number), state, {
     proposal_id = proposal_id,
     current = { comments = current.comments or {}, labels = current.labels or {} },
     current_issue = current,
@@ -105,28 +105,28 @@ local function act_liveness_scan(event)
   devloop_logging.log_entry("liveness_scan", event, "github-devloop/liveness-scan", "tick")
   devloop_base.assert_trusted_bot_configured()
 
-  local repo = liveness_scan.liveness_scan_read_repo(core)
+  local repo = liveness_scan.liveness_scan_read_repo()
   if repo == nil then
     devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "skip-invalid-repo", "FKST_GITHUB_REPO is missing or invalid")
     return
   end
 
-  local limits = liveness_scan.liveness_scan_limits(core)
+  local limits = liveness_scan.liveness_scan_limits()
   local deadline = sweep_bounds.sweep_deadline(now(), limits)
   local timeout = sweep_bounds.sweep_call_timeout(limits, deadline)
   if timeout <= 0 then
-    liveness_scan.liveness_scan_log_deferred(core, "deadline", { entity_cap = limits.entity_cap })
+    liveness_scan.liveness_scan_log_deferred("deadline", { entity_cap = limits.entity_cap })
     return
   end
-  local issues = liveness_scan.liveness_scan_list_open_issues(core, repo, timeout, entity_list_cache.entity_list_poll_key(core, event))
-  local activations, deferred_by_cap, cursor_key, cursor, total = liveness_scan.liveness_scan_activation_slice(core, repo, "issue", issues, LIVENESS_SCAN_CURSOR_PREFIX)
+  local issues = liveness_scan.liveness_scan_list_open_issues(core, repo, timeout, entity_list_cache.entity_list_poll_key(event))
+  local activations, deferred_by_cap, cursor_key, cursor, total = liveness_scan.liveness_scan_activation_slice(repo, "issue", issues, LIVENESS_SCAN_CURSOR_PREFIX)
   local processed = 0
   local attempted = 0
 
   for _, activation in ipairs(activations) do
     if not sweep_bounds.sweep_has_budget(deadline) then
-      liveness_scan.liveness_scan_update_cursor(core, cursor_key, cursor, total, attempted)
-      liveness_scan.liveness_scan_log_deferred(core, "deadline", {
+      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
+      liveness_scan.liveness_scan_log_deferred("deadline", {
         listed_issues = #issues,
         processed = processed,
         deferred = (#activations - processed) + deferred_by_cap,
@@ -138,8 +138,8 @@ local function act_liveness_scan(event)
     attempted = attempted + 1
     local should_reinject, defer_reason = should_reinject_issue(repo, activation.entity, limits, deadline)
     if defer_reason == "deadline" then
-      liveness_scan.liveness_scan_update_cursor(core, cursor_key, cursor, total, attempted)
-      liveness_scan.liveness_scan_log_deferred(core, "deadline", {
+      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
+      liveness_scan.liveness_scan_log_deferred("deadline", {
         listed_issues = #issues,
         processed = processed,
         deferred = (#activations - processed) + deferred_by_cap,
@@ -149,14 +149,14 @@ local function act_liveness_scan(event)
     end
     processed = processed + 1
     if should_reinject then
-      liveness_scan.liveness_scan_reinject(core, repo, activation.entity, "issue", event and event.ts)
+      liveness_scan.liveness_scan_reinject(repo, activation.entity, "issue", event and event.ts)
     end
   end
 
-  liveness_scan.liveness_scan_update_cursor(core, cursor_key, cursor, total, attempted)
+  liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
 
   if deferred_by_cap > 0 then
-    liveness_scan.liveness_scan_log_deferred(core, "cap", {
+    liveness_scan.liveness_scan_log_deferred("cap", {
       listed_issues = #issues,
       processed = processed,
       deferred = deferred_by_cap,

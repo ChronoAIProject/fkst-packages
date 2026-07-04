@@ -123,26 +123,24 @@ return {
       end
     end
     local positive_entity, positive_state = hidden_state_conformance.hidden_state_behavior_fixture(core, row, declared, true)
-    local positive_facts = conv_rounds.converge_round_facts(core,
-      positive_entity.comments,
+    local positive_facts = conv_rounds.converge_round_facts(positive_entity.comments,
       "github-devloop/issue/owner/repo/42",
       positive_state.version,
       convergence_shared.source_ref_digest(positive_entity.source_ref)
     )
-    local positive_round = conv_rounds.max_converge_round(core, positive_facts)
+    local positive_round = conv_rounds.max_converge_round(positive_facts)
     t.eq(positive_round, 3)
-    t.is_true(conv_rounds.is_true_stall(core, positive_facts, positive_round))
+    t.is_true(conv_rounds.is_true_stall(positive_facts, positive_round))
 
     local negative_entity, negative_state = hidden_state_conformance.hidden_state_behavior_fixture(core, row, declared, false)
-    local negative_facts = conv_rounds.converge_round_facts(core,
-      negative_entity.comments,
+    local negative_facts = conv_rounds.converge_round_facts(negative_entity.comments,
       "github-devloop/issue/owner/repo/42",
       negative_state.version,
       convergence_shared.source_ref_digest(negative_entity.source_ref)
     )
-    local negative_round = conv_rounds.max_converge_round(core, negative_facts)
+    local negative_round = conv_rounds.max_converge_round(negative_facts)
     t.eq(negative_round, 3)
-    t.eq(conv_rounds.is_true_stall(core, negative_facts, negative_round), false)
+    t.eq(conv_rounds.is_true_stall(negative_facts, negative_round), false)
   end,
 
   test_hidden_state_implementing_fixture_uses_over_budget_fact = function()
@@ -484,7 +482,7 @@ end
 ]],
       ["packages/github-devloop-pr/departments/fix/main.lua"] = [[
 local function validate_fix_write_gate_snapshot(pr, fix)
-  local rechecked_state = require("devloop.entity").current_entity_state(core, pr.comments, fix.proposal_id)
+  local rechecked_state = require("devloop.entity").current_entity_state(pr.comments, fix.proposal_id)
   if rechecked_state.state ~= "fixing" then
     return nil
   end
@@ -538,7 +536,7 @@ end
 ]],
       ["packages/github-devloop-pr/departments/fix/main.lua"] = [[
 local function validate_fix_write_gate_snapshot(pr, fix)
-  local rechecked_state = require("devloop.entity").current_entity_state(core, pr.comments, fix.proposal_id)
+  local rechecked_state = require("devloop.entity").current_entity_state(pr.comments, fix.proposal_id)
   if rechecked_state.state ~= "fixing" then
     return nil
   end
@@ -591,7 +589,7 @@ end
 ]],
       ["packages/github-devloop-pr/departments/fix/main.lua"] = [[
 local function validate_fix_write_gate_snapshot(pr, fix)
-  local rechecked_state = require("devloop.entity").current_entity_state(core, pr.comments, fix.proposal_id)
+  local rechecked_state = require("devloop.entity").current_entity_state(pr.comments, fix.proposal_id)
   if rechecked_state.state ~= "fixing" then
     return nil
   end

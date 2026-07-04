@@ -14,9 +14,9 @@ local first_delivery_facts = nil
 
 local function blocked_comments(event, extra)
   local comments = {
-    m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     core.state_marker(event.proposal_id, "blocked", event.version),
-    conv_reconcile.fix_reconcile_marker(core, event.proposal_id, event.version, "drop"),
+    conv_reconcile.fix_reconcile_marker(event.proposal_id, event.version, "drop"),
   }
   for _, comment in ipairs(extra or {}) do
     table.insert(comments, comment)
@@ -41,7 +41,7 @@ local function mock_child_issue_list(event, indexes)
       '{"number":%d,"title":"Child %d","state":"OPEN","author":{"login":"fkst-test-bot"},"body":"%s","url":"https://github.example/owner/repo/issues/%d"}',
       100 + index,
       index,
-      h.json_string(decompose_lib.decompose_child_marker(core, event.proposal_id, event.version, event.pr_number, index)),
+      h.json_string(decompose_lib.decompose_child_marker(event.proposal_id, event.version, event.pr_number, index)),
       100 + index
     ))
   end
@@ -78,7 +78,7 @@ end
 
 local function mock_pr_view(event, comments)
   local selected = {
-    m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
   }
   for _, comment in ipairs(comments) do
     table.insert(selected, comment)

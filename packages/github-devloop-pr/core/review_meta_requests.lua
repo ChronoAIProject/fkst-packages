@@ -39,18 +39,16 @@ end
 
 local function review_meta_result_marker(review_meta, action, reason, state_version, blocking_gap)
   if review_meta.mode ~= "fix-reflection" then
-    return m_builders.review_meta_marker(M, review_meta.proposal_id, review_meta.dedup_key, action, state_version, blocking_gap, reason)
+    return m_builders.review_meta_marker(review_meta.proposal_id, review_meta.dedup_key, action, state_version, blocking_gap, reason)
   end
-  local marker = m_builders.fix_reflection_marker(M, 
-    review_meta.proposal_id,
+  local marker = m_builders.fix_reflection_marker(review_meta.proposal_id,
     review_meta.dedup_key,
     action,
     state_version,
     review_meta.fix_round or review_meta.n or devloop_state.version_fix_round(review_meta.version)
   )
   if action == "continue" then
-    marker = marker .. "\n" .. m_builders.review_meta_marker(M, 
-      review_meta.proposal_id,
+    marker = marker .. "\n" .. m_builders.review_meta_marker(review_meta.proposal_id,
       review_meta.dedup_key,
       "fix",
       state_version,
@@ -62,8 +60,7 @@ local function review_meta_result_marker(review_meta, action, reason, state_vers
 end
 
 function M.build_fix_review_meta_label_request(repo, issue_number, fix, reason)
-  return requests_labels.build_state_label_request(M,
-    repo,
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     "review-meta",
     base_ids.dedup_key({
@@ -95,7 +92,7 @@ function M.build_fix_review_meta_comment_request(repo, issue_number, fix, reason
   }, comment_strings.comment_string(M, "fix_escalated_to_review_meta_prefix") .. safe_reason
     .. "\n\n" .. text
     .. "\n\n" .. state_marker
-    .. "\n" .. m_builders.review_meta_marker(M, fix.proposal_id, fix.review_dedup_key), base_ids.dedup_key({
+    .. "\n" .. m_builders.review_meta_marker(fix.proposal_id, fix.review_dedup_key), base_ids.dedup_key({
     "fix",
     "comment",
     "review-meta",
@@ -106,8 +103,7 @@ end
 
 function M.build_review_meta_label_request(repo, issue_number, review_meta, action, version)
   local normalized = normalized_reflection_action(review_meta, action)
-  return requests_labels.build_state_label_request(M,
-    repo,
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     review_meta_to_state(normalized),
     base_ids.dedup_key({
@@ -143,7 +139,7 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
   }), review_meta.source_ref)
   if action == "fix" or action == "continue" then
     local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_meta.review_proposal_id)
-    return requests_review.attach_fixing_handoff(M, request, review_meta.proposal_id, review_meta.pr_number, state_version, {
+    return requests_review.attach_fixing_handoff(request, review_meta.proposal_id, review_meta.pr_number, state_version, {
       review_proposal_id = review_meta.review_proposal_id,
       review_dedup_key = review_meta.dedup_key,
       reviewed_head_sha = reviewed_head_sha,
@@ -154,8 +150,7 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
 end
 
 function M.build_review_reconcile_label_request(repo, issue_number, review_reconcile)
-  return requests_labels.build_state_label_request(M,
-    repo,
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
     base_ids.dedup_key({
@@ -168,8 +163,7 @@ function M.build_review_reconcile_label_request(repo, issue_number, review_recon
 end
 
 function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
-  return requests_labels.build_state_label_request(M,
-    repo,
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
     base_ids.dedup_key({
@@ -182,8 +176,8 @@ function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
 end
 
 function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcile, action, reason)
-  local version = conv_reconcile.fix_reconcile_state_version(M, fix_reconcile.issue_version)
-  local marker = conv_reconcile.fix_reconcile_marker(M, fix_reconcile.proposal_id, fix_reconcile.issue_version, action)
+  local version = conv_reconcile.fix_reconcile_state_version(fix_reconcile.issue_version)
+  local marker = conv_reconcile.fix_reconcile_marker(fix_reconcile.proposal_id, fix_reconcile.issue_version, action)
   local state_marker = devloop_state.state_marker(fix_reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   local _, pr_number = devloop_base.parse_pr_source_ref(fix_reconcile.source_ref)
@@ -203,8 +197,8 @@ function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcil
 end
 
 function M.build_review_reconcile_comment_request(repo, _issue_number, review_reconcile, action, reason, state_version)
-  local version = state_version or conv_reconcile.review_reconcile_state_version(M, review_reconcile.issue_version, review_reconcile.round)
-  local marker = conv_reconcile.review_reconcile_marker(M, review_reconcile.proposal_id, review_reconcile.issue_version, review_reconcile.round, action)
+  local version = state_version or conv_reconcile.review_reconcile_state_version(review_reconcile.issue_version, review_reconcile.round)
+  local marker = conv_reconcile.review_reconcile_marker(review_reconcile.proposal_id, review_reconcile.issue_version, review_reconcile.round, action)
   local state_marker = devloop_state.state_marker(review_reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   local _, pr_number = devloop_base.parse_pr_source_ref(review_reconcile.source_ref)

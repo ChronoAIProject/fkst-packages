@@ -177,7 +177,7 @@ return {
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/v1/fix/1"
     local review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/v1", "def456")
     local review_dedup_key = "consensus:" .. review_proposal_id .. "/review"
-    local expected_replay = payloads_builders.build_replayed_fixing_payload(core, {
+    local expected_replay = payloads_builders.build_replayed_fixing_payload({
       proposal_id = proposal_id,
       impl_version = version,
     }, 7, {
@@ -220,7 +220,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local fixing = find_raise(result.raises, "devloop_fixing").payload
-    local expected = payloads_builders.build_devloop_fixing_payload(core, {
+    local expected = payloads_builders.build_devloop_fixing_payload({
       proposal_id = proposal_id,
       impl_version = version,
     }, 7, {
@@ -247,7 +247,7 @@ return {
     t.eq(fixing.dedup_key, expected_replay.dedup_key)
     t.eq(fixing.source_ref.kind, expected.source_ref.kind)
     t.eq(fixing.source_ref.ref, expected.source_ref.ref)
-    t.eq(v_fixing.is_supported_fixing(core, fixing), true)
+    t.eq(v_fixing.is_supported_fixing(fixing), true)
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
     t.eq(label.expected_proposal_id, proposal_id)
     t.eq(label.expected_state, "fixing")
@@ -285,7 +285,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local merge_ready = find_raise(result.raises, "devloop_merge_ready").payload
-    local expected = payloads_builders.build_devloop_merge_ready_payload(core, "github-devloop/issue/owner/repo/42", 7, version, {
+    local expected = payloads_builders.build_devloop_merge_ready_payload("github-devloop/issue/owner/repo/42", 7, version, {
       review_proposal_id = review_proposal_id,
       review_dedup_key = review_dedup_key,
       reviewed_head_sha = "def456",
@@ -301,7 +301,7 @@ return {
     t.eq(merge_ready.dedup_key, expected.dedup_key)
     t.eq(merge_ready.source_ref.kind, expected.source_ref.kind)
     t.eq(merge_ready.source_ref.ref, expected.source_ref.ref)
-    t.eq(v_merge_ready.is_supported_merge_ready(core, merge_ready), true)
+    t.eq(v_merge_ready.is_supported_merge_ready(merge_ready), true)
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
     t.eq(label.expected_proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(label.expected_state, "merge-ready")

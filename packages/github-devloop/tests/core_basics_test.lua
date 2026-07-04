@@ -256,7 +256,7 @@ return {
     )
   end,
   test_build_proposal = function()
-    local proposal = payloads_builders.build_proposal(core, issue())
+    local proposal = payloads_builders.build_proposal(issue())
     t.eq(proposal.schema, "consensus.proposal.v1")
     t.eq(proposal.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(proposal.title, "Implement decision recorder")
@@ -266,6 +266,6 @@ return {
     t.is_nil(proposal.content_fetch)
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
-    t.eq(v_validate_proposal.validate_proposal(core, proposal), true)
+    t.eq(v_validate_proposal.validate_proposal(proposal), true)
   end,
 }

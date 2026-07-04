@@ -40,7 +40,7 @@ local canonical_labels = {
 local function require_repo(repo)
   local value = tostring(repo or "")
   if value == "" or base_ids.safe_repo(value) ~= value then
-    error("github-devloop: FKST_GITHUB_REPO is required for ensure_repo")
+    error("github-devloop: config-missing: FKST_GITHUB_REPO is required for ensure_repo")
   end
   return value
 end
@@ -48,7 +48,7 @@ end
 local function run_gh(fn, timeout, error_class)
   local result = fn(timeout or 30)
   if result.exit_code ~= 0 then
-    error("github-devloop: " .. tostring(error_class) .. " failed: " .. tostring(result.stderr))
+    error("github-devloop: gh-command-failed: " .. tostring(error_class) .. " failed: " .. tostring(result.stderr))
   end
   return result
 end
@@ -364,11 +364,10 @@ function M.ensure_repo()
   if cfg.write_mode == "real" then
     devloop_base.assert_trusted_bot_configured()
   end
-  local repo_labels = parsers_misc.parse_repo_labels(M, run_gh(function(timeout)
+  local repo_labels = parsers_misc.parse_repo_labels(run_gh(function(timeout)
     return labels.gh_repo_labels_list(repo, timeout)
   end, 30, "gh label list").stdout)
-  local dashboard_issues = parsers_misc.parse_dashboard_issue_list(M,
-    run_gh(function(timeout)
+  local dashboard_issues = parsers_misc.parse_dashboard_issue_list(run_gh(function(timeout)
       return dashboard.gh_dashboard_issue_all_open(repo, timeout)
     end, 30, "gh dashboard issue list").stdout
   )
@@ -391,7 +390,7 @@ function M.ensure_repo()
   local claim_label_result = nil
   if config.claim_mode() == "label" then
     claim_label_result = ensure_label(repo, apply_mode, repo_labels, {
-      name = m_claims.claimed_label(M),
+      name = m_claims.claimed_label(),
       color = "0E8A16",
       description = "fkst-dev-label-mode-ownership-claim",
     })

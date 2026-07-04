@@ -100,7 +100,7 @@ local function append_issue_label_effect(issue, proposal_id, to_state, version, 
   end
   table.insert(effects, {
     queue = "github-proxy.github_issue_label_request",
-    payload = requests_labels.build_state_label_request(M, issue.repo, issue.number, to_state, key, source_ref),
+    payload = requests_labels.build_state_label_request(issue.repo, issue.number, to_state, key, source_ref),
   })
 end
 
@@ -110,7 +110,7 @@ local function add_issue_label_effect(issue, proposal_id, to_state, version, sou
   end
   table.insert(effects, {
     queue = "github-proxy.github_issue_label_request",
-    payload = requests_labels.build_state_label_request(M, issue.repo, issue.number, to_state, base_ids.dedup_key(dedup_parts), source_ref),
+    payload = requests_labels.build_state_label_request(issue.repo, issue.number, to_state, base_ids.dedup_key(dedup_parts), source_ref),
   })
 end
 
@@ -183,7 +183,7 @@ end
 
 local function replay_review_result(dept, issue, state, facts, tools, link, current_pr)
   local proposal_id = facts.proposal_id
-  local fact = facts["review-result"] or m_facts.review_result_fact(M, comments_for_pr_facts(facts, current_pr), proposal_id, state.version)
+  local fact = facts["review-result"] or m_facts.review_result_fact(comments_for_pr_facts(facts, current_pr), proposal_id, state.version)
   if fact == nil then
     return nil
   end
@@ -193,11 +193,11 @@ local function replay_review_result(dept, issue, state, facts, tools, link, curr
     return tools.log_skip(dept, proposal_id, state, "reviewing", "review-result", "skip-foreign(review-result-binding)", "review result does not bind the current linked PR head")
   end
   if fact.decision == "approve" then
-    local merge_ready = m_facts.merge_ready_fact(M, comments_for_pr_facts(facts, current_pr), proposal_id, state.version, link.pr_number, current_pr.head_sha)
+    local merge_ready = m_facts.merge_ready_fact(comments_for_pr_facts(facts, current_pr), proposal_id, state.version, link.pr_number, current_pr.head_sha)
     if merge_ready == nil then
       return tools.log_skip(dept, proposal_id, state, "reviewing", "merge-ready", "skip-foreign(merge-ready)", "approve review result is not paired with merge-ready marker")
     end
-    local payload = payloads_builders.build_devloop_merge_ready_payload(M, proposal_id, link.pr_number, state.version, {
+    local payload = payloads_builders.build_devloop_merge_ready_payload(proposal_id, link.pr_number, state.version, {
       review_proposal_id = merge_ready.review_proposal_id,
       review_dedup_key = merge_ready.review_dedup_key,
       reviewed_head_sha = merge_ready.head_sha,
@@ -243,7 +243,7 @@ local function review_converge_fact(facts, state, link, current_pr)
     current_pr.head_sha,
     convergence_shared.source_ref_digest(source_ref)
   )
-  local round = conv_rounds.max_converge_round(M, records)
+  local round = conv_rounds.max_converge_round(records)
   local latest = nil
   for _, fact in ipairs(records) do
     if fact.round == round then
@@ -263,15 +263,15 @@ local function replay_review_converge(dept, issue, state, facts, tools, link, cu
   if latest == nil then
     return nil
   end
-  if conv_rounds.is_true_stall(M, records, round) or round >= config.max_converge_rounds() then
-    local payload = conv_reconcile.build_devloop_review_reconcile_payload(M, latest, round, facts.proposal_id, state.version, current_pr.head_sha)
+  if conv_rounds.is_true_stall(records, round) or round >= config.max_converge_rounds() then
+    local payload = conv_reconcile.build_devloop_review_reconcile_payload(latest, round, facts.proposal_id, state.version, current_pr.head_sha)
     devloop_logging.log_cas_decision(dept, facts.proposal_id, state, "reviewing", "blocked", "applied(replay)", "trusted review-converge-round fact reached terminal reconcile")
-    return tools.raise_effects(dept, facts.proposal_id, "blocked", conv_reconcile.review_reconcile_terminal_state_version(M, state.version, round), { add = { "fkst-dev:blocked" }, remove = { "fkst-dev:reviewing" } }, {
+    return tools.raise_effects(dept, facts.proposal_id, "blocked", conv_reconcile.review_reconcile_terminal_state_version(state.version, round), { add = { "fkst-dev:blocked" }, remove = { "fkst-dev:reviewing" } }, {
       { queue = "devloop_review_reconcile", payload = payload },
     })
   end
   if review_truth_table_unapproved(latest) then
-    local payload = payloads_builders.build_devloop_review_meta_payload(M, latest, facts.proposal_id, state.version, link.pr_number, round, latest.source_ref)
+    local payload = payloads_builders.build_devloop_review_meta_payload(latest, facts.proposal_id, state.version, link.pr_number, round, latest.source_ref)
     devloop_logging.log_cas_decision(dept, facts.proposal_id, state, "reviewing", "review-meta", "applied(replay)", "trusted review-converge-round fact requires review-meta")
     return tools.raise_effects(dept, facts.proposal_id, "review-meta", state.version, { add = { "fkst-dev:review-meta" }, remove = { "fkst-dev:reviewing" } }, {
       { queue = M.pr_package_queue("devloop_review_meta"), payload = payload },
@@ -331,7 +331,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing", "applied(replay)", "push already visible; self-healing missing reviewing marker")
     return tools.raise_effects(dept, proposal_id, "reviewing", new_version, { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:fixing" } }, effects)
   end
-  local payload = payloads_builders.build_replayed_fixing_payload(M, {
+  local payload = payloads_builders.build_replayed_fixing_payload({
     proposal_id = proposal_id,
     impl_version = state.version,
   }, link.pr_number, feedback, entity_lib.pr_source_ref(issue.repo, link.pr_number))
@@ -348,7 +348,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
 end
 
 local function review_meta_decision_fact(facts, current_pr)
-  return m_facts.review_meta_decision_fact(M, comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version)
+  return m_facts.review_meta_decision_fact(comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version)
 end
 
 local function replay_review_meta_result(dept, issue, state, row, facts, tools)
@@ -399,11 +399,11 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
 end
 
 local function merge_ready_marker_fact(facts, current_pr)
-  return facts.merge_ready or facts["merge-ready"] or m_facts.merge_ready_fact(M, comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
+  return facts.merge_ready or facts["merge-ready"] or m_facts.merge_ready_fact(comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
 end
 
 local function any_merge_ready_marker_fact(facts, current_pr)
-  return facts.merge_ready or facts["merge-ready"] or m_facts.merge_ready_fact(M, comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version, facts.link.pr_number, nil)
+  return facts.merge_ready or facts["merge-ready"] or m_facts.merge_ready_fact(comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version, facts.link.pr_number, nil)
 end
 
 local function replay_merge_ready_state(dept, issue, state, row, facts, tools)
@@ -431,7 +431,7 @@ local function replay_merge_ready_state(dept, issue, state, row, facts, tools)
       return tools.raise_effects(dept, proposal_id, "blocked", state.version, { add = { "fkst-dev:blocked" }, remove = { "fkst-dev:merge-ready" } }, {})
     end
     if carry ~= nil then
-      local request = requests_review.build_review_carry_over_comment_request(M, issue.repo, link.pr_number, proposal_id, state.version, carry, entity_lib.pr_source_ref(issue.repo, link.pr_number))
+      local request = requests_review.build_review_carry_over_comment_request(issue.repo, link.pr_number, proposal_id, state.version, carry, entity_lib.pr_source_ref(issue.repo, link.pr_number))
       devloop_logging.log_cas_decision(dept, proposal_id, state, "merge-ready", "merge-ready", "applied(review-carry-over)", "approved head is ancestor and resolution delta is empty")
       return tools.raise_effects(dept, proposal_id, "merge-ready", state.version, { add = {}, remove = {} }, {
         { queue = "github-proxy.github_pr_comment_request", payload = request },
@@ -447,12 +447,12 @@ local function replay_merge_ready_state(dept, issue, state, row, facts, tools)
     review_dedup_key = fact.review_dedup_key,
     reviewed_head_sha = fact.head_sha,
   }
-  local approved_ok = m_facts.review_result_approval_matches_event(M, comments, approved)
+  local approved_ok = m_facts.review_result_approval_matches_event(comments, approved)
   if not approved_ok then
     devloop_logging.log_cas_decision(dept, proposal_id, state, "merge-ready", "blocked", "applied(replay)", "merge-ready marker lacks trusted approve review-result")
     return tools.raise_effects(dept, proposal_id, "blocked", state.version, { add = { "fkst-dev:blocked" }, remove = { "fkst-dev:merge-ready" } }, {})
   end
-  local payload = payloads_builders.build_devloop_merge_ready_payload(M, proposal_id, link.pr_number, state.version, {
+  local payload = payloads_builders.build_devloop_merge_ready_payload(proposal_id, link.pr_number, state.version, {
     review_proposal_id = fact.review_proposal_id,
     review_dedup_key = fact.review_dedup_key,
     reviewed_head_sha = fact.head_sha,
@@ -465,7 +465,7 @@ local function replay_merge_ready_state(dept, issue, state, row, facts, tools)
 end
 
 local function merging_marker_fact(facts, current_pr)
-  return facts.merging or m_facts.merging_fact(M, comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.link.pr_number, facts.state.version, nil)
+  return facts.merging or m_facts.merging_fact(comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.link.pr_number, facts.state.version, nil)
 end
 
 raise_reviewing_for_current_head = function(dept, issue, state, proposal_id, link, current_pr, old_head_sha, outcome, reason, tools)
@@ -536,7 +536,7 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
   end
   local mergeable, mergeable_reason = check_runs.pr_mergeable(current_pr)
   if merging == nil then
-    local payload = payloads_builders.build_devloop_merge_ready_payload(M, proposal_id, link.pr_number, state.version, {
+    local payload = payloads_builders.build_devloop_merge_ready_payload(proposal_id, link.pr_number, state.version, {
       review_proposal_id = merge_ready.review_proposal_id,
       review_dedup_key = merge_ready.review_dedup_key,
       reviewed_head_sha = merge_ready.head_sha,
@@ -567,7 +567,7 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
   end
   local ci_green, ci_reason = M.evaluate_ci_status_gate(current_pr, { repo = issue.repo, dept = dept, proposal_id = proposal_id })
   if ci_green then
-    local payload = payloads_builders.build_devloop_merge_ready_payload(M, proposal_id, link.pr_number, state.version, {
+    local payload = payloads_builders.build_devloop_merge_ready_payload(proposal_id, link.pr_number, state.version, {
       review_proposal_id = merge_ready.review_proposal_id,
       review_dedup_key = merge_ready.review_dedup_key,
       reviewed_head_sha = merge_ready.head_sha,
@@ -578,7 +578,7 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
       { queue = M.pr_package_queue("devloop_merge_ready"), payload = payload },
     })
   end
-  if parsers_misc.is_ci_red_reason(M, ci_reason) then
+  if parsers_misc.is_ci_red_reason(ci_reason) then
     local fix_version = devloop_state.fix_version_from_review_version(state.version)
     local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
     local request = requests_review.build_merge_gate_fix_comment_request(M, issue.repo, issue.number, merge_ready, fix_version, ci_reason, current_pr.base_ref_oid, source_ref)
@@ -653,8 +653,7 @@ mark_issue_merged_from_linked_pr = function(dept, issue, state, proposal_id, lin
     tostring(link.pr_number),
     tostring(head_sha),
   }), issue.source_ref)
-  local label_request = requests_labels.build_state_label_request(M,
-    issue.repo,
+  local label_request = requests_labels.build_state_label_request(issue.repo,
     issue.number,
     "merged",
     base_ids.dedup_key({
@@ -741,7 +740,7 @@ local function replay_pr_open(dept, issue, state, row, facts, tools)
         head_sha = pr.head_sha,
       })
       local review_proposal_id = devloop_base.pr_review_proposal_id(issue.repo, link.pr_number, review_version, pr.head_sha)
-      if m_facts.has_any_review_result_marker(M, facts.snapshot.comments, review_proposal_id, proposal_id) then
+      if m_facts.has_any_review_result_marker(facts.snapshot.comments, review_proposal_id, proposal_id) then
         return tools.log_skip(dept, proposal_id, state, "pr-open", "reviewing", "skip-idempotent(review result visible)", "review already produced a result")
       end
       local fields = tools.resolve_payload_fields(row, state, {
@@ -791,7 +790,7 @@ local function replay_reviewing(dept, issue, state, row, facts, tools)
   })
   fields.version = review_version
   local review_proposal_id = devloop_base.pr_review_proposal_id(issue.repo, fields.pr_number, fields.version, current_pr.head_sha)
-  if m_facts.has_any_review_result_marker(M, current_pr.comments, review_proposal_id, proposal_id) then
+  if m_facts.has_any_review_result_marker(current_pr.comments, review_proposal_id, proposal_id) then
     tools.log_skip(dept, proposal_id, state, "reviewing", "reviewing", "skip-idempotent(review result visible)", "review already produced a result")
     return true
   end
@@ -816,7 +815,7 @@ local function replay_reviewing(dept, issue, state, row, facts, tools)
   else
     table.insert(effects, {
       queue = "devloop_reviewing",
-      payload = payloads_builders.build_devloop_reviewing_payload(M, {
+      payload = payloads_builders.build_devloop_reviewing_payload({
         proposal_id = fields.proposal_id,
         impl_version = fields.version,
       }, fields.pr_number, fields.source_ref, fields.version),

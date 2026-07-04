@@ -23,10 +23,10 @@ function C.issue_state_from_json(M, decoded)
     created_at = decoded.createdAt or decoded.created_at,
     updated_at = decoded.updatedAt or decoded.updated_at,
     labels = labels,
-    comments = parsers_misc.comments_from_json(M, decoded.comments),
+    comments = parsers_misc.comments_from_json(decoded.comments),
     state = decoded.state,
-    assignees = m_claims.assignee_logins(M, decoded.assignees),
-    author_login = m_claims.issue_author_login(M, decoded),
+    assignees = m_claims.assignee_logins(decoded.assignees),
+    author_login = m_claims.issue_author_login(decoded),
   }
 end
 
@@ -40,7 +40,7 @@ function C.parse_issue_list_intake(M, stdout, limit)
   if max_items < 1 then
     return issues
   end
-  shared.each_paginated_item(M, decoded, function(issue)
+  shared.each_paginated_item(decoded, function(issue)
     local number = type(issue) == "table" and tonumber(issue.number) or nil
     if number ~= nil and issue.pull_request == nil and #issues < max_items then
       table.insert(issues, {
@@ -49,22 +49,22 @@ function C.parse_issue_list_intake(M, stdout, limit)
         body = tostring(issue.body or ""),
         created_at = issue.createdAt or issue.created_at,
         updated_at = issue.updatedAt or issue.updated_at,
-        labels = shared.label_names(M, issue.labels),
-        assignees = m_claims.assignee_logins(M, issue.assignees),
-        author_login = m_claims.issue_author_login(M, issue),
+        labels = shared.label_names(issue.labels),
+        assignees = m_claims.assignee_logins(issue.assignees),
+        author_login = m_claims.issue_author_login(issue),
       })
     end
   end)
   return issues
 end
 
-function C.parse_issue_list_recent_closed(M, stdout)
+function C.parse_issue_list_recent_closed(stdout)
   local decoded = json.decode(stdout or "[]")
   local issues = {}
   if type(decoded) ~= "table" then
     error("github-devloop: recent closed issue list decode failed")
   end
-  shared.each_paginated_item(M, decoded, function(issue)
+  shared.each_paginated_item(decoded, function(issue)
     local number = type(issue) == "table" and tonumber(issue.number) or nil
     local title = type(issue) == "table" and issue.title or nil
     local closed_at = type(issue) == "table" and (issue.closedAt or issue.closed_at) or nil
@@ -76,19 +76,19 @@ function C.parse_issue_list_recent_closed(M, stdout)
       title = tostring(title),
       closed_at = tostring(closed_at),
       closedAt = tostring(closed_at),
-      labels = shared.label_names(M, issue.labels),
+      labels = shared.label_names(issue.labels),
     })
   end)
   return issues
 end
 
-function C.parse_issue_number_list(M, stdout)
+function C.parse_issue_number_list(stdout)
   local decoded = json.decode(stdout or "[]")
   local issues = {}
   if type(decoded) ~= "table" then
     return issues
   end
-  shared.each_paginated_item(M, decoded, function(issue)
+  shared.each_paginated_item(decoded, function(issue)
     local number = type(issue) == "table" and tonumber(issue.number) or nil
     if number ~= nil then
       table.insert(issues, {
@@ -99,11 +99,11 @@ function C.parse_issue_number_list(M, stdout)
   return issues
 end
 
-function C.parse_issue_list_observe(M, stdout)
-  local issues = shared.parse_numbered_list(M, stdout)
+function C.parse_issue_list_observe(stdout)
+  local issues = shared.parse_numbered_list(stdout)
   local decoded = json.decode(stdout or "[]")
   local by_number = {}
-  shared.each_paginated_item(M, decoded, function(item)
+  shared.each_paginated_item(decoded, function(item)
     if type(item) == "table" and tonumber(item.number) ~= nil then
       by_number[tostring(tonumber(item.number))] = item.title
     end
@@ -121,7 +121,7 @@ function C.parse_issue_view_result(M, stdout)
   return {
     labels = state.labels,
     comments = state.comments,
-    assignees = m_claims.assignee_logins(M, decoded.assignees),
+    assignees = m_claims.assignee_logins(decoded.assignees),
     author_login = state.author_login,
   }
 end
@@ -172,7 +172,7 @@ function C.parse_issue_view_implement(M, stdout)
   local result = C.parse_issue_view_meta(M, stdout)
   result.body = tostring(decoded.body or "")
   result.state = decoded.state
-  result.author_login = m_claims.issue_author_login(M, decoded)
+  result.author_login = m_claims.issue_author_login(decoded)
   return result
 end
 
@@ -195,8 +195,8 @@ end
 function C.parse_issue_view_review(M, stdout)
   local decoded = json.decode(stdout or "{}")
   local result = C.parse_issue_view_meta(M, stdout)
-  result.assignees = m_claims.assignee_logins(M, decoded.assignees)
-  result.author_login = m_claims.issue_author_login(M, decoded)
+  result.assignees = m_claims.assignee_logins(decoded.assignees)
+  result.author_login = m_claims.issue_author_login(decoded)
   return result
 end
 
@@ -220,8 +220,8 @@ end
 function C.parse_issue_view_review_loop(M, stdout)
   local decoded = json.decode(stdout or "{}")
   local result = C.parse_issue_view_meta(M, stdout)
-  result.assignees = m_claims.assignee_logins(M, decoded.assignees)
-  result.author_login = m_claims.issue_author_login(M, decoded)
+  result.assignees = m_claims.assignee_logins(decoded.assignees)
+  result.author_login = m_claims.issue_author_login(decoded)
   return result
 end
 
@@ -240,9 +240,9 @@ function C.parse_issue_view_observe(M, stdout)
     created_at = decoded.createdAt or decoded.created_at,
     state = decoded.state,
     state_reason = decoded.stateReason or decoded.state_reason,
-    comments = parsers_misc.comments_from_json(M, decoded.comments),
-    assignees = m_claims.assignee_logins(M, decoded.assignees),
-    author_login = m_claims.issue_author_login(M, decoded),
+    comments = parsers_misc.comments_from_json(decoded.comments),
+    assignees = m_claims.assignee_logins(decoded.assignees),
+    author_login = m_claims.issue_author_login(decoded),
   }
 end
 

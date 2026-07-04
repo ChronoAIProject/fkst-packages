@@ -171,7 +171,7 @@ end
 function M.trusted_issue_created_number(core, current, child_dedup_key, trusted_comments)
   local pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(trusted_comments(core, current and current.comments)) do
-    for found in parsers_misc.comment_body(core, comment):gmatch(pattern) do
+    for found in parsers_misc.comment_body(comment):gmatch(pattern) do
       if attr(found, "dedup") == tostring(child_dedup_key) then
         local issue = attr(found, "issue")
         if issue ~= nil and tostring(issue):match("^%d+$") and tonumber(issue) > 0 then
@@ -188,7 +188,7 @@ function M.generated_spec_for_fact(core, current, fact, trusted_comments)
     return nil
   end
   for _, comment in ipairs(trusted_comments(core, current and current.comments)) do
-    local body = parsers_misc.comment_body(core, comment)
+    local body = parsers_misc.comment_body(comment)
     local parsed = marker.parse_materialization_marker(body, fact.origin, fact.slot)
     if parsed ~= nil
       and parsed.state == "generated"

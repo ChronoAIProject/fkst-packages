@@ -165,7 +165,7 @@ return {
     local comments = {
       state_comment("implementing", event.dedup_key, "2026-06-03T00:00:00Z"),
       issue_comment(core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 60), exec_ref)),
-      issue_comment(m_builders.pr_delegation_marker(core, event.proposal_id, pr_proposal, 7, event.dedup_key, "g1")),
+      issue_comment(m_builders.pr_delegation_marker(event.proposal_id, pr_proposal, 7, event.dedup_key, "g1")),
     }
     mock_repo()
     mock_issue_list("2026-06-03T01:02:05Z")
@@ -181,11 +181,11 @@ return {
     local review_proposal = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
     local comments = {
       state_comment("blocked", version, "2026-06-01T00:00:00Z"),
-      m_builders.pr_link_marker(core, proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
-      decompose_lib.decomposed_marker(core, proposal_id, version, 7, 1),
-      m_builders.review_result_marker(core, review_proposal, proposal_id, "reject", "consensus:" .. review_proposal .. "/review", 1, "missing decomposition"),
-      issue_comment(conv_attempts.timeout_attempt_marker(core, proposal_id, version .. "/timeout-reconcile/blocked/1", "blocked", 1, entity_lib.issue_source_ref(repo, 42))),
-      issue_comment(conv_attempts.timeout_attempt_marker(core, proposal_id, version .. "/timeout-reconcile/blocked/2", "blocked", 2, entity_lib.issue_source_ref(repo, 42))),
+      m_builders.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
+      decompose_lib.decomposed_marker(proposal_id, version, 7, 1),
+      m_builders.review_result_marker(review_proposal, proposal_id, "reject", "consensus:" .. review_proposal .. "/review", 1, "missing decomposition"),
+      issue_comment(conv_attempts.timeout_attempt_marker(proposal_id, version .. "/timeout-reconcile/blocked/1", "blocked", 1, entity_lib.issue_source_ref(repo, 42))),
+      issue_comment(conv_attempts.timeout_attempt_marker(proposal_id, version .. "/timeout-reconcile/blocked/2", "blocked", 2, entity_lib.issue_source_ref(repo, 42))),
     }
     mock_repo()
     mock_issue_list()
@@ -199,9 +199,9 @@ return {
     t.eq(find_raise(exhausted, "devloop_timeout_reconcile"), nil)
     t.eq(count_raises(exhausted, "github-proxy.github_issue_comment_request"), 1)
     local stop = find_raise(exhausted, "github-proxy.github_issue_comment_request")
-    t.is_true(stop.payload.body:find(conv_attempts.decompose_exhausted_marker(core, proposal_id, version, 3, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
+    t.is_true(stop.payload.body:find(conv_attempts.decompose_exhausted_marker(proposal_id, version, 3, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
 
-    table.insert(comments, issue_comment(conv_attempts.decompose_exhausted_marker(core, proposal_id, version .. "/timeout-reconcile/blocked/3", 3, entity_lib.issue_source_ref(repo, 42))))
+    table.insert(comments, issue_comment(conv_attempts.decompose_exhausted_marker(proposal_id, version .. "/timeout-reconcile/blocked/3", 3, entity_lib.issue_source_ref(repo, 42))))
     mock_repo()
     mock_issue_list("2026-06-04T01:02:03Z")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, comments, "2026-06-04T01:02:03Z")
@@ -232,8 +232,8 @@ return {
         t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
         local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
         t.is_true(attempt ~= nil)
-        t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(core, event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(core, event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42))))
+        t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
+        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42))))
       else
         t.eq(find_raise(result, "github-proxy.github_issue_comment_request"), nil)
         local reconcile = find_raise(result, "devloop_timeout_reconcile")
@@ -248,7 +248,7 @@ return {
   test_blocked_missing_decomposed_replay_decline_climbs_to_decompose_exhausted_without_seeded_timeout_markers = function()
     local comments = {
       state_comment("blocked", version, "2026-06-01T00:00:00Z"),
-      m_builders.pr_link_marker(core, proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
+      m_builders.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
     }
 
     for sweep = 1, 3 do
@@ -265,10 +265,10 @@ return {
       local comment = find_raise(result, "github-proxy.github_issue_comment_request")
       t.is_true(comment ~= nil)
       if sweep < 3 then
-        t.is_true(comment.payload.body:find(conv_attempts.timeout_attempt_marker(core, proposal_id, version, "blocked", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
-        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(core, proposal_id, version, "blocked", sweep, entity_lib.issue_source_ref(repo, 42))))
+        t.is_true(comment.payload.body:find(conv_attempts.timeout_attempt_marker(proposal_id, version, "blocked", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
+        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(proposal_id, version, "blocked", sweep, entity_lib.issue_source_ref(repo, 42))))
       else
-        t.is_true(comment.payload.body:find(conv_attempts.decompose_exhausted_marker(core, proposal_id, version, 3, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
+        t.is_true(comment.payload.body:find(conv_attempts.decompose_exhausted_marker(proposal_id, version, 3, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
       end
     end
   end,

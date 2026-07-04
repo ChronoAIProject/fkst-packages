@@ -71,7 +71,7 @@ end
 
 local function act_execute_start(event)
   local request = event.payload or {}
-  if not v_execution_request.is_supported_execution_request(core, request) then
+  if not v_execution_request.is_supported_execution_request(request) then
     devloop_logging.log_entry("execute_start", event, "unknown", devloop_logging.payload_field(request, "dedup_key"))
     devloop_logging.log_cas_decision("execute_start", "unknown", { state = nil, version = nil }, "execution-request", "thinking", "skip-foreign(payload)", "unsupported event payload")
     return
@@ -98,6 +98,6 @@ end
 return saga.department(spec, {
   done = execute_start_done,
   act = act_execute_start,
-  wrap = core.wrap_pipeline_failure,
+  wrap = devloop_logging.wrap_pipeline_failure,
   name = "execute_start",
 })

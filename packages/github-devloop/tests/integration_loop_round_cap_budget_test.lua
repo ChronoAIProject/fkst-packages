@@ -44,7 +44,7 @@ return {
     local current_digest = convergence_shared.source_ref_digest(event.source_ref)
     local drift_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?drift=1" })
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      conv_rounds.converge_round_marker(core, event.proposal_id, drift_version, drift_digest, cap, drift_version .. "/loop/" .. tostring(cap), event.narrowed_question, event.angle_digests),
+      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, cap, drift_version .. "/loop/" .. tostring(cap), event.narrowed_question, event.angle_digests),
     })
 
     local result = run_loop(event, opts("loop-budget-drift-cap"))
@@ -74,7 +74,7 @@ return {
     })
     local old_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?old=1" })
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      conv_rounds.converge_round_marker(core, event.proposal_id, old_base, old_digest, cap, old_base .. "/loop/" .. tostring(cap), event.narrowed_question, event.angle_digests),
+      conv_rounds.converge_round_marker(event.proposal_id, old_base, old_digest, cap, old_base .. "/loop/" .. tostring(cap), event.narrowed_question, event.angle_digests),
     })
 
     local result = run_loop(event, opts("loop-stable-proposal-facts-cap"))
@@ -124,7 +124,7 @@ return {
     t.eq(#handoff.raises, 1)
     local reconcile_raise = find_raise(handoff.raises, "devloop_reconcile")
     t.is_true(reconcile_raise ~= nil)
-    local expected = conv_reconcile.build_devloop_reconcile_payload(core, event, cap, base_version)
+    local expected = conv_reconcile.build_devloop_reconcile_payload(event, cap, base_version)
     t.eq(reconcile_raise.payload.schema, expected.schema)
     t.eq(reconcile_raise.payload.proposal_id, expected.proposal_id)
     t.eq(reconcile_raise.payload.dedup_key, expected.dedup_key)
@@ -132,7 +132,7 @@ return {
     t.eq(reconcile_raise.payload.base_version, expected.base_version)
     t.eq(reconcile_raise.payload.source_ref.kind, expected.source_ref.kind)
     t.eq(reconcile_raise.payload.source_ref.ref, expected.source_ref.ref)
-    t.eq(conv_reconcile.is_supported_reconcile(core, reconcile_raise.payload), true)
+    t.eq(conv_reconcile.is_supported_reconcile(reconcile_raise.payload), true)
   end,
 
   test_loop_round_cap_preserves_question_verdict_boundary_when_key_drifts = function()
@@ -150,7 +150,7 @@ return {
     })
     local old_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?old=1" })
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      conv_rounds.converge_round_marker(core, event.proposal_id, old_base, old_digest, cap, old_base .. "/loop/" .. tostring(cap), "Unrelated old question", {
+      conv_rounds.converge_round_marker(event.proposal_id, old_base, old_digest, cap, old_base .. "/loop/" .. tostring(cap), "Unrelated old question", {
         { angle = "minimal", verdict = "approve", digest = "old-digest" },
       }),
     })

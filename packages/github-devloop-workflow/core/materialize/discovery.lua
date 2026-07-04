@@ -93,7 +93,7 @@ function M.list_open_issues(core, deps, repo)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("github-devloop-workflow: materialization-issue-list-failed: materialization issue list failed: " .. tostring(result and result.stderr or "nil result"))
   end
-  return parsers_issue.parse_issue_list_observe(core, result.stdout)
+  return parsers_issue.parse_issue_list_observe(result.stdout)
 end
 
 function M.read_issue(core, deps, repo, issue_number)
@@ -116,13 +116,13 @@ function M.read_issue(core, deps, repo, issue_number)
 end
 
 function M.trusted_comments(core, comments)
-  return parsers_misc._trusted_marker_comments(core, comments or {})
+  return parsers_misc._trusted_marker_comments(comments or {})
 end
 
 function M.latest_blueprint(core, current, origin)
   local fact = nil
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
-    fact = marker.parse_blueprint_marker(parsers_misc.comment_body(core, comment), origin) or fact
+    fact = marker.parse_blueprint_marker(parsers_misc.comment_body(comment), origin) or fact
   end
   return fact
 end
@@ -130,7 +130,7 @@ end
 function M.latest_terminal(core, current, origin)
   local fact = nil
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
-    fact = marker.parse_terminal_marker(parsers_misc.comment_body(core, comment), origin) or fact
+    fact = marker.parse_terminal_marker(parsers_misc.comment_body(comment), origin) or fact
   end
   return fact
 end
@@ -138,7 +138,7 @@ end
 function M.materialization_facts(core, current, origin)
   local facts = {}
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
-    for _, fact in ipairs(marker.parse_materialization_markers(parsers_misc.comment_body(core, comment), origin)) do
+    for _, fact in ipairs(marker.parse_materialization_markers(parsers_misc.comment_body(comment), origin)) do
       facts[#facts + 1] = fact
     end
   end

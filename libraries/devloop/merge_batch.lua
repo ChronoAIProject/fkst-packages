@@ -36,7 +36,7 @@ end
 
 local function files_disjoint_from_window(M, files, merged_files)
   for _, merged in ipairs(merged_files or {}) do
-    local disjoint, path = m_mq.merge_queue_files_disjoint(M, files, merged)
+    local disjoint, path = m_mq.merge_queue_files_disjoint(files, merged)
     if not disjoint then
       return false, path, merged.pr_number
     end
@@ -84,7 +84,7 @@ local function entry_issue_number(M, entry)
 end
 
 local function batch_entry_claim_ok(M, repo, entry)
-  return m_claims.verify_pr_review_issue_claim(M, "merge_batch", repo, entry_issue_number(M, entry), nil, entry and entry.proposal_id)
+  return m_claims.verify_pr_review_issue_claim("merge_batch", repo, entry_issue_number(M, entry), nil, entry and entry.proposal_id)
 end
 
 local function find_queue_entry(entries, merge_ready)
@@ -202,7 +202,7 @@ function C.run_merge_batch_window(M, repo, branches, first_merge_ready, queue_en
       "head=" .. tostring(files.head_sha or ""),
       "files=" .. tostring(#files.paths),
     })
-    local merge_ready = m_mq.merge_ready_payload_from_queue_entry(M, entry, entity_lib.pr_source_ref(repo, entry.pr_number))
+    local merge_ready = m_mq.merge_ready_payload_from_queue_entry(entry, entity_lib.pr_source_ref(repo, entry.pr_number))
     if merge_ready == nil then
       log_batch_window(M, entry.proposal_id, {
         "action=stop",

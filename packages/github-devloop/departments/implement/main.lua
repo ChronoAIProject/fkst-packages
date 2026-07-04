@@ -51,7 +51,7 @@ end
 
 local function raise_impl_failed(repo, issue_number, ready, reason, detail, attempt)
   local comment_request = requests_lifecycle.build_impl_failure_comment_request(core, repo, issue_number, ready, reason, detail, attempt)
-  local label_request = requests_labels.build_impl_failed_label_request(core, repo, issue_number, ready, reason)
+  local label_request = requests_labels.build_impl_failed_label_request(repo, issue_number, ready, reason)
   local add_labels, remove_labels = devloop_state.state_label_changes("impl-failed")
   devloop_logging.log_apply("implement", ready.proposal_id, "impl-failed", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
     "github-proxy.github_issue_comment_request",
@@ -63,7 +63,7 @@ end
 
 local function raise_implementing_state(repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
   local comment_request = requests_lifecycle.build_implementing_state_comment_request(core, repo, issue_number, ready, worktree, branch, base_branch, base_sha, attempt, started_at, exec_ref)
-  local label_request = requests_labels.build_implementing_label_request(core, repo, issue_number, ready)
+  local label_request = requests_labels.build_implementing_label_request(repo, issue_number, ready)
   local add_labels, remove_labels = devloop_state.state_label_changes("implementing")
   devloop_logging.log_apply("implement", ready.proposal_id, "implementing", ready.dedup_key, { add = add_labels, remove = remove_labels }, {
     "github-proxy.github_issue_comment_request",
@@ -99,7 +99,7 @@ local function publish_implementation_branch(repo, issue_number, ready, worktree
   end
   local push = git_mechanics.git_push_worktree_branch_update(core.git, worktree, branch, 120)
   if push.exit_code ~= 0 then
-    error("github-devloop: IMPLEMENT_BRANCH_PUSH_FAILED: git implementation branch push failed: " .. tostring(push.stderr))
+    error("github-devloop: branch-push-failed: git implementation branch push failed: " .. tostring(push.stderr))
   end
 end
 
@@ -113,11 +113,11 @@ local function remote_branch_fact(branch, base_branch, source_fact)
     if head_result.exit_code == 1 then
       return nil
     end
-    error("github-devloop: git implementing remote branch head failed: " .. tostring(head_result.stderr))
+    error("github-devloop: git-head-read-failed: git implementing remote branch head failed: " .. tostring(head_result.stderr))
   end
   local head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
   if not require("devloop.pr_safety").is_safe_head_sha(head_sha) then
-    error("github-devloop: unsafe implementing remote branch head")
+    error("github-devloop: unsafe-head-sha: unsafe implementing remote branch head")
   end
   if source_fact ~= nil and source_fact.head_sha ~= nil and head_sha ~= source_fact.head_sha then
     local ancestry = git_mechanics.git_is_ancestor(core.git, source_fact.head_sha, head_sha, 30)
@@ -141,7 +141,7 @@ local function local_branch_fact(base_head, branch, base_branch, dedup_key)
     if branch_ref.exit_code == 1 then
       return nil
     end
-    error("github-devloop: git branch ref check failed: " .. tostring(branch_ref.stderr))
+    error("github-devloop: branch-ref-check-failed: git branch ref check failed: " .. tostring(branch_ref.stderr))
   end
   local head_sha = implemented_branch_head(base_head, branch)
   if head_sha == nil or substrate_pin.is_only_pin_delta(base_head, branch) then
@@ -204,7 +204,7 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
     })
     devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-stale(version-mismatch)", message)
     raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
-    error("github-devloop: implement-version-mismatch retrying: ready event version "
+    error("github-devloop: fact-changed: implement-version-mismatch retrying: ready event version "
       .. tostring(expected_version or "")
       .. " does not match current implementing version "
       .. tostring(state and state.version or ""))
@@ -215,7 +215,7 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
     terminal = true,
   })
   devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "fail-closed(version-mismatch-budget)", message)
-  error("github-devloop: implement-version-mismatch: ready event version "
+  error("github-devloop: fact-changed: implement-version-mismatch: ready event version "
     .. tostring(expected_version or "")
     .. " does not match current implementing version "
     .. tostring(state and state.version or ""))
@@ -224,7 +224,7 @@ end
 local function implementing_mismatch_is_durable(current, proposal_id, state)
   local version = state and state.version
   return core.latest_implement_attempt_fact(current and current.comments, proposal_id, version) ~= nil
-    or m_facts.implementing_fact(core, current and current.comments, proposal_id, version) ~= nil
+    or m_facts.implementing_fact(current and current.comments, proposal_id, version) ~= nil
 end
 
 local function live_implement_attempt_visible(comments, proposal_id, version)
@@ -235,7 +235,7 @@ end
 implemented_branch_head = function(base_head, branch)
   local ahead_result = devloop_commands.git_branch_ahead_count(base_head, branch, 30)
   if ahead_result.exit_code ~= 0 then
-    error("github-devloop: git branch ahead check failed: " .. tostring(ahead_result.stderr))
+    error("github-devloop: branch-fact-read-failed: git branch ahead check failed: " .. tostring(ahead_result.stderr))
   end
   local ahead_count = tonumber(tostring(ahead_result.stdout or ""):match("%d+"))
   if ahead_count == nil or ahead_count <= 0 then
@@ -244,11 +244,11 @@ implemented_branch_head = function(base_head, branch)
 
   local head_result = devloop_commands.git_branch_head(branch, 30)
   if head_result.exit_code ~= 0 then
-    error("github-devloop: git branch head failed: " .. tostring(head_result.stderr))
+    error("github-devloop: git-head-read-failed: git branch head failed: " .. tostring(head_result.stderr))
   end
   local head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
   if not require("devloop.pr_safety").is_safe_head_sha(head_sha) then
-    error("github-devloop: unsafe implementing branch head")
+    error("github-devloop: unsafe-head-sha: unsafe implementing branch head")
   end
   return head_sha
 end
@@ -258,10 +258,10 @@ local function merge_integration_for_implementation(worktree, integration_branch
   if merge_result.exit_code == 0 then return true end
   local unmerged_result = core.git.unmerged_paths(worktree, 30)
   if unmerged_result.exit_code ~= 0 then
-    error("github-devloop: git unmerged path check failed: " .. tostring(unmerged_result.stderr))
+    error("github-devloop: unmerged-path-check-failed: git unmerged path check failed: " .. tostring(unmerged_result.stderr))
   end
   if tostring(unmerged_result.stdout or "") == "" then
-    error("github-devloop: git integration merge failed: " .. tostring(merge_result.stderr))
+    error("github-devloop: integration-merge-failed: git integration merge failed: " .. tostring(merge_result.stderr))
   end
   devloop_logging.log_line("info", "implement", "merge-target", "MERGE_SKEW", {
     "integration_branch=" .. tostring(integration_branch),
@@ -321,7 +321,7 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
 
   local status = devloop_commands.git_status(worktree, 30)
   if status.exit_code ~= 0 then
-    error("github-devloop: git status failed: " .. tostring(status.stderr))
+    error("github-devloop: git-status-failed: git status failed: " .. tostring(status.stderr))
   end
 
   if tostring(status.stdout or "") == "" then
@@ -373,36 +373,36 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
 
   local add_result = devloop_commands.git_add_all(worktree, 30)
   if add_result.exit_code ~= 0 then
-    error("github-devloop: git add failed: " .. tostring(add_result.stderr))
+    error("github-devloop: git-add-failed: git add failed: " .. tostring(add_result.stderr))
   end
 
-  local commit_result = devloop_commands.git_commit(worktree, payloads_builders.implement_commit_subject(core,
+  local commit_result = devloop_commands.git_commit(worktree, payloads_builders.implement_commit_subject(
       issue_number,
-      require("devloop.github_proxy_entity_view").commit_issue_subject_snapshot(core, repo, issue_number)
+      require("devloop.github_proxy_entity_view").commit_issue_subject_snapshot(repo, issue_number)
     ), 60)
   if commit_result.exit_code ~= 0 then
-    error("github-devloop: git commit failed: " .. tostring(commit_result.stderr))
+    error("github-devloop: git-commit-failed: git commit failed: " .. tostring(commit_result.stderr))
   end
 
   local branch_result = devloop_commands.git_current_branch(worktree, 30)
   if branch_result.exit_code ~= 0 then
-    error("github-devloop: git branch fact failed: " .. tostring(branch_result.stderr))
+    error("github-devloop: branch-fact-read-failed: git branch fact failed: " .. tostring(branch_result.stderr))
   end
   local actual_branch = tostring(branch_result.stdout or ""):gsub("%s+$", "")
   if actual_branch ~= branch then
-    error("github-devloop: deterministic implementing branch mismatch")
+    error("github-devloop: branch-mismatch: deterministic implementing branch mismatch")
   end
   if not require("devloop.pr_safety").is_safe_branch(branch) then
-    error("github-devloop: unsafe implementing branch")
+    error("github-devloop: unsafe-branch: unsafe implementing branch")
   end
 
   local head_result = git("github-devloop").git_head_sha(worktree, 30)
   if head_result.exit_code ~= 0 then
-    error("github-devloop: git head fact failed: " .. tostring(head_result.stderr))
+    error("github-devloop: git-head-read-failed: git head fact failed: " .. tostring(head_result.stderr))
   end
   local head_sha = tostring(head_result.stdout or ""):gsub("%s+$", "")
   if not require("devloop.pr_safety").is_safe_head_sha(head_sha) then
-    error("github-devloop: unsafe implementing head_sha")
+    error("github-devloop: unsafe-head-sha: unsafe implementing head_sha")
   end
 
   return {
@@ -460,25 +460,25 @@ local function raise_attempt_outcome(repo, issue_number, outcome)
     raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.detail, outcome.attempt)
     return
   end
-  error("github-devloop: unknown implementation outcome")
+  error("github-devloop: invalid-implementation-outcome: unknown implementation outcome")
 end
 
 local function recheck_implementation_write_gate(repo, issue_number, marker_ready, expected_from_states, accepted_ready_hand_off, allow_same_version_implementing)
   local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
   if view.exit_code ~= 0 then
-    error("github-devloop: gh issue implement recheck failed: " .. tostring(view.stderr))
+    error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
   local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
   devloop_logging.log_forged_markers("implement", marker_ready.proposal_id, current.comments)
   local state = devloop_state.current_state(current.comments, marker_ready.proposal_id)
   if state.state == "implementing"
     and tostring(state.version or "") == tostring(marker_ready.dedup_key or "") then
-    local link = m_facts.pr_link_fact(core, current.comments, marker_ready.proposal_id)
+    local link = m_facts.pr_link_fact(current.comments, marker_ready.proposal_id)
     if link ~= nil and tostring(link.impl_version or "") == tostring(marker_ready.dedup_key) then
       handoff_existing_pr_link(repo, issue_number, marker_ready, current, link, "linked PR fact is already visible")
       return false
     end
-    local fact = m_facts.implementing_fact(core, current.comments, marker_ready.proposal_id, marker_ready.dedup_key)
+    local fact = m_facts.implementing_fact(current.comments, marker_ready.proposal_id, marker_ready.dedup_key)
     if fact ~= nil then
       devloop_logging.log_cas_decision("implement", marker_ready.proposal_id, state, "implementing", "implementing", "skip-idempotent(implementation marker already visible)", "implementation fact marker already visible")
       return false
@@ -500,7 +500,7 @@ local function recheck_implementation_write_gate(repo, issue_number, marker_read
   end
   local transition = transitions.implementation_transition_status(state, expected_from_states or { "ready" }, marker_ready.dedup_key)
   if transition ~= "apply" then
-    if transition == "pending" and payloads_predicates.is_ready_hand_off(core, accepted_ready_hand_off, marker_ready) then
+    if transition == "pending" and payloads_predicates.is_ready_hand_off(accepted_ready_hand_off, marker_ready) then
       devloop_logging.log_cas_decision("implement", marker_ready.proposal_id, {
         state = "ready",
         version = marker_ready.dedup_key,
@@ -517,14 +517,14 @@ end
 local function precheck_implementation_write_gate(repo, issue_number, marker_ready, expected_from_states, accepted_ready_hand_off)
   local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
   if view.exit_code ~= 0 then
-    error("github-devloop: gh issue implement recheck failed: " .. tostring(view.stderr))
+    error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
   local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
   devloop_logging.log_forged_markers("implement", marker_ready.proposal_id, current.comments)
   local state = devloop_state.current_state(current.comments, marker_ready.proposal_id)
   if state.state == "implementing"
     and tostring(state.version or "") == tostring(marker_ready.dedup_key or "") then
-    local link = m_facts.pr_link_fact(core, current.comments, marker_ready.proposal_id)
+    local link = m_facts.pr_link_fact(current.comments, marker_ready.proposal_id)
     if link ~= nil and tostring(link.impl_version or "") == tostring(marker_ready.dedup_key) then
       handoff_existing_pr_link(repo, issue_number, marker_ready, current, link, "linked PR fact is already visible")
       return false
@@ -546,7 +546,7 @@ local function precheck_implementation_write_gate(repo, issue_number, marker_rea
   end
   local transition = transitions.implementation_transition_status(state, expected_from_states or { "ready" }, marker_ready.dedup_key)
   if transition ~= "apply" then
-    if transition == "pending" and payloads_predicates.is_ready_hand_off(core, accepted_ready_hand_off, marker_ready) then
+    if transition == "pending" and payloads_predicates.is_ready_hand_off(accepted_ready_hand_off, marker_ready) then
       devloop_logging.log_cas_decision("implement", marker_ready.proposal_id, {
         state = "ready",
         version = marker_ready.dedup_key,
@@ -577,7 +577,7 @@ local function operator_blocked_reimplement_allowed(ready, current, state)
     or tostring(state.version or "") ~= tostring(reentry.state_version or "") then
     return false
   end
-  local link = m_facts.pr_link_fact(core, current.comments, ready.proposal_id)
+  local link = m_facts.pr_link_fact(current.comments, ready.proposal_id)
   return link ~= nil
     and tonumber(link.pr_number) == tonumber(reentry.pr_number)
     and tostring(link.impl_version or "") == tostring(reentry.impl_version or "")
@@ -610,13 +610,13 @@ local function process_ready_event(event)
 
     local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
     if view.exit_code ~= 0 then
-      error("github-devloop: gh issue implement view failed: " .. tostring(view.stderr))
+      error("github-devloop: issue-read-failed: gh issue implement view failed: " .. tostring(view.stderr))
     end
 
     local current = parsers_issue.parse_issue_view_implement(core, view.stdout)
     current.repo = repo
     current.number = issue_number
-    local managed = m_claims.managed_bot_logins(core)
+    local managed = m_claims.managed_bot_logins()
     devloop_logging.log_forged_markers("implement", ready.proposal_id, current.comments)
     if tostring(current.state or ""):upper() ~= "OPEN" then
       devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = ready.dedup_key }, "ready", "implementing", "skip-stale(original-closed)", "current issue is not open")
@@ -643,7 +643,7 @@ local function process_ready_event(event)
       local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
       local dep_version = core.ready_split_version(inner_ready_version)
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
-      devloop_logging.log_apply("implement", ready.proposal_id, "dependency_wait", dep_version, { add = { core._blocked_on_dependency_label }, remove = {} }, {
+      devloop_logging.log_apply("implement", ready.proposal_id, "dependency_wait", dep_version, { add = { devloop_base._blocked_on_dependency_label }, remove = {} }, {
         "github-proxy.github_issue_comment_request",
         "github-proxy.github_issue_label_request",
       })
@@ -657,10 +657,9 @@ local function process_ready_event(event)
         gate,
         ready.source_ref
       ))
-      devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(core,
-        repo,
+      devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(repo,
         issue_number,
-        { core._blocked_on_dependency_label },
+        { devloop_base._blocked_on_dependency_label },
         {},
         base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }),
         ready.source_ref
@@ -683,12 +682,12 @@ local function process_ready_event(event)
         handle_implementing_version_mismatch(repo, issue_number, current, ready, state, marker_ready.dedup_key)
         return
       end
-      local link = m_facts.pr_link_fact(core, current.comments, ready.proposal_id)
+      local link = m_facts.pr_link_fact(current.comments, ready.proposal_id)
       if link ~= nil and tostring(link.impl_version or "") == tostring(marker_ready.dedup_key) then
         handoff_existing_pr_link(repo, issue_number, marker_ready, current, link, "linked PR fact is already visible")
         return
       end
-      local fact = m_facts.implementing_fact(core, current.comments, ready.proposal_id, marker_ready.dedup_key)
+      local fact = m_facts.implementing_fact(current.comments, ready.proposal_id, marker_ready.dedup_key)
       if fact == nil and live_implement_attempt_visible(current.comments, ready.proposal_id, marker_ready.dedup_key) then
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation attempt heartbeat is still live")
         return
@@ -781,7 +780,7 @@ local function process_ready_event(event)
             "reason=" .. tostring(hand_off_reason),
           })
         end
-        error("github-devloop: ready state marker not yet visible for implement; retrying")
+        error("github-devloop: state-marker-pending: ready state marker not yet visible for implement; retrying")
       end
     else
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", devloop_state.cas_outcome(state, transition, ready.dedup_key), "ready marker visible; attempting implementation")
@@ -823,7 +822,7 @@ local function process_ready_event(event)
       attempt_plan.expected_from_states,
       attempt_plan.accepted_ready_hand_off
     ) then
-      if dispatch_live_run.dispatch_live_run_dedup(core, "implement", attempt_plan.marker_ready.proposal_id, attempt_plan.marker_ready.dedup_key) then
+      if dispatch_live_run.dispatch_live_run_dedup("implement", attempt_plan.marker_ready.proposal_id, attempt_plan.marker_ready.dedup_key) then
         devloop_logging.log_cas_decision(
           "implement",
           attempt_plan.marker_ready.proposal_id,
@@ -884,6 +883,6 @@ end
 return saga.department(spec, {
   done = implement_done,
   act = act_implement,
-  wrap = core.wrap_pipeline_failure,
+  wrap = devloop_logging.wrap_pipeline_failure,
   name = "implement",
 })

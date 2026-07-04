@@ -1,22 +1,23 @@
-local entity_lib = require("devloop.entity")
-local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
-local requests_labels = require("devloop.requests.labels")
-local parsers_issue = require("devloop.parsers.issue")
+local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
-local M = {}
+local entity_lib = require("devloop.entity")
+local parsers_issue = require("devloop.parsers.issue")
+local requests_labels = require("devloop.requests.labels")
 local comment_strings = require("devloop.strings")
+
+local M = {}
 
 local ai_sentinel = "⟦AI:FKST⟧"
 
-local stable_class_label_prefixes = {
+local stable_prefix_rank = {
   { prefix = "fingerprint:", rank = 1 },
   { prefix = "root-cause:", rank = 2 },
   { prefix = "problem:", rank = 3 },
   { prefix = "error-class:", rank = 4 },
 }
 
-local function slug_label_value(value)
+local function label_slug(value)
   local text = tostring(value or ""):lower()
   text = text:gsub("[^%w%-]+", "-"):gsub("%-+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
   if text == "" then
@@ -25,12 +26,12 @@ local function slug_label_value(value)
   return text
 end
 
-local function stable_class_label_key(label)
+local function stable_label_key(label)
   local text = tostring(label or "")
   local lower = text:lower()
-  for _, entry in ipairs(stable_class_label_prefixes) do
+  for _, entry in ipairs(stable_prefix_rank) do
     if lower:sub(1, #entry.prefix) == entry.prefix then
-      local value = slug_label_value(text:sub(#entry.prefix + 1))
+      local value = label_slug(text:sub(#entry.prefix + 1))
       if value ~= nil then
         return entry.prefix .. value, entry.rank
       end
@@ -39,7 +40,7 @@ local function stable_class_label_key(label)
   return nil, nil
 end
 
-local function cited_sibling_set(reason, issue_number)
+local function cited_siblings(reason, issue_number)
   local seen = {}
   local siblings = {}
   for number in tostring(reason or ""):gmatch("#(%d+)") do
@@ -55,27 +56,27 @@ local function cited_sibling_set(reason, issue_number)
   return seen, siblings
 end
 
-local function sorted_stable_label_keys(labels)
-  local by_key = {}
+local function stable_keys(labels)
+  local ranks = {}
   local keys = {}
   for _, label in ipairs(labels or {}) do
-    local key, rank = stable_class_label_key(label)
-    if key ~= nil and by_key[key] == nil then
-      by_key[key] = rank
+    local key, rank = stable_label_key(label)
+    if key ~= nil and ranks[key] == nil then
+      ranks[key] = rank
       table.insert(keys, key)
     end
   end
   table.sort(keys, function(a, b)
-    if by_key[a] ~= by_key[b] then
-      return by_key[a] < by_key[b]
+    if ranks[a] ~= ranks[b] then
+      return ranks[a] < ranks[b]
     end
     return a < b
   end)
   return keys
 end
 
-local function shared_sibling_class_key(reason, issue_number, sibling_issues)
-  local cited, siblings = cited_sibling_set(reason, issue_number)
+local function sibling_class_key(reason, issue_number, sibling_issues)
+  local cited, siblings = cited_siblings(reason, issue_number)
   if #siblings < 2 or type(sibling_issues) ~= "table" then
     return nil
   end
@@ -83,13 +84,13 @@ local function shared_sibling_class_key(reason, issue_number, sibling_issues)
   local ranks = {}
   for _, issue in ipairs(sibling_issues) do
     if cited[tostring(issue.number)] then
-      local seen_for_issue = {}
-      for _, key in ipairs(sorted_stable_label_keys(issue.labels)) do
-        if not seen_for_issue[key] then
-          local _, rank = stable_class_label_key(key)
+      local per_issue = {}
+      for _, key in ipairs(stable_keys(issue.labels)) do
+        if per_issue[key] == nil then
+          local _, rank = stable_label_key(key)
           counts[key] = (counts[key] or 0) + 1
           ranks[key] = rank or 999
-          seen_for_issue[key] = true
+          per_issue[key] = true
         end
       end
     end
@@ -109,65 +110,62 @@ local function shared_sibling_class_key(reason, issue_number, sibling_issues)
   return candidates[1]
 end
 
-function M.intake_class_identity(reason, current, issue_number, sibling_issues)
-  local shared_key = shared_sibling_class_key(reason, issue_number, sibling_issues)
+function M.intake_class_identity(_package_core, reason, current, issue_number, sibling_issues)
+  local shared_key = sibling_class_key(reason, issue_number, sibling_issues)
   if shared_key ~= nil then
     return shared_key
   end
-  local current_keys = sorted_stable_label_keys(current and current.labels)
-  if current_keys[1] ~= nil then
-    return current_keys[1]
-  end
-  return nil
+  local current_keys = stable_keys(current and current.labels)
+  return current_keys[1]
 end
 
-local function class_identity_label(class_key)
+local function display_label(class_key)
   local class = tostring(class_key or ""):match("^class:(.+)$")
   if class ~= nil and class ~= "" then
     return "recurring class " .. class:gsub("%-", " ")
   end
-  local stable_key = stable_class_label_key(class_key)
-  local stable = stable_key and stable_key:match("^[%w%-]+:(.+)$")
-  if stable ~= nil and stable ~= "" then
-    return "recurring class " .. stable:gsub("%-", " ")
+  local stable = stable_label_key(class_key)
+  local stable_value = stable and stable:match("^[%w%-]+:(.+)$")
+  if stable_value ~= nil and stable_value ~= "" then
+    return "recurring class " .. stable_value:gsub("%-", " ")
   end
   local title = tostring(class_key or ""):match("^title:(.+)$")
   return title or tostring(class_key or "unknown")
 end
 
-function M.fetch_recent_closed_intake_class_issues(caps, repo)
+function M.fetch_recent_closed_intake_class_issues(package_core, repo)
   local listed = devloop_commands.gh_issue_list_recent_closed(repo, 30, 30)
   if listed.exit_code ~= 0 then
-    error("github-devloop: gh issue intake class sibling lookup failed: " .. tostring(listed.stderr))
+    error("github-devloop: gh-issue-list-failed: gh issue intake class sibling lookup failed: " .. tostring(listed.stderr))
   end
-  return parsers_issue.parse_issue_list_intake(caps, listed.stdout)
+  return parsers_issue.parse_issue_list_intake(package_core, listed.stdout)
 end
 
-function M.intake_class_carrier_marker(class_key)
+function M.intake_class_carrier_marker(_package_core, class_key)
   if class_key == nil or tostring(class_key) == "" then
-    error("github-devloop: invalid intake class key")
+    error("github-devloop: intake-class-key-invalid: invalid intake class key")
   end
   return '<!-- fkst:github-devloop:intake-class-carrier:v1 class_key="' .. tostring(class_key) .. '" -->'
 end
 
-function M.intake_class_issue_title(caps, current, issue_number, class_key)
+function M.intake_class_issue_title(package_core, current, issue_number, class_key)
   local source_title = tostring(current and current.title or ("Issue #" .. tostring(issue_number or "unknown")))
-  local title = "Class fix needed: " .. class_identity_label(class_key or ("title:" .. source_title))
-  if #title > caps._max_title_len then
-    title = base_ids.truncate_utf8(title, caps._max_title_len)
+  local title = "Class fix needed: " .. display_label(class_key or ("title:" .. source_title))
+  if #title > package_core._max_title_len then
+    title = base_ids.truncate_utf8(title, package_core._max_title_len)
   end
   return title
 end
 
-function M.find_open_intake_class_carrier(caps, repo, issue_number, current, class_key)
-  local wanted_marker = M.intake_class_carrier_marker(class_key)
-  local wanted_title = M.intake_class_issue_title(caps, current, issue_number, class_key)
-  local fallback_title = M.intake_class_issue_title(caps, current, issue_number)
+function M.find_open_intake_class_carrier(package_core, repo, issue_number, current, class_key)
+  local wanted_marker = M.intake_class_carrier_marker(package_core, class_key)
+  local wanted_title = M.intake_class_issue_title(package_core, current, issue_number, class_key)
+  local fallback_title = M.intake_class_issue_title(package_core, current, issue_number)
   local listed = devloop_commands.gh_issue_list_intake(repo, 100, 30)
   if listed.exit_code ~= 0 then
-    error("github-devloop: gh issue intake class lookup failed: " .. tostring(listed.stderr))
+    error("github-devloop: gh-issue-list-failed: gh issue intake class lookup failed: " .. tostring(listed.stderr))
   end
-  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(caps, listed.stdout)) do
+  for _, issue in ipairs(parsers_issue.parse_issue_list_intake(package_core, listed.stdout)) do
     if tostring(issue.number) ~= tostring(issue_number)
       and (tostring(issue.body or ""):find(wanted_marker, 1, true) ~= nil
         or tostring(issue.title or "") == wanted_title
@@ -178,12 +176,12 @@ function M.find_open_intake_class_carrier(caps, repo, issue_number, current, cla
   return nil
 end
 
-function M.intake_class_followup_marker(proposal_id, carrier_number, outcome, dedup_key)
+function M.intake_class_followup_marker(_package_core, proposal_id, carrier_number, outcome, dedup_key)
   if outcome ~= "folded" and outcome ~= "carrier" then
-    error("github-devloop: invalid intake class follow-up outcome")
+    error("github-devloop: intake-class-followup-invalid: invalid intake class follow-up outcome")
   end
   if carrier_number == nil or tostring(carrier_number) == "" then
-    error("github-devloop: invalid intake class follow-up carrier")
+    error("github-devloop: intake-class-followup-invalid: invalid intake class follow-up carrier")
   end
   return '<!-- fkst:github-devloop:intake-class-followup:v1 proposal="' .. tostring(proposal_id)
     .. '" carrier="' .. tostring(carrier_number)
@@ -192,15 +190,15 @@ function M.intake_class_followup_marker(proposal_id, carrier_number, outcome, de
     .. '" -->'
 end
 
-function M.build_intake_class_followup_comment_request(caps, repo, issue_number, candidate, carrier, outcome, reason)
+function M.build_intake_class_followup_comment_request(package_core, repo, issue_number, candidate, carrier, outcome, reason)
   local carrier_number = carrier and carrier.number or "pending-create"
-  local marker = M.intake_class_followup_marker(candidate.proposal_id, carrier_number, outcome, candidate.dedup_key)
+  local marker = M.intake_class_followup_marker(package_core, candidate.proposal_id, carrier_number, outcome, candidate.dedup_key)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
-    safe_reason = comment_strings.comment_string(caps, "no_reason_provided")
+    safe_reason = comment_strings.comment_string(package_core, "no_reason_provided")
   end
-  if #safe_reason > caps._max_meta_reason_len then
-    safe_reason = base_ids.truncate_utf8(safe_reason, caps._max_meta_reason_len)
+  if #safe_reason > package_core._max_meta_reason_len then
+    safe_reason = base_ids.truncate_utf8(safe_reason, package_core._max_meta_reason_len)
   end
   local carrier_line = "Class carrier: "
   if carrier and carrier.number ~= nil then
@@ -226,9 +224,8 @@ function M.build_intake_class_followup_comment_request(caps, repo, issue_number,
   }), candidate.source_ref)
 end
 
-function M.build_intake_class_folded_label_request(caps, repo, issue_number, candidate)
-  return requests_labels.build_state_label_request(caps,
-    repo,
+function M.build_intake_class_folded_label_request(_package_core, repo, issue_number, candidate)
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
     base_ids.dedup_key({
@@ -242,8 +239,8 @@ function M.build_intake_class_folded_label_request(caps, repo, issue_number, can
   )
 end
 
-function M.build_intake_class_issue_create_request(caps, repo, issue_number, candidate, current, reason, class_key)
-  local title = M.intake_class_issue_title(caps, current, issue_number, class_key)
+function M.build_intake_class_issue_create_request(package_core, repo, issue_number, candidate, current, reason, class_key)
+  local title = M.intake_class_issue_title(package_core, current, issue_number, class_key)
   local body = "Class escalation follow-through for instance issue #" .. tostring(issue_number or "unknown")
     .. "\n\nReason:\n" .. devloop_base.neutralize_untrusted_comment_text(reason or "")
     .. "\n\nClass identity: " .. tostring(class_key or "")
@@ -252,9 +249,9 @@ function M.build_intake_class_issue_create_request(caps, repo, issue_number, can
     .. "- Link this instance to the class issue through the parent ledger marker.\n"
     .. "- Close the instance as folded only after the class carrier exists, or keep it enabled as the class carrier if it already states the class solution.\n"
     .. "\nSource proposal: " .. tostring(candidate and candidate.proposal_id or "")
-    .. "\n\n" .. M.intake_class_carrier_marker(class_key)
-  if #body > caps._max_body_len then
-    body = base_ids.truncate_utf8(body, caps._max_body_len)
+    .. "\n\n" .. M.intake_class_carrier_marker(package_core, class_key)
+  if #body > package_core._max_body_len then
+    body = base_ids.truncate_utf8(body, package_core._max_body_len)
   end
   return {
     schema = "github-proxy.issue-create.v1",

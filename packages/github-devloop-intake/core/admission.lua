@@ -20,8 +20,8 @@ function M.should_skip_known_intake_issue(labels)
 end
 
 function M.pending_reintake_command(comments)
-  local command = operator_commands.operator_command_fact(M, comments, "reintake")
-  if command ~= nil and not operator_commands.has_operator_command_response(M, comments, command) then
+  local command = operator_commands.operator_command_fact(comments, "reintake")
+  if command ~= nil and not operator_commands.has_operator_command_response(comments, command) then
     return command
   end
   return nil
@@ -41,7 +41,7 @@ function M.build_intake_admission_candidate(repo, issue, command, delivery_versi
     title = issue.title,
     body = issue.body,
   }, command)
-  return payloads_builders.build_devloop_intake_candidate_payload(M, repo, tostring(issue.number), updated_at, {
+  return payloads_builders.build_devloop_intake_candidate_payload(repo, tostring(issue.number), updated_at, {
     effect_id = effect_id,
     delivery_version = delivery_version,
     reintake_command_created_at = command and command.created_at or nil,

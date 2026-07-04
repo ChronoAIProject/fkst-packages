@@ -23,7 +23,7 @@ local spec = {
 local function supported_handoff(payload)
   if type(payload) ~= "table"
     or payload.schema ~= "github-proxy.comment-written.v1"
-    or not payloads_predicates.is_safe_comment_id(core, payload.comment_id)
+    or not payloads_predicates.is_safe_comment_id(payload.comment_id)
     or type(payload.handoff) ~= "table" then
     return nil
   end
@@ -31,15 +31,15 @@ local function supported_handoff(payload)
   if handoff.kind == "github-devloop.ready"
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.version)
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.marker_version)
-    and strings.is_bounded_string(handoff.version, core._max_dedup_len)
-    and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
+    and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
+    and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len) then
     return handoff
   end
   if handoff.kind == "github-devloop.reconcile"
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.base_version)
-    and strings.is_bounded_string(handoff.base_version, core._max_dedup_len)
+    and strings.is_bounded_string(handoff.base_version, devloop_base._max_dedup_len)
     and valid_round(handoff.round) ~= nil
-    and source_refs.has_bounded_source_ref(handoff.source_ref, core._max_key_len) then
+    and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len) then
     return handoff
   end
   return nil
@@ -76,7 +76,7 @@ local function act_handoff(event)
   end
 
   if handoff.kind == "github-devloop.reconcile" then
-    local reconcile = conv_reconcile.build_devloop_reconcile_payload(core, {
+    local reconcile = conv_reconcile.build_devloop_reconcile_payload({
       proposal_id = handoff.proposal_id,
       source_ref = handoff.source_ref,
     }, handoff.round, handoff.base_version)
@@ -93,6 +93,6 @@ return saga.department(spec, {
   done = handoff_done,
   act = act_handoff,
   on_skip_foreign = log_unsupported_handoff,
-  wrap = core.wrap_pipeline_failure,
+  wrap = devloop_logging.wrap_pipeline_failure,
   name = "comment_handoff",
 })

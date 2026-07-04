@@ -56,8 +56,7 @@ local function comment_cases()
       { angle = "delete", verdict = "approve" },
     },
   })
-  local converge_marker = conv_rounds.converge_round_marker(core,
-    issue_proposal_id,
+  local converge_marker = conv_rounds.converge_round_marker(issue_proposal_id,
     reached_with_angles.dedup_key,
     convergence_shared.source_ref_digest(source_ref()),
     2,
@@ -65,7 +64,7 @@ local function comment_cases()
     "Narrow question?",
     { { angle = "minimal", verdict = "abstain", digest = "digest" } }
   )
-  local reconcile = conv_reconcile.build_devloop_reconcile_payload(core, unresolved(), 3, reached_with_angles.dedup_key)
+  local reconcile = conv_reconcile.build_devloop_reconcile_payload(unresolved(), 3, reached_with_angles.dedup_key)
   local gate = { kind = "waiting", reason = "waiting-on-dependency" }
   local dependency_marker = core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }, gate.kind, gate.reason)
   local dependency_void_gate = {
@@ -126,10 +125,10 @@ end
 
 return {
   test_comment_template_audit_has_complete_language_table = function()
-    local en = comment_strings.comment_strings(core, "en")
-    local zh = comment_strings.comment_strings(core, "zh")
+    local en = comment_strings.comment_strings("en")
+    local zh = comment_strings.comment_strings("zh")
     local human = 0
-    for _, row in ipairs(comment_strings.comment_template_audit(core)) do
+    for _, row in ipairs(comment_strings.comment_template_audit()) do
       if row.classification == "human" then
         human = human + 1
         t.is_true(en[row.id] ~= nil)
@@ -167,7 +166,7 @@ return {
       {
         body = "lorem ipsum " .. cjk_probe .. "\n"
           .. core.state_marker(issue_proposal_id, "ready", issue_version)
-          .. "\n" .. m_builders.result_marker(core, issue_proposal_id, "approve", "consensus:v1")
+          .. "\n" .. m_builders.result_marker(issue_proposal_id, "approve", "consensus:v1")
           .. "\n" .. core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }),
         author_login = devloop_base.trusted_bot_login(),
       },
@@ -177,18 +176,18 @@ return {
         body = "noise only " .. cjk_probe .. "\n"
           .. core.state_marker(issue_proposal_id, "fixing", issue_version .. "/fix/1")
           .. "\n"
-          .. m_builders.review_result_marker(core, review_proposal_id, issue_proposal_id, "reject", review_dedup_key, 1, "missing guard")
-          .. "\n" .. m_builders.merge_ready_marker(core, issue_proposal_id, 7, issue_version, review_proposal_id, review_dedup_key, "def456")
-          .. "\n" .. m_builders.review_meta_marker(core, issue_proposal_id, review_dedup_key, "fix", issue_version .. "/fix/1", "missing guard")
-          .. "\n" .. m_builders.merge_gate_marker(core, issue_proposal_id, 7, issue_version .. "/fix/1", review_proposal_id, review_dedup_key, "def456", "abc123", "rollup-red"),
+          .. m_builders.review_result_marker(review_proposal_id, issue_proposal_id, "reject", review_dedup_key, 1, "missing guard")
+          .. "\n" .. m_builders.merge_ready_marker(issue_proposal_id, 7, issue_version, review_proposal_id, review_dedup_key, "def456")
+          .. "\n" .. m_builders.review_meta_marker(issue_proposal_id, review_dedup_key, "fix", issue_version .. "/fix/1", "missing guard")
+          .. "\n" .. m_builders.merge_gate_marker(issue_proposal_id, 7, issue_version .. "/fix/1", review_proposal_id, review_dedup_key, "def456", "abc123", "rollup-red"),
         author_login = devloop_base.trusted_bot_login(),
       },
     }
     local implementation_comments = {
       {
         body = "more noise " .. cjk_probe .. "\n"
-          .. m_builders.implementing_marker(core, issue_proposal_id, "impl:v1", "devloop-owner-repo-42", "abc123", "dev", "abc123")
-          .. "\n" .. m_builders.pr_link_marker(core, issue_proposal_id, 7, "devloop-owner-repo-42", "impl:v1", "dev")
+          .. m_builders.implementing_marker(issue_proposal_id, "impl:v1", "devloop-owner-repo-42", "abc123", "dev", "abc123")
+          .. "\n" .. m_builders.pr_link_marker(issue_proposal_id, 7, "devloop-owner-repo-42", "impl:v1", "dev")
           .. "\n" .. core.impl_failure_marker(issue_proposal_id, "impl:v1", "codex-failed"),
         author_login = devloop_base.trusted_bot_login(),
       },
@@ -204,13 +203,13 @@ return {
         author_login = devloop_base.trusted_bot_login(),
       },
     }, issue_proposal_id, issue_version, 7).reason, "operator-waiver")
-    t.eq(m_facts.review_reject_fact(core, review_comments, issue_proposal_id, issue_version .. "/fix/1").blocking_gap, "missing guard")
-    t.eq(m_facts.review_meta_fix_fact(core, review_comments, issue_proposal_id, issue_version .. "/fix/1").blocking_gap, "missing guard")
-    t.eq(m_facts.merge_gate_fix_fact(core, review_comments, issue_proposal_id, issue_version .. "/fix/1").reviewed_head_sha, "def456")
-    t.eq(m_facts.merge_gate_fix_fact(core, review_comments, issue_proposal_id, issue_version .. "/fix/1").gate_baseline_sha, "abc123")
-    t.eq(m_facts.merge_ready_fact(core, review_comments, issue_proposal_id, issue_version, 7).head_sha, "def456")
-    t.eq(m_facts.implementing_fact(core, implementation_comments, issue_proposal_id, "impl:v1").branch, "devloop-owner-repo-42")
-    t.eq(m_facts.pr_link_fact(core, implementation_comments, issue_proposal_id).pr_number, 7)
+    t.eq(m_facts.review_reject_fact(review_comments, issue_proposal_id, issue_version .. "/fix/1").blocking_gap, "missing guard")
+    t.eq(m_facts.review_meta_fix_fact(review_comments, issue_proposal_id, issue_version .. "/fix/1").blocking_gap, "missing guard")
+    t.eq(m_facts.merge_gate_fix_fact(review_comments, issue_proposal_id, issue_version .. "/fix/1").reviewed_head_sha, "def456")
+    t.eq(m_facts.merge_gate_fix_fact(review_comments, issue_proposal_id, issue_version .. "/fix/1").gate_baseline_sha, "abc123")
+    t.eq(m_facts.merge_ready_fact(review_comments, issue_proposal_id, issue_version, 7).head_sha, "def456")
+    t.eq(m_facts.implementing_fact(implementation_comments, issue_proposal_id, "impl:v1").branch, "devloop-owner-repo-42")
+    t.eq(m_facts.pr_link_fact(implementation_comments, issue_proposal_id).pr_number, 7)
     t.eq(core.has_impl_failure_marker(implementation_comments, issue_proposal_id, "impl:v1"), true)
   end,
 }

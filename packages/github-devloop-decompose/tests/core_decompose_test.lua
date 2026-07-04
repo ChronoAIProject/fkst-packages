@@ -59,7 +59,7 @@ return {
   test_decompose_child_fact_indexes_keep_proxy_marker_legacy_but_completion_uses_live_open_children = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "2026-06-03T01-02-03Z"
-    local decompose = payloads_builders.build_devloop_decompose_payload(core, {
+    local decompose = payloads_builders.build_devloop_decompose_payload({
       proposal_id = proposal_id,
       pr_number = 7,
       issue_version = version,
@@ -74,7 +74,7 @@ return {
       core.build_issue_create_request("owner/repo", decompose, { title = "One", body = "Body one" }, 1).dedup_key,
       core.build_issue_create_request("owner/repo", decompose, { title = "Two", body = "Body two" }, 2).dedup_key,
     }
-    local completed = decompose_lib.decompose_child_fact_indexes(core, {
+    local completed = decompose_lib.decompose_child_fact_indexes({
       {
         body = '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_by_index[1] .. '" issue="101" -->',
         author_login = "fkst-test-bot",
@@ -85,24 +85,24 @@ return {
       },
     }, {
       {
-        body = decompose_lib.decompose_child_marker(core, proposal_id, version, 7, 3),
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 3),
         author_login = "fkst-test-bot",
         state = "OPEN",
       },
       {
-        body = decompose_lib.decompose_child_marker(core, proposal_id, version, 7, 2),
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 2),
         author_login = "someone-else",
         state = "OPEN",
       },
     }, proposal_id, version, 7, dedup_by_index)
-    local live_completed = decompose_lib.decompose_child_issue_fact_indexes(core, {
+    local live_completed = decompose_lib.decompose_child_issue_fact_indexes({
       {
-        body = decompose_lib.decompose_child_marker(core, proposal_id, version, 7, 1),
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 1),
         author_login = "fkst-test-bot",
         state = "CLOSED",
       },
       {
-        body = decompose_lib.decompose_child_marker(core, proposal_id, version, 7, 2),
+        body = decompose_lib.decompose_child_marker(proposal_id, version, 7, 2),
         author_login = "fkst-test-bot",
         state = "OPEN",
       },

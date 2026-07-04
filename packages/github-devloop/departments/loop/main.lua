@@ -17,6 +17,7 @@ local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local transition_version = require("contract.transition_version")
 local spec = {
   consumes = { "consensus.consensus_converge" },
   produces = {
@@ -30,7 +31,7 @@ local spec = {
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   local unresolved = event.payload or {}
-  if not v_unresolved.is_supported_unresolved(core, unresolved) then
+  if not v_unresolved.is_supported_unresolved(unresolved) then
     devloop_logging.log_entry("loop", event, "unknown", devloop_logging.payload_field(unresolved, "dedup_key"))
     devloop_logging.log_cas_decision("loop", "unknown", { state = nil, version = nil }, "thinking", "thinking", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -54,7 +55,7 @@ return saga.department(spec, { done = function() return false end, act = functio
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
     if view.exit_code ~= 0 then
-      error("github-devloop: gh issue loop view failed: " .. tostring(view.stderr))
+      error("github-devloop: issue-read-failed: gh issue loop view failed: " .. tostring(view.stderr))
     end
 
     local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
@@ -67,20 +68,19 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     if transition == "pending" then
       devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", devloop_state.cas_outcome(state, transition, unresolved.dedup_key), "thinking state marker not yet visible")
-      error("github-devloop: thinking state marker not yet visible for unresolved; retrying")
+      error("github-devloop: state-marker-pending: thinking state marker not yet visible for unresolved; retrying")
     end
 
-    local base_version = conv_rounds.converge_base_version(core, unresolved.dedup_key)
+    local base_version = conv_rounds.converge_base_version(unresolved.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(unresolved.source_ref)
-    local facts = conv_rounds.converge_round_facts_for_proposal_boundary(core, current.comments, unresolved.proposal_id, unresolved.narrowed_question, unresolved.angle_digests)
-    local round = math.max(tonumber(unresolved.round) or 0, conv_rounds.max_converge_round(core, facts))
-    if conv_rounds.has_converge_round_marker(core, current.comments, unresolved.proposal_id, base_version, sr_digest, round) then
+    local facts = conv_rounds.converge_round_facts_for_proposal_boundary(current.comments, unresolved.proposal_id, unresolved.narrowed_question, unresolved.angle_digests)
+    local round = math.max(tonumber(unresolved.round) or 0, conv_rounds.max_converge_round(facts))
+    if conv_rounds.has_converge_round_marker(current.comments, unresolved.proposal_id, base_version, sr_digest, round) then
       devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", "skip-idempotent(converge round marker already visible)", "converge round marker for incoming round is already visible")
       return
     end
 
-    local marker_body = conv_rounds.converge_round_marker(core,
-      unresolved.proposal_id,
+    local marker_body = conv_rounds.converge_round_marker(unresolved.proposal_id,
       base_version,
       sr_digest,
       round,
@@ -88,10 +88,10 @@ return saga.department(spec, { done = function() return false end, act = functio
       unresolved.narrowed_question,
       unresolved.angle_digests
     )
-    local facts_with_current = conv_rounds.append_converge_round_fact(core, facts, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key)
-    local budget_round = math.max(round, conv_rounds.converge_boundary_budget_round(core, current.comments, unresolved.proposal_id, unresolved.narrowed_question, unresolved.angle_digests))
+    local facts_with_current = conv_rounds.append_converge_round_fact(facts, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key)
+    local budget_round = math.max(round, conv_rounds.converge_boundary_budget_round(current.comments, unresolved.proposal_id, unresolved.narrowed_question, unresolved.angle_digests))
     local hit_round_cap = budget_round >= config.max_converge_rounds()
-    if hit_round_cap or conv_rounds.is_true_stall(core, facts_with_current, round) then
+    if hit_round_cap or conv_rounds.is_true_stall(facts_with_current, round) then
       local comment_request = requests_lifecycle.build_converge_round_comment_request(core, repo, issue_number, unresolved, round, marker_body, {
         kind = "github-devloop.reconcile",
         proposal_id = unresolved.proposal_id,
@@ -111,7 +111,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
 
     local next_n = round + 1
-    local next_dedup = conv_rounds.converge_proposal_base_dedup(core, unresolved.dedup_key) .. "/loop/" .. tostring(next_n)
+    local next_dedup = transition_version.loop_at(conv_rounds.converge_proposal_base_dedup(unresolved.dedup_key), next_n)
     local content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
       dept = "loop",
       repo = repo,
@@ -124,7 +124,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
     }, event.ts, content_fetch, next_dedup)
-    if not v_validate_proposal.validate_proposal(core, proposal) then
+    if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=loop proposal_id=" .. tostring(unresolved.proposal_id) .. " tag=SKIP reason=cannot-build-valid-loop-proposal")
       return
     end
@@ -138,4 +138,4 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_raise("loop", unresolved.proposal_id, "consensus.proposal", proposal)
     devloop_logging.log_raise("loop", unresolved.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
   end)
-end, wrap = core.wrap_pipeline_failure, name = "loop" })
+end, wrap = devloop_logging.wrap_pipeline_failure, name = "loop" })

@@ -57,7 +57,7 @@ end
 
 local function thinking_converge_comments(event, rounds, command)
   local proposal_id = base_ids.proposal_id(event.repo, event.number)
-  local base_version = payloads_builders.build_proposal(core, event).dedup_key
+  local base_version = payloads_builders.build_proposal(event).dedup_key
   local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
   local angle_digests = {
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
@@ -66,8 +66,7 @@ local function thinking_converge_comments(event, rounds, command)
     core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
   }
   for n = 1, rounds do
-    table.insert(comments, conv_rounds.converge_round_marker(core,
-      proposal_id,
+    table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
       base_version,
       sr_digest,
       n,
@@ -84,14 +83,13 @@ end
 
 local function thinking_changing_converge_comments(event, rounds, command)
   local proposal_id = base_ids.proposal_id(event.repo, event.number)
-  local base_version = payloads_builders.build_proposal(core, event).dedup_key
+  local base_version = payloads_builders.build_proposal(event).dedup_key
   local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
   local comments = {
     core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
   }
   for n = 1, rounds do
-    table.insert(comments, conv_rounds.converge_round_marker(core,
-      proposal_id,
+    table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
       base_version,
       sr_digest,
       n,
@@ -157,7 +155,7 @@ return {
       updated_at = "2026-06-03T04:05:06Z",
     })
     local command = trusted_issue_command("rereview", "IC_issue_rereview_plain_stalled")
-    local base_version = payloads_builders.build_proposal(core, event).dedup_key
+    local base_version = payloads_builders.build_proposal(event).dedup_key
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       core.state_marker(base_ids.proposal_id(event.repo, event.number), "thinking", base_version),
       command,
@@ -176,7 +174,7 @@ return {
   test_issue_rereview_command_active_thinking_refuses_once = function()
     local event = issue()
     local command = trusted_issue_command("rereview", "IC_issue_rereview_active")
-    local base_version = payloads_builders.build_proposal(core, event).dedup_key
+    local base_version = payloads_builders.build_proposal(event).dedup_key
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
         body = core.state_marker(base_ids.proposal_id(event.repo, event.number), "thinking", base_version),
@@ -238,7 +236,7 @@ return {
     local event = issue()
     local command = trusted_issue_command("reready", "IC_issue_reready_invalid")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
-      core.state_marker(base_ids.proposal_id(event.repo, event.number), "thinking", payloads_builders.build_proposal(core, event).dedup_key),
+      core.state_marker(base_ids.proposal_id(event.repo, event.number), "thinking", payloads_builders.build_proposal(event).dedup_key),
       command,
     })
 
@@ -254,12 +252,12 @@ return {
     local event = issue()
     local proposal_id = base_ids.proposal_id(event.repo, event.number)
     local ready_version = "consensus:github-devloop/issue/owner/repo/42/intake/1116/loop/1"
-    local blocked_version = conv_reconcile.timeout_reconcile_state_version(core, ready_version, "ready", 3)
+    local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_ready")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
       core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
-      conv_reconcile.timeout_reconcile_marker(core, proposal_id, ready_version, "ready", 3, "drop", {
+      conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
         terminal_version = blocked_version,
         from_state = "ready",
         from_version = ready_version,
@@ -299,13 +297,13 @@ return {
     local event = issue()
     local proposal_id = base_ids.proposal_id(event.repo, event.number)
     local ready_version = "consensus:github-devloop/issue/owner/repo/42/intake/1116/loop/1"
-    local blocked_version = conv_reconcile.timeout_reconcile_state_version(core, ready_version, "ready", 3)
+    local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
     local command = trusted_issue_command("reready", "IC_issue_reready_timeout_pr_link")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
       core.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
       core.state_marker(proposal_id, "blocked", blocked_version),
-      m_builders.pr_link_marker(core, proposal_id, "7", "devloop-owner-repo-42-01HY", ready_version, "dev"),
-      conv_reconcile.timeout_reconcile_marker(core, proposal_id, ready_version, "ready", 3, "drop", {
+      m_builders.pr_link_marker(proposal_id, "7", "devloop-owner-repo-42-01HY", ready_version, "dev"),
+      conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
         terminal_version = blocked_version,
         from_state = "ready",
         from_version = ready_version,
@@ -314,7 +312,7 @@ return {
       command,
     })
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, proposal_id, "42", "devloop-owner-repo-42-01HY", ready_version, "dev"),
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", ready_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
 
     local result = run_observe(event, opts("operator-issue-reready-timeout-pr-link"))

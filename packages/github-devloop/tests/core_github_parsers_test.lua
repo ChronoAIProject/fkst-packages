@@ -121,10 +121,10 @@ return {
     t.eq(#mixed, 1)
     t.eq(mixed[1].number, 2)
     t.eq(#parsers_issue.parse_issue_list_intake(core, "[[]]"), 0)
-    t.eq(#parsers_issue.parse_issue_list_observe(core, "[[]]"), 0)
-    t.eq(#parsers_pr.parse_pr_list_observe(core, "[[]]"), 0)
-    t.eq(#parsers_pr.parse_pr_list_head_base(core, "[[]]"), 0)
-    local rollup_prs = parsers_pr.parse_pr_list_head_base(core, '[[{"number":9,"head":{"sha":"abc123","ref":"integration/dev"},"base":{"ref":"dev"},"state":"open"}]]')
+    t.eq(#parsers_issue.parse_issue_list_observe("[[]]"), 0)
+    t.eq(#parsers_pr.parse_pr_list_observe("[[]]"), 0)
+    t.eq(#parsers_pr.parse_pr_list_head_base("[[]]"), 0)
+    local rollup_prs = parsers_pr.parse_pr_list_head_base('[[{"number":9,"head":{"sha":"abc123","ref":"integration/dev"},"base":{"ref":"dev"},"state":"open"}]]')
     t.eq(rollup_prs[1].number, 9)
     t.eq(rollup_prs[1].head_sha, "abc123")
     t.eq(rollup_prs[1].head_ref_name, "integration/dev")
@@ -144,15 +144,15 @@ return {
     t.eq(state.created_at, "2026-06-03T01:00:00Z")
     t.eq(state.updated_at, "2026-06-03T01:02:03Z")
     t.eq(state.labels[1], "fkst-dev:enabled")
-    t.eq(parsers_misc.comment_body(core, state.comments[1]), "hello")
-    t.eq(parsers_misc.comment_author_login(core, state.comments[1]), "fkst-test-bot")
+    t.eq(parsers_misc.comment_body(state.comments[1]), "hello")
+    t.eq(parsers_misc.comment_author_login(state.comments[1]), "fkst-test-bot")
 
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local decision = "approve"
     local dedup_key = "consensus:github-devloop/issue/owner/repo/42/v1"
     local result = parsers_issue.parse_issue_view_result(core,
       '{"labels":["fkst-dev:ready"],"comments":[{"body":"'
-        .. m_builders.result_marker(core, proposal_id, decision, dedup_key):gsub('"', '\\"')
+        .. m_builders.result_marker(proposal_id, decision, dedup_key):gsub('"', '\\"')
         .. '","author":{"login":"fkst-test-bot"}}]}'
     )
     t.eq(core.has_terminal_label(result.labels), true)

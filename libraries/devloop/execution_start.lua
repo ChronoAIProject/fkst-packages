@@ -77,7 +77,7 @@ function E.build_execution_start_proposal(core, repo, issue_number, request, cur
   proposal.dedup_key = request.dedup_key
   proposal.effect_version = request.dedup_key
   proposal.intake_hand_off = E.execution_intake_hand_off(request)
-  return v_validate_proposal.validate_proposal(core, proposal) and proposal or nil
+  return v_validate_proposal.validate_proposal(proposal) and proposal or nil
 end
 
 function E.build_execution_start_effects(core, repo, issue_number, request, current, event_ts, dept)
@@ -93,7 +93,7 @@ function E.build_execution_start_effects(core, repo, issue_number, request, curr
   return {
     proposal = proposal,
     thinking_comment_request = requests_lifecycle.build_observe_comment_request(core, issue_ref, proposal),
-    thinking_label_request = requests_labels.build_thinking_label_request(core, issue_ref, proposal),
+    thinking_label_request = requests_labels.build_thinking_label_request(issue_ref, proposal),
   }
 end
 

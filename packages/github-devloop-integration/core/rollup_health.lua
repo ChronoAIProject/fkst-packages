@@ -113,7 +113,7 @@ function M.rollup_red_window_minutes(exec)
   end
   local value = tonumber(strings.trim(raw))
   if value == nil or value ~= math.floor(value) or value < 1 or value > 1440 then
-    error("github-devloop: invalid FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES")
+    error("github-devloop: config-invalid: invalid FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES")
   end
   return value
 end
@@ -206,7 +206,7 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
     return { action = "suppress", reason = "red-window", age_minutes = age }
   end
 
-  local failing_check = parsers_misc.pr_rollup_failure_summary(M, pr)
+  local failing_check = parsers_misc.pr_rollup_failure_summary(pr)
   if failing_check == "" then
     failing_check = "rollup-red"
   end

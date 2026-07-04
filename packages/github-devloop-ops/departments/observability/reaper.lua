@@ -50,8 +50,8 @@ local function successor_issue_numbers(comments, proposal_id)
   local seen = {}
   local dedup_prefix = "decompose/" .. tostring(proposal_id) .. "/"
   local marker_pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(core, comments or {})) do
-    for marker in parsers_misc._comment_body(core, comment):gmatch(marker_pattern) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local dedup = marker:match('dedup="([^"]+)"')
       local issue = marker:match('issue="([^"]+)"')
       if tostring(dedup or ""):sub(1, #dedup_prefix) == dedup_prefix
@@ -88,8 +88,8 @@ local function terminal_parent_reason(parent_issue, entity)
       successors = successors,
     }
   end
-  local decomposed = decompose_lib.decomposed_fact(core, pr_comments, proposal_id)
-    or decompose_lib.decomposed_fact(core, parent_issue and parent_issue.comments or {}, proposal_id)
+  local decomposed = decompose_lib.decomposed_fact(pr_comments, proposal_id)
+    or decompose_lib.decomposed_fact(parent_issue and parent_issue.comments or {}, proposal_id)
   if decomposed ~= nil
     and tostring(decomposed.pr_number or "") == tostring(entity.pr_number or "")
     and #successors >= decomposed.count then
@@ -117,7 +117,7 @@ local function reaper_comment_body(proposal_id, pr_number, reason)
     .. "Reason: " .. reason_text .. "\n"
     .. "Successors: " .. successor_summary(reason and reason.successors or {}, nil) .. "\n"
     .. "Branch cleanup is intentionally left to a separate manual or managed path.\n\n"
-    .. m_builders.orphan_reaped_marker(core, proposal_id, pr_number, reason and reason.code or "parent-terminal")
+    .. m_builders.orphan_reaped_marker(proposal_id, pr_number, reason and reason.code or "parent-terminal")
     .. "\n"
 end
 
@@ -139,7 +139,7 @@ local function reap_orphan_pr(repo, entity)
   if tostring(entity.pr.state or ""):upper() ~= "OPEN" then
     return
   end
-  if m_facts.has_orphan_reaped_marker(core, entity.pr.comments, proposal_id, pr_number) then
+  if m_facts.has_orphan_reaped_marker(entity.pr.comments, proposal_id, pr_number) then
     log.info(orphan_reap_log_line(repo, pr_number, proposal_id, "skip-idempotent", "orphan-reaped-marker-visible"))
     return
   end
@@ -164,7 +164,7 @@ local function reap_orphan_pr(repo, entity)
     return
   end
 
-  if not m_claims.verify_pr_review_issue_claim(core, dept, repo, origin.issue_number, parent, proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim(dept, repo, origin.issue_number, parent, proposal_id) then
     log.info(orphan_reap_log_line(repo, pr_number, proposal_id, "skip", "backing-issue-not-self-owned"))
     return
   end

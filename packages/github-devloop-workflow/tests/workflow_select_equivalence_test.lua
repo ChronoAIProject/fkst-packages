@@ -1,6 +1,6 @@
 local core = require("core")
 local base_ids = require("devloop.base_ids")
-local default_intake = require("devloop.intake.default_intake")
+local default_intake = require("core.default_intake")
 local payloads_builders = require("devloop.payloads.builders")
 local saga = require("workflow.saga")
 local testing = require("testkit.testing")
@@ -206,7 +206,7 @@ local function mock_default_path(case, current)
 end
 
 local function candidate()
-  return payloads_builders.build_devloop_intake_candidate_payload(core, "owner/repo", 42, "2026-06-03T01:02:03Z")
+  return payloads_builders.build_devloop_intake_candidate_payload("owner/repo", 42, "2026-06-03T01:02:03Z")
 end
 
 local spec = {

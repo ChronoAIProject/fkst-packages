@@ -1,4 +1,5 @@
 local error_facts = require("contract.error_facts")
+local devloop_base = require("devloop.base")
 local core, saga = require("core"), require("workflow.saga")
 local common = require("departments.observability.common")
 local avm_scoreboard = require("departments.observability.avm_scoreboard")
@@ -33,7 +34,7 @@ function core.observability_topology_mermaid()
     return topology.render_mermaid(decoded)
   end)
   if not ok then
-    local reason = core._one_line and error_facts.one_line(result) or tostring(result or "")
+    local reason = devloop_base._one_line and error_facts.one_line(result) or tostring(result or "")
     log.warn("github-devloop dept=observability tag=TOPOLOGY_UNAVAILABLE reason=" .. tostring(reason))
     return nil
   end
@@ -77,7 +78,7 @@ end
 local department = saga.department(spec, { done = function() return false end, act = function(event)
   devloop_logging.log_entry("observability", event, "github-devloop/observability", "tick")
   core.observe_devloop_entities(event)
-end, wrap = core.wrap_pipeline_failure, name = "observability" })
+end, wrap = devloop_logging.wrap_pipeline_failure, name = "observability" })
 department.spec.graph_json = true
 
 return department

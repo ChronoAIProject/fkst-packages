@@ -346,7 +346,7 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts)
   return result
 end
 
-function C.entity_view_cache_key(M, repo, kind, number)
+function C.entity_view_cache_key(repo, kind, number)
   return entity_view_cache_key(repo, kind, number)
 end
 
@@ -367,11 +367,11 @@ function C.invalidate_entity_after_write(repo, kind, number)
   end)
 end
 
-function C.fetch_entity_view(M, repo, kind, number, updated_at, opts)
+function C.fetch_entity_view(repo, kind, number, updated_at, opts)
   return fetch_entity_view(repo, kind, number, updated_at, opts)
 end
 
-function C.cached_entity_view(M, repo, kind, number)
+function C.cached_entity_view(repo, kind, number)
   local selected_kind = tostring(kind or "")
   if selected_kind ~= "issue" and selected_kind ~= "pr" then
     error("github-devloop: invalid cached entity view kind")
@@ -383,7 +383,7 @@ function C.cached_entity_view(M, repo, kind, number)
   return success_from_cache(cached)
 end
 
-function C.fetch_issue_view(M, repo, issue_number, updated_at, opts)
+function C.fetch_issue_view(repo, issue_number, updated_at, opts)
   return fetch_entity_view(repo, "issue", issue_number, updated_at, opts)
 end
 
@@ -391,10 +391,10 @@ function C.fetch_pr_view(repo, pr_number, updated_at, opts)
   return fetch_entity_view(repo, "pr", pr_number, updated_at, opts)
 end
 
-function C.fetch_marker_issue_view(M, repo, issue_number, updated_at, opts)
+function C.fetch_marker_issue_view(repo, issue_number, updated_at, opts)
   local options = opts or {}
   options.consumer = options.consumer or "marker-reader"
-  return C.fetch_issue_view(M, repo, issue_number, updated_at, options)
+  return C.fetch_issue_view(repo, issue_number, updated_at, options)
 end
 
 function C.fetch_marker_pr_view(repo, pr_number, updated_at, opts)
@@ -403,19 +403,19 @@ function C.fetch_marker_pr_view(repo, pr_number, updated_at, opts)
   return C.fetch_pr_view(repo, pr_number, updated_at, options)
 end
 
-function C.fetch_issue_view_state(M, repo, issue_number, updated_at, opts)
+function C.fetch_issue_view_state(repo, issue_number, updated_at, opts)
   local options = opts or {}
   options.consumer = options.consumer or "observe_issue"
-  return C.fetch_marker_issue_view(M, repo, issue_number, updated_at, options)
+  return C.fetch_marker_issue_view(repo, issue_number, updated_at, options)
 end
 
-function C.fetch_issue_view_open_pr(M, repo, issue_number, updated_at, opts)
+function C.fetch_issue_view_open_pr(repo, issue_number, updated_at, opts)
   local options = opts or {}
   options.consumer = options.consumer or "open_pr"
-  return C.fetch_marker_issue_view(M, repo, issue_number, updated_at, options)
+  return C.fetch_marker_issue_view(repo, issue_number, updated_at, options)
 end
 
-function C.commit_issue_subject_snapshot(M, repo, issue_number)
+function C.commit_issue_subject_snapshot(repo, issue_number)
   if issue_number == nil then
     return {}
   end
@@ -449,7 +449,7 @@ end
 -- share a slot. This collapses the dominant GraphQL drain: the same entity
 -- re-read every poll by the same scan dept (measured ~10x duplication on hot
 -- issues).
-function C.gh_exec_cached(M, cmd, cache_key, ttl_seconds, exec)
+function C.gh_exec_cached(cmd, cache_key, ttl_seconds, exec)
   local cached = cache_get(cache_key)
   if type(cached) == "string" and cached ~= "" then
     local sep = cached:find("\n", 1, true)
@@ -471,7 +471,7 @@ function C.gh_exec_cached(M, cmd, cache_key, ttl_seconds, exec)
 end
 
 -- Readable cache key for an opt-in scan read: github-devloop/ghread/<variant>/<repo>/<number>.
-function C.gh_read_cache_key(M, variant, repo, number)
+function C.gh_read_cache_key(variant, repo, number)
   return "github-devloop/ghread/"
     .. sanitize_cache_segment(variant, false)
     .. "/"

@@ -10,6 +10,7 @@ local source_refs = require("contract.source_ref")
 local replay_fields = require("devloop.replay_fields")
 local replayer = require("devloop.replayer")
 local devloop_logging = require("devloop.logging")
+local transition_version = require("contract.transition_version")
 
 function S.install(M, shared)
 local max_timeout_attempts = shared.max_timeout_attempts
@@ -51,18 +52,11 @@ end
 
 function M.next_liveness_timeout_version(row, state, facts)
   local from = tostring(row.from_state)
-  local escaped = from:gsub("%-", "%%-")
-  local base = tostring(state and state.version or "")
   -- Replace, not stack, the trailing timeout segment for this state so the version
   -- stays bounded as attempts climb: V -> V/timeout/<state>/1 -> V/timeout/<state>/2.
   -- The attempt count itself is read from the full (pre-strip) version, so it keeps
   -- advancing across sweeps even though the suffix never accumulates.
-  local previous = nil
-  while previous ~= base do
-    previous = base
-    base = base:gsub("/timeout/" .. escaped .. "/%d+$", "")
-  end
-  return base .. "/timeout/" .. from .. "/" .. tostring(M.liveness_timeout_attempt(row, state, facts) + 1)
+  return transition_version.timeout_at(state and state.version, from, M.liveness_timeout_attempt(row, state, facts) + 1)
 end
 
 function M.liveness_timeout_due(row, state, now_seconds)
@@ -137,7 +131,7 @@ local function build_timeout_reconcile(row, entity, state, facts, decision)
   if source_refs.has_bounded_source_ref(source_ref, M._max_key_len)
     and strings.is_path_safe_key(proposal_id, M._max_key_len)
     and strings.is_bounded_string(state and state.version, M._max_dedup_len) then
-    return "devloop_timeout_reconcile", conv_reconcile.build_devloop_timeout_reconcile_payload(M, row, state, proposal_id, source_ref, decision.attempt)
+    return "devloop_timeout_reconcile", conv_reconcile.build_devloop_timeout_reconcile_payload(row, state, proposal_id, source_ref, decision.attempt)
   end
   return nil, nil
 end
@@ -164,7 +158,7 @@ function M.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
   if heartbeat ~= nil then return heartbeat end
   local codex_run = m_rae.actionable_epoch_codex_run_decision(M, row, state, facts, due, age)
   if codex_run ~= nil then return codex_run end
-  local child_workflow = m_rae.actionable_epoch_child_workflow_decision(M, row, state, facts, due, age)
+  local child_workflow = m_rae.actionable_epoch_child_workflow_decision(row, state, facts, due, age)
   if child_workflow ~= nil then return child_workflow end
   if not due then
     return { action = "wait", age_minutes = age }
@@ -208,9 +202,9 @@ local function emit_timeout_attempt_marker(dept, entity, state, row, facts, prop
       and type(eval) == "table"
       and eval.status == "actionable"
       and eval.generation_key ~= nil then
-      devloop_logging.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", conv_attempts.build_timeout_attempt_v2_comment_request(M, target, proposal_id, state, row, source_ref, attempt, eval.generation_key))
+      devloop_logging.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", conv_attempts.build_timeout_attempt_v2_comment_request(target, proposal_id, state, row, source_ref, attempt, eval.generation_key))
     else
-      devloop_logging.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", conv_attempts.build_timeout_attempt_comment_request(M, target, proposal_id, state, row, source_ref, attempt))
+      devloop_logging.log_raise(dept, proposal_id, target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request", conv_attempts.build_timeout_attempt_comment_request(target, proposal_id, state, row, source_ref, attempt))
     end
   end
 end
@@ -219,7 +213,7 @@ local function emit_decompose_exhausted_marker(dept, entity, state, facts, propo
   local target = timeout_attempt_target(entity, facts)
   local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
   if target ~= nil then
-    local request = conv_attempts.build_decompose_exhausted_comment_request(M, target, proposal_id, state, source_ref, attempt)
+    local request = conv_attempts.build_decompose_exhausted_comment_request(target, proposal_id, state, source_ref, attempt)
     devloop_logging.log_apply(dept, proposal_id, nil, nil, { add = {}, remove = {} }, {
       target.kind == "pr" and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request",
     })

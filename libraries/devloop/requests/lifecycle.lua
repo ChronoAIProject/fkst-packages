@@ -1,4 +1,5 @@
 local entity_lib = require("devloop.entity")
+local devloop_state = require("devloop.state")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
@@ -30,7 +31,7 @@ function C.build_observe_comment_request(M, issue, proposal)
   }, issue.source_ref)
 end
 function C.build_result_comment_request(M, repo, issue_number, reached, state_name)
-  local marker = m_builders.result_marker(M, reached.proposal_id, reached.decision, reached.dedup_key)
+  local marker = m_builders.result_marker(reached.proposal_id, reached.decision, reached.dedup_key)
   local canonical_state = state_name or "ready"
   local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready" or "result-marker,ready-label,dependency-hold"
   local state_marker = M.state_marker(reached.proposal_id, canonical_state, tostring(reached.effect_version or reached.dedup_key), effects)
@@ -65,12 +66,12 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
   end
   return request
 end
-function C.result_effects_complete(M, current, reached)
+function C.result_effects_complete(current, reached)
   if type(current) ~= "table" or type(reached) ~= "table" then
     return false
   end
-  return M.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key)
-    and M.state_label_hint_matches(current.labels, "ready")
+  return devloop_state.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key)
+    and devloop_state.state_label_hint_matches(current.labels, "ready")
 end
 
 function C.build_converge_round_comment_request(M, repo, issue_number, unresolved, round, marker_body, handoff)
@@ -136,7 +137,7 @@ function C.build_intake_decision_comment_request(M, repo, issue_number, candidat
     error("github-devloop: invalid intake service class")
   end
   local normalized_class = m_shared.normalize_intake_service_class(service_class)
-  local marker = m_builders.intake_decision_marker(M, candidate.proposal_id, decision, candidate.dedup_key, normalized_class)
+  local marker = m_builders.intake_decision_marker(candidate.proposal_id, decision, candidate.dedup_key, normalized_class)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
     safe_reason = comment_strings.comment_string(M, "no_reason_provided")
@@ -180,7 +181,7 @@ function C.build_implementing_comment_request(M, repo, issue_number, ready, work
   if not forge_validators.is_git_sha(base_sha) then
     error("github-devloop: invalid implementing base_sha")
   end
-  local marker = m_builders.implementing_marker(M, ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha)
+  local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha)
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
@@ -308,10 +309,9 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
   }, ready.source_ref)
 end
 
-function C.build_queue_starvation_reconcile_comment_request(M, repo, merge_ready, cause)
+function C.build_queue_starvation_reconcile_comment_request(repo, merge_ready, cause)
   local attempt_key = cause and cause.attempt_key or "attempt"
-  local marker = m_mq.queue_starvation_reconcile_marker(M,
-    merge_ready.proposal_id,
+  local marker = m_mq.queue_starvation_reconcile_marker(merge_ready.proposal_id,
     merge_ready.pr_number,
     merge_ready.version,
     merge_ready.reviewed_head_sha,

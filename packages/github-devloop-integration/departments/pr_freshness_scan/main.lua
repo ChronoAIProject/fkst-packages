@@ -31,7 +31,7 @@ local blocked_by_skew_label = "fkst-dev:blocked-by-skew"
 local function require_repo(repo)
   local value = tostring(repo or "")
   if value == "" or base_ids.safe_repo(value) ~= value then
-    error("github-devloop: FKST_GITHUB_REPO is required for PR freshness")
+    error("github-devloop: config-missing: FKST_GITHUB_REPO is required for PR freshness")
   end
   return value
 end
@@ -71,8 +71,8 @@ local function has_trusted_text(comments, needle)
   if type(comments) ~= "table" then
     return false
   end
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(core, comments)) do
-    if parsers_misc._comment_body(core, comment):find(needle, 1, true) ~= nil then
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    if parsers_misc._comment_body(comment):find(needle, 1, true) ~= nil then
       return true
     end
   end
@@ -84,8 +84,8 @@ local function has_approval_marker(comments, issue_proposal_id, pr_number, head_
     return false
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:review%-result:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(core, comments)) do
-    for marker in parsers_misc._comment_body(core, comment):gmatch(marker_pattern) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local review_proposal = marker:match('proposal="([^"]+)"')
       local _, reviewed_pr_number, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_proposal)
       if marker:match('decision="([^"]+)"') == "approve"
@@ -130,7 +130,7 @@ local function candidate_reason(pr, origin, issue, state)
   if is_approved(pr, origin) then
     return "approved"
   end
-  if m_facts.merge_ready_fact(core, pr.comments, origin.proposal_id, state.version, pr.number) ~= nil then
+  if m_facts.merge_ready_fact(pr.comments, origin.proposal_id, state.version, pr.number) ~= nil then
     return "approved"
   end
   if is_blocked_by_skew(pr, issue) and is_imminently_mergeable(pr) then
@@ -141,12 +141,12 @@ end
 
 local function load_current_pr(repo, pr_number)
   local viewed = git_mechanics.run_required(devloop_commands.gh_pr_view_freshness(repo, pr_number, 30), "PR freshness view")
-  return parsers_pr.parse_pr_view_merge(core, viewed.stdout)
+  return parsers_pr.parse_pr_view_merge(viewed.stdout)
 end
 
 local function list_open_prs(repo)
   local listed = git_mechanics.run_required(devloop_commands.gh_pr_list_freshness(repo, 30), "PR freshness list")
-  return parsers_pr.parse_pr_list_freshness(core, listed.stdout)
+  return parsers_pr.parse_pr_list_freshness(listed.stdout)
 end
 
 local function raise_conflict(repo, branch, integration, branch_sha, integration_sha, pr_number)
@@ -193,13 +193,13 @@ local function push_if_real(repo, branch, branch_sha, worktree)
   end
   local merge_head = trim_stdout(git_mechanics.run_required(git("github-devloop").git_head_sha(worktree, 30), "PR freshness head"))
   if not require("devloop.pr_safety").is_safe_head_sha(merge_head) then
-    error("github-devloop: unsafe PR freshness merge head")
+    error("github-devloop: unsafe-head-sha: unsafe PR freshness merge head")
   end
   git_mechanics.run_required(git("github-devloop").git_push_worktree_branch_update_with_lease(worktree, branch, branch_sha, 120), "PR freshness push")
   git_mechanics.fetch_branches(core.git, repo, { branch }, "PR freshness fetch")
   local pushed_head = git_mechanics.remote_head(core.git, branch, "PR freshness remote head", "unsafe PR freshness branch head")
   if pushed_head ~= merge_head then
-    error("github-devloop: PR freshness push verification failed")
+    error("github-devloop: push-verification-mismatch: PR freshness push verification failed")
   end
   devloop_logging.log_apply("pr_freshness_scan", "pr-freshness", "refreshed", merge_head, {}, {})
 end
@@ -219,17 +219,17 @@ end
 local function process_pr(repo, branches, listed_pr)
   local pr = load_current_pr(repo, listed_pr.number)
   pr.number = listed_pr.number
-  local origin = m_facts.pr_origin_fact(core, pr.comments)
+  local origin = m_facts.pr_origin_fact(pr.comments)
   if not in_managed_scope(repo, branches, pr, origin) then
     devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = nil, version = nil }, "tick", "freshness", "skip-foreign(pr-shape)", "PR is outside managed freshness scope")
     return
   end
 
   local issue = issue_state(repo, origin.issue_number)
-  if not m_claims.verify_pr_review_issue_claim(core, "pr_freshness_scan", origin.repo, origin.issue_number, issue, origin.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("pr_freshness_scan", origin.repo, origin.issue_number, issue, origin.proposal_id) then
     return
   end
-  local state = require("devloop.entity").current_entity_state(core, pr.comments, origin.proposal_id)
+  local state = require("devloop.entity").current_entity_state(pr.comments, origin.proposal_id)
   local reason, skip_reason = candidate_reason(pr, origin, issue, state)
   if reason == nil then
     devloop_logging.log_cas_decision("pr_freshness_scan", origin.proposal_id, state, "tick", "freshness", "skip-idempotent(" .. skip_reason .. ")", "PR is not a freshness candidate")
@@ -259,13 +259,13 @@ local function process_pr(repo, branches, listed_pr)
       end
       local unmerged = core.git.unmerged_paths(worktree, 30)
       if unmerged.exit_code ~= 0 then
-        error("github-devloop: PR freshness unmerged path check failed: " .. tostring(unmerged.stderr))
+        error("github-devloop: unmerged-path-check-failed: PR freshness unmerged path check failed: " .. tostring(unmerged.stderr))
       end
       if tostring(unmerged.stdout or "") ~= "" then
         raise_conflict(repo, pr.head_ref_name, branches.integration, branch_sha, integration_sha, listed_pr.number)
         return
       end
-      error("github-devloop: PR freshness merge failed without conflicts: " .. tostring(merge_result.stderr))
+      error("github-devloop: merge-conflict-state-missing: PR freshness merge failed without conflicts: " .. tostring(merge_result.stderr))
     end)
   end)
 end

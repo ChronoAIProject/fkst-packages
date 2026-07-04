@@ -24,10 +24,10 @@ local function newest_matching_marker_age(M, comments, family, matches, now_seco
   local pattern_family = tostring(family or ""):gsub("%-", "%%-")
   local marker_pattern = "<!%-%- fkst:github%-devloop:" .. pattern_family .. ":v1.-%-%->"
   local newest_age = nil
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, comments or {})) do
-    local age = signal_age_from_created_at(M, parsers_misc._comment_created_at(M, comment), now_seconds)
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
+    local age = signal_age_from_created_at(M, parsers_misc._comment_created_at(comment), now_seconds)
     if age ~= nil and (newest_age == nil or age < newest_age) then
-      for marker in parsers_misc._comment_body(M, comment):gmatch(marker_pattern) do
+      for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
         if matches(marker) then
           newest_age = age
           break
@@ -43,9 +43,9 @@ local function matching_marker_age_or_zero(M, comments, family, matches, now_sec
   local marker_pattern = "<!%-%- fkst:github%-devloop:" .. pattern_family .. ":v1.-%-%->"
   local newest_age = nil
   local found = false
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, comments or {})) do
-    local age = signal_age_from_created_at(M, parsers_misc._comment_created_at(M, comment), now_seconds)
-    for marker in parsers_misc._comment_body(M, comment):gmatch(marker_pattern) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
+    local age = signal_age_from_created_at(M, parsers_misc._comment_created_at(comment), now_seconds)
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       if matches(marker) then
         found = true
         if age ~= nil and (newest_age == nil or age < newest_age) then
@@ -289,7 +289,7 @@ local function merge_gate_wait_identity(M, facts, state)
     pr_number = facts.link.pr_number
   end
   return (facts and facts.proposal_id) or (state and state.proposal_id),
-    m_mgw.merge_gate_wait_version_lineage(M, state and state.version),
+    m_mgw.merge_gate_wait_version_lineage(state and state.version),
     pr_number,
     head_sha,
     source_repo
@@ -333,7 +333,7 @@ local function pr_delegation_child_state_proposal_id(M, facts, parent_proposal_i
   end
   return fact_child_state_proposal_id(
     M,
-    m_facts.pr_delegation_fact(M, delegation_comments(facts), parent_proposal_id, delegation_version),
+    m_facts.pr_delegation_fact(delegation_comments(facts), parent_proposal_id, delegation_version),
     parent_proposal_id,
     delegation_version
   )
@@ -418,7 +418,7 @@ local function live_signal_age(M, row, state, facts, now_seconds)
   if resolver == "converge-round" then
     local source_ref = facts and facts.source_ref
     local sr_digest = convergence_shared.source_ref_digest(source_ref)
-    local base_version = M.version_loop_round(signal_version) > 0 and conv_rounds.converge_base_version(M, signal_version) or signal_version
+    local base_version = M.version_loop_round(signal_version) > 0 and conv_rounds.converge_base_version(signal_version) or signal_version
     return newest_matching_marker_age(M, comments, "converge-round", function(marker)
       return marker_attr(marker, "proposal") == tostring(proposal_id)
         and marker_attr(marker, "version") == tostring(base_version)
@@ -467,9 +467,9 @@ local function live_signal_age(M, row, state, facts, now_seconds)
     local latest = nil
     local pattern_family = "state"
     local marker_pattern = "<!%-%- fkst:github%-devloop:" .. pattern_family .. ":v1.-%-%->"
-    for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, comments or {})) do
-      local age = signal_age_from_created_at(M, parsers_misc._comment_created_at(M, comment), now_seconds)
-      for marker in parsers_misc._comment_body(M, comment):gmatch(marker_pattern) do
+    for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
+      local age = signal_age_from_created_at(M, parsers_misc._comment_created_at(comment), now_seconds)
+      for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
         if marker_attr(marker, "proposal") == tostring(child_state_proposal_id) then
           local child_state = marker_attr(marker, "state")
           if terminal_states[child_state] ~= true

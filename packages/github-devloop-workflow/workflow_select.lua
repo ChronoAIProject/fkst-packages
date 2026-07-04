@@ -2,8 +2,8 @@ local core = require("core")
 local blueprint = require("core.blueprint")
 local catalog = require("core.catalog")
 local default_catalog = require("core.default_catalog")
+local default_intake = require("core.default_intake")
 local fail = require("core.errors").fail
-local default_intake = require("devloop.intake.default_intake")
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -99,8 +99,8 @@ function M.load_catalog_for_ctx(ctx)
 end
 
 local function has_existing_blueprint(ctx)
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(core, ctx.current and ctx.current.comments or {})) do
-    if core.marker.parse_blueprint_marker(parsers_misc.comment_body(core, comment), ctx.candidate.proposal_id) ~= nil then
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(ctx.current and ctx.current.comments or {})) do
+    if core.marker.parse_blueprint_marker(parsers_misc.comment_body(comment), ctx.candidate.proposal_id) ~= nil then
       return true
     end
   end
@@ -122,8 +122,8 @@ local function has_workflow_lineage_header(ctx)
   if core.marker.parse_lineage_header(current.body or "") ~= nil then
     return true
   end
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(core, current.comments or {})) do
-    if core.marker.parse_lineage_header(parsers_misc.comment_body(core, comment)) ~= nil then
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(current.comments or {})) do
+    if core.marker.parse_lineage_header(parsers_misc.comment_body(comment)) ~= nil then
       return true
     end
   end
@@ -221,7 +221,7 @@ local function workflow_digest(eligible)
     table.insert(lines, "  summary: " .. devloop_base.neutralize_untrusted_prompt_text(blueprint.summary))
     table.insert(lines, "  applies_when: " .. devloop_base.neutralize_untrusted_prompt_text(blueprint.applies_when))
   end
-  return devloop_base.quote_untrusted_prompt_text(nil, table.concat(lines, "\n"))
+  return devloop_base.quote_untrusted_prompt_text(table.concat(lines, "\n"))
 end
 
 function M.build_workflow_select_prompt(ctx, eligible)
@@ -234,9 +234,9 @@ function M.build_workflow_select_prompt(ctx, eligible)
   return devloop_base.render_template(workflow_select_prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(ctx.candidate and ctx.candidate.proposal_id),
     workflow_digest = digest,
-    title = devloop_base.quote_untrusted_prompt_text(nil, current.title),
-    body = devloop_base.quote_untrusted_prompt_text(nil, current.body),
-    comments = devloop_base.quote_untrusted_prompt_text(nil, comments),
+    title = devloop_base.quote_untrusted_prompt_text(current.title),
+    body = devloop_base.quote_untrusted_prompt_text(current.body),
+    comments = devloop_base.quote_untrusted_prompt_text(comments),
     execution_boundary = execution_boundary_clause("Judge only from the issue data and offered workflow catalog entries provided in this prompt."),
   })
 end

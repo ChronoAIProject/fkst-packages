@@ -165,7 +165,7 @@ local function payload_for_queue(queue)
       },
       service_class = "standard",
     }),
-    devloop_fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload(core, {
+    devloop_fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
       review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/3", "def456"),
       review_dedup_key = "consensus:" .. devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/3", "def456") .. "/review",
@@ -186,7 +186,7 @@ local function payload_for_queue(queue)
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     },
     devloop_liveness_tick = { schema = "github-devloop.tick.v1" },
-    devloop_merge_queue_tick = m_mq.merge_queue_tick_payload(core, "owner/repo", 6, {
+    devloop_merge_queue_tick = m_mq.merge_queue_tick_payload("owner/repo", 6, {
       proposal_id = "github-devloop/issue/owner/repo/42",
       pr_number = 7,
       version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
@@ -196,7 +196,7 @@ local function payload_for_queue(queue)
       head_sha = "def456",
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     }),
-    devloop_merge_ready = payloads_builders.build_devloop_merge_ready_payload(core, "github-devloop/issue/owner/repo/42", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", {
+    devloop_merge_ready = payloads_builders.build_devloop_merge_ready_payload("github-devloop/issue/owner/repo/42", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", {
       review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", "def456"),
       review_dedup_key = "consensus:" .. devloop_base.pr_review_proposal_id("owner/repo", 7, "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", "def456") .. "/review",
       reviewed_head_sha = "def456",
@@ -214,19 +214,19 @@ local function payload_for_queue(queue)
       source_ref = { kind = "external", ref = "owner/repo#issue/42" },
       include_ready_hand_off = true,
     }),
-    devloop_reconcile = conv_reconcile.build_devloop_reconcile_payload(core, {
+    devloop_reconcile = conv_reconcile.build_devloop_reconcile_payload({
       schema = "consensus.consensus_converge.v1",
       proposal_id = "github-devloop/issue/owner/repo/42",
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/3",
       source_ref = { kind = "external", ref = "owner/repo#issue/42" },
     }, 3, "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"),
-    devloop_review_meta = payloads_builders.build_devloop_review_meta_payload(core, {
+    devloop_review_meta = payloads_builders.build_devloop_review_meta_payload({
       schema = "consensus.consensus_converge.v1",
       proposal_id = review_proposal_id(),
       dedup_key = "consensus:" .. review_proposal_id() .. "/review/loop/2",
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     }, "github-devloop/issue/owner/repo/42", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", 7, 3),
-    devloop_review_reconcile = conv_reconcile.build_devloop_review_reconcile_payload(core, {
+    devloop_review_reconcile = conv_reconcile.build_devloop_review_reconcile_payload({
       schema = "consensus.consensus_converge.v1",
       proposal_id = review_proposal_id(),
       dedup_key = "consensus:" .. review_proposal_id() .. "/review/loop/3",
@@ -254,7 +254,7 @@ local function payload_for_queue(queue)
       mode = "round_trip",
       root = "/tmp/fkst-packages-test/github-devloop-unsupported-context-bundle",
     },
-    devloop_timeout_reconcile = conv_reconcile.build_devloop_timeout_reconcile_payload(core, {
+    devloop_timeout_reconcile = conv_reconcile.build_devloop_timeout_reconcile_payload({
       from_state = "ready",
     }, {
       version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/timeout/ready/1",

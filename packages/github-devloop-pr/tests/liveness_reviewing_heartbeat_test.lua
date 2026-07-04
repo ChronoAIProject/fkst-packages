@@ -140,7 +140,7 @@ local function state_comment(state_name, state_version, created_at)
 end
 
 local function timeout_attempt_comment(state_version, round)
-  return trusted_comment(conv_attempts.timeout_attempt_marker(core, proposal_id, state_version, "reviewing", round, entity_lib.pr_source_ref(repo, 7)))
+  return trusted_comment(conv_attempts.timeout_attempt_marker(proposal_id, state_version, "reviewing", round, entity_lib.pr_source_ref(repo, 7)))
 end
 
 local function review_round_comment(created_at)
@@ -187,7 +187,7 @@ end
 return {
   test_liveness_scan_reviewing_recent_pr_converge_round_does_not_timeout_count = function()
     local result = run_with_pr_comments("liveness-scan-reviewing-pr-heartbeat-live", {
-      m_builders.pr_origin_marker(core, proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
       state_comment("reviewing", version, "2026-06-03T00:00:00Z"),
       review_round_comment(os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60)),
     })
@@ -200,7 +200,7 @@ return {
   test_liveness_scan_reviewing_stale_past_budget_pr_converge_round_climbs_to_blocked = function()
     local timeout_version = version .. "/timeout/reviewing/3"
     local result = run_with_pr_comments("liveness-scan-reviewing-pr-heartbeat-stale", {
-      m_builders.pr_origin_marker(core, proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
       state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
       timeout_attempt_comment(version, 1),
       timeout_attempt_comment(version, 2),
@@ -245,7 +245,7 @@ return {
   test_observe_pr_reviewing_recent_pr_converge_round_does_not_escalate_timeout = function()
     local timeout_version = version .. "/timeout/reviewing/2"
     local result = run_observe_with_pr_comments("observe-pr-reviewing-pr-heartbeat-live", {
-      m_builders.pr_origin_marker(core, proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
       state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
       timeout_attempt_comment(version, 1),
       timeout_attempt_comment(version, 2),
@@ -260,7 +260,7 @@ return {
   test_observe_pr_reviewing_stale_past_budget_pr_converge_round_escalates_timeout = function()
     local timeout_version = version .. "/timeout/reviewing/2"
     local result = run_observe_with_pr_comments("observe-pr-reviewing-pr-heartbeat-stale", {
-      m_builders.pr_origin_marker(core, proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
+      m_builders.pr_origin_marker(proposal_id, "42", "devloop-owner-repo-42-01HY", version, "dev"),
       state_comment("reviewing", timeout_version, "2026-06-03T00:00:00Z"),
       timeout_attempt_comment(version, 1),
       timeout_attempt_comment(version, 2),

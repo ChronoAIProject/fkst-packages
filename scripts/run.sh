@@ -88,8 +88,6 @@ DEFAULT_DURABLE_ROOT="$FKST_DIR/run/durable"
 . "$ROOT/scripts/host_entry.sh"
 # shellcheck source=scripts/composed_manifest.sh
 . "$ROOT/scripts/composed_manifest.sh"
-# shellcheck source=scripts/composed_conformance.sh
-. "$ROOT/scripts/composed_conformance.sh"
 # shellcheck source=scripts/test_affected.sh
 . "$ROOT/scripts/test_affected.sh"
 
@@ -249,7 +247,7 @@ cmd_check() {
   python3 -B "$ROOT/scripts/check_repo_test_graphql.py" || fail=1
   python3 -B "$ROOT/scripts/check_repo_interface_test.py" || fail=1
   python3 -B "$ROOT/scripts/lua_coverage_to_lcov_test.py" || fail=1
-  python3 -B "$ROOT/scripts/check_repo_test.py" || fail=1; python3 -B "$ROOT/scripts/check_repo_shell_out_to_self_test.py" || fail=1; python3 -B "$ROOT/scripts/check_repo_hidden_state_test.py" || fail=1
+  python3 -B "$ROOT/scripts/check_repo_test.py" || fail=1; python3 -B "$ROOT/scripts/check_repo_error_class_test.py" || fail=1; python3 -B "$ROOT/scripts/check_repo_dependency_cycle_test.py" || fail=1; python3 -B "$ROOT/scripts/check_repo_shell_out_to_self_test.py" || fail=1; python3 -B "$ROOT/scripts/check_repo_hidden_state_test.py" || fail=1
   python3 -B "$ROOT/scripts/check_repo_std_dependency_model_test.py" || fail=1
   python3 -B "$ROOT/scripts/check_repo_saga_head_test.py" || fail=1
   python3 -B "$ROOT/scripts/check_repo_namespaced_queue_test.py" || fail=1
@@ -623,6 +621,69 @@ cmd_test() {
   fi
   rm -rf "$report_dir"
   echo "OK: $ran package(s)"
+}
+
+collect_composed_package() {
+  local name="$1" pkg dep deps rc
+  pkg="$(package_root_for_name "$name")" || { echo "error: composed package dependency not found: $name" >&2; return 1; }
+  [ -d "$pkg" ] || { echo "error: composed package dependency not found: $name" >&2; return 1; }
+  case " ${COMPOSED_SEEN[*]-} " in
+    *" $name "*) return 0 ;;
+  esac
+  COMPOSED_SEEN+=("$name")
+  set +e; deps="$(composition_siblings_of "$pkg")"; rc=$?; set -e
+  case "$rc" in
+    0)
+      while IFS= read -r dep || [ -n "$dep" ]; do
+        [ -n "$dep" ] || continue
+        collect_composed_package "$dep" || return 1
+      done <<< "$deps"
+      ;;
+    1) return 0 ;;
+    *) echo "error: failed to read package composition for $pkg" >&2; return 1 ;;
+  esac
+}
+
+cmd_test_composed() {
+  local pkg name args project_root rc hermetic_var hermetic_env
+  ensure_package_view
+  COMPOSED_SEEN=()
+  for pkg in "$LOCAL_PACKAGES_ROOT"/*/ "$EXTERNAL_PACKAGES_ROOT"/*/; do
+    [ -d "$pkg" ] || continue
+    rc=0; is_composed "$pkg" || rc=$?
+    case "$rc" in
+      0) ;;
+      1) continue ;;
+      *) echo "error: failed to read package composition for $pkg" >&2; return 1 ;;
+    esac
+    name="$(basename "$pkg")"
+    collect_composed_package "$name" || return 1
+  done
+  if [ "${#COMPOSED_SEEN[@]}" -eq 0 ]; then
+    echo "no composed packages matched"
+    return 0
+  fi
+
+  hermetic_env=(env)
+  for hermetic_var in FKST_GITHUB_BOT_LOGIN FKST_GITHUB_CLAIM_MODE FKST_GITHUB_REPO FKST_GITHUB_WRITE FKST_GITHUB_PROXY_POLL_LABEL_PREFIX FKST_DEVLOOP_UPSTREAM_BRANCH FKST_DEVLOOP_INTEGRATION_BRANCH FKST_DEVLOOP_FORK_GRACE_HOURS FKST_DEVLOOP_MAX_INFLIGHT FKST_DEVLOOP_MANAGED_SIBLING_REPOS FKST_DEVLOOP_MANAGED_BOT_LOGINS FKST_DEVLOOP_ROLLUP_MERGE FKST_DEVLOOP_ROLLUP_AUTOFIX FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES FKST_DEVLOOP_RELEASE_NOTES_FALLBACK FKST_DEVLOOP_CONFLICT_LOG_CMD FKST_DEVLOOP_BOARD_CMD FKST_DEVLOOP_TEST_COMMAND FKST_OUTPUT_LANG FKST_DEBUG_STAMP; do
+    hermetic_env+=(-u "$hermetic_var")
+  done
+
+  args=()
+  project_root="$(package_root_for_name "${COMPOSED_SEEN[0]}")" || return 1
+  for name in "${COMPOSED_SEEN[@]}"; do
+    pkg="$(package_root_for_name "$name")" || return 1
+    args+=(--package-root "$pkg")
+  done
+  for pkg in "$LOCAL_PACKAGES_ROOT"/*/ "$EXTERNAL_PACKAGES_ROOT"/*/; do
+    [ -d "$pkg" ] || continue
+    case " ${COMPOSED_SEEN[*]} " in
+      *" $(basename "$pkg") "*) continue ;;
+    esac
+    args+=(--package-root "${pkg%/}")
+  done
+  echo "=== composed conformance ==="
+  run_quiet_pass "${hermetic_env[@]}" "$BIN" conformance --project-root "$project_root" "${args[@]}"
 }
 
 cmd_run() {

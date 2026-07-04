@@ -138,7 +138,7 @@ local function mock_intake_codex(stdout)
 end
 
 local function candidate(extra)
-  local value = payloads_builders.build_devloop_intake_candidate_payload(core, "owner/repo", 42, "2026-06-03T01:02:03Z")
+  local value = payloads_builders.build_devloop_intake_candidate_payload("owner/repo", 42, "2026-06-03T01:02:03Z")
   for key, field in pairs(extra or {}) do
     value[key] = field
   end
@@ -418,7 +418,7 @@ return {
   test_golden_judge_reintake_active_state_refusal = function()
     local command = trusted_reintake_command("IC_reintake_active")
     local base = candidate()
-    local command_fact = operator_commands.operator_command_fact(core, { command }, "reintake")
+    local command_fact = operator_commands.operator_command_fact({ command }, "reintake")
     local payload = candidate({
       effect_id = decision_key(base, nil, command),
       reintake_command_created_at = command.created_at,
@@ -426,7 +426,7 @@ return {
     payload.dedup_key = core.intake_candidate_delivery_dedup_key(payload.proposal_id, payload.effect_id, payload.effect_id)
     h.mock_bot_env()
     mock_intake_judge_view({ "fkst-dev:thinking" }, {
-      m_builders.intake_decision_marker(core, payload.proposal_id, "decline", payload.effect_id, "standard"),
+      m_builders.intake_decision_marker(payload.proposal_id, "decline", payload.effect_id, "standard"),
       command,
     })
 

@@ -17,14 +17,12 @@ local spec = {
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_create_request",
   },
-  fanout = { "github-proxy.github_entity_changed" },
+  fanout = { "github-proxy.github_entity_changed", "devloop_intake_candidate" },
   stall_window = "30s",
 }
 
 local function raise_reintake_refusal(repo, issue_number, proposal_id, command, reason, source_ref)
-  local request = operator_commands.build_operator_issue_command_refusal_request(
-    core,
-    repo,
+  local request = operator_commands.build_operator_issue_command_refusal_request(repo,
     tostring(issue_number),
     command,
     reason,
@@ -43,7 +41,7 @@ local function handle_pending_reintake(repo, issue, current, proposal_id, source
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an open issue", source_ref)
     return true
   end
-  if not m_facts.has_intake_decision_marker(core, current.comments, proposal_id) then
+  if not m_facts.has_intake_decision_marker(current.comments, proposal_id) then
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an existing intake decision", source_ref)
     return true
   end
@@ -108,7 +106,7 @@ local function admit_issue_event(event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-known-state", "fresh issue labels show an active devloop state")
     return
   end
-  if m_facts.has_intake_decision_marker(core, current.comments, proposal_id) then
+  if m_facts.has_intake_decision_marker(current.comments, proposal_id) then
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
   end
@@ -148,6 +146,6 @@ end
 return saga.department(spec, {
   done = done,
   act = act,
-  wrap = core.wrap_pipeline_failure,
+  wrap = devloop_logging.wrap_pipeline_failure,
   name = "admission",
 })

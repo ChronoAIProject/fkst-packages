@@ -42,8 +42,7 @@ end
 
 local function converge_round_comment(created_at)
   local source_ref = entity_lib.issue_source_ref(repo, 42)
-  return trusted_comment(conv_rounds.converge_round_marker(core,
-    proposal_id,
+  return trusted_comment(conv_rounds.converge_round_marker(proposal_id,
     version,
     convergence_shared.source_ref_digest(source_ref),
     1,
@@ -54,15 +53,15 @@ local function converge_round_comment(created_at)
 end
 
 local function merge_gate_wait_comment(state_version, created_at)
-  return trusted_comment(m_mgw.merge_gate_wait_marker(core, proposal_id, 7, state_version, head_sha, "ci-wait", "CI_WAIT"), created_at)
+  return trusted_comment(m_mgw.merge_gate_wait_marker(proposal_id, 7, state_version, head_sha, "ci-wait", "CI_WAIT"), created_at)
 end
 
 local function timeout_attempt_comment(state_name, state_version, round, source_ref)
-  return trusted_comment(conv_attempts.timeout_attempt_marker(core, proposal_id, state_version, state_name, round, source_ref), "2026-06-03T00:00:00Z")
+  return trusted_comment(conv_attempts.timeout_attempt_marker(proposal_id, state_version, state_name, round, source_ref), "2026-06-03T00:00:00Z")
 end
 
 local function timeout_attempt_v2_comment(row, generation_key, round, source_ref)
-  return trusted_comment(conv_attempts.timeout_attempt_v2_marker(core, proposal_id, row.from_state, row.liveness_class_id, generation_key, round, source_ref), "2026-06-03T00:00:00Z")
+  return trusted_comment(conv_attempts.timeout_attempt_v2_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key, round, source_ref), "2026-06-03T00:00:00Z")
 end
 
 local function implementing_attempt_comment(state_version, started_at, created_at, attempt, exec_ref)
@@ -367,7 +366,7 @@ return {
     local source_ref = entity_lib.pr_source_ref(repo, 7)
     local wait_age_minutes = 391
     local now_seconds = timeout_reconcile_age_clock()
-    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(core, row, {
+    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(row, {
       state = "merge-ready",
       version = timeout_version,
     }, proposal_id, source_ref, 3)
@@ -391,7 +390,7 @@ return {
     local source_ref = entity_lib.pr_source_ref(repo, 7)
     local wait_age_minutes = 391
     local now_seconds = timeout_reconcile_age_clock()
-    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(core, row, {
+    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(row, {
       state = "merge-ready",
       version = timeout_version,
     }, proposal_id, source_ref, 3)
@@ -414,7 +413,7 @@ return {
     local source_ref = entity_lib.pr_source_ref(repo, 7)
     local wait_age_minutes = 391
     local now_seconds = timeout_reconcile_age_clock()
-    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(core, row, {
+    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(row, {
       state = "merge-ready",
       version = timeout_version,
     }, proposal_id, source_ref, 3)

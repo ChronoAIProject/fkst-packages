@@ -6,17 +6,17 @@ local dispatch_live_run = require("devloop.dispatch_live_run")
 function S.install(M)
 
 function M.implement_exec_ref(proposal_id, dedup_key)
-  return dispatch_live_run.dispatch_live_run_exec_ref(M, "implement", proposal_id, dedup_key)
+  return dispatch_live_run.dispatch_live_run_exec_ref("implement", proposal_id, dedup_key)
 end
 
 function M.implement_exec_ref_running(exec_ref, status)
-  return dispatch_live_run.dispatch_live_run_exec_ref_running(M, "implement", exec_ref, status)
+  return dispatch_live_run.dispatch_live_run_exec_ref_running("implement", exec_ref, status)
 end
 
 function M.implement_attempt_marker(proposal_id, dedup_key, attempt, started_at, exec_ref)
   local n = tonumber(attempt)
   if n == nil or n < 1 or n ~= math.floor(n) then
-    error("github-devloop: invalid implement attempt")
+    error("github-devloop: invalid-attempt: invalid implement attempt")
   end
   local marker = '<!-- fkst:github-devloop:implement-attempt:v1 proposal="' .. tostring(proposal_id)
     .. '" dedup="' .. tostring(dedup_key)
@@ -35,8 +35,8 @@ function M.latest_implement_attempt_fact(comments, proposal_id, dedup_key)
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:implement%-attempt:v1.-%-%->"
   local latest = nil
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, comments)) do
-    for marker in parsers_misc._comment_body(M, comment):gmatch(marker_pattern) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
       local marker_dedup = marker:match('dedup="([^"]*)"')
       local attempt = tonumber(marker:match('attempt="(%d+)"'))
@@ -82,7 +82,7 @@ end
 function M.implement_version_mismatch_marker(proposal_id, expected_version, current_version, attempt)
   local n = tonumber(attempt)
   if n == nil or n < 1 or n ~= math.floor(n) then
-    error("github-devloop: invalid implement version mismatch attempt")
+    error("github-devloop: invalid-attempt: invalid implement version mismatch attempt")
   end
   return '<!-- fkst:github-devloop:implement-version-mismatch:v1 proposal="' .. tostring(proposal_id)
     .. '" key="' .. devloop_base.implement_version_mismatch_key(expected_version, current_version)
@@ -97,8 +97,8 @@ function M.latest_implement_version_mismatch_fact(comments, proposal_id, expecte
   local expected_key = devloop_base.implement_version_mismatch_key(expected_version, current_version)
   local marker_pattern = "<!%-%- fkst:github%-devloop:implement%-version%-mismatch:v1.-%-%->"
   local latest = nil
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, comments)) do
-    for marker in parsers_misc._comment_body(M, comment):gmatch(marker_pattern) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker:match('proposal="([^"]+)"')
       local marker_key = marker:match('key="([^"]+)"')
       local attempt = tonumber(marker:match('attempt="(%d+)"'))

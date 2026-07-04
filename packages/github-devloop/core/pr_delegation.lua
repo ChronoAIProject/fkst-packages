@@ -25,16 +25,16 @@ end
 
 local function issue_fields(issue, impl_version)
   if type(issue) ~= "table" then
-    error("github-devloop: invalid delegation issue")
+    error("github-devloop: invalid-delegation-input: invalid delegation issue")
   end
   local repo = issue.repo
   local issue_number = issue.number or issue.issue_number
   local proposal_id = issue.proposal_id or base_ids.proposal_id(repo, issue_number)
   if base_ids.parse_proposal_id(proposal_id) == nil then
-    error("github-devloop: invalid delegation issue proposal")
+    error("github-devloop: invalid-delegation-input: invalid delegation issue proposal")
   end
   if not strings.is_bounded_string(impl_version, M._max_dedup_len) then
-    error("github-devloop: invalid delegation implementation version")
+    error("github-devloop: invalid-delegation-input: invalid delegation implementation version")
   end
   return repo, issue_number, proposal_id
 end
@@ -43,7 +43,7 @@ local function delegation_key(proposal_id, impl_version, generation)
   local value = "g" .. tostring(generation or 1)
   value = value:gsub(":", "-")
   if not strings.is_path_safe_key(value, M._max_dedup_len) then
-    error("github-devloop: invalid delegation generation")
+    error("github-devloop: invalid-delegation-input: invalid delegation generation")
   end
   return value
 end
@@ -54,7 +54,7 @@ end
 
 local function parse_open_prs_for_branch(stdout, branch, base_branch)
   local found = {}
-  for _, pr in ipairs(parsers_pr.parse_pr_list_head_base(M, stdout)) do
+  for _, pr in ipairs(parsers_pr.parse_pr_list_head_base(stdout)) do
     if tostring(pr.head_ref_name or "") == tostring(branch)
       and (base_branch == nil or tostring(pr.base_ref_name or "") == tostring(base_branch))
       and tostring(pr.state or ""):lower() ~= "closed" then
@@ -68,7 +68,7 @@ end
 local function find_pr(repo, branch, base_branch)
   local listed = devloop_commands.gh_pr_list_head_base(repo, branch, base_branch, 30)
   if listed.exit_code ~= 0 then
-    error("github-devloop: pr-delegation PR list failed: " .. tostring(listed.stderr))
+    error("github-devloop: pr-list-failed: pr-delegation PR list failed: " .. tostring(listed.stderr))
   end
   local prs = parse_open_prs_for_branch(listed.stdout, branch, base_branch)
   if #prs == 0 then
@@ -87,7 +87,7 @@ local function create_pr(repo, issue_number, branch, base_branch, title, body)
   end
   local created = devloop_commands.gh_pr_create_body(repo, branch, base_branch, effective_title, body, 60)
   if created.exit_code ~= 0 then
-    error("github-devloop: pr-delegation PR create failed: " .. tostring(created.stderr))
+    error("github-devloop: pr-create-failed: pr-delegation PR create failed: " .. tostring(created.stderr))
   end
 end
 
@@ -98,18 +98,18 @@ local function require_head_sha(branch, expected_head)
   end
   local fetched = git_mechanics.current_branch_head_sha(M.git, branch)
   if not require("devloop.pr_safety").is_safe_head_sha(fetched) then
-    error("github-devloop: pr-delegation branch head is missing")
+    error("github-devloop: head-sha-missing: pr-delegation branch head is missing")
   end
   return fetched
 end
 
 local function build_pr_open_comment_request(repo, pr_number, pr_proposal_id, issue_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, source_ref, delegation)
   if not require("devloop.pr_safety").is_safe_head_sha(head_sha) then
-    error("github-devloop: invalid pr-delegation head sha")
+    error("github-devloop: unsafe-head-sha: invalid pr-delegation head sha")
   end
   local body = "github-devloop PR child open"
-    .. "\n\n" .. m_builders.pr_origin_marker(M, issue_proposal_id, issue_number, branch, impl_version, base_branch)
-    .. "\n" .. m_builders.pr_link_marker(M, issue_proposal_id, pr_number, branch, impl_version, base_branch)
+    .. "\n\n" .. m_builders.pr_origin_marker(issue_proposal_id, issue_number, branch, impl_version, base_branch)
+    .. "\n" .. m_builders.pr_link_marker(issue_proposal_id, pr_number, branch, impl_version, base_branch)
     .. "\n" .. devloop_state.state_marker(issue_proposal_id, "pr-open", impl_version)
   local request = entity_lib.build_entity_comment_request({
     kind = "pr",
@@ -132,7 +132,7 @@ local function build_pr_open_comment_request(repo, pr_number, pr_proposal_id, is
 end
 
 local function build_issue_delegation_comment_request(repo, issue_number, issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation, source_ref)
-  local marker = m_builders.pr_delegation_marker(M, issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation)
+  local marker = m_builders.pr_delegation_marker(issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation)
   return entity_lib.build_entity_comment_request({
     kind = "issue",
     repo = repo,
@@ -151,8 +151,7 @@ end
 local function build_parent_awaiting_comment(repo, issue_number, ready, child)
   local body = "github-devloop delegated implementation to PR #" .. tostring(child.pr_number)
     .. "\n\n" .. devloop_state.state_marker(ready.proposal_id, "awaiting-pr", ready.dedup_key)
-    .. "\n" .. m_builders.pr_delegation_marker(M, 
-      ready.proposal_id,
+    .. "\n" .. m_builders.pr_delegation_marker(ready.proposal_id,
       child.pr_proposal_id,
       child.pr_number,
       ready.dedup_key,
@@ -172,7 +171,7 @@ local function build_parent_awaiting_comment(repo, issue_number, ready, child)
 end
 
 local function build_parent_awaiting_label(repo, issue_number, ready, child)
-  return requests_labels.build_state_label_request(M, repo, issue_number, "awaiting-pr", base_ids.dedup_key({
+  return requests_labels.build_state_label_request(repo, issue_number, "awaiting-pr", base_ids.dedup_key({
     "awaiting-pr",
     "label",
     tostring(ready.proposal_id),
@@ -183,7 +182,7 @@ local function build_parent_awaiting_label(repo, issue_number, ready, child)
 end
 
 local function existing_delegation(issue, issue_proposal_id, delegation)
-  local fact = m_facts.pr_delegation_fact(M, issue and issue.comments, issue_proposal_id, nil, delegation)
+  local fact = m_facts.pr_delegation_fact(issue and issue.comments, issue_proposal_id, nil, delegation)
   if fact == nil then
     return nil
   end
@@ -199,7 +198,7 @@ local function existing_delegation(issue, issue_proposal_id, delegation)
 end
 
 local function child_start_facts(comments)
-  local origin = m_facts.pr_origin_fact(M, comments)
+  local origin = m_facts.pr_origin_fact(comments)
   local origin_fields = nil
   local pr_open_reached = false
   if origin ~= nil then
@@ -259,7 +258,7 @@ local function child_from_pr(issue, impl_version, generation, pr, repo, issue_nu
     return nil
   end
   if not require("devloop.pr_safety").is_safe_pr_number(pr.number) then
-    error("github-devloop: pr-delegation adopted invalid PR")
+    error("github-devloop: invalid-pr-number: pr-delegation adopted invalid PR")
   end
   local pr_number = tonumber(pr.number)
   local pr_source_ref = entity_lib.pr_source_ref(repo, pr_number)
@@ -330,10 +329,10 @@ function M.ensure_pr_child(issue, impl_version, generation)
     create_pr(repo, issue_number, branch, base_branch, issue.title, body)
     pr = find_pr(repo, branch, base_branch)
     if pr == nil then
-      error("github-devloop: pr-delegation PR create did not yield an adoptable branch PR")
+      error("github-devloop: pr-evidence-missing: pr-delegation PR create did not yield an adoptable branch PR")
     end
     if pr.head_sha ~= nil and tostring(pr.head_sha):lower() ~= tostring(head_sha):lower() then
-      error("github-devloop: pr-delegation created PR head mismatch")
+      error("github-devloop: head-sha-mismatch: pr-delegation created PR head mismatch")
     end
   end
   local child_start_visible = gate.holds(

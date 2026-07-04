@@ -60,7 +60,7 @@ end
 
 local function thinking_converge_comments(event, rounds, command)
   local proposal_id = base_ids.proposal_id(event.repo, event.number)
-  local base_version = payloads_builders.build_proposal(core, event).dedup_key
+  local base_version = payloads_builders.build_proposal(event).dedup_key
   local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
   local angle_digests = {
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
@@ -69,8 +69,7 @@ local function thinking_converge_comments(event, rounds, command)
     core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
   }
   for n = 1, rounds do
-    table.insert(comments, conv_rounds.converge_round_marker(core,
-      proposal_id,
+    table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
       base_version,
       sr_digest,
       n,
@@ -87,14 +86,13 @@ end
 
 local function thinking_changing_converge_comments(event, rounds, command)
   local proposal_id = base_ids.proposal_id(event.repo, event.number)
-  local base_version = payloads_builders.build_proposal(core, event).dedup_key
+  local base_version = payloads_builders.build_proposal(event).dedup_key
   local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
   local comments = {
     core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
   }
   for n = 1, rounds do
-    table.insert(comments, conv_rounds.converge_round_marker(core,
-      proposal_id,
+    table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
       base_version,
       sr_digest,
       n,
@@ -126,7 +124,7 @@ return {
     local impl_version = reviewing().version
     local command = trusted_command()
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "blocked", impl_version .. "/review-loop/3"),
       command,
     }, "devloop-owner-repo-42-01HY", "feedface")
@@ -145,7 +143,7 @@ return {
       comment_raise.payload.body,
     })
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", reviewing_raise.payload.version),
       comment_raise.payload.body,
     }, "devloop-owner-repo-42-01HY", "feedface")
@@ -157,7 +155,7 @@ return {
   test_untrusted_rereview_command_is_ignored = function()
     local impl_version = reviewing().version
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "blocked", impl_version .. "/review-loop/3"),
       {
         id = "IC_rereview_untrusted",
@@ -177,7 +175,7 @@ return {
     local impl_version = reviewing().version
     local command = trusted_command("IC_rereview_invalid")
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "merge-ready", impl_version),
       command,
     })
@@ -191,7 +189,7 @@ return {
     t.is_true(comment_raise.payload.body:find('outcome="refused"', 1, true) ~= nil)
 
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "merge-ready", impl_version),
       command,
       comment_raise.payload.body,
@@ -206,7 +204,7 @@ return {
     local impl_version = reviewing().version
     local command = trusted_command("IC_rereview_active_reviewing")
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
       command,
     }, "devloop-owner-repo-42-01HY", "feedface")
@@ -231,7 +229,7 @@ return {
       { angle = "minimal", verdict = "abstain", digest = "same-review-digest" },
     }
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
       conv_rounds.review_converge_round_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 1, "base", "Same review question", angle_digests),
       conv_rounds.review_converge_round_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 2, "loop1", "Same review question", angle_digests),
@@ -250,9 +248,8 @@ return {
   test_rereview_command_duplicate_response_is_idempotent = function()
     local impl_version = reviewing().version
     local command = trusted_command("IC_rereview_duplicate")
-    local command_fact = operator_commands.operator_command_fact(core, { command }, "rereview")
-    local response = requests_review.build_operator_rereview_comment_request(core,
-      "owner/repo",
+    local command_fact = operator_commands.operator_command_fact({ command }, "rereview")
+    local response = requests_review.build_operator_rereview_comment_request("owner/repo",
       7,
       "github-devloop/issue/owner/repo/42",
       impl_version .. "/review-loop/4/rereview/4/feedface",
@@ -260,7 +257,7 @@ return {
       { kind = "external", ref = "owner/repo#pr/7" }
     ).body
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "blocked", impl_version .. "/review-loop/3"),
       command,
       response,

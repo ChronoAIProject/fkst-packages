@@ -15,9 +15,9 @@ local function visible_true_stall(M, issue, state, facts)
     end
     local base_version = transition_version.strip_suffixes(state.version)
     local sr_digest = convergence_shared.source_ref_digest(source_ref)
-    local converge_facts = conv_rounds.converge_round_facts(M, current.comments, proposal_id, base_version, sr_digest)
-    local round = conv_rounds.max_converge_round(M, converge_facts)
-    if not conv_rounds.is_true_stall(M, converge_facts, round) then
+    local converge_facts = conv_rounds.converge_round_facts(current.comments, proposal_id, base_version, sr_digest)
+    local round = conv_rounds.max_converge_round(converge_facts)
+    if not conv_rounds.is_true_stall(converge_facts, round) then
       return nil
     end
     return {
@@ -39,7 +39,7 @@ function C.replay_thinking_true_stall_blocked(M, dept, issue, state, facts, log_
     if conv_reconcile.has_reconcile_marker(M, current.comments, proposal_id, reconcile.base_version, reconcile.round) then
       return log_skip(dept, proposal_id, state, "thinking", "blocked", "skip-idempotent(reconcile marker already visible)", "reconcile result marker for visible true-stall round is already visible")
     end
-    local version = conv_reconcile.reconcile_terminal_state_version(M, state.version, reconcile.round)
+    local version = conv_reconcile.reconcile_terminal_state_version(state.version, reconcile.round)
     local transition = M.versioned_transition_status(state, { "thinking" }, "blocked", version)
     if transition == "idempotent" or transition == "stale" then
       return log_skip(dept, proposal_id, state, "thinking", "blocked", M.cas_outcome(state, transition, version), "current marker cannot be reconciled from thinking")

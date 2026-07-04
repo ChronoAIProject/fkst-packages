@@ -1,4 +1,5 @@
 local entity_lib = require("devloop.entity")
+local devloop_state = require("devloop.state")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local strings = require("contract.strings")
@@ -8,8 +9,9 @@ local C = {}
 local forge_validators = require("devloop.forge_validators")
 local shared = require("devloop.payloads.shared")
 local board = require("devloop.payloads.board")
+local transition_version = require("contract.transition_version")
 
-local function commit_subject_title(M, current)
+local function commit_subject_title(current)
   if type(current) ~= "table" then
     return nil
   end
@@ -25,9 +27,9 @@ local function commit_subject_title(M, current)
   return title
 end
 
-local function bounded_commit_subject(M, prefix, issue_number, current)
+local function bounded_commit_subject(prefix, issue_number, current)
   local subject = tostring(prefix) .. " refs #" .. tostring(issue_number)
-  local title = commit_subject_title(M, current)
+  local title = commit_subject_title(current)
   if title ~= nil then
     local title_prefix = subject .. ": "
     local room = 200 - #title_prefix
@@ -62,12 +64,12 @@ function C.build_devloop_ready_payload(M, source)
       state = "ready",
       marker_version = marker_version,
       event_version = ready_version,
-      stage_rank = M.stage_rank("ready"),
+      stage_rank = devloop_state.stage_rank("ready"),
       effects = "result-marker,ready-label,devloop-ready",
       comment_id = source.ready_comment_id,
     }
   end
-  local framing = shared.bounded_framing(M, source.framing)
+  local framing = shared.bounded_framing(source.framing)
   if framing ~= nil then
     payload.framing = framing
   end
@@ -84,7 +86,7 @@ function C.build_devloop_ready_payload(M, source)
   return payload
 end
 
-function C.build_devloop_reviewing_payload(M, origin, pr_number, source_ref, version)
+function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, version)
   local review_version = version or origin.impl_version
   local payload = {
     schema = "github-devloop.reviewing.v1",
@@ -106,25 +108,25 @@ function C.build_devloop_reviewing_payload(M, origin, pr_number, source_ref, ver
       state = "reviewing",
       marker_version = review_version,
       event_version = review_version,
-      stage_rank = M.stage_rank("reviewing"),
+      stage_rank = devloop_state.stage_rank("reviewing"),
       comment_id = origin.reviewing_comment_id,
     }
   end
   return payload
 end
 
-function C.build_current_head_reviewing_payload(M, origin, pr_number, current_pr, state, source_ref)
+function C.build_current_head_reviewing_payload(origin, pr_number, current_pr, state, source_ref)
   local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state.version, current_pr.head_sha)
-  if m_facts.has_any_review_result_marker(M, current_pr.comments, review_proposal_id, origin.proposal_id) then
+  if m_facts.has_any_review_result_marker(current_pr.comments, review_proposal_id, origin.proposal_id) then
     return nil
   end
-  return C.build_devloop_reviewing_payload(M, {
+  return C.build_devloop_reviewing_payload({
     proposal_id = origin.proposal_id,
     impl_version = state.version,
   }, pr_number, source_ref, state.version)
 end
 
-function C.build_devloop_fixing_payload(M, origin, pr_number, review_fact, source_ref)
+function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_ref)
   local version = origin.impl_version
   if review_fact.fix_version ~= nil then
     version = review_fact.fix_version
@@ -146,11 +148,11 @@ function C.build_devloop_fixing_payload(M, origin, pr_number, review_fact, sourc
     }),
     source_ref = base_ids.normalize_source_ref(source_ref),
   }
-  local framing = shared.bounded_framing(M, review_fact.framing or origin.framing)
+  local framing = shared.bounded_framing(review_fact.framing or origin.framing)
   if framing ~= nil then
     payload.framing = framing
   end
-  local blocking_gap = shared.bounded_control_text(M, review_fact.blocking_gap, M._max_blocking_gap_len)
+  local blocking_gap = shared.bounded_control_text(review_fact.blocking_gap, devloop_base._max_blocking_gap_len)
   if blocking_gap ~= nil then
     payload.blocking_gap = blocking_gap
   end
@@ -161,12 +163,12 @@ function C.build_devloop_fixing_payload(M, origin, pr_number, review_fact, sourc
     payload.gate_baseline_sha = tostring(review_fact.gate_baseline_sha)
   end
   if review_fact.predecessor_set ~= nil then
-    if not strings.is_path_safe_key(review_fact.predecessor_set, M._max_dedup_len) then
+    if not strings.is_path_safe_key(review_fact.predecessor_set, devloop_base._max_dedup_len) then
       error("github-devloop: invalid predecessor set")
     end
     payload.predecessor_set = tostring(review_fact.predecessor_set)
   end
-  local gate_failure_excerpt = shared.bounded_control_text(M, review_fact.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len)
+  local gate_failure_excerpt = shared.bounded_control_text(review_fact.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len)
   if gate_failure_excerpt ~= nil then
     payload.gate_failure_excerpt = gate_failure_excerpt
   end
@@ -183,8 +185,8 @@ local function replay_fact_sha(value, fallback)
   return fallback
 end
 
-function C.build_replayed_fixing_payload(M, origin, pr_number, feedback, source_ref)
-  local payload = C.build_devloop_fixing_payload(M, origin, pr_number, {
+function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref)
+  local payload = C.build_devloop_fixing_payload(origin, pr_number, {
     review_proposal_id = feedback.review_proposal_id,
     review_dedup_key = feedback.review_dedup_key,
     reviewed_head_sha = feedback.reviewed_head_sha,
@@ -207,7 +209,7 @@ function C.build_replayed_fixing_payload(M, origin, pr_number, feedback, source_
   return payload
 end
 
-function C.build_devloop_review_meta_payload(M, unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
+function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
   return {
     schema = "github-devloop.review-meta.v1",
     proposal_id = issue_proposal_id,
@@ -228,7 +230,7 @@ function C.build_devloop_review_meta_payload(M, unresolved, issue_proposal_id, i
   }
 end
 
-function C.fix_reflection_dedup_key(M, issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
+function C.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
   return base_ids.dedup_key({
     "fix-reflection",
     tostring(issue_proposal_id),
@@ -239,20 +241,20 @@ function C.fix_reflection_dedup_key(M, issue_proposal_id, issue_version, pr_numb
   })
 end
 
-function C.build_devloop_fix_reflection_payload(M, unresolved, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
+function C.build_devloop_fix_reflection_payload(unresolved, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
   local review_dedup_key = unresolved.review_dedup_key or unresolved.dedup_key
-  local payload = C.build_devloop_review_meta_payload(M, {
+  local payload = C.build_devloop_review_meta_payload({
     proposal_id = unresolved.proposal_id,
     dedup_key = review_dedup_key,
     source_ref = unresolved.source_ref,
   }, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
   payload.mode = "fix-reflection"
   payload.fix_round = fix_round
-  payload.dedup_key = C.fix_reflection_dedup_key(M, issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
+  payload.dedup_key = C.fix_reflection_dedup_key(issue_proposal_id, issue_version, pr_number, fix_round, review_dedup_key)
   return payload
 end
 
-function C.build_devloop_merge_ready_payload(M, issue_proposal_id, pr_number, version, review_fact, source_ref)
+function C.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, version, review_fact, source_ref)
   local current_head_sha = review_fact and review_fact.current_head_sha
   if current_head_sha == nil then
     current_head_sha = review_fact and review_fact.reviewed_head_sha
@@ -277,7 +279,7 @@ function C.build_devloop_merge_ready_payload(M, issue_proposal_id, pr_number, ve
   }
 end
 
-function C.build_devloop_decompose_payload(M, fix_reconcile)
+function C.build_devloop_decompose_payload(fix_reconcile)
   return {
     schema = "github-devloop.decompose.v1",
     proposal_id = fix_reconcile.proposal_id,
@@ -296,16 +298,16 @@ function C.build_devloop_decompose_payload(M, fix_reconcile)
   }
 end
 
-function C.build_devloop_intake_candidate_payload(M, repo, issue_number, updated_at, options)
+function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at, options)
   local opts = options or {}
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local source_ref = {
     kind = "external",
     ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
   }
-  local effect_id = opts.effect_id or M.intake_dedup_key(proposal_id, updated_at)
+  local effect_id = opts.effect_id or devloop_base.intake_dedup_key(proposal_id, updated_at)
   local dedup_key = opts.dedup_key
-    or (opts.effect_id ~= nil and M.intake_candidate_delivery_dedup_key(proposal_id, effect_id, opts.delivery_version))
+    or (opts.effect_id ~= nil and devloop_base.intake_candidate_delivery_dedup_key(proposal_id, effect_id, opts.delivery_version))
     or effect_id
   return {
     schema = "github-devloop.intake-candidate.v1",
@@ -319,11 +321,11 @@ function C.build_devloop_intake_candidate_payload(M, repo, issue_number, updated
   }
 end
 
-function C.build_proposal(M, issue)
+function C.build_proposal(issue)
   local proposal_id = base_ids.proposal_id(issue.repo, issue.number)
   local title = tostring(issue.title or "")
-  if #title > M._max_title_len then
-    title = base_ids.truncate_utf8(title, M._max_title_len)
+  if #title > devloop_base._max_title_len then
+    title = base_ids.truncate_utf8(title, devloop_base._max_title_len)
   end
   local body = "Judge the current GitHub issue from the full source content."
     .. "\nIssue: " .. tostring(issue.repo) .. "#" .. tostring(issue.number)
@@ -342,7 +344,7 @@ function C.build_proposal(M, issue)
 end
 
 function C.build_board_proposal(M, issue, tick)
-  return board.append_board_digest_to_proposal(M, C.build_proposal(M, issue), issue.repo, tick)
+  return board.append_board_digest_to_proposal(M, C.build_proposal(issue), issue.repo, tick)
 end
 
 -- Thread the meta-judge's narrowing onto a re-raised next-round proposal so the next
@@ -364,7 +366,7 @@ local function apply_converge_fields(proposal, n, converge)
   return proposal
 end
 
-function C.build_loop_proposal(M, repo, issue_number, current, source_ref, n, converge, content_fetch, dedup_key)
+function C.build_loop_proposal(repo, issue_number, current, source_ref, n, converge, content_fetch, dedup_key)
   local issue = {
     repo = repo,
     number = issue_number,
@@ -373,13 +375,13 @@ function C.build_loop_proposal(M, repo, issue_number, current, source_ref, n, co
     source_ref = source_ref,
     content_fetch = content_fetch,
   }
-  local proposal = C.build_proposal(M, issue)
-  proposal.dedup_key = dedup_key or (proposal.dedup_key .. "/loop/" .. tostring(n))
+  local proposal = C.build_proposal(issue)
+  proposal.dedup_key = dedup_key or transition_version.loop_at(proposal.dedup_key, n)
   return apply_converge_fields(proposal, n, converge)
 end
 
 function C.build_board_loop_proposal(M, repo, issue_number, current, source_ref, n, converge, tick, content_fetch, dedup_key)
-  return board.append_board_digest_to_proposal(M, C.build_loop_proposal(M, repo, issue_number, current, source_ref, n, converge, content_fetch, dedup_key), repo, tick)
+  return board.append_board_digest_to_proposal(M, C.build_loop_proposal(repo, issue_number, current, source_ref, n, converge, content_fetch, dedup_key), repo, tick)
 end
 
 local function apply_high_risk_angles(proposal, high_risk)
@@ -415,7 +417,7 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
     .. "\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment."
     .. "\nRead the local context bundle before judging."
   local issue_proposal_id = tostring(issue_number ~= nil and base_ids.proposal_id(repo, issue_number) or entity_lib.pr_proposal_id(repo, pr_number))
-  local ledger = m_facts.review_prior_round_ledger(M, pr_comments, issue_proposal_id, version)
+  local ledger = m_facts.review_prior_round_ledger(pr_comments, issue_proposal_id, version)
   if ledger ~= nil and ledger ~= "" then
     body = body
       .. "\nPrior review ledger:\n"
@@ -447,7 +449,7 @@ end
 
 function C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key)
   local proposal = C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk)
-  proposal.dedup_key = dedup_key or (proposal.dedup_key .. "/loop/" .. tostring(n))
+  proposal.dedup_key = dedup_key or transition_version.loop_at(proposal.dedup_key, n)
   return apply_converge_fields(proposal, n, converge)
 end
 
@@ -455,11 +457,11 @@ function C.build_board_pr_review_loop_proposal(M, repo, issue_number, pr_number,
   return board.append_board_digest_to_proposal(M, C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key), repo, tick)
 end
 
-function C.implement_commit_subject(M, issue_number, current)
-  return bounded_commit_subject(M, "auto-implement", issue_number, current)
+function C.implement_commit_subject(issue_number, current)
+  return bounded_commit_subject("auto-implement", issue_number, current)
 end
 
-function C.fix_commit_subject(M, issue_number, current)
-  return bounded_commit_subject(M, "auto-fix", issue_number, current)
+function C.fix_commit_subject(issue_number, current)
+  return bounded_commit_subject("auto-fix", issue_number, current)
 end
 return C

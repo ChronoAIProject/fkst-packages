@@ -1,6 +1,8 @@
 local devloop_base = require("devloop.base")
 local convergence_shared, poll_fakes = require("devloop.convergence.shared"), require("devloop.hidden_state_conformance.poll_fakes")
+local declarations = require("devloop.hidden_state_conformance.declarations")
 local contract_time = require("contract.time")
+local transition_version = require("contract.transition_version")
 local decompose_lib = require("devloop.decompose")
 local replayer = require("devloop.replayer")
 local conv_rounds = require("devloop.convergence.rounds")
@@ -23,6 +25,14 @@ local BASE_SHA = "fedcba9876543210fedcba9876543210fedcba98"
 local ALT_HEAD_SHA = "89abcdef0123456789abcdef0123456789abcdef"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
 local PR_SOURCE_REF = { kind = "external", ref = "owner/repo#pr/7" }
+local key = declarations.key
+local key_prefix = declarations.key_prefix
+local load_allowlist = declarations.load_allowlist
+local declaration_errors = declarations.declaration_errors
+local global_advancing_fact_variants = declarations.global_advancing_fact_variants
+local remember_fact_family = declarations.remember_fact_family
+local required_fact_variant = declarations.required_fact_variant
+local exemption_reason = declarations.exemption_reason
 
 local function package_name(core)
   return tostring(core.restart_package_name or "github-devloop")
@@ -54,220 +64,6 @@ local function comment(core, body, when)
     author_login = marker_author(core),
     created_at = when or "2026-06-03T01:02:03Z",
   }
-end
-
-local function key(core, row, fact_family, successor)
-  return table.concat({
-    package_name(core),
-    tostring(row.from_state or "?"),
-    tostring(fact_family or "?"),
-    tostring(successor or "?"),
-  }, "|")
-end
-
-local function key_prefix(core, row)
-  return table.concat({
-    package_name(core),
-    tostring(row.from_state or "?"),
-    "",
-  }, "|")
-end
-
-local function parse_allowlist_line(line)
-  local text = tostring(line or "")
-  if text == "" or text:match("^%s*#") then
-    return nil
-  end
-  local parts = {}
-  for part in text:gmatch("[^|]+") do
-    table.insert(parts, part)
-  end
-  if #parts < 6 then
-    return nil, "invalid hidden-state allowlist line: " .. text
-  end
-  if not tostring(parts[5]):match("^issue=#?%d+$") or tostring(parts[6]) == "why=" or not tostring(parts[6]):match("^why=") then
-    return nil, "invalid hidden-state allowlist metadata: " .. text
-  end
-  return table.concat({ parts[1], parts[2], parts[3], parts[4] }, "|")
-end
-
-local function load_allowlist()
-  local out = {}
-  local ok, text = pcall(file.read, ALLOWLIST_PATH)
-  if not ok then
-    return out
-  end
-  for line in tostring(text or ""):gmatch("[^\n]+") do
-    local parsed, err = parse_allowlist_line(line)
-    if err ~= nil then
-      table.insert(out, "__ERROR__|" .. err)
-    elseif parsed ~= nil then
-      out[parsed] = true
-    end
-  end
-  return out
-end
-
-local function has_poll_surface(fact)
-  local surfaces = fact.observe_surfaces or {}
-  return surfaces.issue == true or surfaces.pr == true or surfaces.liveness_scan == true
-end
-
-local function row_has_declared_surface(row, fact)
-  local row_surfaces = row.observe_surfaces or {}
-  for surface, enabled in pairs(fact.observe_surfaces or {}) do
-    if enabled == true and row_surfaces[surface] == true then
-      return true
-    end
-  end
-  return false
-end
-
-local function declared_by_key(core, rows)
-  local declared = {}
-  for _, row in ipairs(rows or {}) do
-    for _, fact in ipairs(row.advancing_facts or {}) do
-      declared[key(core, row, fact.fact_family, fact.successor)] = true
-    end
-  end
-  return declared
-end
-
-local function global_advancing_fact_variants(rows)
-  local variants = {}
-  local seen = {}
-  for _, row in ipairs(rows or {}) do
-    for _, fact in ipairs(row.advancing_facts or {}) do
-      local family = tostring(fact.fact_family or "")
-      if family ~= "" then
-        local variant_key = family .. "\0" .. tostring(fact.successor or "")
-        if seen[variant_key] ~= true then
-          seen[variant_key] = true
-          table.insert(variants, fact)
-        end
-      end
-    end
-  end
-  return variants
-end
-
-local function first_successor(row)
-  for _, successor in ipairs(row.to_states or {}) do
-    local value = tostring(successor or "")
-    if value ~= "" and value ~= tostring(row.from_state or "") then
-      return value
-    end
-  end
-  return nil
-end
-
-local function remember_fact_family(by_family, ordered, declared, overwrite)
-  local family = tostring((declared or {}).fact_family or "")
-  if family == "" then
-    return
-  end
-  if by_family[family] == nil then
-    table.insert(ordered, family)
-  end
-  if overwrite == true or by_family[family] == nil then
-    by_family[family] = declared
-  end
-end
-
-local function required_fact_variant(row, required)
-  local family = tostring((required or {}).family or "")
-  if family == "" then
-    return nil
-  end
-  return {
-    fact_family = family,
-    successor = first_successor(row),
-    synthetic_required_fact = true,
-  }
-end
-
-local function has_declared_advancing_facts(row)
-  return type(row.advancing_facts) == "table" and #row.advancing_facts > 0
-end
-
-local function exemption_reason(row)
-  local exemption = row.non_durable_advance
-  if type(exemption) ~= "table" then
-    return nil
-  end
-  -- Exempt only rows with no autonomous poll-derived durable-fact successor:
-  -- pure operator-command reentry or terminal/recovery holds.
-  local category = tostring(exemption.category or "")
-  if category ~= "operator-reentry" and category ~= "terminal-hold" then
-    return nil
-  end
-  local reason = tostring(exemption.reason or "")
-  if reason == "" then
-    return nil
-  end
-  return reason
-end
-
-local function has_allowlisted_row(core, allowlist, row)
-  local prefix = key_prefix(core, row)
-  for item in pairs(allowlist or {}) do
-    if item:sub(1, #prefix) == prefix then
-      return true
-    end
-  end
-  return false
-end
-
-local function declaration_errors(core, rows, allowlist)
-  local messages = {}
-  local allowed_derivations = {
-    ["source_ref:entity"] = true,
-    ["source_ref:issue"] = true,
-    ["source_ref:pr"] = true,
-  }
-  for _, row in ipairs(rows or {}) do
-    local successors = {}
-    for _, successor in ipairs(row.to_states or {}) do
-      successors[successor] = true
-    end
-    if row.terminal ~= true
-      and not has_declared_advancing_facts(row)
-      and exemption_reason(row) == nil
-      and not has_allowlisted_row(core, allowlist, row) then
-      table.insert(messages, key_prefix(core, row) .. "*: non-terminal row must declare advancing_facts, non_durable_advance, or a shrink-only allowlist entry")
-    end
-    for _, fact in ipairs(row.advancing_facts or {}) do
-      local label = key(core, row, fact.fact_family, fact.successor)
-      if type(fact.fact_family) ~= "string" or fact.fact_family == "" then
-        table.insert(messages, label .. ": advancing_facts entry must declare fact_family")
-      end
-      if type(fact.successor) ~= "string" or fact.successor == "" then
-        table.insert(messages, label .. ": advancing_facts entry must declare successor")
-      elseif successors[fact.successor] ~= true and tostring(fact.successor or "") ~= tostring(row.from_state or "") then
-        table.insert(messages, label .. ": advancing_facts successor is not in to_states")
-      end
-      if type(fact.observe_surfaces) ~= "table" or next(fact.observe_surfaces) == nil then
-        table.insert(messages, label .. ": advancing_facts entry must declare observe_surfaces")
-      elseif not row_has_declared_surface(row, fact) then
-        table.insert(messages, label .. ": advancing_facts observe_surfaces are not declared on row")
-      elseif not has_poll_surface(fact) then
-        table.insert(messages, label .. ": advancing fact must be re-derivable on a poll observe surface")
-      end
-      if allowed_derivations[tostring(fact.source_ref_derivation or "")] ~= true then
-        table.insert(messages, label .. ": advancing_facts entry must declare source_ref_derivation")
-      end
-    end
-  end
-  local declared = declared_by_key(core, rows)
-  local current_package_prefix = package_name(core) .. "|"
-  for item in pairs(allowlist or {}) do
-    if item:match("^__ERROR__|") then
-      table.insert(messages, item:gsub("^__ERROR__|", ""))
-    elseif item:sub(1, #current_package_prefix) == current_package_prefix and declared[item] == nil then
-      table.insert(messages, item .. ": hidden-state allowlist entry has no matching advancing_facts row")
-    end
-  end
-  return messages
 end
 
 local function with_effect_capture(core, fn)
@@ -376,7 +172,7 @@ local function base_entity(core, row, source_ref)
 end
 
 local function child_pr(core, state, child_state)
-  local body = m_builders.pr_origin_marker(core, ISSUE_PROPOSAL, ISSUE_NUMBER, BRANCH, state.version, BASE_BRANCH)
+  local body = m_builders.pr_origin_marker(ISSUE_PROPOSAL, ISSUE_NUMBER, BRANCH, state.version, BASE_BRANCH)
   if child_state ~= nil then
     body = body .. "\n" .. devloop_state.state_marker(PR_PROPOSAL, child_state, state.version)
   end
@@ -424,7 +220,7 @@ local function add_common_pr_facts(core, entity, state, facts, include_pr_link_m
   facts.current_pr = facts.current_pr or child_pr(core, state, nil)
   if include_pr_link_marker == true then
     facts["pr-link"] = link
-    table.insert(entity.comments, comment(core, m_builders.pr_link_marker(core, ISSUE_PROPOSAL, PR_NUMBER, BRANCH, state.version, BASE_BRANCH), "2026-06-03T01:03:03Z"))
+    table.insert(entity.comments, comment(core, m_builders.pr_link_marker(ISSUE_PROPOSAL, PR_NUMBER, BRANCH, state.version, BASE_BRANCH), "2026-06-03T01:03:03Z"))
   else
     facts._synthetic_pr_link = true
   end
@@ -537,7 +333,7 @@ local function fact_value(core, row, state, family, successor)
       proposal_id = ISSUE_PROPOSAL,
       pr_number = PR_NUMBER,
       review_proposal_id = review_proposal(core, state),
-      review_dedup_key = is_review_meta_replay and (review_dedup(core, state) .. "/loop/3") or review_dedup(core, state),
+      review_dedup_key = is_review_meta_replay and transition_version.loop_at(review_dedup(core, state), 3) or review_dedup(core, state),
       reviewed_head_sha = HEAD_SHA,
       version = state.version,
       n = 3,
@@ -573,7 +369,7 @@ local function fact_value(core, row, state, family, successor)
       proposal_id = ISSUE_PROPOSAL,
       base_version = state.version,
       round = 3,
-      dedup = state.version .. "/loop/3",
+      dedup = transition_version.loop_at(state.version, 3),
       narrowed_question = stalled and "behavioral fixture narrowed question" or "behavioral fixture changing question",
       angle_digests = stalled and { "a", "b", "c" } or { "a", "b", "changed" },
       true_stall_fixture = stalled,
@@ -618,27 +414,27 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
   elseif family == "implement-attempt" then
     table.insert(entity.comments, comment(core, core.implement_attempt_marker(ISSUE_PROPOSAL, state.version, value.attempt, value.started_at), "2026-06-03T01:03:06Z"))
   elseif family == "implementing" then
-    table.insert(entity.comments, comment(core, m_builders.implementing_marker(core, ISSUE_PROPOSAL, state.version, BRANCH, HEAD_SHA, BASE_BRANCH, BASE_SHA), "2026-06-03T01:03:07Z"))
+    table.insert(entity.comments, comment(core, m_builders.implementing_marker(ISSUE_PROPOSAL, state.version, BRANCH, HEAD_SHA, BASE_BRANCH, BASE_SHA), "2026-06-03T01:03:07Z"))
   elseif family == "impl-failure" then
     table.insert(entity.comments, comment(core, core.impl_failure_marker(ISSUE_PROPOSAL, state.version, value.reason or "codex-failed", value.attempt or 1), "2026-06-03T01:03:07Z"))
   elseif family == "decomposed" then
-    table.insert(entity.comments, comment(core, decompose_lib.decomposed_marker(core, ISSUE_PROPOSAL, state.version, PR_NUMBER, value.count or 1), "2026-06-03T01:03:08Z"))
+    table.insert(entity.comments, comment(core, decompose_lib.decomposed_marker(ISSUE_PROPOSAL, state.version, PR_NUMBER, value.count or 1), "2026-06-03T01:03:08Z"))
   elseif family == "fix-feedback" then
-    table.insert(entity.comments, comment(core, m_builders.merge_gate_marker(core, ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, value.reviewed_head_sha, BASE_SHA, value.reason or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
+    table.insert(entity.comments, comment(core, m_builders.merge_gate_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, value.reviewed_head_sha, BASE_SHA, value.reason or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
   elseif family == "review-result" then
-    table.insert(entity.comments, comment(core, m_builders.review_result_marker(core, value.review_proposal_id, ISSUE_PROPOSAL, value.decision or "reject", value.review_dedup_key, devloop_state.version_fix_round(state.version), value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
+    table.insert(entity.comments, comment(core, m_builders.review_result_marker(value.review_proposal_id, ISSUE_PROPOSAL, value.decision or "reject", value.review_dedup_key, devloop_state.version_fix_round(state.version), value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
     if value.decision == "approve" then
-      table.insert(entity.comments, comment(core, m_builders.merge_ready_marker(core, ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA), "2026-06-03T01:03:09Z"))
+      table.insert(entity.comments, comment(core, m_builders.merge_ready_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA), "2026-06-03T01:03:09Z"))
     else
-      table.insert(entity.comments, comment(core, m_builders.merge_gate_marker(core, ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA, BASE_SHA, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
+      table.insert(entity.comments, comment(core, m_builders.merge_gate_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA, BASE_SHA, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
     end
   elseif family == "review-meta" then
-    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(core, ISSUE_PROPOSAL, value.review_dedup_key, value.action, state.version, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
+    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(ISSUE_PROPOSAL, value.review_dedup_key, value.action, state.version, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
   elseif family == "review-converge-round" then
     local digest = convergence_shared.source_ref_digest(PR_SOURCE_REF)
     if value.action == "block" then
       for round = 1, value.n do
-        table.insert(entity.comments, comment(core, conv_rounds.review_converge_round_marker(core, value.review_proposal_id, ISSUE_PROPOSAL, state.version, HEAD_SHA, digest, round, state.version .. "/review-loop/" .. tostring(round), "behavioral fixture same review question", { "a", "b", "c" }), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
+        table.insert(entity.comments, comment(core, conv_rounds.review_converge_round_marker(core, value.review_proposal_id, ISSUE_PROPOSAL, state.version, HEAD_SHA, digest, round, transition_version.review_loop_at(state.version, round), "behavioral fixture same review question", { "a", "b", "c" }), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
       end
     else
       table.insert(entity.comments, comment(core, conv_rounds.review_converge_round_marker(core, value.review_proposal_id, ISSUE_PROPOSAL, state.version, HEAD_SHA, digest, value.n, value.review_dedup_key, "behavioral fixture review question", {
@@ -649,25 +445,25 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
     end
   elseif family == "merge-ready" then
     if value.approve ~= false then
-      table.insert(entity.comments, comment(core, m_builders.review_result_marker(core, value.review_proposal_id, ISSUE_PROPOSAL, "approve", value.review_dedup_key), "2026-06-03T01:03:08Z"))
+      table.insert(entity.comments, comment(core, m_builders.review_result_marker(value.review_proposal_id, ISSUE_PROPOSAL, "approve", value.review_dedup_key), "2026-06-03T01:03:08Z"))
     end
-    table.insert(entity.comments, comment(core, m_builders.merge_ready_marker(core, ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA), "2026-06-03T01:03:09Z"))
+    table.insert(entity.comments, comment(core, m_builders.merge_ready_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA), "2026-06-03T01:03:09Z"))
   elseif family == "merging" then
-    table.insert(entity.comments, comment(core, m_builders.review_result_marker(core, value.review_proposal_id or review_proposal(core, state), ISSUE_PROPOSAL, "approve", value.review_dedup_key or review_dedup(core, state)), "2026-06-03T01:03:07Z"))
-    table.insert(entity.comments, comment(core, m_builders.merge_ready_marker(core, ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id or review_proposal(core, state), value.review_dedup_key or review_dedup(core, state), HEAD_SHA), "2026-06-03T01:03:08Z"))
-    table.insert(entity.comments, comment(core, m_builders.merging_marker(core, ISSUE_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA), "2026-06-03T01:03:09Z"))
+    table.insert(entity.comments, comment(core, m_builders.review_result_marker(value.review_proposal_id or review_proposal(core, state), ISSUE_PROPOSAL, "approve", value.review_dedup_key or review_dedup(core, state)), "2026-06-03T01:03:07Z"))
+    table.insert(entity.comments, comment(core, m_builders.merge_ready_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id or review_proposal(core, state), value.review_dedup_key or review_dedup(core, state), HEAD_SHA), "2026-06-03T01:03:08Z"))
+    table.insert(entity.comments, comment(core, m_builders.merging_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA), "2026-06-03T01:03:09Z"))
   elseif family == "converge-round" then
     if value.true_stall_fixture == true then
       for round = 1, value.round do
-        table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(core, ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), round, state.version .. "/loop/" .. tostring(round), value.narrowed_question, value.angle_digests), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
+        table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), round, transition_version.loop_at(state.version, round), value.narrowed_question, value.angle_digests), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
       end
     elseif value.visible_round_sequence == true then
       for round = 1, value.round - 1 do
-        table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(core, ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), round, state.version .. "/loop/" .. tostring(round), "behavioral fixture narrowed question", { "a", "b", "c" }), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
+        table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), round, transition_version.loop_at(state.version, round), "behavioral fixture narrowed question", { "a", "b", "c" }), "2026-06-03T01:03:1" .. tostring(round) .. "Z"))
       end
-      table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(core, ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), value.round, value.dedup, value.narrowed_question, value.angle_digests), "2026-06-03T01:03:10Z"))
+      table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), value.round, value.dedup, value.narrowed_question, value.angle_digests), "2026-06-03T01:03:10Z"))
     else
-      table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(core, ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), value.round, value.dedup, value.narrowed_question, value.angle_digests), "2026-06-03T01:03:10Z"))
+      table.insert(entity.comments, comment(core, conv_rounds.converge_round_marker(ISSUE_PROPOSAL, state.version, convergence_shared.source_ref_digest(SOURCE_REF), value.round, value.dedup, value.narrowed_question, value.angle_digests), "2026-06-03T01:03:10Z"))
     end
   elseif is_synthetic == true then
     table.insert(entity.comments, comment(core, '<!-- fkst:github-devloop:synthetic-visible-fact:v1 proposal="' .. ISSUE_PROPOSAL
@@ -689,7 +485,7 @@ local function add_context_facts(core, row, entity, state, facts, source_ref, in
       facts.current_pr.merged_at = "2026-06-03T01:04:03Z"
       facts.current_pr.merge_commit_sha = HEAD_SHA
     end
-    table.insert(entity.comments, comment(core, m_builders.pr_delegation_marker(core, ISSUE_PROPOSAL, PR_PROPOSAL, PR_NUMBER, state.version, "g1"), "2026-06-03T01:03:03Z"))
+    table.insert(entity.comments, comment(core, m_builders.pr_delegation_marker(ISSUE_PROPOSAL, PR_PROPOSAL, PR_NUMBER, state.version, "g1"), "2026-06-03T01:03:03Z"))
     facts.pr_delegation = {
       proposal_id = ISSUE_PROPOSAL,
       pr_proposal_id = PR_PROPOSAL,

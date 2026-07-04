@@ -45,7 +45,7 @@ local function emit_blocked_reconcile(kind, proposal_id, state, version, action,
 end
 
 local function build_timeout_reconcile_pr_comment_request(repo, pr_number, reconcile, action, reason, version, fields)
-  local marker = conv_reconcile.timeout_reconcile_marker(core, reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round, action, fields)
+  local marker = conv_reconcile.timeout_reconcile_marker(reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round, action, fields)
   local state_marker = devloop_state.state_marker(reconcile.proposal_id, "blocked", version)
   return entity_lib.build_entity_comment_request({
     kind = "pr",
@@ -53,7 +53,7 @@ local function build_timeout_reconcile_pr_comment_request(repo, pr_number, recon
     number = pr_number,
   }, "github-devloop timeout reconcile action: " .. tostring(action)
     .. "\n\nReason:\n" .. tostring(reason or "")
-    .. "\n\nStructured WHY:\n" .. conv_reconcile.timeout_reconcile_reason_body(core, fields or {})
+    .. "\n\nStructured WHY:\n" .. conv_reconcile.timeout_reconcile_reason_body(fields or {})
     .. "\n\n" .. state_marker .. "\n" .. marker
     .. "\n" .. "⟦AI:FKST⟧", base_ids.dedup_key({
     "timeout-reconcile",
@@ -77,11 +77,11 @@ local function merge_wait_timeout_reason_class(reconcile, state, comments, curre
   end
   local reason_class = core.merge_gate_reason_class(wait.reason)
   local wait_kind = tostring(wait.kind or "")
-  if parsers_misc.is_ci_red_reason(core, reason_class) or check_runs.is_not_mergeable_reason(reason_class) then
+  if parsers_misc.is_ci_red_reason(reason_class) or check_runs.is_not_mergeable_reason(reason_class) then
     return "state-output-obligation-timeout"
   end
   if reason_class == "ci-wait"
-    or parsers_misc.is_ci_wait_reason(core, reason_class)
+    or parsers_misc.is_ci_wait_reason(reason_class)
     or wait_kind == "CI_WAIT"
     or wait_kind == "CHECKS_PENDING"
     or wait_kind == "CI_UNKNOWN"
@@ -113,11 +113,11 @@ local function load_timeout_issue_surface(repo, issue_number, proposal_id, state
     error("github-devloop: timeout-reconcile-issue-view-failed: " .. tostring(view.stderr))
   end
   local current_issue = parsers_issue.parse_issue_view_loop(core, view.stdout)
-  local issue_state = require("devloop.entity").current_entity_state(core, current_issue.comments, proposal_id)
+  local issue_state = require("devloop.entity").current_entity_state(current_issue.comments, proposal_id)
   if timeout_reconcile_needs_pr_surface(state_name) then
     local snapshot = core.linked_pr_surface_snapshot(repo, proposal_id, current_issue.comments)
     local current_pr = nil
-    local link = m_facts.pr_link_fact(core, snapshot.comments, proposal_id)
+    local link = m_facts.pr_link_fact(snapshot.comments, proposal_id)
     if link ~= nil then
       for _, item in ipairs(snapshot.prs or {}) do
         if tostring(item.number or "") == tostring(link.pr_number or "") then
@@ -134,7 +134,7 @@ end
 
 local function pipeline_review(event)
   local reconcile = event.payload or {}
-  if not conv_reconcile.is_supported_review_reconcile(core, reconcile) then
+  if not conv_reconcile.is_supported_review_reconcile(reconcile) then
     devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
     devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "reviewing", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -152,7 +152,7 @@ local function pipeline_review(event)
   if pr_number == nil then
     pr_number = entity.pr_number
   end
-  if not m_claims.verify_pr_review_issue_claim(core, "reconcile", repo, issue_number, nil, reconcile.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("reconcile", repo, issue_number, nil, reconcile.proposal_id) then
     return
   end
 
@@ -167,12 +167,12 @@ local function pipeline_review(event)
 
     local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
     if view.exit_code ~= 0 then
-      error("github-devloop: gh pr review reconcile view failed: " .. tostring(view.stderr))
+      error("github-devloop: gh-pr-review-reconcile-view-failed: gh pr review reconcile view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_pr.parse_pr_view_origin(core, view.stdout)
+    local current = parsers_pr.parse_pr_view_origin(view.stdout)
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
-    local state = require("devloop.entity").current_entity_state(core, current.comments, reconcile.proposal_id)
+    local state = require("devloop.entity").current_entity_state(current.comments, reconcile.proposal_id)
     if conv_reconcile.has_review_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.issue_version, reconcile.round) then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-idempotent(review reconcile marker already visible)", "review reconcile result marker for incoming version is already visible")
       return
@@ -183,17 +183,17 @@ local function pipeline_review(event)
     end
     if state.state == nil then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "pending", "reviewing state marker not yet visible")
-      error("github-devloop: reviewing state marker not yet visible for review reconcile; retrying")
+      error("github-devloop: review-reconcile-marker-missing: reviewing state marker not yet visible for review reconcile; retrying")
     end
     if state.state ~= "reviewing" then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-stale(state-advanced)", "current marker advanced beyond reviewing")
       return
     end
-    local version = conv_reconcile.review_reconcile_terminal_state_version(core, state.version, reconcile.round)
+    local version = conv_reconcile.review_reconcile_terminal_state_version(state.version, reconcile.round)
     local transition = devloop_state.versioned_transition_status(state, { "reviewing" }, "blocked", version)
     if transition == "pending" then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", devloop_state.cas_outcome(state, transition, version), "reviewing state marker not yet visible")
-      error("github-devloop: reviewing state marker not yet visible for review reconcile; retrying")
+      error("github-devloop: review-reconcile-marker-missing: reviewing state marker not yet visible for review reconcile; retrying")
     end
     if transition == "idempotent" or transition == "stale" then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", devloop_state.cas_outcome(state, transition, version), "current marker cannot be reconciled from reviewing")
@@ -210,7 +210,7 @@ end
 
 local function pipeline_fix(event)
   local reconcile = event.payload or {}
-  if not conv_reconcile.is_supported_fix_reconcile(core, reconcile) then
+  if not conv_reconcile.is_supported_fix_reconcile(reconcile) then
     devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
     devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "reviewing", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -228,7 +228,7 @@ local function pipeline_fix(event)
   if pr_number == nil then
     pr_number = entity.pr_number
   end
-  if not m_claims.verify_pr_review_issue_claim(core, "reconcile", repo, issue_number, nil, reconcile.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("reconcile", repo, issue_number, nil, reconcile.proposal_id) then
     return
   end
 
@@ -243,13 +243,13 @@ local function pipeline_fix(event)
 
     local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
     if view.exit_code ~= 0 then
-      error("github-devloop: gh pr fix reconcile view failed: " .. tostring(view.stderr))
+      error("github-devloop: gh-pr-fix-reconcile-view-failed: gh pr fix reconcile view failed: " .. tostring(view.stderr))
     end
 
-    local current = parsers_pr.parse_pr_view_origin(core, view.stdout)
+    local current = parsers_pr.parse_pr_view_origin(view.stdout)
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
-    local state = require("devloop.entity").current_entity_state(core, current.comments, reconcile.proposal_id)
-    local version = conv_reconcile.fix_reconcile_state_version(core, reconcile.issue_version)
+    local state = require("devloop.entity").current_entity_state(current.comments, reconcile.proposal_id)
+    local version = conv_reconcile.fix_reconcile_state_version(reconcile.issue_version)
     if conv_reconcile.has_fix_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.issue_version) then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-idempotent(fix reconcile marker already visible)", "fix reconcile result marker for incoming version is already visible")
       return
@@ -262,7 +262,7 @@ local function pipeline_fix(event)
     local transition = devloop_state.versioned_transition_status(state, { "reviewing" }, "blocked", version)
     if state.state == nil or transition == "pending" then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", devloop_state.cas_outcome(state, transition, version), "reviewing state marker not yet visible")
-      error("github-devloop: reviewing state marker not yet visible for fix reconcile; retrying")
+      error("github-devloop: fix-reconcile-marker-missing: reviewing state marker not yet visible for fix reconcile; retrying")
     end
     if state.state ~= "reviewing"
       or transition_version.safe_version_segment(tostring(state.version or "")) ~= transition_version.safe_version_segment(tostring(reconcile.issue_version)) then
@@ -308,19 +308,19 @@ local function pipeline_timeout(event)
     local snapshot
     local target_pr_number = pr_number
     if pr_number ~= nil then
-      if not m_claims.verify_pr_review_issue_claim(core, "reconcile", repo, issue_number, nil, reconcile.proposal_id) then
+      if not m_claims.verify_pr_review_issue_claim("reconcile", repo, issue_number, nil, reconcile.proposal_id) then
         return
       end
       local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
       if view.exit_code ~= 0 then
         if not command_indicates_not_found(view) then
-          error("github-devloop: gh pr timeout reconcile view failed: " .. tostring(view.stderr))
+          error("github-devloop: gh-pr-timeout-reconcile-view-failed: gh pr timeout reconcile view failed: " .. tostring(view.stderr))
         end
         devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = reconcile.state, version = reconcile.issue_version }, reconcile.state, "blocked", "pr-surface-gone-fallback", "PR source disappeared before timeout reconcile; falling back to issue surface")
         target_pr_number = nil
         current_issue, current_pr, comments, snapshot = load_timeout_issue_surface(repo, issue_number, reconcile.proposal_id, reconcile.state)
       else
-        current_pr = parsers_pr.parse_pr_view_origin(core, view.stdout)
+        current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
         comments = current_pr.comments
       end
     else
@@ -328,7 +328,7 @@ local function pipeline_timeout(event)
     end
 
     devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, comments)
-    local state = require("devloop.entity").current_entity_state(core, comments, reconcile.proposal_id)
+    local state = require("devloop.entity").current_entity_state(comments, reconcile.proposal_id)
     if conv_reconcile.has_timeout_reconcile_marker(core, comments, reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round) then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(timeout reconcile marker already visible)", "timeout reconcile result marker for incoming version is already visible")
       return
@@ -340,7 +340,7 @@ local function pipeline_timeout(event)
     end
     if state.state == nil then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "pending", "state marker not yet visible for timeout reconcile")
-      error("github-devloop: state marker not yet visible for timeout reconcile; retrying")
+      error("github-devloop: timeout-reconcile-marker-missing: state marker not yet visible for timeout reconcile; retrying")
     end
     if state.state ~= reconcile.state then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(state-advanced)", "current marker advanced beyond timeout reconcile state")
@@ -393,7 +393,7 @@ local function pipeline_timeout(event)
       local target = target_pr_number ~= nil
         and { kind = "pr", repo = repo, number = target_pr_number }
         or { kind = "issue", repo = repo, number = issue_number }
-      local comment_request = conv_attempts.build_decompose_exhausted_comment_request(core, target, reconcile.proposal_id, state, reconcile.source_ref, decision.attempt)
+      local comment_request = conv_attempts.build_decompose_exhausted_comment_request(target, reconcile.proposal_id, state, reconcile.source_ref, decision.attempt)
       local queue = target_pr_number ~= nil and "github-proxy.github_pr_comment_request" or "github-proxy.github_issue_comment_request"
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "applied(decompose-exhausted)", "blocked decompose output obligation exhausted")
       devloop_logging.log_apply("reconcile", reconcile.proposal_id, nil, nil, { add = {}, remove = {} }, { queue })
@@ -401,11 +401,11 @@ local function pipeline_timeout(event)
       return
     end
 
-    local version = conv_reconcile.timeout_reconcile_state_version(core, state.version, reconcile.state, decision.attempt)
+    local version = conv_reconcile.timeout_reconcile_state_version(state.version, reconcile.state, decision.attempt)
     local transition = devloop_state.versioned_transition_status(state, { reconcile.state }, "blocked", version)
     if transition == "pending" then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", devloop_state.cas_outcome(state, transition, version), "state marker not yet visible for timeout reconcile")
-      error("github-devloop: state marker not yet visible for timeout reconcile; retrying")
+      error("github-devloop: timeout-reconcile-marker-missing: state marker not yet visible for timeout reconcile; retrying")
     end
     if transition == "idempotent" or transition == "stale" then
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", devloop_state.cas_outcome(state, transition, version), "current marker cannot be timeout reconciled")
@@ -431,8 +431,8 @@ local function pipeline_timeout(event)
     }
     local comment_request = target_pr_number ~= nil
       and build_timeout_reconcile_pr_comment_request(repo, target_pr_number, reconcile, action, reason, version, why_fields)
-      or conv_reconcile.build_timeout_reconcile_comment_request(core, repo, issue_number, reconcile, action, reason, version, why_fields)
-    local label_request = requests_labels.build_state_label_request(core, repo, issue_number, "blocked", base_ids.dedup_key({
+      or conv_reconcile.build_timeout_reconcile_comment_request(repo, issue_number, reconcile, action, reason, version, why_fields)
+    local label_request = requests_labels.build_state_label_request(repo, issue_number, "blocked", base_ids.dedup_key({
       "timeout-reconcile",
       "label",
       tostring(reconcile.dedup_key),
@@ -462,4 +462,4 @@ return saga.department(spec, { done = function() return false end, act = functio
   if schema == "github-devloop.fix-reconcile.v1" then
     return pipeline_fix(event)
   end
-end, wrap = core.wrap_pipeline_failure, name = "reconcile" })
+end, wrap = devloop_logging.wrap_pipeline_failure, name = "reconcile" })

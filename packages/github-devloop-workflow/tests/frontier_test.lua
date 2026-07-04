@@ -76,7 +76,7 @@ local function child_comments_with_delegated_merged_pr(child_proposal_id, pr_num
   return {
     comment(table.concat({
       core.state_marker(child_proposal_id, "merged", version),
-      m_builders.pr_delegation_marker(core, child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
+      m_builders.pr_delegation_marker(child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
       m_builders.merged_marker(core, child_proposal_id, pr_number, version, head_sha),
     }, "\n")),
   }
@@ -109,7 +109,7 @@ local function child_comments_delegated_open_pr(child_proposal_id, pr_number, ve
   return {
     comment(table.concat({
       core.state_marker(child_proposal_id, "awaiting-pr", version),
-      m_builders.pr_delegation_marker(core, child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
+      m_builders.pr_delegation_marker(child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
     }, "\n")),
   }
 end
@@ -225,9 +225,9 @@ local tests = {
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
     local reader = child_status.reader(core, {}, repo)
 
-    t.is_nil(m_facts.pr_link_fact(core, comments, child_proposal_id))
-    t.eq(m_facts.pr_delegation_fact(core, comments, child_proposal_id, nil).pr_number, 92)
-    t.eq(m_facts.merged_fact(core, comments, child_proposal_id, 92, nil).pr_number, 92)
+    t.is_nil(m_facts.pr_link_fact(comments, child_proposal_id))
+    t.eq(m_facts.pr_delegation_fact(comments, child_proposal_id, nil).pr_number, 92)
+    t.eq(m_facts.merged_fact(comments, child_proposal_id, 92, nil).pr_number, 92)
 
     t.mock_command("gh issue view", {
       stdout = issue_view_stdout(child_issue, "CLOSED", comments),
@@ -264,10 +264,18 @@ local tests = {
     local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
     local reader = child_status.reader(core, {}, repo)
     -- The delegation link resolves, but there is NO merged marker on the child.
-    t.eq(m_facts.pr_delegation_fact(core, comments, child_proposal_id, nil).pr_number, 153)
-    t.is_nil(m_facts.merged_fact(core, comments, child_proposal_id, 153, nil))
-    t.mock_command("gh issue view", { stdout = issue_view_stdout(child_issue, "OPEN", comments) })
-    t.mock_command("gh pr view", { stdout = pr_view_open_stdout(153) })
+    t.eq(m_facts.pr_delegation_fact(comments, child_proposal_id, nil).pr_number, 153)
+    t.is_nil(m_facts.merged_fact(comments, child_proposal_id, 153, nil))
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(child_issue, "OPEN", comments),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr view", {
+      stdout = pr_view_open_stdout(153),
+      stderr = "",
+      exit_code = 0,
+    })
     -- THE FIX: an open delegated PR (mergedAt null) must be "running", not
     -- result_ready. Without the fix this returned "result_ready", so the frontier
     -- materialized the next slot + wrote a false terminal-done while the child was

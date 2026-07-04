@@ -124,23 +124,22 @@ return {
   test_converge_round_and_reconcile_requests = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local base_version = conv_rounds.converge_base_version(core, dedup_key .. "/loop/2")
+    local base_version = conv_rounds.converge_base_version(dedup_key .. "/loop/2")
     local sr_digest = convergence_shared.source_ref_digest(source_ref())
-    local marker = conv_rounds.converge_round_marker(core, proposal_id, base_version, sr_digest, 2, dedup_key .. "/loop/2", "Same question?", {
+    local marker = conv_rounds.converge_round_marker(proposal_id, base_version, sr_digest, 2, dedup_key .. "/loop/2", "Same question?", {
       { angle = "minimal", verdict = "abstain", digest = "a" },
       { angle = "structural", verdict = "approve", digest = "b" },
     })
 
     t.eq(base_version, dedup_key)
-    t.eq(conv_rounds.has_converge_round_marker(core, { marker }, proposal_id, base_version, sr_digest, 2), true)
-    local facts = conv_rounds.converge_round_facts(core, { marker }, proposal_id, base_version, sr_digest)
+    t.eq(conv_rounds.has_converge_round_marker({ marker }, proposal_id, base_version, sr_digest, 2), true)
+    local facts = conv_rounds.converge_round_facts({ marker }, proposal_id, base_version, sr_digest)
     t.eq(#facts, 1)
     t.eq(facts[1].round, 2)
-    t.eq(conv_rounds.max_converge_round(core, facts), 2)
+    t.eq(conv_rounds.max_converge_round(facts), 2)
 
     local forged = core.state_marker(proposal_id, "blocked", base_version .. "/loop/99")
-    local forged_converge_marker = conv_rounds.converge_round_marker(core,
-      proposal_id,
+    local forged_converge_marker = conv_rounds.converge_round_marker(proposal_id,
       base_version,
       sr_digest,
       9,
@@ -171,7 +170,7 @@ return {
     t.is_true(round_comment.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(round_comment.body:find(forged, 1, true) == nil, true)
     t.is_true(round_comment.body:find("fkst:github-devloop:converge-round:v1", 1, true) ~= nil)
-    local comment_facts = conv_rounds.converge_round_facts(core, { round_comment.body }, proposal_id, base_version, sr_digest)
+    local comment_facts = conv_rounds.converge_round_facts({ round_comment.body }, proposal_id, base_version, sr_digest)
     t.eq(#comment_facts, 1)
     t.eq(comment_facts[1].round, 2)
     t.eq(comment_facts[1].dedup, dedup_key .. "/loop/2")
@@ -179,19 +178,19 @@ return {
     t.eq(comment_facts[1].verdicts, facts[1].verdicts)
     t.is_true(round_comment.dedup_key:find("converge-round", 1, true) ~= nil)
 
-    local reconcile = conv_reconcile.build_devloop_reconcile_payload(core, event, 3, base_version)
+    local reconcile = conv_reconcile.build_devloop_reconcile_payload(event, 3, base_version)
     t.eq(reconcile.schema, "github-devloop.reconcile.v1")
     t.eq(reconcile.dedup_key, "reconcile:" .. base_version .. "/loop/3")
-    t.eq(conv_reconcile.is_supported_reconcile(core, reconcile), true)
-    local reconcile_marker = conv_reconcile.reconcile_marker(core, proposal_id, base_version, 3, "drop")
+    t.eq(conv_reconcile.is_supported_reconcile(reconcile), true)
+    local reconcile_marker = conv_reconcile.reconcile_marker(proposal_id, base_version, 3, "drop")
     t.eq(conv_reconcile.has_reconcile_marker(core, { reconcile_marker }, proposal_id, base_version, 3), true)
-    t.eq(conv_reconcile.reconcile_state_version(core, base_version, 3), base_version .. "/loop/3")
+    t.eq(conv_reconcile.reconcile_state_version(base_version, 3), base_version .. "/loop/3")
     local live_thinking_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
-    local terminal_version = conv_reconcile.reconcile_terminal_state_version(core, live_thinking_version, 3)
+    local terminal_version = conv_reconcile.reconcile_terminal_state_version(live_thinking_version, 3)
     t.eq(terminal_version, live_thinking_version .. "/loop/3")
     t.eq(core.versioned_transition_status({ state = "thinking", version = live_thinking_version }, { "thinking" }, "blocked", terminal_version), "apply")
     local live_higher_loop = live_thinking_version .. "/loop/8"
-    local higher_terminal = conv_reconcile.reconcile_terminal_state_version(core, live_higher_loop, 3)
+    local higher_terminal = conv_reconcile.reconcile_terminal_state_version(live_higher_loop, 3)
     t.eq(higher_terminal, live_higher_loop .. "/loop/9")
     t.eq(core.versioned_transition_status({ state = "thinking", version = live_higher_loop }, { "thinking" }, "blocked", higher_terminal), "apply")
 
@@ -218,7 +217,7 @@ return {
     local issue_proposal_id = "github-devloop/issue/owner/repo/42"
     local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local event = review_unresolved()
-    local reconcile = conv_reconcile.build_devloop_review_reconcile_payload(core, event, 3, issue_proposal_id, issue_version, "def456")
+    local reconcile = conv_reconcile.build_devloop_review_reconcile_payload(event, 3, issue_proposal_id, issue_version, "def456")
 
     t.eq(reconcile.schema, "github-devloop.review-reconcile.v1")
     t.eq(reconcile.proposal_id, issue_proposal_id)
@@ -227,21 +226,21 @@ return {
     t.eq(reconcile.head_sha, "def456")
     t.eq(reconcile.round, 3)
     t.eq(reconcile.dedup_key, "review-reconcile:" .. issue_version .. "/review-loop/3")
-    t.eq(conv_reconcile.is_supported_review_reconcile(core, reconcile), true)
+    t.eq(conv_reconcile.is_supported_review_reconcile(reconcile), true)
     local missing_round = copy_table(reconcile)
     missing_round.round = nil
-    t.eq(conv_reconcile.is_supported_review_reconcile(core, copy_table(reconcile, { dedup_key = "review-reconcile:" .. issue_version .. "/review-loop/4" })), false)
-    t.eq(conv_reconcile.is_supported_review_reconcile(core, copy_table(reconcile, { head_sha = "not-a-sha" })), false)
-    t.eq(conv_reconcile.is_supported_review_reconcile(core, missing_round), false)
-    t.eq(conv_reconcile.is_supported_review_reconcile(core, copy_table(reconcile, { round = "1.5" })), false)
-    t.eq(conv_reconcile.is_supported_review_reconcile(core, copy_table(reconcile, { proposal_id = "autochrono/issue/owner/repo/42" })), false)
-    t.eq(conv_reconcile.review_reconcile_state_version(core, issue_version, 3), issue_version .. "/review-loop/3")
+    t.eq(conv_reconcile.is_supported_review_reconcile(copy_table(reconcile, { dedup_key = "review-reconcile:" .. issue_version .. "/review-loop/4" })), false)
+    t.eq(conv_reconcile.is_supported_review_reconcile(copy_table(reconcile, { head_sha = "not-a-sha" })), false)
+    t.eq(conv_reconcile.is_supported_review_reconcile(missing_round), false)
+    t.eq(conv_reconcile.is_supported_review_reconcile(copy_table(reconcile, { round = "1.5" })), false)
+    t.eq(conv_reconcile.is_supported_review_reconcile(copy_table(reconcile, { proposal_id = "autochrono/issue/owner/repo/42" })), false)
+    t.eq(conv_reconcile.review_reconcile_state_version(issue_version, 3), issue_version .. "/review-loop/3")
     local live_reviewing_version = issue_version .. "/review-loop/9"
-    local terminal_version = conv_reconcile.review_reconcile_terminal_state_version(core, live_reviewing_version, 3)
+    local terminal_version = conv_reconcile.review_reconcile_terminal_state_version(live_reviewing_version, 3)
     t.eq(terminal_version, live_reviewing_version .. "/review-loop/10")
     t.eq(core.versioned_transition_status({ state = "reviewing", version = live_reviewing_version }, { "reviewing" }, "blocked", terminal_version), "apply")
 
-    local marker = conv_reconcile.review_reconcile_marker(core, issue_proposal_id, issue_version, 3, "drop")
+    local marker = conv_reconcile.review_reconcile_marker(issue_proposal_id, issue_version, 3, "drop")
     t.eq(conv_reconcile.has_review_reconcile_marker(core, { marker }, issue_proposal_id, issue_version, 3), true)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('dedup="review-reconcile:' .. issue_version .. '/review-loop/3"', 1, true) ~= nil)
@@ -263,7 +262,7 @@ return {
     local issue_proposal_id = "github-devloop/issue/owner/repo/42"
     local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/4"
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, issue_version, "def456")
-    local reconcile = conv_reconcile.build_devloop_fix_reconcile_payload(core, {
+    local reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
       proposal_id = issue_proposal_id,
       review_proposal_id = review_id,
       review_dedup_key = "consensus:" .. review_id .. "/review",
@@ -281,14 +280,14 @@ return {
     t.eq(reconcile.round, 4)
     t.eq(reconcile.pr_number, 7)
     t.eq(reconcile.dedup_key, "fix-reconcile:" .. issue_version)
-    t.eq(conv_reconcile.fix_reconcile_state_version(core, issue_version), issue_version)
-    t.eq(conv_reconcile.is_supported_fix_reconcile(core, reconcile), true)
-    t.eq(conv_reconcile.is_supported_fix_reconcile(core, copy_table(reconcile, { dedup_key = "fix-reconcile:" .. issue_version .. "/other" })), false)
-    t.eq(conv_reconcile.is_supported_fix_reconcile(core, copy_table(reconcile, { round = 3 })), false)
-    t.eq(conv_reconcile.is_supported_fix_reconcile(core, copy_table(reconcile, { head_sha = "not-a-sha" })), false)
-    t.eq(conv_reconcile.is_supported_fix_reconcile(core, copy_table(reconcile, { proposal_id = "autochrono/issue/owner/repo/42" })), false)
+    t.eq(conv_reconcile.fix_reconcile_state_version(issue_version), issue_version)
+    t.eq(conv_reconcile.is_supported_fix_reconcile(reconcile), true)
+    t.eq(conv_reconcile.is_supported_fix_reconcile(copy_table(reconcile, { dedup_key = "fix-reconcile:" .. issue_version .. "/other" })), false)
+    t.eq(conv_reconcile.is_supported_fix_reconcile(copy_table(reconcile, { round = 3 })), false)
+    t.eq(conv_reconcile.is_supported_fix_reconcile(copy_table(reconcile, { head_sha = "not-a-sha" })), false)
+    t.eq(conv_reconcile.is_supported_fix_reconcile(copy_table(reconcile, { proposal_id = "autochrono/issue/owner/repo/42" })), false)
 
-    local marker = conv_reconcile.fix_reconcile_marker(core, issue_proposal_id, issue_version, "drop")
+    local marker = conv_reconcile.fix_reconcile_marker(issue_proposal_id, issue_version, "drop")
     t.eq(conv_reconcile.has_fix_reconcile_marker(core, { marker }, issue_proposal_id, issue_version), true)
     t.is_true(marker:find('action="drop"', 1, true) ~= nil)
     t.is_true(marker:find('round="4"', 1, true) ~= nil)
@@ -386,7 +385,7 @@ return {
     local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, core._strip_latest_fix_version_suffix(version), "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
     local comments = {
-      m_builders.merge_gate_marker(core, proposal_id, 7, version, review_proposal, review_dedup, "def456", nil, "rollup-red"),
+      m_builders.merge_gate_marker(proposal_id, 7, version, review_proposal, review_dedup, "def456", nil, "rollup-red"),
     }
     local fact = {
       proposal_id = proposal_id,
@@ -401,8 +400,8 @@ return {
     t.is_true(zero.dedup_key ~= partial.dedup_key)
     t.is_true(zero.dedup_key:find("/3/0", 1, true) ~= nil)
     t.is_true(partial.dedup_key:find("/3/2", 1, true) ~= nil)
-    t.eq(decompose_lib.is_supported_decompose(core, zero), true)
-    t.eq(decompose_lib.is_supported_decompose(core, partial), true)
+    t.eq(decompose_lib.is_supported_decompose(zero), true)
+    t.eq(decompose_lib.is_supported_decompose(partial), true)
   end,
 
   test_ready_and_implementation_helpers = function()
@@ -508,21 +507,21 @@ return {
       "/tmp/fkst-rt"
     ))
 
-    local marker = m_builders.implementing_marker(core, ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
+    local marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
     t.is_true(marker:find("fkst:github-devloop:implementing:v1", 1, true) ~= nil)
-    t.eq(m_facts.has_implementing_marker(core, { marker }, ready.proposal_id, ready.dedup_key), true)
-    local branch_marker = m_builders.implementing_marker(core, ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
-    local fact = m_facts.implementing_fact(core, { branch_marker }, ready.proposal_id, ready.dedup_key)
+    t.eq(m_facts.has_implementing_marker({ marker }, ready.proposal_id, ready.dedup_key), true)
+    local branch_marker = m_builders.implementing_marker(ready.proposal_id, ready.dedup_key, "devloop-owner-repo-42-01HY", "abc123", "dev", "abc123")
+    local fact = m_facts.implementing_fact({ branch_marker }, ready.proposal_id, ready.dedup_key)
     t.eq(fact.branch, "devloop-owner-repo-42-01HY")
     t.eq(fact.head_sha, "abc123")
     t.eq(fact.base_branch, "dev")
     t.eq(fact.base_sha, "abc123")
-    t.is_nil(m_facts.implementing_fact(core, {
+    t.is_nil(m_facts.implementing_fact({
       '<!-- fkst:github-devloop:implementing:v1 proposal="' .. ready.proposal_id
         .. '" dedup="' .. ready.dedup_key
         .. '" branch="devloop-owner-repo-42-01HY" head_sha="abc123" base_sha="abc123" -->',
     }, ready.proposal_id, ready.dedup_key))
-    t.is_nil(m_facts.implementing_fact(core, {
+    t.is_nil(m_facts.implementing_fact({
       '<!-- fkst:github-devloop:implementing:v1 proposal="' .. ready.proposal_id
         .. '" dedup="' .. ready.dedup_key
         .. '" branch="devloop-owner-repo-42-01HY" head_sha="abc123" base_branch="dev" -->',
@@ -554,7 +553,7 @@ return {
     t.eq(core.implementation_retry_attempt(ready.dedup_key .. "/reimplement/2"), 2)
     t.is_nil(core.implementation_retry_attempt(ready.dedup_key))
 
-    local label = requests_labels.build_implementing_label_request(core, "owner/repo", "42", ready)
+    local label = requests_labels.build_implementing_label_request("owner/repo", "42", ready)
     t.eq(label.add_labels[1], "fkst-dev:implementing")
     t.eq(label.label_colors["fkst-dev:implementing"], "FBCA04")
     t.eq(label.remove_labels[1], "fkst-dev:thinking")
@@ -575,7 +574,7 @@ return {
     t.is_true(attempt_comment.body:find("github-devloop implementation attempt started", 1, true) ~= nil)
     t.eq(core.implement_attempt_count({ attempt_comment.body }, ready.proposal_id, ready.dedup_key), 2)
 
-    local failed_label = requests_labels.build_impl_failed_label_request(core, "owner/repo", "42", ready, "no-changes")
+    local failed_label = requests_labels.build_impl_failed_label_request("owner/repo", "42", ready, "no-changes")
     t.eq(failed_label.add_labels[1], "fkst-dev:impl-failed")
     t.eq(failed_label.label_colors["fkst-dev:impl-failed"], "B60205")
     t.eq(failed_label.remove_labels[1], "fkst-dev:thinking")
@@ -599,23 +598,23 @@ return {
     t.eq(current.state, "impl-failed")
     t.eq(current.version, ready.dedup_key)
 
-    local origin = m_facts.pr_origin_fact(core, {
-      m_builders.pr_origin_marker(core, ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+    local origin = m_facts.pr_origin_fact({
+      m_builders.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
     })
     t.eq(origin.proposal_id, ready.proposal_id)
     t.eq(origin.issue_number, "42")
     t.eq(origin.branch, "devloop-owner-repo-42-01HY")
-    t.is_nil(m_facts.pr_origin_fact(core, {
+    t.is_nil(m_facts.pr_origin_fact({
       '<!-- fkst:github-devloop:pr-origin:v1 proposal="' .. ready.proposal_id
         .. '" issue="42" branch="devloop-owner-repo-42-01HY" impl_version="' .. ready.dedup_key .. '" -->',
     }))
 
-    local link = m_facts.pr_link_fact(core, {
-      m_builders.pr_link_marker(core, ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+    local link = m_facts.pr_link_fact({
+      m_builders.pr_link_marker(ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
     }, ready.proposal_id)
     t.eq(link.pr_number, 7)
     t.eq(link.base_branch, "dev")
-    t.is_nil(m_facts.pr_link_fact(core, {
+    t.is_nil(m_facts.pr_link_fact({
       '<!-- fkst:github-devloop:pr-link:v1 proposal="' .. ready.proposal_id
         .. '" pr="7" branch="devloop-owner-repo-42-01HY" impl_version="' .. ready.dedup_key .. '" -->',
     }, ready.proposal_id))
@@ -724,7 +723,7 @@ return {
   end,
 
   test_fixing_payload_carries_agreed_framing = function()
-    local fix = payloads_builders.build_devloop_fixing_payload(core, {
+    local fix = payloads_builders.build_devloop_fixing_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
       impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
     }, 7, {
@@ -739,7 +738,7 @@ return {
       framing = "Fix the bounded source_ref migration only; do not raise payload limits.",
     }, source_ref())
     t.eq(fix.framing, "Fix the bounded source_ref migration only; do not raise payload limits.")
-    t.eq(v_fixing.is_supported_fixing(core, fix), true)
+    t.eq(v_fixing.is_supported_fixing(fix), true)
   end,
 
   test_replayed_fixing_dedup_binds_merge_gate_fact_identity = function()
@@ -754,11 +753,11 @@ return {
       reviewed_head_sha = "def456",
       blocking_gap = "rollup red",
     }
-    local defective = payloads_builders.build_replayed_fixing_payload(core, origin, 7, feedback, source_ref())
-    local corrected = payloads_builders.build_replayed_fixing_payload(core, origin, 7, copy_table(feedback, {
+    local defective = payloads_builders.build_replayed_fixing_payload(origin, 7, feedback, source_ref())
+    local corrected = payloads_builders.build_replayed_fixing_payload(origin, 7, copy_table(feedback, {
       gate_baseline_sha = "828df8d3",
     }), source_ref())
-    local new_predecessors = payloads_builders.build_replayed_fixing_payload(core, origin, 7, copy_table(feedback, {
+    local new_predecessors = payloads_builders.build_replayed_fixing_payload(origin, 7, copy_table(feedback, {
       predecessor_set = "pr5-github-devloop/issue/owner/repo/41-ready-aaa111",
     }), source_ref())
 
@@ -769,17 +768,16 @@ return {
     t.is_true(defective.dedup_key:find("/nobase/nopred/def456", 1, true) ~= nil)
     t.is_true(corrected.dedup_key:find("/828df8d3/nopred/def456", 1, true) ~= nil)
     t.is_true(new_predecessors.dedup_key:find("/nobase/pr5-github-devloop/issue/owner/repo/41-ready-aaa111/def456", 1, true) ~= nil)
-    t.eq(v_fixing.is_supported_fixing(core, defective), true)
-    t.eq(v_fixing.is_supported_fixing(core, corrected), true)
-    t.eq(v_fixing.is_supported_fixing(core, new_predecessors), true)
+    t.eq(v_fixing.is_supported_fixing(defective), true)
+    t.eq(v_fixing.is_supported_fixing(corrected), true)
+    t.eq(v_fixing.is_supported_fixing(new_predecessors), true)
   end,
 
   test_parse_pr_view_origin_falls_back_on_empty_name_with_owner = function()
     -- Real gh form (observed via dogfood): a merged / branch-deleted PR returns
     -- headRepository.nameWithOwner as an empty string; fall back to owner/name so
     -- the same-repo check is not fooled into treating it as cross-repo.
-    local origin = parsers_pr.parse_pr_view_origin(core,
-      '{"headRefName":"b","headRefOid":"ABC123","state":"MERGED","headRepository":{"name":"fkst-packages","nameWithOwner":""},"headRepositoryOwner":{"login":"ChronoAIProject"},"isCrossRepository":false,"comments":[]}'
+    local origin = parsers_pr.parse_pr_view_origin('{"headRefName":"b","headRefOid":"ABC123","state":"MERGED","headRepository":{"name":"fkst-packages","nameWithOwner":""},"headRepositoryOwner":{"login":"ChronoAIProject"},"isCrossRepository":false,"comments":[]}'
     )
     t.eq(origin.head_repository, "ChronoAIProject/fkst-packages")
     t.eq(origin.is_cross_repository, false)
@@ -799,7 +797,7 @@ return {
       },
     }
 
-    local thinking = payloads_builders.build_loop_proposal(core, "owner/repo", "42", {
+    local thinking = payloads_builders.build_loop_proposal("owner/repo", "42", {
       title = "Converge narrowing",
       body = "Body",
       updated_at = "2026-06-08T00:00:00Z",
@@ -810,7 +808,7 @@ return {
     t.eq(#thinking.prior_round_digests, 2)
     t.eq(thinking.prior_round_digests[2].verdict, "abstain")
     t.is_true(thinking.dedup_key:find("/loop/2", 1, true) ~= nil)
-    t.is_true(v_validate_proposal.validate_proposal(core, thinking))
+    t.is_true(v_validate_proposal.validate_proposal(thinking))
 
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local review = payloads_builders.build_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
@@ -822,7 +820,7 @@ return {
     t.eq(review.convergence_question, converge.narrowed_question)
     t.eq(#review.prior_round_digests, 2)
     t.is_true(review.dedup_key:find("/loop/2", 1, true) ~= nil)
-    t.is_true(v_validate_proposal.validate_proposal(core, review))
+    t.is_true(v_validate_proposal.validate_proposal(review))
 
     local function context_fetch_returns_high_risk()
       return "runtime-cache:github-devloop/context-bundle-manifest/pr-review-owner-repo-7", true
@@ -833,7 +831,7 @@ return {
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge, {}, context_fetch_returns_high_risk())
     t.eq(table.concat(high_risk_review.angles, ","), "minimal,structural,delete,high-risk")
     t.is_true(high_risk_review.dedup_key:find("/loop/2", 1, true) ~= nil)
-    t.is_true(v_validate_proposal.validate_proposal(core, high_risk_review))
+    t.is_true(v_validate_proposal.validate_proposal(high_risk_review))
 
     local high_risk_board_review = payloads_builders.build_board_pr_review_loop_proposal(core, "owner/repo", "42", 7, version, "abcdef1234567890", {
       title = "Converge narrowing",
@@ -841,11 +839,11 @@ return {
     }, { kind = "external", ref = "owner/repo#pr/7" }, 2, converge, "2026-06-08T00:00:00Z", {}, context_fetch_returns_high_risk())
     t.eq(table.concat(high_risk_board_review.angles, ","), "minimal,structural,delete,high-risk")
     t.is_true(high_risk_board_review.dedup_key:find("/loop/2", 1, true) ~= nil)
-    t.is_true(v_validate_proposal.validate_proposal(core, high_risk_board_review))
+    t.is_true(v_validate_proposal.validate_proposal(high_risk_board_review))
 
     -- Without a converge carry the proposal stays valid and blind-compatible: the round is
     -- still tracked, but no convergence_question / prior_round_digests are injected.
-    local blind = payloads_builders.build_loop_proposal(core, "owner/repo", "42", {
+    local blind = payloads_builders.build_loop_proposal("owner/repo", "42", {
       title = "Blind",
       body = "Body",
       updated_at = "2026-06-08T00:00:00Z",
@@ -854,6 +852,6 @@ return {
     t.eq(blind.verdict_mode, "converge")
     t.eq(blind.convergence_question, nil)
     t.eq(blind.prior_round_digests, nil)
-    t.is_true(v_validate_proposal.validate_proposal(core, blind))
+    t.is_true(v_validate_proposal.validate_proposal(blind))
   end,
 }

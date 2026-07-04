@@ -2,6 +2,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local m_facts = require("devloop.markers.facts")
 local S = {}
 local strings = require("contract.strings")
+local transition_version = require("contract.transition_version")
 
 local max_impl_auto_retry_attempts = 2
 local max_impl_retry_attempts = 100000
@@ -32,7 +33,7 @@ function M.impl_failure_marker(proposal_id, dedup_key, reason, attempt)
   if attempt ~= nil then
     local n = valid_attempt(attempt)
     if n == nil then
-      error("github-devloop: invalid impl failure attempt")
+      error("github-devloop: invalid-attempt: invalid impl failure attempt")
     end
     attempt_field = '" attempt="' .. tostring(n)
   end
@@ -49,8 +50,8 @@ function M.impl_failure_fact(comments, proposal_id, dedup_key)
   end
   local best = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:impl%-failure:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(M, comments)) do
-    for marker in parsers_misc._comment_body(M, comment):gmatch(marker_pattern) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_proposal = marker_attr(marker, "proposal")
       local marker_dedup = marker_attr(marker, "dedup")
       local reason = marker_attr(marker, "reason")
@@ -64,7 +65,7 @@ function M.impl_failure_fact(comments, proposal_id, dedup_key)
           dedup_key = marker_dedup,
           reason = reason,
           attempt = attempt,
-          comment_created_at = parsers_misc._comment_created_at(M, comment),
+          comment_created_at = parsers_misc._comment_created_at(comment),
         }
         if best == nil or fact.attempt > best.attempt then
           best = fact
@@ -93,11 +94,11 @@ function M.next_impl_retry_attempt(fact)
 end
 
 function M.implementation_base_version(version)
-  return tostring(version or ""):gsub("/reimplement/%d+$", "")
+  return transition_version.strip_trailing_reimplement(version)
 end
 
 function M.implementation_retry_attempt(version)
-  return valid_attempt(tostring(version or ""):match("/reimplement/(%d+)$"))
+  return valid_attempt(transition_version.trailing_reimplement_round(version))
 end
 
 -- The `implementing` marker version is the ALREADY-wrapped ready dedup_key
@@ -114,7 +115,7 @@ function M.ready_payload_inner_version(version)
   local text = tostring(version or "")
   local inner, replaced = text:gsub("^ready/", "", 1)
   if replaced == 0 then
-    error("github-devloop: implementing marker version lacks the expected 'ready/' prefix: " .. text)
+    error("github-devloop: invalid-version-lineage: implementing marker version lacks the expected 'ready/' prefix: " .. text)
   end
   return inner
 end
@@ -126,13 +127,13 @@ function M.implementation_attempt_version(version, attempt)
     return base
   end
   if n ~= math.floor(n) or n > max_impl_retry_attempts then
-    error("github-devloop: invalid implementation attempt version")
+    error("github-devloop: invalid-attempt: invalid implementation attempt version")
   end
-  return base .. "/reimplement/" .. tostring(n)
+  return transition_version.reimplement_at(base, n)
 end
 
 function M.has_implementation_fact_marker(comments, proposal_id, dedup_key)
-  return m_facts.has_implementing_marker(M, comments, proposal_id, dedup_key)
+  return m_facts.has_implementing_marker(comments, proposal_id, dedup_key)
     or M.has_impl_failure_marker(comments, proposal_id, dedup_key)
 end
 end

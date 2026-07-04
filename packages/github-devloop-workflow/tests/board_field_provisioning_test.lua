@@ -1,5 +1,5 @@
--- Regression: the workflow adapter installs the default_intake surface onto its
--- core (core.lua calls intake_install.install). Every default_intake host builds
+-- Regression: the workflow adapter provisions the default intake surface onto its
+-- core. Every default_intake host builds
 -- an intake context bundle whose board digest (devloop.payloads.board's
 -- board_digest_block) reads fields off the core (M): is_state_label,
 -- safe_updated_at, comment_bodies, state_marker, and the untrusted/body-length

@@ -85,7 +85,6 @@ function M.build_blueprint_decision_comment_request(root, repo, issue_number, ca
 
   -- Workflow origins are tracking umbrellas, not executable devloop work items.
   local track_marker = devloop_marker_builders.intake_decision_marker(
-    root,
     candidate.proposal_id,
     "track",
     candidate.dedup_key,

@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
 local common = require("departments.observability.common")
 local contract_time = require("contract.time")
 local m_facts = require("devloop.markers.facts")
@@ -20,7 +21,7 @@ end
 local function put_issue_entity(entities, repo, issue_number, issue)
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local issue_state = devloop_state.current_state(issue.comments, proposal_id)
-  local link = m_facts.pr_link_fact(core, issue.comments, proposal_id)
+  local link = m_facts.pr_link_fact(issue.comments, proposal_id)
   local dependency_wait = core.dependency_wait_fact(issue.comments, proposal_id)
   local entity = entities[proposal_id] or {
     proposal_id = proposal_id,
@@ -46,12 +47,12 @@ local function put_issue_entity(entities, repo, issue_number, issue)
 end
 
 local function put_pr_entity(entities, repo, pr_number, pr)
-  local origin = m_facts.pr_origin_fact(core, pr.comments)
+  local origin = m_facts.pr_origin_fact(pr.comments)
   if origin == nil then
     return nil
   end
   local proposal_id = origin.proposal_id
-  local pr_state = require("devloop.entity").current_entity_state(core, pr.comments, proposal_id)
+  local pr_state = require("devloop.entity").current_entity_state(pr.comments, proposal_id)
   local entity = entities[proposal_id] or {
     proposal_id = proposal_id,
     issue_number = origin.issue_number,
@@ -246,7 +247,7 @@ function core.observe_entity_log_line(proposal_id, fields)
 end
 
 function core.collect_observability_entities(event, repo, limits, deadline)
-  local labels = { core._enabled_label }
+  local labels = { devloop_base._enabled_label }
   for _, state in ipairs(devloop_state.issue_state_order()) do
     table.insert(labels, devloop_state.state_label(state))
   end

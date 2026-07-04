@@ -132,7 +132,7 @@ end
 local function child_pr_delegation_fact(M, facts)
   return facts.pr_delegation
     or facts["pr-delegation"]
-    or m_facts.pr_delegation_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state and facts.state.version)
+    or m_facts.pr_delegation_fact(facts.snapshot.comments, facts.proposal_id, facts.state and facts.state.version)
 end
 
 local function fetch_child_state_fact(M, facts)
@@ -153,10 +153,10 @@ local function fetch_child_state_fact(M, facts)
     if view.exit_code ~= 0 then
       error("github-devloop: child-state PR view failed: " .. tostring(view.stderr))
     end
-    facts.current_pr = parsers_pr.parse_pr_view_origin(M, view.stdout)
+    facts.current_pr = parsers_pr.parse_pr_view_origin(view.stdout)
     facts.current_pr.number, facts.current_pr.force_fresh = delegation.pr_number, true
   end
-  facts.child_state = require("devloop.entity").current_entity_state(M, facts.current_pr.comments, delegation.proposal_id)
+  facts.child_state = require("devloop.entity").current_entity_state(facts.current_pr.comments, delegation.proposal_id)
   return facts.child_state
 end
 
@@ -165,7 +165,7 @@ local function require_marker_fact(M, facts, family)
     return facts.state
   end
   if family == "pr-link" then
-    return m_facts.pr_link_fact(M, facts.snapshot.comments, facts.proposal_id) or (facts._synthetic_pr_link ~= true and facts.link or nil)
+    return m_facts.pr_link_fact(facts.snapshot.comments, facts.proposal_id) or (facts._synthetic_pr_link ~= true and facts.link or nil)
   end
   if family == "pr-delegation" then
     return child_pr_delegation_fact(M, facts)
@@ -174,7 +174,7 @@ local function require_marker_fact(M, facts, family)
     return fetch_child_state_fact(M, facts)
   end
   if family == "converge-round" then
-    local base_version = M.version_loop_round(facts.state.version) > 0 and conv_rounds.converge_base_version(M, facts.state.version) or nil
+    local base_version = M.version_loop_round(facts.state.version) > 0 and conv_rounds.converge_base_version(facts.state.version) or nil
     return M.latest_complete_converge_round(facts.snapshot.comments, facts.proposal_id, base_version, facts.issue.source_ref)
   end
   if family == "dependency-release" then
@@ -184,7 +184,7 @@ local function require_marker_fact(M, facts, family)
     return M.dependency_hold_fact(facts.snapshot.comments, facts.proposal_id)
   end
   if family == "review-result" then
-    return m_facts.review_reject_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    return m_facts.review_reject_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "fix-feedback" then
     return M.fixing_replay_feedback_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
@@ -194,7 +194,7 @@ local function require_marker_fact(M, facts, family)
     if current_pr ~= nil and forge_validators.is_git_sha(current_pr.head_sha) then
       return M.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
     end
-    return m_facts.review_meta_fix_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    return m_facts.review_meta_fix_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "fix-reflection" or family == "review-converge-round" then
     local current_pr = current_pr_fact(facts)
@@ -204,7 +204,7 @@ local function require_marker_fact(M, facts, family)
     return M.review_meta_replay_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
   end
   if family == "merge-gate" then
-    return m_facts.merge_gate_fix_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    return m_facts.merge_gate_fix_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "merge-gate-wait" then
     local current_pr = current_pr_fact(facts)
@@ -218,17 +218,15 @@ local function require_marker_fact(M, facts, family)
     if link == nil then
       return nil
     end
-    return decompose_lib.decomposed_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state.version, link.pr_number)
+    return decompose_lib.decomposed_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, link.pr_number)
   end
   if family == "implementing" then
-    return m_facts.implementing_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state.version)
+    return m_facts.implementing_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version)
   end
   if family == "implement-attempt" then
     local attempt_version = facts.state.version
     if facts.state.state == "implementing" then
-      attempt_version = tostring(attempt_version or "")
-        :gsub("/timeout/implementing/%d+$", "")
-        :gsub("%-timeout%-implementing%-%d+$", "")
+      attempt_version = transition_version.strip_timeout_suffixes(attempt_version)
     end
     return M.latest_implement_attempt_fact(facts.snapshot.comments, facts.proposal_id, attempt_version)
   end
@@ -240,14 +238,14 @@ local function require_marker_fact(M, facts, family)
     if current_pr == nil or not forge_validators.is_git_sha(current_pr.head_sha) then
       return nil
     end
-    return m_facts.merge_ready_fact(M, facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
+    return m_facts.merge_ready_fact(facts.snapshot.comments, facts.proposal_id, facts.state.version, facts.link.pr_number, current_pr.head_sha)
   end
   if family == "merging" then
     local current_pr = current_pr_fact(facts)
     if current_pr == nil or not forge_validators.is_git_sha(current_pr.head_sha) then
       return nil
     end
-    return m_facts.merging_fact(M, facts.snapshot.comments, facts.proposal_id, facts.link.pr_number, facts.state.version, current_pr.head_sha)
+    return m_facts.merging_fact(facts.snapshot.comments, facts.proposal_id, facts.link.pr_number, facts.state.version, current_pr.head_sha)
   end
   if family == "review-carry-over" then
     return nil
@@ -267,7 +265,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
       facts.snapshot.state = facts.state
     else
       facts.snapshot = snapshot_from_issue_comments(M, entity.repo, facts.proposal_id, facts.current and facts.current.comments or {})
-      facts.link = m_facts.pr_link_fact(M, facts.snapshot.comments, facts.proposal_id)
+      facts.link = m_facts.pr_link_fact(facts.snapshot.comments, facts.proposal_id)
     end
     return true
   end
@@ -279,7 +277,7 @@ local function gather_fetch_before_compare_fact(M, facts, entity, family)
     if child_list.exit_code ~= 0 then
       error("github-devloop: gh issue decompose child list failed: " .. tostring(child_list.stderr))
     end
-    facts.decompose_children = decompose_lib.parse_decompose_child_issue_list(M, child_list.stdout)
+    facts.decompose_children = decompose_lib.parse_decompose_child_issue_list(child_list.stdout)
     return facts.decompose_children
   end
   if family == "branch-head" then
@@ -353,7 +351,7 @@ local function gather_required_facts(M, row, entity, state, provided)
     end
   end
 
-  gathered.link = gathered.link or m_facts.pr_link_fact(M, gathered.snapshot.comments, gathered.proposal_id)
+  gathered.link = gathered.link or m_facts.pr_link_fact(gathered.snapshot.comments, gathered.proposal_id)
 
   for _, required in ipairs(row.required_facts or {}) do
     if required.freshness == "marker-read" then
@@ -387,9 +385,9 @@ local function build_thinking_replay_proposal(M, issue, proposal_id, state, curr
   local stable_version = transition_version.strip_suffixes(state.version)
   local latest = M.latest_complete_converge_round(current.comments, proposal_id, stable_version, issue.source_ref)
   if latest ~= nil then
-    local base_version = conv_rounds.converge_proposal_base_dedup(M, latest.dedup)
+    local base_version = conv_rounds.converge_proposal_base_dedup(latest.dedup)
     local next_n = latest.round + 1
-    local next_dedup = base_version .. "/loop/" .. tostring(next_n)
+    local next_dedup = transition_version.loop_at(base_version, next_n)
     local content_fetch = context_bundle.context_fetch_ref_from_bundle(M, {
       dept = "observe_issue",
       repo = issue.repo,
@@ -405,7 +403,7 @@ local function build_thinking_replay_proposal(M, issue, proposal_id, state, curr
       narrowed_question = latest.narrowed_question,
       angle_digests = latest.angle_digests,
     }, event_ts, content_fetch, next_dedup)
-    return v_validate_proposal.validate_proposal(M, proposal) and proposal or nil
+    return v_validate_proposal.validate_proposal(proposal) and proposal or nil
   end
 
   local replay_issue = {}
@@ -425,7 +423,7 @@ local function build_thinking_replay_proposal(M, issue, proposal_id, state, curr
   })
   local proposal = payloads_builders.build_board_proposal(M, replay_issue, event_ts)
   proposal.dedup_key = replay_dedup
-  return v_validate_proposal.validate_proposal(M, proposal) and proposal or nil
+  return v_validate_proposal.validate_proposal(proposal) and proposal or nil
 end
 
 function C.build_thinking_replay_proposal(M, issue, proposal_id, state, current, event_ts)
@@ -438,10 +436,10 @@ function C.has_thinking_converge_replay(M, current, proposal_id, state, source_r
   end
   local base_version = transition_version.strip_suffixes(state.version)
   local sr_digest = convergence_shared.source_ref_digest(source_ref)
-  local facts = conv_rounds.converge_round_facts(M, current.comments, proposal_id, base_version, sr_digest)
-  local round = conv_rounds.max_converge_round(M, facts)
+  local facts = conv_rounds.converge_round_facts(current.comments, proposal_id, base_version, sr_digest)
+  local round = conv_rounds.max_converge_round(facts)
   return M.latest_complete_converge_round(current.comments, proposal_id, base_version, source_ref) ~= nil
-    or conv_rounds.is_true_stall(M, facts, round)
+    or conv_rounds.is_true_stall(facts, round)
 end
 
 local function replay_thinking(M, dept, issue, state, row, facts)
@@ -604,7 +602,7 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
       feedback = feedback,
       proposal_id = proposal_id,
     })
-    local fix_payload = payloads_builders.build_replayed_fixing_payload(M, {
+    local fix_payload = payloads_builders.build_replayed_fixing_payload({
       proposal_id = fields.proposal_id,
       impl_version = fields.version,
     }, fields.pr_number, feedback, fields.source_ref)
@@ -635,7 +633,7 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
       new_version,
       source_ref
     )
-    local label_request = requests_labels.build_state_label_request(M, issue.repo, issue.number, "reviewing", base_ids.dedup_key({
+    local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "reviewing", base_ids.dedup_key({
       "observe",
       "fixing",
       "renormalize",
@@ -692,10 +690,10 @@ local function replay_review_meta(M, tools, dept, issue, state, row, facts)
   })
   local payload = nil
   if fact.mode == "fix-reflection" then
-    payload = payloads_builders.build_devloop_fix_reflection_payload(M, fact, proposal_id, fields.version, fields.pr_number, fact.fix_round or fact.n, fields.source_ref)
+    payload = payloads_builders.build_devloop_fix_reflection_payload(fact, proposal_id, fields.version, fields.pr_number, fact.fix_round or fact.n, fields.source_ref)
     payload.blocking_gap = fact.blocking_gap
   else
-    payload = payloads_builders.build_devloop_review_meta_payload(M, fact, proposal_id, fields.version, fields.pr_number, fact.n, fields.source_ref)
+    payload = payloads_builders.build_devloop_review_meta_payload(fact, proposal_id, fields.version, fields.pr_number, fact.n, fields.source_ref)
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "review-meta", "applied(replay)", "trusted review-meta fact is visible")
   return raise_effects(M, dept, proposal_id, "review-meta", state.version, { add = {}, remove = {} }, {
@@ -710,13 +708,13 @@ local function raise_reviewing_for_current_head(M, dept, issue, state, proposal_
   if not forge_validators.is_git_sha(current_pr.head_sha) then
     return log_skip(M, dept, proposal_id, state, "merge-ready", "reviewing", "skip-foreign(head)", "linked PR head sha is missing")
   end
-  local reviewing_payload = payloads_builders.build_current_head_reviewing_payload(M, { repo = issue.repo, proposal_id = proposal_id }, link.pr_number, current_pr, state, entity_lib.pr_source_ref(issue.repo, link.pr_number))
+  local reviewing_payload = payloads_builders.build_current_head_reviewing_payload({ repo = issue.repo, proposal_id = proposal_id }, link.pr_number, current_pr, state, entity_lib.pr_source_ref(issue.repo, link.pr_number))
   devloop_logging.log_cas_decision(dept, proposal_id, state, "merge-ready", "reviewing", outcome, reason)
   if reviewing_payload == nil then
     return false
   end
   if not dept_can_direct_reviewing(dept) then
-    local merge_ready = m_facts.merge_ready_fact(M, current_pr.comments, proposal_id, state.version, link.pr_number)
+    local merge_ready = m_facts.merge_ready_fact(current_pr.comments, proposal_id, state.version, link.pr_number)
     local comment_request = requests_review.build_merge_head_reviewing_comment_request(M,
       issue.repo,
       issue.number,
@@ -765,11 +763,11 @@ local function maybe_replay_review_carry_over(M, dept, issue, state, row, facts,
     local outcome = "skip-stale(" .. tostring(carry_reason):match("^([^:]+)") .. ")"
     return raise_reviewing_for_current_head(M, dept, issue, state, proposal_id, link, current_pr, outcome, tostring(carry_reason))
   end
-  if m_facts.has_any_review_result_marker(M, current_pr.comments, carry.new_review_proposal_id, proposal_id) then
+  if m_facts.has_any_review_result_marker(current_pr.comments, carry.new_review_proposal_id, proposal_id) then
     return false
   end
   local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
-  local comment_request = requests_review.build_review_carry_over_comment_request(M, issue.repo, link.pr_number, proposal_id, state.version, carry, source_ref)
+  local comment_request = requests_review.build_review_carry_over_comment_request(issue.repo, link.pr_number, proposal_id, state.version, carry, source_ref)
   devloop_logging.log_cas_decision(dept, proposal_id, state, "merge-ready", "merge-ready", "applied(review-carry-over)", "resolution delta is empty")
   return raise_effects(M, dept, proposal_id, "merge-ready", state.version, { add = {}, remove = {} }, {
     { queue = "github-proxy.github_pr_comment_request", payload = comment_request },
@@ -793,7 +791,7 @@ local function replay_merge_ready_like(M, tools, dept, issue, state, row, facts)
   if maybe_replay_review_carry_over(M, dept, issue, state, row, facts, link, current_pr) then
     return true
   end
-  local fact = m_facts.merge_ready_fact(M, facts.snapshot.comments, proposal_id, state.version, link.pr_number, current_pr.head_sha)
+  local fact = m_facts.merge_ready_fact(facts.snapshot.comments, proposal_id, state.version, link.pr_number, current_pr.head_sha)
   if fact == nil then
     return log_skip(M, dept, proposal_id, state, row.from_state, "merge-ready", "skip-foreign(merge-ready)", "head-bound merge-ready marker is not visible")
   end
@@ -805,7 +803,7 @@ local function replay_merge_ready_like(M, tools, dept, issue, state, row, facts)
     ["merge-ready"] = fact,
     proposal_id = proposal_id,
   })
-  local payload = payloads_builders.build_devloop_merge_ready_payload(M, fields.proposal_id, fields.pr_number, fields.version, {
+  local payload = payloads_builders.build_devloop_merge_ready_payload(fields.proposal_id, fields.pr_number, fields.version, {
     review_proposal_id = fields.review_proposal_id,
     review_dedup_key = fields.review_dedup_key,
     reviewed_head_sha = fields.reviewed_head_sha,
@@ -828,7 +826,7 @@ local function replay_blocked(M, dept, issue, state, row, facts)
   if decomposed == nil then
     return log_skip(M, dept, proposal_id, state, "blocked", "decomposed", "skip-foreign(decomposed)", "decomposed marker is not visible")
   end
-  local complete, completed_count = decompose_lib.decompose_children_complete(M,
+  local complete, completed_count = decompose_lib.decompose_children_complete(
     nil,
     facts.decompose_children or {},
     proposal_id,

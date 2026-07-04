@@ -33,7 +33,7 @@ local function pr_view(core, repo, pr_number)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     error("github-devloop-workflow: child-pr-result-view-failed: child PR result view failed: " .. tostring(result and result.stderr or "nil result"))
   end
-  local current = parsers_pr.parse_pr_view_origin(core, result.stdout)
+  local current = parsers_pr.parse_pr_view_origin(result.stdout)
   current.number = pr_number
   return current
 end
@@ -67,8 +67,8 @@ local function production_child_status_deps(core, repo)
 
   local function linked_pr(child_ref)
     local current = issue(child_ref)
-    return devloop_marker_facts.pr_delegation_fact(core, current.comments, child_ref.proposal_id, nil)
-      or devloop_marker_facts.pr_link_fact(core, current.comments, child_ref.proposal_id)
+    return devloop_marker_facts.pr_delegation_fact(current.comments, child_ref.proposal_id, nil)
+      or devloop_marker_facts.pr_link_fact(current.comments, child_ref.proposal_id)
   end
 
   local function pr(link)
@@ -89,11 +89,11 @@ local function production_child_status_deps(core, repo)
         return false
       end
       local child = issue(child_ref)
-      if devloop_marker_facts.merged_fact(core, child.comments, child_ref.proposal_id, link.pr_number, nil) ~= nil then
+      if devloop_marker_facts.merged_fact(child.comments, child_ref.proposal_id, link.pr_number, nil) ~= nil then
         return true
       end
       local current_pr = pr(link)
-      return devloop_marker_facts.merged_fact(core, current_pr and current_pr.comments, child_ref.proposal_id, link.pr_number, nil) ~= nil
+      return devloop_marker_facts.merged_fact(current_pr and current_pr.comments, child_ref.proposal_id, link.pr_number, nil) ~= nil
     end,
     current_entity = function(child_ref)
       local child = issue(child_ref)

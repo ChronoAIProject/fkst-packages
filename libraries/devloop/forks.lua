@@ -15,7 +15,7 @@ function F.managed_fork_trust_set(core, bot_login, managed)
       if trusted then trust_set[login] = true end
     end
   elseif type(core) == "table" then
-    for login, trusted in pairs(m_claims.managed_bot_logins(core) or {}) do
+    for login, trusted in pairs(m_claims.managed_bot_logins() or {}) do
       if trusted then trust_set[login] = true end
     end
   end
@@ -27,7 +27,7 @@ function F.managed_fork_trust_set(core, bot_login, managed)
 end
 
 local function is_trusted_fork_marker_author(core, comment, trust_set)
-  return parsers_misc._is_trusted_comment(core, comment, trust_set)
+  return parsers_misc._is_trusted_comment(comment, trust_set)
 end
 
 local function safe_marker_attr(value)
@@ -64,7 +64,7 @@ function F.has_trusted_issue_create_parent_marker(core, comments, dedup_key, bot
   local created_pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(comments) do
     if is_trusted_fork_marker_author(core, comment, trust_set) then
-      local body = parsers_misc.comment_body(core, comment)
+      local body = parsers_misc.comment_body(comment)
       for marker in body:gmatch(create_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then
           return true
@@ -88,7 +88,7 @@ function F.trusted_issue_created_number(core, comments, dedup_key, bot_login, ma
   local created_pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(comments) do
     if is_trusted_fork_marker_author(core, comment, trust_set) then
-      local body = parsers_misc.comment_body(core, comment)
+      local body = parsers_misc.comment_body(comment)
       for marker in body:gmatch(created_pattern) do
         if marker:match('dedup="([^"]+)"') == tostring(dedup_key) then
           local issue_number = tonumber(marker:match('issue="(%d+)"'))
@@ -152,14 +152,14 @@ function F.fork_origin_fact(core, entity, managed)
     return nil
   end
   local trust_set = F.managed_fork_trust_set(core, m_claims.claim_owner(), managed)
-  if m_claims.is_managed_bot_login(core, m_claims.issue_author_login(core, entity), trust_set) then
+  if m_claims.is_managed_bot_login(m_claims.issue_author_login(entity), trust_set) then
     local body_fact = fork_origin_fact_from_text(core, entity.body)
     if body_fact ~= nil then
       return body_fact
     end
   end
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(core, entity.comments, trust_set)) do
-    local comment_fact = fork_origin_fact_from_text(core, parsers_misc.comment_body(core, comment))
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(entity.comments, trust_set)) do
+    local comment_fact = fork_origin_fact_from_text(core, parsers_misc.comment_body(comment))
     if comment_fact ~= nil then
       return comment_fact
     end
@@ -209,7 +209,7 @@ function F.build_fork_issue_create_request(core, repo, issue_number, current, so
   if tostring(current and current.state or ""):upper() ~= "OPEN" then
     return nil, "original-closed"
   end
-  local author_login = m_claims.issue_author_login(core, current)
+  local author_login = m_claims.issue_author_login(current)
   if author_login == nil or #author_login > max_login_len then
     return nil, "author-unknown"
   end

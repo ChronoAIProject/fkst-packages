@@ -35,7 +35,7 @@ end
 local function mock_reflection_context(event, ledger)
   mock_issue_review_meta({ "fkst-dev:review-meta" }, {
     core.state_marker(event.proposal_id, "review-meta", event.version),
-    m_builders.fix_reflection_marker(core, event.proposal_id, event.dedup_key, "checkpoint", event.version, 3),
+    m_builders.fix_reflection_marker(event.proposal_id, event.dedup_key, "checkpoint", event.version, 3),
     ledger,
   })
   h.mock_context_bundle()
@@ -60,7 +60,7 @@ return {
     })
     local reflection_version = core.fix_version_from_review_version(review_version)
     mock_pr_origin({
-      m_builders.pr_origin_marker(core, "github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", review_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", review_version, "dev"),
     })
     mock_issue_result({ "fkst-dev:reviewing" }, {
       core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", review_version),
@@ -102,7 +102,7 @@ return {
     t.is_true(comment:find("fkst:github-devloop:fix-reflection:v1", 1, true) ~= nil)
     t.is_true(comment:find('verdict="continue"', 1, true) ~= nil)
     t.is_true(comment:find("fkst:github-devloop:review-meta:v1", 1, true) ~= nil)
-    t.eq(m_facts.review_meta_fix_fact(core, { comment }, event.proposal_id, exit_version).blocking_gap, "missing regression guard")
+    t.eq(m_facts.review_meta_fix_fact({ comment }, event.proposal_id, exit_version).blocking_gap, "missing regression guard")
   end,
 
   test_fix_reflection_replay_fact_restores_blocking_gap = function()
@@ -110,7 +110,7 @@ return {
     local review_version = core._strip_latest_fix_version_suffix(issue_version)
     local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, review_version, "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
-    local fresh_payload = payloads_builders.build_devloop_fix_reflection_payload(core, {
+    local fresh_payload = payloads_builders.build_devloop_fix_reflection_payload({
       proposal_id = review_proposal,
       dedup_key = review_dedup,
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
@@ -121,8 +121,8 @@ return {
         author_login = core._test_bot_login,
         body = table.concat({
           core.state_marker("github-devloop/issue/owner/repo/42", "review-meta", issue_version),
-          m_builders.review_result_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", "reject", review_dedup, 3, "missing regression guard"),
-          m_builders.fix_reflection_marker(core, "github-devloop/issue/owner/repo/42", review_dedup, "checkpoint", issue_version, 3),
+          m_builders.review_result_marker(review_proposal, "github-devloop/issue/owner/repo/42", "reject", review_dedup, 3, "missing regression guard"),
+          m_builders.fix_reflection_marker("github-devloop/issue/owner/repo/42", review_dedup, "checkpoint", issue_version, 3),
         }, "\n"),
         created_at = "2026-06-03T01:02:03Z",
       },
@@ -135,13 +135,52 @@ return {
     t.eq(fact.review_dedup_key, review_dedup)
     t.eq(fact.dedup_key, fresh_payload.dedup_key)
 
-    local replay_payload = payloads_builders.build_devloop_fix_reflection_payload(core, fact, "github-devloop/issue/owner/repo/42", issue_version, fact.pr_number, fact.fix_round, fact.source_ref)
+    local replay_payload = payloads_builders.build_devloop_fix_reflection_payload(fact, "github-devloop/issue/owner/repo/42", issue_version, fact.pr_number, fact.fix_round, fact.source_ref)
     replay_payload.blocking_gap = fact.blocking_gap
     t.eq(replay_payload.dedup_key, fresh_payload.dedup_key)
     t.eq(replay_payload.review_dedup_key, fresh_payload.review_dedup_key)
     t.eq(replay_payload.mode, fresh_payload.mode)
     t.eq(replay_payload.fix_round, fresh_payload.fix_round)
     t.eq(replay_payload.blocking_gap, fresh_payload.blocking_gap)
+  end,
+
+  test_pr_review_replay_facts_installed_ops_preserve_golden_facts = function()
+    local issue_proposal_id = "github-devloop/issue/owner/repo/42"
+    local review_version = reflection_review_version()
+    local issue_version = core.fix_version_from_review_version(review_version)
+    local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, review_version, "def456")
+    local review_dedup = "consensus:" .. review_proposal .. "/review"
+    local ops = require("devloop.restart.pr_review_replay_facts").install(core)
+    local comments = {
+      {
+        author_login = core._test_bot_login,
+        body = table.concat({
+          core.state_marker(issue_proposal_id, "review-meta", issue_version),
+          m_builders.review_result_marker(review_proposal, issue_proposal_id, "reject", review_dedup, 3, "missing regression guard"),
+          m_builders.fix_reflection_marker(issue_proposal_id, review_dedup, "checkpoint", issue_version, 3),
+        }, "\n"),
+        created_at = "2026-06-03T01:02:03Z",
+      },
+    }
+
+    local state_fact = ops.review_meta_replay_fact_from_state(comments, issue_proposal_id, issue_version, 7, "def456", 4)
+    local replay_fact = ops.review_meta_replay_fact(comments, issue_proposal_id, issue_version, 7, "def456")
+    local feedback_fact = ops.fixing_replay_feedback_fact(comments, issue_proposal_id, issue_version)
+
+    t.eq(ops.review_meta_replay_fact_from_state, core.review_meta_replay_fact_from_state)
+    t.eq(ops.review_meta_replay_fact, core.review_meta_replay_fact)
+    t.eq(ops.fixing_replay_feedback_fact, core.fixing_replay_feedback_fact)
+    t.eq(state_fact.proposal_id, review_proposal)
+    t.eq(state_fact.review_dedup_key, review_dedup)
+    t.eq(state_fact.mode, "fix-reflection")
+    t.eq(state_fact.fix_round, 3)
+    t.eq(state_fact.blocking_gap, "missing regression guard")
+    t.eq(state_fact.n, 4)
+    t.eq(replay_fact.n, 0)
+    t.eq(replay_fact.dedup_key, state_fact.dedup_key)
+    t.eq(feedback_fact.review_proposal_id, review_proposal)
+    t.eq(feedback_fact.review_dedup_key, review_dedup)
+    t.eq(feedback_fact.blocking_gap, "missing regression guard")
   end,
 
   test_fix_reflection_spec_gap_blocks_without_spawning_intake_issue = function()

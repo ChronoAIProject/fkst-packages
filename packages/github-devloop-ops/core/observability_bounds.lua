@@ -61,7 +61,7 @@ function M.observability_run_cmd(cmd_or_opts, limits, deadline, error_class, exe
     return result
   end
   if result.exit_code ~= 0 then
-    error("github-devloop: " .. tostring(label) .. " failed: " .. tostring(result.stderr))
+    error("github-devloop: observability-command-failed: " .. tostring(label) .. " failed: " .. tostring(result.stderr))
   end
   return result
 end
@@ -230,7 +230,7 @@ function M.observability_list_issue_candidates(repo, labels, limits, deadline, s
         return M.gh_issue_list_observe_opts(repo, label, page)
       end,
       function(stdout)
-        return parsers_issue.parse_issue_list_observe(M, stdout)
+        return parsers_issue.parse_issue_list_observe(stdout)
       end,
       limits,
       deadline,
@@ -253,7 +253,7 @@ function M.observability_list_pr_candidates(repo, limits, deadline, seed, exec)
       return M.gh_pr_list_observe_opts(repo, page)
     end,
     function(stdout)
-      return parsers_pr.parse_pr_list_observe(M, stdout)
+      return parsers_pr.parse_pr_list_observe(stdout)
     end,
     limits,
     deadline,

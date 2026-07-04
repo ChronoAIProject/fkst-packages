@@ -51,7 +51,7 @@ local function decompose_plan(decompose, current_issue, content_fetch)
     devloop_base.judgment_worktree_with_exec(exec_sync, "decompose", decompose.dedup_key)
   ))
   if type(result) == "table" and result.exit_code ~= nil and result.exit_code ~= 0 then
-    error("github-devloop: decompose codex failed: " .. tostring(result.stderr or ""))
+    error("github-devloop: decompose-codex-failed: decompose codex failed: " .. tostring(result.stderr or ""))
   end
   local stdout = type(result) == "table" and result.stdout or result
   local issues = core.parse_decompose_plan(stdout)
@@ -63,7 +63,7 @@ local function decompose_plan(decompose, current_issue, content_fetch)
   local previous = tonumber(cache_get(key) or "0") or 0
   cache_set(key, tostring(previous + 1))
   if previous < 1 then
-    error("github-devloop: decompose JSON parse failed; retrying")
+    error("github-devloop: codex-output-invalid: decompose JSON parse failed; retrying")
   end
   return core.fallback_decompose_plan(decompose)
 end
@@ -71,15 +71,15 @@ end
 local function read_current_pr(repo, pr_number)
   local pr_view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
   if pr_view.exit_code ~= 0 then
-    error("github-devloop: gh pr decompose view failed: " .. tostring(pr_view.stderr))
+    error("github-devloop: gh-pr-view-failed: gh pr decompose view failed: " .. tostring(pr_view.stderr))
   end
-  return parsers_pr.parse_pr_view_origin(core, pr_view.stdout)
+  return parsers_pr.parse_pr_view_origin(pr_view.stdout)
 end
 
 local function read_decompose_issue(repo, issue_number)
   local issue_view = devloop_commands.gh_issue_view_decompose(repo, issue_number, 30)
   if issue_view.exit_code ~= 0 then
-    error("github-devloop: gh issue decompose view failed: " .. tostring(issue_view.stderr))
+    error("github-devloop: gh-issue-view-failed: gh issue decompose view failed: " .. tostring(issue_view.stderr))
   end
   return parsers_issue.parse_issue_view_decompose(core, issue_view.stdout)
 end
@@ -87,15 +87,15 @@ end
 local function read_decompose_child_issues(repo, proposal_id)
   local child_list = devloop_commands.gh_issue_list_decompose_children(repo, proposal_id, 30)
   if child_list.exit_code ~= 0 then
-    error("github-devloop: gh issue decompose child list failed: " .. tostring(child_list.stderr))
+    error("github-devloop: gh-issue-child-list-failed: gh issue decompose child list failed: " .. tostring(child_list.stderr))
   end
-  return decompose_lib.parse_decompose_child_issue_list(core, child_list.stdout)
+  return decompose_lib.parse_decompose_child_issue_list(child_list.stdout)
 end
 
 local function plan_current_decompose(event, repo, issue_number, decompose)
   local current_issue = read_decompose_issue(repo, issue_number)
-  local depth = decompose_lib.decompose_lineage_depth(core, current_issue.body)
-  if depth >= decompose_lib.max_decompose_depth(core) then
+  local depth = decompose_lib.decompose_lineage_depth(current_issue.body)
+  if depth >= decompose_lib.max_decompose_depth() then
     return current_issue, nil, "depth-cap"
   end
   decompose.current_issue_body = current_issue.body
@@ -122,7 +122,7 @@ end
 
 local function child_completion_check(child_issues, decompose, index)
   return function()
-    local completed = decompose_lib.decompose_child_issue_fact_indexes(core,
+    local completed = decompose_lib.decompose_child_issue_fact_indexes(
       child_issues,
       decompose.proposal_id,
       decompose.version,
@@ -133,7 +133,7 @@ local function child_completion_check(child_issues, decompose, index)
 end
 
 local function all_children_complete(child_issues, decompose, count)
-  local completed = decompose_lib.decompose_child_issue_fact_indexes(core,
+  local completed = decompose_lib.decompose_child_issue_fact_indexes(
     child_issues,
     decompose.proposal_id,
     decompose.version,
@@ -159,7 +159,7 @@ end
 
 local function heal_missing_children(event, repo, issue_number, decompose, state, decomposed)
   local child_issues = read_decompose_child_issues(repo, decompose.proposal_id)
-  local completed = decompose_lib.decompose_child_issue_fact_indexes(core,
+  local completed = decompose_lib.decompose_child_issue_fact_indexes(
     child_issues,
     decompose.proposal_id,
     decompose.version,
@@ -179,7 +179,7 @@ local function heal_missing_children(event, repo, issue_number, decompose, state
   local _, issues, reason = plan_current_decompose(event, repo, issue_number, decompose)
   if reason == "depth-cap" then
     devloop_logging.log_cas_decision("decompose", decompose.proposal_id, state, "blocked", "decomposed", "retry-pending(decomposed children missing)", "decomposed marker is visible but child issues are missing")
-    error("github-devloop: decomposed marker visible but child issues are missing")
+    error("github-devloop: child-fact-missing: decomposed marker visible but child issues are missing")
   end
   local count = math.min(#issues, decomposed.count)
   if count < decomposed.count then
@@ -189,7 +189,7 @@ local function heal_missing_children(event, repo, issue_number, decompose, state
     end
   end
 
-  completed = decompose_lib.decompose_child_issue_fact_indexes(core, child_issues, decompose.proposal_id, decompose.version, decompose.pr_number)
+  completed = decompose_lib.decompose_child_issue_fact_indexes(child_issues, decompose.proposal_id, decompose.version, decompose.pr_number)
   local missing = {}
   for index = 1, decomposed.count do
     if not completed[index] then
@@ -224,13 +224,13 @@ local function write_decomposed_marker(repo, decompose, count)
   file.write(path, body)
   local result = devloop_commands.gh_pr_comment(repo, decompose.pr_number, path, 30)
   if result.exit_code ~= 0 then
-    error("github-devloop: gh pr decomposed marker comment failed: " .. tostring(result.stderr))
+    error("github-devloop: gh-pr-comment-failed: gh pr decomposed marker comment failed: " .. tostring(result.stderr))
   end
   devloop_entity_view.invalidate_entity_after_write(repo, "pr", decompose.pr_number)
 
   local confirmed_pr = read_current_pr(repo, decompose.pr_number)
-  if not decompose_lib.has_decomposed_marker(core, confirmed_pr.comments, decompose.proposal_id, decompose.version, decompose.pr_number) then
-    error("github-devloop: decomposed marker not yet visible after write; retrying")
+  if not decompose_lib.has_decomposed_marker(confirmed_pr.comments, decompose.proposal_id, decompose.version, decompose.pr_number) then
+    error("github-devloop: marker-pending: decomposed marker not yet visible after write; retrying")
   end
   return confirmed_pr
 end
@@ -243,7 +243,7 @@ local function decompose_context(event)
     return context_cache[event]
   end
   local decompose = event.payload or {}
-  if not decompose_lib.is_supported_decompose(core, decompose) then
+  if not decompose_lib.is_supported_decompose(decompose) then
     devloop_logging.log_entry("decompose", event, "unknown", devloop_logging.payload_field(decompose, "dedup_key"))
     devloop_logging.log_cas_decision("decompose", "unknown", { state = nil, version = nil }, "blocked", "decomposed", "skip-foreign(payload)", "unsupported event payload")
     if type(event) == "table" then
@@ -271,7 +271,7 @@ local function decompose_context(event)
     end
     return nil
   end
-  if not m_claims.verify_pr_review_issue_claim(core, "decompose", repo, issue_number, nil, decompose.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("decompose", repo, issue_number, nil, decompose.proposal_id) then
     if type(event) == "table" then
       context_cache[event] = false
     end
@@ -322,13 +322,13 @@ local function decomposed_done(event)
     devloop_logging.log_forged_markers("decompose",
       context.decompose.proposal_id,
       current_pr.comments)
-    local state = require("devloop.entity").current_entity_state(core, current_pr.comments, context.decompose.proposal_id)
+    local state = require("devloop.entity").current_entity_state(current_pr.comments, context.decompose.proposal_id)
     if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version)
       or state.state ~= "blocked"
       or tostring(state.version or "") ~= tostring(context.decompose.version) then
       return
     end
-    local decomposed = decompose_lib.decomposed_fact(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version, context.decompose.pr_number)
+    local decomposed = decompose_lib.decomposed_fact(current_pr.comments, context.decompose.proposal_id, context.decompose.version, context.decompose.pr_number)
     if decomposed == nil then
       if conv_attempts.has_decompose_exhausted_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version) then
         devloop_logging.log_cas_decision("decompose", context.decompose.proposal_id, state, "blocked", "decomposed",
@@ -367,14 +367,14 @@ local function act_decompose(event)
     local current_pr = read_current_pr(repo, decompose.pr_number)
     devloop_logging.log_forged_markers("decompose", decompose.proposal_id, current_pr.comments)
 
-    local state = require("devloop.entity").current_entity_state(core, current_pr.comments, decompose.proposal_id)
+    local state = require("devloop.entity").current_entity_state(current_pr.comments, decompose.proposal_id)
     if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, decompose.proposal_id, decompose.version)
       or state.state ~= "blocked"
       or tostring(state.version or "") ~= tostring(decompose.version) then
       devloop_logging.log_cas_decision("decompose", decompose.proposal_id, state, "blocked", "decomposed", "retry-pending(blocked-fix-reconcile-not-visible)", "blocked/fix-reconcile marker is not yet visible")
-      error("github-devloop: blocked fix reconcile marker not yet visible for decompose; retrying")
+      error("github-devloop: marker-pending: blocked fix reconcile marker not yet visible for decompose; retrying")
     end
-    local decomposed = decompose_lib.decomposed_fact(core,
+    local decomposed = decompose_lib.decomposed_fact(
       current_pr.comments,
       decompose.proposal_id,
       decompose.version,
@@ -386,14 +386,13 @@ local function act_decompose(event)
     end
 
     local current_issue, issues, reason = plan_current_decompose(event, repo, issue_number, decompose)
-    local depth = decompose_lib.decompose_lineage_depth(core, current_issue.body)
-    if reason == "depth-cap" or depth >= decompose_lib.max_decompose_depth(core) then
+    local depth = decompose_lib.decompose_lineage_depth(current_issue.body)
+    if reason == "depth-cap" or depth >= decompose_lib.max_decompose_depth() then
       devloop_logging.log_cas_decision("decompose", decompose.proposal_id, state, "blocked", "decomposed", "applied(decompose-exhausted:depth-cap)", "decompose lineage depth cap reached")
       devloop_logging.log_apply("decompose", decompose.proposal_id, nil, nil, { add = {}, remove = {} }, {
         "github-proxy.github_pr_comment_request",
       })
-      devloop_logging.log_raise("decompose", decompose.proposal_id, "github-proxy.github_pr_comment_request", conv_attempts.build_decompose_exhausted_comment_request(core,
-        { kind = "pr", repo = repo, number = decompose.pr_number },
+      devloop_logging.log_raise("decompose", decompose.proposal_id, "github-proxy.github_pr_comment_request", conv_attempts.build_decompose_exhausted_comment_request({ kind = "pr", repo = repo, number = decompose.pr_number },
         decompose.proposal_id,
         state,
         decompose.source_ref,
@@ -401,7 +400,7 @@ local function act_decompose(event)
       ))
       return
     end
-    local count = math.min(#issues, decompose_lib.max_decompose_issues(core))
+    local count = math.min(#issues, decompose_lib.max_decompose_issues())
     if count < 1 then
       issues = core.fallback_decompose_plan(decompose)
       count = 1
@@ -431,6 +430,6 @@ return saga.department(spec, {
   accept = accepted_decompose,
   done = decomposed_done,
   act = act_decompose,
-  wrap = core.wrap_pipeline_failure,
+  wrap = devloop_logging.wrap_pipeline_failure,
   name = "decompose",
 })

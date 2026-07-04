@@ -40,7 +40,7 @@ end
 return {
   test_merge_ci_red_without_rollup_sha_uses_pr_base_baseline = function()
     local event = merge_ready()
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_write_env("1")
@@ -88,7 +88,7 @@ return {
     t.is_true(comment_body:find("gate_baseline_sha", 1, true) ~= nil)
     t.is_true(comment_body:find("own-ci-red", 1, true) ~= nil)
     t.is_true(comment_body:find("Reproduce locally with `scripts/run.sh test`", 1, true) ~= nil)
-    local fix_fact = m_facts.merge_gate_fix_fact(core, { comment_body }, event.proposal_id, core.fix_version_from_review_version(event.version))
+    local fix_fact = m_facts.merge_gate_fix_fact({ comment_body }, event.proposal_id, core.fix_version_from_review_version(event.version))
     t.is_true(fix_fact.review_reason:find("own-ci-red", 1, true) ~= nil)
     t.eq(fix_fact.gate_baseline_sha, "ba5e9999")
     t.eq(count_calls("git fetch 'origin' 'dev'"), 0)
@@ -110,14 +110,13 @@ return {
       event.source_ref
     )
     t.is_true(request.body:find("gate_baseline_sha", 1, true) == nil)
-    local fix_fact = m_facts.merge_gate_fix_fact(core, { request.body }, event.proposal_id, fix_version)
+    local fix_fact = m_facts.merge_gate_fix_fact({ request.body }, event.proposal_id, fix_version)
     t.eq(fix_fact.gate_baseline_sha, nil)
   end,
 
   test_merge_gate_fix_fact_selects_same_version_marker_by_event_baseline = function()
     local event = fixing({ gate_baseline_sha = "828df8d3" })
-    local old_marker = m_builders.merge_gate_marker(core, 
-      event.proposal_id,
+    local old_marker = m_builders.merge_gate_marker(event.proposal_id,
       event.pr_number,
       event.version,
       event.review_proposal_id,
@@ -126,8 +125,7 @@ return {
       "281c4f9e",
       "mergeable-conflicting"
     )
-    local new_marker = m_builders.merge_gate_marker(core, 
-      event.proposal_id,
+    local new_marker = m_builders.merge_gate_marker(event.proposal_id,
       event.pr_number,
       event.version,
       event.review_proposal_id,
@@ -137,7 +135,7 @@ return {
       "mergeable-conflicting"
     )
 
-    local fact = m_facts.merge_gate_fix_fact(core, { old_marker, new_marker }, event.proposal_id, event.version, {
+    local fact = m_facts.merge_gate_fix_fact({ old_marker, new_marker }, event.proposal_id, event.version, {
       review_proposal_id = event.review_proposal_id,
       review_dedup_key = event.review_dedup_key,
       gate_baseline_sha = event.gate_baseline_sha,
@@ -145,7 +143,7 @@ return {
     })
     t.eq(fact.gate_baseline_sha, event.gate_baseline_sha)
 
-    local missing = m_facts.merge_gate_fix_fact(core, { old_marker, new_marker }, event.proposal_id, event.version, {
+    local missing = m_facts.merge_gate_fix_fact({ old_marker, new_marker }, event.proposal_id, event.version, {
       review_proposal_id = event.review_proposal_id,
       review_dedup_key = event.review_dedup_key,
       gate_baseline_sha = "feedface",
@@ -161,8 +159,7 @@ return {
     })
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local old_feedback = "github-devloop merge gate failed: mergeable-conflicting"
-      .. "\n" .. m_builders.merge_gate_marker(core, 
-        event.proposal_id,
+      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
         event.pr_number,
         event.version,
         event.review_proposal_id,
@@ -172,8 +169,7 @@ return {
         "mergeable-conflicting"
       )
     local new_feedback = "github-devloop merge gate failed: mergeable-conflicting"
-      .. "\n" .. m_builders.merge_gate_marker(core, 
-        event.proposal_id,
+      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
         event.pr_number,
         event.version,
         event.review_proposal_id,
@@ -182,7 +178,7 @@ return {
         event.gate_baseline_sha,
         "mergeable-conflicting"
       )
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
@@ -227,7 +223,7 @@ return {
       gate_baseline_sha = "828df8d3",
       gate_failure_excerpt = "mergeable-conflicting",
     })
-    local defective = payloads_builders.build_replayed_fixing_payload(core, {
+    local defective = payloads_builders.build_replayed_fixing_payload({
       proposal_id = event.proposal_id,
       impl_version = event.version,
     }, event.pr_number, {
@@ -236,7 +232,7 @@ return {
       reviewed_head_sha = event.reviewed_head_sha,
       blocking_gap = "mergeable-conflicting",
     }, event.source_ref)
-    local corrected = payloads_builders.build_replayed_fixing_payload(core, {
+    local corrected = payloads_builders.build_replayed_fixing_payload({
       proposal_id = event.proposal_id,
       impl_version = event.version,
     }, event.pr_number, {
@@ -249,8 +245,7 @@ return {
     }, event.source_ref)
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local feedback = "github-devloop merge gate failed: mergeable-conflicting"
-      .. "\n" .. m_builders.merge_gate_marker(core, 
-        event.proposal_id,
+      .. "\n" .. m_builders.merge_gate_marker(event.proposal_id,
         event.pr_number,
         event.version,
         event.review_proposal_id,
@@ -259,7 +254,7 @@ return {
         event.gate_baseline_sha,
         "mergeable-conflicting"
       )
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", branch, event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
 
     t.is_true(defective.dedup_key ~= corrected.dedup_key)
     t.is_true(defective.dedup_key:find("/nobase/nopred/" .. event.reviewed_head_sha, 1, true) ~= nil)
@@ -305,7 +300,7 @@ return {
 
   test_synthetic_rollup_sha_no_longer_drives_pr_fixing = function()
     local event = merge_ready()
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_write_env("1")
@@ -328,7 +323,7 @@ return {
 
   test_merge_ci_red_ignores_rollup_sha_that_is_not_pr_head = function()
     local event = merge_ready()
-    local origin_marker = m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     mock_bot_env()
     mock_write_env("1")
     mock_write_env("1")

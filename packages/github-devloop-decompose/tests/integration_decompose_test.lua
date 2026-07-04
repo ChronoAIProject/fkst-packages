@@ -19,7 +19,7 @@ local blocked_comments
 
 local function mock_pr_view(event, comments, updated_at)
   local selected = {
-    m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
   }
   for _, comment in ipairs(comments) do
     table.insert(selected, comment)
@@ -40,7 +40,7 @@ local function run_decompose_with_post_marker(event, run_opts, count)
   mock_pr_view(event, blocked_comments(event), "2026-06-03T02:03:04Z")
   mock_pr_view(event, blocked_comments(event), "2026-06-03T02:03:04Z")
   mock_pr_view(event, blocked_comments(event, {
-    decompose_lib.decomposed_marker(core, event.proposal_id, event.version, event.pr_number, count),
+    decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, count),
   }), "2026-06-03T02:03:05Z")
   return t.run_department("departments/decompose/main.lua", {
     queue = "devloop_decompose",
@@ -78,7 +78,7 @@ local function mock_child_issue_list(event, indexes)
       '{"number":%d,"title":"Child %d","state":"OPEN","author":{"login":"fkst-test-bot"},"body":"%s","url":"https://github.example/owner/repo/issues/%d"}',
       100 + index,
       index,
-      h.json_string(decompose_lib.decompose_child_marker(core, event.proposal_id, event.version, event.pr_number, index)),
+      h.json_string(decompose_lib.decompose_child_marker(event.proposal_id, event.version, event.pr_number, index)),
       100 + index
     ))
   end
@@ -118,9 +118,9 @@ end
 
 blocked_comments = function(event, extra)
   local comments = {
-    m_builders.pr_origin_marker(core, event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
+    m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
     core.state_marker(event.proposal_id, "blocked", event.version),
-    conv_reconcile.fix_reconcile_marker(core, event.proposal_id, event.version, "drop"),
+    conv_reconcile.fix_reconcile_marker(event.proposal_id, event.version, "drop"),
   }
   for _, comment in ipairs(extra or {}) do
     table.insert(comments, comment)
@@ -258,7 +258,7 @@ return {
     mock_bot_env()
     mock_write_env_real()
     h.set_pr_phase_comments({ "fkst-dev:blocked" }, blocked_comments(event, {
-      decompose_lib.decomposed_marker(core, event.proposal_id, event.version, event.pr_number, 1),
+      decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, 1),
       issue_created_marker(child_dedup_key(event, 1), "101"),
     }))
     mock_child_issue_list(event, { 1 })
@@ -285,11 +285,11 @@ return {
       body = "Original body that describes too much scope.",
     })
     h.set_pr_phase_comments({ "fkst-dev:blocked" }, blocked_comments(event, {
-      decompose_lib.decomposed_marker(core, event.proposal_id, event.version, event.pr_number, 2),
+      decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, 2),
       issue_created_marker(stale_dedup, "101"),
     }))
     mock_pr_view(event, blocked_comments(event, {
-      decompose_lib.decomposed_marker(core, event.proposal_id, event.version, event.pr_number, 2),
+      decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, 2),
       issue_created_marker(stale_dedup, "101"),
     }))
     mock_child_issue_list_repeated(event, {}, 4)
@@ -314,10 +314,10 @@ return {
       body = "Original body that describes too much scope.",
     })
     h.set_pr_phase_comments({ "fkst-dev:blocked" }, blocked_comments(event, {
-      decompose_lib.decomposed_marker(core, event.proposal_id, event.version, event.pr_number, 3),
+      decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, 3),
     }))
     mock_pr_view(event, blocked_comments(event, {
-      decompose_lib.decomposed_marker(core, event.proposal_id, event.version, event.pr_number, 3),
+      decompose_lib.decomposed_marker(event.proposal_id, event.version, event.pr_number, 3),
     }))
     mock_child_issue_list_repeated(event, { 1, 3 }, 3)
     mock_decompose_codex([[{"issues":[{"title":"One","body":"Smaller scope: one.\nNon-goals: none.\nAcceptance: one."},{"title":"Two","body":"Smaller scope: two.\nNon-goals: none.\nAcceptance: two."},{"title":"Three","body":"Smaller scope: three.\nNon-goals: none.\nAcceptance: three."}]}]])
@@ -379,7 +379,7 @@ return {
     h.set_pr_phase_comments({ "fkst-dev:blocked" }, blocked_comments(event))
     mock_issue_decompose({ "fkst-dev:blocked" }, blocked_comments(event), {
       title = "Child issue",
-      body = "Child body.\n\n" .. decompose_lib.decompose_lineage_marker(core, event.proposal_id, 1),
+      body = "Child body.\n\n" .. decompose_lib.decompose_lineage_marker(event.proposal_id, 1),
     })
     mock_pr_view(event, blocked_comments(event))
 
@@ -396,7 +396,7 @@ return {
 
   test_decompose_depth_cap_exhausted_marker_is_idempotent = function()
     local event = decompose_event()
-    local exhausted_marker = conv_attempts.decompose_exhausted_marker(core, event.proposal_id, event.version, 1, event.source_ref)
+    local exhausted_marker = conv_attempts.decompose_exhausted_marker(event.proposal_id, event.version, 1, event.source_ref)
     mock_bot_env()
     mock_write_env_real()
     h.set_pr_phase_comments({ "fkst-dev:blocked" }, blocked_comments(event, { trusted_comment(exhausted_marker) }))

@@ -208,7 +208,7 @@ local function mock_linked_pr_state(comments, state, exit_code, times, run_opts)
     exit_code = exit_code or 0,
   }, times or 1)
   if exit_code == nil or exit_code == 0 then
-    t.run_department("departments/test_cache_seed/main.lua", { queue = "cache_seed", payload = { key = require("devloop.github_proxy_entity_view").entity_view_cache_key(core, repo, "pr", 7), value = '{"updated_at":"2026-06-04T01:02:03Z","producer":"observe_pr","stdout":"' .. json_string(stdout) .. '"}' } }, run_opts or opts("liveness-scan-linked-pr-cache-seed"))
+    t.run_department("departments/test_cache_seed/main.lua", { queue = "cache_seed", payload = { key = require("devloop.github_proxy_entity_view").entity_view_cache_key(repo, "pr", 7), value = '{"updated_at":"2026-06-04T01:02:03Z","producer":"observe_pr","stdout":"' .. json_string(stdout) .. '"}' } }, run_opts or opts("liveness-scan-linked-pr-cache-seed"))
     entity_read_mocks.mock_pr_read_forms(t, {
       repo = repo,
       number = 7,
@@ -273,7 +273,7 @@ local function ready_state_comment(comment_id, state_version, created_at)
 end
 local function timeout_attempt_comment(state_name, state_version, round, created_at)
   return {
-    body = conv_attempts.timeout_attempt_marker(core, proposal_id, state_version, state_name, round, entity_lib.issue_source_ref(repo, 42)),
+    body = conv_attempts.timeout_attempt_marker(proposal_id, state_version, state_name, round, entity_lib.issue_source_ref(repo, 42)),
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
@@ -281,7 +281,7 @@ end
 
 local function timeout_attempt_v2_comment(row, generation_key, round, created_at)
   return {
-    body = conv_attempts.timeout_attempt_v2_marker(core, proposal_id, row.from_state, row.liveness_class_id, generation_key, round, entity_lib.issue_source_ref(repo, 42)),
+    body = conv_attempts.timeout_attempt_v2_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key, round, entity_lib.issue_source_ref(repo, 42)),
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
@@ -524,9 +524,9 @@ return {
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
       timeout_state_comment("blocked", version, "2026-06-01T00:00:00Z"),
-      m_builders.pr_link_marker(core, proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
-      decompose_lib.decomposed_marker(core, proposal_id, version, 7, 1),
-      m_builders.review_result_marker(core, review_proposal, proposal_id, "reject", "consensus:" .. review_proposal .. "/review", 1, "missing decomposition"),
+      m_builders.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", version, "dev"),
+      decompose_lib.decomposed_marker(proposal_id, version, 7, 1),
+      m_builders.review_result_marker(review_proposal, proposal_id, "reject", "consensus:" .. review_proposal .. "/review", 1, "missing decomposition"),
     })
     t.mock_command(core.gh_issue_list_decompose_children_cmd(repo, proposal_id), {
       stdout = "[]\n",
@@ -544,7 +544,7 @@ return {
     t.eq(decompose.payload.version, version)
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)
-    t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(core, proposal_id, version, "blocked", 1, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
+    t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(proposal_id, version, "blocked", 1, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
   end,
 
   test_liveness_scan_over_budget_ready_escalates_to_timeout_reconcile = function()
@@ -633,7 +633,7 @@ return {
     t.eq(reconciled.exit_code, 0)
     local comment = find_raise(reconciled.raises, "github-proxy.github_issue_comment_request")
     local label = find_raise(reconciled.raises, "github-proxy.github_issue_label_request")
-    local blocked_version = conv_reconcile.timeout_reconcile_state_version(core, live_version, "ready", 3)
+    local blocked_version = conv_reconcile.timeout_reconcile_state_version(live_version, "ready", 3)
     t.is_true(comment ~= nil)
     t.is_true(label ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(proposal_id, "blocked", blocked_version), 1, true) ~= nil)
@@ -655,8 +655,7 @@ return {
   test_liveness_scan_timeout_reconcile_blocks_ready_when_payload_version_is_stale_but_live_state_is_stuck = function()
     local stale_version = version .. "/timeout/ready/1"
     local live_version = version .. "/timeout/ready/2"
-    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(core,
-      restart_transition_row("ready"),
+    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(restart_transition_row("ready"),
       {
         state = "ready",
         version = stale_version,
@@ -675,7 +674,7 @@ return {
     t.eq(reconciled.exit_code, 0)
     local comment = find_raise(reconciled.raises, "github-proxy.github_issue_comment_request")
     local label = find_raise(reconciled.raises, "github-proxy.github_issue_label_request")
-    local blocked_version = conv_reconcile.timeout_reconcile_state_version(core, live_version, "ready", 3)
+    local blocked_version = conv_reconcile.timeout_reconcile_state_version(live_version, "ready", 3)
     t.is_true(comment ~= nil)
     t.is_true(label ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(proposal_id, "blocked", blocked_version), 1, true) ~= nil)
@@ -687,8 +686,7 @@ return {
   test_liveness_scan_timeout_reconcile_skips_when_ready_state_advanced = function()
     local stale_version = version .. "/timeout/ready/2"
     local advanced_version = version .. "/timeout/ready/2"
-    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(core,
-      restart_transition_row("ready"),
+    local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(restart_transition_row("ready"),
       {
         state = "ready",
         version = stale_version,

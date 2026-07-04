@@ -13,7 +13,7 @@ local function safe_branch_segment(branch)
 end
 
 local function conflict_fingerprint(conflict, unmerged_stdout)
-  local paths = conflict_telemetry.conflict_file_paths_from_unmerged(M, unmerged_stdout)
+  local paths = conflict_telemetry.conflict_file_paths_from_unmerged(unmerged_stdout)
   local material = {
     "repo=" .. tostring(conflict.repo or ""),
     "upstream=" .. tostring(conflict.upstream_branch or ""),
@@ -53,7 +53,7 @@ function M.sync_conflict_attempt_key(conflict, fingerprint)
     .. "/"
     .. suffix
   if not strings.is_path_safe_key(key, M._max_dedup_len) then
-    error("github-devloop: invalid sync conflict attempt key")
+    error("github-devloop: sync-conflict-key-invalid: invalid sync conflict attempt key")
   end
   return key
 end
@@ -74,7 +74,7 @@ end
 function M.record_sync_conflict_attempt(conflict, fingerprint, attempt)
   local n = tonumber(attempt)
   if n == nil or n < 1 or n ~= math.floor(n) then
-    error("github-devloop: invalid sync conflict attempt")
+    error("github-devloop: sync-conflict-attempt-invalid: invalid sync conflict attempt")
   end
   cache_set(M.sync_conflict_attempt_key(conflict, fingerprint), tostring(n))
   return n
@@ -89,7 +89,7 @@ function M.build_sync_conflict_escalation_request(conflict, fingerprint, attempt
     title = base_ids.truncate_utf8(title, M._max_title_len)
   end
 
-  local paths = conflict_telemetry.conflict_file_paths_from_unmerged(M, unmerged_stdout)
+  local paths = conflict_telemetry.conflict_file_paths_from_unmerged(unmerged_stdout)
   local path_lines = {}
   for _, path in ipairs(paths) do
     table.insert(path_lines, "- " .. path)

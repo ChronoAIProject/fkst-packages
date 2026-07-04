@@ -77,11 +77,11 @@ return saga.department(spec, { done = function() return false end, act = functio
 
     local pr_view = devloop_commands.gh_pr_view_origin(repo, reviewing.pr_number, 30)
     if pr_view.exit_code ~= 0 then
-      error("github-devloop: gh pr review head view failed: " .. tostring(pr_view.stderr))
+      error("github-devloop: gh-pr-review-head-view-failed: gh pr review head view failed: " .. tostring(pr_view.stderr))
     end
-    local current_pr = parsers_pr.parse_pr_view_origin(core, pr_view.stdout)
+    local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
     devloop_logging.log_forged_markers("review_pr", reviewing.proposal_id, current_pr.comments)
-    local state = require("devloop.entity").current_entity_state(core, current_pr.comments, reviewing.proposal_id)
+    local state = require("devloop.entity").current_entity_state(current_pr.comments, reviewing.proposal_id)
     local transition = reviewing_transition_status(state, reviewing.version)
     if transition == "pending" or transition == "version-mismatch" then
       local verified_state = nil
@@ -111,7 +111,7 @@ return saga.department(spec, { done = function() return false end, act = functio
           return
         end
         devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "retry-pending(reviewing marker not yet visible)", "reviewing state marker not yet visible")
-        error("github-devloop: reviewing state marker not yet visible for PR review; retrying")
+        error("github-devloop: pr-review-marker-missing: reviewing state marker not yet visible for PR review; retrying")
       end
     end
     if transition == "stale" then
@@ -125,7 +125,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
 
     if not require("devloop.pr_safety").is_safe_head_sha(current_pr.head_sha) then
-      error("github-devloop: gh pr review head view returned unsafe head sha")
+      error("github-devloop: pr-review-head-unsafe: gh pr review head view returned unsafe head sha")
     end
     if tostring(current_pr.state or ""):lower() ~= "open" then
       devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale(pr-closed)", "re-derived PR is not open")
@@ -141,11 +141,11 @@ return saga.department(spec, { done = function() return false end, act = functio
     if issue_number ~= nil then
       local issue_view = devloop_commands.gh_issue_view_review(repo, issue_number, 30)
       if issue_view.exit_code ~= 0 then
-        error("github-devloop: gh issue review view failed: " .. tostring(issue_view.stderr))
+        error("github-devloop: gh-issue-review-view-failed: gh issue review view failed: " .. tostring(issue_view.stderr))
       end
       current_issue = parsers_issue.parse_issue_view_review(core, issue_view.stdout)
     end
-    if not m_claims.verify_pr_review_issue_claim(core, "review_pr", repo, issue_number, current_issue, reviewing.proposal_id) then
+    if not m_claims.verify_pr_review_issue_claim("review_pr", repo, issue_number, current_issue, reviewing.proposal_id) then
       return
     end
     local review_id = devloop_base.pr_review_proposal_id(repo, reviewing.pr_number, reviewing.version, current_pr.head_sha)
@@ -162,7 +162,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     local content_fetch = context_fetch[1]
     local high_risk = context_fetch[2]
     local proposal = payloads_builders.build_board_pr_review_proposal(core, repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch, high_risk)
-    if not v_validate_proposal.validate_proposal(core, proposal) then
+    if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=review_pr proposal_id=" .. tostring(reviewing.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-proposal")
       return
     end
@@ -172,4 +172,4 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_apply("review_pr", reviewing.proposal_id, nil, nil, { add = {}, remove = {} }, raised)
     devloop_logging.log_raise("review_pr", reviewing.proposal_id, "consensus.proposal", proposal)
   end)
-end, wrap = core.wrap_pipeline_failure, name = "review_pr" })
+end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_pr" })

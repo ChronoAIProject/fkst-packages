@@ -13,7 +13,7 @@ local function owner()
 end
 
 local function is_self_only_assignee(core, ownership, claim_owner)
-  local logins = devloop_claims.assignee_logins(core, ownership and ownership.assignees)
+  local logins = devloop_claims.assignee_logins(ownership and ownership.assignees)
   return #logins == 1 and devloop_base.strip_bot_login_suffix(logins[1]) == tostring(claim_owner or "")
 end
 
@@ -32,7 +32,7 @@ local function read_ownership(core, deps, repo, issue_number)
   if type(deps) == "table" and type(deps.read_current_issue_ownership) == "function" then
     return deps.read_current_issue_ownership(core, repo, issue_number)
   end
-  return devloop_claims.read_current_issue_ownership(core, repo, issue_number)
+  return devloop_claims.read_current_issue_ownership(repo, issue_number)
 end
 
 local function write_enabled(deps)

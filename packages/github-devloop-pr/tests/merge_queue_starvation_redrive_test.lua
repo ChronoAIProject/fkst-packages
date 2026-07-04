@@ -33,7 +33,7 @@ end
 local function run_starvation_merge_queue_tick(event, run_opts)
   return t.run_department("departments/merge_queue/main.lua", {
     queue = "devloop_merge_queue_tick",
-    payload = m_mq.merge_queue_starvation_tick_payload(core, "owner/repo", "merge-ready/pr/" .. tostring(event.pr_number), {
+    payload = m_mq.merge_queue_starvation_tick_payload("owner/repo", "merge-ready/pr/" .. tostring(event.pr_number), {
       pr_number = event.pr_number,
       proposal_id = event.proposal_id,
       version = event.version,
@@ -46,7 +46,7 @@ local function event_for_pr(pr_number, issue_number, version_time, head_sha)
   local version = "ready/consensus-github-devloop/issue/owner/repo/" .. tostring(issue_number) .. "/" .. tostring(version_time)
   local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(issue_number)
   local review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", pr_number, version, head_sha)
-  return payloads_builders.build_devloop_merge_ready_payload(core, proposal_id, pr_number, version, {
+  return payloads_builders.build_devloop_merge_ready_payload(proposal_id, pr_number, version, {
     review_proposal_id = review_proposal_id,
     review_dedup_key = "consensus:" .. review_proposal_id .. "/review",
     reviewed_head_sha = head_sha,
@@ -59,23 +59,21 @@ end
 local function merge_comments_for_event(event)
   local entity = entity_lib.parse_entity_proposal_id(event.proposal_id)
   return {
-    m_builders.pr_origin_marker(core, 
-      event.proposal_id,
+    m_builders.pr_origin_marker(event.proposal_id,
       tostring(entity.issue_number),
       branch_for_pr(event.pr_number),
       event.version,
       "dev"
     ),
     core.state_marker(event.proposal_id, "merge-ready", event.version),
-    m_builders.merge_ready_marker(core, 
-      event.proposal_id,
+    m_builders.merge_ready_marker(event.proposal_id,
       event.pr_number,
       event.version,
       event.review_proposal_id,
       event.review_dedup_key,
       event.reviewed_head_sha
     ),
-    m_builders.review_result_marker(core, event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
+    m_builders.review_result_marker(event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
   }
 end
 
@@ -155,7 +153,7 @@ end
 local function merged_comments_for_event(event)
   local comments = merge_comments_for_event(event)
   table.insert(comments, core.state_marker(event.proposal_id, "merging", event.version))
-  table.insert(comments, m_builders.merging_marker(core, event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha))
+  table.insert(comments, m_builders.merging_marker(event.proposal_id, event.pr_number, event.version, event.reviewed_head_sha))
   return comments
 end
 
@@ -182,7 +180,7 @@ return {
       },
     }
 
-    local selected, age = m_mq.merge_queue_starvation_candidate(core, entries, 60, contract_time.iso_timestamp_epoch_seconds("2026-06-03T02:30:00Z"))
+    local selected, age = m_mq.merge_queue_starvation_candidate(entries, 60, contract_time.iso_timestamp_epoch_seconds("2026-06-03T02:30:00Z"))
 
     t.eq(selected.pr_number, 459)
     t.eq(selected.proposal_id, aged.proposal_id)

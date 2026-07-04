@@ -1,6 +1,6 @@
 local core = require("core")
 local payloads_builders = require("devloop.payloads.builders")
-local workflow_select = require("core.workflow_select")
+local workflow_select = require("workflow_select")
 local t = fkst.test
 
 local function shell_quote(value)
@@ -56,7 +56,7 @@ local function workflow_json(id)
 end
 
 local function candidate()
-  return payloads_builders.build_devloop_intake_candidate_payload(core, "owner/repo", 42, "2026-06-03T01:02:03Z")
+  return payloads_builders.build_devloop_intake_candidate_payload("owner/repo", 42, "2026-06-03T01:02:03Z")
 end
 
 local function ctx_with_comments(comments)

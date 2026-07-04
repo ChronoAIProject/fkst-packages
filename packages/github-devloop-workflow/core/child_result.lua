@@ -49,7 +49,7 @@ local function has_trusted_merged_marker(deps, child_ref)
   if pr_number == nil then
     return false
   end
-  return devloop_marker_facts.merged_fact(devloop_state, entity.comments, proposal_id, pr_number, entity.version) ~= nil
+  return devloop_marker_facts.merged_fact(entity.comments, proposal_id, pr_number, entity.version) ~= nil
 end
 
 local function github_closed_with_merged_pr(deps, child_ref)

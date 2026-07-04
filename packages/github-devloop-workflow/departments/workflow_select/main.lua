@@ -1,5 +1,5 @@
 local saga = require("workflow.saga")
-local workflow_select = require("core.workflow_select")
+local workflow_select = require("workflow_select")
 
 local spec = {
   consumes = { "github-devloop-intake.devloop_intake_candidate" },

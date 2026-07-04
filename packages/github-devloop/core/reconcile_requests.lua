@@ -12,8 +12,7 @@ function S.install(M)
 local ai_sentinel = "⟦AI:FKST⟧"
 
 function M.build_reconcile_label_request(repo, issue_number, reconcile)
-  return requests_labels.build_state_label_request(M,
-    repo,
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
     base_ids.dedup_key({
@@ -26,8 +25,7 @@ function M.build_reconcile_label_request(repo, issue_number, reconcile)
 end
 
 function M.build_review_reconcile_label_request(repo, issue_number, review_reconcile)
-  return requests_labels.build_state_label_request(M,
-    repo,
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
     base_ids.dedup_key({
@@ -40,8 +38,7 @@ function M.build_review_reconcile_label_request(repo, issue_number, review_recon
 end
 
 function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
-  return requests_labels.build_state_label_request(M,
-    repo,
+  return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
     base_ids.dedup_key({
@@ -54,8 +51,8 @@ function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
 end
 
 function M.build_reconcile_comment_request(repo, issue_number, reconcile, action, reason, state_version)
-  local version = state_version or conv_reconcile.reconcile_state_version(M, reconcile.base_version, reconcile.round)
-  local marker = conv_reconcile.reconcile_marker(M, reconcile.proposal_id, reconcile.base_version, reconcile.round, action)
+  local version = state_version or conv_reconcile.reconcile_state_version(reconcile.base_version, reconcile.round)
+  local marker = conv_reconcile.reconcile_marker(reconcile.proposal_id, reconcile.base_version, reconcile.round, action)
   local state_marker = devloop_state.state_marker(reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   return m_claims.attach_issue_claim({
@@ -77,8 +74,8 @@ function M.build_reconcile_comment_request(repo, issue_number, reconcile, action
 end
 
 function M.build_fix_reconcile_comment_request(repo, issue_number, fix_reconcile, action, reason)
-  local version = conv_reconcile.fix_reconcile_state_version(M, fix_reconcile.issue_version)
-  local marker = conv_reconcile.fix_reconcile_marker(M, fix_reconcile.proposal_id, fix_reconcile.issue_version, action)
+  local version = conv_reconcile.fix_reconcile_state_version(fix_reconcile.issue_version)
+  local marker = conv_reconcile.fix_reconcile_marker(fix_reconcile.proposal_id, fix_reconcile.issue_version, action)
   local state_marker = devloop_state.state_marker(fix_reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   local _, pr_number = devloop_base.parse_pr_source_ref(fix_reconcile.source_ref)
@@ -98,8 +95,8 @@ function M.build_fix_reconcile_comment_request(repo, issue_number, fix_reconcile
 end
 
 function M.build_review_reconcile_comment_request(repo, issue_number, review_reconcile, action, reason, state_version)
-  local version = state_version or conv_reconcile.review_reconcile_state_version(M, review_reconcile.issue_version, review_reconcile.round)
-  local marker = conv_reconcile.review_reconcile_marker(M, review_reconcile.proposal_id, review_reconcile.issue_version, review_reconcile.round, action)
+  local version = state_version or conv_reconcile.review_reconcile_state_version(review_reconcile.issue_version, review_reconcile.round)
+  local marker = conv_reconcile.review_reconcile_marker(review_reconcile.proposal_id, review_reconcile.issue_version, review_reconcile.round, action)
   local state_marker = devloop_state.state_marker(review_reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   local _, pr_number = devloop_base.parse_pr_source_ref(review_reconcile.source_ref)

@@ -36,7 +36,7 @@ local spec = {
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   local reached = event.payload or {}
-  if not v_review_result.is_supported_review_result(core, reached) then
+  if not v_review_result.is_supported_review_result(reached) then
     devloop_logging.log_entry("review_result", event, "unknown", devloop_logging.payload_field(reached, "dedup_key"))
     devloop_logging.log_cas_decision("review_result", "unknown", { state = nil, version = nil }, "reviewing", "merge-ready|fixing", "skip-foreign(proposal_id)", "unsupported event payload")
     return
@@ -58,10 +58,10 @@ return saga.department(spec, { done = function() return false end, act = functio
   local branches = config.branch_config()
   local pr_view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
   if pr_view.exit_code ~= 0 then
-    error("github-devloop: gh pr origin view failed for review result: " .. tostring(pr_view.stderr))
+    error("github-devloop: gh-pr-review-result-view-failed: gh pr origin view failed for review result: " .. tostring(pr_view.stderr))
   end
-  local current_pr = parsers_pr.parse_pr_view_origin(core, pr_view.stdout)
-  local origin = m_facts.pr_origin_fact(core, current_pr.comments)
+  local current_pr = parsers_pr.parse_pr_view_origin(pr_view.stdout)
+  local origin = m_facts.pr_origin_fact(current_pr.comments)
   if origin == nil then
     origin = entity_lib.pr_native_origin(repo, pr_number, current_pr)
   end
@@ -92,7 +92,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     return
   end
   if reached.decision == "reject"
-    and not strings.is_bounded_string(reached.blocking_gap, core._max_blocking_gap_len) then
+    and not strings.is_bounded_string(reached.blocking_gap, devloop_base._max_blocking_gap_len) then
     devloop_logging.log_cas_decision("review_result", reached.proposal_id, { state = nil, version = nil }, "reviewing", "fixing", "skip-foreign(blocking-gap)", "reject review result is missing a bounded blocking_gap")
     return
   end
@@ -105,15 +105,15 @@ return saga.department(spec, { done = function() return false end, act = functio
 
   with_lock(lock_key, function()
     local pr_source_ref = entity_lib.pr_source_ref(origin.repo, pr_number)
-    if not m_claims.verify_pr_review_issue_claim(core, "review_result", origin.repo, origin.issue_number, nil, origin.proposal_id) then
+    if not m_claims.verify_pr_review_issue_claim("review_result", origin.repo, origin.issue_number, nil, origin.proposal_id) then
       return
     end
     devloop_logging.log_forged_markers("review_result", origin.proposal_id, current_pr.comments)
-    local state = require("devloop.entity").current_entity_state(core, current_pr.comments, origin.proposal_id)
+    local state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
     local effective_decision = reached.decision
     local comment_reached = reached
-    local gate_owned_reject = reached.decision == "reject" and payloads_predicates.is_gate_owned_review_gap(core, reached.blocking_gap)
-    local out_of_contract_reject = reached.decision == "reject" and payloads_predicates.is_out_of_contract_review_gap(core, reached.blocking_gap)
+    local gate_owned_reject = reached.decision == "reject" and payloads_predicates.is_gate_owned_review_gap(reached.blocking_gap)
+    local out_of_contract_reject = reached.decision == "reject" and payloads_predicates.is_out_of_contract_review_gap(reached.blocking_gap)
     if gate_owned_reject or out_of_contract_reject then
       effective_decision = "approve"
     end
@@ -128,7 +128,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       high_risk_paths = risk.high_risk_paths or {}
       if risk.known == false then
         devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", "merge-ready", "retry-pending(high-risk-review-evidence:" .. tostring(risk.reason or "unknown") .. ")", "review diff risk is undecidable")
-        error("github-devloop: review diff risk is undecidable; retrying")
+        error("github-devloop: review-diff-risk-undecidable: review diff risk is undecidable; retrying")
       elseif risk.high_risk == true then
         local high_risk_approved = false
         if type(reached.angle_results) == "table" then
@@ -179,7 +179,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     if transition == "pending" then
       devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, devloop_state.cas_outcome(state, transition, reached.dedup_key), "reviewing state marker not yet visible")
-      error("github-devloop: reviewing marker not yet visible for review result; retrying")
+      error("github-devloop: review-result-marker-missing: reviewing marker not yet visible for review result; retrying")
     end
 
     if tostring(current_review_version) ~= tostring(reviewed_issue_version) then
@@ -191,7 +191,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       local fix_round = devloop_state.version_fix_round(state.version)
       local max_rounds_hit = fix_round >= config.max_fix_rounds()
       if max_rounds_hit then
-        local fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload(core, {
+        local fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
           proposal_id = origin.proposal_id,
           review_proposal_id = reached.proposal_id,
           review_dedup_key = reached.dedup_key,
@@ -199,7 +199,7 @@ return saga.department(spec, { done = function() return false end, act = functio
           pr_number = pr_number,
           source_ref = pr_source_ref,
         }, state.version)
-        local decompose = payloads_builders.build_devloop_decompose_payload(core, fix_reconcile)
+        local decompose = payloads_builders.build_devloop_decompose_payload(fix_reconcile)
         local reason = "fix-loop-max-rounds"
         devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", "blocked", "applied(" .. reason .. ")", "review decision=reject")
         devloop_logging.log_raise("review_result", origin.proposal_id, "devloop_fix_reconcile", fix_reconcile)
@@ -242,11 +242,11 @@ return saga.department(spec, { done = function() return false end, act = functio
     local comment_request = requests_review.build_review_result_comment_request(core, origin.repo, origin.issue_number, origin.proposal_id, issue_version, comment_reached, pr_source_ref)
     local evidence_request = nil
     if effective_decision == "approve" and #high_risk_paths > 0 then
-      evidence_request = requests_review.build_high_risk_review_evidence_comment_request(core, origin.repo, origin.proposal_id, issue_version, reached, pr_number, reviewed_head_sha, paths_digest, angle_digest, pr_source_ref)
+      evidence_request = requests_review.build_high_risk_review_evidence_comment_request(origin.repo, origin.proposal_id, issue_version, reached, pr_number, reviewed_head_sha, paths_digest, angle_digest, pr_source_ref)
     end
     local label_request = nil
     if origin.issue_number ~= nil then
-      label_request = requests_labels.build_review_result_label_request(core, origin.repo, origin.issue_number, origin.proposal_id, comment_reached, entity_lib.issue_source_ref(origin.repo, origin.issue_number))
+      label_request = requests_labels.build_review_result_label_request(origin.repo, origin.issue_number, origin.proposal_id, comment_reached, entity_lib.issue_source_ref(origin.repo, origin.issue_number))
     end
     local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
     local raised = {
@@ -260,7 +260,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local reflection_payload = nil
     if reflection_checkpoint then
-      reflection_payload = payloads_builders.build_devloop_fix_reflection_payload(core, {
+      reflection_payload = payloads_builders.build_devloop_fix_reflection_payload({
         proposal_id = reached.proposal_id,
         dedup_key = reached.dedup_key,
         source_ref = pr_source_ref,
@@ -280,4 +280,4 @@ return saga.department(spec, { done = function() return false end, act = functio
       devloop_logging.log_raise("review_result", origin.proposal_id, "devloop_review_meta", reflection_payload)
     end
   end)
-end, wrap = core.wrap_pipeline_failure, name = "review_result" })
+end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_result" })

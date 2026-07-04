@@ -337,7 +337,7 @@ return {
     t.eq(find_raise(stale_ready.raises, "devloop_ready"), nil)
 
     local completed = reached()
-    local marker = m_builders.result_marker(core, completed.proposal_id, completed.decision, completed.dedup_key)
+    local marker = m_builders.result_marker(completed.proposal_id, completed.decision, completed.dedup_key)
     mock_issue_result({ "fkst-dev:ready" }, { marker })
 
     local complete = run_result(completed, opts("result-approve-complete"))
@@ -405,7 +405,7 @@ return {
 
   test_consensus_result_raises_label_when_result_marker_present_without_terminal_label = function()
     local current = reached()
-    local marker = m_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key)
+    local marker = m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key)
     mock_issue_result({ "fkst-dev:thinking" }, { marker })
 
     local result = run_result(current, opts("result-marker"))
@@ -418,7 +418,7 @@ return {
 
   test_consensus_result_skips_when_terminal_label_and_result_marker_present = function()
     local current = reached()
-    local marker = m_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key)
+    local marker = m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key)
     mock_issue_result({ "fkst-dev:ready" }, { marker })
 
     local result = run_result(current, opts("result-complete"))
@@ -428,7 +428,7 @@ return {
 
   test_consensus_result_same_decision_without_thinking_skips = function()
     local current = reached()
-    local stale_marker = m_builders.result_marker(core, current.proposal_id, "approve", current.dedup_key)
+    local stale_marker = m_builders.result_marker(current.proposal_id, "approve", current.dedup_key)
     mock_issue_result({ "fkst-dev:ready" }, { stale_marker })
 
     local result = run_result(current, opts("result-stale-same-marker"))
@@ -448,7 +448,7 @@ return {
     local current = reached({
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/v2",
     })
-    local older_marker = m_builders.result_marker(core, current.proposal_id, "approve", "consensus:github-devloop/issue/owner/repo/42/v1")
+    local older_marker = m_builders.result_marker(current.proposal_id, "approve", "consensus:github-devloop/issue/owner/repo/42/v1")
     mock_issue_result({ "fkst-dev:thinking" }, {
       core.state_marker(current.proposal_id, "thinking", current.dedup_key),
       older_marker,
@@ -458,7 +458,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(comment_raise.payload.body:find(m_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find(m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
     t.is_true(comment_raise.payload.dedup_key:find("/v2", 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
@@ -477,7 +477,7 @@ return {
     t.eq(#result.raises, 2)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment_raise.payload.body:find(core.state_marker(current.proposal_id, "ready", current.effect_version, "result-marker,ready-label,devloop-ready"), 1, true) ~= nil)
-    t.is_true(comment_raise.payload.body:find(m_builders.result_marker(core, current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find(m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key), 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
     t.eq(comment_raise.payload.handoff.marker_version, current.effect_version)
   end,
@@ -581,8 +581,8 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      conv_rounds.converge_round_marker(core, event.proposal_id, base_version, sr_digest, 1, base_version .. "/loop/1", event.narrowed_question, event.angle_digests),
-      conv_rounds.converge_round_marker(core, event.proposal_id, base_version, sr_digest, 2, base_version .. "/loop/2", event.narrowed_question, event.angle_digests),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 1, base_version .. "/loop/1", event.narrowed_question, event.angle_digests),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 2, base_version .. "/loop/2", event.narrowed_question, event.angle_digests),
     })
 
     local result = run_loop(event, opts("loop-true-stall"))
@@ -614,8 +614,8 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      conv_rounds.converge_round_marker(core, event.proposal_id, base_version, sr_digest, cap - 2, base_version .. "/loop/" .. tostring(cap - 2), "Question " .. tostring(cap - 2), varying_digest(cap - 2)),
-      conv_rounds.converge_round_marker(core, event.proposal_id, base_version, sr_digest, cap - 1, base_version .. "/loop/" .. tostring(cap - 1), "Question " .. tostring(cap - 1), varying_digest(cap - 1)),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, cap - 2, base_version .. "/loop/" .. tostring(cap - 2), "Question " .. tostring(cap - 2), varying_digest(cap - 2)),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, cap - 1, base_version .. "/loop/" .. tostring(cap - 1), "Question " .. tostring(cap - 1), varying_digest(cap - 1)),
     })
 
     local result = run_loop(event, opts("loop-round-cap"))
@@ -631,10 +631,10 @@ return {
 
   test_loop_duplicate_converge_round_marker_skips = function()
     local event = unresolved({ round = 1 })
-    local base_version = conv_rounds.converge_base_version(core, event.dedup_key)
+    local base_version = conv_rounds.converge_base_version(event.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      conv_rounds.converge_round_marker(core, event.proposal_id, base_version, sr_digest, 1, event.dedup_key, nil, nil),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 1, event.dedup_key, nil, nil),
     })
 
     local result = run_loop(event, opts("loop-duplicate-converge-round"))
@@ -654,7 +654,7 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      conv_rounds.converge_round_marker(core, event.proposal_id, base_version, sr_digest, 4, base_version .. "/loop/4", event.narrowed_question, event.angle_digests),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 4, base_version .. "/loop/4", event.narrowed_question, event.angle_digests),
     })
 
     local result = run_loop(event, opts("loop-stale-lower-round"))
@@ -729,11 +729,11 @@ return {
     t.eq(#result.raises, 2)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
-    local version = conv_reconcile.reconcile_terminal_state_version(core, default_marker_version, event.round)
+    local version = conv_reconcile.reconcile_terminal_state_version(default_marker_version, event.round)
     t.is_true(comment.body:find("github-devloop reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("no-actionable-framing-after-3-rounds", 1, true) ~= nil)
     t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)
-    t.is_true(comment.body:find(conv_reconcile.reconcile_marker(core, event.proposal_id, event.base_version, event.round, "drop"), 1, true) ~= nil)
+    t.is_true(comment.body:find(conv_reconcile.reconcile_marker(event.proposal_id, event.base_version, event.round, "drop"), 1, true) ~= nil)
     t.eq(label.add_labels[1], "fkst-dev:blocked")
     t.eq(label.remove_labels[1], "fkst-dev:thinking")
     t.eq(count_calls("codex exec"), 0)
@@ -743,7 +743,7 @@ return {
     local event = reconcile()
     local state_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
     mock_issue_reconcile({ "fkst-dev:blocked" }, {
-      core.build_reconcile_comment_request("owner/repo", "42", event, "drop", "already done", conv_reconcile.reconcile_terminal_state_version(core, state_version, event.round)).body,
+      core.build_reconcile_comment_request("owner/repo", "42", event, "drop", "already done", conv_reconcile.reconcile_terminal_state_version(state_version, event.round)).body,
     })
 
     local result = run_reconcile(event, opts("reconcile-idempotent"))

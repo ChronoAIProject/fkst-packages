@@ -42,7 +42,7 @@ end
 
 local function mock_pr(state_name, mergeable, merge_state, extra_comments)
   local comments = {
-    m_builders.pr_origin_marker(core, proposal_id, "42", branch, version, "dev"),
+    m_builders.pr_origin_marker(proposal_id, "42", branch, version, "dev"),
     core.state_marker(proposal_id, state_name, version),
   }
   for _, comment in ipairs(extra_comments or {}) do
@@ -126,10 +126,9 @@ return {
     local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
     local review_dedup_key = "observe-pr-conflict/" .. proposal_id .. "/" .. version .. "/7"
     local comments = {
-      m_builders.pr_origin_marker(core, proposal_id, "42", branch, fixing_version, "dev"),
+      m_builders.pr_origin_marker(proposal_id, "42", branch, fixing_version, "dev"),
       core.state_marker(proposal_id, "fixing", fixing_version),
-      m_builders.merge_gate_marker(core, 
-        proposal_id,
+      m_builders.merge_gate_marker(proposal_id,
         7,
         fixing_version,
         review_proposal_id,
@@ -163,10 +162,9 @@ return {
     local fix_version = version .. "/fix/1"
     local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
     mock_pr("reviewing", "CONFLICTING", "DIRTY", {
-      m_builders.pr_origin_marker(core, proposal_id, "42", branch, fix_version, "dev"),
+      m_builders.pr_origin_marker(proposal_id, "42", branch, fix_version, "dev"),
       core.state_marker(proposal_id, "fixing", fix_version),
-      m_builders.merge_gate_marker(core, 
-        proposal_id,
+      m_builders.merge_gate_marker(proposal_id,
         7,
         fix_version,
         review_proposal_id,
