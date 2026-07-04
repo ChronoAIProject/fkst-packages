@@ -273,6 +273,7 @@ local tests = {
     t.eq(#creates, 1)
     t.eq(creates[1].payload.schema, "github-proxy.issue-create.v1")
     t.eq(creates[1].payload.dedup_key, entry.child_dedup)
+    t.eq(creates[1].payload.parent, origin_issue)
     t.eq(creates[1].payload.parent_comment_target.issue_number, origin_issue)
     t.is_true(creates[1].payload.body:find("fkst:github-devloop-workflow:lineage:v1", 1, true) ~= nil)
     t.is_true(creates[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)

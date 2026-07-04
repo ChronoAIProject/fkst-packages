@@ -156,6 +156,7 @@ function M.issue_create_request(repo, issue_number, origin, blueprint_digest, sl
     body = lineage .. "\n\n" .. generated_spec.body,
     dedup_key = entry.child_dedup,
     source_ref = workflow_step_source_ref(repo, issue_number, slot_id),
+    parent = tonumber(issue_number),
     parent_comment_target = {
       repo = repo,
       issue_number = tonumber(issue_number),
@@ -209,8 +210,21 @@ function M.generated_spec_for_fact(core, current, fact, trusted_comments)
 end
 
 function M.maybe_write_created_from_parent_ledger(core, repo, issue_number, origin, facts, current, trusted_comments, log_decision)
+  -- A slot whose "created" ledger fact already exists must NOT be re-derived from
+  -- its "generated" fact on every tick: the generated marker stays visible next to
+  -- the created marker, so re-writing "created" and returning true here forever
+  -- starves frontier advancement (compute_frontier is never reached, the next slot
+  -- never materializes). Skip a generated fact once its slot already has a created
+  -- fact. Found by real supervise dogfood 2026-07-03: a merged scaffold child never
+  -- advanced to the implement slot because this returned true every 5m tick.
+  local already_created = {}
   for _, fact in ipairs(facts or {}) do
-    if fact.state == "generated" then
+    if fact.state == "created" and fact.child_dedup ~= nil then
+      already_created[fact.child_dedup] = true
+    end
+  end
+  for _, fact in ipairs(facts or {}) do
+    if fact.state == "generated" and not already_created[fact.child_dedup] then
       local child_issue = M.trusted_issue_created_number(core, current, fact.child_dedup, trusted_comments)
       if child_issue ~= nil then
         local created_entry = {
