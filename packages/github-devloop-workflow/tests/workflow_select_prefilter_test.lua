@@ -233,6 +233,44 @@ return {
     t.eq(table.concat(ids, ","), "empty,label,none,title")
   end,
 
+  test_bounded_workflow_select_offers_all_valid_blueprints_without_selector_filter = function()
+    local catalog = {
+      valid = {
+        alpha = { blueprint = blueprint("alpha", { labels_any = { "alpha" } }) },
+        beta = { blueprint = blueprint("beta", { title_contains_any = { "beta" } }) },
+        gamma = { blueprint = blueprint("gamma", { labels_any = { "gamma" }, title_contains_any = { "gamma" } }) },
+      },
+    }
+
+    local eligible = workflow_select.workflow_select_eligible_blueprints({
+      labels = { "ordinary" },
+      title = "文字太大了",
+    }, catalog)
+    local ids = {}
+    for _, record in ipairs(eligible) do
+      ids[#ids + 1] = record.id
+    end
+
+    t.eq(table.concat(ids, ","), "alpha,beta,gamma")
+  end,
+
+  test_large_workflow_select_catalog_keeps_selector_prefilter = function()
+    local valid = {}
+    for index = 1, workflow_select.MAX_WORKFLOW_SELECT_BLUEPRINTS + 1 do
+      local id = string.format("flow-%03d", index)
+      valid[id] = { blueprint = blueprint(id, { labels_any = { "miss" } }) }
+    end
+    valid["flow-007"].blueprint.selector = { labels_any = { "match" } }
+
+    local eligible = workflow_select.workflow_select_eligible_blueprints({
+      labels = { "match" },
+      title = "No title keyword",
+    }, { valid = valid })
+
+    t.eq(#eligible, 1)
+    t.eq(eligible[1].id, "flow-007")
+  end,
+
   test_catalog_root_resolution_accepts_injected_temp_root = function()
     local root = "/tmp/fkst-workflow-catalog-root-injected"
     t.eq(workflow_select.resolve_catalog_root({ workflow_catalog_root = root .. "/" }), root)

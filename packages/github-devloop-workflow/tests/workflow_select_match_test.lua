@@ -347,6 +347,33 @@ local tests = {
     end)
   end,
 
+  test_non_english_title_without_selector_keyword_can_select_semantic_builtin_workflow = function()
+    local payload = candidate()
+    mock_env("/tmp/fkst-packages-test/github-devloop-workflow/no-extra-catalog")
+    mock_issue_view({
+      title = "文字太大了",
+      body = "The UI font is too large on the settings page. Please adjust the CSS and add a regression test.",
+      labels = { "bug" },
+    }, 2)
+    mock_workflow_codex("⟦FKST:WORKFLOW_SELECT⟧ software-dev-flow")
+
+    local result = run_workflow_select(payload)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "github-proxy.github_issue_comment_request")
+    t.eq(#raises_to_queue(result.raises, "github-devloop.devloop_execute_request"), 0)
+
+    local request = result.raises[1].payload
+    local blueprint_marker = marker.parse_blueprint_marker(request.body, payload.proposal_id)
+    t.eq(blueprint_marker.workflow, "software-dev-flow")
+
+    local calls = codex_calls()
+    t.eq(#calls, 1)
+    t.is_true(calls[1].stdin:find("⟦FKST:WORKFLOW_SELECT⟧", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("software-dev-flow", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("Implement a software feature", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("文字太大了", 1, true) ~= nil)
+  end,
+
   test_workflow_selection_skips_blueprint_when_fresh_issue_is_closed = function()
     with_catalog({
       ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "Do the workflow step."),
@@ -438,18 +465,19 @@ local tests = {
     end)
   end,
 
-  test_selector_no_match_falls_through_to_default_intake = function()
+  test_selector_no_match_with_bounded_catalog_defers_to_workflow_judge_none = function()
     with_catalog({
       ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"],"title_contains_any":["workflow"]}', "Do the workflow step."),
     }, function(root)
       local _result, calls = run_fallthrough_case(root, {
         title = "Repair ordinary retry backoff",
         labels = { "bug" },
-      }, nil)
+      }, "⟦FKST:WORKFLOW_SELECT⟧ none")
 
-      t.eq(#calls, 1)
-      t.is_true(calls[1].stdin:find("⟦FKST:INTAKE⟧", 1, true) ~= nil)
-      t.is_nil(calls[1].stdin:find("⟦FKST:WORKFLOW_SELECT⟧", 1, true))
+      t.eq(#calls, 2)
+      t.is_true(calls[1].stdin:find("⟦FKST:WORKFLOW_SELECT⟧", 1, true) ~= nil)
+      t.is_true(calls[1].stdin:find("workflow-alpha summary", 1, true) ~= nil)
+      t.is_true(calls[2].stdin:find("⟦FKST:INTAKE⟧", 1, true) ~= nil)
     end)
   end,
 
@@ -467,18 +495,18 @@ local tests = {
     end)
   end,
 
-  test_workflow_codex_noneligible_id_falls_through_to_default_intake = function()
+  test_workflow_codex_unknown_id_falls_through_to_default_intake = function()
     with_catalog({
       ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "Do the matching workflow step."),
       ["workflow-beta.json"] = workflow_json("workflow-beta", '{"labels_any":["other"]}', "Do another workflow step."),
     }, function(root)
       local _result, calls = run_fallthrough_case(root, {
         labels = { "workflow" },
-      }, "⟦FKST:WORKFLOW_SELECT⟧ workflow-beta")
+      }, "⟦FKST:WORKFLOW_SELECT⟧ workflow-gamma")
 
       t.eq(#calls, 2)
       t.is_true(calls[1].stdin:find("workflow-alpha summary", 1, true) ~= nil)
-      t.is_nil(calls[1].stdin:find("workflow-beta summary", 1, true))
+      t.is_true(calls[1].stdin:find("workflow-beta summary", 1, true) ~= nil)
       t.is_true(calls[2].stdin:find("⟦FKST:INTAKE⟧", 1, true) ~= nil)
     end)
   end,

@@ -131,6 +131,19 @@ local function mock_context_bundle()
   t.mock_command("python3 -c", ok)
 end
 
+local function mock_workflow_none()
+  t.mock_command("mkdir -p", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("codex exec", {
+    stdout = "⟦FKST:WORKFLOW_SELECT⟧ none",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_codex()
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("codex exec", {
@@ -144,6 +157,7 @@ return {
   test_run_graph_intake_candidate_delivers_to_workflow_select = function()
     mock_env()
     mock_issue_reads()
+    mock_workflow_none()
     mock_context_bundle()
     mock_codex()
 

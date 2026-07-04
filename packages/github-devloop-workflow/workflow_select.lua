@@ -201,6 +201,30 @@ function M.prefilter_eligible_blueprints(current, catalog)
   return eligible
 end
 
+function M.all_valid_blueprints(catalog)
+  local eligible = {}
+  local valid = type(catalog) == "table" and catalog.valid or {}
+  for id, record in pairs(valid or {}) do
+    table.insert(eligible, {
+      id = tostring(id),
+      path = record.path,
+      blueprint = type(record) == "table" and record.blueprint or nil,
+    })
+  end
+  table.sort(eligible, function(left, right)
+    return left.id < right.id
+  end)
+  return eligible
+end
+
+function M.workflow_select_eligible_blueprints(current, catalog)
+  local eligible = M.all_valid_blueprints(catalog)
+  if #eligible <= M.MAX_WORKFLOW_SELECT_BLUEPRINTS then
+    return eligible
+  end
+  return M.prefilter_eligible_blueprints(current or {}, catalog)
+end
+
 local function execution_boundary_clause(source_phrase)
   return table.concat({
     "Execution boundary:",
@@ -395,7 +419,7 @@ local function workflow_prefilter(ctx)
     return false
   end
   local catalog = M.load_catalog_for_ctx(ctx)
-  local eligible = M.prefilter_eligible_blueprints(ctx.current or {}, catalog)
+  local eligible = M.workflow_select_eligible_blueprints(ctx.current or {}, catalog)
   if #eligible == 0 then
     return false
   end

@@ -178,6 +178,24 @@ local function mock_codex(stdout, current)
   })
 end
 
+local function mock_workflow_none()
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop-workflow/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("mkdir -p", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("codex exec", {
+    stdout = "⟦FKST:WORKFLOW_SELECT⟧ none",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_class_escalation_lists(siblings)
   t.mock_command("gh issue list", {
     stdout = "[]\n",
@@ -194,6 +212,16 @@ local function mock_class_escalation_lists(siblings)
     stderr = "",
     exit_code = 0,
   })
+end
+
+local function mock_workflow_select_path(case, current)
+  mock_env()
+  mock_issue_view(current, 2)
+  mock_workflow_none()
+  mock_codex(case.codex, current)
+  if case.class_siblings ~= nil then
+    mock_class_escalation_lists(case.class_siblings)
+  end
 end
 
 local function mock_default_path(case, current)
@@ -287,7 +315,7 @@ end
 local function exercise_pair(case)
   local payload = candidate()
   local current = case.current or {}
-  mock_default_path(case, current)
+  mock_workflow_select_path(case, current)
   local workflow_result = run_workflow_select(payload, "workflow-select-" .. case.name)
 
   mock_default_path(case, current)
