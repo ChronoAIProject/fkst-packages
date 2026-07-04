@@ -206,6 +206,24 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
   return m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id)
 end
 
+local function maybe_canonicalize_implementing_merged_delegated_pr(issue, proposal_id, current, issue_state, current_pr)
+  if issue_state == nil or issue_state.state ~= "implementing" then
+    return false
+  end
+  local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, issue_state.version)
+  if delegation == nil then
+    return false
+  end
+  return awaiting_pr_replay.canonicalize_implementing_merged_delegated_pr("observe_issue", issue, issue_state, {
+    proposal_id = proposal_id,
+    current = current,
+    current_issue = current,
+    current_pr = current_pr,
+    fresh_current_state = issue_state,
+    ["pr-delegation"] = delegation,
+  })
+end
+
 local function maybe_apply_issue_rereview_command(issue, proposal_id, current, state, event_ts)
   local command = operator_commands.operator_command_fact(current.comments, "rereview")
   if command == nil then
@@ -641,6 +659,9 @@ local function process_issue_event(event)
         return
       end
       if maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot) then
+        return
+      end
+      if maybe_canonicalize_implementing_merged_delegated_pr(issue, proposal_id, current, state, nil) then
         return
       end
       if maybe_canonicalize_legacy_pr_open_issue() then
