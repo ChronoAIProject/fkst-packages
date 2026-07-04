@@ -38,6 +38,21 @@ local function pr_view(core, repo, pr_number)
   return current
 end
 
+-- Canonical "is this PR genuinely merged" check, the single source of truth for
+-- every PR-merge decision in this reader. Matches libraries/forge/github_view.lua
+-- and devloop/github_proxy_entity_view.lua. json.decode represents a JSON null
+-- (mergedAt on an OPEN PR) as a NON-NIL sentinel, so `merged_at ~= nil` wrongly
+-- reads open PRs as merged; require state==MERGED or a STRING mergedAt timestamp.
+local function pr_is_merged(current_pr)
+  if current_pr == nil then
+    return false
+  end
+  if tostring(current_pr.state or ""):upper() == "MERGED" then
+    return true
+  end
+  return type(current_pr.merged_at) == "string" and current_pr.merged_at ~= ""
+end
+
 local function production_child_status_deps(core, repo)
   local issue_cache = {}
   local pr_cache = {}
@@ -95,11 +110,11 @@ local function production_child_status_deps(core, repo)
       if link == nil then
         return false
       end
-      local current_pr = pr(link)
-      if current_pr == nil then
-        return false
-      end
-      return current_pr.merged_at ~= nil and tostring(current_pr.merged_at) ~= ""
+      -- A delegated child is merged only when its PR GENUINELY merged (see
+      -- pr_is_merged). The old `merged_at ~= nil` check was fooled by json.decode's
+      -- non-nil JSON-null sentinel for an OPEN PR -> premature slot materialization
+      -- + false terminal-done (real supervise dogfood 2026-07-04, origins #135/#93).
+      return pr_is_merged(pr(link))
     end,
     irreversible_terminal = function(child_ref)
       local child = issue(child_ref)
@@ -112,7 +127,9 @@ local function production_child_status_deps(core, repo)
           return true
         end
         local current_pr = pr(link)
-        return current_pr == nil or tostring(current_pr.merged_at or "") == ""
+        -- A CLOSED child whose PR did NOT genuinely merge is irreversibly terminal.
+        -- Use pr_is_merged so the JSON-null sentinel is not mistaken for a merge.
+        return not pr_is_merged(current_pr)
       end
       return false
     end,

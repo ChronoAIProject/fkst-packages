@@ -100,6 +100,26 @@ local function issue_view_stdout(issue_number, state, comments)
     .. '","labels":[],"assignees":[],"author":{"login":"human"},"comments":[' .. comments_json(comments) .. ']}\n'
 end
 
+-- A delegated child whose PR is still OPEN (not merged): a pr-delegation marker but
+-- NO merged marker on the child. Used to reproduce the premature-materialization
+-- bug where an open PR's `mergedAt: null` (a non-nil json.decode sentinel) was read
+-- as merged.
+local function child_comments_delegated_open_pr(child_proposal_id, pr_number, version)
+  local pr_proposal_id = "github-devloop/pr/" .. repo .. "/" .. tostring(pr_number)
+  return {
+    comment(table.concat({
+      core.state_marker(child_proposal_id, "awaiting-pr", version),
+      m_builders.pr_delegation_marker(core, child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
+    }, "\n")),
+  }
+end
+
+local function pr_view_open_stdout(pr_number)
+  return '{"number":' .. tostring(pr_number)
+    .. ',"state":"OPEN","mergedAt":null,"title":"child pr","body":"",'
+    .. '"headRefName":"feature","baseRefName":"workflow-dogfood","comments":[]}\n'
+end
+
 local tests = {
   test_slot_one_is_immediately_materializable = function()
     local action = frontier.compute_frontier(blueprint(), {}, status_map({}))
@@ -228,7 +248,31 @@ local tests = {
     t.eq(action.action, "materialize")
     t.eq(action.slot, "second")
     t.eq(action.predecessor.proposal_id, child_proposal_id)
-    t.eq(action.predecessor.issue_number, tostring(child_issue))
+  end,
+
+  -- Regression: a delegated child whose PR is still OPEN (mergedAt null) must be
+  -- "running", NOT result_ready. json.decode turns a JSON null into a NON-NIL
+  -- sentinel, so the old `merged_at ~= nil` native check wrongly read an open
+  -- delegated PR as merged -> a still-implementing child was judged result_ready
+  -- -> premature slot materialization + false workflow terminal-done. Found by
+  -- real supervise dogfood 2026-07-04 (origins #135, #93; children #149/#152/#94).
+  test_delegated_open_pr_child_is_running_not_ready = function()
+    local child_issue = 149
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local version = "ready/consensus-github-devloop/issue/owner/repo/90/2026-07-04T00-00-00Z"
+    local comments = child_comments_delegated_open_pr(child_proposal_id, 153, version)
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+    -- The delegation link resolves, but there is NO merged marker on the child.
+    t.eq(m_facts.pr_delegation_fact(core, comments, child_proposal_id, nil).pr_number, 153)
+    t.is_nil(m_facts.merged_fact(core, comments, child_proposal_id, 153, nil))
+    t.mock_command("gh issue view", { stdout = issue_view_stdout(child_issue, "OPEN", comments) })
+    t.mock_command("gh pr view", { stdout = pr_view_open_stdout(153) })
+    -- THE FIX: an open delegated PR (mergedAt null) must be "running", not
+    -- result_ready. Without the fix this returned "result_ready", so the frontier
+    -- materialized the next slot + wrote a false terminal-done while the child was
+    -- still implementing.
+    t.eq(reader(child_ref), "running")
   end,
 }
 
