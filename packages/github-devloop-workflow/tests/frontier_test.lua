@@ -1,5 +1,13 @@
 local frontier = require("core.frontier")
+local actions = require("core.materialize.actions")
+local base_ids = require("devloop.base_ids")
+local child_status = require("core.materialize.child_status")
+local core = require("core")
+local m_builders = require("devloop.markers.builders")
+local m_facts = require("devloop.markers.facts")
 local t = fkst.test
+
+local repo = "owner/repo"
 
 local function blueprint()
   return {
@@ -52,6 +60,44 @@ local function status_map(map)
   return function(child)
     return map[child.proposal_id] or "running"
   end
+end
+
+local function comment(body)
+  return {
+    body = body,
+    author_login = core._test_bot_login,
+    created_at = "2026-07-04T00:00:00Z",
+  }
+end
+
+local function child_comments_with_delegated_merged_pr(child_proposal_id, pr_number, version)
+  local pr_proposal_id = "github-devloop/pr/" .. repo .. "/" .. tostring(pr_number)
+  local head_sha = "0123456789abcdef0123456789abcdef01234567"
+  return {
+    comment(table.concat({
+      core.state_marker(child_proposal_id, "merged", version),
+      m_builders.pr_delegation_marker(core, child_proposal_id, pr_proposal_id, pr_number, version, "g1"),
+      m_builders.merged_marker(core, child_proposal_id, pr_number, version, head_sha),
+    }, "\n")),
+  }
+end
+
+local function json_escape(value)
+  return tostring(value or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
+end
+
+local function comments_json(comments)
+  local encoded = {}
+  for _, item in ipairs(comments or {}) do
+    encoded[#encoded + 1] = '{"body":"' .. json_escape(item.body) .. '","author":{"login":"' .. tostring(item.author_login or core._test_bot_login) .. '"},"createdAt":"' .. tostring(item.created_at or "2026-07-04T00:00:00Z") .. '"}'
+  end
+  return table.concat(encoded, ",")
+end
+
+local function issue_view_stdout(issue_number, state, comments)
+  return '{"number":' .. tostring(issue_number)
+    .. ',"title":"Child","body":"","createdAt":"2026-07-04T00:00:00Z","updatedAt":"2026-07-04T00:00:00Z","state":"' .. tostring(state or "OPEN")
+    .. '","labels":[],"assignees":[],"author":{"login":"human"},"comments":[' .. comments_json(comments) .. ']}\n'
 end
 
 local tests = {
@@ -149,6 +195,40 @@ local tests = {
     }, status_map({ ["child-first"] = "unknown" }))
     t.eq(action.action, "wait")
     t.eq(action.why, "predecessor-unknown")
+  end,
+
+  test_delegated_merged_child_materializes_next_slot = function()
+    local child_issue = 90
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local version = "ready/consensus-github-devloop/issue/owner/repo/90/2026-07-04T00-00-00Z"
+    local comments = child_comments_with_delegated_merged_pr(child_proposal_id, 92, version)
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+
+    t.is_nil(m_facts.pr_link_fact(core, comments, child_proposal_id))
+    t.eq(m_facts.pr_delegation_fact(core, comments, child_proposal_id, nil).pr_number, 92)
+    t.eq(m_facts.merged_fact(core, comments, child_proposal_id, 92, nil).pr_number, 92)
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(child_issue, "CLOSED", comments),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    t.eq(reader(child_ref), "result_ready")
+
+    local action = frontier.compute_frontier(blueprint(), actions.ledger_for_frontier(repo, {
+      {
+        state = "created",
+        slot = "first",
+        child_issue = tostring(child_issue),
+      },
+    }), reader)
+
+    t.eq(action.action, "materialize")
+    t.eq(action.slot, "second")
+    t.eq(action.predecessor.proposal_id, child_proposal_id)
+    t.eq(action.predecessor.issue_number, tostring(child_issue))
   end,
 }
 

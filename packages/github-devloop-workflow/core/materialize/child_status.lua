@@ -52,7 +52,8 @@ local function production_child_status_deps(core, repo)
 
   local function linked_pr(child_ref)
     local current = issue(child_ref)
-    return devloop_marker_facts.pr_link_fact(core, current.comments, child_ref.proposal_id)
+    return devloop_marker_facts.pr_delegation_fact(core, current.comments, child_ref.proposal_id, nil)
+      or devloop_marker_facts.pr_link_fact(core, current.comments, child_ref.proposal_id)
   end
 
   local function pr(link)
@@ -85,7 +86,7 @@ local function production_child_status_deps(core, repo)
       child.proposal_id = child_ref.proposal_id
       if link ~= nil then
         child.pr_number = link.pr_number
-        child.version = link.impl_version
+        child.version = link.impl_version or link.version
       end
       return child
     end,
