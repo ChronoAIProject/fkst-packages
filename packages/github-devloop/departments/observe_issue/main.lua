@@ -14,6 +14,7 @@ local queue = require("devloop.queue")
 local transition_version = require("contract.transition_version")
 local context_bundle = require("devloop.context_bundle")
 local replayer = require("devloop.replayer")
+local awaiting_pr_replay = require("awaiting_pr_replay")
 
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
@@ -535,6 +536,23 @@ local function process_issue_event(event)
     end
     if issue.source == "pr-entity-change" then
       if issue_state.state ~= "awaiting-pr" then
+        local handoff_transition = awaiting_pr_replay.implementing_to_awaiting_pr_transition_status(issue_state)
+        if handoff_transition == "apply" or handoff_transition == "idempotent" then
+          if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
+            return
+          end
+          local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, issue_state.version)
+          if awaiting_pr_replay.canonicalize_implementing_merged_delegated_pr("observe_issue", issue, issue_state, {
+            proposal_id = proposal_id,
+            current = current,
+            current_issue = current,
+            current_pr = issue.child_pr,
+            fresh_current_state = issue_state,
+            ["pr-delegation"] = delegation,
+          }) then
+            return
+          end
+        end
         devloop_logging.log_cas_decision("observe_issue", proposal_id, issue_state, "awaiting-pr", "awaiting-pr", "skip-foreign(parent-not-awaiting-pr)", "PR entity change only replays parent awaiting-pr")
         return
       end
