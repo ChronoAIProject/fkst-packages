@@ -5,12 +5,17 @@ local default_catalog = require("core.default_catalog")
 local default_intake = require("core.default_intake")
 local fail = require("core.errors").fail
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
+local claims = require("devloop.claims")
+local execution_start = require("devloop.execution_start")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local digest = require("core.digest")
 local parsers_misc = require("devloop.parsers.misc")
+local requests_labels = require("devloop.requests.labels")
 local select_request = require("core.select_request")
 local strings = require("contract.strings")
+local v_execution_request = require("devloop.validators.execution_request")
 local workflow_codex = require("workflow.codex")
 local workflow_env = require("workflow.env")
 local workflow_select_prompt = require("prompts.workflow_select")
@@ -114,20 +119,26 @@ local function has_existing_blueprint_on_current(current, candidate)
   })
 end
 
-local function has_workflow_lineage_header(ctx)
+local function issue_body_author_is_trusted(current)
+  local author = claims.issue_author_login(current or {})
+  return devloop_base.strip_bot_login_suffix(author) == devloop_base.trusted_bot_login()
+end
+
+local function trusted_workflow_lineage_header(ctx)
   local current = ctx.current or {}
-  -- Child issue bodies are authored by the workflow materializer through github-proxy
-  -- create, so a body lineage header is treated as bot-authored provenance. Comment
-  -- lineage still crosses the normal GitHub comment seam and must be bot-trusted.
-  if core.marker.parse_lineage_header(current.body or "") ~= nil then
-    return true
-  end
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(current.comments or {})) do
-    if core.marker.parse_lineage_header(parsers_misc.comment_body(comment)) ~= nil then
-      return true
+  if issue_body_author_is_trusted(current) then
+    local lineage = core.marker.parse_lineage_header(current.body or "")
+    if lineage ~= nil then
+      return lineage
     end
   end
-  return false
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(current.comments or {})) do
+    local lineage = core.marker.parse_lineage_header(parsers_misc.comment_body(comment))
+    if lineage ~= nil then
+      return lineage
+    end
+  end
+  return nil
 end
 
 local function labels_match(current_labels, selector_labels)
@@ -411,12 +422,101 @@ local function raise_blueprint_decision(ctx, record)
   return handled
 end
 
+local function workflow_child_dedup_key(ctx, lineage)
+  return base_ids.dedup_key({
+    "workflow",
+    "child-execute",
+    tostring(lineage.origin),
+    tostring(lineage.blueprint_digest),
+    tostring(lineage.slot),
+    tostring(ctx.candidate and ctx.candidate.proposal_id or ""),
+  })
+end
+
+local function workflow_child_execution_request(ctx, lineage)
+  local service_class = execution_start.normalize_execution_service_class(ctx.candidate and ctx.candidate.service_class)
+  return execution_start.build_execution_request_payload({
+    proposal_id = ctx.candidate and ctx.candidate.proposal_id,
+    dedup_key = workflow_child_dedup_key(ctx, lineage),
+    source_ref = ctx.candidate and ctx.candidate.source_ref,
+    origin = {
+      package = "github-devloop-workflow",
+      route = "workflow-child",
+      decision = "committed-child",
+      lineage = {
+        origin = lineage.origin,
+        blueprint_digest = lineage.blueprint_digest,
+        slot = lineage.slot,
+      },
+    },
+    service_class = service_class,
+  })
+end
+
+local function workflow_child_label_request(ctx, lineage)
+  local class_add, class_remove = core.intake_service_class_label_changes(ctx.candidate and ctx.candidate.service_class)
+  local add_labels = { core._enabled_label, class_add[1] }
+  return requests_labels.build_label_request(
+    ctx.repo,
+    ctx.issue_number,
+    add_labels,
+    class_remove,
+    base_ids.dedup_key({
+      "workflow",
+      "child-label",
+      tostring(lineage.origin),
+      tostring(lineage.blueprint_digest),
+      tostring(lineage.slot),
+      tostring(ctx.candidate and ctx.candidate.proposal_id or ""),
+    }),
+    ctx.candidate and ctx.candidate.source_ref
+  )
+end
+
+local function raise_workflow_child_execution(ctx, lineage)
+  local execution_request = workflow_child_execution_request(ctx, lineage)
+  if not v_execution_request.is_supported_execution_request(execution_request) then
+    devloop_logging.log_cas_decision(
+      "workflow_select",
+      ctx.candidate and ctx.candidate.proposal_id or "unknown",
+      { state = nil, version = nil },
+      "workflow-child",
+      "execution-request",
+      "fail-closed(invalid-execution-request)",
+      "trusted workflow lineage could not build a valid execution request"
+    )
+    return false
+  end
+  local label_request = workflow_child_label_request(ctx, lineage)
+  local class_add, class_remove = core.intake_service_class_label_changes(ctx.candidate and ctx.candidate.service_class)
+  devloop_logging.log_cas_decision(
+    "workflow_select",
+    ctx.candidate and ctx.candidate.proposal_id or "unknown",
+    { state = nil, version = nil },
+    "workflow-child",
+    "execution-request",
+    "applied(committed-child)",
+    "trusted workflow lineage routes directly to execute_start"
+  )
+  devloop_logging.log_apply("workflow_select", ctx.candidate and ctx.candidate.proposal_id or "unknown", "workflow-child", execution_request.dedup_key, {
+    add = { core._enabled_label, class_add[1] },
+    remove = class_remove,
+  }, {
+    "github-proxy.github_issue_label_request",
+    "github-devloop.devloop_execute_request",
+  })
+  devloop_logging.log_raise("workflow_select", ctx.candidate and ctx.candidate.proposal_id or "unknown", "github-proxy.github_issue_label_request", label_request)
+  devloop_logging.log_raise("workflow_select", ctx.candidate and ctx.candidate.proposal_id or "unknown", "github-devloop.devloop_execute_request", execution_request)
+  return true
+end
+
 local function workflow_prefilter(ctx)
   if has_existing_blueprint(ctx) then
     return true
   end
-  if has_workflow_lineage_header(ctx) then
-    return false
+  local lineage = trusted_workflow_lineage_header(ctx)
+  if lineage ~= nil and tostring(lineage.origin or "") ~= tostring(ctx.candidate and ctx.candidate.proposal_id or "") then
+    return raise_workflow_child_execution(ctx, lineage)
   end
   local catalog = M.load_catalog_for_ctx(ctx)
   local eligible = M.workflow_select_eligible_blueprints(ctx.current or {}, catalog)

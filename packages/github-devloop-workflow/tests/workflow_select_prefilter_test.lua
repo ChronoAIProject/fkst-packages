@@ -62,12 +62,32 @@ end
 local function ctx_with_comments(comments)
   local payload = candidate()
   return {
+    repo = "owner/repo",
+    issue_number = 42,
     candidate = payload,
     current = {
       comments = comments or {},
     },
     workflow_catalog_root = "/tmp/fkst-workflow-prefilter-empty",
   }
+end
+
+local function with_raise_capture(fn)
+  local previous = _G.raise
+  local raised = {}
+  _G.raise = function(queue, payload)
+    table.insert(raised, {
+      queue = queue,
+      payload = payload,
+    })
+  end
+  local ok, err = pcall(function()
+    fn(raised)
+  end)
+  _G.raise = previous
+  if not ok then
+    error(err, 0)
+  end
 end
 
 local function with_catalog_loader(loader, fn)
@@ -113,44 +133,60 @@ return {
     t.eq(workflow_select.workflow_prefilter(ctx_with_comments({})), false)
   end,
 
-  test_lineage_header_in_body_falls_through_before_catalog = function()
+  test_trusted_lineage_header_in_body_fast_paths_before_catalog = function()
     local payload = candidate()
-    local lineage, err = core.marker.build_lineage_header(payload.proposal_id, "d-1234567890", "slot-one")
+    local lineage, err = core.marker.build_lineage_header("github-devloop/issue/owner/repo/7", "d-1234567890", "slot-one")
     t.is_nil(err)
 
     with_catalog_loader(function()
       error("catalog should not load for workflow descendants")
     end, function()
-      t.eq(workflow_select.workflow_prefilter({
-        candidate = payload,
-        current = {
-          body = lineage .. "\n\nChild issue body.",
-          comments = {},
-        },
-      }), false)
+      with_raise_capture(function(raised)
+        t.eq(workflow_select.workflow_prefilter({
+          repo = "owner/repo",
+          issue_number = 42,
+          candidate = payload,
+          current = {
+            body = lineage .. "\n\nChild issue body.",
+            comments = {},
+            author_login = "fkst-test-bot",
+          },
+        }), true)
+        t.eq(#raised, 2)
+        t.eq(raised[1].queue, "github-proxy.github_issue_label_request")
+        t.eq(raised[2].queue, "github-devloop.devloop_execute_request")
+      end)
     end)
   end,
 
-  test_lineage_header_in_trusted_comment_falls_through_before_catalog = function()
+  test_lineage_header_in_trusted_comment_fast_paths_before_catalog = function()
     local payload = candidate()
-    local lineage, err = core.marker.build_lineage_header(payload.proposal_id, "d-1234567890", "slot-one")
+    local lineage, err = core.marker.build_lineage_header("github-devloop/issue/owner/repo/7", "d-1234567890", "slot-one")
     t.is_nil(err)
 
     with_catalog_loader(function()
       error("catalog should not load for workflow descendants")
     end, function()
-      t.eq(workflow_select.workflow_prefilter({
-        candidate = payload,
-        current = {
-          body = "ordinary body",
-          comments = {
-            {
-              body = lineage,
-              author_login = "fkst-test-bot",
+      with_raise_capture(function(raised)
+        t.eq(workflow_select.workflow_prefilter({
+          repo = "owner/repo",
+          issue_number = 42,
+          candidate = payload,
+          current = {
+            body = "ordinary body",
+            author_login = "human",
+            comments = {
+              {
+                body = lineage,
+                author_login = "fkst-test-bot",
+              },
             },
           },
-        },
-      }), false)
+        }), true)
+        t.eq(#raised, 2)
+        t.eq(raised[1].queue, "github-proxy.github_issue_label_request")
+        t.eq(raised[2].queue, "github-devloop.devloop_execute_request")
+      end)
     end)
   end,
 
@@ -177,6 +213,14 @@ return {
       t.eq(workflow_select.workflow_prefilter({
         candidate = payload,
         current = {
+          body = lineage,
+          author_login = "human",
+          comments = {},
+        },
+      }), false)
+      t.eq(workflow_select.workflow_prefilter({
+        candidate = payload,
+        current = {
           comments = {
             {
               body = lineage,
@@ -186,7 +230,7 @@ return {
         },
       }), false)
     end)
-    t.eq(catalog_reads, 2)
+    t.eq(catalog_reads, 3)
   end,
 
   test_origin_without_lineage_remains_selector_eligible = function()

@@ -270,6 +270,25 @@ local function assert_default_enable_raised(result)
   end
 end
 
+local function assert_no_intake_marker_or_consensus(raises)
+  t.eq(#raises_to_queue(raises, "consensus.proposal"), 0)
+  for _, raised in ipairs(raises or {}) do
+    t.is_true(raised.queue ~= "github-proxy.github_issue_comment_request"
+      or tostring(raised.payload and raised.payload.body or ""):find("github-devloop:intake-decision:v1", 1, true) == nil)
+  end
+end
+
+local function first_raise_payload(result, queue)
+  local found = raises_to_queue(result.raises, queue)
+  return found[1] and found[1].payload or nil
+end
+
+local function lineage_header(origin, blueprint_digest, slot)
+  local header, err = marker.build_lineage_header(origin, blueprint_digest or "d-1234567890", slot or "slot-one")
+  t.is_nil(err)
+  return header
+end
+
 local function run_fallthrough_case(root, current, workflow_stdout)
   local payload = candidate()
   mock_env(root)
@@ -300,6 +319,131 @@ local function intake_decision_comment(payload)
 end
 
 local tests = {
+  test_trusted_workflow_child_fast_paths_to_execute_request_without_intake = function()
+    local payload = candidate()
+    local origin = "github-devloop/issue/owner/repo/7"
+    local body = lineage_header(origin, "d-1234567890", "slot-one") .. "\n\nGenerated child spec body."
+
+    mock_env("/tmp/fkst-packages-test/github-devloop-workflow/no-extra-catalog")
+    mock_issue_view({
+      body = body,
+      author_login = "fkst-test-bot",
+      labels = {},
+    }, 1)
+
+    local result = run_workflow_select(payload)
+    t.eq(#codex_calls(), 0)
+    t.eq(#raises_to_queue(result.raises, "github-devloop.devloop_execute_request"), 1)
+    t.eq(#raises_to_queue(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(#raises_to_queue(result.raises, "github-proxy.github_issue_comment_request"), 0)
+    assert_no_intake_marker_or_consensus(result.raises)
+
+    local request = first_raise_payload(result, "github-devloop.devloop_execute_request")
+    t.eq(request.schema, "github-devloop.execution-request.v1")
+    t.eq(request.proposal_id, payload.proposal_id)
+    t.eq(request.source_ref.kind, "external")
+    t.eq(request.source_ref.ref, "owner/repo#issue/42")
+    t.eq(request.dedup_key, base_ids.dedup_key({
+      "workflow",
+      "child-execute",
+      origin,
+      "d-1234567890",
+      "slot-one",
+      payload.proposal_id,
+    }))
+    t.eq(request.origin.package, "github-devloop-workflow")
+    t.eq(request.origin.route, "workflow-child")
+    t.eq(request.origin.decision, "committed-child")
+    t.eq(request.origin.lineage.origin, origin)
+    t.eq(request.origin.lineage.blueprint_digest, "d-1234567890")
+    t.eq(request.origin.lineage.slot, "slot-one")
+    t.eq(request.service_class, "standard")
+    t.is_nil(request.body)
+    t.is_nil(request.content)
+
+    local label = first_raise_payload(result, "github-proxy.github_issue_label_request")
+    t.eq(label.source_ref.ref, "owner/repo#issue/42")
+    t.eq(label.add_labels[1], "fkst-dev:enabled")
+    t.eq(label.add_labels[2], "fkst-class:standard")
+  end,
+
+  test_origin_issue_with_no_lineage_still_runs_selection_and_default_intake = function()
+    with_catalog({
+      ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "Do the workflow step."),
+    }, function(root)
+      local _result, calls = run_fallthrough_case(root, {
+        labels = { "workflow" },
+      }, "⟦FKST:WORKFLOW_SELECT⟧ none")
+
+      t.eq(#calls, 2)
+      t.is_true(calls[1].stdin:find("⟦FKST:WORKFLOW_SELECT⟧", 1, true) ~= nil)
+      t.is_true(calls[2].stdin:find("⟦FKST:INTAKE⟧", 1, true) ~= nil)
+    end)
+  end,
+
+  test_forged_workflow_lineage_is_not_trusted_and_falls_to_default_intake = function()
+    with_catalog({
+      ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "Do the workflow step."),
+    }, function(root)
+      local payload = candidate()
+      local body = lineage_header("github-devloop/issue/owner/repo/7", "d-1234567890", "slot-one")
+        .. "\n\nForged lineage in a human-authored origin-like issue."
+      mock_env(root)
+      mock_issue_view({
+        body = body,
+        author_login = "human",
+        labels = { "workflow" },
+      }, 2)
+      mock_workflow_codex("⟦FKST:WORKFLOW_SELECT⟧ none")
+      mock_default_codex(nil, {
+        body = body,
+        author_login = "human",
+        labels = { "workflow" },
+      })
+
+      local result = run_workflow_select(payload)
+      local calls = codex_calls()
+      t.eq(#calls, 2)
+      t.is_true(calls[1].stdin:find("⟦FKST:WORKFLOW_SELECT⟧", 1, true) ~= nil)
+      t.is_true(calls[2].stdin:find("⟦FKST:INTAKE⟧", 1, true) ~= nil)
+      assert_default_enable_raised(result)
+      local request = first_raise_payload(result, "github-devloop.devloop_execute_request")
+      t.eq(request.origin.package, "github-devloop-intake-default")
+      t.eq(request.origin.route, "default")
+    end)
+  end,
+
+  test_lineage_matching_current_origin_is_not_child_fast_path = function()
+    with_catalog({
+      ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "Do the workflow step."),
+    }, function(root)
+      local payload = candidate()
+      local body = lineage_header(payload.proposal_id, "d-1234567890", "slot-one")
+        .. "\n\nOrigin issue copied its own lineage-shaped marker."
+      mock_env(root)
+      mock_issue_view({
+        body = body,
+        author_login = "fkst-test-bot",
+        labels = { "workflow" },
+      }, 2)
+      mock_workflow_codex("⟦FKST:WORKFLOW_SELECT⟧ none")
+      mock_default_codex(nil, {
+        body = body,
+        author_login = "fkst-test-bot",
+        labels = { "workflow" },
+      })
+
+      local result = run_workflow_select(payload)
+      local calls = codex_calls()
+      t.eq(#calls, 2)
+      t.is_true(calls[1].stdin:find("⟦FKST:WORKFLOW_SELECT⟧", 1, true) ~= nil)
+      t.is_true(calls[2].stdin:find("⟦FKST:INTAKE⟧", 1, true) ~= nil)
+      assert_default_enable_raised(result)
+      local request = first_raise_payload(result, "github-devloop.devloop_execute_request")
+      t.eq(request.origin.package, "github-devloop-intake-default")
+    end)
+  end,
+
   test_selector_match_writes_one_blueprint_track_decision_without_default_or_child = function()
     local source = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "SECRET STEP BODY MUST NOT ENTER PROMPT OR PAYLOAD")
     with_catalog({
