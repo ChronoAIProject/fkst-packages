@@ -41,6 +41,9 @@ local function terminal(core, deps, repo, issue_number, origin, state, reason_co
   )
   if state == "done" then
     lease.release_done_claim(core, deps, repo, issue_number, origin)
+    -- The origin issue itself is closed level-triggered from process_origin's
+    -- terminal-marker branch (terminal=done + still OPEN -> close), so it fires on
+    -- any poll and needs no held claim, not only on this first transition.
   else
     log_decision(origin, "claim", "claim", "hold-terminal-claim", "terminal " .. tostring(state) .. " keeps the lease for follow-up ownership")
   end
@@ -226,6 +229,19 @@ local function process_origin(core, deps, repo, issue_number, event)
       log_decision(origin, "tick", "discover", "skip-closed", "issue is not open")
       return "skip"
     end
+    -- Terminal handling first: a workflow that already reached a terminal marker
+    -- needs no claim or blueprint. A "done" terminal (every slot merged) whose origin
+    -- is still OPEN is closed here, level-triggered, on any poll -- so origins that
+    -- reached done before this behavior existed (or whose terminal-time close was a
+    -- dry-run) still close, without needing the (already released) done claim.
+    local terminal_fact = discovery.latest_terminal(core, current, origin)
+    if terminal_fact ~= nil then
+      if tostring(terminal_fact.state or "") == "done" then
+        lease.close_done_origin(core, deps, repo, issue_number, origin)
+      end
+      log_decision(origin, "discover", "terminal", "skip-terminal", "trusted workflow terminal marker already exists")
+      return "skip"
+    end
     if not verify_claim(core, deps, repo, issue_number, origin) then
       log_decision(origin, "claim", "materialize", "skip-claim-lost", "origin materialization lease is not self-held")
       return "skip"
@@ -234,10 +250,6 @@ local function process_origin(core, deps, repo, issue_number, event)
     local blueprint_fact = discovery.latest_blueprint(core, current, origin)
     if blueprint_fact == nil then
       log_decision(origin, "discover", "blueprint", "skip-no-blueprint", "no trusted workflow blueprint marker")
-      return "skip"
-    end
-    if discovery.latest_terminal(core, current, origin) ~= nil then
-      log_decision(origin, "discover", "terminal", "skip-terminal", "trusted workflow terminal marker already exists")
       return "skip"
     end
 

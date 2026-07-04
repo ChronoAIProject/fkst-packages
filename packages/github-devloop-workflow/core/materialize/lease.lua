@@ -72,4 +72,35 @@ function M.release_done_claim(core, deps, repo, issue_number, origin)
   return true
 end
 
+local function issue_close(deps, repo, issue_number)
+  if type(deps) == "table" and type(deps.issue_close) == "function" then
+    return deps.issue_close(repo, issue_number, M.RELEASE_TIMEOUT_SECONDS)
+  end
+  return github().issue_close(repo, issue_number, M.RELEASE_TIMEOUT_SECONDS)
+end
+
+-- A workflow whose every slot genuinely merged is fully implemented, so its origin
+-- idea issue is closed: leaving completed origins open clutters the board. Only the
+-- "done" terminal reaches here (a "blocked" terminal keeps the issue open for human
+-- follow-up). The reconcile skips a non-OPEN origin (discovery skip-closed), so this
+-- runs when the issue is open and is not re-attempted once the close is visible.
+function M.close_done_origin(core, deps, repo, issue_number, origin)
+  if type(deps) == "table" and type(deps.close_done_origin) == "function" then
+    return deps.close_done_origin(core, repo, issue_number, origin)
+  end
+
+  if not write_enabled(deps) then
+    log(origin, "dry-run-close-origin", "terminal done would close the completed origin issue but FKST_GITHUB_WRITE!=1")
+    return true
+  end
+
+  local result = issue_close(deps, repo, issue_number)
+  if type(result) == "table" and result.exit_code ~= nil and result.exit_code ~= 0 then
+    error("github-devloop-workflow: workflow-origin-close-failed: workflow origin issue close failed: " .. tostring(result.stderr))
+  end
+  devloop_entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
+  log(origin, "closed-origin", "terminal done closed the completed workflow origin issue")
+  return true
+end
+
 return M
