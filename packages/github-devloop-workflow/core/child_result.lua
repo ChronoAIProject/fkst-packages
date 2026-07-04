@@ -1,4 +1,3 @@
-local devloop_state = require("devloop.state")
 local devloop_marker_facts = require("devloop.markers.facts")
 
 local M = {}
@@ -103,12 +102,40 @@ local function impl_failed_is_fatal(deps, child_ref)
   return false
 end
 
+local function impl_failed_reason(deps, child_ref)
+  local reason, ok = call_reader(deps.impl_failed_reason, child_ref)
+  if not ok then
+    if type(deps.impl_failed_reason) == "function" then
+      return nil, false
+    end
+    return nil, true
+  end
+  if reason == nil then
+    return nil, true
+  end
+  return tostring(reason), true
+end
+
+local function covered_by_predecessor(context)
+  if type(context) ~= "table" then
+    return false
+  end
+  return context.slot_has_predecessor == true
+    and context.predecessor_created == true
+    and context.predecessor_status == M.STATUS_RESULT_READY
+    and context.predecessor_merged == true
+    and type(context.predecessor_ref_digest) == "string"
+    and context.predecessor_ref_digest ~= ""
+    and context.predecessor_ref_digest_is_real == true
+    and context.predecessor_ref_digest == context.expected_predecessor_ref_digest
+end
+
 -- Uses only exact child-boundary evidence:
 --   deps.has_merged_marker
 --   devloop.markers.facts.merged_fact over trusted marker comments
 -- and GitHub-native child boundary readers injected as deps. It does not
 -- require peer package internals and never enumerates private routing states.
-function M.child_result_status(deps, child_ref)
+function M.child_result_status(deps, child_ref, context)
   if type(deps) ~= "table" or type(child_ref) ~= "table" then
     return M.STATUS_UNKNOWN
   end
@@ -118,7 +145,7 @@ function M.child_result_status(deps, child_ref)
     return M.STATUS_UNKNOWN
   end
   if merged_marker then
-    return M.STATUS_RESULT_READY
+    return M.STATUS_RESULT_READY, { merged = true }
   end
 
   local native_merged = github_closed_with_merged_pr(deps, child_ref)
@@ -126,7 +153,7 @@ function M.child_result_status(deps, child_ref)
     return M.STATUS_UNKNOWN
   end
   if native_merged then
-    return M.STATUS_RESULT_READY
+    return M.STATUS_RESULT_READY, { merged = true }
   end
 
   local impl_failed_fatal = impl_failed_is_fatal(deps, child_ref)
@@ -134,6 +161,13 @@ function M.child_result_status(deps, child_ref)
     return M.STATUS_UNKNOWN
   end
   if impl_failed_fatal then
+    local reason, reason_ok = impl_failed_reason(deps, child_ref)
+    if not reason_ok then
+      return M.STATUS_UNKNOWN
+    end
+    if reason == "no-changes" and covered_by_predecessor(context) then
+      return M.STATUS_RESULT_READY, { covered_by_predecessor = true }
+    end
     return M.STATUS_FATAL
   end
 

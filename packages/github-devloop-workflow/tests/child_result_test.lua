@@ -66,6 +66,68 @@ local tests = {
     t.eq(status, "fatal")
   end,
 
+  test_no_changes_without_predecessor_proof_is_fatal = function()
+    local status = child_result.child_result_status(deps({
+      impl_failed_retryable = function() return false end,
+      impl_failed_non_retryable = function() return true end,
+      impl_failed_reason = function() return "no-changes" end,
+    }), child, {
+      slot_has_predecessor = false,
+    })
+    t.eq(status, "fatal")
+  end,
+
+  test_no_changes_with_predecessor_proof_is_result_ready = function()
+    local status = child_result.child_result_status(deps({
+      impl_failed_retryable = function() return false end,
+      impl_failed_non_retryable = function() return true end,
+      impl_failed_reason = function() return "no-changes" end,
+    }), child, {
+      slot_has_predecessor = true,
+      predecessor_created = true,
+      predecessor_status = "result_ready",
+      predecessor_merged = true,
+      predecessor_ref_digest = "d-123",
+      predecessor_ref_digest_is_real = true,
+      expected_predecessor_ref_digest = "d-123",
+    })
+    t.eq(status, "result_ready")
+  end,
+
+  test_no_changes_requires_raw_merged_predecessor_not_synthetic_ready = function()
+    local status = child_result.child_result_status(deps({
+      impl_failed_retryable = function() return false end,
+      impl_failed_non_retryable = function() return true end,
+      impl_failed_reason = function() return "no-changes" end,
+    }), child, {
+      slot_has_predecessor = true,
+      predecessor_created = true,
+      predecessor_status = "result_ready",
+      predecessor_merged = false,
+      predecessor_ref_digest = "d-123",
+      predecessor_ref_digest_is_real = true,
+      expected_predecessor_ref_digest = "d-123",
+    })
+    t.eq(status, "fatal")
+  end,
+
+  test_codex_failed_stays_fatal_with_predecessor_proof = function()
+    local status = child_result.child_result_status(deps({
+      impl_failed_retryable = function() return false end,
+      impl_failed_non_retryable = function() return true end,
+      impl_failed_reason = function() return "codex-failed" end,
+    }), child, {
+      slot_has_predecessor = true,
+      predecessor_created = true,
+      predecessor_status = "result_ready",
+      predecessor_merged = true,
+      predecessor_ref_digest = "d-123",
+      predecessor_ref_digest_is_real = true,
+      expected_predecessor_ref_digest = "d-123",
+    })
+    t.eq(status, "fatal")
+  end,
+
   test_impl_failed_retryable_is_recoverable = function()
     local status = child_result.child_result_status(deps({
       impl_failed_retryable = function() return true end,

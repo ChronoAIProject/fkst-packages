@@ -62,6 +62,13 @@ local function status_map(map)
   end
 end
 
+local function source_ref(issue_number)
+  return {
+    kind = "external",
+    ref = repo .. "#issue/" .. tostring(issue_number),
+  }
+end
+
 local function comment(body)
   return {
     body = body,
@@ -94,10 +101,18 @@ local function comments_json(comments)
   return table.concat(encoded, ",")
 end
 
-local function issue_view_stdout(issue_number, state, comments)
+local function labels_json(labels)
+  local encoded = {}
+  for _, label in ipairs(labels or {}) do
+    encoded[#encoded + 1] = '{"name":"' .. json_escape(label) .. '"}'
+  end
+  return table.concat(encoded, ",")
+end
+
+local function issue_view_stdout(issue_number, state, comments, labels)
   return '{"number":' .. tostring(issue_number)
     .. ',"title":"Child","body":"","createdAt":"2026-07-04T00:00:00Z","updatedAt":"2026-07-04T00:00:00Z","state":"' .. tostring(state or "OPEN")
-    .. '","labels":[],"assignees":[],"author":{"login":"human"},"comments":[' .. comments_json(comments) .. ']}\n'
+    .. '","labels":[' .. labels_json(labels) .. '],"assignees":[],"author":{"login":"human"},"comments":[' .. comments_json(comments) .. ']}\n'
 end
 
 -- A delegated child whose PR is still OPEN (not merged): a pr-delegation marker but
@@ -118,6 +133,19 @@ local function pr_view_open_stdout(pr_number)
   return '{"number":' .. tostring(pr_number)
     .. ',"state":"OPEN","mergedAt":null,"title":"child pr","body":"",'
     .. '"headRefName":"feature","baseRefName":"workflow-dogfood","comments":[]}\n'
+end
+
+local function impl_failed_comments(child_proposal_id, version, reason)
+  local marker = '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. tostring(child_proposal_id)
+    .. '" reason="' .. tostring(reason)
+    .. '" dedup="' .. tostring(version)
+    .. '" -->'
+  return {
+    comment(table.concat({
+      core.state_marker(child_proposal_id, "impl-failed", version),
+      marker,
+    }, "\n")),
+  }
 end
 
 local tests = {
@@ -173,6 +201,71 @@ local tests = {
     }))
     t.eq(action.action, "terminal")
     t.eq(action.state, "done")
+  end,
+
+  test_no_changes_child_with_merged_predecessor_proof_completes_workflow = function()
+    local predecessor = {
+      proposal_id = "child-first",
+      source_ref = source_ref(101),
+    }
+    local current = {
+      proposal_id = "child-second",
+      source_ref = source_ref(102),
+    }
+    local current_entry = created("second", current)
+    current_entry.predecessor_ref_digest = actions.predecessor_ref_digest(predecessor)
+
+    local action = frontier.compute_frontier(blueprint(), {
+      first = created("first", predecessor),
+      second = current_entry,
+    }, function(child, context)
+      if child.proposal_id == "child-first" then
+        return "result_ready", { merged = true }
+      end
+      if child.proposal_id == "child-second"
+        and context.slot_has_predecessor == true
+        and context.predecessor_created == true
+        and context.predecessor_status == "result_ready"
+        and context.predecessor_merged == true
+        and context.predecessor_ref_digest == actions.predecessor_ref_digest(predecessor)
+        and context.predecessor_ref_digest_is_real == true
+        and context.expected_predecessor_ref_digest == actions.predecessor_ref_digest(predecessor) then
+        return "result_ready"
+      end
+      return "fatal"
+    end)
+
+    t.eq(action.action, "terminal")
+    t.eq(action.state, "done")
+  end,
+
+  test_no_changes_child_without_predecessor_digest_match_blocks_workflow = function()
+    local predecessor = {
+      proposal_id = "child-first",
+      source_ref = source_ref(101),
+    }
+    local current_entry = created("second", {
+      proposal_id = "child-second",
+      source_ref = source_ref(102),
+    })
+    current_entry.predecessor_ref_digest = "d-wrong"
+
+    local action = frontier.compute_frontier(blueprint(), {
+      first = created("first", predecessor),
+      second = current_entry,
+    }, function(child, context)
+      if child.proposal_id == "child-first" then
+        return "result_ready", { merged = true }
+      end
+      if context.predecessor_ref_digest == context.expected_predecessor_ref_digest then
+        return "result_ready"
+      end
+      return "fatal"
+    end)
+
+    t.eq(action.action, "terminal")
+    t.eq(action.state, "blocked")
+    t.eq(action.reason_code, "child-fatal")
   end,
 
   test_corrupt_blueprint_is_terminal_error = function()
@@ -281,6 +374,131 @@ local tests = {
     -- materialized the next slot + wrote a false terminal-done while the child was
     -- still implementing.
     t.eq(reader(child_ref), "running")
+  end,
+
+  test_reader_marks_no_changes_child_ready_only_with_frontier_predecessor_proof = function()
+    local first_issue = 201
+    local second_issue = 202
+    local first_proposal_id = base_ids.proposal_id(repo, first_issue)
+    local second_proposal_id = base_ids.proposal_id(repo, second_issue)
+    local first_version = "ready/consensus-github-devloop/issue/owner/repo/201/2026-07-04T00-00-00Z"
+    local second_version = "ready/consensus-github-devloop/issue/owner/repo/202/2026-07-04T00-00-00Z"
+    local first_ref = actions.child_ref_for_entry(repo, { child_issue = first_issue })
+    local reader = child_status.reader(core, {}, repo)
+    local second_fact = {
+      state = "created",
+      origin = "github-devloop/issue/owner/repo/90",
+      blueprint_digest = "d-blueprint",
+      slot = "second",
+      predecessor_ref_digest = actions.predecessor_ref_digest(first_ref),
+      gen_contract_digest = "d-contract",
+      gen_spec_digest = "d-spec",
+      child_dedup = "dedup-second",
+      child_issue = tostring(second_issue),
+    }
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(first_issue, "CLOSED", child_comments_with_delegated_merged_pr(first_proposal_id, 211, first_version)),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(second_issue, "OPEN", impl_failed_comments(second_proposal_id, second_version, "no-changes"), { "fkst-dev:impl-failed" }),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr view", {
+      stdout = '{"number":211,"state":"MERGED","mergedAt":"2026-07-04T00:00:00Z","comments":[]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local action = frontier.compute_frontier(blueprint(), actions.ledger_for_frontier(repo, {
+      {
+        state = "created",
+        origin = "github-devloop/issue/owner/repo/90",
+        blueprint_digest = "d-blueprint",
+        slot = "first",
+        predecessor_ref_digest = "d-origin",
+        gen_contract_digest = "d-contract",
+        gen_spec_digest = "d-spec",
+        child_dedup = "dedup-first",
+        child_issue = tostring(first_issue),
+      },
+      second_fact,
+    }), reader)
+
+    t.eq(action.action, "terminal")
+    t.eq(action.state, "done")
+  end,
+
+  test_reader_ignores_stale_no_changes_failure_marker_for_current_impl_failed_state = function()
+    local first_issue = 301
+    local second_issue = 302
+    local first_proposal_id = base_ids.proposal_id(repo, first_issue)
+    local second_proposal_id = base_ids.proposal_id(repo, second_issue)
+    local first_version = "ready/consensus-github-devloop/issue/owner/repo/301/2026-07-04T00-00-00Z"
+    local stale_second_version = "ready/consensus-github-devloop/issue/owner/repo/302/2026-07-04T00-00-00Z"
+    local current_second_version = "ready/consensus-github-devloop/issue/owner/repo/302/2026-07-04T00-01-00Z"
+    local first_ref = actions.child_ref_for_entry(repo, { child_issue = first_issue })
+    local reader = child_status.reader(core, {}, repo)
+    local second_fact = {
+      state = "created",
+      origin = "github-devloop/issue/owner/repo/90",
+      blueprint_digest = "d-blueprint",
+      slot = "second",
+      predecessor_ref_digest = actions.predecessor_ref_digest(first_ref),
+      gen_contract_digest = "d-contract",
+      gen_spec_digest = "d-spec",
+      child_dedup = "dedup-second",
+      child_issue = tostring(second_issue),
+    }
+    local stale = core.state_marker(second_proposal_id, "impl-failed", stale_second_version)
+      .. "\n"
+      .. '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. second_proposal_id
+      .. '" reason="no-changes" dedup="' .. stale_second_version .. '" -->'
+    local current = core.state_marker(second_proposal_id, "impl-failed", current_second_version)
+      .. "\n"
+      .. '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. second_proposal_id
+      .. '" reason="codex-failed" dedup="' .. current_second_version .. '" -->'
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(first_issue, "CLOSED", child_comments_with_delegated_merged_pr(first_proposal_id, 311, first_version)),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(second_issue, "OPEN", {
+        comment(stale),
+        comment(current),
+      }, { "fkst-dev:impl-failed" }),
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr view", {
+      stdout = '{"number":311,"state":"MERGED","mergedAt":"2026-07-04T00:00:00Z","comments":[]}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local action = frontier.compute_frontier(blueprint(), actions.ledger_for_frontier(repo, {
+      {
+        state = "created",
+        origin = "github-devloop/issue/owner/repo/90",
+        blueprint_digest = "d-blueprint",
+        slot = "first",
+        predecessor_ref_digest = "d-origin",
+        gen_contract_digest = "d-contract",
+        gen_spec_digest = "d-spec",
+        child_dedup = "dedup-first",
+        child_issue = tostring(first_issue),
+      },
+      second_fact,
+    }), reader)
+
+    t.eq(action.action, "terminal")
+    t.eq(action.state, "blocked")
+    t.eq(action.reason_code, "child-fatal")
   end,
 }
 
