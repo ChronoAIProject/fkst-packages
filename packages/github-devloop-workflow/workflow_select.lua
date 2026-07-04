@@ -422,22 +422,11 @@ local function raise_blueprint_decision(ctx, record)
   return handled
 end
 
-local function workflow_child_dedup_key(ctx, lineage)
-  return base_ids.dedup_key({
-    "workflow",
-    "child-execute",
-    tostring(lineage.origin),
-    tostring(lineage.blueprint_digest),
-    tostring(lineage.slot),
-    tostring(ctx.candidate and ctx.candidate.proposal_id or ""),
-  })
-end
-
 local function workflow_child_execution_request(ctx, lineage)
   local service_class = execution_start.normalize_execution_service_class(ctx.candidate and ctx.candidate.service_class)
   return execution_start.build_execution_request_payload({
     proposal_id = ctx.candidate and ctx.candidate.proposal_id,
-    dedup_key = workflow_child_dedup_key(ctx, lineage),
+    dedup_key = ctx.decision_dedup_key or (ctx.candidate and ctx.candidate.dedup_key),
     source_ref = ctx.candidate and ctx.candidate.source_ref,
     origin = {
       package = "github-devloop-workflow",

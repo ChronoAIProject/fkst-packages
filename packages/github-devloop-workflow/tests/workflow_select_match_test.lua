@@ -5,6 +5,8 @@ local digest = require("core.digest")
 local devloop_base = require("devloop.base")
 local devloop_facts = require("devloop.markers.facts")
 local devloop_marker_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
+local execution_start = require("devloop.execution_start")
 local graph = require("testkit.graph")
 local marker = require("core.marker")
 local payloads_builders = require("devloop.payloads.builders")
@@ -278,6 +280,27 @@ local function assert_no_intake_marker_or_consensus(raises)
   end
 end
 
+local function build_normal_enable_request(payload, current)
+  return execution_start.build_execution_request_payload({
+    proposal_id = payload.proposal_id,
+    dedup_key = decision_key_for_current(payload, current),
+    source_ref = payload.source_ref,
+    origin = {
+      package = "github-devloop-intake-default",
+      route = "default",
+      decision = "enable",
+    },
+    service_class = payload.service_class,
+  })
+end
+
+local function ready_event_version_from_marker_version(marker_version)
+  return base_ids.dedup_key({
+    "ready",
+    tostring(marker_version),
+  })
+end
+
 local function first_raise_payload(result, queue)
   local found = raises_to_queue(result.raises, queue)
   return found[1] and found[1].payload or nil
@@ -323,13 +346,14 @@ local tests = {
     local payload = candidate()
     local origin = "github-devloop/issue/owner/repo/7"
     local body = lineage_header(origin, "d-1234567890", "slot-one") .. "\n\nGenerated child spec body."
-
-    mock_env("/tmp/fkst-packages-test/github-devloop-workflow/no-extra-catalog")
-    mock_issue_view({
+    local current = {
       body = body,
       author_login = "fkst-test-bot",
       labels = {},
-    }, 1)
+    }
+
+    mock_env("/tmp/fkst-packages-test/github-devloop-workflow/no-extra-catalog")
+    mock_issue_view(current, 1)
 
     local result = run_workflow_select(payload)
     t.eq(#codex_calls(), 0)
@@ -343,14 +367,11 @@ local tests = {
     t.eq(request.proposal_id, payload.proposal_id)
     t.eq(request.source_ref.kind, "external")
     t.eq(request.source_ref.ref, "owner/repo#issue/42")
-    t.eq(request.dedup_key, base_ids.dedup_key({
-      "workflow",
-      "child-execute",
-      origin,
-      "d-1234567890",
-      "slot-one",
-      payload.proposal_id,
-    }))
+    local normal = build_normal_enable_request(payload, current)
+    t.eq(request.dedup_key, normal.dedup_key)
+    t.eq(request.dedup_key, decision_key_for_current(payload, current))
+    t.is_true(request.dedup_key:find("workflow/child-execute", 1, true) == nil)
+    t.eq(request.dedup_key:find("/intake/", 1, true) ~= nil, true)
     t.eq(request.origin.package, "github-devloop-workflow")
     t.eq(request.origin.route, "workflow-child")
     t.eq(request.origin.decision, "committed-child")
@@ -365,6 +386,31 @@ local tests = {
     t.eq(label.source_ref.ref, "owner/repo#issue/42")
     t.eq(label.add_labels[1], "fkst-dev:enabled")
     t.eq(label.add_labels[2], "fkst-class:standard")
+
+    local ready_version = "consensus:" .. tostring(request.dedup_key)
+    t.eq(ready_event_version_from_marker_version(ready_version), "ready/consensus-" .. tostring(normal.dedup_key))
+    t.eq(devloop_state.versioned_transition_status(
+      { state = "ready", version = ready_version },
+      { "ready" },
+      "implementing",
+      ready_version
+    ), "apply")
+
+    local live_current_ready_marker_version = "consensus:github-devloop/issue/owner/repo/191/2026-07-04T14-00-00Z"
+    local stale_workflow_child_version = "consensus:" .. base_ids.dedup_key({
+      "workflow",
+      "child-execute",
+      "github-devloop/issue/owner/repo/190",
+      "d-1234567890",
+      "scaffold",
+      "github-devloop/issue/owner/repo/191",
+    })
+    t.eq(devloop_state.versioned_transition_status(
+      { state = "ready", version = live_current_ready_marker_version },
+      { "ready" },
+      "implementing",
+      stale_workflow_child_version
+    ), "stale")
   end,
 
   test_origin_issue_with_no_lineage_still_runs_selection_and_default_intake = function()
