@@ -180,7 +180,7 @@ local tests = {
     }, status_map({ ["child-first"] = "fatal" }))
     t.eq(action.action, "terminal")
     t.eq(action.state, "blocked")
-    t.eq(action.reason_code, "child-fatal")
+    t.eq(action.reason_code, "child-fatal-first")
   end,
 
   test_recoverable_materialized_child_waits = function()
@@ -203,7 +203,7 @@ local tests = {
     t.eq(action.state, "done")
   end,
 
-  test_no_changes_child_with_merged_predecessor_proof_completes_workflow = function()
+  test_non_first_no_changes_with_merged_predecessor_blocks_workflow_with_why = function()
     local predecessor = {
       proposal_id = "child-first",
       source_ref = source_ref(101),
@@ -218,28 +218,21 @@ local tests = {
     local action = frontier.compute_frontier(blueprint(), {
       first = created("first", predecessor),
       second = current_entry,
-    }, function(child, context)
+    }, function(child)
       if child.proposal_id == "child-first" then
         return "result_ready", { merged = true }
       end
-      if child.proposal_id == "child-second"
-        and context.slot_has_predecessor == true
-        and context.predecessor_created == true
-        and context.predecessor_status == "result_ready"
-        and context.predecessor_merged == true
-        and context.predecessor_ref_digest == actions.predecessor_ref_digest(predecessor)
-        and context.predecessor_ref_digest_is_real == true
-        and context.expected_predecessor_ref_digest == actions.predecessor_ref_digest(predecessor) then
-        return "result_ready"
-      end
-      return "fatal"
+      return "fatal", { impl_failed_reason = "no-changes" }
     end)
 
     t.eq(action.action, "terminal")
-    t.eq(action.state, "done")
+    t.eq(action.state, "blocked")
+    t.eq(action.reason_code, "child-fatal-second-no-changes")
+    t.eq(action.slot, "second")
+    t.eq(action.child_ref, current)
   end,
 
-  test_no_changes_child_without_predecessor_digest_match_blocks_workflow = function()
+  test_fatal_child_without_predecessor_digest_match_blocks_workflow = function()
     local predecessor = {
       proposal_id = "child-first",
       source_ref = source_ref(101),
@@ -253,19 +246,16 @@ local tests = {
     local action = frontier.compute_frontier(blueprint(), {
       first = created("first", predecessor),
       second = current_entry,
-    }, function(child, context)
+    }, function(child)
       if child.proposal_id == "child-first" then
         return "result_ready", { merged = true }
-      end
-      if context.predecessor_ref_digest == context.expected_predecessor_ref_digest then
-        return "result_ready"
       end
       return "fatal"
     end)
 
     t.eq(action.action, "terminal")
     t.eq(action.state, "blocked")
-    t.eq(action.reason_code, "child-fatal")
+    t.eq(action.reason_code, "child-fatal-second")
   end,
 
   test_corrupt_blueprint_is_terminal_error = function()
@@ -376,7 +366,7 @@ local tests = {
     t.eq(reader(child_ref), "running")
   end,
 
-  test_reader_marks_no_changes_child_ready_only_with_frontier_predecessor_proof = function()
+  test_reader_marks_no_changes_child_with_merged_predecessor_blocked_with_why = function()
     local first_issue = 201
     local second_issue = 202
     local first_proposal_id = base_ids.proposal_id(repo, first_issue)
@@ -429,7 +419,10 @@ local tests = {
     }), reader)
 
     t.eq(action.action, "terminal")
-    t.eq(action.state, "done")
+    t.eq(action.state, "blocked")
+    t.eq(action.reason_code, "child-fatal-second-no-changes")
+    t.eq(action.slot, "second")
+    t.eq(action.child_ref.proposal_id, second_proposal_id)
   end,
 
   test_reader_ignores_stale_no_changes_failure_marker_for_current_impl_failed_state = function()
@@ -498,7 +491,7 @@ local tests = {
 
     t.eq(action.action, "terminal")
     t.eq(action.state, "blocked")
-    t.eq(action.reason_code, "child-fatal")
+    t.eq(action.reason_code, "child-fatal-second-codex-failed")
   end,
 }
 

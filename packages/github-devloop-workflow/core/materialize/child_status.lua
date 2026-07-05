@@ -209,13 +209,13 @@ end
 
 function M.reader(core, deps, repo)
   if type(deps.child_status) == "function" then
-    return function(child_ref, context)
-      return deps.child_status(core, child_ref, context)
+    return function(child_ref)
+      return deps.child_status(core, child_ref)
     end
   end
   local child_deps = production_child_status_deps(core, repo)
-  return function(child_ref, context)
-    return child_result.child_result_status(child_deps, child_ref, context)
+  return function(child_ref)
+    return child_result.child_result_status(child_deps, child_ref)
   end
 end
 

@@ -1,7 +1,6 @@
 local blueprint = require("core.blueprint")
-local materialize_actions = require("core.materialize.actions")
-local materialization = require("core.materialization")
 local marker = require("core.marker")
+local strings = require("contract.strings")
 
 local M = {}
 
@@ -29,6 +28,27 @@ local function terminal_blocked(reason, slot, child_ref)
     slot = slot,
     child_ref = child_ref,
   }
+end
+
+local function terminal_block_reason(base, slot, detail)
+  local parts = { tostring(base or "child-fatal") }
+  if slot ~= nil and tostring(slot) ~= "" then
+    parts[#parts + 1] = tostring(slot)
+  end
+  if type(detail) == "table"
+    and type(detail.impl_failed_reason) == "string"
+    and detail.impl_failed_reason ~= "" then
+    parts[#parts + 1] = detail.impl_failed_reason
+  end
+  local reason = strings.sanitize_key(table.concat(parts, "-"), marker.MAX_TERMINAL_REASON_CODE_BYTES)
+    :gsub("/", "-")
+    :gsub("%-+", "-")
+    :gsub("^%-+", "")
+    :gsub("%-+$", "")
+  if reason == "" then
+    return tostring(base or "child-fatal")
+  end
+  return reason
 end
 
 local function wait(why, slot, child_ref)
@@ -95,32 +115,12 @@ local function impossible_ledger(by_slot, step_ids, steps)
   return false
 end
 
-local function child_status(child_status_of, child_ref, context)
-  local ok, status, detail = pcall(child_status_of, child_ref, context)
+local function child_status(child_status_of, child_ref)
+  local ok, status, detail = pcall(child_status_of, child_ref)
   if not ok or valid_status[status] ~= true then
     return "unknown", nil
   end
   return status, detail
-end
-
-local function status_context(index, entry, predecessor_ref, predecessor_status, predecessor_detail)
-  if index <= 1 then
-    return {
-      slot_has_predecessor = false,
-    }
-  end
-  local expected_digest = materialize_actions.predecessor_ref_digest(predecessor_ref)
-  local actual_digest = type(entry) == "table" and entry.predecessor_ref_digest or nil
-  return {
-    slot_has_predecessor = true,
-    predecessor_created = predecessor_ref ~= nil,
-    predecessor_status = predecessor_status,
-    predecessor_merged = type(predecessor_detail) == "table" and predecessor_detail.merged == true,
-    predecessor_ref_digest = actual_digest,
-    predecessor_ref_digest_is_real = actual_digest ~= nil
-      and actual_digest ~= materialization.EMPTY_PREDECESSOR_REF_DIGEST,
-    expected_predecessor_ref_digest = expected_digest,
-  }
 end
 
 function M.compute_frontier(plan, ledger_facts, child_status_of)
@@ -148,18 +148,15 @@ function M.compute_frontier(plan, ledger_facts, child_status_of)
   local created = {}
   local child_refs = {}
   local child_statuses = {}
-  local child_details = {}
   for index, step in ipairs(plan.steps) do
     local child_ref, entry = created_entry_for_slot(by_slot, step.id)
     if child_ref ~= nil then
       created[index] = true
       child_refs[index] = child_ref
-      local predecessor_status = child_statuses[index - 1]
-      local status, detail = child_status(child_status_of, child_ref, status_context(index, entry, child_refs[index - 1], predecessor_status, child_details[index - 1]))
+      local status, detail = child_status(child_status_of, child_ref)
       child_statuses[index] = status
-      child_details[index] = detail
       if status == "fatal" then
-        return terminal_blocked("child-fatal", step.id, child_ref)
+        return terminal_blocked(terminal_block_reason("child-fatal", step.id, detail), step.id, child_ref)
       end
       if status == "recoverable" then
         return wait("child-recoverable", step.id, child_ref)

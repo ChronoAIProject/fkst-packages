@@ -190,7 +190,11 @@ local function run_with(fakes)
       end,
       child_status = function(_core, child_ref)
         local key = tostring(child_ref.issue_number or child_ref.proposal_id or "")
-        return (fake.child_statuses or {})[key] or fake.child_status or "running"
+        local result = (fake.child_statuses or {})[key] or fake.child_status or "running"
+        if type(result) == "table" then
+          return result.status, result.detail
+        end
+        return result
       end,
       load_blueprint = function(_ctx, workflow_id)
         if fake.workflow_missing then
@@ -375,7 +379,34 @@ local tests = {
     t.is_true(raised[1].payload.body:find("terminal:v1", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find('state="created"', 1, true) == nil)
     t.is_true(raised[1].payload.body:find('state="blocked"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="child-fatal"', 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('reason_code="child-fatal-first"', 1, true) ~= nil)
+  end,
+
+  test_non_first_no_changes_child_writes_blocked_terminal_with_why = function()
+    local first_spec = generated_spec("first")
+    local second_spec = generated_spec("second")
+    local first_ref = { kind = "external", ref = repo .. "#issue/108" }
+    local raised = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
+        created_comment("second", materialize_reconcile._private.predecessor_ref_digest({ source_ref = first_ref }), second_spec, 109),
+      }),
+      child_statuses = {
+        ["108"] = "result_ready",
+        ["109"] = {
+          status = "fatal",
+          detail = { impl_failed_reason = "no-changes" },
+        },
+      },
+    })
+    t.eq(#raised, 1)
+    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
+    t.is_nil(raised[1].payload.replace_marker)
+    t.is_true(raised[1].payload.body:find("terminal:v1", 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('state="blocked"', 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('reason_code="child-fatal-second-no-changes"', 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('reason_code="all-slots-result-ready"', 1, true) == nil)
   end,
 
   test_all_slots_ready_writes_done_terminal = function()
