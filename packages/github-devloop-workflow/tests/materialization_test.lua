@@ -85,7 +85,7 @@ local tests = {
 
   test_latch_writes_generated_when_absent = function()
     local decision = materialization.latch_generated({}, key(), spec)
-    t.eq(decision.action, "write_generated")
+    t.eq(decision.action, "proceed_create")
     t.eq(decision.generated_spec_digest, materialization.generated_spec_digest(spec))
   end,
 

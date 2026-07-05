@@ -103,7 +103,7 @@ end
 
 local function generated_comment(slot_id, predecessor_ref_digest, spec)
   local _entry, built = build_entry(slot_id, predecessor_ref_digest, spec, nil, "generated")
-  return comment(built .. "\n" .. materialize_reconcile._private.generated_spec_block(spec))
+  return comment(built)
 end
 
 local function created_comment(slot_id, predecessor_ref_digest, spec, child_issue)
@@ -136,6 +136,20 @@ end
 
 local function parent_created_comment(entry, child_issue)
   return comment('<!-- fkst:github-proxy:issue-created:v1 dedup="' .. entry.child_dedup .. '" issue="' .. tostring(child_issue) .. '" -->')
+end
+
+local function parent_intent_comment(entry)
+  return comment('<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. entry.child_dedup .. '" -->')
+end
+
+local function child_body(slot_id, spec, child_dedup)
+  local lineage = marker.build_lineage_header(origin, digest.blueprint_digest(blueprint()), slot_id)
+  return lineage .. "\n\n" .. spec.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. child_dedup .. " -->"
+end
+
+local function child_body_with_blueprint(slot_id, spec, child_dedup, bp)
+  local lineage = marker.build_lineage_header(origin, digest.blueprint_digest(bp or blueprint()), slot_id)
+  return lineage .. "\n\n" .. spec.body .. "\n\n<!-- fkst:github-proxy:issue-create:" .. child_dedup .. " -->"
 end
 
 local function raise_capture(fn)
@@ -195,6 +209,10 @@ local function run_with(fakes)
       release_done_claim = fake.release_done_claim or function()
         return true
       end,
+      read_created_issue = fake.read_created_issue,
+      search_created_issue = fake.search_created_issue or function()
+        return nil
+      end,
     },
   }))
   local result = raise_capture(function()
@@ -214,13 +232,16 @@ local function only_queue(raised, queue)
 end
 
 local tests = {
-  test_static_frontier_writes_generated_marker_before_create = function()
+  test_static_frontier_raises_issue_create_directly_without_origin_spec = function()
     local raised = run_with()
     t.eq(#raised, 1)
-    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
-    t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:materialization:v1", 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('state="generated"', 1, true) ~= nil)
+    t.eq(raised[1].queue, "github-proxy.github_issue_create_request")
+    t.eq(raised[1].payload.parent, origin_issue)
+    t.eq(raised[1].payload.parent_comment_target.repo, repo)
+    t.eq(raised[1].payload.parent_comment_target.issue_number, origin_issue)
+    t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:lineage:v1", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:materialization:v1", 1, true) == nil)
   end,
 
   -- Regression (found by real dogfood): a GENERATED first slot has no prior
@@ -250,10 +271,13 @@ local tests = {
         return { exit_code = 0, stdout = '{"title":"Architecture analysis","body":"Components and data flow."}' }
       end,
     })
-    -- materializes (writes a generated marker), not a terminal missing-predecessor error
+    -- materializes (raises child create), not a terminal missing-predecessor error
     t.eq(#raised, 1)
-    t.is_true(raised[1].payload.body:find('state="generated"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find("Architecture analysis", 1, true) ~= nil)
+    t.eq(raised[1].queue, "github-proxy.github_issue_create_request")
+    t.eq(raised[1].payload.parent_comment_target.repo, repo)
+    t.eq(raised[1].payload.parent_comment_target.issue_number, origin_issue)
+    t.eq(raised[1].payload.title, "Architecture analysis")
+    t.is_true(raised[1].payload.body:find("Components and data flow.", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("missing-predecessor", 1, true) == nil)
     -- content_fetch was called with the ORIGIN's source_ref (predecessor is the origin, not nil)
     t.is_true(fetched_ref ~= nil)
@@ -270,10 +294,14 @@ local tests = {
       }),
     })
     local creates = only_queue(raised, "github-proxy.github_issue_create_request")
+    local comments = only_queue(raised, "github-proxy.github_issue_comment_request")
+    t.eq(#raised, 1)
     t.eq(#creates, 1)
+    t.eq(#comments, 0)
     t.eq(creates[1].payload.schema, "github-proxy.issue-create.v1")
     t.eq(creates[1].payload.dedup_key, entry.child_dedup)
     t.eq(creates[1].payload.parent, origin_issue)
+    t.eq(creates[1].payload.parent_comment_target.repo, repo)
     t.eq(creates[1].payload.parent_comment_target.issue_number, origin_issue)
     t.is_true(creates[1].payload.body:find("fkst:github-devloop-workflow:lineage:v1", 1, true) ~= nil)
     t.is_true(creates[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)
@@ -291,8 +319,12 @@ local tests = {
     })
     t.eq(#raised, 1)
     t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
+    t.is_nil(raised[1].payload.replace_marker)
+    t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:blueprint:v1", 1, true) == nil)
     t.is_true(raised[1].payload.body:find('state="created"', 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find('child_issue="108"', 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find(spec.title, 1, true) == nil)
+    t.is_true(raised[1].payload.body:find(spec.body, 1, true) == nil)
   end,
 
   test_predecessor_merged_materializes_next_generated_slot = function()
@@ -321,8 +353,11 @@ local tests = {
     })
     t.eq(seen_fetch, repo .. "#issue/108")
     t.eq(#raised, 1)
-    t.is_true(raised[1].payload.body:find('slot="second"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('predecessor_ref_digest="' .. predecessor_ref_digest .. '"', 1, true) ~= nil)
+    t.eq(raised[1].queue, "github-proxy.github_issue_create_request")
+    t.eq(raised[1].payload.parent_comment_target.repo, repo)
+    t.eq(raised[1].payload.parent_comment_target.issue_number, origin_issue)
+    t.is_true(raised[1].payload.body:find("Generated follow-up body.", 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('predecessor_ref_digest="' .. predecessor_ref_digest .. '"', 1, true) == nil)
   end,
 
   test_child_fatal_writes_blocked_terminal = function()
@@ -335,7 +370,10 @@ local tests = {
       child_statuses = { ["108"] = "fatal" },
     })
     t.eq(#raised, 1)
+    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
+    t.is_nil(raised[1].payload.replace_marker)
     t.is_true(raised[1].payload.body:find("terminal:v1", 1, true) ~= nil)
+    t.is_true(raised[1].payload.body:find('state="created"', 1, true) == nil)
     t.is_true(raised[1].payload.body:find('state="blocked"', 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find('reason_code="child-fatal"', 1, true) ~= nil)
   end,
@@ -356,6 +394,7 @@ local tests = {
       },
     })
     t.eq(#raised, 1)
+    t.is_nil(raised[1].payload.replace_marker)
     t.is_true(raised[1].payload.body:find('state="done"', 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find('reason_code="all-slots-result-ready"', 1, true) ~= nil)
   end,
@@ -372,14 +411,29 @@ local tests = {
     t.eq(#raised, 0)
   end,
 
-  test_generated_replay_uses_stored_spec_without_regenerating = function()
-    local stored_spec = generated_spec("first")
+  test_existing_child_search_records_created_without_second_create = function()
+    local existing_spec = generated_spec("first")
+    local generated_entry = materialization.write_generated_entry(
+      origin,
+      digest.blueprint_digest(blueprint()),
+      blueprint().steps[1],
+      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+      existing_spec
+    )
     local generator_calls = 0
     local raised = run_with({
       current = issue({
         comment(blueprint_marker()),
-        generated_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, stored_spec),
       }),
+      search_created_issue = function(_repo, child_dedup)
+        t.eq(child_dedup, generated_entry.child_dedup)
+        return {
+          number = 108,
+          title = existing_spec.title,
+          body = child_body_with_blueprint("first", existing_spec, child_dedup, blueprint()),
+          author_login = "fkst-test-bot",
+        }
+      end,
       spawn_codex = function()
         generator_calls = generator_calls + 1
         return {
@@ -389,27 +443,137 @@ local tests = {
       end,
     })
     local creates = only_queue(raised, "github-proxy.github_issue_create_request")
-    local terminals = only_queue(raised, "github-proxy.github_issue_comment_request")
+    local comments = only_queue(raised, "github-proxy.github_issue_comment_request")
     t.eq(generator_calls, 0)
-    t.eq(#creates, 1)
-    t.eq(#terminals, 0)
-    t.eq(creates[1].payload.title, stored_spec.title)
-    t.is_true(creates[1].payload.body:find(stored_spec.body, 1, true) ~= nil)
-    t.is_true(creates[1].payload.body:find("Divergent regenerated body.", 1, true) == nil)
+    t.eq(#creates, 0)
+    t.eq(#comments, 1)
+    t.is_nil(comments[1].payload.replace_marker)
+    t.is_true(comments[1].payload.body:find('state="created"', 1, true) ~= nil)
+    t.is_true(comments[1].payload.body:find('child_issue="108"', 1, true) ~= nil)
+    t.is_true(comments[1].payload.body:find(existing_spec.title, 1, true) == nil)
+    t.is_true(comments[1].payload.body:find(existing_spec.body, 1, true) == nil)
   end,
 
-  test_generated_fact_with_malformed_stored_spec_writes_error_terminal = function()
-    local stored_spec = generated_spec("first")
-    local _entry, built = build_entry("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, stored_spec, nil, "generated")
+  test_parent_issue_created_marker_before_generator_records_created_without_codex_or_second_create = function()
+    local existing_spec = generated_spec("first")
+    local planned_entry = materialization.write_generated_entry(
+      origin,
+      digest.blueprint_digest(blueprint()),
+      blueprint().steps[1],
+      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+      existing_spec
+    )
+    local generator_calls = 0
     local raised = run_with({
       current = issue({
         comment(blueprint_marker()),
-        comment(built .. "\nmalformed generated spec block"),
+        parent_created_comment(planned_entry, 108),
+      }),
+      read_created_issue = function(_repo, issue_number)
+        t.eq(issue_number, "108")
+        return {
+          number = 108,
+          title = existing_spec.title,
+          body = child_body("first", existing_spec, planned_entry.child_dedup),
+          author_login = "fkst-test-bot",
+        }
+      end,
+      spawn_codex = function()
+        generator_calls = generator_calls + 1
+        return {
+          exit_code = 0,
+          stdout = '{"title":"Divergent generated issue","body":"Divergent regenerated body."}',
+        }
+      end,
+    })
+    local creates = only_queue(raised, "github-proxy.github_issue_create_request")
+    local comments = only_queue(raised, "github-proxy.github_issue_comment_request")
+    t.eq(generator_calls, 0)
+    t.eq(#creates, 0)
+    t.eq(#comments, 1)
+    t.is_nil(comments[1].payload.replace_marker)
+    t.is_true(comments[1].payload.body:find('state="created"', 1, true) ~= nil)
+    t.is_true(comments[1].payload.body:find('child_issue="108"', 1, true) ~= nil)
+    t.is_true(comments[1].payload.body:find(existing_spec.title, 1, true) == nil)
+    t.is_true(comments[1].payload.body:find(existing_spec.body, 1, true) == nil)
+  end,
+
+  test_parent_issue_created_marker_unreadable_waits_without_codex_or_second_create = function()
+    local existing_spec = generated_spec("first")
+    local planned_entry = materialization.write_generated_entry(
+      origin,
+      digest.blueprint_digest(blueprint()),
+      blueprint().steps[1],
+      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+      existing_spec
+    )
+    local generator_calls = 0
+    local raised = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        parent_created_comment(planned_entry, 108),
+      }),
+      read_created_issue = function()
+        return nil
+      end,
+      spawn_codex = function()
+        generator_calls = generator_calls + 1
+        return {
+          exit_code = 0,
+          stdout = '{"title":"Divergent generated issue","body":"Divergent regenerated body."}',
+        }
+      end,
+    })
+    t.eq(generator_calls, 0)
+    t.eq(#only_queue(raised, "github-proxy.github_issue_create_request"), 0)
+    t.eq(#only_queue(raised, "github-proxy.github_issue_comment_request"), 0)
+  end,
+
+  test_parent_issue_create_intent_waits_without_codex_or_second_create = function()
+    local existing_spec = generated_spec("first")
+    local planned_entry = materialization.write_generated_entry(
+      origin,
+      digest.blueprint_digest(blueprint()),
+      blueprint().steps[1],
+      materialization.EMPTY_PREDECESSOR_REF_DIGEST,
+      existing_spec
+    )
+    local generator_calls = 0
+    local search_calls = 0
+    local raised = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        parent_intent_comment(planned_entry),
+      }),
+      search_created_issue = function(_repo, child_dedup)
+        search_calls = search_calls + 1
+        t.eq(child_dedup, planned_entry.child_dedup)
+        return nil
+      end,
+      spawn_codex = function()
+        generator_calls = generator_calls + 1
+        return {
+          exit_code = 0,
+          stdout = '{"title":"Divergent generated issue","body":"Divergent regenerated body."}',
+        }
+      end,
+    })
+    t.eq(search_calls, 1)
+    t.eq(generator_calls, 0)
+    t.eq(#only_queue(raised, "github-proxy.github_issue_create_request"), 0)
+    t.eq(#only_queue(raised, "github-proxy.github_issue_comment_request"), 0)
+  end,
+
+  test_second_run_with_created_ledger_is_noop = function()
+    local stored_spec = generated_spec("first")
+    local raised = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, stored_spec, 108),
       }),
     })
-    t.eq(#raised, 1)
-    t.is_true(raised[1].payload.body:find('state="error"', 1, true) ~= nil)
-    t.is_true(raised[1].payload.body:find('reason_code="generated%-spec%-missing"') ~= nil)
+    t.eq(#only_queue(raised, "github-proxy.github_issue_create_request"), 0)
+    t.eq(#only_queue(raised, "github-proxy.github_issue_comment_request"), 0)
   end,
 
   test_impossible_ledger_writes_error_terminal = function()

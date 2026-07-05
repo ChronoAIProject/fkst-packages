@@ -11,7 +11,6 @@ local materialization = require("core.materialization")
 local actions = require("core.materialize.actions")
 local child_status = require("core.materialize.child_status")
 local discovery = require("core.materialize.discovery")
-local ledger_codec = require("core.materialize.ledger_codec")
 local lease = require("core.materialize.lease")
 
 local M = {}
@@ -116,41 +115,7 @@ local function generator_worktree(deps, slot, identity)
   return slot.content and slot.content.kind == "generated" and make_worktree(identity) or nil
 end
 
-local function replay_latched_generated(core, deps, repo, issue_number, origin, blueprint_digest, slot_id, fact, current)
-  local ok, reason = actions.create_from_generated(
-    core,
-    repo,
-    issue_number,
-    origin,
-    blueprint_digest,
-    slot_id,
-    fact,
-    current,
-    discovery.trusted_comments,
-    log_decision
-  )
-  if not ok then
-    return terminal(core, deps, repo, issue_number, origin, "error", reason or "generated-spec-missing")
-  end
-  return ok
-end
-
-local function write_generated(repo, issue_number, origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec, planned_child_dedup)
-  local entry = materialization.write_generated_entry(origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec)
-  if entry == nil then
-    return nil
-  end
-  entry.child_dedup = planned_child_dedup
-  log_decision(origin, "materialization", "generated", "applied(write-generated)", "generated spec latched before child create")
-  actions.raise_request(
-    origin,
-    "github-proxy.github_issue_comment_request",
-    actions.materialization_comment_request(repo, issue_number, origin, entry, "generated", nil, generated_spec)
-  )
-  return true
-end
-
-local function perform_materialize(core, deps, repo, issue_number, origin, record, blueprint_digest, facts, current, decision, event)
+local function perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, blueprint_digest, facts, current, decision, event)
   local slot = actions.find_step(record.blueprint, decision.slot)
   if slot == nil then
     return terminal(core, deps, repo, issue_number, origin, "error", "frontier-slot-missing")
@@ -178,14 +143,38 @@ local function perform_materialize(core, deps, repo, issue_number, origin, recor
   end
   if existing ~= nil and existing.state == "generated" then
     devloop_logging.log_line("info", M.DEPT, origin, "LATCH", {
-      "action=replay_generated",
+      "action=generated_marker_without_body",
       "slot=" .. tostring(slot.id),
-      "reason=generated materialization fact is already visible",
+      "reason=generated materialization fact no longer stores a replayable body",
     })
-    return replay_latched_generated(core, deps, repo, issue_number, origin, blueprint_digest, slot.id, existing, current)
   end
 
   local planned_child_dedup = materialization.child_dedup_key(origin, slot.id, predecessor_ref_digest)
+  local wrote_existing, existing_reason = actions.record_existing_child_or_created_marker(
+    core,
+    deps,
+    repo,
+    issue_number,
+    origin,
+    blueprint_digest,
+    slot,
+    predecessor_ref_digest,
+    planned_child_dedup,
+    facts,
+    current,
+    discovery.trusted_comments,
+    log_decision
+  )
+  if wrote_existing == nil then
+    return terminal(core, deps, repo, issue_number, origin, "error", existing_reason or "existing-child-malformed")
+  end
+  if wrote_existing == "wait" then
+    return "wait"
+  end
+  if wrote_existing then
+    return true
+  end
+
   local generated_spec, gen_reason = run_generator(core, deps, {
     origin_proposal_id = origin,
     workflow_id = record.blueprint.id,
@@ -210,15 +199,29 @@ local function perform_materialize(core, deps, repo, issue_number, origin, recor
     log_decision(origin, "materialization", "materialization", "skip-idempotent(already-created)", "created materialization fact is already visible")
     return "noop"
   end
-  if latch.action == "proceed_create" then
-    return replay_latched_generated(core, deps, repo, issue_number, origin, blueprint_digest, slot.id, latch.fact, current)
+  local ok, reason = actions.record_created_or_raise_create(
+    core,
+    deps,
+    repo,
+    issue_number,
+    origin,
+    blueprint_fact,
+    current,
+    discovery.trusted_comments,
+    facts,
+    blueprint_digest,
+    slot,
+    predecessor_ref_digest,
+    generated_spec,
+    log_decision
+  )
+  if not ok then
+    return terminal(core, deps, repo, issue_number, origin, "error", reason or "invalid-materialization-entry")
   end
-
-  local wrote = write_generated(repo, issue_number, origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec, planned_child_dedup)
-  if not wrote then
-    return terminal(core, deps, repo, issue_number, origin, "error", "invalid-materialization-entry")
+  if ok == "wait" then
+    return "wait"
   end
-  return true
+  return ok
 end
 
 local function process_origin(core, deps, repo, issue_number, event)
@@ -266,7 +269,11 @@ local function process_origin(core, deps, repo, issue_number, event)
     end
 
     local facts = discovery.materialization_facts(core, current, origin)
-    if actions.maybe_write_created_from_parent_ledger(core, repo, issue_number, origin, facts, current, discovery.trusted_comments, log_decision) then
+    local created_marker = actions.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, discovery.trusted_comments, log_decision)
+    if created_marker == "wait" then
+      return "wait"
+    end
+    if created_marker then
       return "created-marker"
     end
 
@@ -288,7 +295,7 @@ local function process_origin(core, deps, repo, issue_number, event)
       return terminal(core, deps, repo, issue_number, origin, decision.state or "error", decision.reason_code or "frontier-terminal")
     end
     if decision.action == "materialize" then
-      return perform_materialize(core, deps, repo, issue_number, origin, record, current_digest, facts, current, decision, event)
+      return perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, current_digest, facts, current, decision, event)
     end
     return terminal(core, deps, repo, issue_number, origin, "error", "unknown-frontier-action")
   end)
@@ -341,8 +348,6 @@ function M.handlers(package_core, opts)
 end
 
 M._private = {
-  generated_spec_block = ledger_codec.encode_generated_spec,
-  parse_generated_spec_block = ledger_codec.decode_generated_spec_block,
   trusted_issue_created_number = function(core, current, child_dedup_key)
     return actions.trusted_issue_created_number(core, current, child_dedup_key, discovery.trusted_comments)
   end,

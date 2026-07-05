@@ -17,8 +17,8 @@ the general model, **dynamic result-driven materialization**.
   **no rendered issue bodies**.
 - **Materialization ledger (CAS)** — the authority for what was actually produced, per slot:
   predecessor-result ref digest, generator-contract digest, generated-spec digest, child dedup key,
-  child ref; states `pending → generated → created`. Two different bodies for one slot are
-  unrepresentable.
+  child ref; states `pending → created` in current writes. Two different bodies for one slot are
+  unrepresentable. The generated issue title/body is never serialized into an origin marker/comment.
 - **Frontier (derived)** — the first slot whose predecessor child is merged and which is not yet
   materialized. Ordering falls out of this; it is computed, never stored.
 
@@ -36,9 +36,12 @@ the general model, **dynamic result-driven materialization**.
   a still-running predecessor, or write a **terminal** marker (`done` / `blocked` / `error`). Each
   materialized child is an ordinary devloop issue whose merged result feeds the next slot.
 
-Replay is idempotent by construction: the materialization is **ledger-first** — a visible `generated`
-ledger fact is replayed from its stored spec (never regenerated), and child creation is deduplicated
-by a deterministic dedup key.
+Replay is idempotent by construction: materialization raises the child create immediately, using a
+deterministic child dedup key. Later polls first reconcile an already-created child from the
+github-proxy parent `issue-created` marker or child issue body/search before running the generator
+or creating anything. The origin ledger remains append-only per-slot marker comments, and
+github-proxy's parent intent/created marker comments remain in place; those invisible comments are
+functional idempotency facts, not user-facing workflow content.
 
 ## Template format
 

@@ -157,7 +157,7 @@ function M.latch_generated(ledger_facts, key, generated_spec)
   end
 
   return {
-    action = "write_generated",
+    action = "proceed_create",
     generated_spec_digest = gen_spec_digest,
   }
 end
@@ -178,6 +178,19 @@ function M.write_generated_entry(origin, blueprint_digest, slot, predecessor_ref
     child_dedup = M.child_dedup_key(origin, slot.id, predecessor_ref_digest),
     state = "generated",
   }
+end
+
+function M.created_entry(origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec, child_issue)
+  local entry = M.write_generated_entry(origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec)
+  if entry == nil then
+    return nil
+  end
+  entry.state = "created"
+  entry.child_issue = tostring(child_issue or "")
+  if entry.child_issue == "" then
+    return nil
+  end
+  return entry
 end
 
 function M.blueprint_digest(plan)
