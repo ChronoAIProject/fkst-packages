@@ -1,7 +1,7 @@
 # github-devloop-workflow
 
 A **workflow-orchestration layer** on top of the stable `issue → consensus → PR → merge`
-autonomous-development atom. The package ships a built-in software-development workflow, and hosts
+autonomous-development atom. The package ships built-in software-development workflows, and hosts
 may add bounded, multi-step **workflow templates** through `FKST_WORKFLOW_CATALOG_ROOT`. When an
 incoming issue matches, the system runs the atom repeatedly — one issue per step, in order — where
 each next step's issue content may be **generated from the merged result of the prior step**.
@@ -45,9 +45,18 @@ functional idempotency facts, not user-facing workflow content.
 
 ## Template format
 
-The built-in `software-dev-flow` catalog entry is embedded in Lua and validates through the same
-catalog validator as external files. It materializes implementable code increments: scaffold, full
-implementation, then tests. Additional host-authored workflows can be placed under
+The built-in catalog entries are embedded in Lua and validate through the same catalog validator as
+external files:
+
+- `software-feature-flow` — walking skeleton, then production slice for one bounded new capability.
+- `software-refactor-flow` — characterization tests, then behavior-preserving restructure.
+- `software-contract-migration-flow` — expand, migrate, then contract for an existing contract change.
+
+`workflow_select` is a conservative text router for these flows: it defaults to `none` / plain
+devloop unless the origin issue title/body unambiguously matches exactly one flow's `applies_when`. The
+first child step is the feasibility gate; no-changes is fatal and blocks the origin with a WHY.
+
+Additional host-authored workflows can be placed under
 `FKST_WORKFLOW_CATALOG_ROOT` as `**/*.json` files (one workflow per file; JSON today, TOML is a
 possible future UX choice). Schema `fkst.workflow.v1`:
 
@@ -124,6 +133,8 @@ colliding ids.
   digest + slot), so the child is recognized as an ordinary workflow-step issue.
 
 The full design rationale (seven-round adversarial convergence) is in
-`docs/superpowers/specs/2026-07-02-workflow-orchestration-layer-design.md`.
+`docs/superpowers/specs/2026-07-02-workflow-orchestration-layer-design.md`. The built-in mature
+software workflow catalog is specified in
+`docs/superpowers/specs/2026-07-05-mature-builtin-workflows-design.md`.
 
 ⟦AI:FKST⟧

@@ -14,7 +14,7 @@ end
 
 local function cleanup(root)
   os.remove(root .. "/custom-flow.json")
-  os.remove(root .. "/software-dev-flow.json")
+  os.remove(root .. "/software-feature-flow.json")
   os.execute("rmdir " .. shell_quote(root) .. " >/dev/null 2>&1")
 end
 
@@ -350,7 +350,10 @@ return {
     t.eq(calls[1], 'printf %s "$FKST_WORKFLOW_CATALOG_ROOT"')
     t.is_nil(calls[2])
     t.eq(#loaded.errors, 0)
-    t.eq(loaded.valid["software-dev-flow"].path, "builtin:software-dev-flow")
+    t.eq(loaded.valid["software-feature-flow"].path, "builtin:software-feature-flow")
+    t.eq(loaded.valid["software-refactor-flow"].path, "builtin:software-refactor-flow")
+    t.eq(loaded.valid["software-contract-migration-flow"].path, "builtin:software-contract-migration-flow")
+    t.is_nil(loaded.valid["software-dev-flow"])
   end,
 
   test_load_catalog_for_ctx_merges_builtin_default_and_external_catalog = function()
@@ -363,24 +366,27 @@ return {
 
       t.eq(resolved, root)
       t.eq(#loaded.errors, 0)
-      t.eq(loaded.valid["software-dev-flow"].path, "builtin:software-dev-flow")
+      t.eq(loaded.valid["software-feature-flow"].path, "builtin:software-feature-flow")
+      t.eq(loaded.valid["software-refactor-flow"].path, "builtin:software-refactor-flow")
+      t.eq(loaded.valid["software-contract-migration-flow"].path, "builtin:software-contract-migration-flow")
+      t.is_nil(loaded.valid["software-dev-flow"])
       t.is_true(loaded.valid["custom-flow"].path:sub(-16) == "custom-flow.json")
     end)
   end,
 
   test_load_catalog_for_ctx_duplicate_builtin_and_external_id_fails_closed = function()
     with_catalog({
-      ["software-dev-flow.json"] = workflow_json("software-dev-flow"),
+      ["software-feature-flow.json"] = workflow_json("software-feature-flow"),
     }, function(root)
       local loaded = workflow_select.load_catalog_for_ctx({
         workflow_catalog_root = root,
       })
 
-      t.is_nil(loaded.valid["software-dev-flow"])
+      t.is_nil(loaded.valid["software-feature-flow"])
       t.eq(#loaded.duplicates, 1)
-      t.eq(loaded.duplicates[1].id, "software-dev-flow")
-      t.eq(loaded.duplicates[1].paths[1], "builtin:software-dev-flow")
-      t.is_true(loaded.duplicates[1].paths[2]:sub(-22) == "software-dev-flow.json")
+      t.eq(loaded.duplicates[1].id, "software-feature-flow")
+      t.eq(loaded.duplicates[1].paths[1], "builtin:software-feature-flow")
+      t.is_true(loaded.duplicates[1].paths[2]:sub(-26) == "software-feature-flow.json")
       t.eq(loaded.errors[1].error.code, "duplicate_id")
     end)
   end,

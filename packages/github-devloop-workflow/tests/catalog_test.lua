@@ -1,4 +1,5 @@
 local catalog = require("core.catalog")
+local blueprint_schema = require("core.blueprint")
 local default_catalog = require("core.default_catalog")
 local t = fkst.test
 
@@ -73,6 +74,37 @@ local function error_with_code(errors, code)
   return nil
 end
 
+local function assert_contains(text, needle)
+  t.is_true(tostring(text or ""):find(needle, 1, true) ~= nil)
+end
+
+local function assert_not_contains(text, needle)
+  t.is_nil(tostring(text or ""):find(needle, 1, true))
+end
+
+local function assert_step_ids(bp, expected)
+  t.eq(#bp.steps, #expected)
+  for index, id in ipairs(expected) do
+    t.eq(bp.steps[index].id, id)
+    t.eq(bp.steps[index].content.kind, "generated")
+    t.is_true(#bp.steps[index].content.generator <= blueprint_schema.MAX_GENERATOR_BYTES)
+    assert_contains(bp.steps[index].content.generator, "source_ref")
+    assert_contains(bp.steps[index].content.generator, "TDD/tests live inside this child PR")
+    assert_contains(bp.steps[index].content.generator, "devloop consensus, CI, PR review, or merge gates")
+    assert_contains(bp.steps[index].content.generator, "devloop provides those")
+    assert_contains(bp.steps[index].content.generator, "no-changes is fatal")
+    assert_not_contains(bp.steps[index].content.generator, "feasibility_probe")
+    assert_not_contains(bp.steps[index].content.generator, "EligibilityManifest")
+  end
+end
+
+local function assert_conservative_applies_when(bp)
+  assert_contains(bp.applies_when, "Conservative router")
+  assert_contains(bp.applies_when, "origin issue text")
+  assert_contains(bp.applies_when, "unambiguously matches this flow and exactly one flow")
+  assert_contains(bp.applies_when, "choose none/plain devloop")
+end
+
 local tests = {
   test_load_catalog_keeps_valid_rejects_invalid_and_records_duplicates = function()
     with_temp_root(function(root)
@@ -100,49 +132,67 @@ local tests = {
   test_validate_records_is_shared_by_builtin_catalog = function()
     local records = default_catalog.records()
     local loaded = catalog.validate_records(records)
-    local record = loaded.valid["software-dev-flow"]
 
     t.eq(#loaded.errors, 0)
     t.eq(#loaded.duplicates, 0)
-    t.eq(record.path, "builtin:software-dev-flow")
-    t.eq(record.blueprint.id, "software-dev-flow")
+    t.eq(default_catalog.count, 3)
+    t.eq(loaded.valid["software-feature-flow"].path, "builtin:software-feature-flow")
+    t.eq(loaded.valid["software-refactor-flow"].path, "builtin:software-refactor-flow")
+    t.eq(loaded.valid["software-contract-migration-flow"].path, "builtin:software-contract-migration-flow")
+    t.is_nil(loaded.valid["software-dev-flow"])
   end,
 
-  test_builtin_software_dev_flow_steps_are_generated_code_increments = function()
+  test_builtin_mature_software_flows_have_governing_generated_steps = function()
     local loaded = catalog.validate_records(default_catalog.records())
-    local blueprint = loaded.valid["software-dev-flow"].blueprint
-    local expected = {
-      scaffold = "MERGED result of the previous step",
-      implement = "MERGED result of the previous step",
-      test = "MERGED result of the previous step",
-    }
+    local feature = loaded.valid["software-feature-flow"].blueprint
+    local refactor = loaded.valid["software-refactor-flow"].blueprint
+    local migration = loaded.valid["software-contract-migration-flow"].blueprint
 
-    t.eq(#blueprint.steps, 3)
-    for _, step in ipairs(blueprint.steps) do
-      t.eq(step.content.kind, "generated")
-      t.is_true(step.content.generator:find("Implement", 1, true) ~= nil)
-      t.is_true(step.content.generator:find(expected[step.id], 1, true) ~= nil)
-    end
-    t.eq(blueprint.steps[1].id, "scaffold")
-    t.eq(blueprint.steps[2].id, "implement")
-    t.eq(blueprint.steps[3].id, "test")
+    assert_conservative_applies_when(feature)
+    assert_conservative_applies_when(refactor)
+    assert_conservative_applies_when(migration)
+
+    assert_step_ids(feature, { "walking-skeleton", "production-slice" })
+    assert_contains(feature.steps[1].content.generator, "Cockburn walking skeleton")
+    assert_contains(feature.steps[1].content.generator, "thinnest executable end-to-end path")
+    assert_contains(feature.steps[1].content.generator, "smoke or acceptance test")
+    assert_contains(feature.steps[2].content.generator, "MERGED walking-skeleton result")
+    assert_contains(feature.steps[2].content.generator, "edge cases, negative cases, and tests")
+
+    assert_step_ids(refactor, { "characterization-tests", "behavior-preserving-restructure" })
+    assert_contains(refactor.steps[1].content.generator, "Feathers-style characterization tests")
+    assert_contains(refactor.steps[1].content.generator, "tests only")
+    assert_contains(refactor.steps[1].content.generator, "CURRENT externally observable behavior")
+    assert_contains(refactor.steps[2].content.generator, "MERGED characterization-tests result")
+    assert_contains(refactor.steps[2].content.generator, "Fowler-style internal restructuring")
+    assert_contains(refactor.steps[2].content.generator, "Preserve externally observable behavior")
+
+    assert_step_ids(migration, { "expand", "migrate", "contract" })
+    assert_contains(migration.steps[1].content.generator, "Fowler Parallel Change expand")
+    assert_contains(migration.steps[1].content.generator, "backward-compatible adapter")
+    assert_contains(migration.steps[1].content.generator, "old contract must still work")
+    assert_contains(migration.steps[2].content.generator, "MERGED expand result")
+    assert_contains(migration.steps[2].content.generator, "move in-repo producers and consumers")
+    assert_contains(migration.steps[3].content.generator, "MERGED migrate result")
+    assert_contains(migration.steps[3].content.generator, "remove the old contract form")
+    assert_contains(migration.steps[3].content.generator, "temporary bridge")
   end,
 
   test_validate_records_rejects_duplicate_ids_across_sources = function()
     local records = default_catalog.records()
     table.insert(records, {
-      path = "external/software-dev-flow.json",
+      path = "external/software-feature-flow.json",
       blueprint = records[1].blueprint,
     })
 
     local loaded = catalog.validate_records(records)
 
-    t.is_nil(loaded.valid["software-dev-flow"])
+    t.is_nil(loaded.valid["software-feature-flow"])
     t.eq(#loaded.duplicates, 1)
-    t.eq(loaded.duplicates[1].id, "software-dev-flow")
-    t.eq(loaded.duplicates[1].paths[1], "builtin:software-dev-flow")
-    t.eq(loaded.duplicates[1].paths[2], "external/software-dev-flow.json")
-    t.eq(error_with_code(loaded.errors, "duplicate_id").error.meta.id, "software-dev-flow")
+    t.eq(loaded.duplicates[1].id, "software-feature-flow")
+    t.eq(loaded.duplicates[1].paths[1], "builtin:software-feature-flow")
+    t.eq(loaded.duplicates[1].paths[2], "external/software-feature-flow.json")
+    t.eq(error_with_code(loaded.errors, "duplicate_id").error.meta.id, "software-feature-flow")
   end,
 
   test_rejects_invalid_root_dir = function()

@@ -537,15 +537,15 @@ local tests = {
     end)
   end,
 
-  test_non_english_title_without_selector_keyword_can_select_semantic_builtin_workflow = function()
+  test_non_english_title_without_selector_keyword_can_select_semantic_builtin_feature_workflow = function()
     local payload = candidate()
     mock_env("/tmp/fkst-packages-test/github-devloop-workflow/no-extra-catalog")
     mock_issue_view({
-      title = "文字太大了",
-      body = "The UI font is too large on the settings page. Please adjust the CSS and add a regression test.",
-      labels = { "bug" },
+      title = "添加导出功能",
+      body = "Please implement a new bounded CSV export capability for the reports page as one end-to-end slice with a visible button, export endpoint, and acceptance test.",
+      labels = { "feature" },
     }, 2)
-    mock_workflow_codex("⟦FKST:WORKFLOW_SELECT⟧ software-dev-flow")
+    mock_workflow_codex("⟦FKST:WORKFLOW_SELECT⟧ software-feature-flow")
 
     local result = run_workflow_select(payload)
     t.eq(#result.raises, 1)
@@ -554,14 +554,15 @@ local tests = {
 
     local request = result.raises[1].payload
     local blueprint_marker = marker.parse_blueprint_marker(request.body, payload.proposal_id)
-    t.eq(blueprint_marker.workflow, "software-dev-flow")
+    t.eq(blueprint_marker.workflow, "software-feature-flow")
 
     local calls = codex_calls()
     t.eq(#calls, 1)
     t.is_true(calls[1].stdin:find("⟦FKST:WORKFLOW_SELECT⟧", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("software-dev-flow", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("Implement a software feature", 1, true) ~= nil)
-    t.is_true(calls[1].stdin:find("文字太大了", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("software-feature-flow", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("new bounded software capability", 1, true) ~= nil)
+    t.is_true(calls[1].stdin:find("添加导出功能", 1, true) ~= nil)
+    t.is_nil(calls[1].stdin:find("software-dev-flow", 1, true))
   end,
 
   test_workflow_selection_skips_blueprint_when_fresh_issue_is_closed = function()
