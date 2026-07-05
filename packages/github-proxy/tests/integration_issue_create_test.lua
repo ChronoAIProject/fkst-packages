@@ -141,6 +141,31 @@ local function first_call_index(needle)
 end
 
 return {
+  test_issue_create_parent_ledger_markers_have_visible_text_and_parse = function()
+    local dedup_key = event().payload.dedup_key
+    local created = core.issue_created_marker(dedup_key, "99")
+    local intent = core.issue_create_intent_marker(dedup_key)
+
+    t.is_true(created:find("Opened sub-issue #99 for this task.\n\n", 1, true) == 1)
+    t.is_true(created:find('<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key .. '" issue="99" -->', 1, true) ~= nil)
+    t.is_true(intent:find("Preparing to open a sub-issue for this task.\n\n", 1, true) == 1)
+    t.is_true(intent:find('<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. dedup_key .. '" -->', 1, true) ~= nil)
+    t.eq(core.has_trusted_issue_created_marker({
+      {
+        body = created,
+        author_login = "fkst-test-bot",
+      },
+    }, dedup_key, "fkst-test-bot"), true)
+    t.eq(core.has_trusted_issue_create_intent_marker({
+      {
+        body = intent,
+        author_login = "fkst-test-bot",
+      },
+    }, dedup_key, "fkst-test-bot"), true)
+    t.eq(core.issue_created_marker(dedup_key, "99"), created)
+    t.eq(core.issue_create_intent_marker(dedup_key), intent)
+  end,
+
   test_issue_create_request_dry_run_does_not_search_or_create = function()
     mock_write_env("")
 

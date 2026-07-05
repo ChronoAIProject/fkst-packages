@@ -96,17 +96,22 @@ function M.issue_created_marker(dedup_key, issue_number)
   if #issue > max_issue_number_len then
     issue = issue:sub(1, max_issue_number_len)
   end
-  return '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. tostring(dedup_key)
+  local marker = '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. tostring(dedup_key)
     .. '" issue="' .. issue
     .. '" -->'
+  if issue:match("^%d+$") ~= nil then
+    return "Opened sub-issue #" .. issue .. " for this task.\n\n" .. marker
+  end
+  return "Opened a sub-issue for this task.\n\n" .. marker
 end
 
 function M.issue_create_intent_marker(dedup_key)
   if not is_bounded_marker_value(dedup_key, max_dedup_len) then
     error("github-proxy: issue-create-intent-key-invalid: invalid issue-create intent dedup_key")
   end
-  return '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. tostring(dedup_key)
+  local marker = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="' .. tostring(dedup_key)
     .. '" -->'
+  return "Preparing to open a sub-issue for this task.\n\n" .. marker
 end
 
 function M.issue_create_lock_key(dedup_key)

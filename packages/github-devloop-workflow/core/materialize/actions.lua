@@ -125,6 +125,30 @@ local function build_comment_request(repo, issue_number, origin, body, dedup_com
   }
 end
 
+local function visible_materialization_line(entry, state, child_issue)
+  local slot = tostring(entry and entry.slot or "unknown")
+  if state == "created" then
+    if child_issue ~= nil and tostring(child_issue) ~= "" then
+      return "Materialized the `" .. slot .. "` step as sub-issue #" .. tostring(child_issue) .. "."
+    end
+    return "Materialized the `" .. slot .. "` step as a sub-issue."
+  end
+  if state == "generated" then
+    return "Generated the `" .. slot .. "` step for materialization."
+  end
+  return "Recorded the `" .. slot .. "` materialization as " .. tostring(state) .. "."
+end
+
+local function visible_terminal_line(state, reason_code)
+  if state == "done" then
+    return "Workflow complete: every step merged."
+  end
+  if state == "blocked" then
+    return "Workflow blocked: " .. tostring(reason_code) .. "."
+  end
+  return "Workflow errored: " .. tostring(reason_code) .. "."
+end
+
 function M.materialization_marker_body(origin, entry, state, child_issue)
   local built, err = marker.build_materialization_marker(
     origin,
@@ -140,7 +164,7 @@ function M.materialization_marker_body(origin, entry, state, child_issue)
   if built == nil then
     error("github-devloop-workflow: materialization-marker-build-failed: materialization marker build failed: " .. tostring(err and err.code or "unknown"))
   end
-  return built
+  return visible_materialization_line(entry, state, child_issue) .. "\n\n" .. built
 end
 
 function M.terminal_request(repo, issue_number, origin, state, reason_code)
@@ -148,7 +172,8 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
   if built == nil then
     error("github-devloop-workflow: terminal-marker-build-failed: terminal marker build failed: " .. tostring(err and err.code or "unknown"))
   end
-  return build_comment_request(repo, issue_number, origin, built, {
+  local body = visible_terminal_line(state, reason_code) .. "\n\n" .. built
+  return build_comment_request(repo, issue_number, origin, body, {
     "terminal",
     tostring(state),
     tostring(reason_code),

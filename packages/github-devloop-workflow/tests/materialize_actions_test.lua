@@ -1,5 +1,6 @@
 local actions = require("core.materialize.actions")
 local base_ids = require("devloop.base_ids")
+local marker = require("core.marker")
 local t = fkst.test
 
 local repo = "owner/repo"
@@ -61,7 +62,25 @@ return {
     t.is_nil(r1.replace_marker)
     t.is_true(not has(r1.body, "fkst:github-devloop-workflow:blueprint:v1"))
     t.is_true(has(r1.body, "fkst:github-devloop-workflow:materialization:v1"))
+    t.is_true(has(r1.body, "Materialized the `implement` step as sub-issue #7."))
+    t.is_true(r1.body:find("Materialized the `implement` step as sub-issue #7.\n\n<!-- fkst:github-devloop-workflow:materialization:v1", 1, true) == 1)
     t.is_true(not has(r1.body, "Implement the website feature"))
+    local parsed = marker.parse_materialization_marker(r1.body, origin, "implement")
+    t.eq(parsed.state, "created")
+    t.eq(parsed.child_issue, "7")
+    local expected_marker, marker_err = marker.build_materialization_marker(
+      origin,
+      e.blueprint_digest,
+      e.slot,
+      e.predecessor_ref_digest,
+      e.gen_contract_digest,
+      e.gen_spec_digest,
+      e.child_dedup,
+      "7",
+      "created"
+    )
+    t.is_nil(marker_err)
+    t.eq(r1.body, "Materialized the `implement` step as sub-issue #7.\n\n" .. expected_marker)
   end,
 
   test_materialization_comment_dedup_varies_by_state = function()
@@ -70,6 +89,8 @@ return {
     local created = actions.materialization_comment_request(repo, 1, origin, e, "created", "7")
     t.is_true(generated.dedup_key ~= created.dedup_key)
     t.is_true(not has(created.dedup_key, "table"))
+    t.is_true(has(generated.body, "Generated the `implement` step for materialization."))
+    t.eq(marker.parse_materialization_marker(generated.body, origin, "implement").state, "generated")
   end,
 
   test_terminal_comment_dedup_deterministic_no_table_address = function()
@@ -81,6 +102,17 @@ return {
     t.is_nil(r1.replace_marker)
     t.is_true(not has(r1.body, "fkst:github-devloop-workflow:materialization:v1"))
     t.is_true(has(r1.body, "fkst:github-devloop-workflow:terminal:v1"))
+    t.is_true(has(r1.body, "Workflow complete: every step merged."))
+    t.is_true(r1.body:find("Workflow complete: every step merged.\n\n<!-- fkst:github-devloop-workflow:terminal:v1", 1, true) == 1)
+    local parsed = marker.parse_terminal_marker(r1.body, origin)
+    t.eq(parsed.state, "done")
+    t.eq(parsed.reason_code, "all-slots-merged")
+    local expected_marker, marker_err = marker.build_terminal_marker(origin, "done", "all-slots-merged")
+    t.is_nil(marker_err)
+    t.eq(r1.body, "Workflow complete: every step merged.\n\n" .. expected_marker)
+    local blocked = actions.terminal_request(repo, 1, origin, "blocked", "child-fatal")
+    t.is_true(has(blocked.body, "Workflow blocked: child-fatal."))
+    t.eq(marker.parse_terminal_marker(blocked.body, origin).state, "blocked")
   end,
 
   test_issue_create_keeps_origin_parent_comment_target = function()
