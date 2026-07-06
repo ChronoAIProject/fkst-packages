@@ -395,7 +395,7 @@ local function build_thinking_replay_proposal(M, issue, proposal_id, state, curr
   local latest = latest_thinking_converge_round(M, current.comments, proposal_id, state.version, issue.source_ref)
   if latest ~= nil then
     local base_version = conv_rounds.converge_proposal_base_dedup(latest.dedup)
-    local replay_n = latest.round
+    local replay_n = latest.round + 1
     local replay_dedup = transition_version.loop_at(base_version, replay_n)
     local content_fetch = context_bundle.context_fetch_ref_from_bundle(M, {
       dept = "observe_issue",
