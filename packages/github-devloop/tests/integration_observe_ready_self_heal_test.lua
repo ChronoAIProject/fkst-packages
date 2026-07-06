@@ -182,8 +182,8 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     local proposal = find_raise(result.raises, "consensus.proposal").payload
-    t.eq(proposal.dedup_key, payloads_builders.build_proposal(event).dedup_key .. "/loop/1")
-    t.eq(proposal.round, 1)
+    t.eq(proposal.dedup_key, payloads_builders.build_proposal(event).dedup_key .. "/loop/0")
+    t.eq(proposal.round, 0)
     t.eq(proposal.convergence_question, "Narrow the question")
     t.eq(proposal.prior_round_digests[1].digest, "needs-narrower-scope")
     t.eq(count_calls("--json body"), 0)

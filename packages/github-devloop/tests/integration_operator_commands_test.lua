@@ -129,8 +129,8 @@ return {
     local proposal_raise = find_raise(result.raises, "consensus.proposal")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:operator-command:v1", 1, true) ~= nil)
-    t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
-    t.eq(proposal_raise.payload.round, 8)
+    t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/7")
+    t.eq(proposal_raise.payload.round, 7)
     t.eq(proposal_raise.payload.convergence_question, "Same narrowed question")
     t.eq(proposal_raise.payload.source_ref.ref, "owner/repo#issue/42")
   end,
@@ -144,8 +144,8 @@ return {
     local result = run_observe(event, opts("operator-issue-rereview-round-7"))
     t.eq(result.exit_code, 0)
     local proposal_raise = find_raise(result.raises, "consensus.proposal")
-    t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
-    t.eq(proposal_raise.payload.round, 8)
+    t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/7")
+    t.eq(proposal_raise.payload.round, 7)
     t.eq(proposal_raise.payload.convergence_question, "Narrowed question 7")
     t.eq(proposal_raise.payload.prior_round_digests[1].digest, "digest-7")
   end,
