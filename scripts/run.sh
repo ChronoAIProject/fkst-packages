@@ -258,6 +258,7 @@ cmd_check() {
   python3 -B "$ROOT/scripts/host_run_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_profile_scaffold_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_run_equivalence_test.py" || fail=1
+  python3 -B "$ROOT/scripts/dogfood_sync_restart_test.py" || fail=1
   python3 -B "$ROOT/scripts/run_sh_coverage_test.py" || fail=1
   python3 -B "$ROOT/scripts/run_sh_test_affected_test.py" || fail=1
   python3 -B "$ROOT/scripts/composed_manifest_test.py" || fail=1
@@ -967,6 +968,7 @@ main() {
     test-affected) shift; cmd_test_affected "$@" ;;
     test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
     run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
+    _host-run-validate) shift; host_run_validate_launch_contract "$@" ;;
     supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
     build) shift; cmd_build "$@" ;;
     -h|--help|help|"") usage ;;

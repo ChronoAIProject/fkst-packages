@@ -210,6 +210,25 @@ def platform_packages(name: str, host: Path, pkgsrc: Path) -> list[str]:
     return matched[0]
 
 
+def packages_from_workspace(workspace: dict[str, Any], host: Path, pkgsrc: Path) -> list[str]:
+    if host.resolve() == pkgsrc.resolve():
+        packages: list[str] = []
+        for package in table_array(workspace, "package"):
+            name_value = package.get("name")
+            source = package.get("source", "workspace")
+            if isinstance(name_value, str) and source == "workspace":
+                packages.append(name_value)
+        return packages
+
+    source = platform_source(workspace)
+    if source is None:
+        return []
+    return package_list(
+        source.get("packages", []),
+        "external_sources(id=fkst-packages-platform).packages",
+    )
+
+
 def is_generated_scratch(worktree: Path, requested: list[str]) -> bool:
     current_path = worktree / "fkst.workspace.toml"
     if not current_path.is_file():
@@ -223,6 +242,14 @@ def is_generated_scratch(worktree: Path, requested: list[str]) -> bool:
     )
     if head.returncode != 0:
         return False
+    if not requested:
+        try:
+            workspace = parse_workspace(current_path.read_text(encoding="utf-8"), current_path, str(worktree))
+            requested = packages_from_workspace(workspace, worktree, worktree)
+            if not requested:
+                requested = packages_from_workspace(workspace, Path("/__fkst_host__"), Path("/__fkst_platform__"))
+        except SystemExit:
+            return False
     return current_path.read_text(encoding="utf-8") == render_with_packages(head.stdout, requested)
 
 

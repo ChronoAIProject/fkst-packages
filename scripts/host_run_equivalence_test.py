@@ -538,7 +538,7 @@ class HostRunEquivalenceTest(unittest.TestCase):
             self.assertIn("FAILED to start", result.stdout)
             self.assertIn("startup error: schema validation failed", result.stdout)
 
-    def test_dogfood_sync_fails_when_selective_auto_restart_exits_before_readiness(self) -> None:
+    def test_dogfood_sync_fails_validation_before_selective_auto_restart(self) -> None:
         new_script = (REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop" / "dogfood.sh").read_text(
             encoding="utf-8"
         )
@@ -608,7 +608,7 @@ class HostRunEquivalenceTest(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("packages: pkg-stale -> auto-restart", result.stdout)
-            self.assertIn("FAILED to start", result.stdout)
+            self.assertIn("validation failed; keeping running supervise pid 999999", result.stdout)
             self.assertIn("startup error: schema validation failed", result.stdout)
 
     def test_manifest_based_launch_keeps_workspace_byte_stable(self) -> None:

@@ -546,6 +546,23 @@ host_run_print_package_roots() {
   done
 }
 
+host_run_validate_launch_contract() {
+  host_run_parse_supervise_args "$@" || return $?
+  host_run_validate_shape || return $?
+  host_run_build_package_roots || return $?
+  if [ "${#HOST_RUN_PACKAGE_ROOTS[@]}" -eq 0 ]; then
+    echo "error: resolved platform package list is empty" >&2
+    return 1
+  fi
+
+  local args=() rootdir
+  args=("$BIN" conformance --project-root "$HOST_RUN_PROJECT_ROOT")
+  for rootdir in "${HOST_RUN_PACKAGE_ROOTS[@]}"; do
+    args+=(--package-root "$rootdir")
+  done
+  "${args[@]}"
+}
+
 host_run_supervise_contract() {
   host_run_parse_supervise_args "$@" || return $?
   host_run_validate_shape || return $?

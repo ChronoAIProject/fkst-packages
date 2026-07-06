@@ -393,6 +393,22 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   fi
 }
 
+validate_launch_one() { # $1 name
+  local name="$1" args=()
+  derive_devloop_pkgs_from_workspace "$name" || return 1
+  [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] no platform packages declared in fkst.workspace.toml"; return 1; }
+  [ -x "$PKGSRC/scripts/run.sh" ] || { echo "[$name] missing host-run contract: $PKGSRC/scripts/run.sh"; return 1; }
+  args=(
+    --project-root "$HOST"
+    --platform-root "$PKGSRC"
+    --platform-packages "$DEVLOOP_PKGS"
+    --durable-root "$DUR"
+    --runtime-root "$LOGDIR/dogfood-validate-${name}.$$"
+  )
+  [ -n "$LOCAL_PKGS" ] && args+=(--host-packages "$LOCAL_PKGS")
+  BIN="$BIN" "$PKGSRC/scripts/run.sh" _host-run-validate "${args[@]}"
+}
+
 start_one() {
   cfg "$1" || return 1
   local existing; existing=$(pidof_df)
@@ -412,11 +428,18 @@ restart_one() {
   echo "[$1] sync to origin/$INTEGRATION_BRANCH (run branch; rollup target stays $UPSTREAM_BRANCH):"
   ensure_run_checkout "$PKGSRC" "$GH_ORG/fkst-packages"              # re-clone if DOGFOOD_ROOT cleanup rotted the checkout
   [ "$HOST" != "$PKGSRC" ] && ensure_run_checkout "$HOST" "$REPO"
-  derive_devloop_pkgs_from_workspace "$1" || return 1
   ensure_integration_caught_up "$PKGSRC"                              # keep run branch (integration) >= dev so operator fixes deploy
   [ "$HOST" != "$PKGSRC" ] && ensure_integration_caught_up "$HOST"
   sync_to_run_branch "$PKGSRC"
   [ "$HOST" != "$PKGSRC" ] && sync_to_run_branch "$HOST"
+  derive_devloop_pkgs_from_workspace "$1" || return 1
+  local p; p=$(pidof_df)
+  if [ -n "$p" ]; then
+    if ! validate_launch_one "$1"; then
+      echo "[$1] validation failed; keeping running supervise pid $p"
+      return 1
+    fi
+  fi
   # One migration bridge: a supervise launched before the host-run contract has no
   # durable pidfile yet, so --restart has nothing to kill on the first upgraded run.
   [ ! -f "$DUR/.fkst-supervise.pid" ] && { stop_one "$1"; sleep 1; }
@@ -566,12 +589,18 @@ cmd_sync() {
     cfg "$n" || continue
     ensure_run_checkout "$PKGSRC" "$GH_ORG/fkst-packages"              # re-clone if DOGFOOD_ROOT cleanup rotted the checkout (else _proc_stale misreads "skew" and fixes never deploy)
     [ "$HOST" != "$PKGSRC" ] && ensure_run_checkout "$HOST" "$REPO"
-    derive_devloop_pkgs_from_workspace "$n" || { echo "  $n: config-error"; failed=1; continue; }
     ensure_integration_caught_up "$PKGSRC"                              # keep run branch (integration) >= dev so operator fixes deploy
     [ "$HOST" != "$PKGSRC" ] && ensure_integration_caught_up "$HOST"
+    sync_to_run_branch "$PKGSRC" >/dev/null || { failed=1; continue; }
+    if [ "$HOST" != "$PKGSRC" ]; then
+      sync_to_run_branch "$HOST" >/dev/null || { failed=1; continue; }
+    fi
+    derive_devloop_pkgs_from_workspace "$n" || { echo "  $n: config-error"; failed=1; continue; }
     st=$(_proc_stale "$n")
     case "$st" in
-      pkg-stale|engine-stale) echo "  $n: $st -> auto-restart"; restart_one "$n" | sed 's/^/    /' || failed=1 ;;
+      pkg-stale|engine-stale)
+        echo "  $n: $st -> auto-restart"
+        restart_one "$n" | sed 's/^/    /' || failed=1 ;;
       stopped)                echo "  $n: stopped (use 'start' to launch)" ;;
       *)                      echo "  $n: $st (no restart needed)" ;;
     esac
