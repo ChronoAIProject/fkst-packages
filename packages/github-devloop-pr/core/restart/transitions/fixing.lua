@@ -97,7 +97,7 @@ return function(M, h)
       reviewed_head_sha = "marker:merge-gate.head_sha",
       dedup_key = "dedup:replayed-fixing",
       gate_baseline_sha = "marker:merge-gate.gate_baseline_sha",
-      ci_failure_key = "marker:merge-gate.ci_failure",
+      ci_failure_key = "marker:merge-gate.ci_failure_key",
       gate_failure_excerpt = "comment_body:fix-feedback",
       source_ref = "source_ref:pr",
     },
