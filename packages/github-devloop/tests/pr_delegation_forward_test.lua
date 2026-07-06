@@ -128,6 +128,22 @@ return {
     t.is_true(issue_effect.payload.body:find('state="pr-open"', 1, true) == nil)
   end,
 
+  test_ensure_pr_child_pr_body_names_local_iteration_test_command = function()
+    mock_branch_list(nil, 7)
+    t.mock_command("gh pr create", { stdout = "https://github.example/owner/repo/pull/7\n", stderr = "", exit_code = 0 })
+
+    core.ensure_pr_child(issue(), impl_version, 1)
+
+    local body
+    for _, call in ipairs(t.command_calls()) do
+      if gh_argv.call_contains(call, "gh pr create") then
+        body = gh_argv.argv_value_after(call, "--body")
+      end
+    end
+    t.is_true(body ~= nil)
+    t.is_true(body:find("scripts/run.sh test-affected", 1, true) ~= nil)
+  end,
+
   test_ensure_pr_child_rerun_with_visible_facts_is_idempotent = function()
     local pr_proposal = "github-devloop/pr/owner/repo/7"
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")

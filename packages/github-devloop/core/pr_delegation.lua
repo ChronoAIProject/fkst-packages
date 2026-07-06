@@ -91,6 +91,11 @@ local function create_pr(repo, issue_number, branch, base_branch, title, body)
   end
 end
 
+local function implementation_pr_body(issue_number)
+  return "github-devloop implementation PR for issue #" .. tostring(issue_number)
+    .. "\n\nLocal verification command: `" .. config.local_iteration_test_command() .. "`"
+end
+
 local function require_head_sha(branch, expected_head)
   local head = tostring(expected_head or "")
   if require("devloop.pr_safety").is_safe_head_sha(head) then
@@ -325,8 +330,7 @@ function M.ensure_pr_child(issue, impl_version, generation)
   end
   if pr == nil then
     local head_sha = require_head_sha(branch, issue.head_sha or (issue.implementation and issue.implementation.head_sha))
-    local body = "github-devloop implementation PR for issue #" .. tostring(issue_number)
-    create_pr(repo, issue_number, branch, base_branch, issue.title, body)
+    create_pr(repo, issue_number, branch, base_branch, issue.title, implementation_pr_body(issue_number))
     pr = find_pr(repo, branch, base_branch)
     if pr == nil then
       error("github-devloop: pr-evidence-missing: pr-delegation PR create did not yield an adoptable branch PR")
