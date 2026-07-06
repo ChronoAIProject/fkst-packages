@@ -18,6 +18,10 @@ host_run_usage() {
   cat >&2 <<'EOF'
 usage: scripts/run.sh supervise --project-root <HOST> --platform-root <PKGSRC> --platform-packages "<names>" [--host-packages "<names>"] --durable-root <path> [--runtime-root <fresh-scratch-root>] [--restart]
    or: scripts/run.sh supervise <package>
+
+Set FKST_HOST_RUN_RESTART_DRAIN_SECONDS to a positive number to let --restart wait
+for live child processes under the prior supervise pid before the existing SIGKILL
+continuation. The unset or zero value is the immediate restart path.
 EOF
 }
 
@@ -461,6 +465,100 @@ host_run_pid_is_dead() {
   [[ "$state" == Z* ]]
 }
 
+host_run_restart_drain_budget() {
+  local raw="${FKST_HOST_RUN_RESTART_DRAIN_SECONDS:-0}"
+  python3 - "$raw" <<'PY'
+import re
+import sys
+
+raw = sys.argv[1]
+if not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", raw):
+    print(f"error: FKST_HOST_RUN_RESTART_DRAIN_SECONDS must be a non-negative number, got {raw!r}", file=sys.stderr)
+    raise SystemExit(2)
+print(raw)
+PY
+}
+
+host_run_drain_supervise_tree() {
+  local pid="$1" budget
+  budget="$(host_run_restart_drain_budget)" || return $?
+  python3 - "$pid" "$budget" "$HOST_RUN_DURABLE_ROOT" <<'PY'
+import subprocess
+import sys
+import time
+
+root = int(sys.argv[1])
+budget = float(sys.argv[2])
+budget_text = sys.argv[2]
+durable_root = sys.argv[3]
+
+if budget <= 0:
+    raise SystemExit(0)
+
+
+def process_rows() -> list[tuple[int, int, str]]:
+    try:
+        output = subprocess.check_output(["ps", "-axo", "pid=,ppid=,stat="], text=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    rows: list[tuple[int, int, str]] = []
+    for line in output.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+        except ValueError:
+            continue
+        rows.append((pid, ppid, parts[2]))
+    return rows
+
+
+def live_descendants() -> list[int]:
+    children: dict[int, list[tuple[int, str]]] = {}
+    for pid, ppid, stat in process_rows():
+        children.setdefault(ppid, []).append((pid, stat))
+    stack = list(children.get(root, []))
+    out: list[int] = []
+    while stack:
+        pid, stat = stack.pop(0)
+        if not stat.startswith("Z"):
+            out.append(pid)
+        stack.extend(children.get(pid, []))
+    return out
+
+
+descendants = live_descendants()
+if not descendants:
+    raise SystemExit(0)
+
+joined = ",".join(str(item) for item in descendants)
+print(
+    f"restart: draining prior supervise process tree pid {root} children={joined} "
+    f"budget={budget_text}s for durable root {durable_root}",
+    file=sys.stderr,
+)
+
+deadline = time.monotonic() + budget
+while time.monotonic() < deadline:
+    descendants = live_descendants()
+    if not descendants:
+        print(f"restart: drain complete for prior supervise process tree pid {root}", file=sys.stderr)
+        raise SystemExit(0)
+    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+
+descendants = live_descendants()
+if descendants:
+    joined = ",".join(str(item) for item in descendants)
+    print(
+        f"restart: drain budget expired for prior supervise process tree pid {root} "
+        f"children={joined}; continuing to SIGKILL",
+        file=sys.stderr,
+    )
+PY
+}
+
 host_run_kill_supervise_pid() {
   local pid="$1" pid_file="$2" attempts=0
   if host_run_pid_is_dead "$pid"; then
@@ -497,6 +595,7 @@ host_run_restart_prior() {
       return 1
       ;;
     *)
+      host_run_drain_supervise_tree "$pid" || return $?
       host_run_kill_supervise_pid "$pid" "$pid_file"
       ;;
   esac

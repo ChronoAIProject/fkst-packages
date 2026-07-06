@@ -54,8 +54,8 @@
 #       Platform package roots are resolved from the target fkst.workspace.toml
 #       and fkst.lock, not from ad hoc package-root construction.
 #       Durable root is mandatory and reused. --restart SIGKILLs the prior host-run supervise
-#       recorded for that durable root. FKST_GITHUB_WRITE passes through
-#       (unset = dry-run).
+#       recorded for that durable root after an optional bounded process-tree drain when
+#       FKST_HOST_RUN_RESTART_DRAIN_SECONDS > 0. FKST_GITHUB_WRITE passes through (unset = dry-run).
 #
 #   scripts/run.sh supervise <package>
 #       Backward-compatible package-local supervise wrapper. Uses .fkst/run/runtime
@@ -256,7 +256,7 @@ cmd_check() {
   python3 -B "$ROOT/scripts/bin_cache_test.py" || fail=1
   python3 -B "$ROOT/scripts/bin_bootstrap_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_entry_test.py" || fail=1
-  python3 -B "$ROOT/scripts/host_run_test.py" || fail=1
+  python3 -B "$ROOT/scripts/host_run_test.py" || fail=1; python3 -B "$ROOT/scripts/host_run_restart_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_profile_scaffold_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_run_equivalence_test.py" || fail=1
   python3 -B "$ROOT/scripts/run_sh_coverage_test.py" || fail=1
