@@ -148,7 +148,17 @@ local function mock_angle(angle, verdict, reply, exit_code)
   mock_judgment_dir()
   local gap = verdict == "reject" and "\n" .. "⟦FKST:GAP⟧ " .. tostring(reply):sub(1, 80) or ""
   t.mock_command(angle_mock_pattern(angle), {
-    stdout = verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n",
+    stdout = "ESSENCE: shared consensus purpose\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n",
+    stderr = "",
+    exit_code = exit_code or 0,
+  })
+end
+
+local function mock_angle_with_essence(angle, verdict, essence, reply, exit_code)
+  mock_judgment_dir()
+  local gap = verdict == "reject" and "\n" .. "⟦FKST:GAP⟧ " .. tostring(reply):sub(1, 80) or ""
+  t.mock_command(angle_mock_pattern(angle), {
+    stdout = "ESSENCE: " .. tostring(essence) .. "\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n",
     stderr = "",
     exit_code = exit_code or 0,
   })
@@ -166,7 +176,7 @@ local function mock_rebuttal(angle, stance, verdict, reply, peer_claim, exit_cod
   end
   local gap = verdict == "reject" and "\n" .. "⟦FKST:GAP⟧ " .. tostring(reply):sub(1, 80) or ""
   t.mock_command(rebuttal_mock_pattern(angle), {
-    stdout = stance_line .. "\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n",
+    stdout = "ESSENCE: shared consensus purpose\n" .. stance_line .. "\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply .. gap .. "\n",
     stderr = "",
     exit_code = exit_code or 0,
   })
@@ -208,6 +218,7 @@ return {
     t.eq(result.raises[1].payload.schema, "consensus.consensus_reached.v1")
     t.eq(result.raises[1].payload.proposal_id, "proposal-42")
     t.eq(result.raises[1].payload.decision, "approve")
+    t.eq(result.raises[1].payload.verdict_path, "blind-unanimity")
     t.eq(result.raises[1].payload.dedup_key, "consensus:proposal-42-v1")
     t.eq(result.raises[1].payload.source_ref.kind, "proposal")
     t.eq(result.raises[1].payload.source_ref.ref, "demo/consensus/42")
@@ -426,9 +437,30 @@ return {
     local parsimony = judgment_call("rebuttal-parsimony")
     assert_judgment_worktree(parsimony, "rebuttal-parsimony")
     t.is_true(parsimony.stdin:find("Your locked Phase B output:", 1, true) ~= nil)
-    t.is_true(parsimony.stdin:find("Peer Phase B outputs:", 1, true) ~= nil)
+    t.is_true(parsimony.stdin:find("Peer Phase B argument outputs, with verdict and confidence masked:", 1, true) ~= nil)
     t.is_true(parsimony.stdin:find("teleology purpose claim", 1, true) == nil)
     assert_judgment_dir_created_without_permission_control(6)
+  end,
+
+  test_unanimous_approve_with_divergent_essence_escalates_to_synthesis = function()
+    mock_judgment_runtime()
+    mock_angle_with_essence("teleology", "approve", "purpose inevitability", "Teleology angle approves.")
+    mock_angle_with_essence("parsimony", "approve", "minimal branching", "Parsimony angle approves.")
+    mock_angle_with_essence("fidelity", "approve", "source verification", "Fidelity angle approves.")
+    mock_rebuttal_defend("teleology", "approve", "Teleology still approves.")
+    mock_rebuttal_defend("parsimony", "approve", "Parsimony still approves.")
+    mock_rebuttal_defend("fidelity", "approve", "Fidelity still approves.")
+
+    local result = run_decide(proposal({
+      dedup_key = "proposal-42-v1/divergent-essence",
+    }), opts("divergent-essence"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "consensus_reached")
+    t.eq(result.raises[1].payload.verdict_path, "post-rebuttal-unanimity")
+    t.eq(#codex_calls(), 6)
+    t.eq(judgment_call("synthesis"), nil)
   end,
 
   test_duplicate_converge_delivery_redecides_but_emits_stable_dedup_key = function()

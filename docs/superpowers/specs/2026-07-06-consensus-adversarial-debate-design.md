@@ -54,7 +54,7 @@ Seat-level disagreement rate becomes a provenance/ledger column so choir-collaps
 Peer-invisible, parallel, full source content via the existing `content_fetch` manifest (blind-but-fully-informed: evidence partition was adjudicated OUT — it reproduces `angle.lua:4` at the input layer and manufactures disagreement by starvation, failing fidelity's own Goodhart test and the constitution's full-content doctrine).
 
 Per-seat contract, converge (design-search) mode:
-1. `ESSENCE` — independently derived problem essence, written BEFORE engaging the proposal's own story (mandated prose section; see sentinel diet §4.6).
+1. `ESSENCE:` — independently derived problem essence, written BEFORE engaging the proposal's own story. Cross-model review addendum #1955 upgrades this from prose-only to a vote-validity gate: a P1/P2 output with no exactly-one bounded `ESSENCE:` line is not a valid vote.
 2. `IDEAL` — sketch of the most faithful solution, unconstrained by the proposal (prose).
 3. Six-smell comparison of the proposal against that ideal (prose; checkable smells cited to file:line where they exist).
 4. `⟦FKST:VERDICT⟧` (sentinel) + `⟦FKST:REPLY⟧` (sentinel) + `WEAKEST` — self-named weakest assumption (mandated prose; the rebuttal handle).
@@ -63,7 +63,7 @@ Gate mode calibration (adjudicated, all three seats): the ideal sketch is **cont
 
 ### 4.3 Escalation rule (one rule, both modes)
 
-**The debate replaces the meta-judge.** Escalation triggers exactly where today's deterministic aggregate yields no decision (`core.lua:504-563`): converge mode — no blind unanimity; gate mode — no decisive aggregate (the all-abstain/comment middle, or reject-without-parseable-gap). The deterministic aggregate is never overridden by debate; the blind unanimity fast path is unchanged at 3 spawns.
+**The debate replaces the meta-judge.** Escalation triggers exactly where today's deterministic aggregate yields no decision (`core.lua:504-563`): converge mode — no RCA-valid blind unanimity; gate mode — no decisive aggregate (the all-abstain/comment middle, or reject-without-parseable-gap). The deterministic aggregate is never overridden by debate; the blind unanimity fast path remains 3 spawns, with #1955's `ESSENCE:` validity and divergence gates deciding whether it is eligible.
 
 This is the synthesis of the gate-mode split (teleology: no debate in gate — the fix loop is the gate's native confrontation and the author its missing party; parsimony: debate only for the ambiguous middle; fidelity: debate on verdict split): the debate runs precisely where a judge already runs today, and nowhere else. Evidenced rejects keep flowing to the fix loop — the gate's native confrontation — untouched.
 
@@ -93,7 +93,7 @@ The `⟦FKST:PLAN⟧` outcome is **deleted** — a hedge state made unrepresenta
 
 ### 4.6 Sentinel diet (adjudicated, unanimous)
 
-Fail-closed sentinel parsing is earned by a **machine branch**, nothing else: `VERDICT` (routes), `STANCE` (routes the post-R unanimity re-check), `GAP` (routes gate rejects), `REPLY` (anchors the unique-adjacent-pair discipline). `ESSENCE` / `IDEAL` / `WEAKEST` / findings-record interiors are **mandated prose sections** — wired to their real reader (the adversary seats and the judge, who read full text), peer-attackable, parser-invisible. Rationale: under the parser's cost model (`core.lua:396-474`, any malformed pair ⇒ nil ⇒ whole spawn wasted), every ceremonial sentinel converts an essay-shape defect into minutes of burned frontier compute. Fidelity's "wired or deleted" dictum and the diet are one principle: the disease is fields with no reader (`prior_round_digests`), not prose with an epistemic reader.
+Fail-closed sentinel parsing is earned by a **machine branch**, nothing else: `VERDICT` (routes), `STANCE` (routes the post-R unanimity re-check), `GAP` (routes gate rejects), `REPLY` (anchors the unique-adjacent-pair discipline), and the addendum-gated `ESSENCE:` line (validates that a vote has an RCA/essence basis). `IDEAL` / `WEAKEST` / findings-record interiors remain **mandated prose sections** — wired to their real reader (the adversary seats and the judge, who read full text), peer-attackable, parser-invisible. Rationale: under the parser's cost model (`core.lua:396-474`, any malformed pair ⇒ nil ⇒ whole spawn wasted), every ceremonial sentinel converts an essay-shape defect into minutes of burned frontier compute; `ESSENCE:` is no longer ceremonial because it decides vote validity and blind-unanimity eligibility. Fidelity's "wired or deleted" dictum and the diet are one principle: the disease is fields with no reader (`prior_round_digests`), not prose with an epistemic reader.
 
 ### 4.7 Inter-round memory: the findings-of-fact record (THE one canonical memory)
 
@@ -147,6 +147,20 @@ These are small control fields (payload-legal). They join against the false-cons
 - **Agreement-after-mutual-reading carries less evidential weight than blind agreement** (fidelity, upheld): reading peers is conditioning; the citation currency is what signs it positive. Hence provenance separates the paths forever.
 - **The findings record is model-authored narrative** — mitigated by provenance-carrying entries, not cured. If ledger data shows continuation rounds degrade toward re-rolls, teleology's own WEAKEST predicts the failure and the record format is the first suspect.
 - The claim "three disjoint-seeded seats decorrelate better than today's four disjoint biases" is **unverified** (parsimony, upheld) — the seat-disagreement provenance column exists to test it, not to assume it.
+
+### 4.12 Cross-model review addendum decisions (#1955)
+
+The ChatGPT Pro addendum was treated as an advisory cross-family review signal, not a mandate. The governing prior art is Delphi-style independent judgment plus RCA/evidence-gated review: keep first votes independent, share argument substance without vote contagion, require a root-cause basis for votes, and record path provenance so outcome quality is measurable.
+
+Decision record:
+
+- **Adopt: expose peer arguments while hiding peer verdicts/confidence in Phase R.** Rebuttal prompts embed peer P1 argument text with `⟦FKST:VERDICT⟧` lines replaced by `[masked peer verdict]` and confidence phrasing replaced by `[masked peer confidence]`. The worker sees attackable substance but not socially contagious votes or confidence signals.
+- **Adopt: secret final ratification contract.** Phase R prompts state that the final verdict is secret from peers and must not reconstruct masked peer votes/confidence. The implementation continues to collect P2 verdicts from independent spawns; no peer sees another peer's updated stance before the post-R unanimity check.
+- **Adopt: root-cause-gated voting.** A P1/P2 output without exactly one bounded `ESSENCE:` line fails parsing and is an invalid vote. Untrusted embedded text neutralizes `ESSENCE:` lines the same way it neutralizes verdict/reply sentinels.
+- **Adapt: verdict/essence divergence escalation.** Blind unanimous `approve` only reaches the fast path when approving seats share at least one non-trivial normalized `ESSENCE:` token. Materially divergent roots therefore escalate into the existing Phase R/S debate path rather than silently approving. This is a conservative deterministic proxy for RCA divergence; the provenance ledger can later replace or refine it with a measured classifier if the false-approve data justifies the cost.
+- **Adapt, not enabled here: random full-debate audit of blind approvals.** Random audits need a configured sampling policy, stable randomness source, and provenance-measured success criterion. Enabling ad hoc randomness inside `consensus.decide` would violate the budget/cost doctrine and make local tests non-deterministic. The current implemented control is deterministic RCA-gated fast-path eligibility plus `blind-unanimity` provenance.
+- **Adapt, not enabled here: mandatory high-risk full debate on unanimity.** High-risk PR review already adds the `high-risk` seat and downstream high-risk merge evidence gates. Forcing Phase R on every high-risk unanimous approval needs a proposal-level policy field or host-provided risk fact in `consensus.proposal.v1`; inventing that inside `consensus` would couple a source-agnostic package to GitHub risk policy. The addendum is recorded as a future measurable policy hook, not silently inferred.
+- **Reject for this slice: synthesis anti-laundering via worker ratification.** The current synthesis path already records `verified_moves`, P1/P2 verdict vectors, and provenance for grafted outcomes. Adding a bounded +3-spawn worker ratification round may be justified later if ledger data shows synthesis laundering despite those fields, but #1955 did not provide that failure evidence. The cheaper evidence-attribution contract remains the canonical control for now.
 
 ## 5. Security
 

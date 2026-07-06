@@ -8,6 +8,7 @@ local function neutralizer(labels)
         or line:match("^%s*" .. labels.reply .. "%s*") ~= nil
         or line:match("^%s*" .. labels.gap .. "%s*") ~= nil
         or (labels.stance ~= nil and line:match("^%s*" .. labels.stance .. "%s*") ~= nil)
+        or line:match("^%s*[Ee][Ss][Ss][Ee][Nn][Cc][Ee]%s*:") ~= nil
         or line:match("^%s*⟦FKST:PLAN⟧%s*") ~= nil
         or line:match("^%s*[Rr][Ee][Aa][Cc][Hh][Ee][Dd]%s*:") ~= nil
         or line:match("^%s*[Cc][Oo][Nn][Vv][Ee][Rr][Gg][Ee]%s*:") ~= nil then
@@ -54,15 +55,53 @@ local function render_full_angle_output(neutralize, item)
   return table.concat({
     "Angle: " .. neutralize(item and item.angle),
     "P1 verdict: " .. tostring(item and item.verdict or "invalid"),
+    "P1 essence: " .. neutralize(item and item.essence or ""),
     "P1 full output:",
     neutralize(item and item.stdout or ""),
+  }, "\n")
+end
+
+local confidence_patterns = {
+  "[Cc]onfidence%s*:%s*[^%s%.\n\r]+",
+  "[Cc]onfidence%s*=%s*[%w%p]+",
+  "[Cc]onfidence%s+level%s*:%s*[^%.\n\r]+",
+  "[Cc]onfident%s+that%s+",
+  "[Ii]%s+am%s+confident%s+that%s+",
+  "[Hh]igh%s+confidence",
+  "[Mm]edium%s+confidence",
+  "[Ll]ow%s+confidence",
+}
+
+local function mask_vote_and_confidence_lines(text)
+  local value = tostring(text or "")
+  local lines = {}
+  for line in (value .. "\n"):gmatch("(.-)\n") do
+    if line:match("^%s*⟦FKST:VERDICT⟧%s*") ~= nil then
+      table.insert(lines, "[masked peer verdict]")
+    else
+      local masked = line
+      for _, pattern in ipairs(confidence_patterns) do
+        masked = masked:gsub(pattern, "[masked peer confidence]")
+      end
+      table.insert(lines, masked)
+    end
+  end
+  return table.concat(lines, "\n")
+end
+
+local function render_masked_peer_output(neutralize, item)
+  return table.concat({
+    "Angle: " .. neutralize(item and item.angle),
+    "P1 essence: " .. neutralize(item and item.essence or ""),
+    "P1 argument output with peer verdict and confidence masked:",
+    neutralize(mask_vote_and_confidence_lines(item and item.stdout or "")),
   }, "\n")
 end
 
 local function render_peer_outputs(neutralize, peer_results)
   local lines = {}
   for _, item in ipairs(peer_results or {}) do
-    table.insert(lines, render_full_angle_output(neutralize, item))
+    table.insert(lines, render_masked_peer_output(neutralize, item))
     table.insert(lines, "")
   end
   if #lines > 0 then
@@ -78,6 +117,7 @@ local function angle_mode_contract(verdict_mode, angle)
     table.insert(lines, "2. IDEAL: sketch the most faithful solution, unconstrained by the proposal.")
     table.insert(lines, "3. Six-smell comparison: compare the proposal against that ideal using the full BEAUTY-GATE smell rubric: magic numbers, proxy-over-truth, symptom branches, narrative-over-verification, missing-inevitability, and skipped-purpose.")
   else
+    table.insert(lines, "1. ESSENCE: independently derive the high-risk root cause or safety essence before engaging the proposal's own story.")
     table.insert(lines, "Assess the diff under the high-risk security threat model, outside the BEAUTY-GATE philosopher seats.")
   end
   if verdict_mode == "gate" then

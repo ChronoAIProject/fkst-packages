@@ -28,7 +28,7 @@ local function proposal(extra)
 end
 
 local function answer(verdict, reply)
-  return verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply
+  return "ESSENCE: shared consensus purpose\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply
 end
 
 local function p1(angle, verdict, stdout)

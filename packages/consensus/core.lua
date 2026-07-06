@@ -214,8 +214,92 @@ local function is_verdict(value)
 end
 
 local function is_verdict_path(value)
-  return value == "post-rebuttal-unanimity"
+  return value == "blind-unanimity"
+    or value == "post-rebuttal-unanimity"
     or value == "synthesis"
+end
+
+local function parse_essence_line(line)
+  local value = tostring(line or ""):match("^%s*[Ee][Ss][Ss][Ee][Nn][Cc][Ee]%s*:%s*(.+)%s*$")
+  if value == nil then
+    return nil
+  end
+  value = trim(value)
+  if value == "" or #value > max_reply_len then
+    return nil
+  end
+  return value
+end
+
+local essence_stop_words = {
+  a = true,
+  an = true,
+  ["and"] = true,
+  are = true,
+  ["as"] = true,
+  be = true,
+  by = true,
+  ["for"] = true,
+  from = true,
+  ["in"] = true,
+  into = true,
+  ["is"] = true,
+  it = true,
+  its = true,
+  of = true,
+  on = true,
+  ["or"] = true,
+  that = true,
+  the = true,
+  this = true,
+  to = true,
+  under = true,
+  ["with"] = true,
+}
+
+local function essence_tokens(value)
+  local tokens = {}
+  local seen = {}
+  for token in tostring(value or ""):lower():gmatch("[%w_%-]+") do
+    token = token:gsub("^%-+", ""):gsub("%-+$", "")
+    if #token >= 4 and not essence_stop_words[token] and not seen[token] then
+      seen[token] = true
+      table.insert(tokens, token)
+    end
+  end
+  return tokens
+end
+
+local function has_shared_essence_token(angle_results)
+  local shared = nil
+  local count = 0
+  for _, result in ipairs(angle_results or {}) do
+    if type(result) == "table" and result.verdict == "approve" then
+      if not is_bounded_string(result.essence, max_reply_len) then
+        return false
+      end
+      local tokens = {}
+      for _, token in ipairs(essence_tokens(result.essence)) do
+        tokens[token] = true
+      end
+      if next(tokens) == nil then
+        return false
+      end
+      count = count + 1
+      if shared == nil then
+        shared = tokens
+      else
+        local next_shared = {}
+        for token in pairs(shared) do
+          if tokens[token] then
+            next_shared[token] = true
+          end
+        end
+        shared = next_shared
+      end
+    end
+  end
+  return count > 0 and shared ~= nil and next(shared) ~= nil
 end
 
 local function clean_verdict_vector(value)
@@ -438,6 +522,8 @@ function M.parse_angle_output(stdout, verdict_mode)
   local text = tostring(stdout or "")
   local mode = verdict_mode == "gate" and "gate" or "converge"
 
+  local essence = nil
+  local essence_count = 0
   local verdict = nil
   local verdict_count = 0
   local verdict_index = nil
@@ -450,6 +536,14 @@ function M.parse_angle_output(stdout, verdict_mode)
   local index = 0
   for line in (text .. "\n"):gmatch("(.-)\n") do
     index = index + 1
+
+    local captured_essence = parse_essence_line(line)
+    if captured_essence ~= nil then
+      essence = captured_essence
+      essence_count = essence_count + 1
+    elseif line:match("^%s*[Ee][Ss][Ss][Ee][Nn][Cc][Ee]%s*:") ~= nil then
+      return nil
+    end
 
     local token = line:match("^%s*" .. verdict_label .. "%s*(%a+)%s*$")
     if token ~= nil then
@@ -487,6 +581,9 @@ function M.parse_angle_output(stdout, verdict_mode)
   if verdict_count ~= 1 or reply_count ~= 1 then
     return nil
   end
+  if essence_count ~= 1 then
+    return nil
+  end
   if reply_index ~= verdict_index + 1 then
     return nil
   end
@@ -500,6 +597,7 @@ function M.parse_angle_output(stdout, verdict_mode)
 
   return {
     verdict = verdict,
+    essence = essence,
     reply = reply,
     blocking_gap = gap,
   }
@@ -549,6 +647,9 @@ function M.aggregate(angle_results, verdict_mode)
     if not is_bounded_string(result.reply, max_reply_len) then
       return nil
     end
+    if not is_bounded_string(result.essence, max_reply_len) then
+      return nil
+    end
     if mode == "converge" then
       if result.verdict ~= "approve" then
         return nil
@@ -589,6 +690,9 @@ function M.aggregate(angle_results, verdict_mode)
         decision = "approve",
       }
     end
+    return nil
+  end
+  if not has_shared_essence_token(angle_results) then
     return nil
   end
   return "approve"

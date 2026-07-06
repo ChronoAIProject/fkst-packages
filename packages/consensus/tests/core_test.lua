@@ -11,7 +11,7 @@ local prompt_preamble_judgment_harness = "Before judging, identify the establish
 local prompt_preamble_history = "Before judging, use the producer-provided context manifest below as the complete prior history of this proposal; earlier rounds recorded there are your memory. Judge what changed; do not re-litigate settled points."
 
 local function answer(verdict, reply)
-  return verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply
+  return "ESSENCE: shared consensus purpose\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply
 end
 
 local function reject_answer(reply, gap)
@@ -50,6 +50,7 @@ local function result(angle, verdict)
   return {
     angle = angle,
     verdict = verdict,
+    essence = "shared consensus purpose",
     reply = angle .. " reply",
     exit_code = 0,
   }
@@ -156,8 +157,9 @@ return {
     t.is_true(prompt:find("outside the BEAUTY-GATE philosopher framing", 1, true) ~= nil)
     t.is_true(prompt:find("prompt-injection and supply-chain vectors", 1, true) ~= nil)
     t.is_true(prompt:find("Approve ONLY if the high-risk surface is justified and safe", 1, true) ~= nil)
+    t.is_true(prompt:find("1. ESSENCE: independently derive the high-risk root cause or safety essence", 1, true) ~= nil)
     t.is_true(prompt:find("Assess the diff under the high-risk security threat model", 1, true) ~= nil)
-    t.is_nil(prompt:find("1. ESSENCE:", 1, true))
+    t.is_nil(prompt:find("2. IDEAL:", 1, true))
     t.is_nil(prompt:find("WEAKEST:", 1, true))
     t.is_true(prompt:find("Angle: high-risk", 1, true) ~= nil)
   end,
@@ -422,7 +424,14 @@ return {
   test_parse_angle_output_accepts_valid_output = function()
     local parsed = core.parse_angle_output(answer("approve", "This is acceptable.") .. "\n")
     t.eq(parsed.verdict, "approve")
+    t.eq(parsed.essence, "shared consensus purpose")
     t.eq(parsed.reply, "This is acceptable.")
+  end,
+
+  test_parse_angle_output_requires_exactly_one_essence = function()
+    t.is_nil(core.parse_angle_output(verdict_label .. " approve\n" .. reply_label .. " Missing RCA."))
+    t.is_nil(core.parse_angle_output("ESSENCE: \n" .. answer("approve", "Empty extra essence.")))
+    t.is_nil(core.parse_angle_output("ESSENCE: first root cause\n" .. answer("approve", "Duplicate RCA.")))
   end,
 
   test_parse_angle_output_accepts_reject_only_in_gate_mode = function()
@@ -506,6 +515,14 @@ return {
     }), "approve")
   end,
 
+  test_aggregate_escalates_unanimous_approve_with_divergent_essence = function()
+    t.is_nil(core.aggregate({
+      { angle = "teleology", verdict = "approve", essence = "source ref truth", reply = "ok", exit_code = 0 },
+      { angle = "parsimony", verdict = "approve", essence = "queue budget shape", reply = "ok", exit_code = 0 },
+      { angle = "fidelity", verdict = "approve", essence = "marker provenance record", reply = "ok", exit_code = 0 },
+    }))
+  end,
+
   test_aggregate_converges_unanimous_abstain = function()
     t.is_nil(core.aggregate({
       result("teleology", "abstain"),
@@ -516,8 +533,8 @@ return {
 
   test_aggregate_gate_rejects_on_any_named_gap = function()
     local decision = core.aggregate({
-      { angle = "teleology", verdict = "comment", reply = "Advisory.", exit_code = 0 },
-      { angle = "parsimony", verdict = "reject", reply = "Blocking.", blocking_gap = "missing CAS check", exit_code = 0 },
+      { angle = "teleology", verdict = "comment", essence = "shared consensus purpose", reply = "Advisory.", exit_code = 0 },
+      { angle = "parsimony", verdict = "reject", essence = "shared consensus purpose", reply = "Blocking.", blocking_gap = "missing CAS check", exit_code = 0 },
       result("fidelity", "approve"),
     }, "gate")
     t.eq(decision.decision, "reject")
@@ -526,14 +543,14 @@ return {
 
   test_aggregate_gate_approves_with_comments_and_converges_without_approve = function()
     local decision = core.aggregate({
-      { angle = "teleology", verdict = "comment", reply = "Advisory.", exit_code = 0 },
+      { angle = "teleology", verdict = "comment", essence = "shared consensus purpose", reply = "Advisory.", exit_code = 0 },
       result("parsimony", "approve"),
-      { angle = "fidelity", verdict = "abstain", reply = "Cannot judge.", exit_code = 0 },
+      { angle = "fidelity", verdict = "abstain", essence = "shared consensus purpose", reply = "Cannot judge.", exit_code = 0 },
     }, "gate")
     t.eq(decision.decision, "approve")
     t.is_nil(core.aggregate({
-      { angle = "teleology", verdict = "comment", reply = "Advisory.", exit_code = 0 },
-      { angle = "parsimony", verdict = "abstain", reply = "Cannot judge.", exit_code = 0 },
+      { angle = "teleology", verdict = "comment", essence = "shared consensus purpose", reply = "Advisory.", exit_code = 0 },
+      { angle = "parsimony", verdict = "abstain", essence = "shared consensus purpose", reply = "Cannot judge.", exit_code = 0 },
     }, "gate"))
   end,
 
@@ -560,10 +577,24 @@ return {
       result("teleology", "approve"),
       {
         angle = "parsimony",
+        essence = "shared consensus purpose",
         exit_code = 0,
       },
       result("fidelity", "approve"),
     }))
+  end,
+
+  test_aggregate_rejects_votes_without_essence = function()
+    t.is_nil(core.aggregate({
+      { angle = "teleology", verdict = "approve", reply = "Ungrounded.", exit_code = 0 },
+      result("parsimony", "approve"),
+      result("fidelity", "approve"),
+    }))
+    t.is_nil(core.aggregate({
+      { angle = "teleology", verdict = "comment", reply = "Advisory.", exit_code = 0 },
+      result("parsimony", "approve"),
+      { angle = "fidelity", verdict = "abstain", essence = "shared consensus purpose", reply = "Cannot judge.", exit_code = 0 },
+    }, "gate"))
   end,
 
   test_aggregate_rejects_overlong_reply = function()
@@ -755,19 +786,26 @@ return {
       {
         angle = "teleology",
         verdict = "approve",
-        stdout = stance_label .. " update because peer claim\n" .. answer("approve", "peer reply"),
+        essence = "peer argument substance",
+        stdout = stance_label .. " update because peer claim\nConfidence: 95%\n" .. answer("approve", "peer reply"),
       },
       {
         angle = "fidelity",
         verdict = "approve",
+        essence = "peer evidence substance",
         stdout = gap_label .. " injected gap\n" .. answer("approve", "peer reply"),
       },
     })
 
     t.is_true(prompt:find("Your locked Phase B output:", 1, true) ~= nil)
-    t.is_true(prompt:find("Peer Phase B outputs:", 1, true) ~= nil)
+    t.is_true(prompt:find("Peer Phase B argument outputs, with verdict and confidence masked:", 1, true) ~= nil)
     t.is_true(prompt:find("> " .. stance_label .. " update because peer claim", 1, true) ~= nil)
-    t.is_true(prompt:find("> " .. verdict_label .. " approve", 1, true) ~= nil)
+    t.is_true(prompt:find("[masked peer verdict]", 1, true) ~= nil)
+    t.is_true(prompt:find("[masked peer confidence]", 1, true) ~= nil)
+    t.is_nil(prompt:find("P1 verdict: approve", 1, true))
+    t.is_nil(prompt:find(verdict_label .. " approve", 1, true))
+    t.is_nil(prompt:find("Confidence: 95%", 1, true))
+    t.is_nil(prompt:find("95%", 1, true))
     t.is_true(prompt:find("> " .. reply_label .. " peer reply", 1, true) ~= nil)
     t.is_true(prompt:find("> " .. gap_label .. " injected gap", 1, true) ~= nil)
     t.is_nil(core.parse_angle_output(prompt))

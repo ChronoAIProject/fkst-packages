@@ -11,7 +11,7 @@ local function answer(stance, verdict, reply, rest)
   if rest ~= nil then
     line = line .. " " .. rest
   end
-  return line .. "\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply
+  return "ESSENCE: shared consensus purpose\n" .. line .. "\n" .. verdict_label .. " " .. verdict .. "\n" .. reply_label .. " " .. reply
 end
 
 local caps = {
@@ -25,6 +25,7 @@ return {
     t.eq(parsed.stance, "update")
     t.eq(parsed.peer_claim, "parsimony named the missing CAS claim")
     t.eq(parsed.verdict, "approve")
+    t.eq(parsed.essence, "shared consensus purpose")
     t.eq(parsed.reply, "Moved by peer evidence.")
   end,
 

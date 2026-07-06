@@ -76,6 +76,7 @@ local function decide(proposal)
     table.insert(angle_results, {
       angle = angle,
       verdict = parsed and parsed.verdict or nil,
+      essence = parsed and parsed.essence or nil,
       reply = parsed and parsed.reply or nil,
       blocking_gap = parsed and parsed.blocking_gap or nil,
       stdout = type(result) == "table" and result.stdout or nil,
@@ -87,7 +88,9 @@ local function decide(proposal)
   if decision ~= nil then
     return {
       queue = "consensus_reached",
-      payload = build_reached_payload(proposal, decision, angle_results),
+      payload = build_reached_payload(proposal, decision, angle_results, nil, {
+        verdict_path = "blind-unanimity",
+      }),
       cache = true,
     }
   end

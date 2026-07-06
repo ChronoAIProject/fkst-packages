@@ -103,6 +103,7 @@ function M.collect(angle_results, results, verdict_mode, caps)
     table.insert(rebuttal_results, {
       angle = angle_result.angle,
       verdict = parsed and parsed.verdict or nil,
+      essence = parsed and parsed.essence or nil,
       reply = parsed and parsed.reply or nil,
       blocking_gap = parsed and parsed.blocking_gap or nil,
       stance = parsed and parsed.stance or nil,
