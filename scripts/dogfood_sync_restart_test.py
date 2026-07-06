@@ -183,6 +183,18 @@ class DogfoodSyncHarness:
         )
         return env
 
+    def write_running_supervise_fixture(self, pid: int, platform_head: str) -> Path:
+        durable = self.dogfood_root / "stable-durable-substrate"
+        durable.mkdir(parents=True)
+        (durable / ".fkst-supervise.pid").write_text(f"{pid}\n", encoding="utf-8")
+        write_executable(self.bin_dir / "pgrep", f"#!/usr/bin/env bash\nprintf '%s\\n' {pid}\n")
+        (self.dogfood_root / "substrate-sv-100.log").write_text(
+            "TIMESTAMP=2026-01-01T00:00:00Z LEVEL=info EVENT=code_provenance "
+            f"ENGINE_VER=aaaaaaaa PKG_VERS=github-devloop@{platform_head}\n",
+            encoding="utf-8",
+        )
+        return durable
+
 
 class DogfoodSyncRestartTest(unittest.TestCase):
     def test_sync_resolves_platform_packages_after_host_checkout_reaches_target_branch(self) -> None:
@@ -257,17 +269,9 @@ class DogfoodSyncRestartTest(unittest.TestCase):
             h.clone_integration(packages_remote, pkgs)
             h.clone_integration(host_remote, host)
             old_platform_head = git_stdout(["rev-parse", "HEAD"], pkgs, h.git_env())[:8]
-            durable = h.dogfood_root / "stable-durable-substrate"
-            durable.mkdir(parents=True)
             old_proc = subprocess.Popen(["sleep", "60"])
             old_pid = old_proc.pid
-            (durable / ".fkst-supervise.pid").write_text(f"{old_pid}\n", encoding="utf-8")
-            write_executable(h.bin_dir / "pgrep", f"#!/usr/bin/env bash\nprintf '%s\\n' {old_pid}\n")
-            (h.dogfood_root / "substrate-sv-100.log").write_text(
-                "TIMESTAMP=2026-01-01T00:00:00Z LEVEL=info EVENT=code_provenance "
-                f"ENGINE_VER=aaaaaaaa PKG_VERS=github-devloop@{old_platform_head}\n",
-                encoding="utf-8",
-            )
+            durable = h.write_running_supervise_fixture(old_pid, old_platform_head)
             write_executable(
                 h.fake_bin,
                 "#!/usr/bin/env bash\nprintf 'startup error: graph validation failed\\n'\nexit 17\n",
@@ -277,6 +281,94 @@ class DogfoodSyncRestartTest(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("validation failed", result.stdout + result.stderr)
+            self.assertTrue(pid_is_alive(old_pid), result.stdout + result.stderr)
+            self.assertEqual((durable / ".fkst-supervise.pid").read_text(encoding="utf-8").strip(), str(old_pid))
+        finally:
+            if old_proc is not None:
+                if old_proc.poll() is None:
+                    old_proc.kill()
+                old_proc.wait(timeout=3)
+            elif old_pid is not None:
+                kill_if_alive(old_pid)
+            h.close()
+
+    def test_running_sync_validation_uses_candidate_launch_engine_not_ambient_bin(self) -> None:
+        h = DogfoodSyncHarness()
+        old_pid = None
+        old_proc = None
+        try:
+            pkgs = h.dogfood_root / "substrate-dogfood" / "pkgs"
+            host = h.dogfood_root / "substrate-dogfood" / "sub"
+            candidate_substrate = h.root / "candidate-substrate"
+            candidate_bin = candidate_substrate / "target" / "debug" / "fkst-framework"
+            candidate_bin.parent.mkdir(parents=True)
+            run_sh = (REPO_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+            support_files = {
+                "scripts/run.sh": run_sh,
+                "scripts/bin_bootstrap.sh": (REPO_ROOT / "scripts" / "bin_bootstrap.sh").read_text(encoding="utf-8"),
+                "scripts/host_run.sh": (REPO_ROOT / "scripts" / "host_run.sh").read_text(encoding="utf-8"),
+                "scripts/host_entry.sh": (REPO_ROOT / "scripts" / "host_entry.sh").read_text(encoding="utf-8"),
+                "scripts/composed_manifest.sh": (REPO_ROOT / "scripts" / "composed_manifest.sh").read_text(encoding="utf-8"),
+                "scripts/test_affected.sh": (REPO_ROOT / "scripts" / "test_affected.sh").read_text(encoding="utf-8"),
+                "scripts/bin_cache.py": (REPO_ROOT / "scripts" / "bin_cache.py").read_text(encoding="utf-8"),
+                "packages/github-devloop/fkst.toml": 'kind = "package"\nname = "github-devloop"\n',
+            }
+            packages_remote = h.create_remote(
+                "packages-remote",
+                support_files,
+                {**support_files, "packages/github-devloop/current.txt": "current\n"},
+            )
+            manifest = textwrap.dedent(
+                f"""\
+                [workspace]
+                units = []
+
+                [[external_sources]]
+                id = "fkst-packages-platform"
+                git = {json.dumps(str(pkgs))}
+                packages = ["github-devloop"]
+                """
+            )
+            lock = textwrap.dedent(
+                f"""\
+                [[external_source]]
+                id = "fkst-packages-platform"
+                git = {json.dumps(str(pkgs))}
+
+                [external_source.resolved]
+                rev = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                """
+            )
+            host_remote = h.create_remote(
+                "host-remote",
+                {"fkst.workspace.toml": manifest, "fkst.lock": lock},
+                {"fkst.workspace.toml": manifest, "fkst.lock": lock, "README.md": "dev advance\n"},
+            )
+            h.clone_integration(packages_remote, pkgs)
+            h.clone_integration(host_remote, host)
+            old_platform_head = git_stdout(["rev-parse", "HEAD"], pkgs, h.git_env())[:8]
+            old_proc = subprocess.Popen(["sleep", "60"])
+            old_pid = old_proc.pid
+            durable = h.write_running_supervise_fixture(old_pid, old_platform_head)
+            run_git(["init", "-q"], candidate_substrate, h.git_env())
+            (candidate_substrate / "Cargo.toml").write_text("[workspace]\nmembers = []\n", encoding="utf-8")
+            run_git(["add", "."], candidate_substrate, h.git_env())
+            run_git(["commit", "-q", "-m", "candidate substrate"], candidate_substrate, h.git_env())
+            write_executable(
+                candidate_bin,
+                "#!/usr/bin/env bash\n[ \"${1:-}\" = conformance ] && exit 0\nexit 0\n",
+            )
+            h.fake_bin.symlink_to(candidate_bin)
+            write_executable(
+                h.bin_dir / "cargo",
+                "#!/usr/bin/env bash\nprintf 'candidate engine freshness failed\\n' >&2\nexit 42\n",
+            )
+
+            result = h.run_sync()
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("candidate engine freshness failed", result.stdout + result.stderr)
+            self.assertIn("validation failed; keeping running supervise pid", result.stdout + result.stderr)
             self.assertTrue(pid_is_alive(old_pid), result.stdout + result.stderr)
             self.assertEqual((durable / ".fkst-supervise.pid").read_text(encoding="utf-8").strip(), str(old_pid))
         finally:

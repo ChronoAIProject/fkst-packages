@@ -968,7 +968,7 @@ main() {
     test-affected) shift; cmd_test_affected "$@" ;;
     test-composed) shift; cmd_check; resolve_bin; ensure_fresh_bin; cmd_test_composed "$@" ;;
     run)  shift; resolve_bin; ensure_fresh_bin; cmd_run "$@" ;;
-    _host-run-validate) shift; host_run_validate_launch_contract "$@" ;;
+    _host-run-validate) shift; resolve_bin; ensure_fresh_bin; host_run_validate_launch_contract "$@" ;;
     supervise) shift; resolve_bin; ensure_fresh_bin; cmd_supervise "$@" ;;
     build) shift; cmd_build "$@" ;;
     -h|--help|help|"") usage ;;
