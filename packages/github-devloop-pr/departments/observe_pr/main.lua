@@ -97,6 +97,23 @@ local function origin_base_matches_integration(origin, branches)
     and tostring(origin.base_branch or "") == tostring(branches.integration)
 end
 
+local function is_recoverable_unmanaged_base_block(state, origin)
+  return tostring(state.version or "") == requests_review.pr_base_unmanaged_blocked_version(origin.impl_version)
+end
+
+local function recovered_origin(origin, version)
+  local out = {}
+  for key, value in pairs(origin or {}) do
+    out[key] = value
+  end
+  out.impl_version = version
+  return out
+end
+
+local function build_reviewing_comment_request(origin, pr_number, source_ref)
+  return requests_review.build_reviewing_comment_request(core, origin.repo, origin.issue_number, origin, pr_number, source_ref)
+end
+
 local function maybe_pr_label_hint(origin, pr_number, current_pr, state, source_ref)
   if state.state == nil then
     return
@@ -496,6 +513,21 @@ local function process_pr_event(event)
     if maybe_redrive_not_mergeable_pr(origin, pr.number, current_pr, state, source_ref, issue_current) then
       return
     end
+    if is_recoverable_unmanaged_base_block(state, origin) then
+      if tostring(current_pr.state or ""):lower() ~= "open" then
+        devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked", "reviewing", "skip-stale(pr-closed)", "re-derived PR is not open")
+        return
+      end
+      local recovered_version = devloop_state.next_review_loop_version(origin.impl_version)
+      local review_origin = recovered_origin(origin, recovered_version)
+      local comment_request = build_reviewing_comment_request(review_origin, pr.number, source_ref)
+      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked", "reviewing", "applied(pr-base-managed-recovered)", "PR base now matches this instance integration branch")
+      devloop_logging.log_apply("observe_pr", origin.proposal_id, "reviewing", recovered_version, { add = {}, remove = {} }, {
+        "github-proxy.github_pr_comment_request",
+      })
+      devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+      return
+    end
     if state.state ~= nil and state.state ~= "pr-open" then
       if pr.source == "poll"
         and raw.source == "liveness-scan"
@@ -538,7 +570,7 @@ local function process_pr_event(event)
       return
     end
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", "applied", "writing PR-local reviewing marker")
-    local comment_request = requests_review.build_reviewing_comment_request(core, origin.repo, origin.issue_number, origin, pr.number, source_ref)
+    local comment_request = build_reviewing_comment_request(origin, pr.number, source_ref)
     local raised = {
       "github-proxy.github_pr_comment_request",
     }

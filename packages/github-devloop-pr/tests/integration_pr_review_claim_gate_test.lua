@@ -182,6 +182,29 @@ return {
     t.eq(h.find_raise(result.raises, "devloop_reviewing"), nil)
   end,
 
+  test_observe_pr_recovers_unmanaged_base_block_when_base_later_matches = function()
+    local impl_version = reviewing().version
+    local blocked_version = impl_version .. "/blocked/pr-base-unmanaged"
+    mock_bot_env()
+    mock_pr_origin({
+      unmanaged_origin_marker(impl_version, "dev"),
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+    }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev")
+    mock_issue_reviewing({ "fkst-dev:pr-open" }, {
+      pr_open_state_marker(impl_version),
+    }, {
+      assignees = { "fkst-test-bot" },
+    })
+
+    local result = run_observe_pr(pr_event(), opts("observe-pr-recovers-unmanaged-base-block"))
+    t.eq(result.exit_code, 0)
+    t.eq(unmanaged_comment_raise(result), nil)
+
+    local reviewing_raise = h.find_causal_raise(result, "devloop_reviewing")
+    t.is_true(reviewing_raise ~= nil)
+    t.eq(reviewing_raise.payload.version, core.next_review_loop_version(impl_version))
+  end,
+
   test_observe_pr_leaves_foreign_claimed_unmanaged_base_untouched = function()
     local impl_version = reviewing().version
     mock_bot_env()
