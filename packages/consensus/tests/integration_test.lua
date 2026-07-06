@@ -464,9 +464,9 @@ return {
 
   test_unanimous_approve_with_divergent_essence_escalates_to_synthesis = function()
     mock_judgment_runtime()
-    mock_angle_with_essence("teleology", "approve", "purpose inevitability", "Teleology angle approves.")
-    mock_angle_with_essence("parsimony", "approve", "minimal branching", "Parsimony angle approves.")
-    mock_angle_with_essence("fidelity", "approve", "source verification", "Fidelity angle approves.")
+    mock_angle_with_essence("teleology", "approve", "cache source truth", "Teleology angle approves.")
+    mock_angle_with_essence("parsimony", "approve", "cache queue budget", "Parsimony angle approves.")
+    mock_angle_with_essence("fidelity", "approve", "cache marker provenance", "Fidelity angle approves.")
     mock_rebuttal_defend("teleology", "approve", "Teleology still approves.")
     mock_rebuttal_defend("parsimony", "approve", "Parsimony still approves.")
     mock_rebuttal_defend("fidelity", "approve", "Fidelity still approves.")

@@ -232,75 +232,36 @@ local function parse_essence_line(line)
   return value
 end
 
-local essence_stop_words = {
-  a = true,
-  an = true,
-  ["and"] = true,
-  are = true,
-  ["as"] = true,
-  be = true,
-  by = true,
-  ["for"] = true,
-  from = true,
-  ["in"] = true,
-  into = true,
-  ["is"] = true,
-  it = true,
-  its = true,
-  of = true,
-  on = true,
-  ["or"] = true,
-  that = true,
-  the = true,
-  this = true,
-  to = true,
-  under = true,
-  ["with"] = true,
-}
-
-local function essence_tokens(value)
-  local tokens = {}
-  local seen = {}
-  for token in tostring(value or ""):lower():gmatch("[%w_%-]+") do
-    token = token:gsub("^%-+", ""):gsub("%-+$", "")
-    if #token >= 4 and not essence_stop_words[token] and not seen[token] then
-      seen[token] = true
-      table.insert(tokens, token)
-    end
+local function normalize_essence_claim(value)
+  local normalized = tostring(value or ""):lower():gsub("%s+", " ")
+  normalized = trim(normalized)
+  if normalized == "" then
+    return nil
   end
-  return tokens
+  return normalized
 end
 
-local function has_shared_essence_token(angle_results)
-  local shared = nil
+local function has_shared_essence_claim(angle_results)
+  local shared_claim = nil
   local count = 0
   for _, result in ipairs(angle_results or {}) do
     if type(result) == "table" and result.verdict == "approve" then
       if not is_bounded_string(result.essence, max_reply_len) then
         return false
       end
-      local tokens = {}
-      for _, token in ipairs(essence_tokens(result.essence)) do
-        tokens[token] = true
-      end
-      if next(tokens) == nil then
+      local claim = normalize_essence_claim(result.essence)
+      if claim == nil then
         return false
       end
       count = count + 1
-      if shared == nil then
-        shared = tokens
-      else
-        local next_shared = {}
-        for token in pairs(shared) do
-          if tokens[token] then
-            next_shared[token] = true
-          end
-        end
-        shared = next_shared
+      if shared_claim == nil then
+        shared_claim = claim
+      elseif claim ~= shared_claim then
+        return false
       end
     end
   end
-  return count > 0 and shared ~= nil and next(shared) ~= nil
+  return count > 0 and shared_claim ~= nil
 end
 
 local function clean_verdict_vector(value)
@@ -697,7 +658,7 @@ function M.aggregate(angle_results, verdict_mode)
     end
     return nil
   end
-  if not has_shared_essence_token(angle_results) then
+  if not has_shared_essence_claim(angle_results) then
     return nil
   end
   return "approve"

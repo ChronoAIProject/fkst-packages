@@ -542,9 +542,9 @@ return {
 
   test_aggregate_escalates_unanimous_approve_with_divergent_essence = function()
     t.is_nil(core.aggregate({
-      { angle = "teleology", verdict = "approve", essence = "source ref truth", reply = "ok", exit_code = 0 },
-      { angle = "parsimony", verdict = "approve", essence = "queue budget shape", reply = "ok", exit_code = 0 },
-      { angle = "fidelity", verdict = "approve", essence = "marker provenance record", reply = "ok", exit_code = 0 },
+      { angle = "teleology", verdict = "approve", essence = "cache source truth", reply = "ok", exit_code = 0 },
+      { angle = "parsimony", verdict = "approve", essence = "cache queue budget", reply = "ok", exit_code = 0 },
+      { angle = "fidelity", verdict = "approve", essence = "cache marker provenance", reply = "ok", exit_code = 0 },
     }))
   end,
 
