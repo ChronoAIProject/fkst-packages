@@ -445,6 +445,10 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
       "review",
     }),
     source_ref = base_ids.normalize_source_ref(source_ref),
+    judged_repo = {
+      repo = repo,
+      head_sha = tostring(head_sha),
+    },
   }, high_risk)
 end
 

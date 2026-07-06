@@ -3,6 +3,7 @@ local codex = require("workflow.codex")
 local env = require("workflow.env")
 local error_facts = require("contract.error_facts")
 local strings = require("contract.strings")
+local judged_repo = require("core.judged_repo")
 
 
 local default_angles = { "teleology", "parsimony", "fidelity" }
@@ -122,6 +123,10 @@ local function has_content_fetch(proposal)
   return type(proposal) == "table"
     and type(proposal.content_fetch) == "string"
     and proposal.content_fetch ~= ""
+end
+
+local function has_judged_repo(proposal)
+  return type(proposal) == "table" and proposal.judged_repo ~= nil
 end
 
 local function resolve_content_manifest(content_fetch)
@@ -327,6 +332,9 @@ function M.is_eligible(proposal)
   if proposal.content_fetch ~= nil and not is_bounded_string(proposal.content_fetch, max_content_fetch_len) then
     return false
   end
+  if proposal.judged_repo ~= nil and not judged_repo.is_valid(proposal.judged_repo) then
+    return false
+  end
   if normalize_round(proposal.round) == nil then
     return false
   end
@@ -401,6 +409,46 @@ function M.render_prompt_template(template, vars, proposal, exec)
   return M.prompt_preamble(proposal, exec) .. "\n\n" .. M.render_template(template, vars)
 end
 
+function M.judged_repo(proposal)
+  if not has_judged_repo(proposal) then
+    return nil
+  end
+  local normalized = judged_repo.normalize(proposal.judged_repo)
+  if normalized == nil then
+    error("consensus: judged-repo-invalid: invalid judged_repo")
+  end
+  return normalized
+end
+
+function M.has_judged_repo(proposal)
+  return M.judged_repo(proposal) ~= nil
+end
+
+function M.judgment_execution_boundary(proposal)
+  local judged = M.judged_repo(proposal)
+  if judged == nil then
+    return table.concat({
+      "- You are running in an empty runtime scratch directory, not a repository checkout.",
+      "- Do not clone, checkout, fetch with git, create branches, or modify any repository.",
+      "- Read required source content only from the context manifest below.",
+    }, "\n")
+  end
+
+  local lines = {
+    "- You are running in a read-only checkout of the judged repository at the judged revision.",
+    "- The context bundle remains the pinned snapshot of record.",
+    "- Repository reads from this checkout are allowed as evidence. Load-bearing repo claims must cite `path:line` from this checkout.",
+    "- Do not clone, checkout, fetch with git, create branches, or modify any repository.",
+  }
+  if judged.repo ~= nil then
+    table.insert(lines, "- Judged repository: " .. judged.repo)
+  end
+  if judged.head_sha ~= nil then
+    table.insert(lines, "- Judged revision: " .. judged.head_sha)
+  end
+  return table.concat(lines, "\n")
+end
+
 -- Keyed by dedup_key (which versions the proposal), not proposal_id, so an updated
 -- proposal re-derives consensus instead of being silently skipped.
 function M.reached_cache_key(dedup_key)
@@ -420,9 +468,17 @@ function M.judgment_scratch_worktree(runtime_root, kind, identity)
   return runtime_root_path(runtime_root) .. "/judgment-worktrees/consensus-" .. slug .. "-" .. suffix
 end
 
+function M.judged_repo_worktree(runtime_root, judged, identity)
+  local repo = type(judged) == "table" and tostring(judged.repo or "repo") or "repo"
+  local head = type(judged) == "table" and tostring(judged.head_sha or "head") or "head"
+  local slug = "judged-" .. scratch_segment(repo) .. "-" .. scratch_segment(identity)
+  local suffix = decimal_checksum(repo .. "#" .. head .. "#" .. tostring(identity))
+  return runtime_root_path(runtime_root) .. "/worktrees/consensus-" .. slug .. "-" .. suffix
+end
+
 M.judgment_codex_opts = codex.judgment_codex_opts
 
-function M.mkdir_p_cmd(path)
+function M.judgment_mkdir_p_cmd(path)
   local value = tostring(path or "")
   if value == "" or value:find("[\r\n]") ~= nil then
     error("consensus: directory-path-invalid: invalid directory path")
@@ -726,6 +782,9 @@ function M.build_reached_payload(proposal, decision, angle_results, framing, pro
         error("consensus: verified-moves-invalid: verified moves must be a non-negative integer")
       end
       payload.verified_moves = verified_moves
+    end
+    if provenance.repo_consulted == true then
+      payload.repo_consulted = true
     end
     local p1 = clean_verdict_vector(provenance.p1_verdicts)
     local p2 = clean_verdict_vector(provenance.p2_verdicts)

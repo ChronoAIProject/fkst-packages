@@ -143,6 +143,7 @@ function M.install(core, deps)
       context_block = context_block,
       convergence_block = convergence_block,
       findings_record_block = findings_record_block,
+      execution_boundary = core.judgment_execution_boundary(proposal),
       mode_contract = angle_mode_contract(verdict_mode, angle),
       verdict_options = verdict_mode == "gate" and "approve, comment, reject, or abstain" or "approve or abstain",
       readiness_instruction = verdict_mode == "gate"
@@ -180,6 +181,7 @@ function M.install(core, deps)
       context_block = context_block,
       convergence_block = convergence_block,
       findings_record_block = findings_record_block,
+      execution_boundary = core.judgment_execution_boundary(proposal),
       own_output = render_full_angle_output(neutralize, own_result),
       peer_outputs = render_peer_outputs(neutralize, peer_results),
       verdict_options = verdict_mode == "gate" and "approve, comment, reject, or abstain" or "approve or abstain",
@@ -223,6 +225,7 @@ function M.install(core, deps)
           context_block = context_block,
           convergence_block = convergence_block,
           findings_record_block = findings_record_block,
+          execution_boundary = core.judgment_execution_boundary(proposal),
           reached_options = verdict_mode == "gate"
             and "- reached:approve <bounded framing>\n- reached:reject <bounded framing>"
             or "- reached:approve <bounded framing>",

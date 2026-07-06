@@ -3,8 +3,45 @@ local base_ids = require("devloop.base_ids")
 local strings = require("contract.strings")
 local source_refs = require("contract.source_ref")
 local convergence_shared = require("devloop.convergence.shared")
+local forge_validators = require("devloop.forge_validators")
 
 local C = {}
+local function is_valid_judged_repo(value)
+  if value == nil then
+    return true
+  end
+  if type(value) ~= "table" then
+    return false
+  end
+  if value.repo ~= nil
+    and (not strings.is_bounded_string(value.repo, devloop_base._max_key_len)
+      or tostring(value.repo):find("%c") ~= nil) then
+    return false
+  end
+  if value.head_sha ~= nil and not forge_validators.is_git_sha(value.head_sha) then
+    return false
+  end
+  if value.repo_path ~= nil then
+    if type(value.repo_path) ~= "string"
+      or value.repo_path == ""
+      or #value.repo_path > 1000
+      or value.repo_path:sub(1, 1) ~= "/"
+      or value.repo_path:find("%c") ~= nil
+      or value.repo_path:gsub("/+$", "") == "" then
+      return false
+    end
+    for segment in value.repo_path:gmatch("[^/]+") do
+      if segment == "." or segment == ".." then
+        return false
+      end
+    end
+  end
+  if value.repo_path == nil and value.head_sha == nil then
+    return false
+  end
+  return value.repo ~= nil or value.repo_path ~= nil
+end
+
 function C.is_intake_hand_off(hand_off, proposal)
   if type(hand_off) ~= "table" or type(proposal) ~= "table" then
     return false
@@ -56,6 +93,9 @@ function C.validate_proposal(proposal)
     return false
   end
   if proposal.findings_record ~= nil and not strings.is_bounded_string(proposal.findings_record, convergence_shared.findings_record_len) then
+    return false
+  end
+  if not is_valid_judged_repo(proposal.judged_repo) then
     return false
   end
   return proposal.intake_hand_off == nil or C.is_intake_hand_off(proposal.intake_hand_off, proposal)

@@ -198,6 +198,34 @@ return {
     t.eq(core.is_eligible(proposal()), true)
   end,
 
+  test_is_eligible_accepts_judged_repo_and_prompt_allows_repo_evidence = function()
+    local input = proposal({
+      judged_repo = {
+        repo = "owner/repo",
+        head_sha = string.rep("a", 40),
+      },
+    })
+    t.eq(core.is_eligible(input), true)
+
+    local prompt = core.build_angle_prompt(input, "teleology")
+    t.is_true(prompt:find("read-only checkout of the judged repository", 1, true) ~= nil)
+    t.is_true(prompt:find("context bundle remains the pinned snapshot of record", 1, true) ~= nil)
+    t.is_true(prompt:find("Repository reads from this checkout are allowed as evidence", 1, true) ~= nil)
+    t.is_true(prompt:find("Load-bearing repo claims must cite `path:line`", 1, true) ~= nil)
+    t.is_true(prompt:find("Judged revision: " .. string.rep("a", 40), 1, true) ~= nil)
+    t.is_nil(prompt:find("Read required source content only from the context manifest below.", 1, true))
+  end,
+
+  test_is_eligible_rejects_invalid_judged_repo = function()
+    t.eq(core.is_eligible(proposal({ judged_repo = {} })), false)
+    t.eq(core.is_eligible(proposal({ judged_repo = { repo = "owner/repo", head_sha = "not sha" } })), false)
+    t.eq(core.is_eligible(proposal({ judged_repo = { repo_path = "relative/path" } })), false)
+    t.eq(core.is_eligible(proposal({ judged_repo = { repo_path = "/tmp/../repo" } })), false)
+    t.eq(core.is_eligible(proposal({ judged_repo = { repo_path = "/" } })), false)
+    local ok = pcall(core.judged_repo, proposal({ judged_repo = { repo_path = "/" } }))
+    t.eq(ok, false)
+  end,
+
   test_verdict_mode_defaults_to_converge_and_accepts_gate = function()
     t.eq(core.verdict_mode(proposal()), "converge")
     t.eq(core.verdict_mode(proposal({ verdict_mode = "converge" })), "converge")

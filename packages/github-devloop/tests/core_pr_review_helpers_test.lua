@@ -46,10 +46,17 @@ return {
     t.is_nil(proposal.body:find("BEGIN UNTRUSTED ISSUE DATA", 1, true))
     t.is_nil(proposal.body:find("+return true", 1, true))
     t.is_true(proposal.body:find("Reviewed PR head: " .. head_sha, 1, true) ~= nil)
+    t.eq(proposal.judged_repo.repo, repo)
+    t.eq(proposal.judged_repo.head_sha, head_sha)
     t.is_true(proposal.content_fetch:find("/tmp/ctx/issue.json", 1, true) ~= nil)
     t.is_true(proposal.content_fetch:find("/tmp/ctx/diff.patch", 1, true) ~= nil)
     t.is_nil(proposal.content_fetch:find("gh ", 1, true))
     t.eq(v_validate_proposal.validate_proposal(proposal), true)
+    proposal.judged_repo.head_sha = "not-a-sha"
+    t.eq(v_validate_proposal.validate_proposal(proposal), false)
+    proposal.judged_repo.head_sha = head_sha
+    proposal.judged_repo.repo_path = "/"
+    t.eq(v_validate_proposal.validate_proposal(proposal), false)
 
     local marker = m_builders.review_result_marker(id, issue_proposal_id, "approve", "consensus:v1")
     t.eq(m_facts.has_review_result_marker({ marker }, id, issue_proposal_id, "approve", "consensus:v1"), true)
@@ -123,6 +130,8 @@ return {
       { kind = "external", ref = repo .. "#pr/7" }
     )
     t.is_true(#proposal.proposal_id <= 200)
+    t.eq(proposal.judged_repo.repo, repo)
+    t.eq(proposal.judged_repo.head_sha, head_sha)
     t.eq(v_validate_proposal.validate_proposal(proposal), true)
   end,
   test_pr_review_proposal_uses_fetch_instruction_when_issue_body_is_long = function()
