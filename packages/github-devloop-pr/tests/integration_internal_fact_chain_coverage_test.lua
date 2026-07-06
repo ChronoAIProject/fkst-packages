@@ -238,6 +238,9 @@ end
 local function assert_declared_merge_gate_fixing_replay_field_set(payload)
   local row = restart_transition_row("fixing")
   t.is_true(row ~= nil)
+  local optional_fields = {
+    ci_failure_key = true,
+  }
   local expected = {}
   local expected_count = 0
   for field in pairs(row.payload_fields or {}) do
@@ -256,9 +259,15 @@ local function assert_declared_merge_gate_fixing_replay_field_set(payload)
     actual_count = actual_count + 1
   end
   for field in pairs(expected) do
-    t.is_true(payload[field] ~= nil)
+    if optional_fields[field] ~= true then
+      t.is_true(payload[field] ~= nil)
+    end
   end
-  t.eq(actual_count, expected_count)
+  if payload.ci_failure_key == nil then
+    t.eq(actual_count, expected_count - 1)
+  else
+    t.eq(actual_count, expected_count)
+  end
 end
 
 local function run_observe_pr_direct(run_opts)
@@ -730,8 +739,8 @@ return {
       blocking_gap = "rollup-red",
     }, entity_lib.pr_source_ref(fixture.repo, fixture.pr_number))
     t.is_true(defective_replay.dedup_key ~= fixing_raise.payload.dedup_key)
-    t.is_true(defective_replay.dedup_key:find("/nobase/nopred/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
-    t.is_true(fixing_raise.payload.dedup_key:find("/" .. fixture.gate_baseline_sha .. "/nopred/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
+    t.is_true(defective_replay.dedup_key:find("/nobase/nopred/noci/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
+    t.is_true(fixing_raise.payload.dedup_key:find("/" .. fixture.gate_baseline_sha .. "/nopred/noci/" .. tostring(event.reviewed_head_sha), 1, true) ~= nil)
     local matching_fact = m_facts.merge_gate_fix_fact(fixture.pr_comments, event.proposal_id, fixture.fixing_version, {
       review_proposal_id = fixture.review_proposal,
       review_dedup_key = fixture.review_dedup,

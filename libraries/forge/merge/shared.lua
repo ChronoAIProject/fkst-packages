@@ -30,6 +30,7 @@ local check_run_id = check_runs.check_run_id
 local check_run_head_sha = check_runs.check_run_head_sha
 local check_run_name = check_runs.check_run_name
 local check_run_state = check_runs.check_run_state
+local required_head_check_run_failure_key = check_runs.required_head_check_run_failure_key
 local parse_commit_check_runs = check_runs.parse_commit_check_runs
 local required_check_run_names = check_runs.required_check_run_names
 
@@ -141,6 +142,7 @@ return {
   check_run_head_sha = check_run_head_sha,
   check_run_name = check_run_name,
   check_run_state = check_run_state,
+  required_head_check_run_failure_key = required_head_check_run_failure_key,
   parse_commit_check_runs = parse_commit_check_runs,
   required_check_run_names = required_check_run_names,
   required_head_check_run_status = required_head_check_run_status,

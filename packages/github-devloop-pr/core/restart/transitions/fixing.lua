@@ -74,7 +74,7 @@ return function(M, h)
       },
     }),
     payload_builder = payloads_builders.build_devloop_fixing_payload,
-    dedup_shape = "forward:fixing/<proposal_id>/<version>/<pr>/<review_dedup>; replay:fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<reviewed_head_sha>",
+    dedup_shape = "forward:fixing/<proposal_id>/<version>/<pr>/<review_dedup>; replay:fixing/replay/<proposal_id>/<version>/<pr>/<review_dedup>/<gate_baseline_sha-or-nobase>/<predecessor_set-or-nopred>/<ci_failure_key-or-noci>/<reviewed_head_sha>",
     required_facts = {
       fact("state", "marker-read"),
       fact("pr-link", "marker-read"),
@@ -97,6 +97,7 @@ return function(M, h)
       reviewed_head_sha = "marker:merge-gate.head_sha",
       dedup_key = "dedup:replayed-fixing",
       gate_baseline_sha = "marker:merge-gate.gate_baseline_sha",
+      ci_failure_key = "marker:merge-gate.ci_failure",
       gate_failure_excerpt = "comment_body:fix-feedback",
       source_ref = "source_ref:pr",
     },

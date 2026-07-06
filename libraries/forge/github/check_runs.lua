@@ -1,3 +1,4 @@
+local strings = require("contract.strings")
 local gitref = require("forge.gitref")
 
 local C = {}
@@ -238,6 +239,21 @@ local green_required_check_conclusions = {
   SKIPPED = true,
 }
 
+local function check_run_failure_key(run, head_sha, state, conclusion)
+  local key = table.concat({
+    "check-run",
+    strings.sanitize_key(C.check_run_name(run), 80),
+    C.check_run_id(run) or "noid",
+    tostring(head_sha):lower(),
+    strings.sanitize_key(state, 20),
+    strings.sanitize_key(conclusion ~= "" and conclusion or "noconclusion", 40),
+  }, "/")
+  if not strings.is_path_safe_key(key, 512) then
+    error("forge.github.check_runs: invalid check-run failure key")
+  end
+  return key
+end
+
 function C.required_head_check_run_status(runs, head_sha, required_names)
   if type(runs) ~= "table" or not gitref.is_git_sha(head_sha) then
     return "unknown"
@@ -271,6 +287,31 @@ function C.required_head_check_run_status(runs, head_sha, required_names)
     end
   end
   return "green"
+end
+
+function C.required_head_check_run_failure_key(runs, head_sha, required_names)
+  if type(runs) ~= "table" or not gitref.is_git_sha(head_sha) then
+    return nil
+  end
+  required_names = required_names or {}
+  local required = {}
+  for _, name in ipairs(required_names) do
+    required[tostring(name)] = true
+  end
+  local expected = tostring(head_sha):lower()
+  for _, run in ipairs(runs) do
+    local name = C.check_run_name(run)
+    if required[name] == true then
+      local run_head = C.check_run_head_sha(run)
+      if run_head == nil or run_head == expected then
+        local state, conclusion = C.check_run_state(run)
+        if state == "COMPLETED" and not green_required_check_conclusions[conclusion] then
+          return check_run_failure_key(run, head_sha, state, conclusion)
+        end
+      end
+    end
+  end
+  return nil
 end
 
 C.required_check_run_names = required_check_run_names

@@ -17,6 +17,7 @@ local pr_rollup_green = check_runs.pr_rollup_green
 local pr_mergeable = check_runs.pr_mergeable
 local is_not_mergeable_reason = check_runs.is_not_mergeable_reason
 local required_head_check_run_status = shared.required_head_check_run_status
+local required_head_check_run_failure_key = shared.required_head_check_run_failure_key
 local ci_classification = shared.ci_classification
 local integration_or_external_red = shared.integration_or_external_red
 local merge_gate_reason_row = shared.merge_gate_reason_row
@@ -77,7 +78,10 @@ local function classify_pr_ci_gate(pr, opts)
   log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
   local head_status = required_head_check_run_status(runs, head_sha)
   if head_status == "red" then
-    return ci_classification("OWN_CI_RED", "own-ci-red", { check_runs = runs })
+    return ci_classification("OWN_CI_RED", "own-ci-red", {
+      check_runs = runs,
+      ci_failure_key = required_head_check_run_failure_key(runs, head_sha, shared.required_check_run_names),
+    })
   end
   if head_status == "pending" then
     return ci_classification("CHECKS_PENDING", "checks-pending", { check_runs = runs })

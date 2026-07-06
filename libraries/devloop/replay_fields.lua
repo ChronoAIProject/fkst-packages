@@ -4,7 +4,7 @@ local marker_aliases = {
   ["pr-delegation"] = { pr = "pr_number", pr_proposal = "pr_proposal_id" },
   ["pr-link"] = { pr = "pr_number" },
   ["review-result"] = { gap = "blocking_gap" },
-  ["merge-gate"] = { review_proposal = "review_proposal_id", review_dedup = "review_dedup_key", head_sha = "reviewed_head_sha" },
+  ["merge-gate"] = { review_proposal = "review_proposal_id", review_dedup = "review_dedup_key", head_sha = "reviewed_head_sha", ci_failure = "ci_failure_key" },
   ["merge-ready"] = { pr = "pr_number", review_proposal = "review_proposal_id", review_dedup = "review_dedup_key", head_sha = "head_sha" },
   merging = { head_sha = "head_sha" },
   ["review-converge-round"] = { proposal = "proposal_id", dedup = "dedup_key", round = "n" },

@@ -134,6 +134,7 @@ local function fix_comment_from_feedback(issue, pr_number, version, feedback, so
     {
       blocking_gap = feedback.blocking_gap,
       gate_failure_excerpt = feedback.gate_failure_excerpt or feedback.review_reason or feedback.reason,
+      ci_failure_key = feedback.ci_failure_key,
       preserve_nil_gate_failure_excerpt = feedback.gate_failure_excerpt == nil and feedback.review_reason == nil and feedback.reason == nil,
       current_head_sha = feedback.current_head_sha,
     }
@@ -149,6 +150,7 @@ local function fixing_replay_comment_request(issue, pr_number, fix_payload, feed
     blocking_gap = fix_payload.blocking_gap,
     gate_baseline_sha = fix_payload.gate_baseline_sha,
     predecessor_set = fix_payload.predecessor_set,
+    ci_failure_key = fix_payload.ci_failure_key,
     gate_failure_excerpt = fix_payload.gate_failure_excerpt,
     review_reason = feedback and feedback.review_reason,
     reason = feedback and feedback.reason,

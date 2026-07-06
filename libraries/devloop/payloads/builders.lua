@@ -168,6 +168,12 @@ function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
     end
     payload.predecessor_set = tostring(review_fact.predecessor_set)
   end
+  if review_fact.ci_failure_key ~= nil then
+    if not strings.is_path_safe_key(review_fact.ci_failure_key, devloop_base._max_dedup_len) then
+      error("github-devloop: invalid CI failure key")
+    end
+    payload.ci_failure_key = tostring(review_fact.ci_failure_key)
+  end
   local gate_failure_excerpt = shared.bounded_control_text(review_fact.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len)
   if gate_failure_excerpt ~= nil then
     payload.gate_failure_excerpt = gate_failure_excerpt
@@ -193,6 +199,7 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
     blocking_gap = feedback.blocking_gap,
     gate_baseline_sha = feedback.gate_baseline_sha,
     predecessor_set = feedback.predecessor_set,
+    ci_failure_key = feedback.ci_failure_key,
     gate_failure_excerpt = feedback.review_reason,
   }, source_ref)
   payload.dedup_key = base_ids.dedup_key({
@@ -204,6 +211,7 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
     tostring(feedback.review_dedup_key),
     replay_fact_sha(feedback.gate_baseline_sha, "nobase"),
     tostring(feedback.predecessor_set or "nopred"),
+    tostring(feedback.ci_failure_key or "noci"),
     replay_fact_sha(feedback.reviewed_head_sha, "nohead"),
   })
   return payload

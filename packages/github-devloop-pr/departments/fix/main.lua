@@ -699,6 +699,7 @@ local function act_fix(event)
         review_dedup_key = fix.review_dedup_key,
         gate_baseline_sha = fix.gate_baseline_sha,
         match_gate_baseline_sha = true,
+        ci_failure_key = fix.ci_failure_key,
       })
       if merge_gate_fact == nil then
         merge_gate_fact = merge_gate_candidate
@@ -732,6 +733,10 @@ local function act_fix(event)
       end
       if merge_gate_fact.gate_baseline_sha ~= fix.gate_baseline_sha then
         devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(merge-gate-baseline-mismatch)", "fix event does not match canonical merge-gate baseline")
+        return
+      end
+      if tostring(merge_gate_fact.ci_failure_key or "") ~= tostring(fix.ci_failure_key or "") then
+        devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(merge-gate-ci-failure-mismatch)", "fix event does not match canonical merge-gate CI failure")
         return
       end
       feedback_reason = merge_gate_fact.review_reason

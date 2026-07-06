@@ -16,6 +16,7 @@ function C.is_supported_fixing(payload)
     or not forge_validators.is_git_sha(payload.reviewed_head_sha)
     or (payload.gate_baseline_sha ~= nil and not forge_validators.is_git_sha(payload.gate_baseline_sha))
     or (payload.predecessor_set ~= nil and not strings.is_path_safe_key(payload.predecessor_set, devloop_base._max_dedup_len))
+    or (payload.ci_failure_key ~= nil and not strings.is_path_safe_key(payload.ci_failure_key, devloop_base._max_dedup_len))
     or (payload.gate_failure_excerpt ~= nil and not strings.is_bounded_string(payload.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len))
     or (payload.framing ~= nil and not strings.is_bounded_string(payload.framing, devloop_base._max_framing_len))
     or (payload.blocking_gap ~= nil and not strings.is_bounded_string(payload.blocking_gap, devloop_base._max_blocking_gap_len))
@@ -39,6 +40,7 @@ function C.is_supported_fixing(payload)
     tostring(payload.review_dedup_key),
     tostring(payload.gate_baseline_sha or "nobase"),
     tostring(payload.predecessor_set or "nopred"),
+    tostring(payload.ci_failure_key or "noci"),
     tostring(payload.reviewed_head_sha),
   })
   return tostring(payload.dedup_key) == replay_dedup

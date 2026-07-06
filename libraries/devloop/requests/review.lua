@@ -58,6 +58,7 @@ function C.attach_fixing_handoff(request, proposal_id, pr_number, version, revie
     "blocking_gap",
     "gate_baseline_sha",
     "predecessor_set",
+    "ci_failure_key",
     "gate_failure_excerpt",
   }) do
     if normalized[field] ~= nil then
@@ -278,6 +279,7 @@ function C.build_high_risk_review_evidence_comment_request(repo, issue_proposal_
 end
 
 function C.build_merge_gate_fix_comment_request(M, repo, issue_number, merge_ready, fix_version, reason, gate_baseline_sha, source_ref, predecessor_set, handoff_fields)
+  handoff_fields = handoff_fields or {}
   local safe_reason = M.merge_gate_reason_class(reason)
   local display_reason = devloop_base.neutralize_untrusted_comment_text(reason or "gate-failed")
   if display_reason == "" then
@@ -296,7 +298,8 @@ function C.build_merge_gate_fix_comment_request(M, repo, issue_number, merge_rea
     merge_ready.reviewed_head_sha,
     gate_baseline_sha,
     safe_reason,
-    predecessor_set
+    predecessor_set,
+    handoff_fields.ci_failure_key
   )
   local request = entity_lib.build_entity_comment_request({
     kind = "pr",
@@ -327,6 +330,7 @@ function C.build_merge_gate_fix_comment_request(M, repo, issue_number, merge_rea
     blocking_gap = handoff_fields.blocking_gap,
     gate_baseline_sha = gate_baseline_sha,
     predecessor_set = predecessor_set,
+    ci_failure_key = handoff_fields.ci_failure_key,
     gate_failure_excerpt = gate_failure_excerpt,
     current_head_sha = handoff_fields.current_head_sha,
   }, source_ref)

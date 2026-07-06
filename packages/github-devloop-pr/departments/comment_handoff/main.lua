@@ -52,6 +52,7 @@ local function valid_fixing_handoff(handoff)
     and (handoff.gate_baseline_sha == nil or require("devloop.pr_safety").is_safe_head_sha(handoff.gate_baseline_sha))
     and (handoff.gate_failure_excerpt == nil or strings.is_bounded_string(handoff.gate_failure_excerpt, parsers_misc.max_rollup_failure_summary_len))
     and (handoff.predecessor_set == nil or strings.is_path_safe_key(handoff.predecessor_set, devloop_base._max_dedup_len))
+    and (handoff.ci_failure_key == nil or strings.is_path_safe_key(handoff.ci_failure_key, devloop_base._max_dedup_len))
     and (handoff.dedup_key == nil or strings.is_path_safe_key(handoff.dedup_key, devloop_base._max_dedup_len))
 end
 
@@ -119,6 +120,7 @@ local function emit_fixing(payload, handoff)
     blocking_gap = handoff.blocking_gap,
     gate_baseline_sha = handoff.gate_baseline_sha,
     predecessor_set = handoff.predecessor_set,
+    ci_failure_key = handoff.ci_failure_key,
     gate_failure_excerpt = handoff.gate_failure_excerpt,
   }, handoff.source_ref)
   if handoff.dedup_key ~= nil then
