@@ -66,6 +66,7 @@ return {
       number = 42,
       title = "Timeout",
       updated_at = "2026-06-03T01:02:03Z",
+      state_reason = "REOPENED",
       register_all_views = true,
       times = 1,
     })
@@ -78,6 +79,7 @@ return {
 
     t.eq(ok, true, tostring(result))
     t.eq(result.exit_code, 0)
+    t.is_true(result.stdout:find('"stateReason":"REOPENED"', 1, true) ~= nil)
     local seen_rest_read = 0
     for _, call in ipairs(t.command_calls()) do
       if tostring(call.rendered or "") == issue_rest_command("owner/repo", 42) then

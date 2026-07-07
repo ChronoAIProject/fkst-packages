@@ -133,10 +133,14 @@ return {
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
+    local expected_version = impl_version .. "/review-loop/4/rereview/4/feedface"
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:operator-command:v1", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('state="reviewing"', 1, true) ~= nil)
-    t.eq(reviewing_raise.payload.version, impl_version .. "/review-loop/3/review-loop/4/rereview/4/feedface")
+    local marker_state = core.current_state({ comment_raise.payload.body }, "github-devloop/issue/owner/repo/42")
+    t.eq(marker_state.state, "reviewing")
+    t.eq(marker_state.version, expected_version)
+    t.eq(reviewing_raise.payload.version, expected_version)
     t.eq(reviewing_raise.payload.source_ref.ref, "owner/repo#pr/7")
 
     mock_issue_review({ "fkst-dev:reviewing" }, {

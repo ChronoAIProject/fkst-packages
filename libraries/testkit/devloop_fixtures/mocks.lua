@@ -45,7 +45,7 @@ function M.new(ctx, funcs)
     return table.concat(rendered, ",")
   end
 
-  local function mock_issue_state(labels, state, comments, assignees, author_login, created_at)
+  local function mock_issue_state(labels, state, comments, assignees, author_login, created_at, state_reason)
     local selected_comments = {}
     if comments ~= nil then
       for _, comment in ipairs(comments) do
@@ -78,7 +78,7 @@ function M.new(ctx, funcs)
         table.insert(selected_comments, state_marker)
       end
     end
-    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:enabled" }, selected_comments, { state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at })
+    entity_read_mocks.mock_issue_read_with_defaults(t, labels or { "fkst-dev:enabled" }, selected_comments, { state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at, state_reason = state_reason })
     entity_read_mocks.mock_issue_read_forms(t, {
       labels = labels or { "fkst-dev:enabled" },
       comments = selected_comments,
@@ -86,9 +86,11 @@ function M.new(ctx, funcs)
       assignees = assignees,
       author_login = author_login,
       created_at = created_at,
+      state_reason = state_reason,
     })
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,updatedAt,assignees")
-    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at, state_reason = state_reason }, "title,body,comments,labels,state,updatedAt,assignees")
+    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at, state_reason = state_reason }, "title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
+    entity_read_mocks.mock_issue_view_selector(t, { labels = labels or { "fkst-dev:enabled" }, comments = selected_comments, state = state or "OPEN", assignees = assignees, author_login = author_login, created_at = created_at, state_reason = state_reason }, "title,createdAt,updatedAt,labels,state,stateReason,comments,assignees,author")
   end
 
   local function state_from_labels(labels)

@@ -389,7 +389,7 @@ function C.has_timeout_reconcile_marker(M, comments, proposal_id, issue_version,
   return false
 end
 
-function C.timeout_reconcile_fact_for_terminal_version(M, comments, proposal_id, terminal_version)
+local function timeout_reconcile_fact_for_terminal_version(comments, proposal_id, terminal_version, accepts_from_state)
   if type(comments) ~= "table" then
     return nil
   end
@@ -412,8 +412,7 @@ function C.timeout_reconcile_fact_for_terminal_version(M, comments, proposal_id,
         and round ~= nil
         and state_name ~= nil
         and from_state == state_name
-        and replay_fields.restart_transition_row(M.restart_transition_table(), from_state) ~= nil
-        and replay_fields.restart_transition_row(M.restart_transition_table(), from_state).terminal == false
+        and accepts_from_state(from_state)
         and strings.is_bounded_string(from_version, devloop_base._max_dedup_len)
         and dedup == expected_dedup then
         return {
@@ -435,6 +434,23 @@ function C.timeout_reconcile_fact_for_terminal_version(M, comments, proposal_id,
     end
   end
   return nil
+end
+
+function C.timeout_reconcile_fact_for_terminal_version(M, comments, proposal_id, terminal_version)
+  return timeout_reconcile_fact_for_terminal_version(comments, proposal_id, terminal_version, function(from_state)
+    local row = replay_fields.restart_transition_row(M.restart_transition_table(), from_state)
+    return row ~= nil and row.terminal == false
+  end)
+end
+
+function C.timeout_reconcile_fact_for_terminal_version_from_states(comments, proposal_id, terminal_version, allowed_states)
+  local allowed = {}
+  for _, state_name in ipairs(allowed_states or {}) do
+    allowed[tostring(state_name)] = true
+  end
+  return timeout_reconcile_fact_for_terminal_version(comments, proposal_id, terminal_version, function(from_state)
+    return allowed[tostring(from_state or "")] == true
+  end)
 end
 
 return C

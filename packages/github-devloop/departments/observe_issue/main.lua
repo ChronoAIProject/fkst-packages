@@ -461,13 +461,39 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     return false
   end
   local link = m_facts.pr_link_fact(current.comments, proposal_id)
-  local blocked_reentry = state.state == "blocked" and linked_open_pr(snapshot, link and link.pr_number) ~= nil
-  if state.state ~= "impl-failed" and not blocked_reentry then
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)", "implementing", "refused(invalid-state)", "operator reimplement requires impl-failed or blocked state with an open linked PR")
+  local blocked_reentry = nil
+  if state.state == "blocked" then
+    if link ~= nil and linked_open_pr(snapshot, link.pr_number) ~= nil then
+      devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(no-open-pr)", "implementing", "refused(blocked-open-pr)", "operator reimplement on blocked open PR requires rereview")
+      local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
+        issue.number,
+        command,
+        "blocked issue has an open linked PR; use fkst: rereview on the PR",
+        issue.source_ref
+      )
+      devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
+      return true
+    else
+      local fact = conv_reconcile.timeout_reconcile_fact_for_terminal_version_from_states(current.comments,
+        proposal_id,
+        state.version,
+        { "ready", "implementing" }
+      )
+      if fact ~= nil and (fact.from_state == "ready" or fact.from_state == "implementing") then
+        local marker_source = fact.source_ref or {}
+        if tostring(marker_source.kind or "") == tostring(issue.source_ref and issue.source_ref.kind or "")
+          and tostring(marker_source.ref or "") == tostring(issue.source_ref and issue.source_ref.ref or "") then
+          blocked_reentry = fact
+        end
+      end
+    end
+  end
+  if state.state ~= "impl-failed" and blocked_reentry == nil then
+    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(no-open-pr)", "implementing", "refused(invalid-state)", "operator reimplement requires impl-failed or blocked no-PR state from ready or implementing")
     local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
       issue.number,
       command,
-      "reimplement requires impl-failed or blocked state with an open linked PR",
+      "reimplement requires impl-failed or blocked no-PR state from ready or implementing",
       issue.source_ref
     )
     devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
@@ -479,9 +505,9 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   if failure ~= nil then
     attempt = tonumber(failure.attempt or 1) + 1
   elseif blocked_reentry then
-    attempt = (core.implementation_retry_attempt(link.impl_version) or 1) + 1
+    attempt = (core.implementation_retry_attempt(blocked_reentry.from_version) or 1) + 1
   end
-  local retry_version = blocked_reentry and link.impl_version or state.version
+  local retry_version = blocked_reentry and blocked_reentry.from_version or state.version
   local payload_source = {
     proposal_id = proposal_id,
     dedup_key = core.ready_payload_inner_version(retry_version),
@@ -492,9 +518,9 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     payload_source.operator_reentry = {
       command = "reimplement",
       from_state = "blocked",
-      pr_number = link.pr_number,
       state_version = state.version,
-      impl_version = link.impl_version,
+      impl_version = retry_version,
+      terminal_from_state = blocked_reentry.from_state,
     }
   end
   local payload = payloads_builders.build_devloop_ready_payload(core, payload_source)
@@ -511,6 +537,28 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   })
   devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
   devloop_logging.log_raise("observe_issue", proposal_id, "devloop_ready", payload)
+  return true
+end
+
+local function maybe_guidance_for_reopened_blocked_issue(issue, proposal_id, current, state)
+  if state == nil or state.state ~= "blocked" then
+    return false
+  end
+  if tostring(current.state_reason or ""):upper() ~= "REOPENED" then
+    return false
+  end
+  if operator_commands.has_reopen_guidance(current.comments, proposal_id, state.version) then
+    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "blocked", "blocked", "skip-idempotent(reopen-guidance-visible)", "reopen guidance marker is already visible")
+    return false
+  end
+  local request = operator_commands.build_reopen_guidance_comment_request(issue.repo,
+    issue.number,
+    proposal_id,
+    state.version,
+    issue.source_ref
+  )
+  devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "blocked", "blocked", "applied(reopen-guidance)", "reopened blocked issue requires explicit operator re-entry command")
+  devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", request)
   return true
 end
 
@@ -660,6 +708,9 @@ local function process_issue_event(event)
         return
       end
       if maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot) then
+        return
+      end
+      if maybe_guidance_for_reopened_blocked_issue(issue, proposal_id, current, state) then
         return
       end
       if maybe_canonicalize_implementing_merged_delegated_pr(issue, proposal_id, current, state, nil) then

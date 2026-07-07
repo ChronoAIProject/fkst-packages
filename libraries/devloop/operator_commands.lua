@@ -96,6 +96,15 @@ function C.operator_rereview_version(current_version, head_sha)
   return transition_version.next_rereview(current_version, head_sha)
 end
 
+function C.operator_rereview_reentry_version(current_version, head_sha)
+  if not forge_validators.is_git_sha(head_sha) then
+    error("github-devloop: invalid operator rereview head sha")
+  end
+  local base_version = transition_version.strip_before_review_loop(current_version)
+  local next_round = transition_version.review_loop_round(current_version) + 1
+  return transition_version.rereview_at(base_version, next_round, head_sha)
+end
+
 function C.has_operator_command_response(comments, command)
   if type(comments) ~= "table" or type(command) ~= "table" then
     return false
@@ -280,6 +289,42 @@ function C.build_operator_issue_command_refusal_request(repo, issue_number, comm
     tostring(command.key),
     "refused",
     tostring(reason or "invalid"),
+  }), source_ref)
+end
+
+function C.reopen_guidance_marker(proposal_id, version)
+  return '<!-- fkst:github-devloop:reopen-guidance:v1 proposal="' .. strings.sanitize_key(proposal_id, false)
+    .. '" version="' .. strings.sanitize_key(version, false)
+    .. '" -->'
+end
+
+function C.has_reopen_guidance(comments, proposal_id, version)
+  if type(comments) ~= "table" then
+    return false
+  end
+  local marker = C.reopen_guidance_marker(proposal_id, version)
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    if parsers_misc._comment_body(comment):find(marker, 1, true) ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+function C.build_reopen_guidance_comment_request(repo, issue_number, proposal_id, version, source_ref)
+  local marker = C.reopen_guidance_marker(proposal_id, version)
+  return entity_lib.build_entity_comment_request({
+    kind = "issue",
+    repo = repo,
+    number = issue_number,
+  }, "github-devloop reopened blocked issue is inert without an operator command."
+    .. "\n\nUse `fkst: rereview` on the linked PR when the blocked issue has an open PR."
+    .. "\nUse `fkst: reimplement` on the issue when the blocked issue has no open PR and should start a fresh implementation attempt."
+    .. "\n\n" .. marker
+    .. "\n" .. ai_sentinel, base_ids.dedup_key({
+    "reopen-guidance",
+    tostring(proposal_id),
+    tostring(version),
   }), source_ref)
 end
 

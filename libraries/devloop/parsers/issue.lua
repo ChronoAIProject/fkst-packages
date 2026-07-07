@@ -25,6 +25,7 @@ function C.issue_state_from_json(M, decoded)
     labels = labels,
     comments = parsers_misc.comments_from_json(decoded.comments),
     state = decoded.state,
+    state_reason = decoded.stateReason or decoded.state_reason,
     assignees = m_claims.assignee_logins(decoded.assignees),
     author_login = m_claims.issue_author_login(decoded),
   }

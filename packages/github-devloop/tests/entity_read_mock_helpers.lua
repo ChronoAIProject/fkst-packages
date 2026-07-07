@@ -134,13 +134,14 @@ end
 function M.issue_view_stdout(fields)
   local f = fields or {}
   return string.format(
-    '{"number":%d,"title":"%s","body":"%s","createdAt":"%s","updatedAt":"%s","state":"%s","labels":[%s],"comments":[%s],"assignees":[%s],"author":{"login":"%s"}}\n',
+    '{"number":%d,"title":"%s","body":"%s","createdAt":"%s","updatedAt":"%s","state":"%s","stateReason":"%s","labels":[%s],"comments":[%s],"assignees":[%s],"author":{"login":"%s"}}\n',
     tonumber(f.number) or 42,
     encode_json_string(f.title or "Implement decision recorder"),
     encode_json_string(f.body or ""),
     encode_json_string(f.created_at or "2026-06-03T01:00:00Z"),
     encode_json_string(f.updated_at or "2026-06-03T01:02:03Z"),
     encode_json_string(f.state or "OPEN"),
+    encode_json_string(f.state_reason or f.stateReason or ""),
     encode_labels_json(f.labels),
     M.view_comments_json(f.comments),
     encode_assignees_json(f.assignees or { "fkst-test-bot" }),
@@ -182,11 +183,12 @@ end
 local function issue_rest_stdout(fields)
   local f = fields or {}
   return string.format(
-    '{"number":%d,"title":"%s","body":"%s","state":"%s","created_at":"%s","updated_at":"%s","labels":[%s],"user":{"login":"%s"},"assignees":[%s]}\n',
+    '{"number":%d,"title":"%s","body":"%s","state":"%s","state_reason":"%s","created_at":"%s","updated_at":"%s","labels":[%s],"user":{"login":"%s"},"assignees":[%s]}\n',
     tonumber(f.number) or 42,
     encode_json_string(f.title or "Implement decision recorder"),
     encode_json_string(f.body or ""),
     encode_json_string(tostring(f.state or "OPEN"):lower()),
+    encode_json_string(f.state_reason or f.stateReason or ""),
     encode_json_string(f.created_at or "2026-06-03T01:00:00Z"),
     encode_json_string(f.updated_at or "2026-06-03T01:02:03Z"),
     encode_labels_json(f.labels),
@@ -261,6 +263,7 @@ local issue_view_selectors = {
   "number,title",
   "title,body,comments,labels,state,updatedAt,assignees",
   "title,body,comments,labels,state,createdAt,updatedAt,assignees,author",
+  "title,createdAt,updatedAt,labels,state,stateReason,comments,assignees,author",
   "title,body,updatedAt,labels,comments,state",
   "title,body,createdAt,updatedAt,labels,comments,state,assignees,author",
   "title,comments,state",
@@ -550,6 +553,7 @@ function M.mock_issue_read_with_defaults(t, labels, comments, extra)
     created_at = fields.created_at,
     updated_at = fields.updated_at,
     state = fields.state,
+    state_reason = fields.state_reason or fields.stateReason,
     labels = labels,
     comments = comments,
     assignees = fields.assignees,

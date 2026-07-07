@@ -343,4 +343,24 @@ return {
     t.eq(ready_raise.payload.dedup_key, ready_version)
     t.eq(ready_raise.payload.impl_retry_attempt, 2)
   end,
+
+  test_reopened_blocked_issue_gets_explicit_reentry_guidance = function()
+    local event = issue()
+    local proposal_id = base_ids.proposal_id(event.repo, event.number)
+    local blocked_version = "ready/consensus-github-devloop/issue/owner/repo/42/intake/1116/review-loop/3"
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
+      core.state_marker(proposal_id, "blocked", blocked_version),
+    }, { "fkst-test-bot" }, "fkst-test-bot", "2026-06-03T01:00:00Z", "REOPENED")
+
+    local result = run_observe(event, opts("operator-reopen-blocked-guidance"))
+    t.eq(result.exit_code, 0)
+    local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(response ~= nil)
+    t.is_true(response.payload.body:find("reopened blocked issue is inert without an operator command", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("fkst: rereview", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("fkst: reimplement", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("fkst:github-devloop:reopen-guidance:v1", 1, true) ~= nil)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
+  end,
 }

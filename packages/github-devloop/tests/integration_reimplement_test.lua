@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local conv_reconcile = require("devloop.convergence.reconcile")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local m_facts = require("devloop.markers.facts")
@@ -139,7 +140,7 @@ return {
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
 
-  test_reimplement_command_reenters_blocked_open_pr_from_issue = function()
+  test_reimplement_command_refuses_blocked_open_pr_from_issue = function()
     local event = reached()
     local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
     local blocked_version = ready_version .. "/review-loop/3"
@@ -153,6 +154,31 @@ return {
 
     local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }), opts("operator-reimplement-blocked-open-pr"))
     t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(response.payload.body:find("operator command refused", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("blocked issue has an open linked PR; use fkst: rereview on the PR", 1, true) ~= nil)
+  end,
+
+  test_reimplement_command_reenters_blocked_without_open_linked_pr = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local implementing_version = ready_version
+    local blocked_version = conv_reconcile.timeout_reconcile_state_version(implementing_version, "implementing", 3)
+    local command = trusted_command("IC_reimplement_blocked_unlinked")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
+      core.state_marker(event.proposal_id, "blocked", blocked_version),
+      conv_reconcile.timeout_reconcile_marker(event.proposal_id, implementing_version, "implementing", 3, "drop", {
+        terminal_version = blocked_version,
+        from_state = "implementing",
+        from_version = implementing_version,
+        source_ref = event.source_ref,
+      }),
+      command,
+    })
+
+    local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }), opts("operator-reimplement-blocked-unlinked"))
+    t.eq(result.exit_code, 0)
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
     t.eq(ready.payload.proposal_id, event.proposal_id)
@@ -162,26 +188,9 @@ return {
     t.eq(ready.payload.operator_reentry.from_state, "blocked")
     t.eq(ready.payload.operator_reentry.state_version, blocked_version)
     t.eq(ready.payload.operator_reentry.impl_version, ready_version)
-    t.eq(ready.payload.operator_reentry.pr_number, 7)
+    t.eq(ready.payload.operator_reentry.pr_number, nil)
     local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(response.payload.body:find("operator command accepted: reimplement", 1, true) ~= nil)
-  end,
-
-  test_reimplement_command_refuses_blocked_without_open_linked_pr = function()
-    local event = reached()
-    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
-    local command = trusted_command("IC_reimplement_blocked_unlinked")
-    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(event.proposal_id, "blocked", ready_version .. "/review-loop/3"),
-      command,
-    })
-
-    local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }), opts("operator-reimplement-blocked-unlinked"))
-    t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(response.payload.body:find("operator command refused", 1, true) ~= nil)
-    t.is_true(response.payload.body:find("reimplement requires impl-failed or blocked state with an open linked PR", 1, true) ~= nil)
   end,
 
   test_retry_implementation_writes_attempt_version = function()

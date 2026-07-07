@@ -585,6 +585,9 @@ local function operator_blocked_reimplement_allowed(ready, current, state)
     or tostring(state.version or "") ~= tostring(reentry.state_version or "") then
     return false
   end
+  if reentry.pr_number == nil then
+    return tostring(ready.dedup_key or "") == tostring(reentry.impl_version or "")
+  end
   local link = m_facts.pr_link_fact(current.comments, ready.proposal_id)
   return link ~= nil
     and tonumber(link.pr_number) == tonumber(reentry.pr_number)
