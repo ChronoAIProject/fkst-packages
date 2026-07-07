@@ -8,8 +8,18 @@ local strings = require("contract.strings")
 local transition_version = require("contract.transition_version")
 local forge_validators = require("devloop.forge_validators")
 local devloop_logging = require("devloop.logging")
+local replay_fields = require("devloop.replay_fields")
+local rounds = require("devloop.rounds")
 
 local ai_sentinel = "⟦AI:FKST⟧"
+
+local function valid_positive_round(value)
+  local n = rounds.valid_round(value)
+  if n == nil or n < 1 then
+    return nil
+  end
+  return n
+end
 
 local function command_key(comment, fallback_index)
   if type(comment) == "table" and comment.id ~= nil and tostring(comment.id) ~= "" then
@@ -121,6 +131,104 @@ function C.has_operator_command_response(comments, command)
   return false
 end
 
+function C.operator_reentry_marker(proposal_id, command, from_version, version, count)
+  if type(command) ~= "table"
+    or (command.command ~= "rereview" and command.command ~= "reimplement") then
+    error("github-devloop: invalid operator reentry marker command")
+  end
+  local n = valid_positive_round(count)
+  if n == nil then
+    error("github-devloop: invalid operator reentry marker count")
+  end
+  return '<!-- fkst:github-devloop:operator-reentry:v1 proposal="' .. strings.sanitize_key(proposal_id, false)
+    .. '" command="' .. strings.sanitize_key(command.command, false)
+    .. '" key="' .. strings.sanitize_key(command.key, false)
+    .. '" from_version="' .. strings.sanitize_key(from_version, false)
+    .. '" version="' .. strings.sanitize_key(version, false)
+    .. '" count="' .. tostring(n)
+    .. '" -->'
+end
+
+function C.operator_reentry_fact(comments, proposal_id)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local latest = nil
+  local marker_pattern = "<!%-%- fkst:github%-devloop:operator%-reentry:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]*)"')
+      local marker_command = marker:match('command="([^"]*)"')
+      local marker_key = marker:match('key="([^"]*)"')
+      local count = valid_positive_round(marker:match('count="(%d+)"'))
+      if marker_proposal == tostring(proposal_id)
+        and count ~= nil
+        and (latest == nil or count > latest.count) then
+        latest = {
+          proposal_id = marker_proposal,
+          command = marker_command,
+          key = marker_key,
+          from_version = marker:match('from_version="([^"]*)"'),
+          version = marker:match('version="([^"]*)"'),
+          count = count,
+          comment_created_at = parsers_misc._comment_created_at(comment),
+        }
+      end
+    end
+  end
+  return latest
+end
+
+function C.operator_reentry_consumed(comments, proposal_id, command)
+  if type(comments) ~= "table" or type(command) ~= "table" then
+    return false
+  end
+  local marker_pattern = "<!%-%- fkst:github%-devloop:operator%-reentry:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      if marker:match('proposal="([^"]*)"') == tostring(proposal_id)
+        and marker:match('command="([^"]*)"') == tostring(command.command)
+        and marker:match('key="([^"]*)"') == tostring(command.key)
+        and valid_positive_round(marker:match('count="(%d+)"')) ~= nil then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+function C.operator_reentry_decision(comments, proposal_id, command, cap)
+  if C.operator_reentry_consumed(comments, proposal_id, command) then
+    return {
+      outcome = "idempotent",
+    }
+  end
+  local limit = valid_positive_round(cap)
+  if limit == nil then
+    error("github-devloop: invalid operator reentry cap")
+  end
+  local fact = C.operator_reentry_fact(comments, proposal_id)
+  local consumed = fact and fact.count or 0
+  if consumed >= limit then
+    return {
+      outcome = "exhausted",
+      consumed = consumed,
+      cap = limit,
+    }
+  end
+  return {
+    outcome = "apply",
+    consumed = consumed,
+    count = consumed + 1,
+    cap = limit,
+  }
+end
+
+function C.operator_reentry_cap(transition_table, state_name)
+  local row = replay_fields.restart_transition_row(transition_table, state_name)
+  return tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts)
+end
+
 function C.operator_command_response_count(comments, command_name, outcome, reason)
   if type(comments) ~= "table" then
     return 0
@@ -165,14 +273,24 @@ function C.operator_command_marker(command, outcome, reason)
     .. '" -->'
 end
 
-function C.build_operator_issue_rereview_comment_request(repo, issue_number, command, proposal, source_ref)
+function C.build_operator_issue_rereview_comment_request(repo, issue_number, command, proposal, source_ref, reentry)
   local marker = C.operator_command_marker(command, "applied", "rereview")
+  local reentry_marker = ""
+  if type(reentry) == "table" then
+    reentry_marker = "\n" .. C.operator_reentry_marker(reentry.proposal_id,
+      command,
+      reentry.from_version,
+      reentry.version,
+      reentry.count
+    )
+  end
   return entity_lib.build_entity_comment_request({
     kind = "issue",
     repo = repo,
     number = issue_number,
   }, "github-devloop operator command accepted: rereview"
     .. "\n\n" .. marker
+    .. reentry_marker
     .. "\n" .. ai_sentinel, base_ids.dedup_key({
     "operator-command",
     "comment",
@@ -199,8 +317,17 @@ function C.build_operator_issue_reready_comment_request(repo, issue_number, comm
   }), source_ref)
 end
 
-function C.build_operator_issue_reimplement_comment_request(repo, issue_number, command, attempt, source_ref)
+function C.build_operator_issue_reimplement_comment_request(repo, issue_number, command, attempt, source_ref, reentry)
   local marker = C.operator_command_marker(command, "applied", "reimplement")
+  local reentry_marker = ""
+  if type(reentry) == "table" then
+    reentry_marker = "\n" .. C.operator_reentry_marker(reentry.proposal_id,
+      command,
+      reentry.from_version,
+      reentry.version,
+      reentry.count
+    )
+  end
   return entity_lib.build_entity_comment_request({
     kind = "issue",
     repo = repo,
@@ -208,6 +335,7 @@ function C.build_operator_issue_reimplement_comment_request(repo, issue_number, 
   }, "github-devloop operator command accepted: reimplement"
     .. "\n\nRetry attempt: " .. tostring(attempt)
     .. "\n\n" .. marker
+    .. reentry_marker
     .. "\n" .. ai_sentinel, base_ids.dedup_key({
     "operator-command",
     "comment",

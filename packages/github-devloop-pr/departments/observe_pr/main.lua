@@ -29,6 +29,7 @@ local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_pr" },
   produces = {
     "github-proxy.github_issue_label_request",
+    "github-proxy.github_issue_comment_request",
     "github-proxy.github_pr_comment_request",
     "github-devloop-decompose.devloop_decompose",
     -- devloop_reviewing is emitted only after github_comment_written via comment_handoff.
@@ -183,7 +184,30 @@ local function is_stalled_reviewing(current_pr, origin, pr_number, state)
   return conv_rounds.is_true_stall(facts, round)
 end
 
-local function maybe_apply_rereview_command(origin, pr_number, current_pr, state, source_ref)
+local function reentry_cap_exhausted_reason(command_name, decision)
+  return "operator-reentry-cap exhausted for " .. tostring(command_name)
+    .. " after " .. tostring(decision and decision.consumed or 0)
+    .. "/" .. tostring(decision and decision.cap or 0)
+    .. " successful re-entries; supported states: blocked, review-meta, or stalled reviewing; escalation: create a follow-up issue or use the decompose path"
+end
+
+local function reentry_lineage_missing_reason(command_name)
+  return "operator-reentry-cap cannot be consumed for " .. tostring(command_name)
+    .. " because the PR has no backing issue lineage marker stream; supported states: blocked, review-meta, or stalled reviewing on an issue-backed PR; escalation: create a follow-up issue or use the decompose path"
+end
+
+local function issue_lineage_comments_for_origin(origin, issue_current)
+  if origin.issue_number == nil then
+    return nil
+  end
+  if type(issue_current) == "table" and type(issue_current.comments) == "table" then
+    return issue_current.comments
+  end
+  local current = issue_reviewing_for_origin(origin)
+  return current and current.comments or nil
+end
+
+local function maybe_apply_rereview_command(origin, pr_number, current_pr, state, source_ref, issue_current)
   local command = operator_commands.operator_command_fact(current_pr.comments, "rereview")
   if command == nil then
     return false
@@ -238,6 +262,42 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
   end
 
   local new_version = operator_commands.operator_rereview_reentry_version(state.version, current_pr.head_sha)
+  local issue_comments = issue_lineage_comments_for_origin(origin, issue_current)
+  if issue_comments == nil then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(operator-reentry-cap-lineage)", "operator rereview requires issue lineage marker stream")
+    local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
+      pr_number,
+      command,
+      reentry_lineage_missing_reason("rereview"),
+      source_ref
+    )
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
+    return true
+  end
+  if operator_commands.operator_reentry_consumed(issue_comments, origin.proposal_id, command) then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "skip-idempotent(reentry-marker-visible)", "operator reentry marker is already visible")
+    return false
+  end
+  local reentry = operator_commands.operator_reentry_decision(issue_comments,
+    origin.proposal_id,
+    command,
+    operator_commands.operator_reentry_cap(core.restart_transition_table(), state.state)
+  )
+  if reentry.outcome == "idempotent" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "skip-idempotent(reentry-marker-visible)", "operator reentry marker is already visible")
+    return false
+  end
+  if reentry.outcome == "exhausted" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(operator-reentry-cap)", "operator rereview re-entry cap exhausted")
+    local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
+      pr_number,
+      command,
+      reentry_cap_exhausted_reason("rereview", reentry),
+      source_ref
+    )
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
+    return true
+  end
   local comment_request = requests_review.build_operator_rereview_comment_request(origin.repo,
     pr_number,
     origin.proposal_id,
@@ -245,11 +305,29 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     command,
     source_ref
   )
+  local ledger_request = origin.issue_number ~= nil and requests_review.build_operator_rereview_issue_reentry_comment_request(origin.repo,
+    origin.issue_number,
+    command,
+    {
+      proposal_id = origin.proposal_id,
+      from_version = state.version,
+      version = new_version,
+      count = reentry.count,
+    },
+    entity_lib.issue_source_ref(origin.repo, origin.issue_number)
+  ) or nil
   devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "applied(operator-rereview)", "trusted operator command requested rereview")
-  devloop_logging.log_apply("observe_pr", origin.proposal_id, "reviewing", new_version, { add = {}, remove = {} }, {
+  local raised = {
     "github-proxy.github_pr_comment_request",
-  })
+  }
+  if ledger_request ~= nil then
+    table.insert(raised, "github-proxy.github_issue_comment_request")
+  end
+  devloop_logging.log_apply("observe_pr", origin.proposal_id, "reviewing", new_version, { add = {}, remove = {} }, raised)
   devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+  if ledger_request ~= nil then
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_issue_comment_request", ledger_request)
+  end
   maybe_label_hints(origin, pr_number, current_pr, { state = "reviewing", version = new_version }, source_ref)
   return true
 end
@@ -490,7 +568,7 @@ local function process_pr_event(event)
         return
       end
     end
-    if maybe_apply_rereview_command(origin, pr.number, current_pr, state, source_ref) then
+    if maybe_apply_rereview_command(origin, pr.number, current_pr, state, source_ref, issue_current) then
       return
     end
     if maybe_redrive_not_mergeable_pr(origin, pr.number, current_pr, state, source_ref, issue_current) then

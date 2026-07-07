@@ -3,6 +3,7 @@ local conv_reconcile = require("devloop.convergence.reconcile")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local m_facts = require("devloop.markers.facts")
+local replay_fields = require("devloop.replay_fields")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -71,6 +72,21 @@ local function find_worktree_ready_comment(raises)
   end)
 end
 
+local function reentry_cap(state_name)
+  local row = replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
+  return tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts)
+end
+
+local function reentry_marker(proposal_id, command, key, from_version, version, count)
+  return '<!-- fkst:github-devloop:operator-reentry:v1 proposal="' .. tostring(proposal_id)
+    .. '" command="' .. tostring(command)
+    .. '" key="' .. tostring(key)
+    .. '" from_version="' .. tostring(from_version)
+    .. '" version="' .. tostring(version)
+    .. '" count="' .. tostring(count)
+    .. '" -->'
+end
+
 return {
   test_observe_autoretries_codex_failed_once = function()
     local event = reached()
@@ -129,6 +145,83 @@ return {
     local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(response.payload.body:find("operator command accepted: reimplement", 1, true) ~= nil)
     t.is_true(response.payload.body:find('command="reimplement"', 1, true) ~= nil)
+  end,
+
+  test_reimplement_command_consumes_durable_reentry_slot = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local cap = reentry_cap("impl-failed")
+    local command = trusted_command("IC_reimplement_cap_consume")
+    local command_fact = require("devloop.operator_commands").operator_command_fact({ command }, "reimplement")
+    local comments = impl_failed_comments(event, "codex-failed", 2, command)
+    for n = 1, cap - 1 do
+      table.insert(comments, reentry_marker(event.proposal_id,
+        "reimplement",
+        "old-reimplement-" .. tostring(n),
+        ready_version .. "/failed/" .. tostring(n),
+        ready_version .. "/reimplement/" .. tostring(n + 2),
+        n
+      ))
+    end
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", comments)
+
+    local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }), opts("operator-reimplement-cap-consume"))
+    t.eq(result.exit_code, 0)
+    local ready = find_raise(result.raises, "devloop_ready")
+    t.is_true(ready ~= nil)
+    local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(response.payload.body:find("operator command accepted: reimplement", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("fkst:github-devloop:operator-reentry:v1", 1, true) ~= nil)
+    t.is_true(response.payload.body:find('key="' .. command_fact.key .. '"', 1, true) ~= nil)
+    t.is_true(response.payload.body:find('count="' .. tostring(cap) .. '"', 1, true) ~= nil)
+  end,
+
+  test_reimplement_command_refuses_when_reentry_cap_exhausted = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local cap = reentry_cap("impl-failed")
+    local command = trusted_command("IC_reimplement_cap_exhausted")
+    local comments = impl_failed_comments(event, "codex-failed", 2, command)
+    for n = 1, cap do
+      table.insert(comments, reentry_marker(event.proposal_id,
+        "reimplement",
+        "old-reimplement-" .. tostring(n),
+        ready_version .. "/failed/" .. tostring(n),
+        ready_version .. "/reimplement/" .. tostring(n + 2),
+        n
+      ))
+    end
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", comments)
+
+    local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }), opts("operator-reimplement-cap-exhausted"))
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(response.payload.body:find("operator command refused", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("operator-reentry-cap", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("impl-failed or blocked no-PR", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("escalation", 1, true) ~= nil)
+  end,
+
+  test_reimplement_command_repeat_is_idempotent_for_reentry_marker = function()
+    local event = reached()
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local command = trusted_command("IC_reimplement_idempotent")
+    local command_fact = require("devloop.operator_commands").operator_command_fact({ command }, "reimplement")
+    local comments = impl_failed_comments(event, "codex-failed", 2, command)
+    table.insert(comments, reentry_marker(event.proposal_id,
+      "reimplement",
+      command_fact.key,
+      ready_version,
+      ready_version .. "/reimplement/3",
+      1
+    ))
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", comments)
+
+    local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }), opts("operator-reimplement-reentry-idempotent"))
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
   test_forged_reimplement_command_is_ignored = function()

@@ -8,6 +8,7 @@ local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local conv_rounds = require("devloop.convergence.rounds")
 local m_builders = require("devloop.markers.builders")
+local replay_fields = require("devloop.replay_fields")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -119,6 +120,31 @@ local function find_issue_comment_raise(raises, needle)
   return nil
 end
 
+local function find_pr_comment_raise(raises, needle)
+  for _, raised in ipairs(raises or {}) do
+    if raised.queue == "github-proxy.github_pr_comment_request"
+      and raised.payload.body:find(needle, 1, true) ~= nil then
+      return raised
+    end
+  end
+  return nil
+end
+
+local function reentry_cap(state_name)
+  local row = replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
+  return tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts)
+end
+
+local function reentry_marker(proposal_id, command, key, from_version, version, count)
+  return '<!-- fkst:github-devloop:operator-reentry:v1 proposal="' .. tostring(proposal_id)
+    .. '" command="' .. tostring(command)
+    .. '" key="' .. tostring(key)
+    .. '" from_version="' .. tostring(from_version)
+    .. '" version="' .. tostring(version)
+    .. '" count="' .. tostring(count)
+    .. '" -->'
+end
+
 return {
   test_trusted_rereview_command_reenters_reviewing = function()
     local impl_version = reviewing().version
@@ -128,6 +154,9 @@ return {
       core.state_marker("github-devloop/issue/owner/repo/42", "blocked", impl_version .. "/review-loop/3"),
       command,
     }, "devloop-owner-repo-42-01HY", "feedface")
+    mock_issue_reviewing({ "fkst-dev:blocked" }, {
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", impl_version .. "/review-loop/3"),
+    })
 
     local result = run_observe_pr(pr_event(), opts("operator-rereview"))
     t.eq(result.exit_code, 0)
@@ -154,6 +183,108 @@ return {
     local review = run_review_pr(reviewing_raise.payload, opts("operator-rereview-review"))
     t.eq(review.exit_code, 0)
     t.eq(find_raise(review.raises, "consensus.proposal"), nil)
+  end,
+
+  test_rereview_command_consumes_durable_reentry_slot = function()
+    local impl_version = reviewing().version
+    local blocked_version = impl_version .. "/review-loop/3"
+    local cap = reentry_cap("blocked")
+    local command = trusted_command("IC_rereview_cap_consume")
+    local command_fact = operator_commands.operator_command_fact({ command }, "rereview")
+    local comments = {
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+      command,
+    }
+    local issue_comments = {
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+    }
+    for n = 1, cap - 1 do
+      table.insert(issue_comments, reentry_marker("github-devloop/issue/owner/repo/42",
+        "rereview",
+        "old-rereview-" .. tostring(n),
+        impl_version .. "/review-loop/" .. tostring(n),
+        impl_version .. "/review-loop/" .. tostring(n) .. "/rereview/" .. tostring(n) .. "/feedface",
+        n
+      ))
+    end
+    mock_pr_origin(comments, "devloop-owner-repo-42-01HY", "feedface")
+    mock_issue_reviewing({ "fkst-dev:blocked" }, issue_comments)
+
+    local result = run_observe_pr(pr_event(), opts("operator-rereview-cap-consume"))
+    t.eq(result.exit_code, 0)
+    local comment_raise = find_pr_comment_raise(result.raises, "operator command accepted: rereview")
+    t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
+    t.eq(comment_raise.payload.body:find("fkst:github-devloop:operator-reentry:v1", 1, true), nil)
+    local ledger_raise = find_issue_comment_raise(result.raises, "operator re-entry ledger: rereview")
+    t.is_true(ledger_raise ~= nil)
+    t.is_true(ledger_raise.payload.body:find("fkst:github-devloop:operator-reentry:v1", 1, true) ~= nil)
+    t.is_true(ledger_raise.payload.body:find('key="' .. command_fact.key .. '"', 1, true) ~= nil)
+    t.is_true(ledger_raise.payload.body:find('count="' .. tostring(cap) .. '"', 1, true) ~= nil)
+    t.is_true(find_causal_raise(result, "devloop_reviewing") ~= nil)
+  end,
+
+  test_rereview_command_refuses_when_reentry_cap_exhausted = function()
+    local impl_version = reviewing().version
+    local blocked_version = impl_version .. "/review-loop/3"
+    local cap = reentry_cap("blocked")
+    local command = trusted_command("IC_rereview_cap_exhausted")
+    local comments = {
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+      command,
+    }
+    local issue_comments = {
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+    }
+    for n = 1, cap do
+      table.insert(issue_comments, reentry_marker("github-devloop/issue/owner/repo/42",
+        "rereview",
+        "old-rereview-" .. tostring(n),
+        impl_version .. "/review-loop/" .. tostring(n),
+        impl_version .. "/review-loop/" .. tostring(n) .. "/rereview/" .. tostring(n) .. "/feedface",
+        n
+      ))
+    end
+    mock_pr_origin(comments, "devloop-owner-repo-42-01HY", "feedface")
+    mock_issue_reviewing({ "fkst-dev:blocked" }, issue_comments)
+
+    local result = run_observe_pr(pr_event(), opts("operator-rereview-cap-exhausted"))
+    t.eq(result.exit_code, 0)
+    local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(comment_raise.payload.body:find("operator command refused", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find("operator-reentry-cap", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find("blocked, review-meta, or stalled reviewing", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find("escalation", 1, true) ~= nil)
+    t.eq(find_causal_raise(result, "devloop_reviewing"), nil)
+  end,
+
+  test_rereview_command_repeat_is_idempotent_for_issue_lineage_reentry_marker = function()
+    local impl_version = reviewing().version
+    local blocked_version = impl_version .. "/review-loop/3"
+    local command = trusted_command("IC_rereview_issue_lineage_idempotent")
+    local command_fact = operator_commands.operator_command_fact({ command }, "rereview")
+    mock_pr_origin({
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+      command,
+    }, "devloop-owner-repo-42-01HY", "feedface")
+    mock_issue_reviewing({ "fkst-dev:blocked" }, {
+      core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version),
+      reentry_marker("github-devloop/issue/owner/repo/42",
+        "rereview",
+        command_fact.key,
+        blocked_version,
+        blocked_version .. "/rereview/4/feedface",
+        1
+      ),
+    })
+
+    local result = run_observe_pr(pr_event(), opts("operator-rereview-issue-lineage-idempotent"))
+    t.eq(result.exit_code, 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_pr_comment_request"), nil)
+    t.eq(find_issue_comment_raise(result.raises, "operator re-entry ledger: rereview"), nil)
+    t.eq(find_causal_raise(result, "devloop_reviewing"), nil)
   end,
 
   test_untrusted_rereview_command_is_ignored = function()
@@ -240,6 +371,9 @@ return {
       conv_rounds.review_converge_round_marker(core, review_proposal, "github-devloop/issue/owner/repo/42", review_version, "feedface", sr_digest, 3, "loop2", "Same review question", angle_digests),
       command,
     }, "devloop-owner-repo-42-01HY", "feedface")
+    mock_issue_reviewing({ "fkst-dev:reviewing" }, {
+      core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", impl_version),
+    })
 
     local result = run_observe_pr(pr_event(), opts("operator-rereview-stalled-reviewing"))
     t.eq(result.exit_code, 0)

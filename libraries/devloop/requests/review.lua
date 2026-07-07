@@ -145,6 +145,28 @@ function C.build_operator_rereview_comment_request(repo, pr_number, proposal_id,
   return C.attach_reviewing_handoff(request, proposal_id, pr_number, new_version, source_ref)
 end
 
+function C.build_operator_rereview_issue_reentry_comment_request(repo, issue_number, command, reentry, source_ref)
+  local marker = operator_commands.operator_reentry_marker(reentry.proposal_id,
+    command,
+    reentry.from_version,
+    reentry.version,
+    reentry.count
+  )
+  return entity_lib.build_entity_comment_request({
+    kind = "issue",
+    repo = repo,
+    number = issue_number,
+  }, "github-devloop operator re-entry ledger: rereview"
+    .. "\n\n" .. marker
+    .. "\n" .. ai_sentinel, base_ids.dedup_key({
+    "operator-reentry",
+    "issue-ledger",
+    tostring(command.key),
+    tostring(reentry.proposal_id),
+    tostring(reentry.version),
+  }), source_ref)
+end
+
 function C.pr_base_unmanaged_blocked_version(version)
   return tostring(version or "") .. "/blocked/pr-base-unmanaged"
 end

@@ -451,9 +451,20 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
   return true
 end
 
+local function reimplement_cap_exhausted_reason(decision)
+  return "operator-reentry-cap exhausted for reimplement after "
+    .. tostring(decision and decision.consumed or 0)
+    .. "/" .. tostring(decision and decision.cap or 0)
+    .. " successful re-entries; supported states: impl-failed or blocked no-PR from ready or implementing; escalation: create a follow-up issue or use the decompose path"
+end
+
 local function maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot)
   local command = operator_commands.operator_command_fact(current.comments, "reimplement")
   if command == nil then
+    return false
+  end
+  if operator_commands.operator_reentry_consumed(current.comments, proposal_id, command) then
+    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(no-open-pr)", "implementing", "skip-idempotent(reentry-marker-visible)", "operator reentry marker is already visible")
     return false
   end
   if operator_commands.has_operator_command_response(current.comments, command) then
@@ -508,6 +519,26 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     attempt = (core.implementation_retry_attempt(blocked_reentry.from_version) or 1) + 1
   end
   local retry_version = blocked_reentry and blocked_reentry.from_version or state.version
+  local reentry = operator_commands.operator_reentry_decision(current.comments,
+    proposal_id,
+    command,
+    operator_commands.operator_reentry_cap(core.restart_transition_table(), state.state)
+  )
+  if reentry.outcome == "idempotent" then
+    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(no-open-pr)", "implementing", "skip-idempotent(reentry-marker-visible)", "operator reentry marker is already visible")
+    return false
+  end
+  if reentry.outcome == "exhausted" then
+    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(no-open-pr)", "implementing", "refused(operator-reentry-cap)", "operator reimplement re-entry cap exhausted")
+    local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,
+      issue.number,
+      command,
+      reimplement_cap_exhausted_reason(reentry),
+      issue.source_ref
+    )
+    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", refusal)
+    return true
+  end
   local payload_source = {
     proposal_id = proposal_id,
     dedup_key = core.ready_payload_inner_version(retry_version),
@@ -528,7 +559,13 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     issue.number,
     command,
     attempt,
-    issue.source_ref
+    issue.source_ref,
+    {
+      proposal_id = proposal_id,
+      from_version = state.version,
+      version = retry_version,
+      count = reentry.count,
+    }
   )
   devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)", "implementing", "applied(operator-reimplement)", "trusted operator command requested implementation retry")
   devloop_logging.log_apply("observe_issue", proposal_id, nil, nil, { add = {}, remove = {} }, {
