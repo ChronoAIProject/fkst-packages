@@ -77,13 +77,13 @@ return {
     t.eq(conv_rounds.is_true_stall(facts, 4), false)
   end,
 
-  test_is_true_stall_false_when_round_three_question_changes = function()
+  test_is_true_stall_ignores_changing_question_surface = function()
     local facts = {
       fact(1),
       fact(2),
       fact(3, "q-different", "v-same"),
     }
-    t.eq(conv_rounds.is_true_stall(facts, 3), false)
+    t.eq(conv_rounds.is_true_stall(facts, 3), true)
   end,
 
   test_is_true_stall_false_when_round_three_verdicts_change = function()

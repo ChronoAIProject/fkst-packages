@@ -271,9 +271,7 @@ function C.is_true_stall(facts, current_round)
     return false
   end
 
-return current.question == previous.question
-    and previous.question == before_previous.question
-    and current.verdicts == previous.verdicts
+  return current.verdicts == previous.verdicts
     and previous.verdicts == before_previous.verdicts
 end
 

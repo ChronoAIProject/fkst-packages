@@ -10,10 +10,15 @@ local run_loop = h.run_loop
 local mock_issue_loop = h.mock_issue_loop
 local find_raise = h.find_raise
 
-local function angles(round)
+local function angles(round, verdict)
   return {
-    { angle = "minimal", verdict = "abstain", digest = "digest-" .. tostring(round or 0) },
+    { angle = "minimal", verdict = verdict or "abstain", digest = "digest-" .. tostring(round or 0) },
   }
+end
+
+local function cap_angles(round)
+  local verdicts = { "abstain", "comment", "approve" }
+  return angles(round, verdicts[(round % #verdicts) + 1])
 end
 
 local function findings(text)
@@ -112,16 +117,15 @@ return {
     t.eq(reconcile_raise.payload.base_version, expected.base_version)
   end,
 
-  test_loop_drifted_or_untrusted_findings_markers_do_not_spend_current_boundary = function()
+  test_loop_uses_proposal_lineage_when_version_and_source_ref_drift = function()
     local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/current"
     local drift_version = "consensus:github-devloop/issue/owner/repo/42/intake/drifted"
     local event = unresolved({
-      dedup_key = base_version,
-      round = 0,
+      dedup_key = base_version .. "/loop/3",
+      round = 3,
       source_ref = { kind = "external", ref = "owner/repo#issue/42?current=1" },
       narrowed_question = "Current boundary question",
       angle_digests = angles(0),
-      findings_record = findings("current boundary finding"),
     })
     local current_digest = convergence_shared.source_ref_digest(event.source_ref)
     local drift_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?drift=1" })
@@ -134,14 +138,97 @@ return {
       conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 2, drift_version .. "/loop/2", "Other boundary", angles(2), findings("drifted finding")),
     })
 
-    local result = run_loop(event, opts("loop-drifted-untrusted-findings"))
+    local result = run_loop(event, opts("loop-drifted-lineage-budget"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local proposal = find_raise(result.raises, "consensus.proposal")
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.dedup_key, "github-devloop/issue/owner/repo/42/intake/current/loop/1")
-    t.eq(proposal.payload.findings_record, event.findings_record)
+    t.eq(proposal.payload.dedup_key, "github-devloop/issue/owner/repo/42/intake/current/loop/4")
+    t.eq(proposal.payload.round, 4)
     t.eq(proposal.payload.prior_round_digests, nil)
+    t.eq(find_raise(result.raises, "devloop_reconcile"), nil)
+  end,
+
+  test_loop_stale_lower_round_does_not_reset_after_drifted_lineage = function()
+    local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/current"
+    local drift_version = "consensus:github-devloop/issue/owner/repo/42/intake/drifted"
+    local event = unresolved({
+      dedup_key = base_version .. "/loop/1",
+      round = 1,
+      source_ref = { kind = "external", ref = "owner/repo#issue/42?current=1" },
+      narrowed_question = "Stale lower round",
+      angle_digests = angles(1),
+    })
+    local drift_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?drift=1" })
+    mock_issue_loop({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", base_version),
+      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 2, drift_version .. "/loop/2", "Other boundary", angles(2)),
+    })
+
+    local result = run_loop(event, opts("loop-stale-lower-drifted-lineage"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+  end,
+
+  test_loop_round_cap_uses_proposal_lineage_across_drifting_boundaries = function()
+    local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/current"
+    local event = unresolved({
+      dedup_key = base_version .. "/loop/8",
+      round = 8,
+      source_ref = { kind = "external", ref = "owner/repo#issue/42?current=8" },
+      narrowed_question = "Question 8 with new surface text",
+      angle_digests = cap_angles(8),
+    })
+    local comments = {
+      core.state_marker(event.proposal_id, "thinking", base_version),
+    }
+    for round = 1, 7 do
+      local drift_version = "consensus:github-devloop/issue/owner/repo/42/intake/drifted-" .. tostring(round)
+      local source_ref = { kind = "external", ref = "owner/repo#issue/42?drift=" .. tostring(round) }
+      table.insert(comments, conv_rounds.converge_round_marker(event.proposal_id,
+        drift_version,
+        convergence_shared.source_ref_digest(source_ref),
+        round,
+        drift_version .. "/loop/" .. tostring(round),
+        "Question " .. tostring(round),
+        cap_angles(round)
+      ))
+    end
+    mock_issue_loop({ "fkst-dev:thinking" }, comments)
+
+    local result = run_loop(event, opts("loop-round-cap-drifted-lineage"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(comment ~= nil)
+    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")
+    t.eq(comment.payload.handoff.round, 8)
+    t.eq(comment.payload.handoff.base_version, base_version)
+    t.is_true(comment.payload.body:find('round="8"', 1, true) ~= nil)
+  end,
+
+  test_loop_distinct_progressing_rounds_below_cap_continue = function()
+    local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/current"
+    local event = unresolved({
+      dedup_key = base_version .. "/loop/3",
+      round = 3,
+      narrowed_question = "Question 3",
+      angle_digests = angles(3, "approve"),
+    })
+    local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
+    mock_issue_loop({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", base_version),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 1, base_version .. "/loop/1", "Question 1", angles(1, "abstain")),
+      conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 2, base_version .. "/loop/2", "Question 2", angles(2, "comment")),
+    })
+
+    local result = run_loop(event, opts("loop-distinct-progressing-continues"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    local proposal = find_raise(result.raises, "consensus.proposal")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.round, 4)
     t.eq(find_raise(result.raises, "devloop_reconcile"), nil)
   end,
 
