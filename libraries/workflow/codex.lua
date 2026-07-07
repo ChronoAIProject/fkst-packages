@@ -23,12 +23,25 @@ local function identity_parts(identity_or_role, proposal_id, dedup_key)
   return identity_or_role, proposal_id, dedup_key
 end
 
+local function run_lease_expired(run)
+  -- A running record whose lease deadline is already past is NOT live: it is a
+  -- dead/hung run awaiting reap, and a redrive must reactivate it (start a
+  -- replacement), never defer to it. lease_expires_at_ms is data on the run
+  -- record (milliseconds), not a magic constant; now() is seconds.
+  local lease = run.lease_expires_at_ms
+  if type(lease) ~= "number" or type(now) ~= "function" then
+    return false
+  end
+  return lease < now() * 1000
+end
+
 local function run_matches(run, role, proposal_id, dedup_key)
   return type(run) == "table"
     and tostring(run.role or "") == tostring(role or "")
     and tostring(run.proposal_id or "") == tostring(proposal_id or "")
     and tostring(run.dedup_key or "") == tostring(dedup_key or "")
     and tostring(run.status or "") == "running"
+    and not run_lease_expired(run)
 end
 
 function M.live_run_active(identity_or_role, proposal_id, dedup_key)
