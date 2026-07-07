@@ -113,7 +113,7 @@ def trusted_comments(comments: list[Any], bot_login: str) -> list[dict[str, Any]
             continue
         body = comment.get("body")
         if isinstance(body, str):
-            trusted.append({"body": body})
+            trusted.append({"body": body, "trusted_author": True})
     return trusted
 
 
@@ -261,7 +261,8 @@ def collect_facts(comments: list[dict[str, Any]], origin: str) -> dict[str, Any]
     seq = 0
     for comment in comments:
         body = str(comment.get("body") or "")
-        track_dedup = track_intake_dedup_from_comment(body, origin)
+        trusted_author = comment.get("trusted_author") is True
+        track_dedup = track_intake_dedup_from_comment(body, origin) if trusted_author else None
         if track_dedup is not None and has_tail_proxy_stamp(body, track_dedup):
             facts["track_intake"] = True
         for match in MARKER_RE.finditer(body):

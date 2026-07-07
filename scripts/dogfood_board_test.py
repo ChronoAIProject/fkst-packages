@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import importlib.util
 import stat
 import subprocess
 import tempfile
@@ -13,6 +14,16 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_workflow_board_fact_tool():
+    path = REPO_ROOT / "packages/github-devloop-workflow/tools/workflow_board_fact.py"
+    spec = importlib.util.spec_from_file_location("workflow_board_fact_under_test", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def write_executable(path: Path, text: str) -> None:
@@ -192,6 +203,29 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertNotIn("#44   [stateless   ] ⚠ STRANDED stateless", result.stdout)
         finally:
             h.close()
+
+
+class WorkflowBoardFactToolTest(unittest.TestCase):
+    def test_track_intake_requires_trusted_author_provenance(self) -> None:
+        tool = load_workflow_board_fact_tool()
+        origin = "github-devloop/issue/ChronoAIProject/fkst-packages/44"
+        body = (
+            "github-devloop intake decision: track\n"
+            "Service class: background\n\n"
+            "<!-- fkst:github-devloop:intake-decision:v1 "
+            'proposal="github-devloop/issue/ChronoAIProject/fkst-packages/44" '
+            'decision="track" class="background" '
+            'dedup="intake/github-devloop/issue/ChronoAIProject/fkst-packages/44/v1" -->\n\n'
+            "<!-- fkst:github-proxy:comment:intake/comment/"
+            "github-devloop/issue/ChronoAIProject/fkst-packages/44/"
+            "intake/github-devloop/issue/ChronoAIProject/fkst-packages/44/v1 -->"
+        )
+
+        untrusted_facts = tool.collect_facts([{"body": body}], origin)
+        self.assertIsNone(tool.board_fact(untrusted_facts))
+
+        trusted_facts = tool.collect_facts([{"body": body, "trusted_author": True}], origin)
+        self.assertEqual(tool.board_fact(trusted_facts), ("tracking", "tracking(intake:track)"))
 
 
 if __name__ == "__main__":
