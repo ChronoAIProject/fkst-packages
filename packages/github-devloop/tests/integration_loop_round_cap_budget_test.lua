@@ -135,7 +135,7 @@ return {
         body = conv_rounds.converge_round_marker(event.proposal_id, base_version, current_digest, 1, base_version .. "/loop/1", "Forged", angles(1), findings("forged finding")),
         author_login = "ordinary-user",
       },
-      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 2, drift_version .. "/loop/2", "Other boundary", angles(2), findings("drifted finding")),
+      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 2, drift_version .. "/loop/2", "Other boundary", angles(2), findings("drifted finding"), false, base_version),
     })
 
     local result = run_loop(event, opts("loop-drifted-lineage-budget"))
@@ -162,7 +162,7 @@ return {
     local drift_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?drift=1" })
     mock_issue_loop({ "fkst-dev:thinking" }, {
       core.state_marker(event.proposal_id, "thinking", base_version),
-      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 2, drift_version .. "/loop/2", "Other boundary", angles(2)),
+      conv_rounds.converge_round_marker(event.proposal_id, drift_version, drift_digest, 2, drift_version .. "/loop/2", "Other boundary", angles(2), nil, false, base_version),
     })
 
     local result = run_loop(event, opts("loop-stale-lower-drifted-lineage"))
@@ -191,7 +191,10 @@ return {
         round,
         drift_version .. "/loop/" .. tostring(round),
         "Question " .. tostring(round),
-        cap_angles(round)
+        cap_angles(round),
+        nil,
+        false,
+        base_version
       ))
     end
     mock_issue_loop({ "fkst-dev:thinking" }, comments)
@@ -206,6 +209,48 @@ return {
     t.eq(comment.payload.handoff.round, 8)
     t.eq(comment.payload.handoff.base_version, base_version)
     t.is_true(comment.payload.body:find('round="8"', 1, true) ~= nil)
+  end,
+
+  test_loop_prior_generation_cap_does_not_terminalize_new_generation = function()
+    local old_generation = "consensus:github-devloop/issue/owner/repo/42/intake/old"
+    local new_generation = "consensus:github-devloop/issue/owner/repo/42/intake/new"
+    local event = unresolved({
+      dedup_key = new_generation,
+      round = 0,
+      narrowed_question = "New generation question",
+      angle_digests = angles(0, "abstain"),
+    })
+    local comments = {
+      core.state_marker(event.proposal_id, "blocked", old_generation .. "/loop/8"),
+      core.state_marker(event.proposal_id, "thinking", new_generation),
+    }
+    for round = 0, 8 do
+      table.insert(comments, conv_rounds.converge_round_marker(event.proposal_id,
+        old_generation,
+        convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?old=" .. tostring(round) }),
+        round,
+        old_generation .. "/loop/" .. tostring(round),
+        "Old generation question " .. tostring(round),
+        cap_angles(round),
+        nil,
+        false,
+        old_generation
+      ))
+    end
+    mock_issue_loop({ "fkst-dev:thinking" }, comments)
+
+    local result = run_loop(event, opts("loop-prior-generation-cap-isolated"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    local proposal = find_raise(result.raises, "consensus.proposal")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.round, 1)
+    t.eq(proposal.payload.dedup_key, "github-devloop/issue/owner/repo/42/intake/new/loop/1")
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(comment ~= nil)
+    t.is_nil(comment.payload.handoff)
+    t.is_true(comment.payload.body:find('round="0"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find('generation="github-devloop/issue/owner/repo/42/intake/new"', 1, true) ~= nil)
   end,
 
   test_loop_distinct_progressing_rounds_below_cap_continue = function()

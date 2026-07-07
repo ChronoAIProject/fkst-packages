@@ -87,7 +87,8 @@ return saga.department(spec, { done = function() return false end, act = functio
     local function build_comment_request(unresolved_for_comment, round_for_comment, marker_body_for_comment, handoff_for_comment)
       return requests_lifecycle.build_converge_round_comment_request(core, repo, issue_number, unresolved_for_comment, round_for_comment, marker_body_for_comment, handoff_for_comment)
     end
-    local lineage = conv_rounds.converge_round_facts_for_proposal(current.comments, unresolved.proposal_id)
+    local generation_key = conv_rounds.thinking_generation_key(state.version)
+    local lineage = conv_rounds.converge_round_facts_for_generation(current.comments, unresolved.proposal_id, generation_key)
     local has_lineage = #lineage > 0
     local latest_round = conv_rounds.max_converge_round(lineage)
     local latest_fact = latest_lineage_fact(lineage)
@@ -140,9 +141,10 @@ return saga.department(spec, { done = function() return false end, act = functio
       unresolved.narrowed_question,
       unresolved.angle_digests,
       unresolved.findings_record,
-      unresolved.essence_stall == true
+      unresolved.essence_stall == true,
+      generation_key
     )
-    local lineage_with_current = conv_rounds.append_converge_round_fact(lineage, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key, unresolved.findings_record, unresolved.essence_stall == true)
+    local lineage_with_current = conv_rounds.append_converge_round_fact(lineage, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key, unresolved.findings_record, unresolved.essence_stall == true, generation_key)
     local cap_exhausted = conv_rounds.max_converge_round(lineage_with_current) >= config.max_converge_rounds()
     local resolvability_exhausted = conv_rounds.resolvability_exhausted(lineage_with_current)
     local essence_stall = conv_rounds.has_essence_stall(lineage_with_current)
