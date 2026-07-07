@@ -56,16 +56,18 @@ class DogfoodBoardHarness:
                   repos/ChronoAIProject/fkst-packages/pulls?state=open*)
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues?state=open*)
-                    printf '%s\\t%s\\t%s\\t%s\\n' 33 2026-06-27T00:00:00Z 'fkst-dev:ready,fkst-dev:blocked-on-dependency' 'Dependency held'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 34 2026-06-27T00:00:00Z 'fkst-dev:ready' 'Actionable ready'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 35 2026-06-27T00:00:00Z 'fkst-dev:blocked' 'Terminal blocked'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 36 2026-06-27T00:00:00Z 'fkst-dev:implementing,fkst-dev:blocked-on-dependency' 'Implementing stale'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 37 2026-06-27T00:00:00Z '__fkst_stateless__' 'Stateless old issue'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 38 2026-06-27T00:00:00Z '__fkst_stateless__' 'Workflow parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 39 2026-06-27T00:00:00Z '__fkst_stateless__' 'Forged workflow parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 40 2026-06-27T00:00:00Z '__fkst_stateless__' 'Peer workflow parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 41 2026-06-27T00:00:00Z '__fkst_stateless__' 'Peer devloop parent'
-                    printf '%s\\t%s\\t%s\\t%s\\n' 42 2026-06-27T00:00:00Z '__fkst_stateless__' 'Untrusted foreign marker'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 33 2026-06-27T00:00:00Z 'fkst-dev:ready,fkst-dev:blocked-on-dependency' '' 'Dependency held'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 34 2026-06-27T00:00:00Z 'fkst-dev:ready' '' 'Actionable ready'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 35 2026-06-27T00:00:00Z 'fkst-dev:blocked' '' 'Terminal blocked'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 36 2026-06-27T00:00:00Z 'fkst-dev:implementing,fkst-dev:blocked-on-dependency' '' 'Implementing stale'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 37 2026-06-27T00:00:00Z '__fkst_stateless__' '' 'Stateless old issue'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 38 2026-06-27T00:00:00Z '__fkst_stateless__' '' 'Workflow parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 39 2026-06-27T00:00:00Z '__fkst_stateless__' '' 'Forged workflow parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 40 2026-06-27T00:00:00Z '__fkst_stateless__' '' 'Peer workflow parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 41 2026-06-27T00:00:00Z '__fkst_stateless__' '' 'Peer devloop parent'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 42 2026-06-27T00:00:00Z '__fkst_stateless__' '' 'Untrusted foreign marker'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 43 2026-06-27T00:00:00Z '__fkst_stateless__' 'dashboard' 'Dashboard tracker'
+                    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' 44 2026-06-27T00:00:00Z '__fkst_stateless__' '' 'Track intake marker'
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues/37/comments?per_page=100)
                     printf '[]\\n'
@@ -93,6 +95,14 @@ JSON
                   repos/ChronoAIProject/fkst-packages/issues/42/comments?per_page=100)
                     cat <<'JSON'
 [{"user":{"login":"random-user"},"body":"github-devloop thinking: consensus started\\n\\n<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/42\\\" state=\\\"thinking\\\" version=\\\"untrusted-version\\\" stage_rank=\\\"100\\\" -->"}]
+JSON
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/43/comments?per_page=100)
+                    printf '[]\\n'
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/44/comments?per_page=100)
+                    cat <<'JSON'
+[{"user":{"login":"loning"},"body":"github-devloop intake decision: track\\nService class: background\\n\\nAcknowledged as a tracking umbrella.\\n\\nReason:\\nDashboard tracking issue.\\n\\n<!-- fkst:github-devloop:intake-decision:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/44\\\" decision=\\\"track\\\" class=\\\"background\\\" dedup=\\\"intake/github-devloop/issue/ChronoAIProject/fkst-packages/44/v1\\\" -->\\n\\n<!-- fkst:github-proxy:comment:intake/comment/github-devloop/issue/ChronoAIProject/fkst-packages/44/intake/github-devloop/issue/ChronoAIProject/fkst-packages/44/v1 -->"}]
 JSON
                     ;;
                   *)
@@ -176,6 +186,10 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertIn("#42   [stateless   ] ⚠ STRANDED stateless 12h", result.stdout)
             self.assertNotIn("#42   [stateless   ] peer-managed(random-user)", result.stdout)
             self.assertNotIn("#42   [thinking    ]", result.stdout)
+            self.assertIn("#43   [tracking    ] tracking(dashboard)", result.stdout)
+            self.assertNotIn("#43   [stateless   ] ⚠ STRANDED stateless", result.stdout)
+            self.assertIn("#44   [tracking    ] tracking(intake:track)", result.stdout)
+            self.assertNotIn("#44   [stateless   ] ⚠ STRANDED stateless", result.stdout)
         finally:
             h.close()
 

@@ -186,6 +186,17 @@ def blueprint_dedup_from_comment(body: str, origin: str) -> str | None:
     return None
 
 
+def track_intake_dedup_from_comment(body: str, origin: str) -> str | None:
+    for match in INTAKE_DECISION_RE.finditer(body):
+        attrs = parse_attrs(match.group(1))
+        proposal = safe_attr(attrs.get("proposal"), MAX_ORIGIN_PROPOSAL_ID_BYTES)
+        decision = safe_attr(attrs.get("decision"), MAX_SLOT_ID_BYTES)
+        marker_dedup = safe_attr(attrs.get("dedup"), MAX_DEDUP_KEY_BYTES)
+        if proposal == origin and decision == "track" and marker_dedup is not None:
+            return dedup_key(["intake", "comment", origin, marker_dedup])
+    return None
+
+
 def blueprint_fact(attrs: dict[str, str], origin: str, body: str) -> dict[str, str] | None:
     marker_origin = safe_attr(attrs.get("origin"), MAX_ORIGIN_PROPOSAL_ID_BYTES)
     workflow = safe_attr(attrs.get("workflow"), MAX_WORKFLOW_ID_BYTES)
@@ -243,12 +254,16 @@ def terminal_fact(attrs: dict[str, str], origin: str, seq: int, body: str) -> di
 def collect_facts(comments: list[dict[str, Any]], origin: str) -> dict[str, Any]:
     facts: dict[str, Any] = {
         "blueprint": None,
+        "track_intake": False,
         "materializations": [],
         "terminal": None,
     }
     seq = 0
     for comment in comments:
         body = str(comment.get("body") or "")
+        track_dedup = track_intake_dedup_from_comment(body, origin)
+        if track_dedup is not None and has_tail_proxy_stamp(body, track_dedup):
+            facts["track_intake"] = True
         for match in MARKER_RE.finditer(body):
             seq += 1
             kind = match.group(1)
@@ -289,6 +304,8 @@ def board_fact(facts: dict[str, Any]) -> tuple[str, str] | None:
     terminal = facts.get("terminal")
     materializations = facts.get("materializations")
     if not isinstance(blueprint, dict):
+        if facts.get("track_intake") is True:
+            return "tracking", "tracking(intake:track)"
         return None
 
     workflow = str(blueprint.get("workflow") or "unknown")

@@ -623,8 +623,8 @@ board_one() { # $1 name, $2 stale_hours
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
   done
   echo "── issues (by fkst-dev state) ──"
-  gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|"\(.number)\t\(.updated_at)\t\(if ($labels|length)==0 then "__fkst_stateless__" else ($labels|join(",")) end)\t\(.title[0:38])"' 2>/dev/null | \
-  while IFS=$'\t' read -r num upd label title; do
+  gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]) as $all_labels|($all_labels|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|"\(.number)\t\(.updated_at)\t\(if ($labels|length)==0 then "__fkst_stateless__" else ($labels|join(",")) end)\t\(if ($all_labels|index("fkst-dashboard")) then "dashboard" else "" end)\t\(.title[0:38])"' 2>/dev/null | \
+  while IFS=$'\t' read -r num upd label tracking_hint title; do
     local a st cls workflow_fact; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
     if [ -z "$label" ] || [ "$label" = "__fkst_stateless__" ]; then
       if workflow_fact=$(workflow_board_fact "$num"); then
@@ -632,7 +632,9 @@ board_one() { # $1 name, $2 stale_hours
         cls="${workflow_fact#*$'\t'}"
       else
         st="stateless"
-        if [ "$a" -ge "$stale" ]; then cls="⚠ STRANDED stateless ${a}h"; else cls="✓ waiting intake ${a}h"; fi
+        if [ "$tracking_hint" = "dashboard" ]; then
+          st="tracking"; cls="tracking(dashboard)"
+        elif [ "$a" -ge "$stale" ]; then cls="⚠ STRANDED stateless ${a}h"; else cls="✓ waiting intake ${a}h"; fi
       fi
     else
       cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")" || continue
