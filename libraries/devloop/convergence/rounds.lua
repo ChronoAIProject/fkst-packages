@@ -207,23 +207,11 @@ function C.converge_round_facts_for_generation(comments, proposal_id, generation
   local expected_generation = C.thinking_generation_key(generation_key)
   local matches = function(marker)
     local marker_generation = attr(marker, "generation")
-    -- Legacy converge-round:v1 markers written before generation scoping have no
-    -- generation attribute. They are intentionally excluded from explicit-generation
-    -- lineage so an old over-cap generation cannot terminalize a freshly entered
-    -- generation during deploy transition.
+    if marker_generation == nil or marker_generation == "" then
+      marker_generation = C.thinking_generation_key(attr(marker, "version"))
+    end
     return attr(marker, "proposal") == tostring(proposal_id)
-      and marker_generation ~= nil
-      and marker_generation ~= ""
       and tostring(marker_generation) == tostring(expected_generation)
-  end
-  return converge_record_map(comments, "converge%-round", matches)
-end
-
-function C.legacy_converge_round_facts_without_generation(comments, proposal_id)
-  local matches = function(marker)
-    local marker_generation = attr(marker, "generation")
-    return attr(marker, "proposal") == tostring(proposal_id)
-      and (marker_generation == nil or marker_generation == "")
   end
   return converge_record_map(comments, "converge%-round", matches)
 end
