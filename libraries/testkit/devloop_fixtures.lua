@@ -41,6 +41,7 @@ function M.new(deps)
   local mock_merge_pr_diff_name_only = deps.mock_merge_pr_diff_name_only == true
 
   gh_argv.install(t, core)
+  devloop_base.configure_trusted_bot_login("fkst-test-bot")
 
   local ctx = {
     t = t,
@@ -334,6 +335,7 @@ function M.new(deps)
     if type(run_opts) == "table" and type(run_opts.env) == "table" and run_opts.env.FKST_GITHUB_BOT_LOGIN ~= nil then
       login = tostring(run_opts.env.FKST_GITHUB_BOT_LOGIN)
     end
+    devloop_base.configure_trusted_bot_login(login)
     if type(run_opts) == "table" and type(run_opts.env) == "table" and run_opts.env.FKST_DEVLOOP_MANAGED_BOT_LOGINS ~= nil then
       managed = tostring(run_opts.env.FKST_DEVLOOP_MANAGED_BOT_LOGINS)
     end
