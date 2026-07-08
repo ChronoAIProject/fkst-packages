@@ -48,9 +48,10 @@ local function commit_check_runs_merge_gate(repo, head_sha, opts)
   if result.exit_code ~= 0 then
     error("forge.merge: gh commit check-runs failed: " .. tostring(result.stderr))
   end
+  local required_names = shared.required_check_run_names()
   local runs = parse_commit_check_runs(result.stdout)
-  local green, reason = commit_check_runs_green(runs)
-  log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
+  local green, reason = commit_check_runs_green(runs, required_names)
+  log_check_runs_fallback(M, opts, repo, head_sha, runs, reason, required_names)
   return green, reason, runs
 end
 
@@ -74,8 +75,9 @@ local function classify_pr_ci_gate(pr, opts)
   if runs == nil then
     return ci_classification("CI_UNKNOWN", fetch_reason or "ci-unknown")
   end
-  log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
-  local head_status = required_head_check_run_status(runs, head_sha)
+  local required_names = shared.required_check_run_names()
+  log_check_runs_fallback(M, opts, repo, head_sha, runs, reason, required_names)
+  local head_status = required_head_check_run_status(runs, head_sha, required_names)
   if head_status == "red" then
     return ci_classification("OWN_CI_RED", "own-ci-red", { check_runs = runs })
   end

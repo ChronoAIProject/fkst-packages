@@ -70,13 +70,23 @@ local red_status_states = {
   FAILURE = true,
 }
 
-local required_check_run_names = {
+local default_required_check_run_names = {
   "test",
 }
 
-local required_check_run_name_set = {}
-for _, name in ipairs(required_check_run_names) do
-  required_check_run_name_set[name] = true
+local function required_check_run_name_list(required_names)
+  if type(required_names) ~= "table" or #required_names == 0 then
+    return default_required_check_run_names
+  end
+  return required_names
+end
+
+local function required_check_run_name_set(required_names)
+  local set = {}
+  for _, name in ipairs(required_check_run_name_list(required_names)) do
+    set[tostring(name)] = true
+  end
+  return set
 end
 
 local function check_name(entry)
@@ -108,14 +118,16 @@ function C.pr_rollup_green(pr)
   return true, "rollup-green"
 end
 
-function C.commit_check_runs_green(runs)
+function C.commit_check_runs_green(runs, required_names)
   if type(runs) ~= "table" or #runs == 0 then
     return false, "missing-status-rollup"
   end
+  local required_names_list = required_check_run_name_list(required_names)
+  local required_names_set = required_check_run_name_set(required_names_list)
   local seen_required = {}
   for _, run in ipairs(runs) do
     local name = check_name(run)
-    if required_check_run_name_set[name] then
+    if required_names_set[name] then
       seen_required[name] = true
       local state, conclusion = check_entry_state(run)
       if state == "COMPLETED" then
@@ -127,7 +139,7 @@ function C.commit_check_runs_green(runs)
       end
     end
   end
-  for _, name in ipairs(required_check_run_names) do
+  for _, name in ipairs(required_names_list) do
     if not seen_required[name] then
       return false, "missing-status-rollup"
     end
@@ -242,7 +254,7 @@ function C.required_head_check_run_status(runs, head_sha, required_names)
   if type(runs) ~= "table" or not gitref.is_git_sha(head_sha) then
     return "unknown"
   end
-  required_names = required_names or {}
+  required_names = required_check_run_name_list(required_names)
   local required = {}
   for _, name in ipairs(required_names) do
     required[tostring(name)] = false
@@ -273,6 +285,7 @@ function C.required_head_check_run_status(runs, head_sha, required_names)
   return "green"
 end
 
-C.required_check_run_names = required_check_run_names
+C.default_required_check_run_names = default_required_check_run_names
+C.required_check_run_names = required_check_run_name_list
 
 return C

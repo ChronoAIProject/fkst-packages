@@ -23,7 +23,7 @@ local merge_gate_reason_class_entries = {
   },
 }
 
-function S.install(M)
+function S.install(M, opts)
 local github = github_adapter.production_handle
 local is_open_pr = check_runs.is_open_pr
 local check_run_id = check_runs.check_run_id
@@ -31,17 +31,28 @@ local check_run_head_sha = check_runs.check_run_head_sha
 local check_run_name = check_runs.check_run_name
 local check_run_state = check_runs.check_run_state
 local parse_commit_check_runs = check_runs.parse_commit_check_runs
-local required_check_run_names = check_runs.required_check_run_names
+local default_required_check_run_names = check_runs.default_required_check_run_names
 
-local function log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
+local function required_check_run_names()
+  if type(opts) == "table" and type(opts.required_check_run_names) == "function" then
+    local names = opts.required_check_run_names()
+    if type(names) == "table" and #names > 0 then
+      return names
+    end
+  end
+  return default_required_check_run_names
+end
+
+local function log_check_runs_fallback(M, opts, repo, head_sha, runs, reason, required_names)
   if type(M.log_line) ~= "function" then
     return
   end
+  required_names = required_names or required_check_run_names()
   M.log_line("info", tostring(opts and opts.dept or "merge"), tostring(opts and opts.proposal_id or "merge-gate"), "CI_FALLBACK", {
     "repo=" .. tostring(repo),
     "head_sha=" .. tostring(head_sha),
     "source=commit-check-runs",
-    "required_checks=" .. table.concat(required_check_run_names or {}, ","),
+    "required_checks=" .. table.concat(required_names or {}, ","),
     "check_runs=" .. tostring(type(runs) == "table" and #runs or 0),
     "reason=" .. tostring(reason or ""),
   })
@@ -58,8 +69,8 @@ local function fetch_commit_check_runs(repo, head_sha)
   return parse_commit_check_runs(result.stdout), nil
 end
 
-local function required_head_check_run_status(runs, head_sha)
-  return check_runs.required_head_check_run_status(runs, head_sha, required_check_run_names)
+local function required_head_check_run_status(runs, head_sha, required_names)
+  return check_runs.required_head_check_run_status(runs, head_sha, required_names or required_check_run_names())
 end
 
 local function ci_classification(kind, reason, extra)

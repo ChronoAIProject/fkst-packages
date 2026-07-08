@@ -1,4 +1,5 @@
 local parsers_misc = require("devloop.parsers.misc")
+local config = require("devloop.config")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -201,6 +202,27 @@ return {
 
   test_rollup_red_red_required_head_check_is_own_ci_red = function()
     mock_check_runs('{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n')
+    local classification = core.classify_pr_ci_gate(pr({
+      status_check_rollup = {
+        { name = "shared-integration", state = "COMPLETED", conclusion = "FAILURE" },
+      },
+    }), {
+      repo = "owner/repo",
+      proposal_id = "github-devloop/issue/owner/repo/42",
+    })
+    t.eq(classification.kind, "OWN_CI_RED")
+    t.eq(classification.merge_blocking, true)
+    t.eq(classification.actionable, true)
+    t.eq(classification.reason, "own-ci-red")
+  end,
+
+  test_rollup_red_host_required_head_check_is_own_ci_red_without_test = function()
+    mock_check_runs('{"total_count":2,"check_runs":[{"name":"fkst-host-policy","status":"completed","conclusion":"success","head_sha":"def456"},{"name":"fast-gates","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n')
+    t.mock_command(config.read_env_command("FKST_GITHUB_REQUIRED_CHECK_RUNS"), {
+      stdout = "fkst-host-policy,fast-gates",
+      stderr = "",
+      exit_code = 0,
+    })
     local classification = core.classify_pr_ci_gate(pr({
       status_check_rollup = {
         { name = "shared-integration", state = "COMPLETED", conclusion = "FAILURE" },

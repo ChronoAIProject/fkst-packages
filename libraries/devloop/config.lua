@@ -22,6 +22,7 @@ local allowed_env = {
   FKST_DEVLOOP_CONFLICT_LOG_CMD = true,
   FKST_DEVLOOP_BOARD_CMD = true,
   FKST_DEVLOOP_TEST_COMMAND = true,
+  FKST_GITHUB_REQUIRED_CHECK_RUNS = true,
   FKST_OUTPUT_LANG = true,
   FKST_DEBUG_STAMP = true,
 }
@@ -150,6 +151,37 @@ end
 
 function C.local_iteration_test_command(_exec)
   return "scripts/run.sh test-affected"
+end
+
+local function required_check_run_name(value)
+  local text = strings.trim(value)
+  if text == "" or #text > 120 then
+    return nil
+  end
+  if text:find("[\r\n]") ~= nil then
+    return nil
+  end
+  return text
+end
+
+function C.required_check_run_names(exec)
+  local raw = C.read_env("FKST_GITHUB_REQUIRED_CHECK_RUNS", exec)
+  if raw == nil then
+    return nil
+  end
+  local names = {}
+  local seen = {}
+  for entry in tostring(raw):gmatch("[^,]+") do
+    local name = required_check_run_name(entry)
+    if name ~= nil and not seen[name] then
+      table.insert(names, name)
+      seen[name] = true
+    end
+  end
+  if #names == 0 then
+    error("github-devloop: invalid FKST_GITHUB_REQUIRED_CHECK_RUNS")
+  end
+  return names
 end
 
 local function current_checkout_branch(exec)

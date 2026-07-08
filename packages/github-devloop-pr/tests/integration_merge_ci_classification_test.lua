@@ -28,6 +28,14 @@ local function mock_required_check_run(conclusion)
   })
 end
 
+local function mock_required_check_runs_json(json)
+  t.mock_command(check_runs_cmd, {
+    stdout = json,
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function run_rollup_red_merge(name, check_conclusion)
   local event = merge_ready()
   local rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/shared","name":"shared-integration","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"integration"}]'
@@ -56,6 +64,32 @@ return {
 
   test_red_pr_head_required_check_raises_fixing = function()
     local _, result = run_rollup_red_merge("merge-own-red-fixing", "failure")
+    t.eq(result.exit_code, 0)
+    t.eq(find_causal_raise(result, "devloop_fixing").payload.gate_failure_excerpt, "own-ci-red")
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
+    t.eq(count_calls("gh pr merge"), 0)
+  end,
+
+  test_host_required_check_failure_without_test_check_raises_fixing = function()
+    local event = merge_ready()
+    local rollup_json = '[{"__typename":"CheckRun","completedAt":"2026-06-03T02:04:04Z","conclusion":"FAILURE","detailsUrl":"https://example.invalid/checks/shared","name":"shared-integration","startedAt":"2026-06-03T02:03:04Z","status":"COMPLETED","workflowName":"integration"}]'
+    mock_bot_env()
+    mock_write_env("1")
+    mock_write_env("1")
+    mock_issue_merge({ "fkst-dev:merge-ready" }, merge_comments(event))
+    mock_pr_merge_rollup({ origin_marker(event) }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE")
+    mock_required_check_runs_json('{"total_count":2,"check_runs":[{"name":"fkst-host-policy","status":"completed","conclusion":"success","head_sha":"def456"},{"name":"fast-gates","status":"completed","conclusion":"failure","head_sha":"def456"}]}\n')
+    t.mock_command('printf %s "$FKST_GITHUB_REQUIRED_CHECK_RUNS"', {
+      stdout = "fkst-host-policy,fast-gates",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_merge(event, opts("merge-host-required-red-fixing", {
+      FKST_GITHUB_WRITE = "1",
+      FKST_GITHUB_REQUIRED_CHECK_RUNS = "fkst-host-policy,fast-gates",
+    }))
+
     t.eq(result.exit_code, 0)
     t.eq(find_causal_raise(result, "devloop_fixing").payload.gate_failure_excerpt, "own-ci-red")
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
