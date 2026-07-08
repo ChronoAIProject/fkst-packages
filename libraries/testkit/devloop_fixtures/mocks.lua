@@ -300,7 +300,11 @@ function M.new(ctx, funcs)
       return
     end
     entity_read_mocks.mock_issue_view_raw_selector(t, {}, "number,title,author", {
-      stdout = string.format('{"number":42,"title":"%s"}\n', json_string(fields.commit_title or fields.title or "Implement decision recorder")),
+      stdout = string.format(
+        '{"number":42,"title":%s,"author":{"login":%s}}\n',
+        json_string(fields.commit_title or fields.title or "Implement decision recorder"),
+        json_string(fields.author_login or "fkst-test-bot")
+      ),
     })
   end
 

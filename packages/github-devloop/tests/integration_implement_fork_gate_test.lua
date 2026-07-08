@@ -137,6 +137,7 @@ return {
       exit_code = 0,
     })
 
+    local before = command_count_snapshot()
     local result = run_implement(event, opts("implement-untrusted-duplicate-fork", {
       FKST_GITHUB_BOT_LOGIN = "loning",
       FKST_DEVLOOP_MANAGED_BOT_LOGINS = "loning,ElonSG",
@@ -146,6 +147,6 @@ return {
     t.eq(result.exit_code, 0)
     t.is_nil(find_duplicate_comment(result.raises))
     t.is_nil(find_duplicate_label(result.raises))
-    t.is_true(count_calls("codex exec") > 0)
+    t.is_true(count_calls("codex exec") - before.codex > 0)
   end,
 }
