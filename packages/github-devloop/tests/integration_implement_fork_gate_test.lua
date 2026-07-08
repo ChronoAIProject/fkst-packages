@@ -1,12 +1,19 @@
+local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
+local content_filter = require("forge.github.content_filter")
 local h = require("tests.devloop_helpers")
 local forks = require("devloop.forks")
+local parsers_issue = require("devloop.parsers.issue")
 local t = h.t
 local core = h.core
 local ready = h.ready
 local run_implement = h.run_implement
 local opts = h.opts
 local mock_issue_implement = h.mock_issue_implement
+local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
+local mock_implement_codex = h.mock_implement_codex
+local mock_git_status = h.mock_git_status
+local mock_git_commit = h.mock_git_commit
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 
@@ -29,6 +36,15 @@ local function original_view_with_peer_fork_ledger(author_login)
   return '{"title":"Original","createdAt":"2026-06-03T01:00:00Z","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[{"body":"'
     .. marker:gsub('"', '\\"')
     .. '","author":{"login":"' .. tostring(author_login or "ElonSG") .. '"}}],"assignees":[],"author":{"login":"human"}}\n'
+end
+
+local function redacted_original_state_for(logins, author_login)
+  local filtered = content_filter.filter_gh_content_json(
+    original_view_with_peer_fork_ledger(author_login),
+    content_filter.build_whitelist(logins),
+    {}
+  )
+  return parsers_issue.parse_issue_view_state(core, filtered), filtered
 end
 
 local function find_duplicate_comment(raises)
@@ -125,6 +141,16 @@ return {
 
   test_untrusted_authored_noncanonical_fork_marker_is_redacted_and_ignored = function()
     local event = ready()
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.dedup_key)
+    local redacted_original, redacted_stdout = redacted_original_state_for({ "loning", "ElonSG" }, "mallory")
+    t.is_true(redacted_stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
+    t.is_nil(forks.trusted_issue_created_number(
+      core,
+      redacted_original.comments,
+      forks.fork_issue_dedup_key("owner/repo", original_issue),
+      "loning",
+      { loning = true, ElonSG = true }
+    ))
     mock_issue_implement({ "fkst-dev:ready" }, {
       {
         body = core.state_marker(event.proposal_id, "ready", event.dedup_key),
@@ -139,6 +165,10 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(0, "implemented")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
 
     local before = command_count_snapshot()
     local result = run_implement(event, opts("implement-untrusted-duplicate-fork", {
