@@ -1,4 +1,5 @@
 local saga_conformance = require("devloop.saga_conformance")
+local consensus_debate = require("contract.consensus_debate")
 local contract_time = require("contract.time")
 local M
 
@@ -10,6 +11,10 @@ end
 M = {
   saga_conformance_errors = saga_conformance_errors,
 }
+
+function M.debate_phase_names()
+  return consensus_debate.debate_phase_names()
+end
 
 
 function M.decompose_package_queue()

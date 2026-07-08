@@ -631,6 +631,33 @@ return {
     t.is_true(dashboard.body:find("false-consensus-rate=1/1 (100%)", 1, true) ~= nil)
   end,
 
+  test_dashboard_renders_consensus_debate_phases_from_core_helper = function()
+    mock_dashboard_env()
+    local previous = core.debate_phase_names
+    core.debate_phase_names = function()
+      return { "opening-case", "cross-exam", "final-ruling" }
+    end
+
+    local ok, dashboard = pcall(function()
+      return core.render_observability_dashboard({
+        entities = {},
+        counts = {},
+        stalls = {},
+        topology_mermaid = "",
+        now_seconds = 1770000000,
+      })
+    end)
+    core.debate_phase_names = previous
+    if not ok then
+      error(dashboard, 0)
+    end
+
+    t.is_true(dashboard.body:find("## Consensus debate phases", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- opening-case", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- cross-exam", 1, true) ~= nil)
+    t.is_true(dashboard.body:find("- final-ruling", 1, true) ~= nil)
+  end,
+
   test_dashboard_renders_large_topology_without_old_cap_cutting_mermaid = function()
     mock_dashboard_env()
     local mermaid = large_mermaid(900)

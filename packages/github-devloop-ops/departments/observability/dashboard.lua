@@ -383,6 +383,13 @@ function core.render_observability_dashboard(args)
   append_section(sections, lines)
 
   lines = {}
+  table.insert(lines, "## Consensus debate phases")
+  for _, phase in ipairs(core.debate_phase_names()) do
+    table.insert(lines, "- " .. tostring(phase))
+  end
+  append_section(sections, lines)
+
+  lines = {}
   append_state_section(lines, "Ready", "ready", by_state, now_seconds)
   append_section(sections, lines)
   lines = {}
