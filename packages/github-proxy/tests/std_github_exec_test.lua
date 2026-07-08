@@ -357,7 +357,7 @@ return {
         return { stdout = '[[{"id":111111111,"number":121}]]\n', stderr = "", exit_code = 0 }
       end
       return { stdout = "", stderr = "HTTP 422: Validation Failed (already linked as a sub-issue)", exit_code = 1 }
-    end)
+    end, { trusted_author_policy = author_policy })
 
     local ok, err = pcall(function()
       return handle.issue_add_sub_issue("owner/repo", 979, 120, 31)

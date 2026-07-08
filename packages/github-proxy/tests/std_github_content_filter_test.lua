@@ -84,7 +84,7 @@ return {
     t.eq(#decoded[1], 0)
     t.eq(#decoded[2], 2)
     t.eq(#decoded[2][1].labels, 0)
-    t.is_nil(decoded[2][1].body)
+    t.is_true(out:find('"body":null', 1, true) ~= nil)
     t.eq(decoded[2][1].title, "hello ☃")
     t.is_true(out:find(BIG_ID, 1, true) ~= nil)
     t.eq(#decoded[2][2].comments, 0)
