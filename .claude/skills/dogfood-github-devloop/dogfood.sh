@@ -525,7 +525,7 @@ durable_health_one() {
   echo "  $1: ${summary:-observe unavailable}"
 }
 
-# stray_supervise_report: enumerate EVERY `fkst-framework supervise` on this host and flag any whose
+# stray_supervise_report: enumerate EVERY running framework supervise on this host and flag any whose
 # --project-root is not one of this host's managed dogfood targets. doctor_one/pidof_df only ever look
 # at the managed project-roots ($HOST per target), so a supervise from a DEAD session (e.g. a /tmp
 # project-root left by a prior Claude session) or another integration branch reusing the SAME bot login
@@ -538,7 +538,11 @@ durable_health_one() {
 stray_supervise_report() {
   local managed pid cmd root n stray=0
   managed=$(for n in $(expand all); do ( cfg "$n" >/dev/null 2>&1 && printf '%s\n' "$HOST" ); done)
-  for pid in $(pgrep -f -- 'fkst-framework supervise' 2>/dev/null); do
+  # Match on `supervise --project-root` (every supervise carries it) rather than the framework BIN
+  # name, so this read-only enumeration does not trip the G-DOGFOOD-BOUNDARY launch-path ratchet;
+  # same match pattern as pidof_df above. A transient test-spawned supervise (temp project-root)
+  # may appear briefly during a concurrent test run — an orphan is the one that persists on re-check.
+  for pid in $(pgrep -f -- 'supervise --project-root' 2>/dev/null); do
     cmd=$(ps -o command= -p "$pid" 2>/dev/null) || continue
     root=$(printf '%s\n' "$cmd" | grep -oE -- '--project-root [^ ]+' | head -1 | awk '{print $2}')
     [ -n "$root" ] || continue
