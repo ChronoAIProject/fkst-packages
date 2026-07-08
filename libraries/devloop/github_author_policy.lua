@@ -15,8 +15,15 @@ function M.from_logins(logins)
 end
 
 function M.from_env(exec)
-  local ok_bot, bot_login = pcall(devloop_base.read_env, "FKST_GITHUB_BOT_LOGIN", exec)
-  bot_login = ok_bot and strings.trim(bot_login or "") or ""
+  local bot_login = nil
+  if type(devloop_base.configured_trusted_bot_login) == "function" then
+    bot_login = devloop_base.configured_trusted_bot_login()
+  end
+  if bot_login == nil or tostring(bot_login or "") == "" then
+    local ok_bot = true
+    ok_bot, bot_login = pcall(devloop_base.read_env, "FKST_GITHUB_BOT_LOGIN", exec)
+    bot_login = ok_bot and strings.trim(bot_login or "") or ""
+  end
   if bot_login == "" then
     error("devloop.github_author_policy: FKST_GITHUB_BOT_LOGIN is required for authored GitHub reads")
   end
@@ -34,13 +41,17 @@ function M.for_exec(exec)
   if type(fkst) == "table" and type(fkst.test) == "table" then
     return content_filter.test_disabled_author_policy()
   end
-  return M.from_env(exec or exec_argv)
+  return M.from_env()
 end
 
 function M.github_options(exec)
+  local policy = nil
   return {
     trusted_author_policy = function()
-      return M.for_exec(exec)
+      if policy == nil then
+        policy = M.for_exec(exec)
+      end
+      return policy
     end,
   }
 end
