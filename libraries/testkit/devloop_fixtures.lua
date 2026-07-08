@@ -327,8 +327,21 @@ function M.new(deps)
     })
   end
 
+  local function mock_author_policy_env()
+    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+      stdout = "fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+
+  local function run_department(path, event, run_opts)
+    mock_author_policy_env()
+    return t.run_department(path, event, run_opts)
+  end
+
   local function run_observe(payload, run_opts)
-    return t.run_department("departments/observe_issue/main.lua", {
+    return run_department("departments/observe_issue/main.lua", {
       queue = "github-proxy.github_entity_changed",
       payload = payload,
     }, run_opts)
@@ -354,7 +367,7 @@ function M.new(deps)
   local function run_result(payload, run_opts)
     if ctx.pending_result_read_failure ~= nil then
       ctx.pending_result_read_failure = nil
-      return t.run_department("departments/consensus_result/main.lua", {
+      return run_department("departments/consensus_result/main.lua", {
         queue = "consensus.consensus_reached",
         payload = payload,
       }, run_opts)
@@ -386,14 +399,14 @@ function M.new(deps)
   end
 
   local function run_loop(payload, run_opts)
-    return t.run_department("departments/loop/main.lua", {
+    return run_department("departments/loop/main.lua", {
       queue = "consensus.consensus_converge",
       payload = payload,
     }, run_opts)
   end
 
   local function run_reconcile(payload, run_opts)
-    return t.run_department("departments/reconcile/main.lua", {
+    return run_department("departments/reconcile/main.lua", {
       queue = "devloop_reconcile",
       payload = payload,
     }, run_opts)
@@ -408,7 +421,7 @@ function M.new(deps)
       end
       entity_read_mocks.mock_default_pr_read(t, comments)
     end
-    return t.run_department("departments/reconcile/main.lua", {
+    return run_department("departments/reconcile/main.lua", {
       queue = "devloop_review_reconcile",
       payload = payload,
     }, run_opts)
@@ -423,7 +436,7 @@ function M.new(deps)
       end
       entity_read_mocks.mock_default_pr_read(t, comments)
     end
-    return t.run_department("departments/reconcile/main.lua", {
+    return run_department("departments/reconcile/main.lua", {
       queue = "devloop_fix_reconcile",
       payload = payload,
     }, run_opts)
@@ -431,7 +444,7 @@ function M.new(deps)
 
   local function run_decompose(payload, run_opts)
     mocks.mock_pr_origin_from_cached(payload, payload and payload.head_sha or "def456")
-    return t.run_department("departments/decompose/main.lua", {
+    return run_department("departments/decompose/main.lua", {
       queue = decompose_queue,
       payload = payload,
     }, run_opts)
@@ -446,7 +459,7 @@ function M.new(deps)
     for key, value in pairs(event_extra or {}) do
       event[key] = value
     end
-    return t.run_department("departments/implement/main.lua", {
+    return run_department("departments/implement/main.lua", {
       queue = event.queue,
       payload = event.payload,
       attempt = event.attempt,
@@ -461,7 +474,7 @@ function M.new(deps)
       proposal_id = "github-devloop/issue/owner/repo/42",
       version = reviewing().version,
     }, "def456")
-    return t.run_department("departments/observe_pr/main.lua", {
+    return run_department("departments/observe_pr/main.lua", {
       queue = "github-proxy.github_entity_changed",
       payload = payload,
     }, run_opts)
@@ -469,7 +482,7 @@ function M.new(deps)
 
   local function run_review_pr(payload, run_opts)
     mocks.mock_pr_origin_from_cached(payload, payload and (payload.head_sha or payload.reviewed_head_sha) or "def456")
-    return t.run_department("departments/review_pr/main.lua", {
+    return run_department("departments/review_pr/main.lua", {
       queue = "devloop_reviewing",
       payload = payload,
     }, run_opts)
@@ -479,7 +492,7 @@ function M.new(deps)
     mock_branch_config_env()
     local _, _, _, head_sha = devloop_base.parse_pr_review_proposal_id(payload.proposal_id)
     mocks.mock_pr_origin_from_cached({ proposal_id = "github-devloop/issue/owner/repo/42", version = reviewing().version }, head_sha)
-    return t.run_department("departments/review_result/main.lua", {
+    return run_department("departments/review_result/main.lua", {
       queue = "consensus.consensus_reached",
       payload = payload,
     }, run_opts)
@@ -510,7 +523,7 @@ function M.new(deps)
         labels = pending and pending.labels or {},
       }, "headRefName,headRefOid,baseRefName,state,comments,headRepository,headRepositoryOwner,isCrossRepository")
     end
-    return t.run_department("departments/fix/main.lua", {
+    return run_department("departments/fix/main.lua", {
       queue = "devloop_fixing",
       payload = payload,
     }, run_opts)
@@ -520,7 +533,7 @@ function M.new(deps)
     mock_branch_config_env()
     local _, _, _, head_sha = devloop_base.parse_pr_review_proposal_id(payload.proposal_id)
     mocks.mock_pr_origin_from_cached({ proposal_id = "github-devloop/issue/owner/repo/42", version = reviewing().version }, head_sha)
-    return t.run_department("departments/review_loop/main.lua", {
+    return run_department("departments/review_loop/main.lua", {
       queue = "consensus.consensus_converge",
       payload = payload,
     }, run_opts)
@@ -528,7 +541,7 @@ function M.new(deps)
 
   local function run_review_meta(payload, run_opts)
     mocks.mock_pr_origin_from_cached(payload, "def456")
-    return t.run_department("departments/review_meta/main.lua", {
+    return run_department("departments/review_meta/main.lua", {
       queue = "devloop_review_meta",
       payload = payload,
     }, run_opts)
@@ -553,7 +566,7 @@ function M.new(deps)
         })
       end
     end
-    return t.run_department("departments/merge/main.lua", {
+    return run_department("departments/merge/main.lua", {
       queue = "devloop_merge_ready",
       payload = payload,
     }, run_opts)
