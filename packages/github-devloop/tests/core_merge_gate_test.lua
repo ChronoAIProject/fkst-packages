@@ -237,6 +237,21 @@ return {
     t.eq(classification.reason, "own-ci-red")
   end,
 
+  test_configured_required_checks_do_not_narrow_platform_default = function()
+    mock_check_runs('{"total_count":2,"check_runs":[{"name":"fkst-host-policy","status":"completed","conclusion":"success","head_sha":"def456"},{"name":"fast-gates","status":"completed","conclusion":"success","head_sha":"def456"}]}\n')
+    t.mock_command(config.read_env_command("FKST_GITHUB_REQUIRED_CHECK_RUNS"), {
+      stdout = "fkst-host-policy,fast-gates",
+      stderr = "",
+      exit_code = 0,
+    })
+    local ok, reason = core.evaluate_ci_status_gate(pr({ status_check_rollup = {} }), {
+      repo = "owner/repo",
+      proposal_id = "github-devloop/issue/owner/repo/42",
+    })
+    t.eq(ok, false)
+    t.eq(reason, "missing-status-rollup")
+  end,
+
   test_empty_rollup_fallback_pending_required_commit_check_run = function()
     mock_check_runs('{"total_count":1,"check_runs":[{"name":"test","status":"in_progress","conclusion":null}]}\n')
     local ok, reason = core.evaluate_ci_status_gate(pr({ status_check_rollup = {} }), {

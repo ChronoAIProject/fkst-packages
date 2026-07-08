@@ -78,7 +78,21 @@ local function required_check_run_name_list(required_names)
   if type(required_names) ~= "table" or #required_names == 0 then
     return default_required_check_run_names
   end
-  return required_names
+  local names = {}
+  local seen = {}
+  for _, name in ipairs(default_required_check_run_names) do
+    local text = tostring(name)
+    table.insert(names, text)
+    seen[text] = true
+  end
+  for _, name in ipairs(required_names) do
+    local text = tostring(name)
+    if not seen[text] then
+      table.insert(names, text)
+      seen[text] = true
+    end
+  end
+  return names
 end
 
 local function required_check_run_name_set(required_names)

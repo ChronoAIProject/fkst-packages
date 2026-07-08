@@ -31,16 +31,17 @@ local check_run_head_sha = check_runs.check_run_head_sha
 local check_run_name = check_runs.check_run_name
 local check_run_state = check_runs.check_run_state
 local parse_commit_check_runs = check_runs.parse_commit_check_runs
-local default_required_check_run_names = check_runs.default_required_check_run_names
+local normalize_required_check_run_names = check_runs.required_check_run_names
 
 local function required_check_run_names()
+  local configured_names = nil
   if type(opts) == "table" and type(opts.required_check_run_names) == "function" then
     local names = opts.required_check_run_names()
     if type(names) == "table" and #names > 0 then
-      return names
+      configured_names = names
     end
   end
-  return default_required_check_run_names
+  return normalize_required_check_run_names(configured_names)
 end
 
 local function log_check_runs_fallback(M, opts, repo, head_sha, runs, reason, required_names)
