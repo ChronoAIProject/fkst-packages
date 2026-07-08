@@ -2,6 +2,24 @@ local M = {}
 
 local gh_argv = require("testkit.gh_argv_mock")
 
+local function mock_author_policy_env(t)
+  t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+    stdout = "fkst-test-bot",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', {
+    stdout = "fkst-test-bot,ElonSG",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', {
+    stdout = "trusted-human",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function has_value(values, expected)
   for _, value in ipairs(values or {}) do
     if value == expected then
@@ -17,6 +35,7 @@ function M.new(deps)
   local t = deps.t or fkst.test
 
   gh_argv.install(t, core)
+  mock_author_policy_env(t)
 
   local function source_ref()
     return {
@@ -84,6 +103,9 @@ function M.new(deps)
     reached = reached,
     unresolved = unresolved,
     argv_rendered = gh_argv.argv_rendered,
+    mock_author_policy_env = function()
+      mock_author_policy_env(t)
+    end,
   }
 end
 
