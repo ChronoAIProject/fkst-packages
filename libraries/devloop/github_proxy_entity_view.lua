@@ -62,7 +62,7 @@ local function sanitize_cache_segment(value, allow_slash)
 end
 
 local function entity_view_cache_key(repo, kind, number)
-  return "github-proxy/view/"
+  return "github-proxy/view-v2/"
     .. sanitize_cache_segment(repo, true)
     .. "/"
     .. sanitize_cache_segment(kind, false)
@@ -482,7 +482,7 @@ function C.gh_exec_cached(cmd, cache_key, ttl_seconds, exec)
   return result
 end
 
--- Readable cache key for an opt-in scan read: github-devloop/ghread/<variant>/<repo>/<number>.
+-- Readable cache key for an opt-in scan read: github-devloop/ghread-v2/<variant>/<repo>/<number>.
 function C.gh_read_cache_key(variant, repo, number)
   return "github-devloop/ghread-v2/"
     .. sanitize_cache_segment(variant, false)

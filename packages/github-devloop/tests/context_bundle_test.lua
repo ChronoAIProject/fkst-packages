@@ -75,8 +75,8 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "v1"
 
-    t.eq(context_bundle.context_bundle_key(proposal_id, version), "github-devloop/context-bundle/github-devloop/issue/owner/repo/42/v1")
-    t.eq(context_bundle.context_bundle_manifest_key(proposal_id, version), "github-devloop/context-bundle-manifest/github-devloop/issue/owner/repo/42/v1")
+    t.eq(context_bundle.context_bundle_key(proposal_id, version), "github-devloop/context-bundle-v2/github-devloop/issue/owner/repo/42/v1")
+    t.eq(context_bundle.context_bundle_manifest_key(proposal_id, version), "github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/v1")
   end,
 
   test_context_bundle_files_round_trip_from_different_cwd = function()

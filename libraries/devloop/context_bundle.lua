@@ -54,8 +54,8 @@ local max_bundle_file_len = 10 * 1024 * 1024
 local max_context_cache_key_len = 180
 local notice_file_name = "UNTRUSTED-NOTICE.txt"
 local risk_file_name = "risk.txt"
-local context_bundle_cache_prefix = "github-devloop/context-bundle/"
-local context_bundle_manifest_cache_prefix = "github-devloop/context-bundle-manifest/"
+local context_bundle_cache_prefix = "github-devloop/context-bundle-v2/"
+local context_bundle_manifest_cache_prefix = "github-devloop/context-bundle-manifest-v2/"
 local stale_generation_context_error_class = "stale_generation_context"
 
 local function runtime_root(exec)

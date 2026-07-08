@@ -44,7 +44,7 @@ local function sanitize_cache_segment(value, allow_slash)
 end
 
 local function issue_view_cache_key(repo, number)
-  return "github-proxy/view/"
+  return "github-proxy/view-v2/"
     .. sanitize_cache_segment(repo, true)
     .. "/issue/"
     .. sanitize_cache_segment(number, false)

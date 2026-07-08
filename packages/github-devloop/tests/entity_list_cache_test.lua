@@ -20,7 +20,7 @@ return {
     local second = entity_list_cache.entity_list_cache_key("owner/repo", "issue", "open", "2026-06-03T01:02:04Z")
     local missing = entity_list_cache.entity_list_cache_key("owner/repo", "issue", "open", nil)
 
-    t.is_true(first:find("^github%-devloop/entity%-list/owner/repo/issue/open/poll%-") ~= nil)
+    t.is_true(first:find("^github%-devloop/entity%-list%-v2/owner/repo/issue/open/poll%-") ~= nil)
     t.eq(first == second, false)
     t.eq(missing, nil)
   end,

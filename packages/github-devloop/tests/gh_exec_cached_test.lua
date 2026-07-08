@@ -13,7 +13,7 @@ local MULTILINE = 'line1\nline2\n{"k":"v","n":2}\n'
 
 return {
   test_second_call_within_ttl_returns_cached_without_re_exec = function()
-    local key = "github-devloop/ghread/unittest/owner/repo/9001"
+    local key = "github-devloop/ghread-v2/unittest/owner/repo/9001"
     cache_set(key, "")
     local calls = 0
     local function exec()
@@ -30,7 +30,7 @@ return {
   end,
 
   test_failed_read_is_not_cached = function()
-    local key = "github-devloop/ghread/unittest/owner/repo/9002"
+    local key = "github-devloop/ghread-v2/unittest/owner/repo/9002"
     cache_set(key, "")
     local calls = 0
     local function exec()
@@ -44,7 +44,7 @@ return {
   end,
 
   test_expired_entry_refetches = function()
-    local key = "github-devloop/ghread/unittest/owner/repo/9003"
+    local key = "github-devloop/ghread-v2/unittest/owner/repo/9003"
     -- Seed an entry whose expiry epoch (1) is far in the past.
     cache_set(key, "1\nstale-body")
     local calls = 0
@@ -60,7 +60,7 @@ return {
   test_read_cache_key_encodes_variant_and_keeps_repo_path = function()
     t.eq(
       require("devloop.github_proxy_entity_view").gh_read_cache_key("intake-scan", "owner/repo", 42),
-      "github-devloop/ghread/intake-scan/owner/repo/42"
+      "github-devloop/ghread-v2/intake-scan/owner/repo/42"
     )
   end,
 }
