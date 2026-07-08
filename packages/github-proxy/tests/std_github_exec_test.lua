@@ -82,6 +82,17 @@ return {
     assert(out.stdout == "ok")
   end,
 
+  test_exec_requires_declared_stdout_policy = function()
+    local handle = gh.new(function(_opts)
+      return { stdout = "ok", stderr = "", exit_code = 0 }
+    end)
+    local ok, err = pcall(function()
+      return handle._exec({ "gh", "api", "z" }, 10, "ctx")
+    end)
+    assert(ok == false)
+    assert(tostring(err):find("missing or unknown stdout policy", 1, true) ~= nil)
+  end,
+
   test_content_json_requires_author_policy = function()
     local handle = gh.new(function(_opts)
       return { stdout = issue_stdout(), stderr = "", exit_code = 0 }
@@ -105,6 +116,23 @@ return {
     )
     assert(out.stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
     assert(out.content_redacted == true)
+  end,
+
+  test_non_content_policies_do_not_filter_stdout = function()
+    local raw = '{"number":42,"title":"attack","body":"attack","author":{"login":"mallory"}}'
+    local handle = gh.new(function(_opts)
+      return { stdout = raw, stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = content_filter.author_policy_from_logins({ "fkst-test-bot" }) })
+    for _, policy in ipairs({
+      stdout_policy.plain_text(),
+      stdout_policy.trusted_metadata_json(),
+      stdout_policy.write_response(),
+      stdout_policy.no_stdout(),
+    }) do
+      local out = handle._exec({ "gh", "api", "repos/owner/repo/issues/42" }, 10, "ctx", policy)
+      assert(out.stdout == raw)
+      assert(out.content_redacted == nil)
+    end
   end,
 
   test_github_exec_uses_argv_without_shell_fields = function()

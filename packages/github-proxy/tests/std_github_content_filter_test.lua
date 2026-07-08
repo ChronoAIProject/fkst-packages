@@ -76,6 +76,21 @@ return {
     assert_marker(decoded[1][2].body, "mallory")
   end,
 
+  test_shape_fidelity_preserves_empty_arrays_null_large_ids_unicode_and_slurp = function()
+    local input = '[[],[{"id":' .. BIG_ID .. ',"body":null,"title":"hello ☃","author":{"login":"trusted"},"labels":[]},{"id":2,"body":"秘密","user":{"login":"mallory"},"comments":[]}]]'
+    local out = cf.filter_gh_content_json(input, wl("trusted"), {})
+    local decoded = decode(out)
+    t.eq(#decoded, 2)
+    t.eq(#decoded[1], 0)
+    t.eq(#decoded[2], 2)
+    t.eq(#decoded[2][1].labels, 0)
+    t.is_nil(decoded[2][1].body)
+    t.eq(decoded[2][1].title, "hello ☃")
+    t.is_true(out:find(BIG_ID, 1, true) ~= nil)
+    t.eq(#decoded[2][2].comments, 0)
+    assert_marker(decoded[2][2].body, "mallory")
+  end,
+
   test_issue_and_pr_list_redacts_authored_prose_in_arrays = function()
     local input = '[{"number":1,"title":"trusted","body":null,"author":{"login":"trusted"}},{"number":2,"title":"bad","body":"bad body","user":{"login":"mallory"},"labels":[]}]'
     local out = cf.filter_gh_content_json(input, wl("trusted"), {})

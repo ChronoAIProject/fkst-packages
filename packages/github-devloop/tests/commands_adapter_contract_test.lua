@@ -2,6 +2,7 @@ local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
 local gh_exec_mod = require("devloop.gh_exec")
+local content_filter = require("forge.github.content_filter")
 local stdout_policy = require("forge.github.stdout_policy")
 local github = require("forge.github").production_handle
 
@@ -72,6 +73,60 @@ return {
     t.eq(calls[1].timeout, 34)
     t.is_nil(calls[1].cmd)
     t.is_nil(calls[1].rate_pool)
+  end,
+
+  test_generic_gh_exec_requires_declared_stdout_policy = function()
+    local ok, err = pcall(function()
+      gh_exec_mod.gh_exec(
+        { argv = { "gh", "api", "repos/owner/repo/issues/42" }, timeout = 34 },
+        nil,
+        function()
+          return { stdout = "{}", stderr = "", exit_code = 0 }
+        end
+      )
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("missing or unknown stdout policy", 1, true) ~= nil)
+  end,
+
+  test_generic_gh_exec_filters_content_json_policy = function()
+    local result = gh_exec_mod.gh_exec(
+      { argv = { "gh", "api", "repos/owner/repo/issues/42" }, timeout = 34 },
+      nil,
+      function()
+        return {
+          stdout = '{"number":42,"title":"attack","body":"attack","author":{"login":"mallory"},"comments":[]}',
+          stderr = "",
+          exit_code = 0,
+        }
+      end,
+      stdout_policy.content_json("issue_view"),
+      content_filter.author_policy_from_logins({ "fkst-test-bot" })
+    )
+    t.is_true(result.stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
+    t.eq(result.content_redacted, true)
+  end,
+
+  test_generic_gh_exec_leaves_non_content_stdout_untouched = function()
+    local raw = '{"number":42,"title":"attack","body":"attack","author":{"login":"mallory"}}'
+    for _, policy in ipairs({
+      stdout_policy.plain_text(),
+      stdout_policy.trusted_metadata_json(),
+      stdout_policy.write_response(),
+      stdout_policy.no_stdout(),
+    }) do
+      local result = gh_exec_mod.gh_exec(
+        { argv = { "gh", "api", "repos/owner/repo/issues/42" }, timeout = 34 },
+        nil,
+        function()
+          return { stdout = raw, stderr = "", exit_code = 0 }
+        end,
+        policy,
+        content_filter.author_policy_from_logins({ "fkst-test-bot" })
+      )
+      t.eq(result.stdout, raw)
+      t.is_nil(result.content_redacted)
+    end
   end,
 
   test_dependency_graphql_uses_github_argv_adapter = function()
