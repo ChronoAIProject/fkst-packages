@@ -503,17 +503,17 @@ end
 local function gh_issue_list_recent_closed_command(repo, limit)
   return "gh issue list --repo " .. shell_single_quote(repo)
     .. " --state closed --limit " .. tostring(math.floor(tonumber(limit or 30)))
-    .. " --json number,title,closedAt,labels"
+    .. " --json number,title,closedAt,labels,author"
 end
 
 local function gh_issue_list_board_digest_command(repo)
   return "gh issue list --repo " .. shell_single_quote(repo)
-    .. " --state open --limit 100 --json number,title,labels"
+    .. " --state open --limit 100 --json number,title,labels,author"
 end
 
 local function gh_pr_list_board_digest_command(repo)
   return "gh pr list --repo " .. shell_single_quote(repo)
-    .. " --state open --limit 100 --json number,title,labels"
+    .. " --state open --limit 100 --json number,title,labels,author"
 end
 
 local function gh_issue_list_observe_command(repo, label, page, include_headers)

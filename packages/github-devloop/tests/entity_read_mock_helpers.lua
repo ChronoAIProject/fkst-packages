@@ -339,11 +339,12 @@ end
 local function pr_list_item_json(pr)
   local item = type(pr) == "table" and pr or { number = pr }
   return string.format(
-    '{"number":%d,"title":%s,"state":%s,"labels":[%s],"base":{"ref":%s},"head":{"ref":%s,"sha":%s}}',
+    '{"number":%d,"title":%s,"state":%s,"labels":[%s],"author":{"login":%s},"base":{"ref":%s},"head":{"ref":%s,"sha":%s}}',
     tonumber(item.number) or 7,
     encode_json_value(item.title or "PR"),
     encode_json_value(item.state or "open"),
     list_labels_json(item.labels),
+    encode_json_value(item.author_login or "fkst-test-bot"),
     encode_json_value(item.base_branch or "dev"),
     encode_json_value(item.head or "devloop-owner-repo-42-01HY"),
     encode_json_value(item.head_sha or "def456")

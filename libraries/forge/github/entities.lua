@@ -347,11 +347,11 @@ function M.install(handle)
     if bounded_limit == nil or bounded_limit < 1 or bounded_limit > 100 then
       error("forge.github.entities: invalid closed issue list limit")
     end
-    return handle.issue_list_cli(repo, "closed", math.floor(bounded_limit), "number,title,closedAt,labels", timeout)
+    return handle.issue_list_cli(repo, "closed", math.floor(bounded_limit), "number,title,closedAt,labels,author", timeout)
   end
 
   function handle.issue_list_board_digest(repo, timeout)
-    return handle.issue_list_cli(repo, "open", 100, "number,title,labels", timeout)
+    return handle.issue_list_cli(repo, "open", 100, "number,title,labels,author", timeout)
   end
 
   function handle.pr_list(repo, timeout)
@@ -390,7 +390,7 @@ function M.install(handle)
   end
 
   function handle.pr_list_board_digest(repo, timeout)
-    return handle.pr_list_cli(repo, "open", 100, "number,title,labels", timeout)
+    return handle.pr_list_cli(repo, "open", 100, "number,title,labels,author", timeout)
   end
 
   function handle.pr_list_head(repo, branch, base_branch, timeout)

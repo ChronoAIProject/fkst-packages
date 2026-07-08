@@ -704,16 +704,13 @@ function M.new(deps)
   end
 
   local function mock_bot_env(value)
-    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-      stdout = value or "fkst-test-bot",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-      stdout = value or "fkst-test-bot",
-      stderr = "",
-      exit_code = 0,
-    })
+    for _ = 1, 8 do
+      t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+        stdout = value or "fkst-test-bot",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
     t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
       stdout = "dev",
       stderr = "",

@@ -194,7 +194,7 @@ return {
     t.is_true(#bundle_key <= core._max_key_len)
     t.eq(strings.is_path_safe_key(manifest_key, core._max_key_len), true)
     t.eq(strings.is_path_safe_key(bundle_key, core._max_key_len), true)
-    t.is_true(manifest_key:find("^github%-devloop/context%-bundle%-manifest/") ~= nil)
-    t.is_true(bundle_key:find("^github%-devloop/context%-bundle/") ~= nil)
+    t.is_true(manifest_key:find("^github%-devloop/context%-bundle%-manifest%-v2/") ~= nil)
+    t.is_true(bundle_key:find("^github%-devloop/context%-bundle%-v2/") ~= nil)
   end,
 }
