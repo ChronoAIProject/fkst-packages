@@ -143,7 +143,7 @@ end
 
 local function find_raise(raises, queue)
   for _, raised in ipairs(raises or {}) do
-    if raised.queue == queue then
+    if raised.queue == queue or raised.queue == "github-devloop." .. queue then
       return raised
     end
   end
@@ -151,6 +151,7 @@ local function find_raise(raises, queue)
 end
 
 local function run_probe(payload, opts)
+  devloop_base.configure_trusted_bot_login("fkst-test-bot")
   return t.run_department("departments/test_board_digest_probe/main.lua", {
     queue = "board_digest_probe",
     payload = payload,

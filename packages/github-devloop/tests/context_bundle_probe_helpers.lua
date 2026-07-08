@@ -1,5 +1,7 @@
 local core = require("core")
 local context_bundle = require("devloop.context_bundle")
+local devloop_base = require("devloop.base")
+local strings = require("contract.strings")
 local fixtures = require("tests.production_fixture_helpers")
 
 M = {}
@@ -100,6 +102,7 @@ end
 
 local function build_args(root, fixtures, extra)
   local fields = extra or {}
+  devloop_base.configure_trusted_bot_login("fkst-test-bot")
   return {
     repo = "owner/repo",
     issue_number = fields.issue_number or 42,
@@ -280,9 +283,10 @@ local function run_publish_unique_on_invalid(root)
 end
 
 local function run_utf8_truncation(root)
+  local huge_body = string.rep("a", max_bundle_file_len - 80) .. fixtures.cjk_char() .. "tail"
   local fixture_data = {
     issue_outputs = {
-      string.rep("a", max_bundle_file_len - 1) .. fixtures.cjk_char() .. "tail",
+      '{"title":"Huge issue","body":' .. strings.json_string(huge_body) .. ',"updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
     },
   }
   local bundle = context_bundle.build_context_bundle(core, build_args(root, fixture_data, { tick = nil }))

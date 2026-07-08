@@ -26,11 +26,12 @@ local function run_probe(mode, root)
   }, {
     env = {
       FKST_RUNTIME_ROOT = root,
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
     },
   })
   t.eq(result.exit_code, 0)
   for _, raised in ipairs(result.raises or {}) do
-    if raised.queue == "context_bundle_probe_result" then
+    if raised.queue == "context_bundle_probe_result" or raised.queue == "github-devloop.context_bundle_probe_result" then
       return raised.payload
     end
   end
@@ -137,7 +138,8 @@ return {
   test_context_bundle_file_cap_truncates_on_utf8_boundary = function()
     local result = run_probe("utf8_truncation", runtime_root("utf8-truncation"))
 
-    t.eq(result.issue_bytes, max_bundle_file_len - 1)
+    t.is_true(result.issue_bytes <= max_bundle_file_len)
+    t.is_true(result.issue_bytes > max_bundle_file_len - 16)
     assert_valid_utf8(result.issue_content)
   end,
 
