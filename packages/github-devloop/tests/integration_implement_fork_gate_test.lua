@@ -126,9 +126,12 @@ return {
   test_untrusted_authored_noncanonical_fork_marker_is_redacted_and_ignored = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      {
+        body = core.state_marker(event.proposal_id, "ready", event.dedup_key),
+        author_login = "loning",
+      },
     }, {
-      author_login = "mallory",
+      author_login = "loning",
       body = forks.fork_issue_body("owner/repo", original_issue, "human", entity_lib.issue_source_ref("owner/repo", original_issue)),
     })
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", original_issue), {
