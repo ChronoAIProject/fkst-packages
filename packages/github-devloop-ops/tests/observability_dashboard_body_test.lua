@@ -631,11 +631,22 @@ return {
     t.is_true(dashboard.body:find("false-consensus-rate=1/1 (100%)", 1, true) ~= nil)
   end,
 
-  test_dashboard_renders_consensus_debate_phases_from_core_helper = function()
+  test_dashboard_renders_consensus_debate_phases_from_consensus_core_helper = function()
     mock_dashboard_env()
-    local previous = core.debate_phase_names
-    core.debate_phase_names = function()
-      return { "opening-case", "cross-exam", "final-ruling" }
+    local previous_read = file.read
+    file.read = function(path)
+      if path == "packages/consensus/core.lua" then
+        return [[
+local M = {}
+
+function M.debate_phase_names()
+  return { "opening-case", "cross-exam", "final-ruling" }
+end
+
+return M
+]]
+      end
+      return previous_read(path)
     end
 
     local ok, dashboard = pcall(function()
@@ -647,7 +658,7 @@ return {
         now_seconds = 1770000000,
       })
     end)
-    core.debate_phase_names = previous
+    file.read = previous_read
     if not ok then
       error(dashboard, 0)
     end

@@ -1,5 +1,4 @@
 local saga_conformance = require("devloop.saga_conformance")
-local consensus_debate = require("contract.consensus_debate")
 local contract_time = require("contract.time")
 local M
 
@@ -12,8 +11,85 @@ M = {
   saga_conformance_errors = saga_conformance_errors,
 }
 
+local consensus_core_paths = {
+  "packages/consensus/core.lua",
+  ".fkst/local-packages/consensus/core.lua",
+  "../consensus/core.lua",
+}
+
+local function read_consensus_core_source()
+  for _, path in ipairs(consensus_core_paths) do
+    if file.exists(path) then
+      return file.read(path), path
+    end
+  end
+  error("github-devloop-ops: consensus-core-unavailable: packages/consensus/core.lua is not readable")
+end
+
+local function consensus_core_require(name)
+  if name == "workflow.env" then
+    return {
+      read_env = function()
+        return function()
+          return nil
+        end
+      end,
+    }
+  end
+  if name == "workflow.codex" then
+    return {}
+  end
+  if name == "contract.error_facts" then
+    return {}
+  end
+  if name == "contract.strings" then
+    return {}
+  end
+  if name == "core.prompt_rendering" then
+    return {
+      install = function()
+      end,
+    }
+  end
+  error("github-devloop-ops: consensus-core-require-denied: " .. tostring(name))
+end
+
+local function load_consensus_core(source, path)
+  local env = {
+    require = consensus_core_require,
+  }
+  setmetatable(env, { __index = _G })
+  local chunk, err = load(source, "@" .. tostring(path), "t", env)
+  if chunk == nil then
+    error("github-devloop-ops: consensus-core-load-failed: " .. tostring(err))
+  end
+  local ok, module = pcall(chunk)
+  if not ok then
+    error("github-devloop-ops: consensus-core-load-failed: " .. tostring(module))
+  end
+  if type(module) ~= "table" or type(module.debate_phase_names) ~= "function" then
+    error("github-devloop-ops: consensus-core-helper-missing: debate_phase_names is unavailable")
+  end
+  return module
+end
+
 function M.debate_phase_names()
-  return consensus_debate.debate_phase_names()
+  local source, path = read_consensus_core_source()
+  local phases = load_consensus_core(source, path).debate_phase_names()
+  if type(phases) ~= "table" then
+    error("github-devloop-ops: consensus-core-helper-invalid: debate_phase_names must return a table")
+  end
+  local out = {}
+  for _, phase in ipairs(phases) do
+    if type(phase) ~= "string" or phase == "" then
+      error("github-devloop-ops: consensus-core-helper-invalid: debate phase names must be non-empty strings")
+    end
+    table.insert(out, phase)
+  end
+  if #out == 0 then
+    error("github-devloop-ops: consensus-core-helper-invalid: debate_phase_names returned no phases")
+  end
+  return out
 end
 
 
