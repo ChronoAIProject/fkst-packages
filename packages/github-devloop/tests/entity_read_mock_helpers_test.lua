@@ -10,7 +10,9 @@ local function decode(text)
 end
 
 local function github()
-  return require("forge.github").new(exec_argv)
+  return require("forge.github").new(exec_argv, {
+    trusted_author_policy = require("forge.github.content_filter").test_disabled_author_policy(),
+  })
 end
 
 local function first(value)

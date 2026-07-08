@@ -20,19 +20,14 @@ local decode_comments_json = function(stdout) return github_view.decode_comments
 local max_cache_key_segment_len = 120
 
 local function author_policy_for_exec(exec)
-  if type(fkst) == "table" and type(fkst.test) == "table" then
-    return require("forge.github.content_filter").test_disabled_author_policy()
-  end
-  return github_author_policy.from_env(exec or exec_argv)
+  return github_author_policy.for_exec(exec or exec_argv)
 end
 
 local function github()
   if type(exec_argv) ~= "function" then
     error("github-devloop: GitHub adapter requires exec_argv")
   end
-  return require("forge.github").new(exec_argv, {
-    trusted_author_policy = function() return author_policy_for_exec(exec_argv) end,
-  })
+  return require("forge.github").new(exec_argv, github_author_policy.github_options(exec_argv))
 end
 
 local function sanitize_cache_segment(value, allow_slash)

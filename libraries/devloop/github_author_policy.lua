@@ -30,4 +30,19 @@ function M.from_env(exec)
   return M.from_logins(logins)
 end
 
+function M.for_exec(exec)
+  if type(fkst) == "table" and type(fkst.test) == "table" then
+    return content_filter.test_disabled_author_policy()
+  end
+  return M.from_env(exec or exec_argv)
+end
+
+function M.github_options(exec)
+  return {
+    trusted_author_policy = function()
+      return M.for_exec(exec)
+    end,
+  }
+end
+
 return M

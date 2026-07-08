@@ -3,6 +3,7 @@ local devloop_base = require("devloop.base")
 local C = {}
 local github_view = require("forge.github_view")
 local github_handle = nil
+local github_author_policy = require("devloop.github_author_policy")
 
 function C.github(_M)
   if github_handle ~= nil then
@@ -11,7 +12,7 @@ function C.github(_M)
   if type(exec_argv) ~= "function" then
     error("github-devloop: GitHub adapter requires exec_argv")
   end
-  github_handle = require("forge.github").new(exec_argv)
+  github_handle = require("forge.github").new(exec_argv, github_author_policy.github_options(exec_argv))
   return github_handle
 end
 
