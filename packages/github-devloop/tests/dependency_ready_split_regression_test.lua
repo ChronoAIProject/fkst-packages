@@ -171,21 +171,21 @@ local function ready_at(inner_version)
 end
 
 local function run_observe()
-  return t.run_department("departments/observe_issue/main.lua", {
+  return h.run_department("departments/observe_issue/main.lua", {
     queue = "github-proxy.github_entity_changed",
     payload = h.issue(),
   }, h.opts("ready-split-regression-observe"))
 end
 
 local function run_observe_with_issue(event)
-  return t.run_department("departments/observe_issue/main.lua", {
+  return h.run_department("departments/observe_issue/main.lua", {
     queue = "github-proxy.github_entity_changed",
     payload = event,
   }, h.opts("ready-split-regression-observe-visible"))
 end
 
 local function run_implement(payload)
-  return t.run_department("departments/implement/main.lua", {
+  return h.run_department("departments/implement/main.lua", {
     queue = "devloop_ready",
     payload = payload,
   }, h.opts("ready-split-regression-implement"))
@@ -225,7 +225,7 @@ local function ready_handoff_comment_raise(raises)
 end
 
 local function run_comment_handoff_from_request(request, comment_id, name)
-  return t.run_department("departments/comment_handoff/main.lua", {
+  return h.run_department("departments/comment_handoff/main.lua", {
     queue = "github-proxy.github_comment_written",
     payload = {
       schema = "github-proxy.comment-written.v1",

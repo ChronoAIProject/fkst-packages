@@ -274,7 +274,7 @@ function M.new(deps)
         exit_code = 0,
       })
     end
-    return helpers.t.run_department("departments/comment_handoff/main.lua", {
+    return helpers.run_department("departments/comment_handoff/main.lua", {
       queue = "github-proxy.github_comment_written",
       payload = {
         schema = "github-proxy.comment-written.v1",

@@ -597,6 +597,7 @@ function M.new(deps)
     decompose_event = decompose_event,
     merge_ready = merge_ready,
     run_observe = run_observe,
+    run_department = run_department,
     run_result = run_result,
     run_result_expecting_failure = run_result_expecting_failure,
     mark_result_read_failure = mark_result_read_failure,
