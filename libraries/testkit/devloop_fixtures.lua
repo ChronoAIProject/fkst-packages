@@ -620,6 +620,7 @@ function M.new(deps)
     merge_ready = merge_ready,
     run_observe = run_observe,
     run_department = run_department,
+    mock_author_policy_env = mock_author_policy_env,
     run_result = run_result,
     run_result_expecting_failure = run_result_expecting_failure,
     mark_result_read_failure = mark_result_read_failure,

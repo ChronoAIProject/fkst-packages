@@ -469,7 +469,9 @@ function C.gh_exec_cached(cmd, cache_key, ttl_seconds, exec)
       nil,
       exec,
       stdout_policy.content_json("issue_view"),
-      author_policy_for_exec()
+      function()
+        return author_policy_for_exec()
+      end
     )
   end
   if type(result) == "table" and tonumber(result.exit_code) == 0 then

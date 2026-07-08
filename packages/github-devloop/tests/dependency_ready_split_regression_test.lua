@@ -73,7 +73,7 @@ local function issue_view_json(labels, comments, state)
     table.insert(rendered_labels, string.format('{"name":"%s"}', encode_json_string(label)))
   end
   return string.format(
-    '{"title":"Implement dependency split","state":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}]}\n',
+    '{"title":"Implement dependency split","state":"%s","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
     encode_json_string(state or "OPEN"),
     table.concat(rendered_labels, ","),
     issue_comments_json(comments)
@@ -122,7 +122,7 @@ local function mock_blocker_issue(issue_number, state_name)
     table.insert(comments, core.state_marker(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)))
   end
   t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
-    stdout = '{"state":"OPEN","comments":[' .. issue_comments_json(comments) .. ']}\n',
+    stdout = '{"state":"OPEN","comments":[' .. issue_comments_json(comments) .. '],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
   })

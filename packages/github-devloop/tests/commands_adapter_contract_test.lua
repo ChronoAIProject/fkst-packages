@@ -38,7 +38,7 @@ local function with_exec_argv(fn)
   local calls = {}
   exec_argv = function(spec)
     table.insert(calls, spec)
-    return { stdout = "", stderr = "", exit_code = 0 }
+    return { stdout = "{}", stderr = "", exit_code = 0 }
   end
   local ok, result = pcall(fn, calls)
   exec_argv = old_exec_argv
@@ -59,7 +59,7 @@ return {
     )
     t.eq(
       core.gh_issue_view_merge_cmd("owner/repo", 42),
-      "gh issue view '42' --repo 'owner/repo' --json title,labels,comments,state,assignees"
+      "gh issue view '42' --repo 'owner/repo' --json title,labels,comments,state,assignees,author"
     )
     t.eq(
       core.gh_pr_view_merge_cmd("owner/repo", 7),

@@ -47,9 +47,9 @@ local function exec_with_env(root, fixtures)
   local state = fixtures or {}
   state.calls = state.calls or {}
   state.issue_outputs = state.issue_outputs or {
-    '{"title":"Bundle issue","body":"Full issue body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
+    '{"title":"Bundle issue","body":"Full issue body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
   }
-  state.pr_output = state.pr_output or '{"title":"Bundle PR","body":"PR body","headRefName":"devloop-owner-repo-42","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-04T01:02:03Z","comments":[],"labels":[]}\n'
+  state.pr_output = state.pr_output or '{"title":"Bundle PR","body":"PR body","headRefName":"devloop-owner-repo-42","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-04T01:02:03Z","comments":[],"labels":[],"author":{"login":"fkst-test-bot"}}\n'
   state.diff_output = state.diff_output or "diff --git a/file.lua b/file.lua\n+return true\n"
   return function(cmd)
     local rendered = rendered_command(cmd)
@@ -197,8 +197,8 @@ end
 local function run_deleted_file(root)
   local fixtures = {
     issue_outputs = {
-      '{"title":"First issue","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
-      '{"title":"Second issue","body":"second","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"First issue","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
+      '{"title":"Second issue","body":"second","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
     },
   }
   local args = build_args(root, fixtures)
@@ -233,8 +233,8 @@ end
 local function run_publish_reuse(root)
   local fixtures = {
     issue_outputs = {
-      '{"title":"First publish","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
-      '{"title":"Second publish","body":"second","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"First publish","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
+      '{"title":"Second publish","body":"second","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
     },
   }
   local args = build_args(root, fixtures)
@@ -258,8 +258,8 @@ end
 local function run_publish_unique_on_invalid(root)
   local fixtures = {
     issue_outputs = {
-      '{"title":"First publish","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
-      '{"title":"Rebuilt issue","body":"rebuilt","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"First publish","body":"first","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
+      '{"title":"Rebuilt issue","body":"rebuilt","updatedAt":"2026-06-03T01:02:04Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
     },
   }
   local args = build_args(root, fixtures)
@@ -286,7 +286,7 @@ local function run_utf8_truncation(root)
   local huge_body = string.rep("a", max_bundle_file_len - 80) .. fixtures.cjk_char() .. "tail"
   local fixture_data = {
     issue_outputs = {
-      '{"title":"Huge issue","body":' .. strings.json_string(huge_body) .. ',"updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"Huge issue","body":' .. strings.json_string(huge_body) .. ',"updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
     },
   }
   local bundle = context_bundle.build_context_bundle(core, build_args(root, fixture_data, { tick = nil }))
@@ -343,12 +343,12 @@ local function run_stale_manifest_rebuild(root)
   local version = "owner/repo#issue#42@2026-06-03T01-02-03Z"
   local old_fixtures = {
     issue_outputs = {
-      '{"title":"Old issue","body":"old","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"Old issue","body":"old","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
     },
   }
   local fresh_fixtures = {
     issue_outputs = {
-      '{"title":"Fresh issue","body":"fresh","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[]}\n',
+      '{"title":"Fresh issue","body":"fresh","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
     },
   }
   local old_args = build_args(old_root, old_fixtures, { proposal_id = proposal_id, version = version })
