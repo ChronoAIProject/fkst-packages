@@ -129,6 +129,7 @@ function M.post_rebuttal_reached(proposal, p1_results, p2_results, verdict_mode,
       p1_verdicts = provenance.verdict_vector(p1_results),
       p2_verdicts = provenance.verdict_vector(p2_results),
       verified_moves = 0,
+      oracle_advisory = caps.oracle_advisory,
     }),
     cache = true,
   }

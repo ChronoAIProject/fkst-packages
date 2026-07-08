@@ -245,6 +245,26 @@ local function clean_verdict_vector(value)
   return vector
 end
 
+local function clean_oracle_advisory(value)
+  if value == nil then
+    return nil
+  end
+  if type(value) ~= "table" then
+    error("consensus: oracle-advisory-invalid: oracle advisory must be a table")
+  end
+  local addressed = tonumber(value.oracle_addressed)
+  if value.oracle_consulted ~= false then
+    error("consensus: oracle-consulted-invalid: oracle_consulted must be false for absent advisory")
+  end
+  if addressed == nil or addressed < 0 or addressed ~= math.floor(addressed) then
+    error("consensus: oracle-addressed-invalid: oracle_addressed must be a non-negative integer")
+  end
+  return {
+    oracle_consulted = false,
+    oracle_addressed = addressed,
+  }
+end
+
 local function normalized_angles(proposal)
   if type(proposal.angles) ~= "table" then
     return default_angles
@@ -705,6 +725,11 @@ function M.build_reached_payload(proposal, decision, angle_results, framing, pro
     if p2 ~= nil then
       payload.p2_verdicts = p2
     end
+    local oracle = clean_oracle_advisory(provenance.oracle_advisory)
+    if oracle ~= nil then
+      payload.oracle_consulted = oracle.oracle_consulted
+      payload.oracle_addressed = oracle.oracle_addressed
+    end
   end
   return payload
 end
@@ -740,6 +765,13 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results, fi
   end
   if type(options) == "table" and options.essence_stall == true then
     payload.essence_stall = true
+  end
+  if type(options) == "table" then
+    local oracle = clean_oracle_advisory(options.oracle_advisory)
+    if oracle ~= nil then
+      payload.oracle_consulted = oracle.oracle_consulted
+      payload.oracle_addressed = oracle.oracle_addressed
+    end
   end
   return payload
 end

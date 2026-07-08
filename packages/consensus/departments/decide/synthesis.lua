@@ -366,6 +366,7 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
         angle_results = p2_results,
         narrowed_question = "synthesis-parse-failed + Re-run synthesis after every Phase R result succeeds.",
         findings_record = "open:\nsynthesis-parse-failed",
+        oracle_advisory = caps.oracle_advisory,
       }
     end
     return {
@@ -375,6 +376,7 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
         p1_verdicts = provenance.verdict_vector(p1_results),
         p2_verdicts = provenance.verdict_vector(p2_results),
         verified_moves = parsed.verified_moves or 0,
+        oracle_advisory = caps.oracle_advisory,
       }),
       cache = true,
     }
@@ -386,6 +388,7 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
     narrowed_question = parsed.narrowed_question,
     findings_record = parsed.findings_record,
     essence_stall = parsed.essence_stall == true,
+    oracle_advisory = caps.oracle_advisory,
   }
 end
 

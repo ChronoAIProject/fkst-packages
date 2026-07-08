@@ -1,5 +1,6 @@
 local core = require("core")
 local convergence_identity = require("contract.convergence_identity")
+local oracle_advisory = require("departments.decide.oracle_advisory")
 local rebuttal = require("departments.decide.rebuttal")
 local synthesis = require("departments.decide.synthesis")
 local workflow_codex = require("workflow.codex")
@@ -73,183 +74,206 @@ local function spawn_angle(proposal, angle, runtime_root)
   return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle))
 end
 
-local function raise_converge(proposal, angle_results, narrowed_question, findings_record, essence_stall)
+local function raise_converge(proposal, angle_results, narrowed_question, findings_record, essence_stall, advisory)
   raise(
     "consensus_converge",
     core.build_converge_payload(proposal, narrowed_question, angle_results, findings_record, {
       essence_stall = essence_stall,
+      oracle_advisory = advisory,
     })
   )
 end
 
-local function decide(proposal)
-  local angle_results = {}
-  local handles = {}
-  local angles = core.angles(proposal)
-  local verdict_mode = core.verdict_mode(proposal)
-  for _, angle in ipairs(angles) do
-    local run_identity = codex_identity(proposal, "consensus", tostring(angle))
-    if workflow_codex.live_run_active(run_identity) then
-      defer_live_run(run_identity)
+local function default_consult_oracle(_request)
+  return nil
+end
+
+local function make_department(ports)
+  ports = ports or {}
+  local consult_oracle = ports.consult_oracle or default_consult_oracle
+
+  local function decide(proposal)
+    local angle_results = {}
+    local handles = {}
+    local angles = core.angles(proposal)
+    local verdict_mode = core.verdict_mode(proposal)
+    for _, angle in ipairs(angles) do
+      local run_identity = codex_identity(proposal, "consensus", tostring(angle))
+      if workflow_codex.live_run_active(run_identity) then
+        defer_live_run(run_identity)
+      end
     end
-  end
 
-  local runtime_root = read_runtime_root()
-  for _, angle in ipairs(angles) do
-    table.insert(handles, spawn_angle(proposal, angle, runtime_root))
-  end
-
-  local results = await_all(handles)
-  for index, angle in ipairs(angles) do
-    local parsed = nil
-    local result = results[index]
-    if type(result) == "table" and result.exit_code == 0 then
-      parsed = parse_angle_output(result.stdout, verdict_mode)
+    local runtime_root = read_runtime_root()
+    for _, angle in ipairs(angles) do
+      table.insert(handles, spawn_angle(proposal, angle, runtime_root))
     end
-    table.insert(angle_results, {
-      angle = angle,
-      verdict = parsed and parsed.verdict or nil,
-      reply = parsed and parsed.reply or nil,
-      blocking_gap = parsed and parsed.blocking_gap or nil,
-      stdout = type(result) == "table" and result.stdout or nil,
-      exit_code = type(result) == "table" and result.exit_code or nil,
-    })
-  end
 
-  local decision = aggregate(angle_results, verdict_mode)
-  if decision ~= nil then
-    return {
-      queue = "consensus_reached",
-      payload = build_reached_payload(proposal, decision, angle_results),
-      cache = true,
-    }
-  end
+    local results = await_all(handles)
+    for index, angle in ipairs(angles) do
+      local parsed = nil
+      local result = results[index]
+      if type(result) == "table" and result.exit_code == 0 then
+        parsed = parse_angle_output(result.stdout, verdict_mode)
+      end
+      table.insert(angle_results, {
+        angle = angle,
+        verdict = parsed and parsed.verdict or nil,
+        reply = parsed and parsed.reply or nil,
+        blocking_gap = parsed and parsed.blocking_gap or nil,
+        stdout = type(result) == "table" and result.stdout or nil,
+        exit_code = type(result) == "table" and result.exit_code or nil,
+      })
+    end
 
-  local rebuttal_results = angle_results
-  if rebuttal.can_run(angle_results) then
-    local rebuttal_handles = rebuttal.spawn_all({
-      proposal = proposal,
-      angle_results = angle_results,
-      runtime_root = runtime_root,
-      prepare_judgment_worktree = prepare_judgment_worktree,
-      codex_opts = codex_opts,
-      build_rebuttal_prompt = function(target_proposal, own_result, peer_results)
-        return core.build_rebuttal_prompt(target_proposal, own_result, peer_results)
+    local decision = aggregate(angle_results, verdict_mode)
+    if decision ~= nil then
+      return {
+        queue = "consensus_reached",
+        payload = build_reached_payload(proposal, decision, angle_results),
+        cache = true,
+      }
+    end
+
+    local rebuttal_results = angle_results
+    local advisory = nil
+    if rebuttal.can_run(angle_results) then
+      advisory = oracle_advisory.consult({
+        proposal = proposal,
+        p1_results = angle_results,
+      }, consult_oracle)
+      local rebuttal_handles = rebuttal.spawn_all({
+        proposal = proposal,
+        angle_results = angle_results,
+        runtime_root = runtime_root,
+        prepare_judgment_worktree = prepare_judgment_worktree,
+        codex_opts = codex_opts,
+        build_rebuttal_prompt = function(target_proposal, own_result, peer_results)
+          return core.build_rebuttal_prompt(target_proposal, own_result, peer_results)
+        end,
+        judgment_scratch_worktree = function(root, kind, identity)
+          return judgment_scratch_worktree(root, kind, identity)
+        end,
+        dispatch_codex = function(target_proposal, prompt, worktree, role, angle_lane)
+          return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane)
+        end,
+      })
+      local rebuttal_outputs = await_all(rebuttal_handles)
+      rebuttal_results = rebuttal.collect(angle_results, rebuttal_outputs, verdict_mode, {
+        parse_angle_output = function(stdout, mode)
+          return parse_angle_output(stdout, mode)
+        end,
+      })
+      local rebuttal_reached = rebuttal.post_rebuttal_reached(proposal, angle_results, rebuttal_results, verdict_mode, {
+        aggregate = function(items, mode)
+          return aggregate(items, mode)
+        end,
+        build_reached_payload = function(target_proposal, decision, results, framing, provenance)
+          return build_reached_payload(target_proposal, decision, results, framing, provenance)
+        end,
+        oracle_advisory = advisory,
+      })
+      if rebuttal_reached ~= nil then
+        return rebuttal_reached
+      end
+    end
+
+    local parsed = synthesis.parse_or_retry({
+      verdict_mode = verdict_mode,
+      p1_results = angle_results,
+      p2_results = rebuttal_results,
+      build_prompt = function(repair, prior_result)
+        return core.build_synthesis_prompt(proposal, angle_results, rebuttal_results, {
+          repair = repair,
+          prior_result = prior_result,
+        })
       end,
-      judgment_scratch_worktree = function(root, kind, identity)
-        return judgment_scratch_worktree(root, kind, identity)
-      end,
-      dispatch_codex = function(target_proposal, prompt, worktree, role, angle_lane)
-        return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane)
+      spawn_sync = function(_kind, prompt)
+        local repair = _kind == "synthesis-repair"
+        local worktree = prepare_judgment_worktree(
+          judgment_scratch_worktree(runtime_root, repair and "synthesis-repair" or "synthesis", proposal.dedup_key)
+        )
+        return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
+          sync = true,
+        })
       end,
     })
-    local rebuttal_outputs = await_all(rebuttal_handles)
-    rebuttal_results = rebuttal.collect(angle_results, rebuttal_outputs, verdict_mode, {
-      parse_angle_output = function(stdout, mode)
-        return parse_angle_output(stdout, mode)
-      end,
-    })
-    local rebuttal_reached = rebuttal.post_rebuttal_reached(proposal, angle_results, rebuttal_results, verdict_mode, {
-      aggregate = function(items, mode)
-        return aggregate(items, mode)
+    return synthesis.to_decision_result(proposal, angle_results, rebuttal_results, parsed, {
+      all_angles_succeeded = function(results)
+        return core.all_angles_succeeded(results)
       end,
       build_reached_payload = function(target_proposal, decision, results, framing, provenance)
         return build_reached_payload(target_proposal, decision, results, framing, provenance)
       end,
+      oracle_advisory = advisory,
     })
-    if rebuttal_reached ~= nil then
-      return rebuttal_reached
+  end
+
+  local function decision_done(event)
+    local proposal = event.payload or {}
+    if proposal.schema ~= "consensus.proposal.v1" then
+      log.warn("consensus: unsupported proposal schema")
+      return true
     end
-  end
-
-  local parsed = synthesis.parse_or_retry({
-    verdict_mode = verdict_mode,
-    p1_results = angle_results,
-    p2_results = rebuttal_results,
-    build_prompt = function(repair, prior_result)
-      return core.build_synthesis_prompt(proposal, angle_results, rebuttal_results, {
-        repair = repair,
-        prior_result = prior_result,
-      })
-    end,
-    spawn_sync = function(_kind, prompt)
-      local repair = _kind == "synthesis-repair"
-      local worktree = prepare_judgment_worktree(
-        judgment_scratch_worktree(runtime_root, repair and "synthesis-repair" or "synthesis", proposal.dedup_key)
-      )
-      return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
-        sync = true,
-      })
-    end,
-  })
-  return synthesis.to_decision_result(proposal, angle_results, rebuttal_results, parsed, {
-    all_angles_succeeded = function(results)
-      return core.all_angles_succeeded(results)
-    end,
-    build_reached_payload = function(target_proposal, decision, results, framing, provenance)
-      return build_reached_payload(target_proposal, decision, results, framing, provenance)
-    end,
-  })
-end
-
-local function decision_done(event)
-  local proposal = event.payload or {}
-  if proposal.schema ~= "consensus.proposal.v1" then
-    log.warn("consensus: unsupported proposal schema")
-    return true
-  end
-  if not core.is_eligible(proposal) then
-    return true
-  end
-
-  local cache_key = reached_cache_key(proposal.dedup_key)
-  local already_reached = false
-  with_lock(cache_key, function()
-    already_reached = cache_get(cache_key) ~= nil
-  end)
-  return already_reached
-end
-
-local function act_decide(event)
-  local proposal = event.payload or {}
-  local cache_key = reached_cache_key(proposal.dedup_key)
-
-  local ok, result = pcall(decide, proposal)
-  if not ok then
-    if core.is_stale_generation_context_error(result) then
-      log.warn(
-        "consensus dept=decide tag=STALE_GENERATION_CONTEXT"
-          .. " proposal_id=" .. tostring(proposal.proposal_id)
-          .. " dedup_key=" .. tostring(proposal.dedup_key)
-          .. " error_class=" .. core.stale_generation_context_error_class()
-      )
-      return
+    if not core.is_eligible(proposal) then
+      return true
     end
-    error(result)
+
+    local cache_key = reached_cache_key(proposal.dedup_key)
+    local already_reached = false
+    with_lock(cache_key, function()
+      already_reached = cache_get(cache_key) ~= nil
+    end)
+    return already_reached
   end
 
-  with_lock(cache_key, function()
-    if cache_get(cache_key) then
-      return
-    end
-    if result.queue == "consensus_reached" then
-      raise("consensus_reached", result.payload)
-      if result.cache then
-        cache_set(cache_key, proposal.dedup_key)
+  local function act_decide(event)
+    local proposal = event.payload or {}
+    local cache_key = reached_cache_key(proposal.dedup_key)
+
+    local ok, result = pcall(decide, proposal)
+    if not ok then
+      if core.is_stale_generation_context_error(result) then
+        log.warn(
+          "consensus dept=decide tag=STALE_GENERATION_CONTEXT"
+            .. " proposal_id=" .. tostring(proposal.proposal_id)
+            .. " dedup_key=" .. tostring(proposal.dedup_key)
+            .. " error_class=" .. core.stale_generation_context_error_class()
+        )
+        return
       end
-      return
+      error(result)
     end
-    if result.queue == "consensus_converge" then
-      raise_converge(proposal, result.angle_results, result.narrowed_question, result.findings_record, result.essence_stall)
-      return
-    end
-    error("consensus: decision-result-invalid: unknown decision result")
-  end)
+
+    with_lock(cache_key, function()
+      if cache_get(cache_key) then
+        return
+      end
+      if result.queue == "consensus_reached" then
+        raise("consensus_reached", result.payload)
+        if result.cache then
+          cache_set(cache_key, proposal.dedup_key)
+        end
+        return
+      end
+      if result.queue == "consensus_converge" then
+        raise_converge(proposal, result.angle_results, result.narrowed_question, result.findings_record, result.essence_stall, result.oracle_advisory)
+        return
+      end
+      error("consensus: decision-result-invalid: unknown decision result")
+    end)
+  end
+
+  return saga.department(spec, {
+    done = decision_done,
+    act = act_decide,
+    wrap = core.wrap_pipeline_failure,
+    name = "decide",
+  })
 end
 
-return saga.department(spec, {
-  done = decision_done,
-  act = act_decide,
-  wrap = core.wrap_pipeline_failure,
-  name = "decide",
-})
+local M = make_department()
+M.make_department = make_department
+_G.pipeline = M.pipeline
+
+return M
