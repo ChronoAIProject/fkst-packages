@@ -13,7 +13,7 @@ local devloop_logging = require("devloop.logging")
 
 local spec = {
   consumes = { "devloop_observe_tick" },
-  produces = { "github-proxy.github_issue_create_request" },
+  produces = { "github-proxy.github_issue_create_request", "github-proxy.github_issue_comment_request" },
   graph_json = true,
   retry = false,
   stall_window = "2m",

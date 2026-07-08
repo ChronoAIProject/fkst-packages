@@ -7,6 +7,7 @@ local S = {}
 
 function S.install(M)
 local threshold = 3
+local output_obligation_handoff_threshold = threshold
 local window_seconds = 24 * 60 * 60
 
 local function triage_window_key(now_seconds)
@@ -184,12 +185,31 @@ local function attr(marker, name)
   return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
 end
 
+local function safe_marker_attr(value)
+  local text = tostring(value or "")
+  return text ~= "" and text:find('[<>"\r\n]') == nil
+end
+
+local function issue_number_attr(value)
+  if tostring(value or ""):match("^%d+$") == nil then
+    return nil
+  end
+  local number = tonumber(value)
+  if number == nil or number <= 0 then
+    return nil
+  end
+  return tostring(math.floor(number))
+end
+
 local function output_obligation_reason_class(reason_class)
   local value = tostring(reason_class or "")
   if value == "state-output-obligation-timeout" then
     return value
   end
   if value == "decompose-output-obligation-timeout" then
+    return value
+  end
+  if value:match("^child%-fatal%-.+") then
     return value
   end
   return nil
@@ -206,26 +226,213 @@ local function output_obligation_dedup_key(repo, proposal_id, terminal_version, 
   })
 end
 
-local function output_obligation_drain_edge(comments, dedup_key)
+local function output_obligation_attempt_count_key(dedup_key)
+  return base_ids.dedup_key({
+    "output-obligation-attempt-count",
+    tostring(dedup_key or "unknown"),
+  })
+end
+
+local function output_obligation_recorded_attempts(dedup_key)
+  return tonumber(cache_get(output_obligation_attempt_count_key(dedup_key))) or 0
+end
+
+local function output_obligation_record_attempt(dedup_key)
+  local count = output_obligation_recorded_attempts(dedup_key) + 1
+  cache_set(output_obligation_attempt_count_key(dedup_key), tostring(count))
+  return count
+end
+
+local function output_obligation_drain_marker(fact, kind, attrs)
+  attrs = attrs or {}
+  local parts = {
+    '<!-- fkst:github-devloop-ops:blocked-obligation-drain:v1 dedup="' .. tostring(fact.dedup_key)
+      .. '" terminal_version="' .. tostring(fact.terminal_version)
+      .. '" kind="' .. tostring(kind) .. '"',
+  }
+  for key, value in pairs(attrs) do
+    if safe_marker_attr(value) then
+      table.insert(parts, ' ' .. tostring(key) .. '="' .. tostring(value) .. '"')
+    end
+  end
+  table.insert(parts, " -->")
+  return table.concat(parts)
+end
+
+local function output_obligation_human_handoff_body(fact, count)
+  local reason = "repeated-escalation-without-progress"
+  local evidence = "attempts-" .. tostring(count)
+  return table.concat({
+    "Blocked-obligation patrol reached the bounded escalation threshold.",
+    "",
+    "- `failure_kind`: `OutputObligationFailure`",
+    "- `reason_class`: `" .. display_text(fact.reason_class, M._max_key_len) .. "`",
+    "- `proposal_id`: `" .. display_text(fact.proposal_id, M._max_key_len) .. "`",
+    "- `terminal_version`: `" .. display_text(fact.terminal_version, M._max_dedup_len) .. "`",
+    "- `dedup_key`: `" .. display_text(fact.dedup_key, M._max_dedup_len) .. "`",
+    "- `attempt_count`: `" .. display_text(count, M._max_key_len) .. "`",
+    "",
+    output_obligation_drain_marker(fact, "needs-human", {
+      reason = reason,
+      evidence = evidence,
+    }),
+  }, "\n")
+end
+
+local function output_obligation_human_handoff_request(fact, count)
+  return {
+    schema = "github-proxy.v1",
+    repo = fact.source_repo,
+    issue_number = tonumber(fact.issue_number),
+    body = output_obligation_human_handoff_body(fact, count),
+    dedup_key = base_ids.dedup_key({
+      "output-obligation-needs-human",
+      tostring(fact.dedup_key or "unknown"),
+    }),
+    source_ref = fact.source_ref,
+  }
+end
+
+local function parse_proxy_issue_created_edges(comments, dedup_key)
+  local edges = {}
+  local errors = {}
   if type(comments) ~= "table" then
-    return nil
+    return edges, errors
   end
   local pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(pattern) do
       if attr(marker, "dedup") == tostring(dedup_key) then
-        local issue_number = attr(marker, "issue")
-        if issue_number ~= nil and tostring(issue_number):match("^%d+$") then
-          return {
+        local issue_number = issue_number_attr(attr(marker, "issue"))
+        if issue_number ~= nil then
+          table.insert(edges, {
             kind = "superseded-by-escalation-issue",
             issue_id = tostring(issue_number),
             dedup_key = tostring(dedup_key),
-          }
+          })
+        else
+          table.insert(errors, "malformed issue-created drain marker missing issue id")
         end
       end
     end
   end
+  return edges, errors
+end
+
+local function parse_proxy_issue_create_intent(comments, dedup_key)
+  if type(comments) ~= "table" then
+    return nil
+  end
+  local pattern = "<!%-%- fkst:github%-proxy:issue%-create%-intent:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(pattern) do
+      if attr(marker, "dedup") == tostring(dedup_key) then
+        return {
+          kind = "issue-create-in-flight",
+          dedup_key = tostring(dedup_key),
+        }
+      end
+    end
+  end
   return nil
+end
+
+local function canonical_drain_error(marker, expected_dedup_key, expected_terminal_version)
+  local marker_dedup = attr(marker, "dedup")
+  if marker_dedup ~= tostring(expected_dedup_key) then
+    return "mismatched drain marker dedup_key"
+  end
+  local marker_version = attr(marker, "terminal_version")
+  if expected_terminal_version ~= nil and marker_version ~= tostring(expected_terminal_version) then
+    return "stale drain marker terminal_version"
+  end
+  local kind = attr(marker, "kind")
+  if kind == nil or kind == "" then
+    return "malformed drain marker kind"
+  end
+  if kind == "waiting-on-existing-escalation-issue" then
+    if issue_number_attr(attr(marker, "issue")) == nil then
+      return "malformed drain marker missing issue id"
+    end
+    return nil
+  end
+  if kind == "needs-human" then
+    if not safe_marker_attr(attr(marker, "reason")) or not safe_marker_attr(attr(marker, "evidence")) then
+      return "malformed drain marker missing needs-human evidence"
+    end
+    return nil
+  end
+  if kind == "reopened-because-relevant-fix-merged" then
+    if not safe_marker_attr(attr(marker, "commit")) then
+      return "malformed drain marker missing commit"
+    end
+    return nil
+  end
+  if kind == "explicitly-closed-by-policy" then
+    if not safe_marker_attr(attr(marker, "policy_id")) then
+      return "malformed drain marker missing policy_id"
+    end
+    return nil
+  end
+  return "unsupported drain marker kind"
+end
+
+local function canonical_drain_edge_from_marker(marker, expected_dedup_key, expected_terminal_version)
+  local err = canonical_drain_error(marker, expected_dedup_key, expected_terminal_version)
+  if err ~= nil then
+    return nil, err
+  end
+  local kind = attr(marker, "kind")
+  local edge = {
+    kind = kind,
+    dedup_key = tostring(expected_dedup_key),
+    terminal_version = tostring(expected_terminal_version or ""),
+  }
+  if kind == "waiting-on-existing-escalation-issue" then
+    edge.issue_id = issue_number_attr(attr(marker, "issue"))
+  elseif kind == "needs-human" then
+    edge.reason = attr(marker, "reason")
+    edge.evidence = attr(marker, "evidence")
+  elseif kind == "reopened-because-relevant-fix-merged" then
+    edge.commit = attr(marker, "commit")
+  elseif kind == "explicitly-closed-by-policy" then
+    edge.policy_id = attr(marker, "policy_id")
+  end
+  return edge, nil
+end
+
+local function canonical_drain_edges(comments, dedup_key, terminal_version)
+  local edges, errors = parse_proxy_issue_created_edges(comments, dedup_key)
+  if type(comments) ~= "table" then
+    return edges, errors
+  end
+  local pattern = "<!%-%- fkst:github%-devloop%-ops:blocked%-obligation%-drain:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(pattern) do
+      local marker_dedup = attr(marker, "dedup")
+      local marker_version = attr(marker, "terminal_version")
+      if marker_dedup == tostring(dedup_key) or marker_version == tostring(terminal_version or "") then
+        local edge, err = canonical_drain_edge_from_marker(marker, dedup_key, terminal_version)
+        if edge ~= nil then
+          table.insert(edges, edge)
+        elseif err ~= nil then
+          table.insert(errors, err)
+        end
+      end
+    end
+  end
+  if #edges > 1 then
+    table.insert(errors, "ambiguous blocked obligation drain edges")
+  end
+  return edges, errors
+end
+
+local function output_obligation_drain_edge(comments, dedup_key, terminal_version)
+  local edges, errors = canonical_drain_edges(comments, dedup_key, terminal_version)
+  if #errors > 0 then
+    return nil
+  end
+  return edges[1]
 end
 
 local function normalized_output_obligation_fact(source)
@@ -271,7 +478,8 @@ local function normalized_output_obligation_fact(source)
     driving_queue = tostring(source.driving_queue or ""),
     why_text = tostring(source.why_text or source.why or ""),
     dedup_key = dedup_key,
-    drain_edge = output_obligation_drain_edge(source.comments, dedup_key),
+    drain_edge = output_obligation_drain_edge(source.comments, dedup_key, terminal_version),
+    drain_intent = parse_proxy_issue_create_intent(source.comments, dedup_key),
   }, nil
 end
 
@@ -303,6 +511,35 @@ local function timeout_reconcile_facts(comments, proposal_id)
             ref = attr(marker, "source_ref"),
           },
           why_text = body_text:match("Structured WHY:\n(.*)") or "",
+        })
+      end
+    end
+  end
+  return facts
+end
+
+local function workflow_terminal_facts(comments, proposal_id, current_state)
+  local facts = {}
+  if type(comments) ~= "table" then
+    return facts
+  end
+  if type(current_state) == "table" and current_state.state ~= nil and current_state.state ~= "blocked" then
+    return facts
+  end
+  local pattern = "<!%-%- fkst:github%-devloop%-workflow:terminal:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(pattern) do
+      local reason_class = output_obligation_reason_class(attr(marker, "reason_code"))
+      if attr(marker, "origin") == tostring(proposal_id)
+        and attr(marker, "state") == "blocked"
+        and reason_class ~= nil then
+        table.insert(facts, {
+          proposal_id = attr(marker, "origin"),
+          terminal_state = "blocked",
+          terminal_version = "workflow-terminal/" .. reason_class,
+          reason_class = reason_class,
+          source_ref = nil,
+          why_text = parsers_misc._comment_body(comment),
         })
       end
     end
@@ -437,8 +674,12 @@ function M.output_obligation_failure_dedup_key(repo, proposal_id, terminal_versi
   return output_obligation_dedup_key(repo, proposal_id, terminal_version, reason_class)
 end
 
-function M.output_obligation_failure_drain_edge(comments, dedup_key)
-  return output_obligation_drain_edge(comments, dedup_key)
+function M.output_obligation_human_handoff_threshold()
+  return output_obligation_handoff_threshold
+end
+
+function M.output_obligation_failure_drain_edge(comments, dedup_key, terminal_version)
+  return output_obligation_drain_edge(comments, dedup_key, terminal_version)
 end
 
 function M.classify_output_obligation_failure(payload)
@@ -451,9 +692,6 @@ function M.blocked_output_obligation_failures(entity)
     return {}
   end
   local current = entity.current_state or entity.state
-  if type(current) ~= "table" or current.state ~= "blocked" then
-    return {}
-  end
   local repo = entity.repo
   local parsed_repo, parsed_issue = base_ids.parse_proposal_id(entity.proposal_id)
   if repo == nil then
@@ -469,14 +707,31 @@ function M.blocked_output_obligation_failures(entity)
     source_ref = base_ids.issue_source_ref(repo, issue_number)
   end
   local failures = {}
-  for _, fact in ipairs(timeout_reconcile_facts(comments, entity.proposal_id)) do
+  local structured_facts = timeout_reconcile_facts(comments, entity.proposal_id)
+  local workflow_facts = workflow_terminal_facts(comments, entity.proposal_id, current)
+  if (type(current) ~= "table" or current.state == nil) and #workflow_facts > 0 then
+    current = {
+      state = "blocked",
+      version = workflow_facts[#workflow_facts].terminal_version,
+    }
+  end
+  if type(current) ~= "table" or current.state ~= "blocked" then
+    return {}
+  end
+  for _, fact in ipairs(workflow_facts) do
+    table.insert(structured_facts, fact)
+  end
+  for _, fact in ipairs(structured_facts) do
     if fact.terminal_version == current.version then
-      if fact.source_ref == nil or fact.source_ref.kind == nil or fact.source_ref.ref == nil or fact.source_ref.ref == "" then
+      if fact.source_ref == nil then
         fact.source_ref = source_ref
       end
       local normalized = normalized_output_obligation_fact(fact)
       if normalized ~= nil then
-        normalized.drain_edge = output_obligation_drain_edge(comments, normalized.dedup_key)
+        local edges, errors = canonical_drain_edges(comments, normalized.dedup_key, normalized.terminal_version)
+        normalized.drain_edge = #errors == 0 and edges[1] or nil
+        normalized.drain_intent = parse_proxy_issue_create_intent(comments, normalized.dedup_key)
+        normalized.drain_errors = errors
         table.insert(failures, normalized)
       end
     end
@@ -491,15 +746,44 @@ function M.build_output_obligation_issue_create_request(fact)
   return output_obligation_issue_request(fact)
 end
 
+function M.build_output_obligation_human_handoff_comment_request(fact, count)
+  if type(fact) ~= "table" then
+    error("github-devloop: output-obligation-fact-missing: output obligation fact is required")
+  end
+  return output_obligation_human_handoff_request(fact, count or output_obligation_recorded_attempts(fact.dedup_key))
+end
+
+function M.blocked_obligation_drain_conformance_errors(entity)
+  local errors = {}
+  for _, fact in ipairs(M.blocked_output_obligation_failures(entity)) do
+    for _, err in ipairs(fact.drain_errors or {}) do
+      table.insert(errors, tostring(fact.proposal_id or "?") .. ": " .. tostring(err))
+    end
+  end
+  return errors
+end
+
 function M.blocked_obligation_patrol_once(entity)
   local raised = {}
   for _, fact in ipairs(M.blocked_output_obligation_failures(entity)) do
-    if fact.drain_edge == nil then
+    if #(fact.drain_errors or {}) > 0 then
+      error("github-devloop: blocked-obligation-drain-conformance: " .. tostring(fact.drain_errors[1]))
+    end
+    if fact.drain_edge == nil and fact.drain_intent == nil then
+      local count = output_obligation_record_attempt(fact.dedup_key)
+      if count > output_obligation_handoff_threshold then
+        table.insert(raised, {
+          queue = "github-proxy.github_issue_comment_request",
+          payload = M.build_output_obligation_human_handoff_comment_request(fact, count),
+          fact = fact,
+        })
+      else
       table.insert(raised, {
         queue = "github-proxy.github_issue_create_request",
         payload = M.build_output_obligation_issue_create_request(fact),
         fact = fact,
       })
+      end
     end
   end
   return raised
