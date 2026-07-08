@@ -564,6 +564,9 @@ end
 
 function M.apply_gh_content_filter(result, context, policy, author_policy, stdout_policy)
   stdout_policy.validate(policy)
+  if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
+    return result
+  end
   if not stdout_policy.is_content_json(policy) then
     return result
   end

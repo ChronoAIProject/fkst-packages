@@ -67,10 +67,18 @@ function M.new(deps)
 
   local base_mock_bot_env = helpers.mock_bot_env
   local base_mock_issue_view_failure = helpers.mock_issue_view_failure
+  local base_run_department = helpers.run_department
   local base_run_observe = helpers.run_observe
   local base_run_result = helpers.run_result
   local base_run_result_expecting_failure = helpers.run_result_expecting_failure
   local base_run_implement = helpers.run_implement
+
+  helpers.run_department = function(...)
+    if type(helpers.mock_author_policy_env) == "function" then
+      helpers.mock_author_policy_env()
+    end
+    return base_run_department(...)
+  end
 
   local function mock_empty_dependencies()
     helpers.t.mock_command("gh api graphql", {
