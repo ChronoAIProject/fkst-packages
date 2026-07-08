@@ -327,16 +327,20 @@ function M.new(deps)
     })
   end
 
-  local function mock_author_policy_env()
+  local function mock_author_policy_env(run_opts)
+    local login = "fkst-test-bot"
+    if type(run_opts) == "table" and type(run_opts.env) == "table" and run_opts.env.FKST_GITHUB_BOT_LOGIN ~= nil then
+      login = tostring(run_opts.env.FKST_GITHUB_BOT_LOGIN)
+    end
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-      stdout = "fkst-test-bot",
+      stdout = login,
       stderr = "",
       exit_code = 0,
     })
   end
 
   local function run_department(path, event, run_opts)
-    mock_author_policy_env()
+    mock_author_policy_env(run_opts)
     return t.run_department(path, event, run_opts)
   end
 
