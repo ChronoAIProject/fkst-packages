@@ -57,6 +57,7 @@ public = [
   "devloop.gh_exec",
   "devloop.git_mechanics",
   "devloop.github_proxy_entity_view",
+  "devloop.github_author_policy",
   "devloop.github_risk",
   "devloop.hidden_state_conformance",
   "devloop.hidden_state_conformance.declarations",

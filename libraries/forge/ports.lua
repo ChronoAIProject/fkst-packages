@@ -18,10 +18,10 @@ local function production_exec_argv()
   end
 end
 
-function M.production_handles()
+function M.production_handles(opts)
   local run = production_exec_argv()
   return {
-    github = require("forge.github").new(run),
+    github = require("forge.github").new(run, opts),
     git = require("forge.git").new(run),
   }
 end
@@ -52,9 +52,9 @@ local function make_with_pipeline_restore(make_department, handles)
   return department_or_err
 end
 
-function M.install(make_department)
+function M.install(make_department, opts)
   assert(type(make_department) == "function", "forge.ports.install requires a make_department function")
-  local department = make_with_pipeline_restore(make_department, M.production_handles())
+  local department = make_with_pipeline_restore(make_department, M.production_handles(opts))
   _G.pipeline = department.pipeline
   department.make_department = function(handles)
     return make_with_pipeline_restore(make_department, handles)

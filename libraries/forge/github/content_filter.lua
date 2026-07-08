@@ -384,6 +384,41 @@ function M.build_whitelist(logins)
   return set
 end
 
+function M.author_policy_from_logins(logins)
+  return {
+    kind = "forge.github.author_policy.v1",
+    whitelist = M.build_whitelist(logins),
+  }
+end
+
+function M.author_policy_from_whitelist(whitelist)
+  return {
+    kind = "forge.github.author_policy.v1",
+    whitelist = whitelist or {},
+  }
+end
+
+function M.test_disabled_author_policy()
+  return {
+    kind = "forge.github.author_policy.v1",
+    disabled = true,
+    whitelist = {},
+  }
+end
+
+function M.policy_whitelist(policy)
+  if type(policy) == "function" then
+    policy = policy()
+  end
+  if type(policy) ~= "table" or policy.kind ~= "forge.github.author_policy.v1" or type(policy.whitelist) ~= "table" then
+    error("forge.github.content_filter: missing trusted author policy")
+  end
+  if policy.disabled == true then
+    return nil
+  end
+  return policy.whitelist
+end
+
 function M.is_authorized(author_login_value, whitelist)
   local canonical = M.canon_login(author_login_value)
   if canonical == nil then
