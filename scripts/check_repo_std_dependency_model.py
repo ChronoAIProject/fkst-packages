@@ -23,6 +23,9 @@ DEVLOOP_FORGE_VALIDATOR_MODULES = {
 FORGE_STRINGS_SPLIT_IMPORTS = {
     ("libraries/devloop/parsers/misc.lua", "forge.strings"),
 }
+SANCTIONED_DEVLOOP_FORGE_REEXPORTS = {
+    ("libraries/devloop/content_provenance.lua", "forge.github.content_filter"),
+}
 DEVLOOP_FAMILY = {
     "fkst-substrate-ref-maintainer",
     "github-devloop",
@@ -125,6 +128,10 @@ def is_sanctioned_devloop_forge_validator_import(path: str, module: str) -> bool
     return path == DEVLOOP_FORGE_VALIDATORS_FACADE and module in DEVLOOP_FORGE_VALIDATOR_MODULES
 
 
+def is_sanctioned_devloop_forge_import(item: tuple[str, str]) -> bool:
+    return item in SANCTIONED_DEVLOOP_FORGE_REEXPORTS
+
+
 def same_module_import_count(inventory: set[tuple[str, str]], module: str) -> int:
     return sum(1 for _path, imported_module in inventory if imported_module == module)
 
@@ -166,6 +173,8 @@ def check_devloop_forge_import_inventory(root: Path, violations: list[str], read
             if module in DEVLOOP_FORGE_VALIDATOR_MODULES and path != DEVLOOP_FORGE_VALIDATORS_FACADE:
                 add(violations, "G-LIB-DEP", f"{path} imports {module}; use {DEVLOOP_FORGE_VALIDATORS_FACADE} instead")
         for item in sorted(devloop_forge_imports - current_inventory):
+            if is_sanctioned_devloop_forge_import(item):
+                continue
             path, module = item
             add(violations, "G-LIB-DEP", f"{path} imports {module} but is not listed in {DEVLOOP_FORGE_IMPORTS_INVENTORY}")
         for item in sorted(current_inventory - devloop_forge_imports):
