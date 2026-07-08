@@ -278,6 +278,7 @@ function core.collect_observability_entities(event, repo, limits, deadline)
   for _, entity in pairs(entities) do
     entity.observability_limits = limits
     entity.observability_deadline = deadline
+    entity.open_issue_items = issue_items
     table.insert(list, entity)
   end
   table.sort(list, function(a, b)

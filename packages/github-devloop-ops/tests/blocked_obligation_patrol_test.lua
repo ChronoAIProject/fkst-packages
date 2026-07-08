@@ -57,11 +57,27 @@ local function entity(extra_comments)
   }
 end
 
+local function entity_with_open_issues(extra_comments, open_issue_items)
+  local out = entity(extra_comments)
+  out.open_issue_items = open_issue_items
+  return out
+end
+
 local function created_marker(dedup_key, created_issue_number)
   return bot_comment('Opened sub-issue #' .. tostring(created_issue_number) .. ' for this task.\n\n'
     .. '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. tostring(dedup_key)
     .. '" issue="' .. tostring(created_issue_number)
     .. '" -->')
+end
+
+local function created_issue_body_marker(dedup_key, created_issue_number, author_login)
+  return {
+    number = tonumber(created_issue_number),
+    state = "open",
+    title = "Escalate blocked output obligation",
+    body = "Escalation body.\n\n<!-- fkst:github-proxy:issue-create:" .. tostring(dedup_key) .. " -->",
+    author_login = author_login,
+  }
 end
 
 local function find_raise(raises, queue)
@@ -179,6 +195,34 @@ return {
 
     local second = core.blocked_obligation_patrol_once(entity({ created_marker(request.dedup_key, 2030) }))
     t.eq(#second, 0)
+  end,
+
+  test_blocked_obligation_patrol_treats_existing_bot_authored_escalation_issue_as_drain_edge = function()
+    local first = core.blocked_obligation_patrol_once(entity())
+    local request = first[1].payload
+
+    local second = core.blocked_obligation_patrol_once(entity_with_open_issues(nil, {
+      created_issue_body_marker(request.dedup_key, 2030, "fkst-test-bot"),
+    }))
+
+    t.eq(#second, 0)
+    local failures = core.blocked_output_obligation_failures(entity_with_open_issues(nil, {
+      created_issue_body_marker(request.dedup_key, 2030, "fkst-test-bot"),
+    }))
+    t.eq(failures[1].drain_edge.kind, "superseded-by-escalation-issue")
+    t.eq(failures[1].drain_edge.issue_id, "2030")
+  end,
+
+  test_blocked_obligation_patrol_ignores_foreign_escalation_issue_body_marker = function()
+    local first = core.blocked_obligation_patrol_once(entity())
+    local request = first[1].payload
+
+    local second = core.blocked_obligation_patrol_once(entity_with_open_issues(nil, {
+      created_issue_body_marker(request.dedup_key, 2031, "attacker"),
+    }))
+
+    t.eq(#second, 1)
+    t.eq(second[1].payload.dedup_key, request.dedup_key)
   end,
 
   test_observability_patrol_raises_issue_request_for_blocked_obligation = function()

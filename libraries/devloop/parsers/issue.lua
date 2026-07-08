@@ -105,11 +105,18 @@ function C.parse_issue_list_observe(stdout)
   local by_number = {}
   shared.each_paginated_item(decoded, function(item)
     if type(item) == "table" and tonumber(item.number) ~= nil then
-      by_number[tostring(tonumber(item.number))] = item.title
+      by_number[tostring(tonumber(item.number))] = {
+        title = item.title,
+        body = item.body,
+        author_login = m_claims.issue_author_login(item),
+      }
     end
   end)
   for _, issue in ipairs(issues) do
-    issue.title = by_number[tostring(issue.number)]
+    local fields = by_number[tostring(issue.number)] or {}
+    issue.title = fields.title
+    issue.body = fields.body ~= nil and tostring(fields.body) or ""
+    issue.author_login = fields.author_login
   end
   return issues
 end

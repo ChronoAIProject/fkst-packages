@@ -208,7 +208,7 @@ end
 
 local function output_obligation_drain_edge(comments, dedup_key)
   if type(comments) ~= "table" then
-    return nil
+    comments = {}
   end
   local pattern = "<!%-%- fkst:github%-proxy:issue%-created:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
@@ -226,6 +226,36 @@ local function output_obligation_drain_edge(comments, dedup_key)
     end
   end
   return nil
+end
+
+local function output_obligation_issue_body_drain_edge(open_issue_items, dedup_key)
+  if type(open_issue_items) ~= "table" then
+    return nil
+  end
+  local marker = "<!-- fkst:github-proxy:issue-create:" .. tostring(dedup_key) .. " -->"
+  local trusted_bot = devloop_base.trusted_bot_login()
+  for _, issue in ipairs(open_issue_items) do
+    local author = issue and devloop_base.strip_bot_login_suffix(issue.author_login)
+    local issue_number = tonumber(issue and issue.number)
+    if author == trusted_bot
+      and issue_number ~= nil
+      and issue_number >= 1
+      and issue_number % 1 == 0
+      and tostring(issue and issue.state or ""):lower() == "open"
+      and tostring(issue and issue.body or ""):find(marker, 1, true) ~= nil then
+      return {
+        kind = "superseded-by-escalation-issue",
+        issue_id = tostring(issue_number),
+        dedup_key = tostring(dedup_key),
+      }
+    end
+  end
+  return nil
+end
+
+local function output_obligation_drain_edge_for_entity(comments, dedup_key, entity)
+  return output_obligation_drain_edge(comments, dedup_key)
+    or output_obligation_issue_body_drain_edge(entity and entity.open_issue_items, dedup_key)
 end
 
 local function normalized_output_obligation_fact(source)
@@ -476,7 +506,7 @@ function M.blocked_output_obligation_failures(entity)
       end
       local normalized = normalized_output_obligation_fact(fact)
       if normalized ~= nil then
-        normalized.drain_edge = output_obligation_drain_edge(comments, normalized.dedup_key)
+        normalized.drain_edge = output_obligation_drain_edge_for_entity(comments, normalized.dedup_key, entity)
         table.insert(failures, normalized)
       end
     end
