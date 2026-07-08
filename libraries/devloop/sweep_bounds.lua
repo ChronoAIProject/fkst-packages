@@ -71,8 +71,10 @@ function sweep_bounds.sweep_exec(cmd_or_opts, limits, deadline, error_class, exe
     opts,
     nil,
     exec,
-    opts.stdout_policy or { kind = "trusted_metadata_json" },
-    github_author_policy.for_exec(exec or exec_argv)
+    opts.stdout_policy,
+    function()
+      return github_author_policy.for_exec(exec_sync)
+    end
   )
 end
 

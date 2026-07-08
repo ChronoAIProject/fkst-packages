@@ -433,7 +433,6 @@ function M.redaction_marker(field, author_login_value, bytes_removed)
     .. ' field="' .. tostring(field) .. '"'
     .. ' existed="true"'
     .. ' author_login="' .. login .. '"'
-    .. ' bytes_removed="' .. tostring(bytes_removed or 0) .. '"'
     .. ' why="' .. M.REDACTION_REASON .. '"]'
 end
 
@@ -442,14 +441,14 @@ local function is_blocked_marker(value)
 end
 
 function M.filter_cell(body, author_login_value, field, whitelist)
-  if is_blocked_marker(body) or M.is_authorized(author_login_value, whitelist) then
+  if M.is_authorized(author_login_value, whitelist) then
     return body, nil
   end
   local bytes_removed = (type(body) == "userdata" or body == nil) and 0 or #tostring(body)
-  local marker = M.redaction_marker(field, author_login_value, bytes_removed)
+  local marker = M.redaction_marker(field, author_login_value)
   return marker, {
     field = field,
-    author_login = M.canon_login(author_login_value),
+    author_login = M.canon_login(author_login_value) or "unknown",
     bytes_removed = bytes_removed,
     reason = M.REDACTION_REASON,
   }
@@ -463,9 +462,6 @@ end
 
 local function redact_authored_object(value, whitelist, records)
   local login = author_login(value)
-  if login == nil then
-    return
-  end
   for _, member in ipairs(value.members) do
     if prose_fields[member.key] and member.value.kind == "string" then
       local filtered, record = M.filter_cell(member.value.value, login, member.key, whitelist)
@@ -549,6 +545,48 @@ function M.filter_gh_content_json(json_string, kind_or_whitelist, whitelist_or_r
     end
   end
   return node_json_value(decoded) .. "\n"
+end
+
+local function split_included_headers(stdout)
+  local text = tostring(stdout or "")
+  if text:find("HTTP/", 1, true) ~= 1 then
+    return "", text
+  end
+  local start_pos, end_pos = text:find("\r\n\r\n", 1, true)
+  if start_pos == nil then
+    start_pos, end_pos = text:find("\n\n", 1, true)
+  end
+  if start_pos == nil then
+    error("forge.github.content_filter: included HTTP response is missing a JSON body separator")
+  end
+  return text:sub(1, end_pos), text:sub(end_pos + 1)
+end
+
+function M.apply_gh_content_filter(result, context, policy, author_policy, stdout_policy)
+  stdout_policy.validate(policy)
+  if not stdout_policy.is_content_json(policy) then
+    return result
+  end
+  local whitelist = M.policy_whitelist(author_policy)
+  if whitelist == nil then
+    return result
+  end
+  local headers, body = split_included_headers(type(result) == "table" and result.stdout or "")
+  local records = {}
+  local filtered_body = M.filter_gh_content_json(body, whitelist, records)
+  if filtered_body == body then
+    return result
+  end
+  local copy = {}
+  for key, value in pairs(result or {}) do
+    copy[key] = value
+  end
+  copy.stdout = headers .. filtered_body
+  copy.content_redacted = true
+  copy.content_redaction_records = records
+  copy.stdout_policy = policy
+  copy.context = context
+  return copy
 end
 
 M._json_value = lua_json_value

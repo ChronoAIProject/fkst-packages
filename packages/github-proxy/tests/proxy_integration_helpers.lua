@@ -44,7 +44,7 @@ end
 
 local function issue_list_json(updated_at, state)
   return string.format(
-    '[[{"number":42,"title":"Bridge issue","html_url":"https://github.example/owner/x/issues/42","updated_at":"%s","state":"%s","labels":[{"name":"adapter-enabled"},{"name":"bug"}]}]]\n',
+    '[[{"number":42,"title":"Bridge issue","html_url":"https://github.example/owner/x/issues/42","updated_at":"%s","state":"%s","author":{"login":"fkst-test-bot"},"labels":[{"name":"adapter-enabled"},{"name":"bug"}]}]]\n',
     updated_at or "2026-06-03T01:02:03Z",
     state or "open"
   )
@@ -52,7 +52,7 @@ end
 
 local function pr_list_json(updated_at, state)
   return string.format(
-    '[[{"number":7,"title":"Bridge PR","html_url":"https://github.example/owner/x/pull/7","updated_at":"%s","state":"%s","labels":[{"name":"review"}]}]]\n',
+    '[[{"number":7,"title":"Bridge PR","html_url":"https://github.example/owner/x/pull/7","updated_at":"%s","state":"%s","user":{"login":"fkst-test-bot"},"labels":[{"name":"review"}]}]]\n',
     updated_at or "2026-06-03T02:03:04Z",
     state or "open"
   )
@@ -65,6 +65,9 @@ end
 local function base_env(name, extra)
   local env = {
     FKST_GITHUB_REPO = "owner/x",
+    FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,ElonSG",
+    FKST_GITHUB_AUTHORIZED_LOGINS = "trusted-human",
     FKST_RUNTIME_ROOT = runtime_root(name),
   }
   for key, value in pairs(extra or {}) do
@@ -74,6 +77,9 @@ local function base_env(name, extra)
 end
 
 local function opts(name, extra_env)
+  t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', { stdout = "fkst-test-bot,ElonSG", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', { stdout = "trusted-human", stderr = "", exit_code = 0 })
   return {
     env = base_env(name, extra_env),
   }
@@ -97,6 +103,8 @@ end
 
 local function mock_bot_env(value)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = value or "fkst-test-bot" })
+  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', { stdout = "fkst-test-bot,ElonSG" })
+  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', { stdout = "trusted-human" })
 end
 
 local function mock_issue_list(stdout, exit_code, stderr)

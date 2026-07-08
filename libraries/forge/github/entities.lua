@@ -235,6 +235,35 @@ local function api_method_argv(method, path, fields, input_file, include_headers
   return argv
 end
 
+local function authored_api_path_policy(method, path)
+  local method_name = tostring(method or "GET"):upper()
+  local value = tostring(path or "")
+  if method_name ~= "GET" then
+    return nil
+  end
+  if value:match("^repos/[^/]+/[^/]+/issues%?") ~= nil then
+    return stdout_policy.content_json("issue_list")
+  end
+  if value:match("^repos/[^/]+/[^/]+/pulls%?") ~= nil then
+    return stdout_policy.content_json("pr_list")
+  end
+  if value:match("^repos/[^/]+/[^/]+/issues/%d+$") ~= nil then
+    return stdout_policy.content_json("issue_view")
+  end
+  if value:match("^repos/[^/]+/[^/]+/pulls/%d+$") ~= nil then
+    return stdout_policy.content_json("pr_view")
+  end
+  return nil
+end
+
+local function api_paginate_slurp_policy(path)
+  return authored_api_path_policy("GET", path) or stdout_policy.trusted_metadata_json()
+end
+
+local function api_method_policy(method, path)
+  return authored_api_path_policy(method, path) or stdout_policy.write_response()
+end
+
 local function issue_create_argv(repo, title, body_file, labels, assignees)
   local argv = {
     "gh",
@@ -498,11 +527,11 @@ function M.install(handle)
   end
 
   function handle.api_paginate_slurp(path, timeout)
-    return handle._exec(api_paginate_slurp_argv(path), timeout, "gh api paginated list", stdout_policy.trusted_metadata_json())
+    return handle._exec(api_paginate_slurp_argv(path), timeout, "gh api paginated list", api_paginate_slurp_policy(path))
   end
 
   function handle.api_method(method, path, fields, input_file, include_headers, timeout)
-    return handle._exec(api_method_argv(method, path, fields, input_file, include_headers), timeout, "gh api method", stdout_policy.write_response())
+    return handle._exec(api_method_argv(method, path, fields, input_file, include_headers), timeout, "gh api method", api_method_policy(method, path))
   end
 
   function handle.gh_check_run_rerequest(repo, check_run_id, timeout)

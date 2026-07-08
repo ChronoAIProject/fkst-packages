@@ -22,13 +22,13 @@ local function original_view_with_fork_ledger()
     .. '","author":{"login":"fkst-test-bot"}}],"assignees":[],"author":{"login":"human"}}\n'
 end
 
-local function original_view_with_peer_fork_ledger()
+local function original_view_with_peer_fork_ledger(author_login)
   local dedup_key = forks.fork_issue_dedup_key("owner/repo", original_issue)
   local marker = '<!-- fkst:github-proxy:issue-created:v1 dedup="' .. dedup_key
     .. '" issue="' .. tostring(canonical_issue) .. '" -->'
   return '{"title":"Original","createdAt":"2026-06-03T01:00:00Z","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[],"comments":[{"body":"'
     .. marker:gsub('"', '\\"')
-    .. '","author":{"login":"ElonSG"}}],"assignees":[],"author":{"login":"human"}}\n'
+    .. '","author":{"login":"' .. tostring(author_login or "ElonSG") .. '"}}],"assignees":[],"author":{"login":"human"}}\n'
 end
 
 local function find_duplicate_comment(raises)
@@ -102,7 +102,7 @@ return {
       body = forks.fork_issue_body("owner/repo", original_issue, "human", entity_lib.issue_source_ref("owner/repo", original_issue)),
     })
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", original_issue), {
-      stdout = original_view_with_peer_fork_ledger(),
+      stdout = original_view_with_peer_fork_ledger("ElonSG"),
       stderr = "",
       exit_code = 0,
     })
@@ -121,5 +121,31 @@ return {
     t.eq(count_calls("git worktree list") - before.worktree_list, 0)
     t.eq(count_calls("git -C") - before.git_c, 0)
     t.eq(count_calls("gh issue close") - before.issue_close, 0)
+  end,
+
+  test_untrusted_authored_noncanonical_fork_marker_is_redacted_and_ignored = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    }, {
+      author_login = "mallory",
+      body = forks.fork_issue_body("owner/repo", original_issue, "human", entity_lib.issue_source_ref("owner/repo", original_issue)),
+    })
+    t.mock_command(core.gh_issue_view_state_cmd("owner/repo", original_issue), {
+      stdout = original_view_with_peer_fork_ledger("mallory"),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = run_implement(event, opts("implement-untrusted-duplicate-fork", {
+      FKST_GITHUB_BOT_LOGIN = "loning",
+      FKST_DEVLOOP_MANAGED_BOT_LOGINS = "loning,ElonSG",
+      FKST_GITHUB_WRITE = "",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.is_nil(find_duplicate_comment(result.raises))
+    t.is_nil(find_duplicate_label(result.raises))
+    t.is_true(count_calls("codex exec") > 0)
   end,
 }

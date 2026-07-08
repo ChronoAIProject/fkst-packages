@@ -69,6 +69,7 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
                 "github-devloop-integration",
                 "github-devloop-ops",
                 "github-devloop-pr",
+                "github-proxy",
                 "fkst-substrate-ref-maintainer",
             ],
         )

@@ -3,7 +3,7 @@ local devloop_base = require("devloop.base")
 local strings = require("contract.strings")
 local C = {}
 local github_handle = nil
-local github_author_policy = require("devloop.github_author_policy")
+local github_factory = require("devloop.github_factory")
 local error_facts = require("contract.error_facts")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
@@ -26,7 +26,7 @@ local function github()
   if type(exec_argv) ~= "function" then
     error("github-devloop: GitHub adapter requires exec_argv")
   end
-  github_handle = require("forge.github").new(exec_argv, github_author_policy.github_options(exec_argv))
+  github_handle = github_factory.production_handle()
   return github_handle
 end
 

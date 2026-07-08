@@ -66,29 +66,7 @@ local function misuse_error(argv, context)
 end
 
 local function filter_stdout(result, context, policy, author_policy)
-  stdout_policy.validate(policy)
-  if not stdout_policy.is_content_json(policy) then
-    return result
-  end
-  local whitelist = content_filter.policy_whitelist(author_policy)
-  if whitelist == nil then return result end
-  local filtered = content_filter.filter_gh_content_json(
-    tostring(result.stdout or ""),
-    whitelist,
-    {}
-  )
-  if filtered == result.stdout then
-    return result
-  end
-  local copy = {}
-  for key, value in pairs(result) do
-    copy[key] = value
-  end
-  copy.stdout = filtered
-  copy.content_redacted = true
-  copy.stdout_policy = policy
-  copy.context = context
-  return copy
+  return content_filter.apply_gh_content_filter(result, context, policy, author_policy, stdout_policy)
 end
 
 function M.run(exec, argv, timeout, context, policy, author_policy)

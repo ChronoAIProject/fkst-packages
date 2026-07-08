@@ -32,7 +32,7 @@ local content_filter = require("forge.github.content_filter")
 local stdout_policy = require("forge.github.stdout_policy")
 local function f(result, policy)
   if stdout_policy.is_content_json(policy) then
-    return content_filter.filter_gh_content_json(result.stdout, {}, {})
+    return content_filter.apply_gh_content_filter(result, nil, policy, {}, stdout_policy)
   end
 end
 """,
@@ -41,7 +41,7 @@ local content_filter = require("forge.github.content_filter")
 local stdout_policy = require("forge.github.stdout_policy")
 local function f(result, policy)
   if stdout_policy.is_content_json(policy) then
-    return content_filter.filter_gh_content_json(result.stdout, {}, {})
+    return content_filter.apply_gh_content_filter(result, nil, policy, {}, stdout_policy)
   end
 end
 """,
@@ -60,7 +60,7 @@ end
         files = self.base_files()
         files["libraries/devloop/gh_exec.lua"] = "local stdout_policy = require('forge.github.stdout_policy')\n"
         violations = self.run_guard(files)
-        self.assertEqual(len(violations), 2)
+        self.assertEqual(len(violations), 1)
         self.assertTrue(all("G-GITHUB-CONTENT-INGRESS" in item for item in violations))
         self.assertTrue(all("libraries/devloop/gh_exec.lua" in item for item in violations))
 
@@ -85,6 +85,43 @@ end
         violations = self.run_guard(files)
         self.assertEqual(len(violations), 1)
         self.assertIn("raw gh exec_argv egress", violations[0])
+
+    def test_rejects_policyless_production_github_handle_construction(self) -> None:
+        files = self.base_files()
+        files["packages/github-devloop/core/raw.lua"] = """
+function M.bad()
+  return require("forge.github").new(exec_argv).issue_view("owner/repo", 42, "number,title,body", 30)
+end
+"""
+        violations = self.run_guard(files)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("production forge.github construction", violations[0])
+
+    def test_allows_devloop_policy_factory_construction(self) -> None:
+        files = self.base_files()
+        files["libraries/devloop/github_factory.lua"] = """
+local github_adapter = require("forge.github")
+function M.new(exec)
+  return github_adapter.new(exec, require("devloop.github_author_policy").github_options(exec))
+end
+"""
+        files["packages/github-devloop/core/good.lua"] = """
+function M.good()
+  return require("devloop.github_factory").production_handle().issue_view("owner/repo", 42, "number,title,body", 30)
+end
+"""
+        self.assertEqual(self.run_guard(files), [])
+
+    def test_rejects_authored_api_path_with_metadata_policy(self) -> None:
+        files = self.base_files()
+        files["libraries/forge/github/entities.lua"] = """
+function M.install(handle)
+  return handle._exec({"gh", "api", "repos/owner/repo/issues?state=open"}, 30, "gh api", stdout_policy.trusted_metadata_json())
+end
+"""
+        violations = self.run_guard(files)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("authored GitHub API read must declare stdout_policy.content_json", violations[0])
 
 
 if __name__ == "__main__":

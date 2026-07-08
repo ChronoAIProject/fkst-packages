@@ -38,10 +38,7 @@ function M.from_env(exec)
 end
 
 function M.for_exec(exec)
-  if type(fkst) == "table" and type(fkst.test) == "table" then
-    return content_filter.test_disabled_author_policy()
-  end
-  return M.from_env()
+  return M.from_env(exec)
 end
 
 function M.github_options(exec)

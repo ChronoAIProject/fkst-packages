@@ -118,6 +118,33 @@ return {
     assert(out.content_redacted == true)
   end,
 
+  test_api_paginate_slurp_issue_list_filters_authored_fields = function()
+    local handle = gh.new(function(_opts)
+      return {
+        stdout = '[{"number":42,"title":"attack","body":"body","user":{"login":"mallory"}}]',
+        stderr = "",
+        exit_code = 0,
+      }
+    end, { trusted_author_policy = content_filter.author_policy_from_logins({ "fkst-test-bot" }) })
+    local out = handle.api_paginate_slurp("repos/owner/repo/issues?state=open&per_page=100", 10)
+    assert(out.stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
+    assert(out.content_redacted == true)
+  end,
+
+  test_api_method_include_issue_get_filters_json_body_and_preserves_headers = function()
+    local handle = gh.new(function(_opts)
+      return {
+        stdout = 'HTTP/2.0 200 OK\netag: "old"\n\n{"number":42,"title":"attack","body":"body","user":{"login":"mallory"}}\n',
+        stderr = "",
+        exit_code = 0,
+      }
+    end, { trusted_author_policy = content_filter.author_policy_from_logins({ "fkst-test-bot" }) })
+    local out = handle.api_method("GET", "repos/owner/repo/issues/42", nil, nil, true, 10)
+    assert(out.stdout:find('HTTP/2.0 200 OK\netag: "old"\n\n', 1, true) == 1)
+    assert(out.stdout:find("[fkst:blocked-github-content:v1", 1, true) ~= nil)
+    assert(out.content_redacted == true)
+  end,
+
   test_non_content_policies_do_not_filter_stdout = function()
     local raw = '{"number":42,"title":"attack","body":"attack","author":{"login":"mallory"}}'
     local handle = gh.new(function(_opts)

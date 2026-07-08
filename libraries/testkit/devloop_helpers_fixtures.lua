@@ -116,7 +116,7 @@ function M.new(deps)
     entity_read_mocks.mock_pr_view_raw_selector(helpers.t, {
       repo = repo,
       number = payload and payload.pr_number or 7,
-    }, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels", {
+    }, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,author", {
       stdout = pr_context_json,
     })
     helpers.t.mock_command("gh pr diff", {

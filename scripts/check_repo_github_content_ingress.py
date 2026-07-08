@@ -9,9 +9,10 @@ from typing import Callable
 
 RULE = "G-GITHUB-CONTENT-INGRESS"
 WRAPPER_NEEDLES = {
-    "libraries/forge/github/exec.lua": ("content_filter.filter_gh_content_json", "stdout_policy.is_content_json"),
-    "libraries/devloop/gh_exec.lua": ("content_filter.filter_gh_content_json", "stdout_policy.is_content_json"),
+    "libraries/forge/github/exec.lua": ("content_filter.apply_gh_content_filter",),
+    "libraries/devloop/gh_exec.lua": ("content_filter.apply_gh_content_filter",),
 }
+POLICY_FACTORY_NEEDLE = "devloop.github_factory"
 
 
 def matching_call(text: str, open_paren: int) -> str:
@@ -73,6 +74,57 @@ def file_has_obfuscated_gh_head(source: str) -> bool:
     ) is not None
 
 
+def is_allowed_policyless_github_construction(relpath: str) -> bool:
+    return relpath in {
+        "libraries/forge/github.lua",
+        "libraries/forge/merge_commands.lua",
+        "libraries/devloop/github_factory.lua",
+    } or "/tests/" in relpath or relpath.endswith("_test.lua")
+
+
+def authored_api_path_literal(call: str) -> bool:
+    return re.search(r"repos/[^\"']+/[^\"']+/(issues|pulls)(?:\?|/\d+)", call) is not None
+
+
+def has_explicit_stdout_policy(call: str) -> bool:
+    return (
+        "stdout_policy." in call
+        or re.search(r"\b(?:api_paginate_slurp_policy|api_method_policy)\s*\(", call) is not None
+    )
+
+
+def is_unmasked_range(source: str, stripped: str, start: int, end: int) -> bool:
+    for index in range(start, end):
+        if source[index] in (" ", "\n"):
+            continue
+        if stripped[index] != source[index]:
+            return False
+    return True
+
+
+def raw_call_for_stripped_call(source: str, open_paren: int, stripped_call: str) -> str:
+    return source[open_paren : open_paren + len(stripped_call)]
+
+
+def policyless_require_github_constructions(source: str, stripped: str) -> list[tuple[int, str]]:
+    found: list[tuple[int, str]] = []
+    for pattern in (
+        r"require\s*\(\s*[\"']forge\.github[\"']\s*\)\s*\.\s*new\s*\(",
+        r"require\s*\(\s*[\"']forge\.github[\"']\s*\)\s*\.\s*production_handle\b",
+    ):
+        for match in re.finditer(pattern, source):
+            quote = source.find("\"", match.start(), match.end())
+            if quote == -1:
+                quote = source.find("'", match.start(), match.end())
+            if quote == -1:
+                continue
+            if not is_unmasked_range(source, stripped, match.start(), quote):
+                continue
+            call = matching_call(stripped, match.end() - 1) if pattern.endswith(r"\(") else ""
+            found.append((match.start(), call))
+    return found
+
+
 def messages(
     root: Path,
     read_text: Callable[[Path], str],
@@ -94,7 +146,7 @@ def messages(
         stripped = strip_lua_comments_and_strings(text)
         for match in re.finditer(r"\bhandle\s*\.\s*_exec\s*\(", stripped):
             call = matching_call(stripped, match.end() - 1)
-            if top_level_commas(call) < 3 or "stdout_policy." not in call:
+            if top_level_commas(call) < 3 or not has_explicit_stdout_policy(call):
                 line = text.count("\n", 0, match.start()) + 1
                 violations.append(f"{relpath}:{line} gh handle._exec call must declare a stdout_policy")
         if relpath not in WRAPPER_NEEDLES:
@@ -107,4 +159,24 @@ def messages(
                     violations.append(
                         f"{relpath}:{line} raw gh exec_argv egress must use forge.github.exec.run or devloop.gh_exec"
                     )
+        if not is_allowed_policyless_github_construction(relpath):
+            for start, call in policyless_require_github_constructions(text, stripped):
+                line = text.count("\n", 0, start) + 1
+                if call == "" or ("trusted_author_policy" not in call and "github_author_policy.github_options" not in call):
+                    violations.append(
+                        f"{relpath}:{line} production forge.github construction must use {POLICY_FACTORY_NEEDLE} or pass an explicit trusted_author_policy"
+                    )
+            for match in re.finditer(r"\bgithub_adapter\s*\.\s*new\s*\(", stripped):
+                call = matching_call(stripped, match.end() - 1)
+                line = text.count("\n", 0, match.start()) + 1
+                if "trusted_author_policy" not in call and "github_author_policy.github_options" not in call:
+                    violations.append(
+                        f"{relpath}:{line} production forge.github construction must use {POLICY_FACTORY_NEEDLE} or pass an explicit trusted_author_policy"
+                    )
+        for match in re.finditer(r"\bhandle\s*\.\s*_exec\s*\(", stripped):
+            call = matching_call(stripped, match.end() - 1)
+            raw_call = raw_call_for_stripped_call(text, match.end() - 1, call)
+            line = text.count("\n", 0, match.start()) + 1
+            if authored_api_path_literal(raw_call) and "stdout_policy.content_json" not in call:
+                violations.append(f"{relpath}:{line} authored GitHub API read must declare stdout_policy.content_json")
     return violations

@@ -2,9 +2,28 @@ local h = require("tests.devloop_core_helpers")
 local core = h.core
 local t = h.t
 local gh_exec_mod = require("devloop.gh_exec")
+local sweep_bounds = require("devloop.sweep_bounds")
 local content_filter = require("forge.github.content_filter")
 local stdout_policy = require("forge.github.stdout_policy")
-local github = require("forge.github").production_handle
+local github = require("devloop.github_factory").production_handle
+
+local function mock_author_policy_env()
+  t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+    stdout = "fkst-test-bot",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', {
+    stdout = "fkst-test-bot,ElonSG",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', {
+    stdout = "trusted-human",
+    stderr = "",
+    exit_code = 0,
+  })
+end
 
 local function assert_argv_equal(actual, expected)
   t.eq(#actual, #expected)
@@ -14,6 +33,7 @@ local function assert_argv_equal(actual, expected)
 end
 
 local function with_exec_argv(fn)
+  mock_author_policy_env()
   local old_exec_argv = exec_argv
   local calls = {}
   exec_argv = function(spec)
@@ -83,6 +103,20 @@ return {
         function()
           return { stdout = "{}", stderr = "", exit_code = 0 }
         end
+      )
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("missing or unknown stdout policy", 1, true) ~= nil)
+  end,
+
+  test_sweep_exec_requires_declared_stdout_policy = function()
+    local ok, err = pcall(function()
+      return sweep_bounds.sweep_exec(
+        { argv = { "gh", "api", "repos/owner/repo/issues/42" }, timeout = 10 },
+        { call_timeout = 10, wall_clock_budget = 20 },
+        now() + 20,
+        "sweep",
+        nil
       )
     end)
     t.eq(ok, false)
@@ -174,7 +208,7 @@ return {
       "--repo",
       "owner/repo",
       "--json",
-      "title,labels,comments",
+      "title,labels,comments,author",
     })
     assert_argv_equal(calls[3].argv, {
       "gh",

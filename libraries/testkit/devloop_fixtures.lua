@@ -329,11 +329,29 @@ function M.new(deps)
 
   local function mock_author_policy_env(run_opts)
     local login = "fkst-test-bot"
+    local managed = "fkst-test-bot,ElonSG"
+    local authorized = "trusted-human"
     if type(run_opts) == "table" and type(run_opts.env) == "table" and run_opts.env.FKST_GITHUB_BOT_LOGIN ~= nil then
       login = tostring(run_opts.env.FKST_GITHUB_BOT_LOGIN)
     end
+    if type(run_opts) == "table" and type(run_opts.env) == "table" and run_opts.env.FKST_DEVLOOP_MANAGED_BOT_LOGINS ~= nil then
+      managed = tostring(run_opts.env.FKST_DEVLOOP_MANAGED_BOT_LOGINS)
+    end
+    if type(run_opts) == "table" and type(run_opts.env) == "table" and run_opts.env.FKST_GITHUB_AUTHORIZED_LOGINS ~= nil then
+      authorized = tostring(run_opts.env.FKST_GITHUB_AUTHORIZED_LOGINS)
+    end
     t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
       stdout = login,
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', {
+      stdout = managed,
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', {
+      stdout = authorized,
       stderr = "",
       exit_code = 0,
     })

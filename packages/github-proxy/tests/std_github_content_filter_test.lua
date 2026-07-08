@@ -29,9 +29,27 @@ return {
 
   test_filter_cell_idempotent_on_existing_marker = function()
     local body = cf.redaction_marker("body", "mallory", 20)
-    local filtered, rec = cf.filter_cell(body, "mallory", "body", wl("bot"))
+    local filtered, rec = cf.filter_cell(body, "bot", "body", wl("bot"))
     t.eq(filtered, body)
     t.is_nil(rec)
+  end,
+
+  test_filter_cell_replaces_untrusted_marker_spoof_with_canonical_marker = function()
+    local spoof = '[fkst:blocked-github-content:v1 author_login="mallory"] attack bytes'
+    local filtered, rec = cf.filter_cell(spoof, "mallory", "body", wl("bot"))
+    t.eq(filtered, cf.redaction_marker("body", "mallory"))
+    t.eq(rec.bytes_removed, #spoof)
+    t.eq(rec.author_login, "mallory")
+    t.is_nil(filtered:find("attack bytes", 1, true))
+  end,
+
+  test_missing_author_redacts_authored_prose_fail_closed = function()
+    local input = '{"number":42,"title":"unknown title","body":"unknown body","comments":[{"id":1,"body":"unknown comment"}]}'
+    local out = cf.filter_gh_content_json(input, wl("fkst-test-bot"), {})
+    local decoded = decode(out)
+    assert_marker(decoded.title, "unknown")
+    assert_marker(decoded.body, "unknown")
+    assert_marker(decoded.comments[1].body, "unknown")
   end,
 
   test_issue_view_mixed_redaction_preserves_state_machine_fields = function()
@@ -112,5 +130,21 @@ return {
     local once = cf.filter_gh_content_json(input, wl("trusted"), {})
     local twice = cf.filter_gh_content_json(once, wl("trusted"), {})
     t.eq(twice, once)
+  end,
+
+  test_apply_gh_content_filter_preserves_include_headers_and_filters_body = function()
+    local raw = 'HTTP/2.0 200 OK\netag: "old"\n\n{"number":42,"title":"attack","body":"body","author":{"login":"mallory"}}\n'
+    local result = cf.apply_gh_content_filter(
+      { stdout = raw, stderr = "", exit_code = 0 },
+      "ctx",
+      require("forge.github.stdout_policy").content_json("issue_view"),
+      cf.author_policy_from_logins({ "fkst-test-bot" }),
+      require("forge.github.stdout_policy")
+    )
+    t.is_true(result.stdout:find('HTTP/2.0 200 OK\netag: "old"\n\n', 1, true) == 1)
+    local _, body = result.stdout:match("^(.-\n\n)(.*)$")
+    local decoded = decode(body)
+    assert_marker(decoded.title, "mallory")
+    assert_marker(decoded.body, "mallory")
   end,
 }

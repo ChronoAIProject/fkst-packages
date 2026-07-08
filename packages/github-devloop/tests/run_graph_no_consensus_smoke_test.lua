@@ -115,7 +115,7 @@ local function mock_issue_reads()
     state = "OPEN",
     labels = { "fkst-dev:thinking" },
     comments = { state_marker(), first_resolvable_marker() },
-  }, "title,updatedAt,labels,comments,state")
+  }, "title,updatedAt,labels,comments,state,author")
   t.mock_command("gh issue view 42 --repo owner/repo --json 'title,updatedAt,labels,comments,state'", {
     stdout = entity_read_mocks.issue_view_stdout({
       repo = "owner/repo",

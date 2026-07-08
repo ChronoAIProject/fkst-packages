@@ -2,6 +2,7 @@ local C = {}
 local github_view = require("forge.github_view")
 local gh_exec_mod = require("devloop.gh_exec")
 local github_author_policy = require("devloop.github_author_policy")
+local github_factory = require("devloop.github_factory")
 local stdout_policy = require("forge.github.stdout_policy")
 
 local parse_view_updated_at = github_view.parse_view_updated_at
@@ -20,14 +21,14 @@ local decode_comments_json = function(stdout) return github_view.decode_comments
 local max_cache_key_segment_len = 120
 
 local function author_policy_for_exec(exec)
-  return github_author_policy.for_exec(exec or exec_argv)
+  return github_author_policy.for_exec(exec or exec_sync)
 end
 
 local function github()
   if type(exec_argv) ~= "function" then
     error("github-devloop: GitHub adapter requires exec_argv")
   end
-  return require("forge.github").new(exec_argv, github_author_policy.github_options(exec_argv))
+  return github_factory.production_handle()
 end
 
 local function sanitize_cache_segment(value, allow_slash)
@@ -420,7 +421,7 @@ function C.commit_issue_subject_snapshot(repo, issue_number)
   if issue_number == nil then
     return {}
   end
-  local ok, view = pcall(github().issue_view, repo, issue_number, "number,title", 30)
+  local ok, view = pcall(github().issue_view, repo, issue_number, "number,title,author", 30)
   if not ok or type(view) ~= "table" then
     return {}
   end

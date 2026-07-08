@@ -10,46 +10,11 @@ end
 
 local git_handle = nil
 
-local function append_csv_logins(logins, raw)
-  for login in tostring(raw or ""):gmatch("[^,%s]+") do
-    table.insert(logins, login)
-  end
-end
-
-local function github_author_policy()
-  local content_filter = require("forge.github.content_filter")
-  if type(fkst) == "table" and type(fkst.test) == "table" then
-    return content_filter.test_disabled_author_policy()
-  end
-  local read_env = require("core.env").read_env
-  local ok_bot = true
-  local bot_login = type(M.configured_trusted_bot_login) == "function" and M.configured_trusted_bot_login() or nil
-  if bot_login == nil or tostring(bot_login or "") == "" then
-    ok_bot, bot_login = pcall(read_env, "FKST_GITHUB_BOT_LOGIN")
-    if ok_bot and type(M.configure_trusted_bot_login) == "function" then
-      bot_login = M.configure_trusted_bot_login(bot_login)
-    end
-  end
-  if tostring(bot_login or "") == "" then
-    error("github-proxy: trusted-author-policy-missing: FKST_GITHUB_BOT_LOGIN is required")
-  end
-  local logins = { bot_login }
-  for _, name in ipairs({ "FKST_DEVLOOP_MANAGED_BOT_LOGINS", "FKST_GITHUB_AUTHORIZED_LOGINS" }) do
-    local ok, raw = pcall(read_env, name)
-    if ok then
-      append_csv_logins(logins, raw)
-    end
-  end
-  return content_filter.author_policy_from_logins(logins)
-end
-
 local function production_github()
   if type(exec_argv) ~= "function" then
     error("github-proxy: adapter-primitive-missing: gh adapter requires exec_argv")
   end
-  return require("forge.github").new(exec_argv, {
-    trusted_author_policy = github_author_policy,
-  })
+  return require("devloop.github_factory").production_handle()
 end
 
 local function production_git()
