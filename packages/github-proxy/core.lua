@@ -191,6 +191,10 @@ function M.configure_trusted_bot_login(login)
   return trusted_bot_login
 end
 
+function M.configured_trusted_bot_login()
+  return trusted_bot_login
+end
+
 function M.assert_trusted_bot_configured()
   local login = M.read_env("FKST_GITHUB_BOT_LOGIN")
   if login ~= nil then

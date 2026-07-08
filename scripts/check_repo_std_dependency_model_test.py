@@ -160,6 +160,31 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
 
         self.assertEqual(violations, [])
 
+    def test_devloop_gh_ingress_uses_shared_forge_mechanism(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root / "libraries" / "forge" / "github" / "content_filter.lua", "return {}\n")
+            write(root / "libraries" / "forge" / "github" / "stdout_policy.lua", "return {}\n")
+            write(
+                root / "libraries" / "devloop" / "gh_exec.lua",
+                'local filter = require("forge.github.content_filter")\n'
+                'local policy = require("forge.github.stdout_policy")\nreturn {}\n',
+            )
+            write(
+                root / "libraries" / "devloop" / "github_proxy_entity_view.lua",
+                'local filter = require("forge.github.content_filter")\n'
+                'local policy = require("forge.github.stdout_policy")\nreturn {}\n',
+            )
+            write(root / "migration" / "devloop-forge-imports.inventory", "")
+            with mock.patch.object(
+                check_repo.check_repo_std_dependency_model.ratchet_base,
+                "file_at_base",
+                return_value=("present", ""),
+            ):
+                violations, _warnings = self.run_guard(root)
+
+        self.assertEqual(violations, [])
+
     def test_devloop_forge_import_inventory_allows_gitref_facade_consolidation(self) -> None:
         current = inventory_line("libraries/devloop/forge_validators.lua", "forge.gitref")
         base = (

@@ -66,7 +66,7 @@ function sweep_bounds.sweep_exec(cmd_or_opts, limits, deadline, error_class, exe
   else
     opts = { cmd = cmd_or_opts, timeout = timeout }
   end
-  return gh_exec.gh_exec(opts, nil, exec)
+  return gh_exec.gh_exec(opts, nil, exec, opts.stdout_policy or { kind = "trusted_metadata_json" })
 end
 
 function sweep_bounds.sweep_run_cmd(cmd, limits, deadline, error_class, exec)

@@ -1,7 +1,8 @@
 local C = {}
 local github_view = require("forge.github_view")
 local gh_exec_mod = require("devloop.gh_exec")
-local github_handle = nil
+local github_author_policy = require("devloop.github_author_policy")
+local stdout_policy = require("forge.github.stdout_policy")
 
 local parse_view_updated_at = github_view.parse_view_updated_at
 local parse_updated_at_stdout = github_view.parse_updated_at_stdout
@@ -18,15 +19,20 @@ local decode_comments_json = function(stdout) return github_view.decode_comments
 
 local max_cache_key_segment_len = 120
 
-local function github()
-  if github_handle ~= nil then
-    return github_handle
+local function author_policy_for_exec(exec)
+  if type(fkst) == "table" and type(fkst.test) == "table" then
+    return require("forge.github.content_filter").test_disabled_author_policy()
   end
+  return github_author_policy.from_env(exec or exec_argv)
+end
+
+local function github()
   if type(exec_argv) ~= "function" then
     error("github-devloop: GitHub adapter requires exec_argv")
   end
-  github_handle = require("forge.github").new(exec_argv)
-  return github_handle
+  return require("forge.github").new(exec_argv, {
+    trusted_author_policy = function() return author_policy_for_exec(exec_argv) end,
+  })
 end
 
 local function sanitize_cache_segment(value, allow_slash)
@@ -462,7 +468,13 @@ function C.gh_exec_cached(cmd, cache_key, ttl_seconds, exec)
   if type(cmd) == "function" then
     result = cmd()
   else
-    result = gh_exec_mod.gh_exec(cmd, nil, exec)
+    result = gh_exec_mod.gh_exec(
+      cmd,
+      nil,
+      exec,
+      stdout_policy.content_json("issue_view"),
+      author_policy_for_exec(exec)
+    )
   end
   if type(result) == "table" and tonumber(result.exit_code) == 0 then
     cache_set(cache_key, tostring(now() + (ttl_seconds or 60)) .. "\n" .. tostring(result.stdout or ""))
@@ -472,7 +484,7 @@ end
 
 -- Readable cache key for an opt-in scan read: github-devloop/ghread/<variant>/<repo>/<number>.
 function C.gh_read_cache_key(variant, repo, number)
-  return "github-devloop/ghread/"
+  return "github-devloop/ghread-v2/"
     .. sanitize_cache_segment(variant, false)
     .. "/"
     .. sanitize_cache_segment(repo, true)

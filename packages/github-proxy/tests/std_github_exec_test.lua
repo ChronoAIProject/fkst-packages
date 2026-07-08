@@ -22,10 +22,10 @@ return {
   test_exec_classifies_rate_limit = function()
     local handle = gh.new(function(_opts)
       return { stdout = "", stderr = "API rate limit exceeded for user", exit_code = 1 }
-    end)
+    end, { trusted_author_policy = author_policy })
     local ok, err = pcall(function()
       return handle._exec({ "gh", "api", "x" }, 10, "ctx")
-    end)
+    end, { trusted_author_policy = author_policy })
     assert(ok == false)
     assert(err.class == "gh-rate-limited", "rate-limit stderr must classify as gh-rate-limited")
     assert(err.retryable == true)
@@ -320,12 +320,12 @@ return {
   end,
 
   test_github_issue_add_sub_issue_does_not_swallow_duplicate_when_parent_list_lacks_child = function()
-    local sub_issues_path = "repos/owner/repo/issues/979/sub_issues?" .. table.concat({ "per", "page=100" }, "_")
+    local sub_issues_path = "repos/owner/repo/issues/979/sub_issues?per_page=100"
     local handle = gh.new(function(opts)
       if opts.argv[3] == "repos/owner/repo/issues/120" then
         return { stdout = '{"id":987654321,"number":120}', stderr = "", exit_code = 0 }
       end
-      if opts.argv[5] == sub_issues_path then
+      if opts.argv[6] == sub_issues_path then
         return { stdout = '[[{"id":111111111,"number":121}]]\n', stderr = "", exit_code = 0 }
       end
       return { stdout = "", stderr = "HTTP 422: Validation Failed (already linked as a sub-issue)", exit_code = 1 }

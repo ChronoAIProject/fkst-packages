@@ -71,9 +71,7 @@ local function filter_stdout(result, context, policy, author_policy)
     return result
   end
   local whitelist = content_filter.policy_whitelist(author_policy)
-  if whitelist == nil then
-    return result
-  end
+  if whitelist == nil then return result end
   local filtered = content_filter.filter_gh_content_json(
     tostring(result.stdout or ""),
     whitelist,
