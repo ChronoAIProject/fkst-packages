@@ -8,7 +8,14 @@ from pathlib import Path
 
 
 DOGFOOD_SCRIPT = ".claude/skills/dogfood-github-devloop/dogfood.sh"
-LAUNCH_PATH_FUNCTIONS = ("build_supervise_args", "launch_one", "start_one", "restart_one")
+DOGFOOD_LAUNCHD_HELPER = ".claude/skills/dogfood-github-devloop/dogfood_launchd.sh"
+LAUNCH_PATH_FUNCTIONS = (
+    "build_supervise_args",
+    "start_one",
+    "restart_one",
+    "render_launchd_plist",
+    "launchd_reconcile_one",
+)
 FUNCTION_RE = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{")
 RUN_SH_SUPERVISE_RE = re.compile(r"scripts/run\.sh[\"']?\s+supervise\b")
 PACKAGE_ROOT_RE = re.compile(r"(?<![A-Za-z0-9_-])--package-root(?![A-Za-z0-9_-])")
@@ -98,12 +105,17 @@ def repository_messages(root: Path) -> list[str]:
     if not path.exists():
         return []
     source = path.read_text(encoding="utf-8")
-    stripped_source = strip_shell_comments(source)
-    functions = shell_functions(source)
+    helper_path = root / DOGFOOD_LAUNCHD_HELPER
+    helper_source = helper_path.read_text(encoding="utf-8") if helper_path.exists() else ""
+    combined_source = source + "\n" + helper_source
+    stripped_source = strip_shell_comments(combined_source)
+    functions = shell_functions(combined_source)
     messages: list[str] = []
+    if not helper_path.exists():
+        messages.append(f"{DOGFOOD_SCRIPT} launchd helper is missing: {DOGFOOD_LAUNCHD_HELPER}")
     missing = [name for name in LAUNCH_PATH_FUNCTIONS if name not in functions]
     for name in missing:
-        messages.append(f"{DOGFOOD_SCRIPT} is missing launch-path function {name}()")
+        messages.append(f"{DOGFOOD_SCRIPT} launch path is missing function {name}()")
     if missing:
         return messages
 
