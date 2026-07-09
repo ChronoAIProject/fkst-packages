@@ -363,7 +363,7 @@ function M.install(handle)
       issue_list_open_assigned_argv(repo, assignee),
       timeout,
       "gh issue list open assigned",
-      stdout_policy.trusted_metadata_json()
+      stdout_policy.content_json("issue_list")
     )
   end
 
@@ -414,7 +414,7 @@ function M.install(handle)
       pr_list_recent_merged_argv(repo, limit),
       timeout,
       "gh pr list recent merged",
-      stdout_policy.trusted_metadata_json()
+      stdout_policy.content_json("pr_list")
     )
   end
 
@@ -423,7 +423,7 @@ function M.install(handle)
   end
 
   function handle.pr_list_head(repo, branch, base_branch, timeout)
-    return handle._exec(pr_list_head_argv(repo, branch, base_branch), timeout, "gh pr list --head", stdout_policy.trusted_metadata_json())
+    return handle._exec(pr_list_head_argv(repo, branch, base_branch), timeout, "gh pr list --head", stdout_policy.content_json("pr_list"))
   end
 
   function handle.pr_list_merge_queue(repo, base, timeout)
@@ -431,7 +431,7 @@ function M.install(handle)
       pr_list_merge_queue_argv(repo, base),
       timeout,
       "gh pr merge queue list",
-      stdout_policy.trusted_metadata_json()
+      stdout_policy.content_json("pr_list")
     )
   end
 
