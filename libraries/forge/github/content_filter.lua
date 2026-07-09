@@ -193,6 +193,9 @@ function Parser:parse_string()
         error("invalid string escape")
       end
     else
+      if string.byte(char) < 0x20 then
+        error("invalid raw control character in string")
+      end
       parts[#parts + 1] = char
       self.index = self.index + 1
     end
@@ -332,12 +335,15 @@ local function object_field(object, name)
   if type(object) ~= "table" or object.kind ~= "object" then
     return nil
   end
+  local found_value = nil
+  local found_member = nil
   for _, member in ipairs(object.members) do
     if member.key == name then
-      return member.value, member
+      found_value = member.value
+      found_member = member
     end
   end
-  return nil
+  return found_value, found_member
 end
 
 local function string_value(node)

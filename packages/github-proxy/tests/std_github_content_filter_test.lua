@@ -120,6 +120,22 @@ return {
     t.eq(#decoded[2].labels, 0)
   end,
 
+  test_parser_rejects_raw_control_characters_inside_strings = function()
+    local input = '{"title":"bad' .. string.char(1) .. 'json","author":{"login":"trusted"}}'
+    local ok, err = pcall(function()
+      return cf.filter_gh_content_json(input, wl("trusted"), {})
+    end)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("JSON decode failed", 1, true) ~= nil)
+  end,
+
+  test_duplicate_author_key_uses_last_value_for_redaction = function()
+    local input = '{"author":{"login":"trusted"},"author":{"login":"mallory"},"body":"attack"}'
+    local out = cf.filter_gh_content_json(input, wl("trusted"), {})
+    local decoded = decode(out)
+    assert_marker(decoded.body, "mallory")
+  end,
+
   test_byte_identical_when_nothing_redacted = function()
     local input = '{"title":"T","body":"B","author":{"login":"trusted"},"comments":[{"body":"m","author":{"login":"trusted"}}]}'
     t.eq(cf.filter_gh_content_json(input, wl("trusted"), {}), input)
