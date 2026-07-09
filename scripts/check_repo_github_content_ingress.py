@@ -13,6 +13,19 @@ WRAPPER_NEEDLES = {
     "libraries/devloop/gh_exec.lua": ("content_filter.apply_gh_content_filter",),
 }
 POLICY_FACTORY_NEEDLE = "devloop.github_factory"
+AUTHORED_LIST_HELPER_SHAPES = {
+    "issue_list_argv": "issue_list",
+    "issue_list_cli_argv": "issue_list",
+    "issue_list_observe_argv": "issue_list",
+    "issue_list_open_assigned_argv": "issue_list",
+    "issue_search_argv": "issue_list",
+    "pr_list_argv": "pr_list",
+    "pr_list_cli_argv": "pr_list",
+    "pr_list_head_argv": "pr_list",
+    "pr_list_merge_queue_argv": "pr_list",
+    "pr_list_observe_argv": "pr_list",
+    "pr_list_recent_merged_argv": "pr_list",
+}
 
 
 def matching_call(text: str, open_paren: int) -> str:
@@ -50,9 +63,17 @@ def production_lua_sources(
     package_lua_files: Callable[[Path], list[tuple[Path, Path]]],
 ) -> list[tuple[str, str]]:
     paths = [path for _packages, path in package_lua_files(root)]
-    for scan_root in (root / "libraries" / "forge" / "github", root / "libraries" / "devloop"):
+    for scan_root in (
+        root / "libraries" / "forge" / "github",
+        root / "libraries" / "forge" / "merge",
+        root / "libraries" / "devloop",
+    ):
         if scan_root.exists():
             paths.extend(path for path in sorted(scan_root.rglob("*.lua")) if path.is_file())
+    for relpath in ("libraries/forge/ports.lua", "libraries/forge/merge.lua"):
+        path = root / relpath
+        if path.is_file():
+            paths.append(path)
     sources = []
     for path in sorted(set(paths)):
         relpath = rel(root, path)
@@ -84,6 +105,20 @@ def is_allowed_policyless_github_construction(relpath: str) -> bool:
 
 def authored_api_path_literal(call: str) -> bool:
     return re.search(r"repos/[^\"']+/[^\"']+/(issues|pulls)(?:\?|/\d+)", call) is not None
+
+
+def authored_list_helper_shape(call: str) -> tuple[str, str] | None:
+    for helper, shape in AUTHORED_LIST_HELPER_SHAPES.items():
+        if re.search(r"\b" + re.escape(helper) + r"\s*\(", call) is not None:
+            return helper.removesuffix("_argv"), shape
+    return None
+
+
+def has_content_json_shape(call: str, shape: str) -> bool:
+    return re.search(
+        r"\bstdout_policy\s*\.\s*content_json\s*\(\s*['\"]" + re.escape(shape) + r"['\"]\s*\)",
+        call,
+    ) is not None
 
 
 def has_explicit_stdout_policy(call: str) -> bool:
@@ -173,10 +208,21 @@ def messages(
                     violations.append(
                         f"{relpath}:{line} production forge.github construction must use {POLICY_FACTORY_NEEDLE} or pass an explicit trusted_author_policy"
                     )
+            for match in re.finditer(r"\bgithub_adapter\s*\.\s*production_handle\b", stripped):
+                line = text.count("\n", 0, match.start()) + 1
+                violations.append(
+                    f"{relpath}:{line} production forge.github construction must use {POLICY_FACTORY_NEEDLE} or pass an explicit trusted_author_policy"
+                )
         for match in re.finditer(r"\bhandle\s*\.\s*_exec\s*\(", stripped):
             call = matching_call(stripped, match.end() - 1)
             raw_call = raw_call_for_stripped_call(text, match.end() - 1, call)
             line = text.count("\n", 0, match.start()) + 1
             if authored_api_path_literal(raw_call) and "stdout_policy.content_json" not in call:
                 violations.append(f"{relpath}:{line} authored GitHub API read must declare stdout_policy.content_json")
+            helper_shape = authored_list_helper_shape(call)
+            if helper_shape is not None:
+                helper, shape = helper_shape
+                expected = f'stdout_policy.content_json("{shape}")'
+                if not has_content_json_shape(raw_call, shape):
+                    violations.append(f"{relpath}:{line} {helper} must declare {expected}")
     return violations

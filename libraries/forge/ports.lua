@@ -47,8 +47,21 @@ end
 
 function M.production_handles(opts)
   local run = production_exec_argv()
+  local github_options = opts or {}
+  local github
+  if github_options.trusted_author_policy == nil then
+    github = setmetatable({}, {
+      __index = function()
+        error("forge.ports: trusted_author_policy is required for production GitHub reads")
+      end,
+    })
+  else
+    github = require("forge.github").new(run, {
+      trusted_author_policy = github_options.trusted_author_policy,
+    })
+  end
   return {
-    github = require("forge.github").new(run, opts),
+    github = github,
     git = require("forge.git").new(run),
   }
 end

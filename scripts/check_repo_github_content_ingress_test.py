@@ -112,6 +112,45 @@ end
 """
         self.assertEqual(self.run_guard(files), [])
 
+    def test_allows_forge_ports_explicit_policy_threading(self) -> None:
+        files = self.base_files()
+        files["libraries/forge/ports.lua"] = """
+function M.production_handles(opts)
+  return {
+    github = require("forge.github").new(exec_argv, {
+      trusted_author_policy = opts.trusted_author_policy,
+    }),
+  }
+end
+"""
+        self.assertEqual(self.run_guard(files), [])
+
+    def test_rejects_forge_ports_policyless_github_construction(self) -> None:
+        files = self.base_files()
+        files["libraries/forge/ports.lua"] = """
+function M.production_handles(opts)
+  return {
+    github = require("forge.github").new(exec_argv, opts),
+  }
+end
+"""
+        violations = self.run_guard(files)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("production forge.github construction", violations[0])
+
+    def test_rejects_forge_merge_production_fallback(self) -> None:
+        files = self.base_files()
+        files["libraries/forge/merge/verified_merge.lua"] = """
+local github_adapter = require("forge.github")
+function S.install(M, shared, opts)
+  local github = (opts and opts.github_handle) or github_adapter.production_handle
+  return github("forge.merge").gh_pr_view_merge("owner/repo", 7, 30)
+end
+"""
+        violations = self.run_guard(files)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("production forge.github construction", violations[0])
+
     def test_rejects_authored_api_path_with_metadata_policy(self) -> None:
         files = self.base_files()
         files["libraries/forge/github/entities.lua"] = """
@@ -122,6 +161,27 @@ end
         violations = self.run_guard(files)
         self.assertEqual(len(violations), 1)
         self.assertIn("authored GitHub API read must declare stdout_policy.content_json", violations[0])
+
+    def test_rejects_authored_list_helpers_with_metadata_policy(self) -> None:
+        helper_cases = {
+            "issue_list_open_assigned": ('issue_list_open_assigned_argv(repo, assignee)', "issue_list"),
+            "pr_list_recent_merged": ('pr_list_recent_merged_argv(repo, limit)', "pr_list"),
+            "pr_list_head": ('pr_list_head_argv(repo, branch, base)', "pr_list"),
+            "pr_list_merge_queue": ('pr_list_merge_queue_argv(repo, base)', "pr_list"),
+        }
+        for helper, (argv_call, shape) in helper_cases.items():
+            with self.subTest(helper=helper):
+                files = self.base_files()
+                files["libraries/forge/github/entities.lua"] = f"""
+function M.install(handle)
+  function handle.{helper}(repo)
+    return handle._exec({argv_call}, 30, "gh list", stdout_policy.trusted_metadata_json())
+  end
+end
+"""
+                violations = self.run_guard(files)
+                self.assertEqual(len(violations), 1)
+                self.assertIn(f"{helper} must declare stdout_policy.content_json(\"{shape}\")", violations[0])
 
 
 if __name__ == "__main__":

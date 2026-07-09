@@ -74,6 +74,17 @@ return {
     assert(type(handles.git) == "table", "git adapter handle")
   end,
 
+  test_policyless_production_handles_fail_closed_for_github_reads = function()
+    local handles = ports.production_handles()
+    assert(type(handles.git) == "table", "git adapter handle still available")
+    local ok, err = pcall(function()
+      return handles.github.read_issue
+    end)
+    assert(ok == false, "policyless GitHub handle fails closed")
+    assert(tostring(err):find("trusted_author_policy is required for production GitHub reads", 1, true) ~= nil,
+      "policyless GitHub handle reports missing author policy")
+  end,
+
   test_install_rejects_non_function = function()
     assert(not pcall(ports.install, nil), "install requires a make_department function")
   end,
