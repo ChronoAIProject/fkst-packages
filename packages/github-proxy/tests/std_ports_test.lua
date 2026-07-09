@@ -1,7 +1,12 @@
 local ports = require("forge.ports")
+local test_policy = require("forge.github.content_filter").test_disabled_author_policy()
+
+local function test_options()
+  return { trusted_author_policy = test_policy }
+end
 
 local function assert_install_rejects(make_department)
-  local ok, err = pcall(ports.install, make_department)
+  local ok, err = pcall(ports.install, make_department, test_options())
   assert(ok == false, "install rejects malformed make_department return")
   assert(tostring(err):find("forge.ports.install: make_department must return a table with spec and pipeline", 1, true) ~= nil,
     "install reports the department return-shape contract")
@@ -15,7 +20,7 @@ return {
       return { spec = { consumes = { "q" } }, pipeline = function() end }
     end
 
-    local dept = ports.install(make_department)
+    local dept = ports.install(make_department, test_options())
 
     assert(type(seen) == "table", "make_department receives a ports table")
     assert(type(seen.github) == "table" and type(seen.github.read_issue) == "function", "github handle is the adapter")
@@ -38,7 +43,7 @@ return {
       end
       _G.pipeline = production_pipeline
       return { spec = { consumes = { "q" } }, pipeline = production_pipeline }
-    end)
+    end, test_options())
 
     assert(_G.pipeline == production_pipeline, "install publishes the production pipeline")
     local fake = dept.make_department({ fake = true })
@@ -56,7 +61,7 @@ return {
     local dept = ports.install(function()
       _G.pipeline = side_effect_pipeline
       return { spec = { consumes = { "q" } }, pipeline = returned_pipeline }
-    end)
+    end, test_options())
 
     assert(dept.pipeline == side_effect_pipeline, "install captures the side-effect pipeline")
     assert(_G.pipeline == side_effect_pipeline, "install publishes the captured pipeline")
@@ -64,7 +69,7 @@ return {
   end,
 
   test_production_handles_builds_github_and_git_handles = function()
-    local handles = ports.production_handles()
+    local handles = ports.production_handles(test_options())
     assert(type(handles.github.read_issue) == "function", "github adapter handle")
     assert(type(handles.git) == "table", "git adapter handle")
   end,

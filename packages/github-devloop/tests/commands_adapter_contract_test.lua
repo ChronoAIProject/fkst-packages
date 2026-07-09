@@ -79,6 +79,15 @@ return {
     )
   end,
 
+  test_forge_merge_requires_injected_github_handle = function()
+    local ok, err = pcall(function()
+      require("forge.merge").install({})
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("forge.merge: github_handle is required", 1, true) ~= nil)
+  end,
+
   test_generic_gh_exec_uses_github_argv_adapter = function()
     local calls = with_exec_argv(function()
       gh_exec_mod.gh_exec(

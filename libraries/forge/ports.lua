@@ -9,6 +9,33 @@
 -- common wiring, the script keeps only its business pipeline).
 local M = {}
 
+function M.github_author_options(read_env, owner)
+  assert(type(read_env) == "function", "forge.ports.github_author_options requires read_env")
+  local content_filter = require("forge.github.content_filter")
+  local strings = require("contract.strings")
+  local policy = nil
+  local function append_csv_logins(logins, raw)
+    for login in tostring(raw or ""):gmatch("[^,%s]+") do
+      table.insert(logins, login)
+    end
+  end
+  return {
+    trusted_author_policy = function()
+      if policy == nil then
+        local bot_login = strings.trim(read_env("FKST_GITHUB_BOT_LOGIN") or "")
+        if bot_login == "" then
+          error(tostring(owner or "forge.ports") .. ": missing-github-bot-login: FKST_GITHUB_BOT_LOGIN is required for authored GitHub reads")
+        end
+        local logins = { bot_login }
+        append_csv_logins(logins, read_env("FKST_DEVLOOP_MANAGED_BOT_LOGINS"))
+        append_csv_logins(logins, read_env("FKST_GITHUB_AUTHORIZED_LOGINS"))
+        policy = content_filter.author_policy_from_logins(logins)
+      end
+      return policy
+    end,
+  }
+end
+
 local function production_exec_argv()
   if type(exec_argv) == "function" then
     return exec_argv

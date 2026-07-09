@@ -1,9 +1,8 @@
 local S = {}
-local github_adapter = require("forge.github")
 local forge_validators = require("forge.gitref")
 
 function S.install(M, shared, ci_gate, opts)
-local github = (opts and opts.github_handle) or github_adapter.production_handle
+local github = opts.github_handle
 local merge_attempt_limit = shared.merge_attempt_limit
 local expected_pr_identity = shared.expected_pr_identity
 
