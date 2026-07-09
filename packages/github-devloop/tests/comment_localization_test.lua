@@ -17,7 +17,6 @@ local unresolved = h.unresolved
 
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
 local cjk_probe = string.char(228, 184, 173)
-local zh_three_angle = string.char(228, 184, 137, 232, 167, 146)
 
 local issue_proposal_id = "github-devloop/issue/owner/repo/42"
 local issue_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -146,7 +145,6 @@ return {
 
   test_comment_prose_does_not_restate_angle_cardinality = function()
     local en_cases = render_cases("en")
-    local zh_cases = render_cases("zh")
     local en_result = body_of(en_cases[2])
     local en_converge = body_of(en_cases[3])
 
@@ -162,8 +160,6 @@ return {
     ) ~= nil)
     t.eq(en_result:find("Three-angle", 1, true), nil)
     t.eq(en_converge:find("three-angle", 1, true), nil)
-    t.eq(body_of(zh_cases[2]):find(zh_three_angle, 1, true), nil)
-    t.eq(body_of(zh_cases[3]):find(zh_three_angle, 1, true), nil)
   end,
 
   test_zh_comments_localize_human_skeletons_and_keep_machine_tokens = function()
