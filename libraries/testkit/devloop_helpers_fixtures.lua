@@ -9,6 +9,15 @@ local function copy_into(target, source)
   end
 end
 
+local function mock_decompose_context_bundle(helpers, entity_read_mocks, issue_stdout, pr_stdout)
+  entity_read_mocks.mock_issue_view_raw_selector(helpers.t, {}, "title,body,updatedAt,labels,comments,state,author", {
+    stdout = issue_stdout or '{"title":"Original large issue","body":"Original body","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:blocked"}],"comments":[],"author":{"login":"fkst-test-bot"}}\n',
+  })
+  entity_read_mocks.mock_pr_view_raw_selector(helpers.t, {}, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,author", {
+    stdout = pr_stdout or '{"title":"PR title","body":"PR body","headRefName":"devloop-owner-repo-42-01HY","headRefOid":"def456","baseRefName":"dev","state":"OPEN","updatedAt":"2026-06-04T01:02:03Z","comments":[],"labels":[],"author":{"login":"fkst-test-bot"}}\n',
+  })
+end
+
 function M.new(deps)
   deps = deps or {}
   local entity_lib = deps.entity_lib or error("testkit.devloop_helpers_fixtures: deps.entity_lib is required")
@@ -59,6 +68,16 @@ function M.new(deps)
       .. '"},"created_at":"2026-06-03T01:00:00Z"}\n'
   end
 
+  local base_run_department = helpers.run_department
+
+  helpers.run_department = function(...)
+    if type(helpers.mock_author_policy_env) == "function" then
+      local _, _, run_opts = ...
+      helpers.mock_author_policy_env(run_opts)
+    end
+    return base_run_department(...)
+  end
+
   if mode == "decompose" then
     local base_run_decompose = helpers.run_decompose
     helpers.run_decompose = function(payload, run_opts)
@@ -69,24 +88,18 @@ function M.new(deps)
     helpers.mock_default_issue_claim = mock_default_issue_claim
     helpers.issue_identity_from_payload = issue_identity_from_payload
     helpers.mock_required_check_runs_for = pr.mock_required_check_runs_for
+    helpers.mock_decompose_context_bundle = function(issue_stdout, pr_stdout)
+      return mock_decompose_context_bundle(helpers, entity_read_mocks, issue_stdout, pr_stdout)
+    end
     return helpers
   end
 
   local base_mock_bot_env = helpers.mock_bot_env
   local base_mock_issue_view_failure = helpers.mock_issue_view_failure
-  local base_run_department = helpers.run_department
   local base_run_observe = helpers.run_observe
   local base_run_result = helpers.run_result
   local base_run_result_expecting_failure = helpers.run_result_expecting_failure
   local base_run_implement = helpers.run_implement
-
-  helpers.run_department = function(...)
-    if type(helpers.mock_author_policy_env) == "function" then
-      local _, _, run_opts = ...
-      helpers.mock_author_policy_env(run_opts)
-    end
-    return base_run_department(...)
-  end
 
   local function mock_empty_dependencies()
     helpers.t.mock_command("gh api graphql", {
