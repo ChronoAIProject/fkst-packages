@@ -259,6 +259,7 @@ cmd_check() {
   python3 -B "$ROOT/scripts/host_run_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_profile_scaffold_test.py" || fail=1
   python3 -B "$ROOT/scripts/host_run_equivalence_test.py" || fail=1
+  python3 -B "$ROOT/scripts/dogfood_launchd_test.py" || fail=1
   python3 -B "$ROOT/scripts/run_sh_coverage_test.py" || fail=1
   python3 -B "$ROOT/scripts/run_sh_test_affected_test.py" || fail=1
   python3 -B "$ROOT/scripts/composed_manifest_test.py" || fail=1
