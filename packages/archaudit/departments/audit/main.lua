@@ -355,8 +355,6 @@ local function make_department(ports)
   return department
 end
 
-local M = ports_lib.install(make_department, {
-  github_handle_provider = github_factory.production_handle,
-})
+local M = ports_lib.install(make_department, github_factory.github_options(exec_sync))
 M.observe_port = observe_port
 return M

@@ -52,34 +52,7 @@ local function production_exec_argv()
   end
 end
 
-local function lazy_github_provider(provider)
-  local handle = nil
-  local function resolve()
-    if handle == nil then
-      handle = provider()
-      if type(handle) ~= "table" then
-        error("forge.ports: github_handle_provider must return a table")
-      end
-    end
-    return handle
-  end
-  return setmetatable({}, {
-    __index = function(_, key)
-      return resolve()[key]
-    end,
-    __newindex = function(_, key, value)
-      resolve()[key] = value
-    end,
-  })
-end
-
 local function github_from_options(run, github_options)
-  if type(github_options.github_handle_provider) == "function" then
-    return lazy_github_provider(github_options.github_handle_provider)
-  end
-  if type(github_options.github_handle) == "table" then
-    return github_options.github_handle
-  end
   if github_options.trusted_author_policy == nil then
     return setmetatable({}, {
       __index = function()
