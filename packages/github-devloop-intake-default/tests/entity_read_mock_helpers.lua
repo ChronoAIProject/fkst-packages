@@ -257,8 +257,10 @@ end
 local issue_view_selectors = {
   "number,title,author",
   "title,body,comments,labels,state,updatedAt,assignees",
+  "title,body,comments,labels,state,updatedAt,assignees,author",
   "title,body,comments,labels,state,createdAt,updatedAt,assignees,author",
   "title,body,updatedAt,labels,comments,state",
+  "title,body,updatedAt,labels,comments,state,author",
   "title,body,createdAt,updatedAt,labels,comments,state,assignees,author",
   "title,comments,state",
   "title,labels,state,comments,assignees,author",
@@ -417,9 +419,15 @@ function M.mock_issue_view_selector(t, fields, selector, times)
   local f = fields or {}
   local repo = f.repo or "owner/repo"
   local number = f.number or 42
-  register_view_commands(t, {
+  local commands = {
     issue_view_command(repo, number, selector),
-  }, M.issue_view_stdout(f), times or 1)
+  }
+  if selector == "title,body,updatedAt,labels,comments,state" then
+    table.insert(commands, issue_view_command(repo, number, "title,body,updatedAt,labels,comments,state,author"))
+  elseif selector == "title,body,comments,labels,state,updatedAt,assignees" then
+    table.insert(commands, issue_view_command(repo, number, "title,body,comments,labels,state,updatedAt,assignees,author"))
+  end
+  register_view_commands(t, commands, M.issue_view_stdout(f), times or 1)
   if selector == "title,body,comments,labels,state,createdAt,updatedAt,assignees,author" then
     register_view_commands(t, {
       issue_rest_command(repo, number),
@@ -430,7 +438,14 @@ end
 
 function M.mock_issue_view_raw_selector(t, fields, selector, result, times)
   local f = fields or {}
-  register_command_result(t, issue_view_command(f.repo or "owner/repo", f.number or 42, selector), result or {}, times or 1)
+  local repo = f.repo or "owner/repo"
+  local number = f.number or 42
+  register_command_result(t, issue_view_command(repo, number, selector), result or {}, times or 1)
+  if selector == "title,body,updatedAt,labels,comments,state" then
+    register_command_result(t, issue_view_command(repo, number, "title,body,updatedAt,labels,comments,state,author"), result or {}, times or 1)
+  elseif selector == "title,body,comments,labels,state,updatedAt,assignees" then
+    register_command_result(t, issue_view_command(repo, number, "title,body,comments,labels,state,updatedAt,assignees,author"), result or {}, times or 1)
+  end
 end
 
 function M.mock_pr_view_selector(t, fields, selector, times)
