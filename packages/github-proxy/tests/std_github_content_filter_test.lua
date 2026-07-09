@@ -22,6 +22,7 @@ end
 return {
   test_canon_login_strips_bot_suffix_trims_lowercases = function()
     t.eq(cf.canon_login("Fkst-Bot[bot]"), "fkst-bot")
+    t.eq(cf.canon_login("Fkst-Bot[BOT]"), "fkst-bot")
     t.eq(cf.canon_login("  Alice  "), "alice")
     t.is_nil(cf.canon_login(nil))
     t.is_nil(cf.canon_login(""))

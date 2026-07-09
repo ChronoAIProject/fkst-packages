@@ -105,6 +105,16 @@ local function mock_intake_class_lookup(issues)
 end
 
 local function mock_intake_codex(stdout)
+  local ok = { stdout = "", stderr = "", exit_code = 0 }
+  for _ = 1, 4 do
+    t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+      stdout = "fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', ok)
+    t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', ok)
+  end
   for _ = 1, 3 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
@@ -437,14 +447,15 @@ return {
     t.eq(result.exit_code, 0)
     assert_queues(result.raises, { "github-proxy.github_issue_comment_request" })
     local request = result.raises[1].payload
+    local refusal_reason = "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states"
     assert_common_issue_request(request, "github-proxy.v1", base_ids.dedup_key({
       "operator-command",
       "comment",
       command_fact.key,
       "refused",
-      "reintake requires no active devloop state",
+      refusal_reason,
     }))
-    t.is_true(request.body:find("github-devloop operator command refused: reintake requires no active devloop state", 1, true) ~= nil)
+    t.is_true(request.body:find("github-devloop operator command refused: " .. refusal_reason, 1, true) ~= nil)
     t.eq(h.count_calls("codex exec"), 0)
   end,
 

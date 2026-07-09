@@ -10,6 +10,7 @@ local git_adapter = require("forge.git")
 local queue = require("devloop.queue")
 local saga = require("workflow.saga")
 local convergence_identity = require("contract.convergence_identity")
+local conv_reconcile = require("devloop.convergence.reconcile")
 local workflow_codex = require("workflow.codex")
 local pr_child_handoff = require("departments.implement.pr_child_handoff")
 local forks = require("devloop.forks")
@@ -23,6 +24,7 @@ local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local fork_gate = require("departments.implement.fork_gate")
 local m_mq = require("devloop.merge_queue")
+local operator_commands = require("devloop.operator_commands")
 
 local dispatch_liveness = {
   restart_transition_table = function(...)
@@ -518,6 +520,21 @@ local function operator_blocked_reimplement_allowed(ready, current, state)
     or state.state ~= "blocked"
     or tostring(state.version or "") ~= tostring(reentry.state_version or "") then
     return false
+  end
+  if reentry.terminal_reason == "implementing-timeout-without-pr" then
+    if m_facts.pr_link_fact(current.comments, ready.proposal_id) ~= nil then
+      return false
+    end
+    local fact = conv_reconcile.timeout_reconcile_fact_for_terminal_version_from_states(current.comments, ready.proposal_id, state.version, {
+      implementing = true,
+    })
+    return fact ~= nil
+      and fact.from_state == "implementing"
+      and fact.reason_class == "state-output-obligation-timeout"
+      and tostring(fact.from_version or "") == tostring(reentry.impl_version or "")
+      and tonumber(fact.round) == tonumber(reentry.timeout_round)
+      and operator_commands.reintake_source_refs_match(fact.source_ref, ready.source_ref, devloop_base._max_key_len)
+      and tostring(reentry.impl_version or "") == tostring(ready.dedup_key or "")
   end
   local link = m_facts.pr_link_fact(current.comments, ready.proposal_id)
   return link ~= nil
