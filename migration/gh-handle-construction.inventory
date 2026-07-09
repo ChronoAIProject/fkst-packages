@@ -1,6 +1,5 @@
 # Shrink-only production GitHub handle construction inventory; entries only get removed as construction delegates to the canonical capability.
 libraries/forge/github.lua:M.new
-libraries/forge/github.lua:M.production_handle
 libraries/forge/ports.lua:M.production_handles
 libraries/forge/merge_commands.lua:M.install
 libraries/devloop/github_factory.lua:M.new

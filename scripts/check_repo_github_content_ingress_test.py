@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for GitHub authored-content ingress ratchet."""
+"""Tests for the GitHub authored-content ingress migration backstop."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ end
         self.assertEqual(len(violations), 1)
         self.assertIn("must declare a stdout_policy", violations[0])
 
-    def test_rejects_third_raw_gh_exec_argv_egress(self) -> None:
+    def test_backstop_rejects_raw_gh_exec_argv_egress(self) -> None:
         files = self.base_files()
         files["packages/github-devloop/core/raw.lua"] = """
 function M.bad()
@@ -75,7 +75,7 @@ end
 """
         violations = self.run_guard(files)
         self.assertEqual(len(violations), 1)
-        self.assertIn("raw gh exec_argv egress", violations[0])
+        self.assertIn("bypasses the GitHub capability seam", violations[0])
 
     def test_rejects_policyless_production_github_handle_construction(self) -> None:
         files = self.base_files()
@@ -86,7 +86,7 @@ end
 """
         violations = self.run_guard(files)
         self.assertEqual(len(violations), 1)
-        self.assertIn("production forge.github construction", violations[0])
+        self.assertIn("bypasses the GitHub capability seam", violations[0])
 
     def test_allows_devloop_policy_factory_construction(self) -> None:
         files = self.base_files()
@@ -127,20 +127,7 @@ end
 """
         violations = self.run_guard(files)
         self.assertEqual(len(violations), 1)
-        self.assertIn("production forge.github construction", violations[0])
-
-    def test_rejects_forge_merge_production_fallback(self) -> None:
-        files = self.base_files()
-        files["libraries/forge/merge/verified_merge.lua"] = """
-local github_adapter = require("forge.github")
-function S.install(M, shared, opts)
-  local github = (opts and opts.github_handle) or github_adapter.production_handle
-  return github("forge.merge").gh_pr_view_merge("owner/repo", 7, 30)
-end
-"""
-        violations = self.run_guard(files)
-        self.assertEqual(len(violations), 1)
-        self.assertIn("production forge.github construction", violations[0])
+        self.assertIn("bypasses the GitHub capability seam", violations[0])
 
     def test_rejects_authored_api_path_with_metadata_policy(self) -> None:
         files = self.base_files()

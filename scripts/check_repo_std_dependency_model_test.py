@@ -147,11 +147,12 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
             ],
         )
 
-    def test_devloop_content_provenance_reexport_uses_shared_forge_mechanism(self) -> None:
+    def test_devloop_content_filter_imports_are_limited_to_policy_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root / "libraries" / "forge" / "github" / "content_filter.lua", "return {}\n")
-            write(root / "libraries" / "devloop" / "content_provenance.lua", 'return require("forge.github.content_filter")\n')
+            write(root / "libraries" / "devloop" / "context_bundle.lua", 'local cf = require("forge.github.content_filter")\nreturn {}\n')
+            write(root / "libraries" / "devloop" / "github_author_policy.lua", 'local cf = require("forge.github.content_filter")\nreturn {}\n')
             write(root / "migration" / "devloop-forge-imports.inventory", "")
             with mock.patch.object(
                 check_repo.check_repo_std_dependency_model.ratchet_base,
