@@ -26,6 +26,7 @@ public = [
   "devloop.ci_failure_keys",
   "devloop.claims",
   "devloop.commands",
+  "devloop.commands.content_fields",
   "devloop.commands.dashboard",
   "devloop.commands.git_ops",
   "devloop.commands.issue_reads",

@@ -17,6 +17,13 @@ local parse_updated_at_stdout = github_view.parse_updated_at_stdout
 local issue_view_fields = "number,title,body,url,updatedAt,state,labels,comments,assignees,author"
 local max_cache_key_segment_len = 120
 
+local function issue_view_audit_output(fields)
+  if stdout_policy.fields_include_authored_content(fields) then
+    return "summary-only"
+  end
+  return nil
+end
+
 local function sanitize_cache_segment(value, allow_slash)
   local pattern = allow_slash and "[^%w%._%-%/]" or "[^%w%._%-]"
   local safe = tostring(value or ""):gsub(pattern, "-")
@@ -383,7 +390,8 @@ function M.install(handle)
       gh_issue_view_argv(repo, issue_number, fields),
       timeout,
       "gh issue view",
-      stdout_policy.content_json("issue_view")
+      stdout_policy.content_json("issue_view"),
+      issue_view_audit_output(fields)
     )
   end
 
@@ -396,13 +404,15 @@ function M.install(handle)
       gh_issue_rest_argv(repo, number),
       timeout,
       "gh issue view",
-      stdout_policy.content_json("issue_view")
+      stdout_policy.content_json("issue_view"),
+      "summary-only"
     )
     local comments = handle._exec(
       gh_issue_comments_rest_argv(repo, number),
       timeout,
       "gh issue comments",
-      stdout_policy.content_json("issue_comments")
+      stdout_policy.content_json("issue_comments"),
+      "summary-only"
     )
     local stdout = rest_issue_to_view_stdout(issue.stdout, comments.stdout)
     cache_successful_issue_view(issue_view_cache_key(repo, number), stdout, opts and opts.consumer or "")
@@ -448,7 +458,8 @@ function M.install(handle)
       gh_issue_view_full_argv(repo, number),
       timeout,
       "gh issue view",
-      stdout_policy.content_json("issue_view")
+      stdout_policy.content_json("issue_view"),
+      issue_view_audit_output(issue_view_fields)
     )
     cache_successful_issue_view(key, out.stdout, options.consumer or "")
     return M.normalize_issue(out.stdout, source_ref)
@@ -459,7 +470,8 @@ function M.install(handle)
       gh_issue_rest_argv(repo, issue_number),
       timeout,
       "gh issue REST view",
-      stdout_policy.content_json("issue_view")
+      stdout_policy.content_json("issue_view"),
+      "summary-only"
     )
   end
 
@@ -468,7 +480,8 @@ function M.install(handle)
       gh_issue_view_argv(repo, issue_number, fields),
       timeout,
       "gh issue view",
-      stdout_policy.content_json("issue_view")
+      stdout_policy.content_json("issue_view"),
+      issue_view_audit_output(fields)
     )
   end
 
@@ -486,7 +499,8 @@ function M.install(handle)
       gh_issue_rest_argv(repo, sub_issue_number),
       timeout,
       "gh issue REST view",
-      stdout_policy.content_json("issue_view")
+      stdout_policy.content_json("issue_view"),
+      "summary-only"
     )
     local child_id = issue_database_id(child.stdout, "sub-issue")
     local ok, result = pcall(function()

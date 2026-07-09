@@ -11,8 +11,8 @@ function M.new(exec, opts)
   local options = opts or {}
   local handle = {}
   handle._trusted_author_policy = options.trusted_author_policy
-  function handle._exec(argv, timeout, context, stdout_policy)
-    return exec_wrap.run(exec, argv, timeout, context, stdout_policy, handle._trusted_author_policy)
+  function handle._exec(argv, timeout, context, stdout_policy, audit_output)
+    return exec_wrap.run(exec, argv, timeout, context, stdout_policy, handle._trusted_author_policy, audit_output)
   end
   require("forge.github.issue").install(handle)
   require("forge.github.entities").install(handle)

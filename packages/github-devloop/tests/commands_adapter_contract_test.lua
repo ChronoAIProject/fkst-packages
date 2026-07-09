@@ -35,13 +35,24 @@ end
 local function with_exec_argv(fn)
   mock_author_policy_env()
   local old_exec_argv = exec_argv
+  local old_exec_sync = exec_sync
   local calls = {}
+  local env = {
+    FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+    FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,ElonSG",
+    FKST_GITHUB_AUTHORIZED_LOGINS = "trusted-human",
+  }
   exec_argv = function(spec)
     table.insert(calls, spec)
     return { stdout = "{}", stderr = "", exit_code = 0 }
   end
+  exec_sync = function(cmd)
+    local name = tostring(cmd or ""):match('%$([A-Z0-9_]+)"?$')
+    return { stdout = env[name] or "", stderr = "", exit_code = 0 }
+  end
   local ok, result = pcall(fn, calls)
   exec_argv = old_exec_argv
+  exec_sync = old_exec_sync
   if not ok then
     error(result)
   end
@@ -268,6 +279,56 @@ return {
     t.eq(calls[4].timeout, 36)
     t.eq(calls[5].timeout, 32)
     t.eq(calls[6].timeout, 33)
+  end,
+
+  test_content_bearing_issue_view_helpers_use_summary_only_command_audit = function()
+    local issue_reads = require("devloop.commands.issue_reads")
+    local calls = with_exec_argv(function(observed_calls)
+      t.eq(type(issue_reads._issue_view_fields), "table")
+      for key, fields in pairs(issue_reads._issue_view_fields) do
+        core.gh_issue_view("owner/repo", 42, key, 31, exec_argv)
+        local call = observed_calls[#observed_calls]
+        local has_content = issue_reads._fields_include_content(fields)
+        if has_content then
+          t.eq(call.audit_output, "summary-only")
+        else
+          t.is_nil(call.audit_output)
+        end
+      end
+    end)
+
+    t.is_true(#calls > 0)
+  end,
+
+  test_content_bearing_custom_issue_view_fields_use_summary_only_command_audit = function()
+    local calls = with_exec_argv(function()
+      core.gh_issue_view("owner/repo", 44, "title,state", 35, exec_argv, exec_sync)
+      core.gh_issue_view("owner/repo", 45, "title,comments", 36, exec_argv, exec_sync)
+      core.gh_issue_view("owner/repo", 46, "number,body", 37, exec_argv, exec_sync)
+    end)
+
+    t.is_nil(calls[1].audit_output)
+    t.eq(calls[2].audit_output, "summary-only")
+    t.eq(calls[3].audit_output, "summary-only")
+  end,
+
+  test_content_bearing_pr_view_helpers_use_summary_only_command_audit = function()
+    local pr_commands = require("devloop.commands.prs")
+    t.eq(type(pr_commands._pr_view_fields), "table")
+
+    local calls = with_exec_argv(function(observed_calls)
+      for key, fields in pairs(pr_commands._pr_view_fields) do
+        pr_commands.gh_pr_view("owner/repo", 7, key, 31, exec_argv)
+        local call = observed_calls[#observed_calls]
+        if pr_commands._fields_include_content(fields) then
+          t.eq(call.audit_output, "summary-only")
+        else
+          t.is_nil(call.audit_output)
+        end
+      end
+    end)
+
+    t.is_true(#calls > 0)
   end,
 
   test_commands_helpers_execute_git_via_argv_adapter = function()

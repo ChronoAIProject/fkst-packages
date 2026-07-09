@@ -1,7 +1,25 @@
 local S = {}
 local C = {}
+local content_fields = require("devloop.commands.content_fields")
 local support = require("devloop.commands.support")
 local validators = require("devloop.commands.validators")
+
+local pr_view_fields = {
+  origin = "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,comments,labels,author,mergeable,mergeStateStatus",
+  fix = "headRefName,headRefOid,baseRefName,state,comments,headRepository,headRepositoryOwner,isCrossRepository",
+  fix_precheck = "headRefName,headRefOid,baseRefName,state,updatedAt,comments,headRepository,headRepositoryOwner,isCrossRepository",
+  freshness = "headRefName,headRefOid,baseRefName,state,updatedAt,isDraft,comments,labels,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup",
+  head = "headRefName,baseRefName,state",
+  context = "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,author",
+}
+
+local function pr_fields(fields_key_or_fields)
+  return pr_view_fields[tostring(fields_key_or_fields or "")] or validators.validate_fields(fields_key_or_fields, "github-devloop: invalid PR view fields")
+end
+
+local function fields_include_content(fields)
+  return content_fields.fields_include_content(fields)
+end
 
   function C.gh_pr_list_board_digest(repo, timeout)
     return support.gh_result(function()
@@ -32,36 +50,29 @@ local validators = require("devloop.commands.validators")
   end
 
   function C.gh_pr_view_origin(repo, pr_number, timeout)
-    return support.gh_result(function()
-      return support.github().pr_cli_view(
-        repo,
-        pr_number,
-        "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,mergedAt,comments,labels,author,mergeable,mergeStateStatus",
-        timeout
-      )
-    end)
+    return C.gh_pr_view(repo, pr_number, "origin", timeout)
   end
 
   function C.gh_pr_view_observe(repo, pr_number, timeout)
     return C.gh_pr_view_origin(repo, pr_number, timeout)
   end
 
-  function C.gh_pr_view_fix(repo, pr_number, timeout)
+  function C.gh_pr_view(repo, pr_number, fields_key_or_fields, timeout, run, env_run)
     return support.gh_result(function()
-      return support.github().pr_cli_view(repo, pr_number, "headRefName,headRefOid,baseRefName,state,comments,headRepository,headRepositoryOwner,isCrossRepository", timeout)
+      return support.github(run, env_run).pr_cli_view(repo, pr_number, pr_fields(fields_key_or_fields), timeout)
     end)
+  end
+
+  function C.gh_pr_view_fix(repo, pr_number, timeout)
+    return C.gh_pr_view(repo, pr_number, "fix", timeout)
   end
 
   function C.gh_pr_view_fix_precheck(repo, pr_number, timeout)
-    return support.gh_result(function()
-      return support.github().pr_cli_view(repo, pr_number, "headRefName,headRefOid,baseRefName,state,updatedAt,comments,headRepository,headRepositoryOwner,isCrossRepository", timeout)
-    end)
+    return C.gh_pr_view(repo, pr_number, "fix_precheck", timeout)
   end
 
   function C.gh_pr_view_freshness(repo, pr_number, timeout)
-    return support.gh_result(function()
-      return support.github().pr_cli_view(repo, pr_number, "headRefName,headRefOid,baseRefName,state,updatedAt,isDraft,comments,labels,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup", timeout)
-    end)
+    return C.gh_pr_view(repo, pr_number, "freshness", timeout)
   end
 
   function C.gh_pr_list_head_base(repo, head, base, timeout)
@@ -144,21 +155,19 @@ local validators = require("devloop.commands.validators")
   end
 
   function C.gh_pr_view_head(repo, pr_number, timeout)
-    return support.gh_result(function()
-      return support.github().pr_cli_view(repo, pr_number, "headRefName,baseRefName,state", timeout)
-    end)
+    return C.gh_pr_view(repo, pr_number, "head", timeout)
   end
 
   function C.gh_pr_view_context(repo, pr_number, timeout, run, env_run)
-    return support.gh_result(function()
-      return support.github(run, env_run).pr_cli_view(repo, pr_number, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,author", timeout)
-    end)
+    return C.gh_pr_view(repo, pr_number, "context", timeout, run, env_run)
   end
 
 function S.install(M)
   for _, n in ipairs({"gh_issue_comment", "gh_pr_close", "gh_pr_comment", "gh_pr_create", "gh_pr_create_body", "gh_pr_diff", "gh_pr_diff_name_only", "gh_pr_list_board_digest", "gh_pr_list_freshness", "gh_pr_list_head", "gh_pr_list_head_base", "gh_pr_list_merge_queue", "gh_pr_list_recent_merged", "gh_pr_ready", "gh_pr_view_context", "gh_pr_view_fix", "gh_pr_view_fix_precheck", "gh_pr_view_freshness", "gh_pr_view_head", "gh_pr_view_observe", "gh_pr_view_origin"}) do M[n] = C[n] end
 end
 C.install = S.install
+C._pr_view_fields = pr_view_fields
+C._fields_include_content = fields_include_content
 
 for k, v in pairs(S) do if C[k] == nil then C[k] = v end end
 return C

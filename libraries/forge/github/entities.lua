@@ -135,6 +135,13 @@ end
 
 local merge_pr_fields = "headRefName,headRefOid,baseRefName,baseRefOid,state,updatedAt,isDraft,mergedAt,comments,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,statusCheckRollup"
 
+local function pr_view_audit_output(fields)
+  if stdout_policy.fields_include_authored_content(fields) then
+    return "summary-only"
+  end
+  return nil
+end
+
 local function pr_diff_argv(repo, pr_number)
   return { "gh", "pr", "diff", tostring(pr_number), "--repo", tostring(repo) }
 end
@@ -444,12 +451,19 @@ function M.install(handle)
       pr_view_argv(repo, pr_number),
       timeout,
       "gh PR REST head repository/headRefOid/state",
-      stdout_policy.content_json("pr_view")
+      stdout_policy.content_json("pr_view"),
+      "summary-only"
     )
   end
 
   function handle.pr_cli_view(repo, pr_number, fields, timeout)
-    return handle._exec(pr_view_cli_argv(repo, pr_number, fields), timeout, "gh pr view", stdout_policy.content_json("pr_view"))
+    return handle._exec(
+      pr_view_cli_argv(repo, pr_number, fields),
+      timeout,
+      "gh pr view",
+      stdout_policy.content_json("pr_view"),
+      pr_view_audit_output(fields)
+    )
   end
 
   function handle.gh_pr_view_merge(repo, pr_number, timeout)
@@ -463,7 +477,7 @@ function M.install(handle)
   end
 
   function handle.pr_rest_view(repo, pr_number, timeout)
-    return handle._exec(pr_view_argv(repo, pr_number), timeout, "gh PR REST view", stdout_policy.content_json("pr_view"))
+    return handle._exec(pr_view_argv(repo, pr_number), timeout, "gh PR REST view", stdout_policy.content_json("pr_view"), "summary-only")
   end
 
   function handle.pr_diff_name_only(repo, pr_number, timeout)

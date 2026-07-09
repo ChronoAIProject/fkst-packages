@@ -69,11 +69,19 @@ local function filter_stdout(result, context, policy, author_policy)
   return content_filter.apply_gh_content_filter(result, context, policy, author_policy, stdout_policy)
 end
 
-function M.run(exec, argv, timeout, context, policy, author_policy)
+local function command_spec(argv, timeout, audit_output)
+  local spec = { argv = argv, timeout = timeout }
+  if audit_output ~= nil then
+    spec.audit_output = audit_output
+  end
+  return spec
+end
+
+function M.run(exec, argv, timeout, context, policy, author_policy, audit_output)
   if type(argv) ~= "table" or #argv < 1 or argv[1] ~= "gh" then
     misuse_error(argv, context)
   end
-  local result = exec({ argv = argv, timeout = timeout })
+  local result = exec(command_spec(argv, timeout, audit_output))
   if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
     local class = M.error_class(result, context)
     local message = "forge.github: " .. tostring(context) .. " failed: " .. class .. ": " .. stderr_of(result)

@@ -1,6 +1,7 @@
 local payloads_predicates = require("devloop.payloads.predicates")
 local S = {}
 local C = {}
+local content_fields = require("devloop.commands.content_fields")
 local support = require("devloop.commands.support")
 local validators = require("devloop.commands.validators")
 
@@ -25,6 +26,10 @@ local issue_view_fields = {
 
 local function issue_fields(fields_key_or_fields)
   return issue_view_fields[tostring(fields_key_or_fields or "")] or validators.validate_fields(fields_key_or_fields, "github-devloop: invalid issue view fields")
+end
+
+local function fields_include_content(fields)
+  return content_fields.fields_include_content(fields)
 end
 
   function C.gh_issue_list_intake(repo, limit, timeout)
@@ -159,6 +164,8 @@ function S.install(M)
   for _, n in ipairs({"gh_issue_close", "gh_issue_comment_get", "gh_issue_list_board_digest", "gh_issue_list_decompose_children", "gh_issue_list_intake", "gh_issue_list_recent_closed", "gh_issue_list_wip", "gh_issue_view", "gh_issue_view_claim", "gh_issue_view_commit_subject", "gh_issue_view_decompose", "gh_issue_view_fix", "gh_issue_view_implement", "gh_issue_view_intake_judge", "gh_issue_view_loop", "gh_issue_view_merge", "gh_issue_view_meta", "gh_issue_view_observe", "gh_issue_view_open_pr", "gh_issue_view_result", "gh_issue_view_review", "gh_issue_view_review_loop", "gh_issue_view_reviewing", "gh_issue_view_state"}) do M[n] = C[n] end
 end
 C.install = S.install
+C._issue_view_fields = issue_view_fields
+C._fields_include_content = fields_include_content
 
 for k, v in pairs(S) do if C[k] == nil then C[k] = v end end
 return C

@@ -66,11 +66,11 @@ end
 
 function M.install(handle)
   function handle.issue_comments(repo, issue_number, timeout)
-    return handle._exec(issue_comments_argv(repo, issue_number), timeout, "gh issue comments", stdout_policy.content_json("issue_comments"))
+    return handle._exec(issue_comments_argv(repo, issue_number), timeout, "gh issue comments", stdout_policy.content_json("issue_comments"), "summary-only")
   end
 
   function handle.pr_comments(repo, pr_number, timeout)
-    return handle._exec(issue_comments_argv(repo, pr_number), timeout, "gh PR comments", stdout_policy.content_json("pr_comments"))
+    return handle._exec(issue_comments_argv(repo, pr_number), timeout, "gh PR comments", stdout_policy.content_json("pr_comments"), "summary-only")
   end
 
   function handle.issue_comment_create(repo, issue_number, body_file, timeout)
@@ -86,7 +86,7 @@ function M.install(handle)
   end
 
   function handle.comment_get(repo, comment_id, timeout)
-    return handle._exec(comment_get_argv(repo, comment_id), timeout, "gh comment get", stdout_policy.content_json("issue_comments"))
+    return handle._exec(comment_get_argv(repo, comment_id), timeout, "gh comment get", stdout_policy.content_json("issue_comments"), "summary-only")
   end
 
   function handle.issue_comment(repo, issue_number, body_file, timeout)

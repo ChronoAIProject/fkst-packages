@@ -57,4 +57,13 @@ function M.is_content_json(policy)
   return policy.kind == "content_json"
 end
 
+function M.fields_include_authored_content(fields)
+  for field in tostring(fields or ""):gmatch("[^,]+") do
+    if field == "body" or field == "comments" then
+      return true
+    end
+  end
+  return false
+end
+
 return M
