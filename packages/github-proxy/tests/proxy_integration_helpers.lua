@@ -3,6 +3,7 @@ local core = require("core")
 
 local raw_mock_command = t.mock_command
 local raw_command_calls = t.command_calls
+local raw_run_department = t.run_department
 
 local function normalize_rendered_command(command)
   local rendered = tostring(command or "")
@@ -36,6 +37,17 @@ function t.mock_command(command, response)
     return
   end
   raw_mock_command(command, response)
+end
+
+local function mock_author_policy_env()
+  t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', { stdout = "fkst-test-bot,ElonSG", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', { stdout = "trusted-human", stderr = "", exit_code = 0 })
+end
+
+function t.run_department(...)
+  mock_author_policy_env()
+  return raw_run_department(...)
 end
 
 local function nonce()
@@ -77,9 +89,7 @@ local function base_env(name, extra)
 end
 
 local function opts(name, extra_env)
-  t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = "fkst-test-bot", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', { stdout = "fkst-test-bot,ElonSG", stderr = "", exit_code = 0 })
-  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', { stdout = "trusted-human", stderr = "", exit_code = 0 })
+  mock_author_policy_env()
   return {
     env = base_env(name, extra_env),
   }
@@ -103,8 +113,8 @@ end
 
 local function mock_bot_env(value)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', { stdout = value or "fkst-test-bot" })
-  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', { stdout = "fkst-test-bot,ElonSG" })
-  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', { stdout = "trusted-human" })
+  t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', { stdout = "fkst-test-bot,ElonSG", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', { stdout = "trusted-human", stderr = "", exit_code = 0 })
 end
 
 local function mock_issue_list(stdout, exit_code, stderr)
