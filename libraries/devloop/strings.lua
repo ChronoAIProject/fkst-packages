@@ -3,10 +3,10 @@ local C = {}
 
 local strings = {
   en = {
-    convergence_suffix = " - no three-angle consensus; narrowing",
+    convergence_suffix = " - no consensus across angles; narrowing",
     narrowed_question_label = "Narrowed question: ",
     angle_stances_label = "Angle stances:",
-    verdict_summary_label = "Three-angle verdicts: ",
+    verdict_summary_label = "Verdicts: ",
     comment_evidence_empty = "(review rounds are recorded on the parent PR comments)",
     thinking_started = "github-devloop thinking: consensus started",
     decision_prefix = "github-devloop decision: ",
@@ -52,10 +52,10 @@ local strings = {
     decomposed_suffix = " follow-up issue(s)",
   },
   zh = {
-    convergence_suffix = " - 三角共识未达成，正在收窄",
+    convergence_suffix = " - 共识未达成，正在收窄",
     narrowed_question_label = "收窄问题：",
     angle_stances_label = "角度立场：",
-    verdict_summary_label = "三角结论：",
+    verdict_summary_label = "结论：",
     comment_evidence_empty = "（复审轮次记录在父 PR 评论中）",
     thinking_started = "github-devloop 思考：共识已开始",
     decision_prefix = "github-devloop 决策：",

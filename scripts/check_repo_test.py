@@ -131,7 +131,7 @@ local encoded = encode_hex("6769746875622d6465766c6f6f7020e6809de88083")
 
     def test_github_devloop_zh_strings_are_source_greppable(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        probe = bytes.fromhex("e4b889e8a792e585b1e8af86e69caae8bebee68890").decode("utf-8")
+        probe = bytes.fromhex("e585b1e8af86e69caae8bebee68890").decode("utf-8")
         hits = [
             path
             for path in root.rglob("*.lua")
