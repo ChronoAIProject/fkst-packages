@@ -70,9 +70,9 @@ end
     end)
   end
 
-  function C.gh_issue_view(repo, issue_number, fields_key_or_fields, timeout, run)
+  function C.gh_issue_view(repo, issue_number, fields_key_or_fields, timeout, run, env_run)
     return support.gh_result(function()
-      return support.github(run).issue_view(repo, issue_number, issue_fields(fields_key_or_fields), timeout)
+      return support.github(run, env_run).issue_view(repo, issue_number, issue_fields(fields_key_or_fields), timeout)
     end)
   end
 

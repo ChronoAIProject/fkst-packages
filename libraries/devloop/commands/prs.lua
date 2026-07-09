@@ -149,9 +149,9 @@ local validators = require("devloop.commands.validators")
     end)
   end
 
-  function C.gh_pr_view_context(repo, pr_number, timeout, run)
+  function C.gh_pr_view_context(repo, pr_number, timeout, run, env_run)
     return support.gh_result(function()
-      return support.github(run).pr_cli_view(repo, pr_number, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,author", timeout)
+      return support.github(run, env_run).pr_cli_view(repo, pr_number, "title,body,headRefName,headRefOid,baseRefName,state,updatedAt,comments,labels,author", timeout)
     end)
   end
 

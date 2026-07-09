@@ -109,17 +109,24 @@ function M.new(deps)
     })
   end
 
-  local function mock_context_bundle(payload)
+  local function mock_context_bundle(payload, run_opts)
     local repo, issue_number = issue_identity_from_payload(payload)
     local ok = { stdout = "", stderr = "", exit_code = 0 }
+    -- Resolve the author-policy env from the caller's run_opts (matching mock_author_policy_env
+    -- defaults) so the ingress filter's whitelist honours managed/authorized logins the test set,
+    -- instead of hardcoding them empty (which would clobber a test's managed/authorized logins).
+    local run_env = (type(run_opts) == "table" and type(run_opts.env) == "table") and run_opts.env or {}
+    local bot_login = run_env.FKST_GITHUB_BOT_LOGIN or "fkst-test-bot"
+    local managed_ok = { stdout = run_env.FKST_DEVLOOP_MANAGED_BOT_LOGINS or "fkst-test-bot,ElonSG", stderr = "", exit_code = 0 }
+    local authorized_ok = { stdout = run_env.FKST_GITHUB_AUTHORIZED_LOGINS or "trusted-human", stderr = "", exit_code = 0 }
     for _ = 1, 8 do
       helpers.t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
-        stdout = "fkst-test-bot",
+        stdout = bot_login,
         stderr = "",
         exit_code = 0,
       })
-      helpers.t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', ok)
-      helpers.t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', ok)
+      helpers.t.mock_command('printf %s "$FKST_DEVLOOP_MANAGED_BOT_LOGINS"', managed_ok)
+      helpers.t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', authorized_ok)
     end
     for _ = 1, 8 do
       helpers.t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -210,8 +217,8 @@ function M.new(deps)
 
   helpers.run_implement = function(...)
     mock_empty_dependencies()
-    local payload = ...
-    mock_context_bundle(payload)
+    local payload, run_opts = ...
+    mock_context_bundle(payload, run_opts)
     return base_run_implement(...)
   end
 

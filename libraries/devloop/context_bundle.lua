@@ -497,7 +497,7 @@ function C.build_context_bundle(M, args)
   local issue_json = '{"title":"PR-only context","body":"No backing GitHub issue is available for this delivery.","labels":[],"comments":[],"state":"UNKNOWN"}\n'
   if issue_number ~= nil then
     issue_json = fetch_result(function(timeout)
-      return M.gh_issue_view(repo, issue_number, "title,body,updatedAt,labels,comments,state,author", timeout, args.exec)
+      return M.gh_issue_view(repo, issue_number, "title,body,updatedAt,labels,comments,state,author", timeout, args.exec, args.exec)
     end, "issue fetch")
     if whitelist ~= nil then
       local issue_redactions = {}
@@ -511,7 +511,7 @@ function C.build_context_bundle(M, args)
 
   if args.pr_number ~= nil then
     local pr_json = fetch_result(function(timeout)
-      return M.gh_pr_view_context(repo, args.pr_number, timeout, args.exec)
+      return M.gh_pr_view_context(repo, args.pr_number, timeout, args.exec, args.exec)
     end, "pr fetch")
     if whitelist ~= nil then
       local pr_redactions = {}
