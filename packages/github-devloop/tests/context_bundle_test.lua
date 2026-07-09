@@ -17,17 +17,23 @@ local function runtime_root(name)
 end
 
 local function run_probe(mode, root)
+  local env = {
+    FKST_RUNTIME_ROOT = root,
+    FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+  }
+  if mode == "content_redaction_whitelist_env" then
+    env.FKST_DEVLOOP_MANAGED_BOT_LOGINS = "Managed-Bot[bot],space-bot"
+    env.FKST_GITHUB_AUTHORIZED_LOGINS = "Trusted-User"
+  end
   local result = t.run_department("departments/test_context_bundle_probe/main.lua", {
     queue = "context_bundle_probe",
     payload = {
+      env = env,
       mode = mode,
       root = root,
     },
   }, {
-    env = {
-      FKST_RUNTIME_ROOT = root,
-      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
-    },
+    env = env,
   })
   t.eq(result.exit_code, 0)
   for _, raised in ipairs(result.raises or {}) do

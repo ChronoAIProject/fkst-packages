@@ -149,7 +149,7 @@ return {
       redacted_original.comments,
       forks.fork_issue_dedup_key("owner/repo", original_issue),
       "loning",
-      { loning = true, ElonSG = true }
+      { loning = true, elonsg = true }
     ))
     mock_issue_implement({ "fkst-dev:ready" }, {
       {
