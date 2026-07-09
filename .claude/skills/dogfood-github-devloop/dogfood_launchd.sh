@@ -169,7 +169,11 @@ launchd_remove_conflicts() { # $1 name
   while IFS=$'\t' read -r path label reason; do
     [ -n "$path" ] || continue
     echo "[$name] removing stale launchd unit ${label:-unknown} (${reason:-conflict}) at $path"
-    launchctl_cmd bootout "$domain" "$path" >/dev/null 2>&1 || true
+    if ! launchctl_cmd bootout "$domain" "$path" >/dev/null 2>&1; then
+      echo "[$name] failed to unload stale launchd unit ${label:-unknown} at $path" >&2
+      failed=1
+      continue
+    fi
     rm -f "$path" || failed=1
   done < <(launchd_conflicts "$name")
   return "$failed"
@@ -210,7 +214,10 @@ launchd_uninstall_one() { # $1 name
   launchd_remove_conflicts "$name" || return 1
   plist="$(launchd_plist_path "$name")"
   if [ -f "$plist" ]; then
-    launchctl_cmd bootout "$domain" "$plist" >/dev/null 2>&1 || true
+    if ! launchctl_cmd bootout "$domain" "$plist" >/dev/null 2>&1; then
+      echo "[$name] failed to unload launchd authority plist=$plist" >&2
+      return 1
+    fi
     rm -f "$plist" || return 1
     echo "[$name] removed launchd authority plist=$plist"
   else

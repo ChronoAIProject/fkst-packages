@@ -201,6 +201,80 @@ class DogfoodLaunchdTest(unittest.TestCase):
             self.assertNotEqual(canonical["ProgramArguments"], ["noncanonical"])
             self.assertIn("removing stale launchd unit", result.stdout)
 
+    def test_reconcile_preserves_conflicting_plist_when_bootout_fails(self) -> None:
+        script = (REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop" / "dogfood.sh").read_text(
+            encoding="utf-8"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = DogfoodLayout(Path(tmp) / "failed-reconcile-bootout", script)
+            agents = layout.root / "LaunchAgents"
+            agents.mkdir()
+            stale = agents / "com.fkst.dogfood.ExampleOrg.packages-old.plist"
+            stale.write_bytes(
+                plistlib.dumps(
+                    {
+                        "Label": "com.fkst.dogfood.ExampleOrg.packages-old",
+                        "ProgramArguments": [str(layout.root / "deleted-run.sh"), "supervise"],
+                        "EnvironmentVariables": {},
+                        "KeepAlive": True,
+                    }
+                )
+            )
+            write_executable(
+                layout.bin_dir / "launchctl",
+                "#!/usr/bin/env bash\n[ \"${1:-}\" != \"bootout\" ]\n",
+            )
+
+            result = subprocess.run(
+                [str(layout.script), "install-launchd", "packages"],
+                cwd=layout.root,
+                env=layout.env("packages"),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(stale.exists())
+            self.assertIn("failed to unload stale launchd unit", result.stderr)
+
+    def test_uninstall_preserves_canonical_plist_when_bootout_fails(self) -> None:
+        script = (REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop" / "dogfood.sh").read_text(
+            encoding="utf-8"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = DogfoodLayout(Path(tmp) / "failed-uninstall-bootout", script)
+            install = subprocess.run(
+                [str(layout.script), "install-launchd", "packages"],
+                cwd=layout.root,
+                env=layout.env("packages"),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
+            plist_path = layout.root / "LaunchAgents" / "com.fkst.dogfood.ExampleOrg.packages.plist"
+            write_executable(
+                layout.bin_dir / "launchctl",
+                "#!/usr/bin/env bash\n[ \"${1:-}\" != \"bootout\" ]\n",
+            )
+
+            result = subprocess.run(
+                [str(layout.script), "uninstall-launchd", "packages"],
+                cwd=layout.root,
+                env=layout.env("packages"),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(plist_path.exists())
+            self.assertIn("failed to unload launchd authority", result.stderr)
+
     def test_doctor_reports_missing_restart_authority_for_direct_supervise(self) -> None:
         script = (REPO_ROOT / ".claude" / "skills" / "dogfood-github-devloop" / "dogfood.sh").read_text(
             encoding="utf-8"
