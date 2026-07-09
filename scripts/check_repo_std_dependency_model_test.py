@@ -162,16 +162,11 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
 
         self.assertEqual(violations, [])
 
-    def test_devloop_gh_ingress_uses_shared_forge_mechanism(self) -> None:
+    def test_devloop_entity_view_must_not_import_forge_policy_internals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root / "libraries" / "forge" / "github" / "content_filter.lua", "return {}\n")
             write(root / "libraries" / "forge" / "github" / "stdout_policy.lua", "return {}\n")
-            write(
-                root / "libraries" / "devloop" / "gh_exec.lua",
-                'local filter = require("forge.github.content_filter")\n'
-                'local policy = require("forge.github.stdout_policy")\nreturn {}\n',
-            )
             write(
                 root / "libraries" / "devloop" / "github_proxy_entity_view.lua",
                 'local filter = require("forge.github.content_filter")\n'
@@ -185,7 +180,13 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
             ):
                 violations, _warnings = self.run_guard(root)
 
-        self.assertEqual(violations, [])
+        self.assertEqual(
+            violations,
+            [
+                "G-LIB-DEP: libraries/devloop/github_proxy_entity_view.lua imports forge.github.content_filter but is not listed in migration/devloop-forge-imports.inventory",
+                "G-LIB-DEP: libraries/devloop/github_proxy_entity_view.lua imports forge.github.stdout_policy but is not listed in migration/devloop-forge-imports.inventory",
+            ],
+        )
 
     def test_devloop_forge_import_inventory_allows_gitref_facade_consolidation(self) -> None:
         current = inventory_line("libraries/devloop/forge_validators.lua", "forge.gitref")

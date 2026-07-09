@@ -17,7 +17,6 @@ packages/github-devloop-workflow/tests/workflow_select_equivalence_test.lua:mock
 packages/github-devloop-workflow/tests/workflow_select_match_test.lua:managed_bot_logins_mock
 packages/github-devloop/tests/claim_contract_test.lua:mock_managed_bot_logins
 packages/github-devloop/tests/commands_adapter_contract_test.lua:mock_author_policy_env
-packages/github-devloop/tests/gh_exec_cached_test.lua:mock_author_policy_env
 packages/github-devloop/tests/integration_implement_fork_gate_test.lua:mock_managed_bot_logins
 packages/github-external-pr-intake/tests/unsupported_payload_test.lua:managed_bot_logins_mock
 packages/github-proxy/tests/core_test.lua:mock_author_policy_env

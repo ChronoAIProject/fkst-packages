@@ -10,7 +10,6 @@ from typing import Callable
 RULE = "G-GITHUB-CONTENT-INGRESS"
 WRAPPER_NEEDLES = {
     "libraries/forge/github/exec.lua": ("content_filter.apply_gh_content_filter",),
-    "libraries/devloop/gh_exec.lua": ("content_filter.apply_gh_content_filter",),
 }
 POLICY_FACTORY_NEEDLE = "devloop.github_factory"
 AUTHORED_LIST_HELPER_SHAPES = {
@@ -192,7 +191,7 @@ def messages(
                 if "argv" in call and ('"gh"' in raw or "'gh'" in raw or obfuscated_head):
                     line = text.count("\n", 0, match.start()) + 1
                     violations.append(
-                        f"{relpath}:{line} raw gh exec_argv egress must use forge.github.exec.run or devloop.gh_exec"
+                        f"{relpath}:{line} raw gh exec_argv egress must use forge.github.exec.run"
                     )
         if not is_allowed_policyless_github_construction(relpath):
             for start, call in policyless_require_github_constructions(text, stripped):

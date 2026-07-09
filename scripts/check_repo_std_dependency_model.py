@@ -25,11 +25,7 @@ FORGE_STRINGS_SPLIT_IMPORTS = {
 }
 SANCTIONED_DEVLOOP_FORGE_REEXPORTS = {
     ("libraries/devloop/content_provenance.lua", "forge.github.content_filter"),
-    ("libraries/devloop/gh_exec.lua", "forge.github.content_filter"),
-    ("libraries/devloop/gh_exec.lua", "forge.github.stdout_policy"),
     ("libraries/devloop/github_factory.lua", "forge.github"),
-    ("libraries/devloop/github_proxy_entity_view.lua", "forge.github.content_filter"),
-    ("libraries/devloop/github_proxy_entity_view.lua", "forge.github.stdout_policy"),
 }
 DEVLOOP_FAMILY = {
     "archaudit",
