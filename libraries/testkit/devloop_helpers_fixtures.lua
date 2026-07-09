@@ -82,7 +82,8 @@ function M.new(deps)
 
   helpers.run_department = function(...)
     if type(helpers.mock_author_policy_env) == "function" then
-      helpers.mock_author_policy_env()
+      local _, _, run_opts = ...
+      helpers.mock_author_policy_env(run_opts)
     end
     return base_run_department(...)
   end
