@@ -5,8 +5,8 @@ local forge_validators = require("forge.gitref")
 local git_adapter = require("forge.git")
 local strings = require("contract.strings")
 
-function S.install(M, shared, ci_gate)
-local github = github_adapter.production_handle
+function S.install(M, shared, ci_gate, opts)
+local github = (opts and opts.github_handle) or github_adapter.production_handle
 local git = git_adapter.production_handle
 local pr_rollup_green = check_runs.pr_rollup_green
 

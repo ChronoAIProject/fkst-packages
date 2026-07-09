@@ -52,6 +52,13 @@ function M.new(deps)
     }, "assignees,author", 30)
   end
 
+  local function encoded_comment_json(comment_id, body, author_login)
+    return '{"id":"' .. helpers.json_string(comment_id)
+      .. '","body":"' .. helpers.json_string(body or "")
+      .. '","user":{"login":"' .. helpers.json_string(author_login or "fkst-test-bot")
+      .. '"},"created_at":"2026-06-03T01:00:00Z"}\n'
+  end
+
   if mode == "decompose" then
     local base_run_decompose = helpers.run_decompose
     helpers.run_decompose = function(payload, run_opts)
@@ -277,7 +284,10 @@ function M.new(deps)
         or request.handoff.kind == "github-devloop.closed_unmerged" and "closed-unmerged"
         or "reviewing"
       helpers.t.mock_command("gh api --method GET 'repos/" .. tostring(request.repo) .. "/issues/comments/" .. tostring(selected_comment_id) .. "'", {
-        stdout = '{"body":"' .. helpers.json_string(helpers.core.state_marker(request.handoff.proposal_id, state, request.handoff.version)) .. '","user":{"login":"fkst-test-bot"}}\n',
+        stdout = encoded_comment_json(
+          selected_comment_id,
+          helpers.core.state_marker(request.handoff.proposal_id, state, request.handoff.version)
+        ),
         stderr = "",
         exit_code = 0,
       })
