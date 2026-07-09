@@ -139,7 +139,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    entity_read_mocks.mock_issue_view_raw_selector(helpers.t, { repo = repo, number = issue_number }, "title,body,updatedAt,labels,comments,state", {
+    entity_read_mocks.mock_issue_view_raw_selector(helpers.t, { repo = repo, number = issue_number }, "title,body,updatedAt,labels,comments,state,author", {
       stdout = bundle_json,
     })
     entity_read_mocks.mock_pr_view_raw_selector(helpers.t, {
