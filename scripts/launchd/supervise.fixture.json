@@ -1,0 +1,14 @@
+{
+  "schema": "fkst.launchd.supervise.unit.v1",
+  "label": "com.chronoai.fkst.supervise.fixture",
+  "project_root": "/opt/fkst/host",
+  "platform_root": "/opt/fkst/fkst-packages",
+  "platform_packages": [
+    "github-devloop",
+    "github-devloop-pr",
+    "github-devloop-integration",
+    "github-proxy",
+    "consensus"
+  ],
+  "durable_root": "/var/db/fkst/durable"
+}
