@@ -61,6 +61,7 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
             ["contract", "workflow", "forge"],
             allow=allow
             or [
+                "archaudit",
                 "github-devloop",
                 "github-devloop-decompose",
                 "github-devloop-workflow",
@@ -94,7 +95,7 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.seed_contract(root)
-            self.seed_devloop_manifest(root, allow=["github-devloop", "archaudit"])
+            self.seed_devloop_manifest(root, allow=["github-devloop", "random-package"])
             write(root / "migration" / "devloop-forge-imports.inventory", "")
             with mock.patch.object(
                 check_repo.check_repo_std_dependency_model.ratchet_base,
@@ -103,7 +104,7 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
             ):
                 violations, _warnings = self.run_guard_without_seed(root)
 
-        self.assertTrue(any("devloop visibility must list only" in message and "archaudit" in message for message in violations))
+        self.assertTrue(any("devloop visibility must list only" in message and "random-package" in message for message in violations))
 
     def test_devloop_forge_import_inventory_matches_current_and_legacy_base(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

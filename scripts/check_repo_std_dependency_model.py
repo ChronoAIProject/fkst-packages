@@ -32,6 +32,7 @@ SANCTIONED_DEVLOOP_FORGE_REEXPORTS = {
     ("libraries/devloop/github_proxy_entity_view.lua", "forge.github.stdout_policy"),
 }
 DEVLOOP_FAMILY = {
+    "archaudit",
     "fkst-substrate-ref-maintainer",
     "github-devloop",
     "github-devloop-decompose",
