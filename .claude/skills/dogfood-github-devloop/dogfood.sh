@@ -27,6 +27,7 @@
 #   ./dogfood.sh sync    [name|all]            auto-deploy: ff pinned operator checkouts to dev, rebuild BIN,
 #                                              and restart ONLY supervises whose running code is a real
 #                                              package/engine change (skill/docs-only skew is left running)
+#   ./dogfood.sh render-launchd [name]         render one user LaunchAgent plist to stdout; no launchctl/install
 #   ./dogfood.sh logs    [name] [lines]        tail the latest log (default packages, 40 lines)
 #
 # Dogfood resolves per-machine topology and delegates one-host launch invariants
@@ -73,6 +74,8 @@ DOGFOOD_REPOS="${DOGFOOD_REPOS:-packages substrate website}"             # repos
 # rewrites it, so a drift between committed composition and launch composition fails closed in the
 # host-run contract instead of being masked.
 DEVLOOP_PKGS=""
+SUPERVISE_ARGS=()
+SUPERVISE_ENV=()
 
 # cfg <name> -> REPO HOST PKGSRC DUR LOCAL_PKGS. Worktree paths derive from $DOGFOOD_ROOT (uniform
 # layout across machines); stable durable roots default under it but are commonly PINNED per machine
@@ -102,6 +105,40 @@ derive_devloop_pkgs_from_workspace() { # $1 name
   output="$(python3 "$_self_dir/workspace_manifest.py" platform-packages "$name" "$HOST" "$PKGSRC")" \
     || { printf '%s\n' "$output" >&2; return 1; }
   DEVLOOP_PKGS="$output"
+}
+
+build_supervise_args() { # $1 name, $2 runtime-root-or-empty, $3 restart flag (0|1)
+  local name="$1" runtime_root="${2:-}" restart="${3:-0}"
+  derive_devloop_pkgs_from_workspace "$name" || return 1
+  [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] no platform packages declared in fkst.workspace.toml"; return 1; }
+  [ -x "$PKGSRC/scripts/run.sh" ] || { echo "[$name] missing host-run contract: $PKGSRC/scripts/run.sh"; return 1; }
+
+  SUPERVISE_ARGS=(
+    "$PKGSRC/scripts/run.sh" supervise
+    --project-root "$HOST"
+    --platform-root "$PKGSRC"
+    --platform-packages "$DEVLOOP_PKGS"
+    --durable-root "$DUR"
+  )
+  [ -n "$runtime_root" ] && SUPERVISE_ARGS+=(--runtime-root "$runtime_root")
+  [ -n "$LOCAL_PKGS" ] && SUPERVISE_ARGS+=(--host-packages "$LOCAL_PKGS")
+  [ "$restart" = "1" ] && SUPERVISE_ARGS+=(--restart)
+  return 0
+}
+
+build_supervise_env() {
+  SUPERVISE_ENV=(
+    "BIN=$BIN"
+    "FKST_GITHUB_REPO=$REPO"
+    "FKST_GITHUB_WRITE=1"
+    "FKST_GITHUB_BOT_LOGIN=$BOT"
+    "FKST_GITHUB_PROXY_POLL_LABEL_PREFIX=$GITHUB_PROXY_POLL_LABEL_PREFIX"
+    "FKST_DEVLOOP_UPSTREAM_BRANCH=$UPSTREAM_BRANCH"
+    "FKST_DEVLOOP_INTEGRATION_BRANCH=$INTEGRATION_BRANCH"
+    "FKST_DEVLOOP_ROLLUP_MERGE=$ROLLUP_MERGE"
+    "FKST_DEVLOOP_MANAGED_BOT_LOGINS=$MANAGED_BOT_LOGINS"
+    "FKST_RATE_POOL_ROOT=$RATE_POOL"
+  )
 }
 
 pidof_df() { pgrep -f -- "supervise --project-root ${HOST} " 2>/dev/null; }
@@ -377,30 +414,13 @@ clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
 }
 
 launch_one() { # $1 name, $2 restart flag (0|1)
-  local name="$1" restart="${2:-0}" ts log rt args=()
+  local name="$1" restart="${2:-0}" ts log rt
   ts=$(date +%s); log="$LOGDIR/${name}-sv-${ts}.log"; rt="$LOGDIR/dogfood-rt-${name}.${ts}"
   clean_stale_runtime_worktrees "$name" "$rt"
-  derive_devloop_pkgs_from_workspace "$name" || return 1
-  [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] no platform packages declared in fkst.workspace.toml"; return 1; }
-  [ -x "$PKGSRC/scripts/run.sh" ] || { echo "[$name] missing host-run contract: $PKGSRC/scripts/run.sh"; return 1; }
+  build_supervise_args "$name" "$rt" "$restart" || return 1
+  build_supervise_env
 
-  args=(
-    "$PKGSRC/scripts/run.sh" supervise
-    --project-root "$HOST"
-    --platform-root "$PKGSRC"
-    --platform-packages "$DEVLOOP_PKGS"
-    --durable-root "$DUR"
-    --runtime-root "$rt"
-  )
-  [ -n "$LOCAL_PKGS" ] && args+=(--host-packages "$LOCAL_PKGS")
-  [ "$restart" = "1" ] && args+=(--restart)
-
-  BIN="$BIN" FKST_GITHUB_REPO="$REPO" FKST_GITHUB_WRITE=1 FKST_GITHUB_BOT_LOGIN="$BOT" \
-    FKST_GITHUB_PROXY_POLL_LABEL_PREFIX="$GITHUB_PROXY_POLL_LABEL_PREFIX" \
-    FKST_DEVLOOP_UPSTREAM_BRANCH="$UPSTREAM_BRANCH" FKST_DEVLOOP_INTEGRATION_BRANCH="$INTEGRATION_BRANCH" \
-    FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$MANAGED_BOT_LOGINS" \
-    FKST_RATE_POOL_ROOT="$RATE_POOL" \
-    nohup "${args[@]}" > "$log" 2>&1 &
+  env "${SUPERVISE_ENV[@]}" nohup "${SUPERVISE_ARGS[@]}" > "$log" 2>&1 &
   local pid=$!
   ln -sf "$log" "$LOGDIR/${name}-sv.log"
   wait_supervise_ready "$pid" "$log"
@@ -689,6 +709,44 @@ cmd_config() {
   done
 }
 
+launchd_label_component() {
+  printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-'
+}
+
+# This renders a user-scoped LaunchAgent, not a system LaunchDaemon: current
+# dogfood execution depends on this user's gh/git/codex credentials and
+# per-device config. Logout remains in the failure domain, and launchd does not
+# solve host sleep.
+cmd_render_launchd() { # $1 name
+  local name="${1:-packages}" label
+  case "$name" in
+    all|"") echo "usage: $0 render-launchd {packages|substrate|website}" >&2; return 2 ;;
+  esac
+  cfg "$name" || return 1
+  build_supervise_args "$name" "" 1 || return 1
+  build_supervise_env
+  label="com.fkst.dogfood.$(launchd_label_component "$GH_ORG").$(launchd_label_component "$name")"
+
+  python3 - "$label" "${#SUPERVISE_ARGS[@]}" "${SUPERVISE_ARGS[@]}" "${SUPERVISE_ENV[@]}" <<'PY'
+import plistlib
+import sys
+
+label = sys.argv[1]
+argc = int(sys.argv[2])
+program_arguments = sys.argv[3 : 3 + argc]
+env_entries = sys.argv[3 + argc :]
+environment = dict(entry.split("=", 1) for entry in env_entries)
+payload = {
+    "Label": label,
+    "ProgramArguments": program_arguments,
+    "EnvironmentVariables": environment,
+    "KeepAlive": True,
+    "AbandonProcessGroup": True,
+}
+sys.stdout.buffer.write(plistlib.dumps(payload, sort_keys=False))
+PY
+}
+
 cmd_board() {
   local target="${1:-}" stale="${2:-6}"
   # accept `board <stale_hours>` (numeric first arg) as well as `board [name] [stale_hours]`
@@ -710,6 +768,7 @@ case "$cmd" in
   doctor)  cmd_doctor "${arg2:-all}" ;;
   config)  cmd_config ;;
   board)   cmd_board "$arg2" "$arg3" ;;
+  render-launchd) cmd_render_launchd "$arg2" ;;
   logs)    f=$(latest_log "${arg2:-packages}"); echo "$f"; tail -"${arg3:-40}" "$f" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' ;;
-  *) echo "usage: $0 {status|doctor|config|board|bin|start|stop|restart|sync|logs} [packages|substrate|website|all] [stale_h|lines]"; exit 1 ;;
+  *) echo "usage: $0 {status|doctor|config|board|bin|start|stop|restart|sync|render-launchd|logs} [packages|substrate|website|all] [stale_h|lines]"; exit 1 ;;
 esac

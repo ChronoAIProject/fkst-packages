@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 DOGFOOD_SCRIPT = ".claude/skills/dogfood-github-devloop/dogfood.sh"
-LAUNCH_PATH_FUNCTIONS = ("launch_one", "start_one", "restart_one")
+LAUNCH_PATH_FUNCTIONS = ("build_supervise_args", "launch_one", "start_one", "restart_one")
 FUNCTION_RE = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{")
 RUN_SH_SUPERVISE_RE = re.compile(r"scripts/run\.sh[\"']?\s+supervise\b")
 PACKAGE_ROOT_RE = re.compile(r"(?<![A-Za-z0-9_-])--package-root(?![A-Za-z0-9_-])")
