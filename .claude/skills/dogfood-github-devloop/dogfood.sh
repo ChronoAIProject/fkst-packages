@@ -21,13 +21,16 @@
 #   ./dogfood.sh doctor  [name|all]            health roll-up: supervises + BIN freshness + code currency + graphql
 #   ./dogfood.sh board   [name|all] [stale_h]  GitHub board sweep: which issues/PRs flow vs are stuck (default stale 6h)
 #   ./dogfood.sh bin                           ensure engine BIN == substrate origin/dev; rebuild if stale (no restart)
-#   ./dogfood.sh start   [name|all]            launch via host-run contract
-#   ./dogfood.sh stop    [name|all]            SIGKILL (releases the redb lock)
-#   ./dogfood.sh restart [name|all]            sync run checkouts to origin/<integration> + relaunch (unconditional)
+#   ./dogfood.sh start   [name|all]            install/reconcile launchd authority and kickstart
+#   ./dogfood.sh stop    [name|all]            uninstall launchd authority
+#   ./dogfood.sh restart [name|all]            sync run checkouts to origin/<integration> + launchd kickstart
 #   ./dogfood.sh sync    [name|all]            auto-deploy: ff pinned operator checkouts to dev, rebuild BIN,
 #                                              and restart ONLY supervises whose running code is a real
 #                                              package/engine change (skill/docs-only skew is left running)
 #   ./dogfood.sh render-launchd [name]         render one user LaunchAgent plist to stdout; no launchctl/install
+#   ./dogfood.sh install-launchd [name|all]    install/reconcile user LaunchAgent authority
+#   ./dogfood.sh uninstall-launchd [name|all]  unload/remove user LaunchAgent authority
+#   ./dogfood.sh kill-test [name|all]          kill launchd pid and require canonical restart
 #   ./dogfood.sh logs    [name] [lines]        tail the latest log (default packages, 40 lines)
 #
 # Dogfood resolves per-machine topology and delegates one-host launch invariants
@@ -44,6 +47,7 @@ set -uo pipefail
 # env var > config file > default. See dogfood.config.example.sh for the template.
 _self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _repo_root="$(git -C "$_self_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+_launchd_lib="$_self_dir/dogfood_launchd.sh"
 _cfg="${DOGFOOD_CONFIG:-$_self_dir/dogfood.config.sh}"
 [ -f "$_cfg" ] && . "$_cfg"
 
@@ -413,43 +417,14 @@ clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
   done
 }
 
-launch_one() { # $1 name, $2 restart flag (0|1)
-  local name="$1" restart="${2:-0}" ts log rt
-  ts=$(date +%s); log="$LOGDIR/${name}-sv-${ts}.log"; rt="$LOGDIR/dogfood-rt-${name}.${ts}"
-  clean_stale_runtime_worktrees "$name" "$rt"
-  build_supervise_args "$name" "$rt" "$restart" || return 1
-  build_supervise_env
-
-  env "${SUPERVISE_ENV[@]}" nohup "${SUPERVISE_ARGS[@]}" > "$log" 2>&1 &
-  local pid=$!
-  ln -sf "$log" "$LOGDIR/${name}-sv.log"
-  wait_supervise_ready "$pid" "$log"
-  local ready_status=$?
-  if [ "$ready_status" -eq 0 ]; then
-    echo "[$name] started pid $pid  panic=$(grep -ac panicked "$log" 2>/dev/null)  log=$log"
-  else
-    if [ "$ready_status" -eq 1 ]; then
-      echo "[$name] FAILED to start; supervise pid $pid exited before readiness; tail:"
-    else
-      echo "[$name] FAILED to become ready; supervise pid $pid did not emit startup readiness; tail:"
-    fi
-    tail -12 "$log" | sed 's/\x1b\[[0-9;]*m//g'
-    return 1
-  fi
-}
-
 start_one() {
   cfg "$1" || return 1
-  local existing; existing=$(pidof_df)
-  if [ -n "$existing" ]; then echo "[$1] already running (pid $existing) — use restart"; return 0; fi
-  launch_one "$1" 0
+  launchd_reconcile_one "$1"
 }
 
 stop_one() {
   cfg "$1" || return 1
-  local p; p=$(pidof_df)
-  if [ -z "$p" ]; then echo "[$1] not running"; return 0; fi
-  kill -9 $p 2>/dev/null; echo "[$1] killed $p"
+  launchd_uninstall_one "$1"
 }
 
 restart_one() {
@@ -462,10 +437,7 @@ restart_one() {
   [ "$HOST" != "$PKGSRC" ] && ensure_integration_caught_up "$HOST"
   sync_to_run_branch "$PKGSRC"
   [ "$HOST" != "$PKGSRC" ] && sync_to_run_branch "$HOST"
-  # One migration bridge: a supervise launched before the host-run contract has no
-  # durable pidfile yet, so --restart has nothing to kill on the first upgraded run.
-  [ ! -f "$DUR/.fkst-supervise.pid" ] && { stop_one "$1"; sleep 1; }
-  launch_one "$1" 1
+  launchd_reconcile_one "$1"
 }
 
 status_one() {
@@ -509,10 +481,15 @@ _proc_stale() {
 
 doctor_one() {
   cfg "$1" || return 1
-  local p log panic st procpkg proceng verdict; p=$(pidof_df); log=$(latest_log "$1")
+  local p log panic st procpkg proceng verdict authority_problem; p=$(pidof_df); log=$(latest_log "$1")
   derive_devloop_pkgs_from_workspace "$1" >/dev/null || { printf '  %-9s CONFIG-ERROR (target %s)\n' "$1" "$REPO"; return 0; }
   panic=$(grep -ac panicked "$log" 2>/dev/null); panic=${panic:-0}
   if [ -z "$p" ]; then printf '  %-9s STOPPED (target %s)\n' "$1" "$REPO"; return 0; fi
+  authority_problem="$(launchd_authority_problem "$1" "$p")"
+  if [ -n "$authority_problem" ]; then
+    printf '  %-9s RUNNING pid %s | %s | target %s\n' "$1" "${p//$'\n'/,}" "$authority_problem" "$REPO"
+    return 0
+  fi
   st=$(_proc_stale "$1")   # also fetches origin/dev for $PKGSRC + $SUBSTRATE_SRC
   procpkg=$(grep -aoE "${DEVLOOP_PKGS%% *}@[a-f0-9]+" "$log" 2>/dev/null | tail -1 | cut -d@ -f2)
   proceng=$(grep -aoE 'ENGINE_VER=[a-f0-9]+' "$log" 2>/dev/null | tail -1 | cut -d= -f2)
@@ -709,43 +686,8 @@ cmd_config() {
   done
 }
 
-launchd_label_component() {
-  printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-'
-}
-
-# This renders a user-scoped LaunchAgent, not a system LaunchDaemon: current
-# dogfood execution depends on this user's gh/git/codex credentials and
-# per-device config. Logout remains in the failure domain, and launchd does not
-# solve host sleep.
-cmd_render_launchd() { # $1 name
-  local name="${1:-packages}" label
-  case "$name" in
-    all|"") echo "usage: $0 render-launchd {packages|substrate|website}" >&2; return 2 ;;
-  esac
-  cfg "$name" || return 1
-  build_supervise_args "$name" "" 1 || return 1
-  build_supervise_env
-  label="com.fkst.dogfood.$(launchd_label_component "$GH_ORG").$(launchd_label_component "$name")"
-
-  python3 - "$label" "${#SUPERVISE_ARGS[@]}" "${SUPERVISE_ARGS[@]}" "${SUPERVISE_ENV[@]}" <<'PY'
-import plistlib
-import sys
-
-label = sys.argv[1]
-argc = int(sys.argv[2])
-program_arguments = sys.argv[3 : 3 + argc]
-env_entries = sys.argv[3 + argc :]
-environment = dict(entry.split("=", 1) for entry in env_entries)
-payload = {
-    "Label": label,
-    "ProgramArguments": program_arguments,
-    "EnvironmentVariables": environment,
-    "KeepAlive": True,
-    "AbandonProcessGroup": True,
-}
-sys.stdout.buffer.write(plistlib.dumps(payload, sort_keys=False))
-PY
-}
+[ -f "$_launchd_lib" ] || { echo "missing launchd helper: $_launchd_lib" >&2; exit 1; }
+. "$_launchd_lib"
 
 cmd_board() {
   local target="${1:-}" stale="${2:-6}"
@@ -769,6 +711,9 @@ case "$cmd" in
   config)  cmd_config ;;
   board)   cmd_board "$arg2" "$arg3" ;;
   render-launchd) cmd_render_launchd "$arg2" ;;
+  install-launchd) cmd_install_launchd "$arg2" ;;
+  uninstall-launchd) cmd_uninstall_launchd "$arg2" ;;
+  kill-test) cmd_launchd_kill_test "$arg2" ;;
   logs)    f=$(latest_log "${arg2:-packages}"); echo "$f"; tail -"${arg3:-40}" "$f" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' ;;
-  *) echo "usage: $0 {status|doctor|config|board|bin|start|stop|restart|sync|render-launchd|logs} [packages|substrate|website|all] [stale_h|lines]"; exit 1 ;;
+  *) echo "usage: $0 {status|doctor|config|board|bin|start|stop|restart|sync|render-launchd|install-launchd|uninstall-launchd|kill-test|logs} [packages|substrate|website|all] [stale_h|lines]"; exit 1 ;;
 esac
