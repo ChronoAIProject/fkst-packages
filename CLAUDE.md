@@ -98,6 +98,23 @@ Directory permissions are fragile: a read-only parent prevents `git worktree add
 
 Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree parent broke `sync_scan`'s `git worktree add`, stalled forward sync across a week's dev advance, left running code stale, and allowed recurrence of an already-fixed false-terminal class. ⟦AI:FKST⟧
 
+## 代码一眼可推断，零隐含状态——因为推断者是 AI（显式函数 + 数据 + 调用，拒绝 OOP 机制·统摄元哲学）
+
+**总纲：代码必须「一眼可推断」——读它就能推出它做什么，没有你得从别处才知道的隐含状态。** 本系统的操作者、worker、reviewer 都是 **AI**，靠**读代码推断行为**；有隐含状态 → AI 必然推断错。实证（本仓 typed-edge 重构）：edge 的 `kind` 隐含在 handler 的产生路径里 → 分类 AI 一眼推断，推错超半数（timeout/guard/entry 被当 autonomous）；request-reply 的收件人隐含在 fanout payload 里、靠 `proposal_id` 反推 → 收件人对 AI 不可见。所以「一眼可推断」不是 clean-code 审美，是 **AI-driven 系统正确推理的刚需**——它直接降 competence 轴负担：**不是「多审几遍防推错」，是「让代码根本推不错」**（隐含状态正是单遍 AI 推断不可靠、才需一堆对抗 review 的根）。
+
+**软件复杂性的根 = OOP 机制制造的隐含状态；本系统全删，只留显式函数 + 数据 + 调用。**
+- **inheritance（继承）**：行为来自你得另外知道的父类（隐含）→ 换 **composition（合成复用，显式 lib 调用）**。
+- **polymorphism（多态）**：跑哪个方法取决于运行期 instance 类型、**调用点看不出**（隐含 dispatch）→ 换**显式 dispatch table / 直接函数调用**（调用点一眼看得出跑哪个）。
+- **mutable instance state / instance 间 correlation**：要追踪 instance 才知道状态（隐含）→ 换**外部 marker + 回源 re-derive**（状态是 class 级事实、显式可查，不藏在内存 instance）。
+
+**class vs instance = fanout vs request-reply（把上面落到通信面）**：**fanout 是 class 级**——广播给某一**类**订阅者、不认 instance 身份、无 instance 状态；**request-reply 是 instance 级**——回给那个正在等的**特定 instance**、必须携带 instance identity（correlation / `proposal_id`-as-correlation），那就是被偷运进来的隐含状态。所以 **instance 级交互 = 函数调用**（调用栈本身就是 instance 关系：这一次调用 = 这一个 instance），**绝不做成消息**（见「消息只许 fanout」）。
+
+**原则留，机制换（消除与下节「面向对象基本原则」的表面张力）**：下节 SOLID 是**分解 / 耦合原则**（SRP、低耦合、迪米特、合成复用 > 继承、god-class/god-state 的单一职责）——它们讲「**怎么分职责**」，**不依赖 class / 继承 / 多态，全部保留**。本节拒绝的是 **OOP 机制**（继承、多态、隐含 instance 状态）——讲「**怎么接线**」：接线一律**显式函数 + 数据 + 调用**。「设计模式原则·显式优先」节已在警告的（全局注册表、自动发现、动态 monkey patch、深层 metatable）正是这些机制的回潜；**抵抗它——总有人为「优雅」想加一层，那正是要拒的复杂性**。**诚实边界**：「零隐含状态」不是「无状态」，是状态在**显式外部源**（marker / git，class 级事实、回源可推断），不藏在内存 instance 里。
+
+**这不是新增第 N 条，是给已有招式命一个共同的根**：「显式优先」「make illegal states unrepresentable」「限制最小原语」「单一真相源」「no silent swallow」「消息只许 fanout」「marker-as-fact 回源」全是「**代码一眼可推断、零隐含状态**」的不同面。
+
+⟦AI:FKST⟧
+
 ## 面向对象基本原则
 
 - **单一职责原则**：一个类应该只有一个发生变化的原因。
