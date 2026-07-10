@@ -98,20 +98,21 @@ Directory permissions are fragile: a read-only parent prevents `git worktree add
 
 Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree parent broke `sync_scan`'s `git worktree add`, stalled forward sync across a week's dev advance, left running code stale, and allowed recurrence of an already-fixed false-terminal class. ⟦AI:FKST⟧
 
-## 代码一眼可推断，零隐含状态——因为推断者是 AI（显式函数 + 数据 + 调用，拒绝 OOP 机制·统摄元哲学）
+## 代码一眼可推断，零隐含状态——因为推断者是 AI
 
-**总纲：代码必须「一眼可推断」——读它就能推出它做什么，没有你得从别处才知道的隐含状态。** 本系统的操作者、worker、reviewer 都是 **AI**，靠**读代码推断行为**；有隐含状态 → AI 必然推断错。实证（本仓 typed-edge 重构）：edge 的 `kind` 隐含在 handler 的产生路径里 → 分类 AI 一眼推断，推错超半数（timeout/guard/entry 被当 autonomous）；request-reply 的收件人隐含在 fanout payload 里、靠 `proposal_id` 反推 → 收件人对 AI 不可见。所以「一眼可推断」不是 clean-code 审美，是 **AI-driven 系统正确推理的刚需**——它直接降 competence 轴负担：**不是「多审几遍防推错」，是「让代码根本推不错」**（隐含状态正是单遍 AI 推断不可靠、才需一堆对抗 review 的根）。
+**这是一个有边界的设计规则：显式权威 + 局部可追踪控制流。** 业务行为优先写成普通函数、显式数据和直接调用；分支选择把 discriminator 写成数据，并用封闭、完整可见的 tagged dispatch table。这里的「一眼可推断」是指从调用点、相邻声明和 port contract 能沿显式调用追到「读了哪个权威、选了哪个分支、产生什么 effect」，不是要求没有抽象、状态、多态或 dispatch。操作者、worker、reviewer 主要靠读代码推断行为；隐藏在内存里的业务权威和隐式 dispatch 会使 AI 推断**不可靠、易错**，因此应把它们收窄到局部、显式、可追踪的形状。
 
-**软件复杂性的根 = OOP 机制制造的隐含状态；本系统全删，只留显式函数 + 数据 + 调用。**
-- **inheritance（继承）**：行为来自你得另外知道的父类（隐含）→ 换 **composition（合成复用，显式 lib 调用）**。
-- **polymorphism（多态）**：跑哪个方法取决于运行期 instance 类型、**调用点看不出**（隐含 dispatch）→ 换**显式 dispatch table / 直接函数调用**（调用点一眼看得出跑哪个）。
-- **mutable instance state / instance 间 correlation**：要追踪 instance 才知道状态（隐含）→ 换**外部 marker + 回源 re-derive**（状态是 class 级事实、显式可查，不藏在内存 instance）。
+**证据只支持这个强度，不支持绝对化。** 已落地的 successor-kind 更正（#2121）把原标为 `autonomous` 的 31 条 successor 中 12 条移到真实类别：7 条 `guard`（落地 kind 为 `guard_boundary`）、2 条 `timeout`、3 条 `entry`，约 39%，属于显著误分。这个测量支持把 `kind` 从产生路径中取出、明写为数据；它不支持「AI 必然推错」或「软件复杂性只有一个根」的叙事。隐式 OOP 机制是 hidden state 的一个重要来源，不是软件复杂性的唯一根因。
 
-**class vs instance = fanout vs request-reply（把上面落到通信面）**：**fanout 是 class 级**——广播给某一**类**订阅者、不认 instance 身份、无 instance 状态；**request-reply 是 instance 级**——回给那个正在等的**特定 instance**、必须携带 instance identity（correlation / `proposal_id`-as-correlation），那就是被偷运进来的隐含状态。所以 **instance 级交互 = 函数调用**（调用栈本身就是 instance 关系：这一次调用 = 这一个 instance），**绝不做成消息**（见「消息只许 fanout」）。
+**术语不另起炉灶。** `docs/superpowers/specs/2026-06-27-hidden-state-eradication-design.md` 对 hidden state 的精确定义仍是权威：一个 lifecycle transition 的推进条件是 durable、可回源重导的事实，却只在 transient event path 被查询，且没有 level-triggered poll re-derive。本节不把所有抽象、多态或 request-local mutation 重新定义成 hidden state；它只给这些既有纪律指出共同目标：**explicit authority + locally traceable control flow**。
 
-**原则留，机制换（消除与下节「面向对象基本原则」的表面张力）**：下节 SOLID 是**分解 / 耦合原则**（SRP、低耦合、迪米特、合成复用 > 继承、god-class/god-state 的单一职责）——它们讲「**怎么分职责**」，**不依赖 class / 继承 / 多态，全部保留**。本节拒绝的是 **OOP 机制**（继承、多态、隐含 instance 状态）——讲「**怎么接线**」：接线一律**显式函数 + 数据 + 调用**。「设计模式原则·显式优先」节已在警告的（全局注册表、自动发现、动态 monkey patch、深层 metatable）正是这些机制的回潜；**抵抗它——总有人为「优雅」想加一层，那正是要拒的复杂性**。**诚实边界**：「零隐含状态」不是「无状态」，是状态在**显式外部源**（marker / git，class 级事实、回源可推断），不藏在内存 instance 里。
+**状态可以有 instance scope，但业务权威不得藏在 durable mutable object 里。** GitHub marker 是按 issue / proposal / saga instance 记录的事实，以 version 和 lineage（如 `state_instance_id`、saga / generation / entity lineage）键控；跨 pipeline 的真相从 GitHub、git 或明确 host fact 回源。正确形状是按 entity / version / lineage 显式外部键控、可重导的持久事实。把状态外置消除的是隐藏在内存中的业务权威，**不消除 instance scope**。
 
-**这不是新增第 N 条，是给已有招式命一个共同的根**：「显式优先」「make illegal states unrepresentable」「限制最小原语」「单一真相源」「no silent swallow」「消息只许 fanout」「marker-as-fact 回源」全是「**代码一眼可推断、零隐含状态**」的不同面。
+**通信面的唯一判据仍是「消息只许 fanout」节的 requester-provenance noninterference，不是 broadcast cardinality，也不引入 class / instance 代理。** correlation 标识的是一次 invocation / request，不是 OOP instance：与该次调用相关的结果用直接函数调用返回，调用栈本身就是 correlation；不依赖 requester / continuation provenance 的事实或 intent 才是 fanout-shaped message。entity reference 以及在 provenance-independent admission 之后的 same-entity lineage / CAS 仍然合法。
+
+**下节 SOLID 在本仓是用 function / module / port contract 表达的分解与耦合指导。** LSP 对应显式 function / data / port contract 的可替换性。显式 dispatch table 本身仍是 runtime polymorphism；它的价值不是「没有多态」，而是 discriminator 封闭、完整且局部可见。这里禁止的是 **implicit subtype / receiver-type / metatable-driven dispatch、nominal method inheritance、durable mutable business objects**；允许 request-local mutable state，也允许普通函数 API 后受控封装的 metatable（如 weak table、error tagging、`libraries/devloop/di/select_caps.lua` 的 capability sealing），只要它不泄漏为业务 dispatch 或持久权威。封闭的 tagged dispatch table 是推荐形态。
+
+**这不是新增第 N 条，而是对既有较窄纪律的共同命名。** 「显式优先」「make illegal states unrepresentable」「限制最小原语」「单一真相源」「no silent swallow」「fanout-only requester-provenance noninterference」「marker-as-fact 回源」共同服务于同一个目标：让权威显式、让控制流局部可追踪。
 
 ⟦AI:FKST⟧
 
