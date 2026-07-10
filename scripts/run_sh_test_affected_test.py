@@ -75,7 +75,69 @@ class TestAffectedHarness:
         self._git("config", "user.name", "Test Runner")
         self._git("checkout", "-b", "dev")
         self._write("packages/consensus/core.lua", "return {}\n")
+        self._write(
+            "packages/consensus/fkst.toml",
+            textwrap.dedent(
+                """\
+                kind = "package"
+                name = "consensus"
+
+                [lib_deps]
+                libraries = ["contract", "workflow", "testkit"]
+                """
+            ),
+        )
         self._write("packages/github-devloop/core.lua", "return {}\n")
+        self._write(
+            "packages/github-devloop/fkst.toml",
+            textwrap.dedent(
+                """\
+                kind = "package"
+                name = "github-devloop"
+
+                [lib_deps]
+                libraries = ["devloop", "forge"]
+                """
+            ),
+        )
+        self._write(
+            "libraries/contract/fkst.toml",
+            textwrap.dedent(
+                """\
+                kind = "library"
+                name = "contract"
+
+                [lib_deps]
+                libraries = []
+                """
+            ),
+        )
+        self._write("libraries/contract/source_ref.lua", "return {}\n")
+        self._write(
+            "libraries/forge/fkst.toml",
+            textwrap.dedent(
+                """\
+                kind = "library"
+                name = "forge"
+
+                [lib_deps]
+                libraries = ["contract"]
+                """
+            ),
+        )
+        self._write("libraries/forge/github.lua", "return {}\n")
+        self._write(
+            "libraries/devloop/fkst.toml",
+            textwrap.dedent(
+                """\
+                kind = "library"
+                name = "devloop"
+
+                [lib_deps]
+                libraries = ["forge"]
+                """
+            ),
+        )
         self._write("scripts/helper.sh", "#!/bin/sh\n")
         self._write("README.md", "fixture\n")
         self._git("add", ".")
@@ -160,9 +222,8 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_runs_full_for_broad_paths(self) -> None:
+    def test_runs_full_for_non_library_broad_paths(self) -> None:
         broad_paths = (
-            "libraries/devloop/extra.lua",
             "scripts/helper.sh",
             ".github/workflows/ci.yml",
             "fkst.workspace.toml",
@@ -178,6 +239,30 @@ class RunShTestAffectedTest(unittest.TestCase):
                 self.assertEqual(h.runner_args(), ["test"], rel)
             finally:
                 h.close()
+
+    def test_library_change_runs_declared_reverse_dependents(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("libraries/devloop/config.lua", "return {changed = true}\n")
+
+            result = h.run()
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(h.runner_args(), ["test github-devloop"])
+        finally:
+            h.close()
+
+    def test_library_change_expands_transitive_library_dependents(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("libraries/contract/source_ref.lua", "return {changed = true}\n")
+
+            result = h.run()
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(h.runner_args(), ["test consensus", "test github-devloop"])
+        finally:
+            h.close()
 
     def test_runs_full_for_dogfood_operator_paths(self) -> None:
         h = TestAffectedHarness()
