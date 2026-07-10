@@ -2,8 +2,6 @@ local github_adapter = require("forge.github")
 local github_author_policy = require("devloop.github_author_policy")
 
 local M = {}
-local production_exec_argv = type(exec_argv) == "function" and exec_argv or nil
-local production_exec_sync = type(exec_sync) == "function" and exec_sync or nil
 
 -- Single production GitHub capability provider — Step 1 of
 -- docs/superpowers/specs/2026-07-09-github-egress-capability-refactor.md; all
@@ -23,13 +21,13 @@ end
 
 function M.production_handle()
   if production_handle == nil then
-    if production_exec_argv == nil then
+    if type(exec_argv) ~= "function" then
       error("github-devloop: GitHub adapter requires exec_argv")
     end
-    if production_exec_sync == nil then
+    if type(exec_sync) ~= "function" then
       error("github-devloop: GitHub adapter requires exec_sync for author policy")
     end
-    production_handle = github_adapter.new(production_exec_argv, M.github_options(production_exec_sync))
+    production_handle = M.new(exec_argv, exec_sync)
   end
   return production_handle
 end

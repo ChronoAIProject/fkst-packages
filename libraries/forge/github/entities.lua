@@ -592,7 +592,6 @@ function M.install(handle)
   function handle.pr_edit_labels(repo, pr_number, add_labels, remove_labels, timeout)
     return handle._exec(edit_labels_argv("pr", repo, pr_number, add_labels, remove_labels), timeout, "gh pr edit", stdout_policy.write_response())
   end
-
 end
 
 return M

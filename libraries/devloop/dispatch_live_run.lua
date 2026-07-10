@@ -96,7 +96,7 @@ local function shared_liveness_live(liveness, role, proposal_id, dedup_key, fact
     return true
   end
   if type(receiver) == "table" then
-    return receiver.action == "deferred"
+    return receiver.action == "defer"
   end
   return nil
 end

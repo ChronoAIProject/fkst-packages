@@ -572,7 +572,7 @@ return {
       },
     }, function()
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
-      t.eq(receiver.action, "deferred")
+      t.eq(receiver.action, "defer")
       t.eq(receiver.signal.family, "codex_run:v1")
       local due = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, false)
@@ -775,7 +775,7 @@ return {
       },
     }, function()
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
-      t.eq(receiver.action, "deferred")
+      t.eq(receiver.action, "defer")
       t.eq(receiver.signal.family, "codex_run:v1")
       local raised = capture_raises(function()
         local handled = core.maybe_timeout_redrive_from_table("liveness_scan", {

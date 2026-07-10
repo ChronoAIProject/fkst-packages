@@ -240,7 +240,7 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     return true
   end
   local receiver_liveness = M.restart_row_receiver_liveness(row, state, facts, (facts and facts.now_seconds) or now())
-  if receiver_liveness.action == "deferred" then
+  if receiver_liveness.action == "defer" then
     local signal = receiver_liveness.signal or {}
     local reason = signal.family == "codex_run:v1"
       and "deferred: receiver still executing"

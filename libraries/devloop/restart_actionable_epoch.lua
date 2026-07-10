@@ -394,7 +394,11 @@ function C.actionable_epoch_timeout_due(M, row, state, facts, now_seconds)
   if type(facts) == "table" then
     facts.actionable_epoch_eval = eval
   end
-  if eval.status == "contract_invalid" then
+  -- A durable-hold contract violation must escalate to the bounded terminal instead of
+  -- stalling the row. Every other epoch source keeps "not actionable => not due", so a
+  -- gate such as dependency_wait stays reachable by the ordinary liveness sweep.
+  if eval.status == "contract_invalid"
+    and row.actionable_epoch.source == "codex_run_with_durable_hold:v1" then
     return true, nil
   end
   if row.actionable_epoch.source == "live_defer_heartbeat:v1" then

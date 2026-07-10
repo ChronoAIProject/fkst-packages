@@ -402,7 +402,7 @@ local function replay_implementing(M, dept, issue, state, row, facts)
   end
   local current_now = facts.now_seconds or now()
   local receiver_liveness = M.restart_row_receiver_liveness(row, state, facts, current_now)
-  if receiver_liveness.action == "deferred" then
+  if receiver_liveness.action == "defer" then
     return log_skip(M, dept, proposal_id, state, "implementing", row.driving_queue, "skip-pending(codex-run-live)", "matching implement codex run is still running")
   end
   local decision = M.liveness_timeout_decision_with_facts(row, state, facts, current_now)

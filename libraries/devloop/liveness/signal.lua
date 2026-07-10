@@ -574,7 +574,7 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
         signal.resolver = signal.resolver or "fkst.codex_runs"
       end
       return {
-        action = "deferred",
+        action = "defer",
         reason = "actionable-epoch-deferred",
         signal = signal,
       }
@@ -593,7 +593,7 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
     local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
     if signal.live then
       return {
-        action = "deferred",
+        action = "defer",
         reason = "live-signal",
         signal = signal,
       }
@@ -619,7 +619,7 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
       local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
       if signal.live then
         return {
-          action = "deferred",
+          action = "defer",
           reason = "live-signal",
           signal = signal,
           receiver_bound_minutes = contract.receiver_bound_minutes,
@@ -644,7 +644,7 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
   return { action = "stuck", reason = "unsupported-contract" }
 end
 function M.restart_row_liveness_deferred(row, state, facts, now_seconds)
-  return M.restart_row_receiver_liveness(row, state, facts, now_seconds).action == "deferred"
+  return M.restart_row_receiver_liveness(row, state, facts, now_seconds).action == "defer"
 end
 
 function M.restart_row_observable_on(row, surface)
