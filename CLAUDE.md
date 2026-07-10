@@ -102,7 +102,7 @@ Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree pare
 
 **这是一个有边界的设计规则：显式权威 + 局部可追踪控制流。** 业务行为优先写成普通函数、显式数据和直接调用；分支选择把 discriminator 写成数据，并用封闭、完整可见的 tagged dispatch table。这里的「一眼可推断」是指从调用点、相邻声明和 port contract 能沿显式调用追到「读了哪个权威、选了哪个分支、产生什么 effect」，不是要求没有抽象、状态、多态或 dispatch。操作者、worker、reviewer 主要靠读代码推断行为；隐藏在内存里的业务权威和隐式 dispatch 会使 AI 推断**不可靠、易错**，因此应把它们收窄到局部、显式、可追踪的形状。
 
-**证据只支持这个强度，不支持绝对化。** 已落地的 successor-kind 更正（#2121）把原标为 `autonomous` 的 31 条 successor 中 12 条移到真实类别：7 条 `guard`（落地 kind 为 `guard_boundary`）、2 条 `timeout`、3 条 `entry`，约 39%，属于显著误分。这个测量支持把 `kind` 从产生路径中取出、明写为数据；它不支持「AI 必然推错」或「软件复杂性只有一个根」的叙事。隐式 OOP 机制是 hidden state 的一个重要来源，不是软件复杂性的唯一根因。
+**证据只支持这个强度，不支持绝对化。** 已落地到集成分支 `integration-elonsg` 的 successor-kind 更正（#2121，尚未 rollup 到 dev）把原标为 `autonomous` 的 31 条 successor 中 12 条移到真实类别：7 条 `guard`（落地 kind 为 `guard_boundary`）、2 条 `timeout`、3 条 `entry`，约 39%，属于显著误分。这个测量支持把 `kind` 从产生路径中取出、明写为数据；它不支持「AI 必然推错」或「软件复杂性只有一个根」的叙事。隐式 dispatch 制造 opaque 控制流、durable mutable object 藏业务权威——都是「显式权威 + 可追控制流」的姊妹违规（不是 spec 定义的 hidden state 本身，见下段），不是软件复杂性的唯一根因。
 
 **术语不另起炉灶。** `docs/superpowers/specs/2026-06-27-hidden-state-eradication-design.md` 对 hidden state 的精确定义仍是权威：一个 lifecycle transition 的推进条件是 durable、可回源重导的事实，却只在 transient event path 被查询，且没有 level-triggered poll re-derive。本节不把所有抽象、多态或 request-local mutation 重新定义成 hidden state；它只给这些既有纪律指出共同目标：**explicit authority + locally traceable control flow**。
 
