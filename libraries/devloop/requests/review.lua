@@ -151,48 +151,6 @@ function C.pr_base_unmanaged_blocked_version(version)
   return tostring(version or "") .. "/blocked/pr-base-unmanaged"
 end
 
-function C.ci_failure_unrepaired_blocked_version(version, ci_failure_key)
-  return base_ids.dedup_key({
-    tostring(version or ""),
-    "blocked",
-    "own-ci-red-unrepaired",
-    tostring(ci_failure_key or "noci"),
-  })
-end
-
-function C.build_ci_failure_unrepaired_blocked_request(repo, fix, reason, detail)
-  local blocked_version = C.ci_failure_unrepaired_blocked_version(fix.version, fix.ci_failure_key)
-  local state_marker = devloop_state.state_marker(fix.proposal_id, "blocked", blocked_version)
-  local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "own-ci-red-unrepaired")
-  local safe_detail = devloop_base.neutralize_untrusted_comment_text(detail or "")
-  if safe_detail == "" then
-    safe_detail = "No repaired revision was published for the terminal own-CI failure."
-  end
-  return C.attach_blocked_handoff(entity_lib.build_entity_comment_request({
-    kind = "pr",
-    repo = repo,
-    number = fix.pr_number,
-  }, "github-devloop blocked PR because the own-CI failure was not repaired by its bounded fix attempt."
-    .. "\n\nReason: own-ci-red-unrepaired"
-    .. "\nProposal: " .. tostring(fix.proposal_id)
-    .. "\nPR: " .. tostring(fix.pr_number)
-    .. "\nReviewed head: " .. tostring(fix.reviewed_head_sha)
-    .. "\nCI failure key: " .. tostring(fix.ci_failure_key)
-    .. "\nAttempt result: " .. safe_reason
-    .. "\n\nDetail:\n" .. safe_detail
-    .. "\n\n" .. state_marker
-    .. "\n" .. ai_sentinel, base_ids.dedup_key({
-    "fix",
-    "blocked",
-    "own-ci-red-unrepaired",
-    tostring(fix.proposal_id),
-    tostring(fix.pr_number),
-    tostring(fix.reviewed_head_sha),
-    tostring(fix.ci_failure_key),
-    tostring(reason or "no-repair"),
-  }), fix.source_ref), fix.proposal_id, fix.pr_number, blocked_version, fix.source_ref)
-end
-
 function C.build_pr_base_unmanaged_comment_request(repo, pr_number, origin, integration_branch, source_ref)
   local blocked_version = C.pr_base_unmanaged_blocked_version(origin.impl_version)
   local state_marker = devloop_state.state_marker(origin.proposal_id, "blocked", blocked_version)
