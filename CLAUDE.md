@@ -279,6 +279,8 @@ dogfood 中发现**运行的系统在流血**（storm / 资源耗尽 / churn / �
 
 **这正是本仓所有 ratchet/conformance 的同一形状**，本节给它们命名共同本质：G-ADAPTER（gh/git 只能经 `forge.github`/`forge.git` argv，裸 gh/git=0）、G-DEDUP（一份 canonical body，禁字节级 clone）、强制 saga（唯一形状 `workflow.saga.department`）、god-state（一状态一职责）、活性契约（每个非终止态必声明 budget+watchdog）、ports（唯一 egress 路径）——全是「唯一确定一种写法 + 机械禁止旁路」。
 
+**Harness 的核心 = 限制最小原语（restrict the minimal primitive；这是本质，不是梯度顶端的一档）。** harness 不是「检测坏写法」，是**只暴露最小的、正确的原语，使坏写法根本表达不出来**——你没法用一个不存在的原语。所以下面 ④ capability（限制原语）**就是本质本身**；③runtime-guard / ②schema / ①scan 都是**「原语一时限制不到」时逼近它的近似/回退**，越靠 ④ 越 bypass-proof、越 scale-free。**且 harness 是规定、不是菜单（prescriptive, not a menu）**：它**钉死唯一最好的写法、禁止其他**（接「唯一确定一种写法」），绝不说「有好几种方案任选」——把 harness 呈现成选项菜单，本身就是没收敛到本质。**诚实边界**：当原语无法在语言层被廉价限制（如动态语言里任意代码总能「叠」出旁路），诚实承认「语言层完全不可表示」需要受限 DSL、往往不值；此时 harness = **最强的诚实机制**（把已知旁路面 zero-surface + 从 declared 结构派生的不变式）+ shrink-only ratchet 收残余——**残余是被收敛的违规，不是合法替代**（仍是「一种写法」，只是暂时只能 DETECT）。
+
 **机械实现「唯一写法」的强度梯度：PREVENT > DETECT，scan 是兜底不是终局。** 建 harness 先问「能不能让旁路**根本拿不到原语 / 发不出 effect**」，而不是先写 grep。按旁路性质选档，强→弱：
 
 - **④ capability restriction（最强：旁路原语不在业务代码 reach 内）**——可绕过的 primitive 只注入给 canonical path，业务层够不着 → 旁路**写不出**。判据：旁路 = 调用某**共享原语**。已实现例：`forge.ports` 持有 `gh/git` argv 构造权，业务 dept 拿不到裸 gh/git。目标形态：`M.spec.produces` 成为 `raise()` 的**能力授予**（dept 只能 raise 自己声明的队列）。
@@ -289,6 +291,24 @@ dogfood 中发现**运行的系统在流血**（storm / 资源耗尽 / churn / �
 **铁律：能表达成 ②③④ 的契约不得长期停在 ① scan。** scan 的职责是**暴露迁移债 + 防回归**，不是权限边界——把它当主防线，就是「编程语言太灵活、谁都能写另一种写法」的根源。判一个旁路该爬到哪档：调用共享原语→④收紧原语（如 forward-direct-raise 应经 produces 能力化，而非永久停在 scan）；数据结构属性→②schema；需授权的 effect→③runtime guard；任意源码 emergent→①scan 兜底。注意粒度：「一队列一 producer」只施于 **lifecycle/authority 队列**，telemetry/fanout/shared 队列可合法多 producer；同一队列若有 forward（写确认后触发）vs redrive（读到已可见 marker 后重投）两种权限语义，队列级能力分不出二者，需 queue 拆分 / typed egress 或保留 schema+scan backstop 区分。引擎层能力化（`raise⊆produces` fail-closed + 不可伪造的 raised 传输）属 substrate，不在包侧硬造。
 
 **纪律**：建 harness 时，问题不止「prior art 是什么」，更是「**这件事的唯一规范写法是什么、我如何让其他每一种写法在机械上不可表示（CI 红）**」。同一目的存在多种并存写法本身就是 smell——**先收敛成一种，再锁死旁路**。新增能力时同步给出「唯一写法 + 旁路禁止的不变式」，否则旁路迟早重新长出来、悄悄收回隐形税（实证：竞态旁路一年都没人发现，因为它「能用」）。
+
+## 消息只许 fanout；request-reply 是函数调用，不是消息（fanout-only message doctrine·HARD GATE）
+
+**部门/包之间只有两种通信原语，没有第三种**（这是「限制最小原语」在通信面的落地，prescriptive、非菜单）：
+1. **fanout 事件**：`raise(queue)` 广播——**无收件人、无回复**，一封没有 addressee 的公告；订阅者各自独立反应。
+2. **直接 library 调用**：同步函数、返回值。
+
+**request-reply（A 问 → 算 → 回给 A 的 1:1 对话，如共识）绝不做成消息——它就是一次 lib 调用。** 把对话做成「fanout 出去 + 每个消费者按 id 判断『是不是我的回复』」是反模式（EIP：Pub-Sub vs Request-Reply；orchestration vs choreography）。fanout 是 1:N 广播（无收件人），request-reply 是 1:1 对话（有收件人）；拿 fanout 做对话，那个 origin 过滤就是病根，也正是 `skip-foreign` / consumed-but-unrouted 危害的来源。
+
+- **机械判据（audience-independent acceptance / no requester-correlated continuation）**：fanout 订阅者**不得用 requester / origin / correlation identity 判定一个 schema-valid 事件「不是我的」**。**订阅本身即确立 applicability**；admission 之后用 id 做 dedup / 回源 / CAS / stale 判定**合法**，用 id 判 addressedness / 路由**非法**。（`skip-foreign(proposal_id)` 式「是不是我的回复」过滤是 request-reply 的 **tell**，不是不变量本身——grep 有 false pos/neg。）
+- **canonical 形态（唯一）**：要一个算出来的值 → `local result = consensus.reach(proposal)`。callee 是 source-agnostic workspace **library**，同步返回 `reached | converge`，**不认 caller / reply-queue / callback**；caller 自己持 saga marker / CAS / retry / re-derive（长 codex 推理的 durability 归入**调用者**状态，lib 调用幂等可重导——更干净，非免费）。
+- **包 vs lib 的定位（合成复用 > 继承，落在包层）**：request-reply 关注点的**核心逻辑就是 lib**。真需要一个**包面**时（供 event 触发等），建**薄包直接 call 那个 lib**（composition / 合成复用），**绝不**用 `[event_deps]` 把它当兄弟包**组合/继承**进来——用 event_deps 组合一个 request-reply 对话（consensus 当前模型）正是没必要的「包继承」。多个薄包可统一引用同一个 lib。**composed-package + `[event_deps]` 机制只用于真·事件（broadcast）组合**（如 github-proxy 的 entity 事件），**不用于 request-reply**。这是「合成复用原则」在**包边界**的落地：包间复用走 declared `lib_deps` 直接调用（合成），不走 event 组合（继承）。
+- **为什么（teleology + testability，头号理由）**：**request-reply-as-message 对测试是噩梦**——要编排消息往返、mock reply、处理时序与投递；而 **lib 调用 trivially testable**（调函数、断返回值）。且它 inevitable：要值回来就调函数。
+- **层归属（不归引擎）**：引擎只知静态 `raise ⊆ produces ⊆ published_seam` + `fanout` 是 transport 契约，**看不到 Lua acceptance 语义**（丢弃 pipeline 返回值、按 exit=0 ACK），真假 broadcast 对引擎图相同 → 强制归 **fkst-packages conformance**；**不新增引擎 `kind="broadcast"` 自报字段**。
+- **harness（最强的诚实机制，非菜单）**：① **已知对话 zero-surface**——CI 禁止某个 request-reply 的消息面再现（如 consensus 的 `consensus.proposal` / `consensus_reached` / `consensus_converge` / reply consumer / 对其 `event_deps`），**唯一通过形态 = declared `lib_deps` + 直接调用**；② **declared-structure 派生**——一个 canonical row 声明的 output-obligation 被**同 lineage 回信**完成 = request-reply → CI 红。**诚实残余**：任意未声明 Lua 仍能叠 origin-filter；语言层完全不可表示需受限 message DSL、blast-radius 不值 → 残余是 shrink-only ratchet + 对抗 review 收敛的**违规**，不是合法替代。
+- **迁移是行为变更、不是重构**：把 consensus 从 package 变 library **删除队列/投递**，按「重构不改语义」与 R9，这是**可观察行为变更**，必须如实标注、走 integration 分支 + product-outcome parity 验证，**绝不伪装成 behavior-preserving refactor**。
+
+⟦AI:FKST⟧
 
 ## 有问题不可怕：要有「发现问题的机制」+ 把每个发现「做成 harness」（bug 不是失败，缺这两者才是·discover→harness-ify）
 

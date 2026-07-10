@@ -120,6 +120,16 @@ Checker、comparator、normalizer与 mandatory corpus必须来自 protected merg
 
 没有 capable provider的 obligation必须 fail conformance，并记录 `unmonitored`/`indeterminate`；不得把所有 obligations虚假路由到 R7。Issue rows与 R10 index必须位于 `packages/github-devloop/core/restart/`；ops只能消费 owner发布的 legacy-exact read-only observation facts，不得经 shared `libraries/devloop`读取 issue rows或 temporal index。
 
+### R11. FANOUT-ONLY MESSAGE SEMANTICS
+
+部门/包之间只有两种通信原语：**fanout 事件**（`raise` 广播，无 addressee、无 reply）与**直接 library 调用**（同步、返回值）。没有第三种。**request-reply（1:1 对话，如 consensus）绝不做成消息——它是一次 lib 调用。** 完整 doctrine 与理由（testability 噩梦、Pub-Sub vs Request-Reply、合成复用 > 继承）以 `CLAUDE.md` 的「消息只许 fanout」节为权威准绳，本不变式只钉其在本 refactor 的机械约束：
+
+- **audience-independent acceptance（机械判据）**：fanout 订阅者不得用 requester/origin/correlation identity 判定一个 schema-valid 事件「不是我的」；订阅本身即确立 applicability。Admission 之后用 id 做 dedup/rehydration/CAS/stale 合法；用 id 判 addressedness/路由非法。`skip-foreign(proposal_id)` 是 tell、不是不变量本身。
+- **canonical 唯一形态**：`consensus.reach(proposal) -> reached|converge`，source-agnostic workspace library，同步返回，不认 caller/reply-queue；caller 持 saga marker/CAS/retry/re-derive。需要包面时用**薄包 call lib**（合成复用），不用 `[event_deps]` 组合（继承）。
+- **层归属**：引擎只知静态 `raise ⊆ produces ⊆ published_seam` + fanout transport 契约，看不到 Lua acceptance 语义 → 归 **fkst-packages conformance**；不新增引擎 `kind="broadcast"` 自报字段。
+- **harness（最强诚实机制，非菜单）**：① 已知对话 **zero-surface**（禁止 `consensus.proposal`/`consensus_reached`/`consensus_converge`/reply consumer/对其 `event_deps` 再现，唯一通过 = declared `lib_deps` + 直接调用）；② **declared-structure 派生**（row 声明的 output-obligation 被同 lineage 回信完成 = request-reply → CI 红）。诚实残余：任意未声明 Lua 仍能叠 origin-filter；语言层完全不可表示需受限 message DSL、不值 → 残余是 shrink-only ratchet + review 收敛的**违规**，非合法替代。
+- **迁移是行为变更**：consensus package→library **删除队列/投递**，按 R9 属可观察 behavior-change，走 integration + product-outcome parity，不得伪装成 behavior-preserving refactor。
+
 ## §5. Row Admission + Family-Fanout Rule
 
 Row或edge字段只有在同时具备 named consumer、evidence provider、conformance rule与 deletion path时才能 admission。
