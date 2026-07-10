@@ -4,7 +4,7 @@
 
 This document states a design stance and a hypothesis. It synthesizes established ideas; it neither proves a paradigm nor claims to invent one. Its prescriptions apply when an invariant is stable enough to name, consequential enough to protect, and bounded by identifiable authority, error, and threat surfaces. They become weaker as those conditions weaken.
 
-**Thesis.** For a stable, consequential invariant, a harness places every relevant authoritative effect behind one canonical path at the narrowest complete boundary, shifts the decidable part of conformance from repeated reasoner discipline to the strongest proportionate mechanical enforcement available, and leaves the irreducible residual explicit, evidenced, and adversarially governed. Complete mediation defines the harness: adherence to the chosen invariant is the only admissible way to exercise the relevant authority within the declared boundary. A mechanism that only detects known bypasses is a migration control or harness approximation, not a complete harness.
+**Thesis.** For a stable, consequential invariant, a harness places every relevant authoritative effect behind one governing decision procedure at a **minimal complete boundary under stated comparison criteria**. The stated criteria here are mediation coverage, trusted-base and authority-surface size, ownership alignment, and an explicit latency budget; they may yield incomparable minimal boundaries rather than one uniquely narrowest boundary. The harness shifts the decidable part of conformance from repeated reasoner discipline to the strongest proportionate mechanical enforcement available and leaves the irreducible residual explicit, evidenced, and adversarially governed. Complete mediation defines the harness as **no bypass of the governing procedure** within the declared boundary. It does not establish that the procedure, including any residual judgment it invokes, decides correctly. Correct satisfaction of the invariant is the separate, only partly mechanizable goal governed by A5. A mechanism that only detects known bypasses is a migration control or harness approximation, not a complete harness.
 
 The core is mechanical substitution for repeated discipline. Artificial intelligence sharpens the motivation because an AI reasoner is visibly fallible, but it does not found the theory. Harness ideas predate AI and apply to any fallible reasoner, including individual humans, teams, and automated processes. This is not a theory of "programming for AI."
 
@@ -12,7 +12,7 @@ The claim is deliberately narrow. A harness governs a named invariant within a d
 
 ## 2. Definition and Axioms
 
-A **harness** is an arrangement of authority and enforcement for a named invariant. It identifies the effects that can uphold or violate that invariant, completely mediates those effects through a canonical authority path within its declared boundary, mechanically rejects as much nonconformance as can be decided proportionately, and governs the undecidable or uneconomical remainder through evidence and accountable judgment.
+A **harness** is an arrangement of authority and enforcement for a named invariant. It identifies the effects that can uphold or violate that invariant, completely mediates those effects through one governing decision procedure within its declared boundary, mechanically rejects as much nonconformance as can be decided proportionately, and governs the undecidable or uneconomical remainder through evidence and accountable judgment. Complete mediation supplies a no-bypass claim, not a guarantee that the governing procedure is correct.
 
 Five axioms define this stance.
 
@@ -24,7 +24,7 @@ A harness governs a **named invariant** within a declared authority boundary and
 
 One canonical path owns the protected effect and receives only the authority it needs. Within the declared boundary, competing authority paths must be unreachable or unable to exercise the effect. Multiple compliant implementations may exist behind the path; canonicality governs the **authority path**, not a single implementation.
 
-This axiom joins **capability security**, the **principle of least authority**, and **complete mediation** with the mistake-proofing aim of **poka-yoke** and the explicit obligations of **Design by Contract**. The intended shape is not merely "use the preferred interface." It is that exercising the relevant authority without satisfying the invariant is inadmissible within the stated boundary. Complete mediation is definitional here: a detection-only control that may miss an unknown bypass does not satisfy this axiom.
+This axiom joins **capability security**, the **principle of least authority**, and **complete mediation** with the mistake-proofing aim of **poka-yoke** and the explicit obligations of **Design by Contract**. The intended shape is not merely "use the preferred interface." Every relevant attempt must pass through the governing procedure: no competing path may bypass its decision. That no-bypass property does not imply that the procedure makes the right decision. Its mechanically decidable checks and its fallible residual judgment must be evaluated separately under A3 and A5. Complete mediation is definitional here: a detection-only control that may miss an unknown bypass does not satisfy this axiom.
 
 ### A3. Strongest Proportionate Mediation
 
@@ -37,13 +37,13 @@ For comparable coverage and trusted base, use the strongest bypass-resistant mec
 
 Tier 1 is a **migration control or harness approximation**, not a complete harness. It is useful until a mediating boundary at tier 2, 3, or 4 is available, but it must never be represented as complete mediation or prevention. This is an enforcement-strength heuristic, not a universal ordering of every type system, runtime guard, or verification method. Mechanisms may compose, and a mechanism with narrower coverage may be weaker in practice despite occupying a nominally stronger category.
 
-The lineage includes **type-driven design** and "make illegal states unrepresentable," **mechanized invariants**, **property-based testing**, **poka-yoke**, and **continuous integration as an admission gate**. Together they motivate moving decidable obligations from reminders into executable constraints, without pretending that every obligation is decidable.
+The prevention lineage includes **type-driven design** and "make illegal states unrepresentable," mechanized invariants, and **poka-yoke**. **Property-based testing is a detection mechanism**: it searches for counterexamples but does not make untested invalid constructions impossible. **Continuous integration is an admission mechanism whose checks detect specified failures**; it blocks admission when one of those checks fires, but it is not prevention of the construction or existence of unknown nonconformance. These mechanisms can support a harness without being confused with complete mediation or prevention.
 
-### A4. Explicit Authority and Traceable Failure
+### A4. Local Auditability and Accountability
 
-Authoritative facts, dependencies, and discriminants are explicit and locally traceable, so a reader can infer which authority rule and dependency govern an outcome. Violations propagate with evidence to an accountable handler. This requires traceable authority and traceable failure; it does not forbid state, encapsulation, polymorphism, abstraction, or plural sources resolved by an explicit authority rule.
+The five-axiom form is retained by making A4 narrowly about **auditability**, not authority ownership or residual decision quality. For each governed outcome, a reader or auditor can locally reconstruct which authority decided, which governing rule and material evidence it used, and why it produced that outcome. A violation can be traced to an accountable handler and its disposition. "Locally" does not require one file or no abstraction; it requires a bounded evidence trail that does not depend on reconstructing an undocumented global narrative.
 
-This axiom draws on the **functional-core** and **data-oriented design** traditions, explicit authority and resolution rules, and **explicit error propagation**.
+A2 does not entail A4: every effect can pass through one opaque procedure while leaving no reconstructible decision trail. A5 does not entail A4 either: residual judgment can be independently reviewed without making each operational decision locally traceable. Auditability is therefore an independent requirement in this synthesis. It does not forbid state, encapsulation, polymorphism, abstraction, or plural sources resolved by an explicit authority rule.
 
 ### A5. Governed Residual
 
@@ -75,9 +75,9 @@ For stable, consequential invariants, that repetition creates opportunities for 
 
 AI makes this trade-off easier to notice because generated work can be fluent while missing a local constraint. The same failure shape exists in human work: memory fades, teams turn over, conventions diverge, and review attention is finite. The hypothesis therefore rests on fallible reasoning in general. AI is an amplifier of the motivation, not its foundation.
 
-## 5. Derived Consequences
+## 5. Derived Consequences and a Bounded Heuristic
 
-The following are consequences of the axioms under their stated scope, not additional axioms.
+The first three subsections are consequences of the axioms under their stated scope, not additional axioms. The final communication subsection is explicitly a bounded design heuristic.
 
 ### Unrepresentable Invalid States
 
@@ -93,9 +93,9 @@ An unhandled violation should remain visible until it reaches a handler that has
 
 The governing liveness contract likewise determines recovery bounds. Where it requires bounded resolution, automated recovery must have a bound, and exhaustion should produce evidence and follow the defined escalation, hold, or failure path. Durable indefinite retry can be correct where the liveness contract permits it; a finite budget or escalation layer should not be invented merely to satisfy this theory.
 
-### Communication That Matches Meaning
+### Communication Heuristic: Make Ownership and Failure Legible
 
-At the application level, audience-independent facts fit publication: subscribers decide whether the fact belongs to their domain without reconstructing a private conversation. A value owed to a particular requester fits requester-correlated exchange: the result returns through an explicit correlation-bearing interaction. Treating the latter as broadcast and then filtering by origin obscures authority and failure semantics; within this stance, it should be replaced by the communication form that states the actual relationship.
+This is a bounded design heuristic, not a consequence forced by the axioms and not a universal transport rule. Audience-independent facts often fit publication, while a value owed to a particular requester often benefits from an explicitly correlated interaction. Asynchronous request-reply can legitimately use shared channels, correlation identifiers, and selective consumers; that topology does not itself violate complete mediation. **Where broadcasting a requester-correlated result and then filtering by origin would hide ownership or failure semantics, a direct correlated interaction is clearer.** The choice should be justified by legibility of authority, ownership, and failure handling in the particular system.
 
 ## 6. The Unmechanizable Residual
 
@@ -108,7 +108,7 @@ Independence is a degree, not a label. Shared evidence, training, incentives, or
 Beauty and Worth discipline the residual together:
 
 - **Beauty asks:** does the form follow the invariant's real authority and purpose, or does it regulate a proxy, add arbitrary parameters, or catch symptoms after the fact?
-- **Worth asks:** is the invariant stable and consequential enough for this mechanism, and is the mechanism placed at the narrowest complete boundary without speculative generalization or scope expansion?
+- **Worth asks:** is the invariant stable and consequential enough for this mechanism, and is the mechanism placed at a **minimal complete boundary under stated comparison criteria**? The stated criteria here are full mediation coverage, trusted-base and authority-surface size, ownership alignment, and the explicit latency budget. Coverage is mandatory; the remaining criteria can trade off and can leave multiple incomparable minimal boundaries. The choice must not rely on speculative generalization or scope expansion.
 
 Neither question is reliably answered by the author alone. Their value lies in making the grounds for adversarial challenge explicit.
 
@@ -127,12 +127,21 @@ The non-guarantees are fundamental:
 - Evidence, independent review, ensembles, and human oversight can raise confidence but do not prove correctness.
 - A detection gate remains detection even when admission depends on it; it is not prevention of unknown bypasses.
 
-The intellectual lineage is intentionally plain. The theory synthesizes Design by Contract and formal specification; capability security, least authority, and complete mediation; type-driven design and mechanized invariants; property-based testing, mistake-proofing, and admission gates; functional-core and data-oriented design; explicit authority and resolution-rule discipline; crash-only systems, supervision, and explicit error propagation; publish-subscribe and request-reply semantics; independent verification and validation; adversarial and ensemble review; safety-case reasoning; and human-factors engineering.
+## 8. References and Provenance
 
-This synthesis is offered as a design hypothesis: stable, consequential invariants may be upheld more reliably when decidable conformance is transferred from repeated discipline into proportionate structure, while the remaining judgment is exposed and governed. Its value must be assessed against evidence in each domain. No claim of novelty, completeness, or proof is made.
+The borrowed ideas and their use here are:
+
+- **A1, bounded obligations:** Bertrand Meyer, "Applying 'Design by Contract'," *Computer* 25(10), 1992, and C. A. R. Hoare, "An Axiomatic Basis for Computer Programming," *Communications of the ACM* 12(10), 1969. They support explicit preconditions, postconditions, and bounded claims; they do not establish this document's harness thesis.
+- **A2, no bypass and restricted authority:** Jerome H. Saltzer and Michael D. Schroeder, "The Protection of Information in Computer Systems," *Proceedings of the IEEE* 63(9), 1975, especially complete mediation and least privilege. Capability restriction also draws on Jack B. Dennis and Earl C. Van Horn, "Programming Semantics for Multiprogrammed Computations," *Communications of the ACM* 9(3), 1966. These sources motivate mediation and constrained authority, not guaranteed correctness of the mediator.
+- **A2-A3, mistake-proofing:** Shigeo Shingo, *Zero Quality Control: Source Inspection and the Poka-Yoke System*, Productivity Press, 1986. Poka-yoke motivates preventing a known class of mistake by construction where feasible.
+- **A3, type-driven prevention:** Yaron Minsky, "Effective ML" (talk and notes, 2011), articulates the type-driven maxim "make illegal states unrepresentable." This document applies that design instinct only within an explicitly bounded authority surface.
+- **A3, detection and admission only:** Koen Claessen and John Hughes, "QuickCheck: A Lightweight Tool for Random Testing of Haskell Programs," *ICFP 2000*. Property-based testing detects counterexamples generated by its tests; it is **not prevention**. Martin Fowler, "Continuous Integration," 2006, describes an automated integration discipline; in this document a CI gate is an **admission mechanism backed by detection checks**, not proof and not prevention of unknown nonconformance.
+- **A4, auditability; A5, independent challenge:** *IEEE Std 1012-2016, IEEE Standard for System, Software, and Hardware Verification and Validation*. Its independence, evidence, traceability, and V&V responsibilities inform these axioms. A4's particular local-reconstruction requirement and A5's residual-governance formulation are this document's synthesis, not claims made verbatim by the standard.
+- **Derived recovery consequence:** George Candea and Armando Fox, "Crash-Only Software," *HotOS IX*, 2003, motivates recovery-oriented components designed around crash and restart. Joe Armstrong, *Making Reliable Distributed Systems in the Presence of Software Errors*, PhD thesis, 2003, together with the Erlang/OTP supervisor principles, motivates supervision, failure propagation, and the "let it crash" stance. Neither source implies that every system should use bounded retry or fail closed; those choices remain contract-dependent here.
+- **Communication heuristic:** Gregor Hohpe and Bobby Woolf, *Enterprise Integration Patterns*, Addison-Wesley, 2003, distinguishes Publish-Subscribe, Request-Reply, Correlation Identifier, and related messaging patterns. Those patterns support the semantic comparison in Section 5; they do not force one transport topology.
+
+The **combined thesis, the five-axiom structure, the enforcement gradient, and the particular separation of no-bypass mediation from fallible residual judgment are this document's hypothesis and synthesis**. No single source above proposes that combined theory. The synthesis is offered for evaluation: stable, consequential invariants may be upheld more reliably when decidable conformance is transferred from repeated discipline into proportionate structure, while remaining judgment is exposed and governed. Its value must be assessed against evidence in each domain. No claim of novelty, completeness, or proof is made.
 
 ---
-
-_Repository provenance / attribution:_
 
 ⟦AI:FKST⟧
