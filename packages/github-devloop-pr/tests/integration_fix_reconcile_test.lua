@@ -19,6 +19,7 @@ local find_causal_raise = h.find_causal_raise
 local count_calls = h.count_calls
 local config = require("devloop.config")
 local m_builders = require("devloop.markers.builders")
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local function origin_marker(version)
   return m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", version, "dev")
@@ -56,6 +57,30 @@ local function reject_marker(version, created_at)
     ),
     created_at = created_at,
   }
+end
+
+local function run_fix_reconcile_from_pr_state(event, state_name, name, pr_fields)
+  local fields = pr_fields or {}
+  local comments = {
+    origin_marker(event.issue_version),
+    core.state_marker(event.proposal_id, state_name, event.issue_version),
+  }
+  mock_bot_env()
+  h.mock_default_issue_claim("owner/repo", 42)
+  local view = {
+    comments = comments,
+    head = "devloop-owner-repo-42-01HY",
+    head_sha = fields.head_sha or event.head_sha,
+    base_branch = "dev",
+    state = fields.state or "OPEN",
+    head_repo = fields.head_repo or "owner/repo",
+    cross_repo = fields.cross_repo == true,
+  }
+  entity_read_mocks.mock_pr_view_selector(t, view, entity_read_mocks.pr_fix_precheck_selector, 1)
+  return h.run_department("departments/reconcile/main.lua", {
+    queue = "devloop_fix_reconcile",
+    payload = event,
+  }, opts(name))
 end
 
 return {
@@ -106,13 +131,9 @@ return {
     t.eq(over.exit_code, 0)
     t.eq(find_raise(over.raises, "devloop_fixing"), nil)
     local reconcile = find_raise(over.raises, "devloop_fix_reconcile").payload
-    local decompose = find_raise(over.raises, "github-devloop-decompose.devloop_decompose").payload
     t.eq(reconcile.issue_version, over_version)
     t.eq(reconcile.round, config.max_fix_rounds())
-    t.eq(decompose.schema, "github-devloop.decompose.v1")
-    t.eq(decompose.proposal_id, reconcile.proposal_id)
-    t.eq(decompose.version, reconcile.issue_version)
-    t.eq(decompose.pr_number, reconcile.pr_number)
+    t.eq(find_raise(over.raises, "github-devloop-decompose.devloop_decompose"), nil)
   end,
 
   test_fix_reconcile_drop_blocks_reviewing_issue = function()
@@ -132,9 +153,52 @@ return {
     t.is_true(comment.body:find("fix-loop-max-rounds-after-3-rounds", 1, true) ~= nil)
     t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", event.issue_version), 1, true) ~= nil)
     t.is_true(comment.body:find(conv_reconcile.fix_reconcile_marker(event.proposal_id, event.issue_version, "drop"), 1, true) ~= nil)
+    t.eq(comment.handoff.kind, "github-devloop.fix_reconcile")
+    t.eq(comment.handoff.version, event.issue_version)
+    t.eq(comment.handoff.fix_reconcile.dedup_key, event.dedup_key)
     t.eq(label.add_labels[1], "fkst-dev:blocked")
     t.eq(label.remove_labels[1], "fkst-dev:thinking")
     t.eq(count_calls("codex exec"), 0)
+
+    local handed_off = h.run_comment_handoff_from_request(comment, "IC_fix_reconcile_1", "fix-reconcile-decompose-handoff")
+    t.eq(handed_off.exit_code, 0)
+    local decompose = find_raise(handed_off.raises, "github-devloop-decompose.devloop_decompose").payload
+    t.eq(decompose.proposal_id, event.proposal_id)
+    t.eq(decompose.version, event.issue_version)
+    t.eq(decompose.review_proposal_id, event.review_proposal_id)
+    t.eq(decompose.review_dedup_key, event.review_dedup_key)
+    t.eq(decompose.head_sha, event.head_sha)
+  end,
+
+  test_fix_reconcile_blocks_every_legitimate_fix_budget_source = function()
+    local event = fix_reconcile()
+    for _, state_name in ipairs({ "reviewing", "fixing", "merge-ready", "merging" }) do
+      local result = run_fix_reconcile_from_pr_state(event, state_name, "fix-reconcile-source-" .. state_name)
+      t.eq(result.exit_code, 0, state_name)
+      local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+      t.is_true(comment ~= nil, state_name)
+      t.eq(comment.payload.handoff.kind, "github-devloop.fix_reconcile", state_name)
+    end
+  end,
+
+  test_fix_reconcile_refuses_head_advanced_closed_or_cross_repo_pr = function()
+    local cases = {
+      { name = "head-advanced", fields = { head_sha = "feedface" } },
+      { name = "closed", fields = { state = "CLOSED" } },
+      { name = "cross-repo", fields = { head_repo = "fork/repo", cross_repo = true } },
+    }
+    for _, state_name in ipairs({ "reviewing", "fixing", "merge-ready", "merging" }) do
+      for _, case in ipairs(cases) do
+        local result = run_fix_reconcile_from_pr_state(
+          fix_reconcile(),
+          state_name,
+          "fix-reconcile-refuse-" .. state_name .. "-" .. case.name,
+          case.fields
+        )
+        t.eq(result.exit_code, 0, state_name .. "/" .. case.name)
+        t.eq(#result.raises, 0, state_name .. "/" .. case.name)
+      end
+    end
   end,
 
   test_fix_reconcile_visible_marker_is_idempotent = function()

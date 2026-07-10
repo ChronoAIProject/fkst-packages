@@ -21,6 +21,15 @@ local function rows_by_state(rows)
   return by_state
 end
 
+local function has_value(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then
+      return true
+    end
+  end
+  return false
+end
+
 return {
   test_merge_ready_is_approval_wait_handoff_with_explicit_merge_gate_boundary = function()
     local row = rows_by_state(core.restart_transition_table())["merge-ready"]
@@ -95,6 +104,23 @@ return {
     t.is_true(row.dedup_shape:find("<ci_failure_key-or-noci>", 1, true) ~= nil)
     t.eq(row.payload_fields.work_unit_key, "dedup:fixing-work-unit")
     t.eq(row.payload_fields.ci_failure_key, "marker:merge-gate.ci_failure_key")
+  end,
+
+  test_fix_budget_terminal_escape_is_declared_for_every_source_state = function()
+    local rows = rows_by_state(core.restart_transition_table())
+    for _, state in ipairs({ "reviewing", "fixing", "merge-ready", "merging" }) do
+      local row = rows[state]
+      t.is_true(row ~= nil, state)
+      t.is_true(has_value(row.to_states, "blocked"), state .. " restart row")
+      t.is_true(has_value(core.state_successors(state), "blocked"), state .. " lifecycle graph")
+      local has_terminal_edge = false
+      for _, edge in ipairs(row.responsibility_signature and row.responsibility_signature.successors or {}) do
+        if edge.state == "blocked" and edge.terminal == true then
+          has_terminal_edge = true
+        end
+      end
+      t.is_true(has_terminal_edge, state .. " responsibility signature")
+    end
   end,
 
   test_fixing_code_producer_rejects_version_keyed_ci_repair_liveness = function()

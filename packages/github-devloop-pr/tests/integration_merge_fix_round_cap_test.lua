@@ -64,11 +64,6 @@ return {
     t.eq(reconcile.payload.issue_version, event.version)
     t.eq(reconcile.payload.round, config.max_fix_rounds())
     t.eq(reconcile.payload.pr_number, event.pr_number)
-    t.eq(decompose.payload.version, event.version)
-    t.eq(decompose.payload.round, config.max_fix_rounds())
-    t.eq(decompose.payload.pr_number, event.pr_number)
-    t.eq(decompose.payload.review_proposal_id, event.review_proposal_id)
-    t.eq(decompose.payload.review_dedup_key, event.review_dedup_key)
-    t.eq(decompose.payload.head_sha, event.reviewed_head_sha)
+    t.eq(decompose, nil)
   end,
 }

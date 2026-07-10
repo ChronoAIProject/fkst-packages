@@ -10,10 +10,10 @@ local convergence_shared, github_risk = require("devloop.convergence.shared"), r
 local core, saga = require("core"), require("workflow.saga")
 local transition_version = require("contract.transition_version")
 local config = require("devloop.config")
+local fix_round_transition = require("core.fix_round_transition")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
-local conv_reconcile = require("devloop.convergence.reconcile")
 local v_review_result = require("devloop.validators.review_result")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -26,7 +26,6 @@ local spec = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
     "devloop_fix_reconcile",
-    "github-devloop-decompose.devloop_decompose",
     "devloop_review_meta",
   },
   fanout = { "consensus.consensus_reached" },
@@ -174,9 +173,13 @@ return saga.department(spec, { done = function() return false end, act = functio
 
     local issue_version = state.version
     local reflection_checkpoint = false
-    if effective_decision == "reject" and devloop_state.version_fix_round(state.version) < config.max_fix_rounds() then
-      issue_version = devloop_state.fix_version_from_review_version(state.version)
-      reflection_checkpoint = devloop_state.version_fix_round(issue_version) == devloop_base.fix_reflection_checkpoint_round()
+    local round_transition = nil
+    if effective_decision == "reject" then
+      round_transition = fix_round_transition.next_or_decompose(state.version)
+      if round_transition.kind == "advance" then
+        issue_version = round_transition.version
+        reflection_checkpoint = round_transition.round == devloop_base.fix_reflection_checkpoint_round()
+      end
     end
     local to_state = effective_decision == "approve" and "merge-ready"
       or reflection_checkpoint and "review-meta"
@@ -201,25 +204,22 @@ return saga.department(spec, { done = function() return false end, act = functio
       return
     end
 
-    if effective_decision == "reject" then
-      local fix_round = devloop_state.version_fix_round(state.version)
-      local max_rounds_hit = fix_round >= config.max_fix_rounds()
-      if max_rounds_hit then
-        local fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
+    if effective_decision == "reject" and round_transition.kind == "decompose" then
+      fix_round_transition.raise_decompose(round_transition, {
+        dept = "review_result",
+        current_state = state,
+        from_state = "reviewing",
+        reason = "review decision=reject",
+        review = {
           proposal_id = origin.proposal_id,
           review_proposal_id = reached.proposal_id,
           review_dedup_key = canonical_review_dedup,
           reviewed_head_sha = reviewed_head_sha,
           pr_number = pr_number,
           source_ref = pr_source_ref,
-        }, state.version)
-        local decompose = payloads_builders.build_devloop_decompose_payload(fix_reconcile)
-        local reason = "fix-loop-max-rounds"
-        devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", "blocked", "applied(" .. reason .. ")", "review decision=reject")
-        devloop_logging.log_raise("review_result", origin.proposal_id, "devloop_fix_reconcile", fix_reconcile)
-        devloop_logging.log_raise("review_result", origin.proposal_id, "github-devloop-decompose.devloop_decompose", decompose)
-        return
-      end
+        },
+      })
+      return
     end
     if high_risk_angle_not_approved then
       devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, devloop_state.cas_outcome(state, transition, canonical_review_dedup) .. "(high-risk-angle-not-approved)", "high-risk PR approval lacks high-risk angle approval")

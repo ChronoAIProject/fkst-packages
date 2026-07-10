@@ -181,7 +181,7 @@ function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcil
   local state_marker = devloop_state.state_marker(fix_reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   local _, pr_number = devloop_base.parse_pr_source_ref(fix_reconcile.source_ref)
-  return entity_lib.build_entity_comment_request({
+  local request = entity_lib.build_entity_comment_request({
     kind = "pr",
     repo = repo,
     number = pr_number,
@@ -194,6 +194,22 @@ function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcil
     "comment",
     tostring(fix_reconcile.dedup_key),
   }), fix_reconcile.source_ref)
+  request.handoff = {
+    kind = "github-devloop.fix_reconcile",
+    proposal_id = fix_reconcile.proposal_id,
+    pr_number = fix_reconcile.pr_number,
+    version = version,
+    source_ref = base_ids.normalize_source_ref(fix_reconcile.source_ref),
+    fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
+      proposal_id = fix_reconcile.proposal_id,
+      review_proposal_id = fix_reconcile.review_proposal_id,
+      review_dedup_key = fix_reconcile.review_dedup_key,
+      reviewed_head_sha = fix_reconcile.head_sha,
+      pr_number = fix_reconcile.pr_number,
+      source_ref = fix_reconcile.source_ref,
+    }, fix_reconcile.issue_version),
+  }
+  return request
 end
 
 function M.build_review_reconcile_comment_request(repo, _issue_number, review_reconcile, action, reason, state_version)

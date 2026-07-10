@@ -535,6 +535,7 @@ function M.mock_default_pr_read(t, comments)
   }
   M.mock_pr_read_forms(t, fields)
   M.mock_pr_view_selector(t, fields, pr_origin_selector, fields.times)
+  M.mock_pr_view_selector(t, fields, pr_fix_precheck_selector, fields.times)
 end
 
 function M.mock_issue_read_with_defaults(t, labels, comments, extra)

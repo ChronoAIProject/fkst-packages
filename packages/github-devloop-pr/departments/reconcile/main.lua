@@ -10,6 +10,7 @@ local m_facts = require("devloop.markers.facts")
 local m_mgw = require("devloop.merge_gate_wait")
 local core, replay_fields = require("core"), require("devloop.replay_fields")
 local check_runs = require("forge.github.check_runs")
+local merge_shared = require("forge.merge.shared")
 local transition_version = require("contract.transition_version")
 
 local saga = require("workflow.saga")
@@ -29,6 +30,15 @@ local spec = {
   },
   stall_window = "2m",
 }
+
+local fix_reconcile_from_states = { "reviewing", "fixing", "merge-ready", "merging" }
+local fix_reconcile_from_state_set = {
+  reviewing = true,
+  fixing = true,
+  ["merge-ready"] = true,
+  merging = true,
+}
+local fix_reconcile_from_label = table.concat(fix_reconcile_from_states, "|")
 
 local function emit_blocked_reconcile(kind, proposal_id, state, version, action, reason, comment_request, label_request, comment_queue)
   local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
@@ -212,14 +222,14 @@ local function pipeline_fix(event)
   local reconcile = event.payload or {}
   if not conv_reconcile.is_supported_fix_reconcile(reconcile) then
     devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
-    devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "reviewing", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
+    devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, fix_reconcile_from_label, "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
     return
   end
 
   devloop_logging.log_entry("reconcile", event, reconcile.proposal_id, reconcile.dedup_key)
   local entity = entity_lib.parse_entity_proposal_id(reconcile.proposal_id)
   if entity == nil then
-    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, "reviewing", "blocked", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, fix_reconcile_from_label, "blocked", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
   local repo = entity.repo
@@ -234,14 +244,14 @@ local function pipeline_fix(event)
 
   local lock_key = entity_lib.transition_lock_key(reconcile.proposal_id)
   if lock_key == nil then
-    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, "reviewing", "blocked", "skip-foreign(proposal_id)", "no transition lock key")
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, fix_reconcile_from_label, "blocked", "skip-foreign(proposal_id)", "no transition lock key")
     return
   end
 
   with_lock(lock_key, function()
     devloop_base.assert_trusted_bot_configured()
 
-    local view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
+    local view = devloop_commands.gh_pr_view_fix_precheck(repo, pr_number, 30)
     if view.exit_code ~= 0 then
       error("github-devloop: gh-pr-fix-reconcile-view-failed: gh pr fix reconcile view failed: " .. tostring(view.stderr))
     end
@@ -251,26 +261,39 @@ local function pipeline_fix(event)
     local state = require("devloop.entity").current_entity_state(current.comments, reconcile.proposal_id)
     local version = conv_reconcile.fix_reconcile_state_version(reconcile.issue_version)
     if conv_reconcile.has_fix_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.issue_version) then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-idempotent(fix reconcile marker already visible)", "fix reconcile result marker for incoming version is already visible")
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", "skip-idempotent(fix reconcile marker already visible)", "fix reconcile result marker for incoming version is already visible")
       return
     end
     if state.state ~= nil and devloop_state.stage_rank(state.state) >= devloop_state.stage_rank("blocked") then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-idempotent(already terminal)", "current marker is already terminal at or beyond blocked")
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", "skip-idempotent(already terminal)", "current marker is already terminal at or beyond blocked")
       return
     end
 
-    local transition = devloop_state.versioned_transition_status(state, { "reviewing" }, "blocked", version)
-    if state.state == nil or transition == "pending" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", devloop_state.cas_outcome(state, transition, version), "reviewing state marker not yet visible")
-      error("github-devloop: fix-reconcile-marker-missing: reviewing state marker not yet visible for fix reconcile; retrying")
+    if not check_runs.is_open_pr(current) then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", "skip-stale(pr-not-open)", "fix reconcile requires an open PR")
+      return
     end
-    if state.state ~= "reviewing"
-      or transition_version.safe_version_segment(tostring(state.version or "")) ~= transition_version.safe_version_segment(tostring(reconcile.issue_version)) then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-stale(version-mismatch)", "fix reconcile event does not match canonical reviewing marker")
+    if not merge_shared.is_same_repo_pr_head(current, repo) then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", "skip-stale(pr-not-same-repo)", "fix reconcile requires a same-repository PR head")
+      return
+    end
+    if tostring(current.head_sha or "") ~= tostring(reconcile.head_sha or "") then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", "skip-stale(head-advanced)", "PR head changed after the over-budget fix decision")
+      return
+    end
+
+    local transition = devloop_state.versioned_transition_status(state, fix_reconcile_from_states, "blocked", version)
+    if state.state == nil or transition == "pending" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", devloop_state.cas_outcome(state, transition, version), "fix reconcile source marker not yet visible")
+      error("github-devloop: fix-reconcile-marker-missing: source state marker not yet visible for fix reconcile; retrying")
+    end
+    if fix_reconcile_from_state_set[state.state] ~= true
+      or tostring(state.version or "") ~= tostring(reconcile.issue_version or "") then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", "skip-stale(version-mismatch)", "fix reconcile event does not match canonical source marker")
       return
     end
     if transition == "idempotent" or transition == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", devloop_state.cas_outcome(state, transition, version), "current marker cannot be reconciled from reviewing")
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, fix_reconcile_from_label, "blocked", devloop_state.cas_outcome(state, transition, version), "current marker cannot be fix reconciled")
       return
     end
 
@@ -278,7 +301,7 @@ local function pipeline_fix(event)
     local reason = "fix-loop-max-rounds-after-" .. tostring(reconcile.round) .. "-rounds"
     local comment_request = core.build_fix_reconcile_comment_request(repo, issue_number, reconcile, action, reason)
     local label_request = issue_number ~= nil and core.build_fix_reconcile_label_request(repo, issue_number, reconcile) or nil
-    emit_blocked_reconcile("reviewing", reconcile.proposal_id, state, version, action, reason, comment_request, label_request, "github-proxy.github_pr_comment_request")
+    emit_blocked_reconcile(state.state, reconcile.proposal_id, state, version, action, reason, comment_request, label_request, "github-proxy.github_pr_comment_request")
   end)
 end
 

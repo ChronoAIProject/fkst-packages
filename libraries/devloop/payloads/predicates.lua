@@ -187,7 +187,7 @@ local function state_marker_comment_verified(M, repo, hand_off)
       and marker_state == hand_off.state
       and marker_version == hand_off.marker_version
       and tonumber(marker_stage_rank) == M.stage_rank(hand_off.state) then
-      return true, "verified"
+      return true, "verified", comment
     end
   end
   if saw_proposal_marker then
@@ -204,7 +204,7 @@ function C.verify_own_state_marker_hand_off(M, repo, hand_off, expected)
 end
 
 function C.verified_hand_off_state(M, repo, hand_off, expected)
-  local ok, reason = C.verify_own_state_marker_hand_off(M, repo, hand_off, expected)
+  local ok, reason, comment = C.verify_own_state_marker_hand_off(M, repo, hand_off, expected)
   if not ok then
     return nil, reason
   end
@@ -212,6 +212,6 @@ function C.verified_hand_off_state(M, repo, hand_off, expected)
     state = expected.state,
     version = expected.event_version,
     stage_rank = M.stage_rank(expected.state),
-  }, reason
+  }, reason, comment
 end
 return C

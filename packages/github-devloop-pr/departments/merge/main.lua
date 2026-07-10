@@ -9,7 +9,6 @@ local spec = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
     "devloop_fix_reconcile",
-    "github-devloop-decompose.devloop_decompose",
   },
   fanout = { "devloop_merge_ready" },
   stall_window = "2m",

@@ -291,17 +291,22 @@ function M.new(deps)
         or request.handoff.kind == "github-devloop.fixing"
         or request.handoff.kind == "github-devloop.merge_ready"
         or request.handoff.kind == "github-devloop.blocked"
+        or request.handoff.kind == "github-devloop.fix_reconcile"
         or request.handoff.kind == "github-devloop.closed_unmerged") then
       local selected_comment_id = comment_id or "IC_handoff_1"
       local state = request.handoff.kind == "github-devloop.merge_ready" and "merge-ready"
         or request.handoff.kind == "github-devloop.fixing" and "fixing"
         or request.handoff.kind == "github-devloop.blocked" and "blocked"
+        or request.handoff.kind == "github-devloop.fix_reconcile" and "blocked"
         or request.handoff.kind == "github-devloop.closed_unmerged" and "closed-unmerged"
         or "reviewing"
+      local body = request.handoff.kind == "github-devloop.fix_reconcile"
+        and request.body
+        or helpers.core.state_marker(request.handoff.proposal_id, state, request.handoff.version)
       helpers.t.mock_command("gh api --method GET 'repos/" .. tostring(request.repo) .. "/issues/comments/" .. tostring(selected_comment_id) .. "'", {
         stdout = encoded_comment_json(
           selected_comment_id,
-          helpers.core.state_marker(request.handoff.proposal_id, state, request.handoff.version)
+          body
         ),
         stderr = "",
         exit_code = 0,

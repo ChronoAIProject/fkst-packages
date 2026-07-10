@@ -1,8 +1,6 @@
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
-local requests_labels = require("devloop.requests.labels")
-local requests_review = require("devloop.requests.review")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local core = require("core")
@@ -16,6 +14,7 @@ local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local m_mq = require("devloop.merge_queue")
 local ci_repair_attempts = require("departments.fix.ci_repair_attempts")
+local fix_round_transition = require("core.fix_round_transition")
 
 local dispatch_liveness = {
   restart_transition_table = function(...) return core.restart_transition_table(...) end,
@@ -30,7 +29,12 @@ local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local spec = {
   consumes = { "devloop_fixing" },
-  produces = { "github-proxy.github_issue_label_request", "github-proxy.github_pr_comment_request", "devloop_review_meta" },
+  produces = {
+    "github-proxy.github_issue_label_request",
+    "github-proxy.github_pr_comment_request",
+    "devloop_review_meta",
+    "devloop_fix_reconcile",
+  },
   stall_window = "10m",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
@@ -274,103 +278,6 @@ local function assert_no_conflict_markers(worktree)
   error("github-devloop: git-conflict-marker-check-failed: git conflict marker check failed: " .. tostring(markers_result.stderr))
 end
 
-local function bounded_fix_summary(value)
-  local text = tostring(value or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-  if #text > 600 then
-    text = text:sub(1, 600)
-  end
-  return text
-end
-
-local function raise_review_meta(repo, issue_number, fix, reason, detail)
-  local comment_request = core.build_fix_review_meta_comment_request(repo, issue_number, fix, reason, detail)
-  local label_request = core.build_fix_review_meta_label_request(repo, issue_number, fix, reason)
-  local add_labels, remove_labels = devloop_state.state_label_changes("review-meta")
-  devloop_logging.log_apply("fix", fix.proposal_id, "review-meta", fix.version, { add = add_labels, remove = remove_labels }, {
-    "github-proxy.github_pr_comment_request",
-    "github-proxy.github_issue_label_request",
-    "devloop_review_meta",
-  })
-  devloop_logging.log_raise("fix", fix.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
-  if issue_number ~= nil then
-    devloop_logging.log_raise("fix", fix.proposal_id, "github-proxy.github_issue_label_request", label_request)
-  end
-  devloop_logging.log_raise("fix", fix.proposal_id, "devloop_review_meta", {
-    schema = "github-devloop.review-meta.v1",
-    proposal_id = fix.proposal_id,
-    review_proposal_id = fix.review_proposal_id,
-    review_dedup_key = fix.review_dedup_key,
-    version = fix.version,
-    pr_number = fix.pr_number,
-    n = 0,
-    dedup_key = fix.dedup_key,
-    source_ref = fix.source_ref,
-  })
-end
-
-local function raise_reviewing(repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
-  requests_review.raise_fix_reviewing(core, {
-    dept = "fix",
-    repo = repo,
-    issue_number = issue_number,
-    fix = fix,
-    old_head_sha = old_head_sha,
-    new_head_sha = new_head_sha,
-    reason = reason,
-    fix_summary = bounded_fix_summary(summary),
-    clear_fix_summary = true,
-  })
-end
-
-local function raise_stale_speculation_refix(repo, issue_number, fix, current_state, current_predecessor_set, reason)
-  local next_version = devloop_state.next_fix_version(fix.version)
-  local merge_ready = {
-    proposal_id = fix.proposal_id,
-    pr_number = fix.pr_number,
-    version = devloop_state._strip_latest_fix_version_suffix(fix.version),
-    review_proposal_id = fix.review_proposal_id,
-    review_dedup_key = fix.review_dedup_key,
-    reviewed_head_sha = fix.reviewed_head_sha,
-    dedup_key = fix.dedup_key,
-  }
-  local comment_request = requests_review.build_merge_gate_fix_comment_request(core,
-    repo,
-    issue_number,
-    merge_ready,
-    next_version,
-    fix.gate_failure_excerpt or fix.blocking_gap or reason,
-    fix.gate_baseline_sha,
-    fix.source_ref,
-    current_predecessor_set,
-    {
-      blocking_gap = fix.blocking_gap,
-      gate_failure_excerpt = fix.gate_failure_excerpt,
-      preserve_nil_gate_failure_excerpt = true,
-      repair_input = fix.repair_input,
-      ci_failure_key = fix.ci_failure_key,
-    }
-  )
-  local label_request = issue_number ~= nil and requests_labels.build_state_label_request(repo,
-    issue_number,
-    "fixing",
-    fix.dedup_key .. "/label/refix/" .. tostring(devloop_state.version_fix_round(next_version)),
-    entity_lib.issue_source_ref(repo, issue_number)
-  ) or nil
-  local add_labels, remove_labels = devloop_state.state_label_changes("fixing")
-  devloop_logging.log_cas_decision("fix", fix.proposal_id, current_state, "fixing", "fixing", "applied", reason)
-  local raised = {
-    "github-proxy.github_pr_comment_request",
-  }
-  if label_request ~= nil then
-    table.insert(raised, "github-proxy.github_issue_label_request")
-  end
-  devloop_logging.log_apply("fix", fix.proposal_id, "fixing", next_version, { add = add_labels, remove = remove_labels }, raised)
-  devloop_logging.log_raise("fix", fix.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
-  if label_request ~= nil then
-    devloop_logging.log_raise("fix", fix.proposal_id, "github-proxy.github_issue_label_request", label_request)
-  end
-end
-
 local function assert_fix_write_gate(fix, repo, issue_number)
   local write_enabled = config.write_mode() == "real"
   if write_enabled then
@@ -521,6 +428,7 @@ local function run_fix_attempt(plan)
     })
     return {
       kind = "review-meta",
+      completed_without_new_head = true,
       reason = "no-fix",
       detail = result.stdout or result.stderr,
       outcome = "escalated: no-fix",
@@ -558,6 +466,7 @@ local function run_fix_attempt(plan)
   if new_head_sha == plan.fix.reviewed_head_sha then
     return {
       kind = "review-meta",
+      completed_without_new_head = true,
       reason = "no-new-head",
       detail = result.stdout or result.stderr,
       outcome = "escalated: no-new-head",
@@ -623,10 +532,12 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
   if outcome == nil then
     return
   end
-  recheck_fix_write_gate(repo, fix, branch)
+  local _, current_state = recheck_fix_write_gate(repo, fix, branch)
+  if current_state == nil then
+    return
+  end
   if outcome.kind == "refix" then
-    raise_stale_speculation_refix(
-      repo,
+    fix_round_transition.raise_stale_speculation_refix(repo,
       issue_number,
       fix,
       { state = "fixing", version = fix.version },
@@ -636,12 +547,46 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     return
   end
   if outcome.kind == "review-meta" then
+    -- Budget invariant: review/merge entry reserves one fix round. Only completed
+    -- review-feedback no-fix/no-new-head outcomes reserve another round here.
+    -- Codex/infra failures keep their existing failure/terminal paths and never
+    -- count as completed. CI repair is the explicit one-shot exception:
+    -- merge_executor already reserved its round, so any nonpublishing result,
+    -- including codex failure, blocks below without reserving another.
     if fix.repair_input == "ci-failure" then
       ci_repair_attempts.raise_attempt_record(repo, fix, outcome.reason or "no-repair", outcome.detail)
       ci_repair_attempts.raise_blocked(repo, issue_number, fix, "own-ci-red-unrepaired", outcome.reason or outcome.detail)
       return
     end
-    raise_review_meta(repo, issue_number, fix, outcome.reason, outcome.detail)
+    local transition = nil
+    if outcome.completed_without_new_head == true then
+      transition = fix_round_transition.next_or_decompose(current_state.version)
+      if transition.kind == "decompose" then
+        fix_round_transition.raise_decompose(transition, {
+          dept = "fix",
+          current_state = current_state,
+          from_state = "fixing",
+          reason = "completed fix attempt produced no new head: " .. tostring(outcome.reason),
+          review = {
+            proposal_id = fix.proposal_id,
+            review_proposal_id = fix.review_proposal_id,
+            review_dedup_key = fix.review_dedup_key,
+            reviewed_head_sha = fix.reviewed_head_sha,
+            pr_number = fix.pr_number,
+            source_ref = fix.source_ref,
+          },
+        })
+        return
+      end
+    end
+    fix_round_transition.raise_review_meta({
+      repo = repo,
+      issue_number = issue_number,
+      fix = fix,
+      reason = outcome.reason,
+      detail = outcome.detail,
+      transition = transition,
+    })
     return
   end
   if outcome.kind ~= "reviewing" then
@@ -664,7 +609,7 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     error("github-devloop: pushed-pr-head-mismatch: pushed PR head verification failed")
   end
 
-  raise_reviewing(repo, issue_number, fix, outcome.old_head_sha, outcome.new_head_sha, outcome.reason, outcome.summary)
+  fix_round_transition.raise_reviewing(repo, issue_number, fix, outcome.old_head_sha, outcome.new_head_sha, outcome.reason, outcome.summary)
 end
 
 local function act_fix(event)
@@ -816,7 +761,7 @@ local function act_fix(event)
       end
       if tostring(current_pr.head_sha or "") == intended_head_sha
         and tostring(current_pr.head_sha or "") ~= tostring(fix.reviewed_head_sha) then
-        raise_reviewing(repo, issue_number, fix, fix.reviewed_head_sha, intended_head_sha, "push already visible; self-healing missing reviewing marker")
+        fix_round_transition.raise_reviewing(repo, issue_number, fix, fix.reviewed_head_sha, intended_head_sha, "push already visible; self-healing missing reviewing marker")
         return
       end
       devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(head-advanced)", "PR head changed since rejected review")
@@ -855,8 +800,7 @@ local function act_fix(event)
     if fix.predecessor_set ~= nil then
       speculative_predecessors, speculative_current_set = current_predecessors_for_fix(repo, branches.integration, fix, current_pr)
       if speculative_predecessors ~= nil and tostring(speculative_current_set) ~= tostring(fix.predecessor_set) then
-        raise_stale_speculation_refix(
-          repo,
+        fix_round_transition.raise_stale_speculation_refix(repo,
           issue_number,
           fix,
           state,

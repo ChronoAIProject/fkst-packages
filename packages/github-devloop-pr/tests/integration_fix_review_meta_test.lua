@@ -507,6 +507,10 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      reject_comment,
+    }, branch, event.version)
     mock_pr_fix({ m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev") }, branch, "def456")
 
     local result = run_fix(event, opts("fix-no-changes-review-meta", { FKST_GITHUB_WRITE = "1" }))

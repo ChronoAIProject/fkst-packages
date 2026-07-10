@@ -9,6 +9,7 @@ local handoff_helpers = require("devloop.comment_handoff")
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local conv_reconcile = require("devloop.convergence.reconcile")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
@@ -21,6 +22,7 @@ local spec = {
     "devloop_merge_ready",
     "devloop_fixing",
     "devloop_reviewing",
+    "github-devloop-decompose.devloop_decompose",
     "github-proxy.github_issue_label_request",
   },
   fanout = { "github-proxy.github_comment_written" },
@@ -55,6 +57,18 @@ local function valid_fixing_handoff(handoff)
     and (handoff.predecessor_set == nil or strings.is_path_safe_key(handoff.predecessor_set, devloop_base._max_dedup_len))
     and (handoff.ci_failure_key == nil or ci_failure_keys.is_valid(handoff.ci_failure_key, devloop_base._max_dedup_len))
     and (handoff.dedup_key == nil or strings.is_path_safe_key(handoff.dedup_key, devloop_base._max_dedup_len))
+end
+
+local function valid_fix_reconcile_handoff(handoff)
+  local reconcile = type(handoff) == "table" and handoff.fix_reconcile or nil
+  local source_ref = type(reconcile) == "table" and reconcile.source_ref or nil
+  return valid_base_pr_handoff(handoff)
+    and conv_reconcile.is_supported_fix_reconcile(reconcile)
+    and handoff.proposal_id == reconcile.proposal_id
+    and tostring(handoff.pr_number) == tostring(reconcile.pr_number)
+    and tostring(handoff.version) == tostring(reconcile.issue_version)
+    and handoff.source_ref.kind == source_ref.kind
+    and handoff.source_ref.ref == source_ref.ref
 end
 
 local function issue_claim_ok(payload, handoff)
@@ -193,6 +207,36 @@ local function emit_reviewing(payload, handoff)
   maybe_raise_pr_label(payload, handoff)
 end
 
+local function emit_fix_reconcile_decompose(payload, handoff)
+  if not issue_claim_ok(payload, handoff) then
+    return
+  end
+  local repo = payload.repo
+  if repo == nil then
+    repo = select(1, devloop_base.parse_pr_source_ref(handoff.source_ref))
+  end
+  if repo == nil then
+    error("github-devloop: fix-reconcile-handoff-missing-repo: fix reconcile handoff missing repo")
+  end
+  local verified_state, reason, comment = verified_pr_state(repo, handoff, payload.comment_id, "blocked")
+  if verified_state == nil then
+    if retryable_visibility_reason(reason) then
+      devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = nil, version = nil }, "comment-written", "github-devloop-decompose.devloop_decompose", "retry-pending(blocked marker not visible)", "fix reconcile comment was acknowledged but its blocked marker is not visible")
+      error("github-devloop: fix-reconcile-blocked-marker-not-visible: blocked marker not visible for decompose handoff; retrying")
+    end
+    devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = nil, version = nil }, "comment-written", "github-devloop-decompose.devloop_decompose", "skip-stale(" .. tostring(reason) .. ")", "fix reconcile handoff no longer matches the blocked marker")
+    return
+  end
+  local reconcile = handoff.fix_reconcile
+  if not conv_reconcile.has_fix_reconcile_marker(core, { comment }, reconcile.proposal_id, reconcile.issue_version) then
+    devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, verified_state, "comment-written", "github-devloop-decompose.devloop_decompose", "retry-pending(fix reconcile marker not visible)", "blocked marker is visible but the matching fix reconcile marker is not")
+    error("github-devloop: fix-reconcile-marker-not-visible: fix reconcile marker not visible for decompose handoff; retrying")
+  end
+  local decompose = payloads_builders.build_devloop_decompose_payload(reconcile)
+  devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, verified_state, "comment-written", "github-devloop-decompose.devloop_decompose", "applied(own-write-comment-id)", "blocked and fix reconcile markers are durably visible")
+  devloop_logging.log_raise("comment_handoff", handoff.proposal_id, "github-devloop-decompose.devloop_decompose", decompose)
+end
+
 local handoff_strategies = {
   ["github-devloop.pr_open"] = {
     validate = valid_base_pr_handoff,
@@ -223,6 +267,11 @@ local handoff_strategies = {
     validate = valid_fixing_handoff,
     state = "fixing",
     emit = emit_fixing,
+  },
+  ["github-devloop.fix_reconcile"] = {
+    validate = valid_fix_reconcile_handoff,
+    state = "blocked",
+    emit = emit_fix_reconcile_decompose,
   },
 }
 
