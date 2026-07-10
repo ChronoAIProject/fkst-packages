@@ -6,7 +6,6 @@ local requests_review = require("devloop.requests.review")
 local parsers_pr = require("devloop.parsers.pr")
 local payloads_builders = require("devloop.payloads.builders")
 local conv_rounds = require("devloop.convergence.rounds")
-local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local m_mgw = require("devloop.merge_gate_wait")
 local C = {}
@@ -14,15 +13,10 @@ local replay_thinking_convergence = require("devloop.replay_thinking_convergence
 local replay_fields = require("devloop.replay_fields")
 local forge_validators = require("devloop.forge_validators")
 local transition_version = require("contract.transition_version")
-local context_bundle = require("devloop.context_bundle")
 local decompose_lib = require("devloop.decompose")
 local devloop_logging = require("devloop.logging")
-local dispatch_live_run = require("devloop.dispatch_live_run")
-local config = require("devloop.config")
-local pr_support = require("devloop.replayer_pr_support")
-local replayer_registry = require("devloop.replayer_registry")
-local replay_outcome = require("devloop.replay_outcome"); local outcome_tokens = setmetatable({}, { __mode = "k" })
-local function outcome_token(M) outcome_tokens[M] = outcome_tokens[M] or {}; return outcome_tokens[M] end
+local context_bundle, dispatch_live_run = require("devloop.context_bundle"), require("devloop.dispatch_live_run")
+local replay_capture_by_core = setmetatable({}, { __mode = "k" })
 
 local function resolve_payload_fields(M, row, state, facts)
   return replay_fields.resolve(row, state, facts or {}, entity_lib.pr_source_ref)
@@ -34,6 +28,66 @@ end
 
 local function raise_effects(M, dept, proposal_id, apply_state, version, label_changes, effects)
   return replay_fields.replay_raise_effects(devloop_logging.log_apply, devloop_logging.log_raise, dept, proposal_id, apply_state, version, label_changes, effects)
+end
+local function thinking_caps(installed)
+  return {
+    latest_complete_converge_round = function(...) return installed.latest_complete_converge_round(...) end,
+    context_fetch = function(...) return context_bundle.context_fetch_ref_from_bundle(installed, ...) end,
+    build_board_loop = function(...) return payloads_builders.build_board_loop_proposal(installed, ...) end, build_board = function(...) return payloads_builders.build_board_proposal(installed, ...) end,
+    dispatch_live_run = function(...) return dispatch_live_run.dispatch_live_run_dedup(installed, ...) end, replay_true_stall = function(...) return replay_thinking_convergence.replay_thinking_true_stall_blocked(installed, ...) end,
+  }
+end
+local function find_linked_pr(snapshot, pr_number)
+  for _, item in ipairs(snapshot and snapshot.prs or {}) do
+    if tostring(item.number or "") == tostring(pr_number or "") then
+      return item.current
+    end
+  end
+  return nil
+end
+
+local function snapshot_with_pr_comments(current_pr)
+  local snapshot = { comments = {}, prs = {} }
+  for _, comment in ipairs(current_pr and current_pr.comments or {}) do
+    table.insert(snapshot.comments, comment)
+  end
+  return snapshot
+end
+
+local function terminal_linked_pr_action(tools, dept, issue, state, proposal_id, link, current_pr, facts)
+  if tools == nil or type(tools.terminal_linked_pr_action) ~= "function" then
+    return nil
+  end
+  return tools.terminal_linked_pr_action(dept, issue, state, proposal_id, link, current_pr, facts)
+end
+
+local function fixing_replay_comment_request(M, issue, pr_number, fix_payload, feedback, source_ref)
+  local reason = fix_payload.gate_failure_excerpt or feedback.review_reason or feedback.reason or "fixing-replay"
+  local request = requests_review.build_merge_gate_fix_comment_request(M,
+    issue.repo,
+    issue.number,
+    {
+      proposal_id = fix_payload.proposal_id,
+      pr_number = pr_number,
+      version = fix_payload.version,
+      review_proposal_id = fix_payload.review_proposal_id,
+      review_dedup_key = fix_payload.review_dedup_key,
+      reviewed_head_sha = fix_payload.reviewed_head_sha,
+    },
+    fix_payload.version,
+    reason,
+    fix_payload.gate_baseline_sha,
+    source_ref,
+    fix_payload.predecessor_set,
+    {
+      blocking_gap = fix_payload.blocking_gap,
+      gate_failure_excerpt = fix_payload.gate_failure_excerpt,
+      ci_failure_key = fix_payload.ci_failure_key,
+      preserve_nil_gate_failure_excerpt = fix_payload.gate_failure_excerpt == nil,
+    }
+  )
+  request.handoff.dedup_key = fix_payload.dedup_key
+  return request
 end
 
 local function snapshot_from_issue_comments(M, repo, proposal_id, comments)
@@ -64,7 +118,7 @@ local function current_pr_fact(facts)
   if link == nil then
     return nil
   end
-  return pr_support.find_linked_pr(facts.snapshot, link.pr_number)
+  return find_linked_pr(facts.snapshot, link.pr_number)
 end
 
 local function child_pr_delegation_fact(M, facts)
@@ -197,7 +251,7 @@ end
 local function gather_fetch_before_compare_fact(M, facts, entity, family)
   if family == "pr-head" then
     if facts.link ~= nil and facts.current_pr ~= nil then
-      facts.snapshot = pr_support.snapshot_with_pr_comments(facts.current_pr)
+      facts.snapshot = snapshot_with_pr_comments(facts.current_pr)
       for _, comment in ipairs(facts.current and facts.current.comments or {}) do table.insert(facts.snapshot.comments, comment) end
       table.insert(facts.snapshot.prs, { number = facts.link.pr_number, current = facts.current_pr })
       facts.snapshot.state = facts.state
@@ -305,22 +359,19 @@ function C.gather_replay_required_facts(M, row, entity, state, facts)
 end
 
 local function log_decline(M, value, dept, proposal_id, state, from_state, to_state, outcome, reason)
-  replay_outcome.record(outcome_token(M), value, {
-    outcome = outcome,
-    reason = reason,
-    from_state = from_state,
-    to_state = to_state,
-  })
+  local capture = replay_capture_by_core[M]
+  if capture ~= nil then
+    capture.disposition = value
+    capture.outcome = outcome
+    capture.reason = reason
+    capture.from_state = from_state
+    capture.to_state = to_state
+  end
   devloop_logging.log_cas_decision(dept, proposal_id, state, from_state, to_state, outcome, reason)
   return false
 end
 local function log_skip(M, ...) return log_decline(M, "stuck", ...) end
 local function log_defer(M, ...) return log_decline(M, "deferred", ...) end
-
-local function latest_thinking_converge_round(M, comments, proposal_id, state_version, source_ref)
-  local base_version = transition_version.strip_suffixes(state_version)
-  return M.latest_complete_converge_round(comments, proposal_id, base_version, source_ref)
-end
 
 function C.replay_log_decline(M, value, ...)
   if value == "deferred" then return log_defer(M, ...) end
@@ -328,102 +379,19 @@ function C.replay_log_decline(M, value, ...)
   error("github-devloop: invalid typed replay disposition")
 end
 
-local function build_thinking_replay_proposal(M, issue, proposal_id, state, current, event_ts)
-  local latest = latest_thinking_converge_round(M, current.comments, proposal_id, state.version, issue.source_ref)
-  if latest ~= nil then
-    local base_version = conv_rounds.converge_proposal_base_dedup(latest.dedup)
-    local replay_n = latest.round + 1
-    local replay_dedup = transition_version.loop_at(base_version, replay_n)
-    local content_fetch = context_bundle.context_fetch_ref_from_bundle(M, {
-      dept = "observe_issue",
-      repo = issue.repo,
-      issue_number = issue.number,
-      proposal_id = proposal_id,
-      version = replay_dedup,
-      tick = event_ts,
-    })
-    local proposal = payloads_builders.build_board_loop_proposal(M, issue.repo, issue.number, {
-      title = issue.title,
-      updated_at = issue.updated_at,
-    }, issue.source_ref, replay_n, {
-      narrowed_question = latest.narrowed_question,
-      angle_digests = latest.angle_digests,
-      findings_record = latest.findings_record,
-    }, event_ts, content_fetch, replay_dedup)
-    return v_validate_proposal.validate_proposal(proposal) and proposal or nil
-  end
-
-  local replay_issue = {}
-  for key, value in pairs(issue) do
-    replay_issue[key] = value
-  end
-  local replay_dedup = transition_version.strip_timeout_suffixes(state.version)
-  replay_issue.content_fetch = context_bundle.context_fetch_ref_from_bundle(M, {
-    dept = "observe_issue",
-    repo = issue.repo,
-    issue_number = issue.number,
-    proposal_id = proposal_id,
-    version = replay_dedup,
-    tick = event_ts,
-  })
-  local proposal = payloads_builders.build_board_proposal(M, replay_issue, event_ts)
-  proposal.dedup_key = replay_dedup
-  local replay_round = transition_version.loop_round(replay_dedup)
-  if replay_round > 0 then
-    proposal.round = replay_round
-  end
-  return v_validate_proposal.validate_proposal(proposal) and proposal or nil
-end
-
 function C.build_thinking_replay_proposal(M, issue, proposal_id, state, current, event_ts)
-  return build_thinking_replay_proposal(M, issue, proposal_id, state, current, event_ts)
+  return replay_thinking_convergence.build_replay_proposal(thinking_caps(M), issue, proposal_id, state, current, event_ts)
 end
 
 function C.has_thinking_converge_replay(M, current, proposal_id, state, source_ref)
-  if state.state ~= "thinking" then
-    return false
-  end
-  local facts = conv_rounds.converge_round_facts_for_proposal(current.comments, proposal_id)
-  local round = conv_rounds.max_converge_round(facts)
-  return M.latest_complete_converge_round(current.comments, proposal_id, nil, source_ref) ~= nil
-    or (#facts > 0 and round >= config.max_converge_rounds())
-    or conv_rounds.is_true_stall(facts, round)
-    or conv_rounds.resolvability_exhausted(facts)
-    or conv_rounds.has_essence_stall(facts)
+  return replay_thinking_convergence.has_converge_replay(thinking_caps(M), current, proposal_id, state, source_ref)
 end
 
 local function replay_thinking(M, dept, issue, state, row, facts)
-  local proposal_id = facts.proposal_id
-  local terminal = replay_thinking_convergence.replay_thinking_true_stall_blocked(M, dept, issue, state, facts, function(...)
-    return log_skip(M, ...)
-  end, function(...)
-    return raise_effects(M, ...)
-  end)
-  if terminal ~= nil then
-    return terminal
-  end
-  devloop_logging.log_cas_decision(dept, proposal_id, state, "unmanaged", "thinking", "skip-idempotent(already at to_state)", "trusted thinking state marker is already visible")
-  local proposal = build_thinking_replay_proposal(M, issue, proposal_id, state, facts.current, facts.event_ts)
-  if proposal == nil then
-    return log_skip(M, dept, proposal_id, state, row.from_state, row.driving_queue, "skip-foreign(payload)", "cannot rebuild thinking replay proposal")
-  end
-  if dispatch_live_run.dispatch_live_run_dedup(M, "consensus", proposal_id, proposal.dedup_key, {
-    state = {
-      state = "thinking",
-      version = proposal.dedup_key,
-      proposal_id = proposal_id,
-      marker_created_at = state.marker_created_at,
-    },
-    current = facts.current,
-    proposal_id = proposal_id,
-    now_seconds = facts.now_seconds or now(),
-  }) then
-    return log_defer(M, dept, proposal_id, state, row.from_state, row.driving_queue, "skip-idempotent(live-exec-ref)", "matching consensus codex run is still live")
-  end
-  devloop_logging.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "applied(replay)", "replaying consensus proposal from trusted state facts")
-  return raise_effects(M, dept, proposal_id, "thinking", proposal.dedup_key, { add = {}, remove = {} }, {
-    { queue = "consensus.proposal", payload = proposal },
-  })
+  return replay_thinking_convergence.replay(thinking_caps(M), dept, issue, state, row, facts,
+    function(...) return log_skip(M, ...) end,
+    function(...) return log_defer(M, ...) end,
+    function(...) return raise_effects(M, ...) end)
 end
 
 local function replay_implementing(M, dept, issue, state, row, facts)
@@ -497,8 +465,8 @@ local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, li
   end
   local reviewing_version = M.next_fix_version(state.version)
   local comments = (issue._replay_issue_comments ~= nil and issue._replay_issue_comments) or {}
-  if pr_support.has_reviewing_marker(M.has_state_marker, comments, proposal_id, reviewing_version)
-    or pr_support.has_reviewing_marker(M.has_state_marker, current_pr.comments, proposal_id, reviewing_version) then
+  if M.has_state_marker(comments, proposal_id, "reviewing", reviewing_version)
+    or M.has_state_marker(current_pr.comments, proposal_id, "reviewing", reviewing_version) then
     return log_skip(M, dept, proposal_id, state, "fixing", "reviewing", "skip-idempotent(reviewing marker already visible)", "reviewing state marker for recovered head is already visible")
   end
   local fix = {
@@ -530,13 +498,13 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
   if link == nil or not M.fixing_version_matches_link(state.version, link.impl_version) then
     return log_skip(M, dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(pr-link)", "fixing recovery requires a same-version pr-link marker")
   end
-  local current_pr = pr_support.find_linked_pr(facts.snapshot, link.pr_number)
+  local current_pr = find_linked_pr(facts.snapshot, link.pr_number)
   if current_pr == nil then
-    local terminal = pr_support.terminal_action(tools, dept, issue, state, proposal_id, link, nil, facts)
+    local terminal = terminal_linked_pr_action(tools, dept, issue, state, proposal_id, link, nil, facts)
     if terminal ~= nil then return terminal end
     return log_skip(M, dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(pr-link)", "linked PR fact is not visible")
   end
-  local terminal = pr_support.terminal_action(tools, dept, issue, state, proposal_id, link, current_pr, facts)
+  local terminal = terminal_linked_pr_action(tools, dept, issue, state, proposal_id, link, current_pr, facts)
   if terminal ~= nil then return terminal end
   if tostring(current_pr.state or ""):lower() ~= "open" then
     return log_skip(M, dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-stale(pr-closed)", "linked PR is not open")
@@ -554,8 +522,8 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
       return replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, facts.source_ref or entity_lib.pr_source_ref(issue.repo, link.pr_number))
     end
     local reviewing_version = M.next_fix_version(state.version)
-    if pr_support.has_reviewing_marker(M.has_state_marker, facts.snapshot.comments, proposal_id, reviewing_version)
-      or pr_support.has_reviewing_marker(M.has_state_marker, current_pr.comments, proposal_id, reviewing_version) then
+    if M.has_state_marker(facts.snapshot.comments, proposal_id, "reviewing", reviewing_version)
+      or M.has_state_marker(current_pr.comments, proposal_id, "reviewing", reviewing_version) then
       return log_skip(M, dept, proposal_id, state, "fixing", "reviewing", "skip-idempotent(reviewing marker already visible)", "reviewing state marker for fix is already visible")
     end
     local fields = resolve_payload_fields(M, row, state, {
@@ -570,10 +538,8 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
       impl_version = fields.version,
     }, fields.pr_number, feedback, fields.source_ref)
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(replay)", "trusted feedback fact is visible")
-    if not pr_support.can_direct_from_observer(dept) then
-      local comment_request = pr_support.fixing_comment_request(function(...)
-        return requests_review.build_merge_gate_fix_comment_request(M, ...)
-      end, issue, fields.pr_number, fix_payload, feedback, fields.source_ref)
+    if dept == "observe_pr" then
+      local comment_request = fixing_replay_comment_request(M, issue, fields.pr_number, fix_payload, feedback, fields.source_ref)
       return raise_effects(M, dept, proposal_id, "fixing", state.version, { add = {}, remove = {} }, {
         { queue = "github-proxy.github_pr_comment_request", payload = comment_request },
       })
@@ -622,13 +588,13 @@ local function replay_review_meta(M, tools, dept, issue, state, row, facts)
   if link == nil then
     return log_skip(M, dept, proposal_id, state, "review-meta", "review-meta", "skip-foreign(pr-link)", "review-meta recovery requires a pr-link marker")
   end
-  local current_pr = pr_support.find_linked_pr(facts.snapshot, link.pr_number)
+  local current_pr = find_linked_pr(facts.snapshot, link.pr_number)
   if current_pr == nil then
-    local terminal = pr_support.terminal_action(tools, dept, issue, state, proposal_id, link, nil, facts)
+    local terminal = terminal_linked_pr_action(tools, dept, issue, state, proposal_id, link, nil, facts)
     if terminal ~= nil then return terminal end
     return log_skip(M, dept, proposal_id, state, "review-meta", "review-meta", "skip-foreign(pr-link)", "linked PR fact is not visible")
   end
-  local terminal = pr_support.terminal_action(tools, dept, issue, state, proposal_id, link, current_pr, facts)
+  local terminal = terminal_linked_pr_action(tools, dept, issue, state, proposal_id, link, current_pr, facts)
   if terminal ~= nil then return terminal end
   if tostring(current_pr.state or ""):lower() ~= "open" then
     return log_skip(M, dept, proposal_id, state, "review-meta", "review-meta", "skip-stale(pr-closed)", "linked PR is not open")
@@ -678,7 +644,7 @@ local function raise_reviewing_for_current_head(M, dept, issue, state, proposal_
   if reviewing_payload == nil then
     return false
   end
-  if not pr_support.can_direct_from_observer(dept) then
+  if dept == "observe_pr" then
     local merge_ready = m_facts.merge_ready_fact(current_pr.comments, proposal_id, state.version, link.pr_number)
     local comment_request = requests_review.build_merge_head_reviewing_comment_request(M,
       issue.repo,
@@ -745,13 +711,13 @@ local function replay_merge_ready_like(M, tools, dept, issue, state, row, facts)
   if link == nil then
     return log_skip(M, dept, proposal_id, state, row.from_state, "merge-ready", "skip-foreign(pr-link)", "merge-ready recovery requires a pr-link marker")
   end
-  local current_pr = pr_support.find_linked_pr(facts.snapshot, link.pr_number)
+  local current_pr = find_linked_pr(facts.snapshot, link.pr_number)
   if current_pr == nil then
-    local terminal = pr_support.terminal_action(tools, dept, issue, state, proposal_id, link, nil, facts)
+    local terminal = terminal_linked_pr_action(tools, dept, issue, state, proposal_id, link, nil, facts)
     if terminal ~= nil then return terminal end
     return log_skip(M, dept, proposal_id, state, row.from_state, "merge-ready", "skip-foreign(pr-link)", "linked PR fact is not visible")
   end
-  local terminal = pr_support.terminal_action(tools, dept, issue, state, proposal_id, link, current_pr, facts)
+  local terminal = terminal_linked_pr_action(tools, dept, issue, state, proposal_id, link, current_pr, facts)
   if terminal ~= nil then return terminal end
   if maybe_replay_review_carry_over(M, dept, issue, state, row, facts, link, current_pr) then
     return true
@@ -786,7 +752,7 @@ local function replay_blocked(M, dept, issue, state, row, facts)
   if link == nil then
     return log_skip(M, dept, proposal_id, state, "blocked", "decomposed", "skip-foreign(pr-link)", "decompose recovery requires a pr-link marker")
   end
-  local current_pr = pr_support.find_linked_pr(facts.snapshot, link.pr_number)
+  local current_pr = find_linked_pr(facts.snapshot, link.pr_number)
   local decomposed = facts.decomposed
   if decomposed == nil then
     return log_skip(M, dept, proposal_id, state, "blocked", "decomposed", "skip-foreign(decomposed)", "decomposed marker is not visible")
@@ -822,7 +788,7 @@ end
 
 local function replayer_tools(M)
   return {
-    find_linked_pr = pr_support.find_linked_pr,
+    find_linked_pr = find_linked_pr,
     log_skip = function(...)
       return log_skip(M, ...)
     end,
@@ -854,7 +820,23 @@ local function restart_replayers(M)
       return replay_blocked(M, ...)
     end,
   }
-  return replayer_registry.assemble(replayers, tools, {
+  local function merge(source)
+    if source == nil then return end
+    if type(source) ~= "table" then
+      error("github-devloop: invalid restart replayer registry")
+    end
+    for state_name, replay in pairs(source) do
+      if type(state_name) ~= "string" or state_name == "" or type(replay) ~= "function" then
+        error("github-devloop: invalid restart replayer registration")
+      end
+      replayers[state_name] = replay
+    end
+  end
+  merge(M.replayer_registry)
+  if M.replayer_review_registry == nil then
+    return replayers
+  end
+  merge({
     fixing = function(...)
       return replay_fixing(M, tools, ...)
     end,
@@ -867,7 +849,13 @@ local function restart_replayers(M)
     merging = function(...)
       return replay_merge_ready_like(M, tools, ...)
     end,
-  }, M.replayer_registry, M.replayer_review_registry)
+  })
+  local review_replayers = M.replayer_review_registry
+  if type(review_replayers) == "function" then
+    review_replayers = review_replayers(tools)
+  end
+  merge(review_replayers)
+  return replayers
 end
 
 function C.replay_from_table(M, dept, entity, state, table_row, facts)
@@ -891,9 +879,21 @@ function C.replay_from_table(M, dept, entity, state, table_row, facts)
 end
 
 function C.replay_from_table_classified(M, dept, entity, state, table_row, facts)
-  return replay_outcome.classify(outcome_token(M), function()
-    return C.replay_from_table(M, dept, entity, state, table_row, facts)
-  end)
+  local capture = {}
+  local previous = replay_capture_by_core[M]
+  replay_capture_by_core[M] = capture
+  local ok, issued = pcall(C.replay_from_table, M, dept, entity, state, table_row, facts)
+  replay_capture_by_core[M] = previous
+  if not ok then error(issued) end
+  if issued then
+    return { kind = "issued", issued = true }
+  end
+  return {
+    kind = capture.disposition == "deferred" and "deferred" or "stuck",
+    issued = false,
+    outcome = capture.outcome,
+    reason = capture.reason,
+  }
 end
 
 return C

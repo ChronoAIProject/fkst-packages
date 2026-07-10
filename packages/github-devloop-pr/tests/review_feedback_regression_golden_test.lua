@@ -1,6 +1,5 @@
 local payloads_builders = require("devloop.payloads.builders")
 local requests_review = require("devloop.requests.review")
-local outcomes = require("departments.fix.outcomes")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local h = require("tests.devloop_helpers")
 local t = h.t
@@ -90,19 +89,16 @@ return {
 
   test_review_feedback_review_meta_output_keeps_origin_shape = function()
     local fix = review_feedback_fixing_payload()
-    local module = outcomes.make({
-      build_fix_review_meta_comment_request = function()
+    local request_core = {
+      build_comment = function()
         return { kind = "review-meta-comment" }
       end,
-      build_fix_review_meta_label_request = function()
+      build_label = function()
         return { kind = "review-meta-label" }
       end,
-      raise_fix_reviewing = function()
-        error("reviewing output must not be used")
-      end,
-    })
+    }
     local raised = capture_raises(function()
-      module.raise_review_meta("owner/repo", 42, fix, "no-fix", "No repaired revision was published.")
+      requests_review.raise_fix_review_meta(request_core, "owner/repo", 42, fix, "no-fix", "No repaired revision was published.")
     end)
 
     t.eq(#raised, 3)
@@ -125,27 +121,18 @@ return {
 
   test_review_feedback_reviewing_output_keeps_origin_shape = function()
     local fix = review_feedback_fixing_payload()
-    local module = outcomes.make({
-      build_fix_review_meta_comment_request = function()
-        error("review-meta output must not be used")
-      end,
-      build_fix_review_meta_label_request = function()
-        error("review-meta output must not be used")
-      end,
-      raise_fix_reviewing = function(args)
-        return requests_review.raise_fix_reviewing(core, args)
-      end,
-    })
     local raised = capture_raises(function()
-      module.raise_reviewing(
-        "owner/repo",
-        42,
-        fix,
-        "def456",
-        "feedface",
-        "fix-pushed",
-        "  fixed   review feedback  "
-      )
+      requests_review.raise_fix_reviewing(core, {
+        dept = "fix",
+        repo = "owner/repo",
+        issue_number = 42,
+        fix = fix,
+        old_head_sha = "def456",
+        new_head_sha = "feedface",
+        reason = "fix-pushed",
+        fix_summary = "fixed review feedback",
+        clear_fix_summary = true,
+      })
     end)
 
     t.eq(#raised, 2)

@@ -5,7 +5,7 @@ local replay_fields = require("devloop.replay_fields")
 local m_rae = require("devloop.restart_actionable_epoch")
 local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
-local timing_policy = require("core.timing_policy")
+local config = require("devloop.config")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -58,7 +58,7 @@ local function hold_fixture(completed_at)
     snapshot = { comments = comments },
   }
   local delay_seconds = core.version_fix_round(state.version)
-    * timing_policy.liveness_poll_cadence_seconds()
+    * config.liveness_poll_cadence_seconds()
   local lineage_seconds = contract_time.iso_timestamp_epoch_seconds(
     transition_version.updated_at(state.version)
   )

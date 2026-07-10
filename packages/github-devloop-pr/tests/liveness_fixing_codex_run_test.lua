@@ -30,7 +30,7 @@ local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
 local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
-local timing_policy = require("core.timing_policy")
+local config = require("devloop.config")
 
 local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -230,7 +230,7 @@ local function ci_repair_hold_fixture(created_at)
   local row = restart_transition_row("fixing")
   local facts = timeout_facts(event, state, comments)
   local delay_seconds = core.version_fix_round(state.version)
-    * timing_policy.liveness_poll_cadence_seconds()
+    * config.liveness_poll_cadence_seconds()
   local due_seconds = math.max(
     contract_time.iso_timestamp_epoch_seconds(state.marker_created_at),
     contract_time.iso_timestamp_epoch_seconds(transition_version.updated_at(state.version))

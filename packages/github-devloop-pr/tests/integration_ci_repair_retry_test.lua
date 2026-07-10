@@ -4,7 +4,6 @@ local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local config = require("devloop.config")
 local contract_time = require("contract.time")
-local timing_policy = require("core.timing_policy")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -368,7 +367,7 @@ return {
     local fixture = attempt_fixture(config.max_fix_rounds())
     local result = run_retry(fixture, "ci-repair-head-advanced-at-cap", {
       reobserved_head_sha = "feedface",
-      now_seconds = fixed_now_seconds + timing_policy.liveness_poll_cadence_seconds(),
+      now_seconds = fixed_now_seconds + config.liveness_poll_cadence_seconds(),
     })
 
     assert_reviewing_without_terminal(result, version_at(config.max_fix_rounds() + 1))
@@ -378,7 +377,7 @@ return {
     local fixture = attempt_fixture(config.max_fix_rounds())
     local result = run_retry(fixture, "ci-repair-green-at-cap", {
       conclusion = "SUCCESS",
-      now_seconds = fixed_now_seconds + timing_policy.liveness_poll_cadence_seconds(),
+      now_seconds = fixed_now_seconds + config.liveness_poll_cadence_seconds(),
     })
 
     assert_reviewing_without_terminal(result, version_at(config.max_fix_rounds() + 1))
@@ -387,7 +386,7 @@ return {
   test_cap_exhaustion_reaches_existing_fix_reconcile_terminal_marker = function()
     local fixture = attempt_fixture(config.max_fix_rounds())
     local admitted = run_retry(fixture, "ci-repair-cap", {
-      now_seconds = fixed_now_seconds + timing_policy.liveness_poll_cadence_seconds(),
+      now_seconds = fixed_now_seconds + config.liveness_poll_cadence_seconds(),
     })
 
     if admitted.exit_code ~= 0 then
@@ -424,7 +423,7 @@ return {
   test_cap_reconcile_head_advance_between_emit_and_consume_does_not_block = function()
     local fixture = attempt_fixture(config.max_fix_rounds())
     local emitted = run_retry(fixture, "ci-repair-cap-head-race", {
-      now_seconds = fixed_now_seconds + timing_policy.liveness_poll_cadence_seconds(),
+      now_seconds = fixed_now_seconds + config.liveness_poll_cadence_seconds(),
     })
     local reconcile = h.find_raise(emitted.raises, "devloop_fix_reconcile").payload
 
@@ -442,7 +441,7 @@ return {
   test_cap_reconcile_same_head_green_between_emit_and_consume_does_not_block = function()
     local fixture = attempt_fixture(config.max_fix_rounds())
     local emitted = run_retry(fixture, "ci-repair-cap-green-race", {
-      now_seconds = fixed_now_seconds + timing_policy.liveness_poll_cadence_seconds(),
+      now_seconds = fixed_now_seconds + config.liveness_poll_cadence_seconds(),
     })
     local reconcile = h.find_raise(emitted.raises, "devloop_fix_reconcile").payload
 

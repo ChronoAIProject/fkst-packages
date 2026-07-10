@@ -16,18 +16,15 @@ local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local m_mq = require("devloop.merge_queue")
 local ci_repair_attempts = require("core.ci_repair_attempts")
+local ci_repair_retry = require("core.ci_repair_retry")
 local ci_verdict = require("core.ci_verdict")
 local fix_write_gate = require("departments.fix.write_gate")
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
-local outcomes = require("departments.fix.outcomes").make({
-  build_fix_review_meta_comment_request = assert(rawget(core, "build_fix_review_meta_comment_request")),
-  build_fix_review_meta_label_request = assert(rawget(core, "build_fix_review_meta_label_request")),
-  raise_fix_reviewing = function(args) return requests_review.raise_fix_reviewing(core, args) end,
-})
-local raise_review_meta = outcomes.raise_review_meta
-local raise_reviewing = outcomes.raise_reviewing
-local speculative_refix
+local review_meta_caps = {
+  build_comment = assert(rawget(core, "build_fix_review_meta_comment_request")),
+  build_label = assert(rawget(core, "build_fix_review_meta_label_request")),
+}
 local dispatch_liveness = {
   restart_transition_table = function(...) return core.restart_transition_table(...) end,
   restart_row_receiver_liveness = function(...) return core.restart_row_receiver_liveness(...) end,
@@ -50,6 +47,16 @@ local spec = {
   stall_window = "10m",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
+local function raise_review_meta(...) return requests_review.raise_fix_review_meta(review_meta_caps, ...) end
+local function raise_reviewing(repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
+  local text = tostring(summary or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+  if #text > 600 then text = text:sub(1, 600) end
+  return requests_review.raise_fix_reviewing(core, {
+    dept = "fix", repo = repo, issue_number = issue_number, fix = fix,
+    old_head_sha = old_head_sha, new_head_sha = new_head_sha, reason = reason,
+    fix_summary = text, clear_fix_summary = true,
+  })
+end
 
 local function same_review_result_dedup(left, right)
   local left_canonical = devloop_base.canonical_pr_review_consensus_dedup_key(left)
@@ -62,10 +69,6 @@ local git = git_adapter.production_handle
 local function fix_done(_event)
   return false
 end
-speculative_refix = require("departments.fix.speculative_refix").make({
-  kernel = core,
-  raise_reviewing = raise_reviewing,
-})
 local function branch_worktree(repo, issue_number, version, branch)
   local runtime_result = exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
   if runtime_result.exit_code ~= 0 then
@@ -592,7 +595,7 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     return
   end
   if outcome.kind == "refix" then
-    speculative_refix.raise(
+    ci_repair_retry.raise_speculative(core,
       repo,
       issue_number,
       fix,
@@ -821,7 +824,7 @@ local function act_fix(event)
     if fix.predecessor_set ~= nil then
       speculative_predecessors, speculative_current_set = current_predecessors_for_fix(repo, branches.integration, fix, current_pr)
       if speculative_predecessors ~= nil and tostring(speculative_current_set) ~= tostring(fix.predecessor_set) then
-        speculative_refix.raise(
+        ci_repair_retry.raise_speculative(core,
           repo,
           issue_number,
           fix,

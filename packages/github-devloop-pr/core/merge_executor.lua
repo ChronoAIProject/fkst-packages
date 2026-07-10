@@ -11,9 +11,8 @@ local core = require("core")
 local runtime_files = require("core.merge_runtime_files")
 local ci_wait = require("core.merge_ci_wait")
 local high_risk_merge_gate = require("core.high_risk_merge_gate")
-local merge_fix_admission = require("core.merge_fix_admission")
+local fix_rounds = require("core.fix_rounds")
 local ci_verdict = require("core.ci_verdict")
-local stale_mergeability = require("core.stale_mergeability")
 local check_runs = require("forge.github.check_runs")
 local merge_batch = require("devloop.merge_batch")
 local autonomy_ledger = require("devloop.autonomy_ledger")
@@ -65,11 +64,11 @@ local function gate_baseline_sha_from_pr(pr)
   return baseline_sha
 end
 local function should_wait_for_stale_mergeability(pr, branches, mergeable_reason)
-  return stale_mergeability.should_wait(core, pr, branches, mergeable_reason)
+  return ci_wait.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reason)
 end
 local function raise_fixing(repo, issue_number, merge_ready, current_state, current_pr, reason, queue_position, classification)
   local source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)
-  local admission = merge_fix_admission.admit(
+  local admission = fix_rounds.admit_merge_failure(
     merge_ready, current_state, current_pr, source_ref, reason, classification
   )
   if admission.kind ~= "admit" then

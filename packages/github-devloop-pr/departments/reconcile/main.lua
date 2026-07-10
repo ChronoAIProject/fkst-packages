@@ -20,7 +20,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local ci_verdict = require("core.ci_verdict")
-local fix_terminal = require("core.fix_terminal")
+local fix_rounds = require("core.fix_rounds")
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 local build_fix_reconcile_comment_request = assert(rawget(core, "build_fix_reconcile_comment_request"))
@@ -224,8 +224,8 @@ end
 local function pipeline_fix(event)
   local reconcile = event.payload or {}
   local review_reject = conv_reconcile.is_supported_fix_reconcile(reconcile)
-  local own_ci_terminal = fix_terminal.is_supported_own_ci(reconcile)
-  local merge_gate_terminal = fix_terminal.is_supported_merge_gate(reconcile)
+  local own_ci_terminal = fix_rounds.is_supported_own_ci(reconcile)
+  local merge_gate_terminal = fix_rounds.is_supported_merge_gate(reconcile)
   if not review_reject and not own_ci_terminal and not merge_gate_terminal then
     devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
     devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "reviewing", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
@@ -311,8 +311,8 @@ local function pipeline_fix(event)
     end
 
     local action = "drop"
-    local reason = reconcile.reason_class == fix_terminal.CI_REPAIR_RETRY_POLICY_INVALID
-      and fix_terminal.CI_REPAIR_RETRY_POLICY_INVALID
+    local reason = reconcile.reason_class == fix_rounds.CI_REPAIR_RETRY_POLICY_INVALID
+      and fix_rounds.CI_REPAIR_RETRY_POLICY_INVALID
       or "fix-loop-max-rounds-after-" .. tostring(reconcile.round) .. "-rounds"
     local comment_request = build_fix_reconcile_comment_request(repo, issue_number, reconcile, action, reason)
     local label_request = issue_number ~= nil and build_fix_reconcile_label_request(repo, issue_number, reconcile) or nil
@@ -521,8 +521,8 @@ return saga.department(spec, { done = function() return false end, act = functio
     return pipeline_review(event)
   end
   if schema == "github-devloop.fix-reconcile.v1"
-    or schema == fix_terminal.OWN_CI_SCHEMA
-    or schema == fix_terminal.MERGE_GATE_SCHEMA then
+    or schema == fix_rounds.OWN_CI_SCHEMA
+    or schema == fix_rounds.MERGE_GATE_SCHEMA then
     return pipeline_fix(event)
   end
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "reconcile" })

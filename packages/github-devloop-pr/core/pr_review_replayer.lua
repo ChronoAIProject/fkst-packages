@@ -20,11 +20,11 @@ local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
 local ci_repair_retry = require("core.ci_repair_retry")
 local fix_rounds = require("core.fix_rounds")
-local fixing_replay = require("core.fixing_replay")
 local ci_verdict = require("core.ci_verdict")
 local with_current_classification = ci_verdict.with_current_classification
 
 function S.install(M)
+local function raise_fix_reviewing(opts) return requests_review.raise_fix_reviewing(M, opts) end
 local function linked_pr_state(pr)
   return tostring(pr and pr.state or ""):upper()
 end
@@ -311,7 +311,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
     if intended_head_sha ~= nil and tostring(current_pr.head_sha or "") ~= intended_head_sha then
       return tools.log_skip(dept, proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
     end
-    return fixing_replay.raise_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, tools, "push already visible; self-healing missing reviewing marker")
+    return requests_review.raise_fixing_replay_reviewing(raise_fix_reviewing, dept, issue, state, proposal_id, link, current_pr, feedback, "push already visible; self-healing missing reviewing marker")
   end
   if feedback.ci_failure_key ~= nil then
     local decision = ci_repair_retry.evaluate(M, state, {
@@ -345,7 +345,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
       if not pr_open_state(decision.current_pr) then
         return tools.log_skip(dept, proposal_id, state, "fixing", "reviewing", "skip-stale(pr-closed)", "fresh CI retry admission observed a non-open PR")
       end
-      return fixing_replay.raise_reviewing(M, dept, issue, state, proposal_id, link, decision.current_pr, feedback, tools, decision.reason)
+      return requests_review.raise_fixing_replay_reviewing(raise_fix_reviewing, dept, issue, state, proposal_id, link, decision.current_pr, feedback, decision.reason)
     end
     if decision.kind == "applied" then
       return decision.result

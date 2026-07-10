@@ -37,12 +37,9 @@
 {"path":"libraries/devloop/prompts.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/queue.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/queue_starvation.lua","owner":"shared","reason":"queue starvation observation stays issue/integration-side until R2 while redrive targets the PR queue."}
-{"path":"libraries/devloop/replay_outcome.lua","owner":"shared","reason":"typed replay disposition capture is shared by issue and PR liveness timeout replay."}
 {"path":"libraries/devloop/replay_fields.lua","owner":"shared","reason":"replay payload field resolver is shared by issue and PR replay paths."}
 {"path":"libraries/devloop/replay_thinking_convergence.lua","owner":"issue","reason":"issue-side thinking replay derives durable converge-round true-stall into blocked without PR package authority."}
 {"path":"libraries/devloop/replayer.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
-{"path":"libraries/devloop/replayer_pr_support.lua","owner":"shared","reason":"PR-surface replay helpers are shared by generic restart replay and the PR review replay registry."}
-{"path":"libraries/devloop/replayer_registry.lua","owner":"shared","reason":"restart replay registry assembly is shared by issue and PR lifecycle providers."}
 {"path":"libraries/devloop/requests.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/restart.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/restart/pr_review_replay_facts.lua","owner":"shared","reason":"PR-review replay facts are injected by github-devloop and github-devloop-pr wiring while kept outside the generic restart kernel."}
@@ -99,14 +96,10 @@
 {"path":"packages/github-devloop-pr/core/ci_repair_retry.lua","owner":"pr","reason":"github-devloop-pr owns PR-local own-CI repair replay admission and fresh CI re-observation."}
 {"path":"packages/github-devloop-pr/core/devloop_wiring.lua","owner":"pr","reason":"github-devloop-pr resolves PR package-private restart and prompt modules."}
 {"path":"packages/github-devloop-pr/core/fix_rounds.lua","owner":"pr","reason":"github-devloop-pr owns the stable fix-round admission budget and terminal handoff."}
-{"path":"packages/github-devloop-pr/core/fix_terminal.lua","owner":"pr","reason":"github-devloop-pr owns typed PR-local bounded-fix terminal intents outside the shared review-reject contract."}
-{"path":"packages/github-devloop-pr/core/fixing_replay.lua","owner":"pr","reason":"github-devloop-pr owns fixing-to-reviewing replay effects."}
 {"path":"packages/github-devloop-pr/core/high_risk_merge_gate.lua","owner":"pr","reason":"github-devloop-pr owns PR high-risk merge authorization checks after extraction."}
 {"path":"packages/github-devloop-pr/core/merge_ci_wait.lua","owner":"pr","reason":"github-devloop-pr owns PR merge-gate wait effects after extraction."}
 {"path":"packages/github-devloop-pr/core/merge_executor.lua","owner":"pr","reason":"github-devloop-pr owns shared PR merge execution and merge-queue redrive behavior after extraction."}
-{"path":"packages/github-devloop-pr/core/merge_fix_admission.lua","owner":"pr","reason":"github-devloop-pr owns merge-side fixing continuation admission."}
 {"path":"packages/github-devloop-pr/core/merge_runtime_files.lua","owner":"pr","reason":"github-devloop-pr owns PR merge runtime file paths after extraction."}
-{"path":"packages/github-devloop-pr/core/stale_mergeability.lua","owner":"pr","reason":"github-devloop-pr owns the stale mergeability fact check used by PR merge execution."}
 {"path":"packages/github-devloop-pr/core/pr_label_requests.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/pr_review_replayer.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/liveness_signal_producers/index.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
@@ -142,8 +135,6 @@
 {"path":"packages/github-devloop-pr/core/review_meta_requests.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/review_redrive.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/span_conformance.lua","owner":"cross-cutting","reason":"package-owned PR-side span declaration conformance wrapper."}
-{"path":"packages/github-devloop-pr/core/timing_policy.lua","owner":"pr","reason":"github-devloop-pr owns the single liveness-poll cadence used by own-CI retry admission."}
-{"path":"packages/github-devloop-pr/core/trusted_marker_time.lua","owner":"pr","reason":"github-devloop-pr owns policy-bounded parsing of trusted PR repair marker times."}
 {"path":"packages/github-devloop-pr/departments/comment_handoff/main.lua","owner":"pr","reason":"github-devloop-pr owns PR comment-stream handoff authority after extraction."}
 {"path":"packages/github-devloop-pr/departments/fix/main.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/departments/liveness_scan/main.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
