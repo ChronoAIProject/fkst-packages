@@ -87,30 +87,56 @@ local function first_string(row, keys, default)
   return default or "-"
 end
 
-local function parse_time_seconds(value)
+local function parse_time_milliseconds(value)
   if value == nil then
     return nil
   end
   if type(value) == "number" then
-    if value > 10000000000 then
-      return math.floor(value / 1000)
+    if value < 0 then
+      return nil
     end
-    return math.floor(value)
+    if value > 10000000000 then
+      return math.floor(value)
+    end
+    return math.floor(value) * 1000
   end
-  return contract_time.iso_timestamp_epoch_seconds(value)
+  local seconds = contract_time.iso_timestamp_epoch_seconds(value)
+  return seconds ~= nil and seconds * 1000 or nil
 end
 
-local function event_timestamp_seconds(event)
+local function parse_time_seconds(value)
+  local milliseconds = parse_time_milliseconds(value)
+  return milliseconds ~= nil and math.floor(milliseconds / 1000) or nil
+end
+
+local event_timestamp_keys = {
+  "ts",
+  "time",
+  "at",
+  "observed_at",
+  "updated_at",
+  "created_at",
+  "observed_at_ms",
+  "dead_at_ms",
+  "event_ts",
+}
+
+local function event_timestamp_milliseconds(event)
   if type(event) ~= "table" then
     return nil
   end
-  for _, key in ipairs({ "ts", "time", "at", "observed_at", "updated_at", "created_at", "observed_at_ms", "event_ts" }) do
-    local parsed = parse_time_seconds(event[key])
+  for _, key in ipairs(event_timestamp_keys) do
+    local parsed = parse_time_milliseconds(event[key])
     if parsed ~= nil then
       return parsed
     end
   end
   return nil
+end
+
+local function event_timestamp_seconds(event)
+  local milliseconds = event_timestamp_milliseconds(event)
+  return milliseconds ~= nil and math.floor(milliseconds / 1000) or nil
 end
 
 local function event_sort_key(event)
@@ -192,28 +218,53 @@ local function cron_failure_fact(fact)
   return queue:find("_tick$", 1, false) ~= nil or fact_source_ref_kind(fact) == "cron"
 end
 
-local function top_level_dead_letters(snapshot)
-  for _, key in ipairs({ "dlq", "dead_letters", "dead_letter" }) do
-    local value = snapshot[key]
-    if type(value) == "number" and value > 0 then
-      return "dead-letter:count=" .. tostring(value)
-    end
-    if type(value) == "table" and #list_from_any(value) > 0 then
-      local first = list_from_any(value)[1]
-      return "dead-letter:" .. first_string(first, { "queue", "event_queue", "name" })
-    end
+local function nonnegative_integer(value)
+  if type(value) ~= "number" or value < 0 or value ~= math.floor(value) then
+    return nil
   end
-  return nil
+  return value
 end
 
-local function queue_dlq(snapshot)
+local function failure_window(snapshot, options)
+  local duration_seconds = nonnegative_integer(options and options.failure_window_seconds)
+  if duration_seconds == nil or duration_seconds == 0 then
+    return nil, "observe-window-unavailable"
+  end
+  local generated_at_ms = nonnegative_integer(snapshot.generated_at_ms)
+  if generated_at_ms == nil then
+    return nil, "observe-generated-at-invalid"
+  end
+  return {
+    generated_at_ms = generated_at_ms,
+    starts_at_ms = math.max(0, generated_at_ms - duration_seconds * 1000),
+    duration_seconds = duration_seconds,
+  }
+end
+
+local function aggregate_count(value)
+  if type(value) == "table" then
+    return #list_from_any(value)
+  end
+  return int_value(value)
+end
+
+local function incomplete_dead_letter_detail(snapshot, entries, detail_counts)
+  for _, key in ipairs({ "dlq", "dead_letter" }) do
+    local count = aggregate_count(snapshot[key])
+    if count > #entries then
+      return "dead-letter-detail-incomplete:count=" .. tostring(count) .. ":detail=" .. tostring(#entries)
+    end
+  end
   for _, queue in ipairs(list_from_any(snapshot.queues or snapshot.queue_state or snapshot.queue_states)) do
     if type(queue) == "table" then
+      local queue_name = first_string(queue, { "queue", "name", "id" })
       for _, key in ipairs({ "dlq", "dead", "dead_letters", "dead_letter" }) do
-        local value = queue[key]
-        local count = type(value) == "table" and #list_from_any(value) or int_value(value)
-        if count > 0 then
-          return "queue-dlq:" .. first_string(queue, { "queue", "name", "id" }) .. ":count=" .. tostring(count)
+        local count = aggregate_count(queue[key])
+        local detail_count = detail_counts[queue_name] or 0
+        if count > detail_count then
+          return "dead-letter-detail-incomplete:queue=" .. queue_name
+            .. ":count=" .. tostring(count)
+            .. ":detail=" .. tostring(detail_count)
         end
       end
     end
@@ -221,24 +272,69 @@ local function queue_dlq(snapshot)
   return nil
 end
 
-local function terminal_failure_fact(snapshot)
+local function windowed_dead_letters(snapshot, window)
+  if type(snapshot.truncated) ~= "table" or type(snapshot.truncated.dead_letters) ~= "boolean" then
+    return "dead-letter-detail-unavailable"
+  end
+  if snapshot.truncated.dead_letters then
+    return "dead-letter-detail-truncated"
+  end
+  if type(snapshot.dead_letters) ~= "table" then
+    return "dead-letter-detail-unavailable"
+  end
+  local entries = list_from_any(snapshot.dead_letters)
+  local detail_counts = {}
+  for _, entry in ipairs(entries) do
+    local queue = first_string(entry, { "queue", "event_queue", "name" })
+    local dead_at_ms = type(entry) == "table" and nonnegative_integer(entry.dead_at_ms) or nil
+    if dead_at_ms == nil or dead_at_ms > window.generated_at_ms then
+      return "dead-letter-time-invalid:" .. queue
+    end
+    detail_counts[queue] = (detail_counts[queue] or 0) + 1
+  end
+  local incomplete_reason = incomplete_dead_letter_detail(snapshot, entries, detail_counts)
+  if incomplete_reason ~= nil then
+    return incomplete_reason
+  end
+  for _, entry in ipairs(entries) do
+    if entry.dead_at_ms >= window.starts_at_ms then
+      return "dead-letter:" .. first_string(entry, { "queue", "event_queue", "name" })
+    end
+  end
+  return nil
+end
+
+local function fact_in_window(fact, window)
+  local timestamp_ms = event_timestamp_milliseconds(fact)
+  if timestamp_ms == nil or timestamp_ms > window.generated_at_ms then
+    return nil
+  end
+  return timestamp_ms >= window.starts_at_ms
+end
+
+local function terminal_failure_fact(snapshot, window)
   local cron_counts = {}
   for _, fact in ipairs(failure_facts(snapshot)) do
-    if type(fact) == "table" and cron_failure_fact(fact) then
-      local key = fact_dept(fact)
-      cron_counts[key] = (cron_counts[key] or 0) + 1
+    if type(fact) == "table" then
+      local cron = cron_failure_fact(fact)
+      local terminal = bool_value(fact.terminal) or fact.disposition == "terminal"
+      if cron or terminal then
+        local current = fact_in_window(fact, window)
+        if current == nil then
+          return "failure-fact-time-invalid:" .. fact_queue(fact)
+        end
+        if current and cron then
+          local key = fact_dept(fact)
+          cron_counts[key] = (cron_counts[key] or 0) + 1
+        elseif current and terminal then
+          return "terminal-failure:" .. fact_queue(fact)
+        end
+      end
     end
   end
   for key, count in pairs(cron_counts) do
     if count > 1 then
       return "infra-stall:" .. tostring(key) .. ":observed_count=" .. tostring(count)
-    end
-  end
-  for _, fact in ipairs(failure_facts(snapshot)) do
-    if type(fact) == "table"
-      and (bool_value(fact.terminal) or fact.disposition == "terminal")
-      and not cron_failure_fact(fact) then
-      return "terminal-failure:" .. fact_queue(fact)
     end
   end
   return nil
@@ -276,17 +372,24 @@ local function observed_at_ms(value)
   return math.floor(number)
 end
 
--- Keep this contract in sync with scripts/board.py. The rollup merge gate must
--- not promote a head that this repository's operator board would report dirty.
+-- Promotion health is intentionally windowed. scripts/board.py keeps cumulative
+-- operator-attention semantics for the permanent dead-letter audit.
 function S.verdict(snapshot, opts)
   if type(snapshot) ~= "table" then
     return { clean = false, reason = "observe-malformed" }
   end
   local options = opts or {}
-  local reason = top_level_dead_letters(snapshot)
-    or queue_dlq(snapshot)
-    or terminal_failure_fact(snapshot)
-    or entity_anomaly(snapshot, options.now_seconds, options.stall_seconds)
+  local window, window_reason = failure_window(snapshot, options)
+  if window == nil then
+    return { clean = false, reason = window_reason }
+  end
+  local reason = windowed_dead_letters(snapshot, window)
+    or terminal_failure_fact(snapshot, window)
+    or entity_anomaly(
+      snapshot,
+      math.floor(window.generated_at_ms / 1000),
+      options.stall_seconds or window.duration_seconds
+    )
   if reason ~= nil then
     return { clean = false, reason = reason }
   end
@@ -303,7 +406,11 @@ function S.observe_runtime_health()
   if not ok then
     return { clean = false, reason = "observe-unavailable" }
   end
-  local verdict = S.verdict(snapshot)
+  local soak_seconds = config.rollup_runtime_soak_minutes() * 60
+  local verdict = S.verdict(snapshot, {
+    failure_window_seconds = soak_seconds,
+    stall_seconds = soak_seconds,
+  })
   if verdict.clean ~= true and verdict.reason == "observe-malformed" then
     verdict.reason = "observe-unavailable"
   end

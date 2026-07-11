@@ -33,6 +33,11 @@ local function mock_env(write_mode, rollup_merge, integration, release_notes_fal
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command('printf %s "$FKST_DEVLOOP_ROLLUP_RUNTIME_SOAK_MINUTES"', {
+    stdout = "30",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command('printf %s "$FKST_DEVLOOP_RELEASE_NOTES_FALLBACK"', {
     stdout = release_notes_fallback or "",
     stderr = "",
@@ -186,6 +191,8 @@ local function observe_clean()
   return {
     schema_version = 1,
     generated_at_ms = now() * 1000,
+    truncated = { deliveries = false, dead_letters = false },
+    dead_letters = json.decode("[]"),
   }
 end
 
