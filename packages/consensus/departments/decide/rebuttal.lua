@@ -26,13 +26,13 @@ function M.parse_stance(stdout, stance_label)
     if stance ~= nil then
       stance = stance:lower()
       if stance ~= "update" and stance ~= "defend" then
-        return nil
+        return nil, "stance-invalid"
       end
       count = count + 1
       if stance == "update" then
         local peer_claim = tostring(rest:match("[Bb][Ee][Cc][Aa][Uu][Ss][Ee]%s+(.+)$") or ""):match("^%s*(.-)%s*$")
         if peer_claim == "" then
-          return nil
+          return nil, "stance-update-peer-claim-missing"
         end
         parsed = {
           stance = stance,
@@ -45,20 +45,23 @@ function M.parse_stance(stdout, stance_label)
       end
     end
   end
-  if count ~= 1 then
-    return nil
+  if count == 0 then
+    return nil, "stance-missing"
+  end
+  if count > 1 then
+    return nil, "stance-duplicate"
   end
   return parsed
 end
 
 function M.parse_output(stdout, verdict_mode, caps)
-  local stance = M.parse_stance(stdout, caps and caps.stance_label)
+  local stance, stance_reason = M.parse_stance(stdout, caps and caps.stance_label)
   if stance == nil then
-    return nil
+    return nil, stance_reason
   end
-  local verdict = caps.parse_angle_output(stdout, verdict_mode)
+  local verdict, verdict_reason = caps.parse_angle_output(stdout, verdict_mode)
   if verdict == nil then
-    return nil
+    return nil, verdict_reason
   end
   verdict.stance = stance.stance
   verdict.peer_claim = stance.peer_claim
@@ -100,8 +103,12 @@ function M.collect(angle_results, results, verdict_mode, caps)
   for index, angle_result in ipairs(angle_results or {}) do
     local result = results[index]
     local parsed = nil
+    local parse_reason = nil
     if type(result) == "table" and result.exit_code == 0 then
-      parsed = M.parse_output(result.stdout, verdict_mode, caps)
+      parsed, parse_reason = M.parse_output(result.stdout, verdict_mode, caps)
+      if parsed == nil and type(caps.on_parse_rejected) == "function" then
+        caps.on_parse_rejected(angle_result, result.stdout, parse_reason)
+      end
     end
     table.insert(rebuttal_results, {
       angle = angle_result.angle,

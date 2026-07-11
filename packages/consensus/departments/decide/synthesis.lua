@@ -210,10 +210,10 @@ end
 function M.parse_output(stdout, verdict_mode)
   local text = trim(tostring(stdout or ""))
   if text:find("⟦FKST:PLAN⟧", 1, true) ~= nil then
-    return nil
+    return nil, "plan-sentinel"
   end
   if text == "" then
-    return nil
+    return nil, "empty-output"
   end
 
   local parsed = nil
@@ -247,15 +247,15 @@ function M.parse_output(stdout, verdict_mode)
       if move ~= nil then
         local move_key = move.angle .. "\n" .. move.phase .. "\n" .. move.citation
         if seen_verified_move[move_key] then
-          return nil
+          return nil, "verified-move-duplicate"
         end
         seen_verified_move[move_key] = true
         table.insert(verified_moves, move)
         if #verified_moves > max_verified_moves then
-          return nil
+          return nil, "verified-move-limit"
         end
       elseif line:match("^%s*verified%-move:") ~= nil then
-        return nil
+        return nil, "verified-move-invalid"
       else
         local finding = parse_findings_value(line)
         if finding ~= nil then
@@ -263,20 +263,23 @@ function M.parse_output(stdout, verdict_mode)
         elseif line:match("^%s*settled%s*:") ~= nil
           or line:match("^%s*settled%-by%-agreement%s*%([Uu][Nn][Vv][Ee][Rr][Ii][Ff][Ii][Ee][Dd]%)%s*:") ~= nil
           or line:match("^%s*open%s*:") ~= nil then
-          return nil
+          return nil, "finding-invalid"
         else
-          return nil
+          return nil, "unexpected-line"
         end
       end
     end
   end
 
-  if outcome_count ~= 1 or parsed == nil then
-    return nil
+  if outcome_count ~= 1 then
+    return nil, "outcome-count-invalid"
+  end
+  if parsed == nil then
+    return nil, "outcome-invalid"
   end
   local findings_record = combine_findings_records(findings)
   if parsed.kind == "converge" and parsed.essence_stall ~= true and findings_record == nil then
-    return nil
+    return nil, "findings-required"
   end
   if findings_record ~= nil then
     parsed.findings_record = findings_record
@@ -375,8 +378,14 @@ end
 function M.parse_or_retry(ctx)
   local first = ctx.spawn_sync("synthesis", ctx.build_prompt(false))
   local parsed = nil
+  local parse_reason = nil
   if type(first) == "table" and first.exit_code == 0 then
-    parsed = stamp_verified_count(M.parse_output(first.stdout, ctx.verdict_mode), ctx.p1_results, ctx.p2_results)
+    local first_parsed
+    first_parsed, parse_reason = M.parse_output(first.stdout, ctx.verdict_mode)
+    parsed = stamp_verified_count(first_parsed, ctx.p1_results, ctx.p2_results)
+    if parsed == nil and type(ctx.on_parse_rejected) == "function" then
+      ctx.on_parse_rejected("synthesis", first.stdout, parse_reason)
+    end
   end
   if parsed ~= nil then
     return parsed
@@ -384,7 +393,12 @@ function M.parse_or_retry(ctx)
 
   local repaired = ctx.spawn_sync("synthesis-repair", ctx.build_prompt(true, first))
   if type(repaired) == "table" and repaired.exit_code == 0 then
-    parsed = stamp_verified_count(M.parse_output(repaired.stdout, ctx.verdict_mode), ctx.p1_results, ctx.p2_results)
+    local repaired_parsed
+    repaired_parsed, parse_reason = M.parse_output(repaired.stdout, ctx.verdict_mode)
+    parsed = stamp_verified_count(repaired_parsed, ctx.p1_results, ctx.p2_results)
+    if parsed == nil and type(ctx.on_parse_rejected) == "function" then
+      ctx.on_parse_rejected("synthesis-repair", repaired.stdout, parse_reason)
+    end
   end
   if parsed ~= nil then
     return parsed

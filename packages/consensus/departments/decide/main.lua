@@ -52,6 +52,16 @@ local function codex_identity(proposal, role, angle_lane)
   })
 end
 
+local function log_parse_rejection(proposal, phase, angle_lane, stdout, reason, error_class)
+  log.warn(core.parse_rejection_fact({
+    identity = codex_identity(proposal, "consensus", angle_lane),
+    phase = phase,
+    reason = reason,
+    error_class = error_class,
+    stdout = stdout,
+  }))
+end
+
 local function defer_live_run(identity)
   error(
     "consensus: live-run-active: role=" .. tostring(identity.role)
@@ -110,9 +120,13 @@ local function decide(proposal)
   local results = await_all(handles)
   for index, angle in ipairs(angles) do
     local parsed = nil
+    local parse_reason = nil
     local result = results[index]
     if type(result) == "table" and result.exit_code == 0 then
-      parsed = parse_angle_output(result.stdout, verdict_mode)
+      parsed, parse_reason = parse_angle_output(result.stdout, verdict_mode)
+      if parsed == nil then
+        log_parse_rejection(proposal, "blind", tostring(angle), result.stdout, parse_reason, "angle-output-unparseable")
+      end
     end
     table.insert(angle_results, {
       angle = angle,
@@ -161,6 +175,10 @@ local function decide(proposal)
       parse_angle_output = function(stdout, mode)
         return parse_angle_output(stdout, mode)
       end,
+      on_parse_rejected = function(angle_result, stdout, reason)
+        local lane = "rebuttal-" .. tostring(angle_result.angle)
+        log_parse_rejection(proposal, "rebuttal", lane, stdout, reason, "angle-output-unparseable")
+      end,
     })
     angle_answers.assert_has_valid(rebuttal_results, "rebuttal")
     local rebuttal_reached = rebuttal.post_rebuttal_reached(proposal, angle_results, rebuttal_results, verdict_mode, {
@@ -197,6 +215,9 @@ local function decide(proposal)
       return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
         sync = true,
       })
+    end,
+    on_parse_rejected = function(phase, stdout, reason)
+      log_parse_rejection(proposal, phase, phase, stdout, reason, "synthesis-unparseable")
     end,
   })
   return synthesis.to_decision_result(proposal, angle_results, rebuttal_results, parsed, {

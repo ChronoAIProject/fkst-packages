@@ -55,6 +55,29 @@ function M.log_error_fact(level, dept, tag, error_class, queue, message, context
   table.insert(fields, "error=" .. error_facts.one_line(message))
   log[level or "warn"]("consensus dept=" .. error_facts.one_line(dept) .. " tag=" .. error_facts.one_line(tag or "FAILURE") .. " " .. table.concat(fields, " "))
 end
+local function structured_log_token(value)
+  local text = value == nil and "" or tostring(value)
+  local encoded = text:gsub("([^A-Za-z0-9._~-])", function(byte)
+    return string.format("%%%02X", string.byte(byte))
+  end)
+  return encoded
+end
+function M.parse_rejection_fact(context)
+  local identity = context.identity or {}
+  local stdout = tostring(context.stdout or "")
+  return "consensus dept=" .. structured_log_token("decide")
+    .. " tag=" .. structured_log_token("PARSE_REJECTION")
+    .. " error_class=" .. structured_log_token(context.error_class)
+    .. " phase=" .. structured_log_token(context.phase)
+    .. " role=" .. structured_log_token(identity.role)
+    .. " proposal_id=" .. structured_log_token(identity.proposal_id)
+    .. " run_key=" .. structured_log_token(identity.dedup_key)
+    .. " angle_lane=" .. structured_log_token(identity.angle_lane)
+    .. " parse_reason=" .. structured_log_token(context.reason)
+    .. " stdout_bytes=" .. structured_log_token(#stdout)
+    .. " stdout_fingerprint=" .. structured_log_token(error_facts.stable_hash(stdout))
+    .. " terminal=" .. structured_log_token(false)
+end
 local event_source_ref = error_facts.event_source_ref
 function M.wrap_pipeline_failure(dept, fn)
   return function(event)
@@ -465,18 +488,27 @@ function M.parse_angle_output(stdout, verdict_mode)
     end
   end
 
-  if verdict_count ~= 1 or reply_count ~= 1 then
-    return nil
+  if verdict_count == 0 then
+    return nil, "verdict-missing-or-invalid"
+  end
+  if verdict_count > 1 then
+    return nil, "verdict-duplicate"
+  end
+  if reply_count == 0 then
+    return nil, "reply-missing-or-empty"
+  end
+  if reply_count > 1 then
+    return nil, "reply-duplicate"
   end
   if reply_index ~= verdict_index + 1 then
-    return nil
+    return nil, "verdict-reply-not-adjacent"
   end
   if verdict == "reject" then
     if gap_count ~= 1 or gap_index ~= reply_index + 1 or not is_bounded_string(gap, max_gap_len) then
-      return nil
+      return nil, "reject-gap-invalid"
     end
   elseif gap_count ~= 0 then
-    return nil
+    return nil, "unexpected-gap"
   end
 
   return {
