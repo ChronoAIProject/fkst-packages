@@ -310,6 +310,20 @@ local function assert_catalog_matches_observed_decision(fixture)
   end
 
   local observed = observed_admission(probe)
+  local disposition = post_admission_disposition(result, observed.status == "apply", comment_builder_reached)
+  t.eq(disposition, fixture.post_admission_disposition or "not-admitted", fixture.name .. ": post-admission disposition")
+  local expected_queues = fixture.expected_queues or {}
+  t.eq(#result.raises, #expected_queues, fixture.name .. ": captured effect count")
+  for index, expected_queue in ipairs(expected_queues) do
+    t.eq(result.raises[index].queue, expected_queue, fixture.name .. ": captured effect queue " .. tostring(index))
+  end
+  if fixture.effect_state ~= nil then
+    t.eq(probe.outcome, "apply", fixture.name .. ": effect follows an applied shared probe")
+    t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
+  else
+    t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
+  end
+
   local evidence = evidence_from_probe(probe)
   t.eq(evidence.current, probe.current, fixture.name .. ": catalog current comes from probe")
   t.eq(evidence.source_states, probe.from_states, fixture.name .. ": catalog source states come from probe")
@@ -331,22 +345,8 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(actual.reason_code, fixture.admission_reason_code, fixture.name .. ": catalog admission reason")
   end
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
-
-  local disposition = post_admission_disposition(result, observed.status == "apply", comment_builder_reached)
-  t.eq(disposition, fixture.post_admission_disposition or "not-admitted", fixture.name .. ": post-admission disposition")
-  local expected_queues = fixture.expected_queues or {}
-  t.eq(#result.raises, #expected_queues, fixture.name .. ": captured effect count")
-  for index, expected_queue in ipairs(expected_queues) do
-    t.eq(result.raises[index].queue, expected_queue, fixture.name .. ": captured effect queue " .. tostring(index))
-  end
   if fixture.legacy_log_outcome ~= nil then
     t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
-  end
-  if fixture.effect_state ~= nil then
-    t.eq(probe.outcome, "apply", fixture.name .. ": effect follows an applied shared probe")
-    t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
-  else
-    t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
   end
   return "cas"
 end
@@ -492,6 +492,24 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       target_state = "fixing",
+    })
+  end,
+
+  test_review_result_predecessor_equal_probe_apply_matches_from_state_overlay = function()
+    assert_catalog_matches_observed_decision({
+      name = "review-result-predecessor-equal-overlay",
+      current_state = "pr-open",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      target_state = "fixing",
+      probe_outcome = "apply",
+      comment_builder_reached = true,
+      effect_state = "fixing",
+      post_admission_disposition = "effect-emitted(fixing)",
+      expected_queues = {
+        "github-proxy.github_pr_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
     })
   end,
 
