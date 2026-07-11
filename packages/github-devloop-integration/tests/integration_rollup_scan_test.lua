@@ -616,7 +616,11 @@ return {
     t.is_true(create ~= nil)
     t.eq(create.payload.schema, "github-proxy.issue-create.v1")
     t.eq(create.payload.repo, "owner/repo")
-    t.eq(create.payload.dedup_key, core.rollup_health_dedup_key("owner/repo", "test: COMPLETED/FAILURE"))
+    t.eq(create.payload.dedup_key, core.rollup_health_dedup_key("owner/repo", {
+      failing_check = "test: COMPLETED/FAILURE",
+      head_sha = "def456",
+      red_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60),
+    }))
     t.eq(create.payload.parent_comment_target.issue_number, "9")
     t.is_true(create.payload.body:find("Rollup PR: #9", 1, true) ~= nil)
     t.is_true(create.payload.body:find("Failing check: `test: COMPLETED/FAILURE`", 1, true) ~= nil)
@@ -627,6 +631,55 @@ return {
     t.is_true(written:find('"failing_check":"test: COMPLETED/FAILURE"', 1, true) ~= nil)
     t.is_true(written:find('"red_started_at"', 1, true) ~= nil)
     t.is_true(h.find_raise(result.raises, "devloop_rollup_ready") ~= nil)
+  end,
+
+  test_rollup_scan_dedupes_one_red_incident_and_realerts_after_same_head_recovers = function()
+    local incident_a_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 120 * 60)
+    local recovered_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60 * 60)
+    local incident_b_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60)
+
+    local function observe(status, completed_at, name)
+      mock_env("1", "auto")
+      mock_fetches()
+      mock_ahead(2)
+      mock_content_diff(true)
+      mock_pr_list({ number = 9, head_sha = "def456" })
+      mock_integration_head("def456")
+      mock_rollup_pr_view({
+        status = status,
+        head_sha = "def456",
+        updated_at = completed_at,
+        completed_at = completed_at,
+      })
+      local result = run_scan(opts(name, {
+        FKST_GITHUB_WRITE = "1",
+        FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
+      }))
+      t.eq(result.exit_code, 0)
+      return h.find_raise(result.raises, "github-proxy.github_issue_create_request")
+    end
+
+    local incident_a = observe("red", incident_a_started_at, "rollup-health-incident-a")
+    local incident_a_replay = observe("red", incident_a_started_at, "rollup-health-incident-a-replay")
+    local recovery = observe("green", recovered_at, "rollup-health-recovery")
+    local incident_b = observe("red", incident_b_started_at, "rollup-health-incident-b")
+
+    t.is_true(incident_a ~= nil)
+    t.is_true(incident_a_replay ~= nil)
+    t.eq(recovery, nil)
+    t.is_true(incident_b ~= nil)
+    t.eq(incident_a.payload.dedup_key, incident_a_replay.payload.dedup_key)
+    t.is_true(incident_a.payload.dedup_key ~= incident_b.payload.dedup_key)
+    t.eq(incident_a.payload.dedup_key, core.rollup_health_dedup_key("owner/repo", {
+      failing_check = "test: COMPLETED/FAILURE",
+      head_sha = "def456",
+      red_started_at = incident_a_started_at,
+    }))
+    t.eq(incident_b.payload.dedup_key, core.rollup_health_dedup_key("owner/repo", {
+      failing_check = "test: COMPLETED/FAILURE",
+      head_sha = "def456",
+      red_started_at = incident_b_started_at,
+    }))
   end,
 
   test_rollup_scan_red_window_uses_failed_check_time_not_pr_update_time = function()

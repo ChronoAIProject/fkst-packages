@@ -744,11 +744,13 @@ function M.rollup_red_window_minutes(exec)
   return value
 end
 
-function M.rollup_health_dedup_key(repo, failing_check)
+function M.rollup_health_dedup_key(repo, evidence)
   return base_ids.dedup_key({
     detector,
     tostring(repo or ""),
-    failure_identity(failing_check),
+    failure_identity(evidence and evidence.failing_check),
+    tostring(evidence and evidence.head_sha or ""),
+    tostring(evidence and evidence.red_started_at or ""),
   })
 end
 
@@ -793,7 +795,7 @@ function M.build_rollup_health_issue_create_request(repo, evidence, snapshot)
     labels = evidence.rollup_autofix
       and json.decode('["fkst-dev:enabled","fkst-class:expedite"]')
       or json.decode("[]"),
-    dedup_key = M.rollup_health_dedup_key(repo, evidence.failing_check),
+    dedup_key = M.rollup_health_dedup_key(repo, evidence),
     parent_comment_target = {
       repo = repo,
       issue_number = tostring(evidence.pr_number),
