@@ -10,7 +10,6 @@ local aggregate = core.aggregate
 local build_reached_payload = core.build_reached_payload
 local judgment_scratch_worktree = core.judgment_scratch_worktree
 local parse_angle_output = core.parse_angle_output
-local reached_cache_key = core.reached_cache_key
 
 local spec = {
   consumes = { "proposal" },
@@ -218,18 +217,11 @@ local function decision_done(event)
   if not core.is_eligible(proposal) then
     return true
   end
-
-  local cache_key = reached_cache_key(proposal.dedup_key)
-  local already_reached = false
-  with_lock(cache_key, function()
-    already_reached = cache_get(cache_key) ~= nil
-  end)
-  return already_reached
+  return false
 end
 
 local function act_decide(event)
   local proposal = event.payload or {}
-  local cache_key = reached_cache_key(proposal.dedup_key)
 
   local ok, result = pcall(decide, proposal)
   if not ok then
@@ -245,23 +237,15 @@ local function act_decide(event)
     error(result)
   end
 
-  with_lock(cache_key, function()
-    if cache_get(cache_key) then
-      return
-    end
-    if result.queue == "consensus_reached" then
-      raise("consensus_reached", result.payload)
-      if result.cache then
-        cache_set(cache_key, proposal.dedup_key)
-      end
-      return
-    end
-    if result.queue == "consensus_converge" then
-      raise_converge(proposal, result.angle_results, result.narrowed_question, result.findings_record, result.essence_stall)
-      return
-    end
-    error("consensus: decision-result-invalid: unknown decision result")
-  end)
+  if result.queue == "consensus_reached" then
+    raise("consensus_reached", result.payload)
+    return
+  end
+  if result.queue == "consensus_converge" then
+    raise_converge(proposal, result.angle_results, result.narrowed_question, result.findings_record, result.essence_stall)
+    return
+  end
+  error("consensus: decision-result-invalid: unknown decision result")
 end
 
 return saga.department(spec, {

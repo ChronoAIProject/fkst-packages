@@ -733,7 +733,6 @@ return {
     t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
     t.is_true(tostring(result.error):find("codex-failed", 1, true) ~= nil)
-    t.is_nil(cache_get(core.reached_cache_key("proposal-42-v1/split-synthesis-reached-degraded")))
     t.eq(#codex_calls(), 7)
   end,
 
@@ -757,7 +756,6 @@ return {
     t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
     t.is_true(tostring(result.error):find("angle-output-unparseable", 1, true) ~= nil)
-    t.is_nil(cache_get(core.reached_cache_key("proposal-42-v1/gate-split-synthesis-reached-degraded")))
     t.eq(#codex_calls(), 7)
   end,
 
@@ -868,8 +866,8 @@ return {
     t.is_true(judgment_call("angle-fidelity").stdin:find("Angle: fidelity", 1, true) ~= nil)
   end,
 
-  test_same_dedup_key_skips_second_run = function()
-    local run_opts = opts("cache-hit")
+  test_same_dedup_key_recomputes_second_run = function()
+    local run_opts = opts("redelivery")
     mock_judgment_runtime()
     mock_angle("teleology", "approve", "Teleology angle approves.")
     mock_angle("parsimony", "approve", "Parsimony angle approves.")
@@ -879,14 +877,20 @@ return {
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 1)
 
-    -- identical dedup_key -> idempotent skip, no new codex calls
+    mock_judgment_runtime()
+    mock_angle("teleology", "approve", "Teleology angle approves again.")
+    mock_angle("parsimony", "approve", "Parsimony angle approves again.")
+    mock_angle("fidelity", "approve", "Fidelity angle approves again.")
+
     local second = run_decide(proposal(), run_opts)
     t.eq(second.exit_code, 0)
-    t.eq(#second.raises, 0)
-    t.eq(#codex_calls(), 3)
+    t.eq(#second.raises, 1)
+    t.eq(second.raises[1].queue, "consensus_reached")
+    t.eq(second.raises[1].payload.dedup_key, "consensus:proposal-42-v1")
+    t.eq(#codex_calls(), 6)
   end,
 
-  test_same_decision_dedup_key_skips_updated_effect_version_refire = function()
+  test_same_decision_dedup_key_recomputes_updated_effect_version_refire = function()
     local run_opts = opts("effect-version-refire")
     mock_judgment_runtime()
     mock_angle("teleology", "approve", "Teleology angle approves.")
@@ -902,13 +906,20 @@ return {
     t.eq(first.raises[1].payload.dedup_key, "consensus:proposal-42/intake/1234567890")
     t.eq(first.raises[1].payload.effect_version, "intake/proposal-42/2026-06-03T01-02-03Z")
 
+    mock_judgment_runtime()
+    mock_angle("teleology", "approve", "Teleology angle approves again.")
+    mock_angle("parsimony", "approve", "Parsimony angle approves again.")
+    mock_angle("fidelity", "approve", "Fidelity angle approves again.")
+
     local second = run_decide(proposal({
       dedup_key = "proposal-42/intake/1234567890",
       effect_version = "intake/proposal-42/2026-06-03T01-22-03Z",
     }), run_opts)
     t.eq(second.exit_code, 0)
-    t.eq(#second.raises, 0)
-    t.eq(#codex_calls(), 3)
+    t.eq(#second.raises, 1)
+    t.eq(second.raises[1].payload.dedup_key, "consensus:proposal-42/intake/1234567890")
+    t.eq(second.raises[1].payload.effect_version, "intake/proposal-42/2026-06-03T01-22-03Z")
+    t.eq(#codex_calls(), 6)
   end,
 
   test_new_version_reruns_consensus = function()
