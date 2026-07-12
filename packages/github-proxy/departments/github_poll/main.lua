@@ -1,7 +1,4 @@
 local core = require("core")
-local devloop_base = require("devloop.base")
-local github_env = require("core.env")
-local m_claims = require("devloop.claims")
 local saga = require("workflow.saga")
 
 local spec = {
@@ -27,73 +24,45 @@ local function replay_sort_key(entity)
     .. tostring(entity.type or "")
 end
 
-local intake_claim_label = m_claims.claimed_label()
-
-local function has_configured_label_prefix(labels, prefixes, except_label)
+local function has_configured_label_prefix(labels, prefixes)
   if #prefixes == 0 then
     return false
   end
   for _, label in ipairs(labels or {}) do
     local text = tostring(label)
-    if text ~= except_label then
-      for _, prefix in ipairs(prefixes) do
-        if text:sub(1, #prefix) == prefix then
-          return true
-        end
+    for _, prefix in ipairs(prefixes) do
+      if text:sub(1, #prefix) == prefix then
+        return true
       end
     end
   end
   return false
 end
 
-local function has_label(labels, expected)
-  for _, label in ipairs(labels or {}) do
-    if tostring(label) == expected then
-      return true
-    end
-  end
-  return false
-end
-
-local function poll_claim_owner()
-  local ok, login = pcall(github_env.read_env, "FKST_GITHUB_BOT_LOGIN")
-  if not ok or login == nil or tostring(login) == "" then
-    return nil
-  end
-  return devloop_base.strip_bot_login_suffix(login)
-end
-
-local function is_self_assigned(logins, owner)
-  return owner ~= nil
-    and #logins == 1
-    and devloop_base.strip_bot_login_suffix(logins[1]) == owner
-end
-
-local function is_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes, owner)
-  local logins = m_claims.assignee_logins(entity.assignees)
+local function is_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
   return entity_type == "issue"
     and tostring(entity.state or ""):upper() == "OPEN"
-    and not has_configured_label_prefix(entity.labels, poll_label_prefixes, intake_claim_label)
-    and (
-      #logins == 0
-      or is_self_assigned(logins, owner)
-      or has_label(entity.labels, intake_claim_label)
-    )
+    and not has_configured_label_prefix(entity.labels, poll_label_prefixes)
 end
 
-local function collect_changed(repo, entity_type, entities, fresh_changes, replay_candidates, poll_label_prefixes, owner)
+local function is_unassigned_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
+  return is_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
+    and #(entity.assignees or {}) == 0
+end
+
+local function collect_changed(repo, entity_type, entities, fresh_changes, replay_candidates, poll_label_prefixes)
   for _, entity in ipairs(entities) do
     local key = core.entity_cache_key(repo, entity_type, entity.number)
     local cached_updated_at = cache_get(key)
-    -- A self-held claim is an ownership lease, not durable intake progress.
-    -- Admission re-derives trusted markers and current ownership on every replay.
-    local level_replay = is_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes, owner)
+    local level_replay = is_unassigned_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
+    local poll_redrive = cached_updated_at == ""
     if level_replay or cached_updated_at ~= entity.updated_at then
       local item = {
         entity_type = entity_type,
         entity = entity,
         key = key,
         level_replay = level_replay,
+        poll_scoped = level_replay or poll_redrive,
         replay = cached_updated_at == nil,
       }
       item.entity.type = entity_type
@@ -120,7 +89,7 @@ end
 local function item_dedup_key(repo, item, poll_token)
   local entity = item.entity
   local dedup_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
-  if item.level_replay then
+  if item.poll_scoped then
     return dedup_key .. "/poll/" .. tostring(poll_token or now())
   end
   return dedup_key
@@ -166,7 +135,7 @@ local function raise_changed(repo, fresh_changes, replay_changes, poll_token)
   end
 end
 
-local function poll_entities(repo, event, fresh_changes, replay_candidates, poll_label_prefixes, owner)
+local function poll_entities(repo, event, fresh_changes, replay_candidates, poll_label_prefixes)
   for _, entity_type in ipairs(entity_types) do
     local ok, result_or_err = core.gh_exec_result(function(timeout)
       return entity_type.read(repo, timeout)
@@ -181,7 +150,7 @@ local function poll_entities(repo, event, fresh_changes, replay_candidates, poll
         error(result_or_err.message)
       end
     else
-      collect_changed(repo, entity_type.type, core.parse_entity_list(result_or_err.stdout, entity_type.type), fresh_changes, replay_candidates, poll_label_prefixes, owner)
+      collect_changed(repo, entity_type.type, core.parse_entity_list(result_or_err.stdout, entity_type.type), fresh_changes, replay_candidates, poll_label_prefixes)
     end
   end
 end
@@ -195,10 +164,9 @@ local function act(event)
 
   local replay_budget = core.github_proxy_replay_budget()
   local poll_label_prefixes = core.github_proxy_poll_label_prefixes()
-  local owner = poll_claim_owner()
   local fresh_changes = {}
   local replay_candidates = {}
-  poll_entities(repo, event, fresh_changes, replay_candidates, poll_label_prefixes, owner)
+  poll_entities(repo, event, fresh_changes, replay_candidates, poll_label_prefixes)
   raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), event and event.ts)
 end
 

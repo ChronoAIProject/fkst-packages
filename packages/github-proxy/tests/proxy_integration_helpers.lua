@@ -42,7 +42,7 @@ end
 
 function t.run_department(...)
   local _, _, run_opts = ...
-  author_policy.mock_env(t, run_opts, { times = 2 })
+  author_policy.mock_env(t, run_opts)
   return raw_run_department(...)
 end
 

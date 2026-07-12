@@ -1,6 +1,8 @@
 local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local graph = require("testkit.graph")
 local gh_argv = require("testkit.gh_argv_mock")
+local m_builders = require("devloop.markers.builders")
 local t = fkst.test
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local author_policy = require("testkit.github_author_policy")
@@ -51,7 +53,7 @@ local function mock_env(claim_mode)
       exit_code = 0,
     })
   end
-  for _ = 1, 3 do
+  for _ = 1, 5 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
       stdout = repo,
       stderr = "",
@@ -90,7 +92,7 @@ local function mock_issue_view_command(number, selector, response)
   )
 end
 
-local function mock_issue_view(number, labels, assignees)
+local function mock_issue_view(number, labels, assignees, comments)
   local fields = {
     repo = repo,
     number = number,
@@ -99,7 +101,7 @@ local function mock_issue_view(number, labels, assignees)
     updated_at = updated_at,
     state = "OPEN",
     labels = labels,
-    comments = {},
+    comments = comments or {},
     assignees = assignees,
     author_login = "fkst-test-bot",
   }
@@ -134,7 +136,7 @@ local function mock_judge_failure(number)
   })
 end
 
-local function mock_observe_skip(number, labels, assignees)
+local function mock_observe_skip(number, labels, assignees, comments)
   local fields = {
     repo = repo,
     number = number,
@@ -142,7 +144,7 @@ local function mock_observe_skip(number, labels, assignees)
     updated_at = updated_at,
     state = "OPEN",
     labels = labels,
-    comments = {},
+    comments = comments or {},
     assignees = assignees,
     author_login = "fkst-test-bot",
   }
@@ -205,6 +207,27 @@ local function require_consumer_failure(trace, round)
   t.eq(step.exit_code, 1)
 end
 
+local function require_no_intake_candidate(trace)
+  t.eq(trace.status, "quiescent")
+  t.eq(graph.find_delivery(trace, {
+    queue = "github-devloop-intake.devloop_intake_candidate",
+    consumer = "github-devloop-intake-default.intake_judge",
+  }), nil)
+end
+
+local function trusted_intake_decision(number)
+  local proposal_id = base_ids.proposal_id(repo, number)
+  return {
+    author_login = "fkst-test-bot",
+    body = m_builders.intake_decision_marker(
+      proposal_id,
+      "enable",
+      "intake/" .. proposal_id .. "/decision",
+      "standard"
+    ),
+  }
+end
+
 local function run_claim_crash_replay(claim_mode, number)
   local claimed_labels = claim_mode == "label" and { "fkst-dev:claimed" } or {}
   local claimed_assignees = claim_mode == "label" and {} or { "fkst-test-bot" }
@@ -254,6 +277,47 @@ local function run_claim_crash_replay(claim_mode, number)
     return tonumber(raised.payload and raised.payload.number) == number
   end)
   t.eq(replay.payload.dedup_key, repo .. "#issue#" .. tostring(number) .. "@" .. updated_at .. "/poll/3")
+
+  local decision = trusted_intake_decision(number)
+  mock_poll_round(number, claimed_labels, claimed_assignees)
+  mock_issue_view(number, claimed_labels, claimed_assignees, { decision })
+  mock_observe_skip(number, claimed_labels, claimed_assignees, { decision })
+  local stopped = graph.run(poll_event(4), { max_steps = 8 })
+  require_no_intake_candidate(stopped)
+  graph.require_delivery(stopped, {
+    queue = "github-proxy.github_entity_changed",
+    consumer = "github-devloop-intake.admission",
+  })
+
+  mock_poll_round(number, claimed_labels, claimed_assignees)
+  local quiet = graph.run(poll_event(5), { max_steps = 8 })
+  require_no_intake_candidate(quiet)
+  t.eq(graph.find_raise(quiet, "github-proxy.github_entity_changed", function(raised)
+    return tonumber(raised.payload and raised.payload.number) == number
+  end), nil)
+end
+
+local function run_foreign_claim_rejection()
+  local number = 44
+  local foreign_assignees = { "other-login" }
+  mock_env("assignee")
+
+  mock_poll_round(number, {}, foreign_assignees)
+  mock_issue_view(number, {}, foreign_assignees)
+  mock_observe_skip(number, {}, foreign_assignees)
+  local observed = graph.run(poll_event(1), { max_steps = 8 })
+  require_no_intake_candidate(observed)
+  graph.require_delivery(observed, {
+    queue = "github-proxy.github_entity_changed",
+    consumer = "github-devloop-intake.admission",
+  })
+
+  mock_poll_round(number, {}, foreign_assignees)
+  local quiet = graph.run(poll_event(2), { max_steps = 8 })
+  require_no_intake_candidate(quiet)
+  t.eq(graph.find_raise(quiet, "github-proxy.github_entity_changed", function(raised)
+    return tonumber(raised.payload and raised.payload.number) == number
+  end), nil)
 end
 
 return {
@@ -263,5 +327,9 @@ return {
 
   test_run_graph_replays_claim_label_after_repeated_consumer_failures = function()
     run_claim_crash_replay("label", 43)
+  end,
+
+  test_run_graph_rejects_foreign_assignee_claim_without_replay = function()
+    run_foreign_claim_rejection()
   end,
 }
