@@ -159,7 +159,7 @@ local function act(event)
 
     integration_head = integration_head or git_mechanics.remote_head(core.git, branches.integration, "rollup remote head", "unsafe rollup branch head")
     local rollup_pr = fetch_rollup_pr(repo, pr.number)
-    core.observe_rollup_health(
+    local rollup_health_result = core.observe_rollup_health(
       repo,
       branches.upstream,
       branches.integration,
@@ -179,6 +179,14 @@ local function act(event)
       rollup_pr.comments
     )
     devloop_logging.log_raise("rollup_scan", "rollup", "github-proxy.github_pr_comment_request", sample)
+    if rollup_health_result.state_request ~= nil then
+      devloop_logging.log_raise(
+        "rollup_scan",
+        "rollup-health-state/" .. tostring(pr.number),
+        "github-proxy.github_pr_comment_request",
+        rollup_health_result.state_request
+      )
+    end
     if cfg.rollup_merge == "manual" then
       devloop_logging.log_line("info", "rollup_scan", "rollup", "POSTURE", {
         "posture=manual",

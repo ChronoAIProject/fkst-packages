@@ -35,23 +35,23 @@ return {
     end)
   end,
 
-  test_rollup_health_dedup_key_includes_head_and_red_window = function()
+  test_rollup_health_dedup_key_includes_head_and_incident_epoch = function()
     local evidence = {
       failing_check = "test: COMPLETED/FAILURE",
       head_sha = "def456",
-      red_started_at = "2026-07-10T21:32:00Z",
+      incident_epoch = "initial",
     }
     local key = core.rollup_health_dedup_key("owner/repo", evidence)
     t.eq(key, core.rollup_health_dedup_key("owner/repo", evidence))
     t.is_true(key ~= core.rollup_health_dedup_key("owner/repo", {
       failing_check = evidence.failing_check,
       head_sha = "20fa5bcd",
-      red_started_at = evidence.red_started_at,
+      incident_epoch = evidence.incident_epoch,
     }))
     t.is_true(key ~= core.rollup_health_dedup_key("owner/repo", {
       failing_check = evidence.failing_check,
       head_sha = evidence.head_sha,
-      red_started_at = "2026-07-11T22:12:00Z",
+      incident_epoch = "2026-07-11T22:12:00Z",
     }))
   end,
 }

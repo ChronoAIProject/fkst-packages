@@ -8,6 +8,7 @@ local S = {}
 local check_runs = require("forge.github.check_runs")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
+local rollup_health_incident = require("core.rollup_health_incident")
 
 local observe_sample_marker_name = "fkst:github-devloop-integration:rollup-observe-sample:v1"
 local observe_sample_replace_marker = "<!-- " .. observe_sample_marker_name
@@ -709,6 +710,7 @@ local function write_snapshot(repo, evidence)
     .. ',"head_sha":' .. strings.json_string(evidence.head_sha)
     .. ',"updated_at":' .. strings.json_string(evidence.updated_at)
     .. ',"red_started_at":' .. strings.json_string(evidence.red_started_at)
+    .. ',"incident_epoch":' .. strings.json_string(evidence.incident_epoch)
     .. ',"age_minutes":' .. tostring(tonumber(evidence.age_minutes) or 0)
     .. ',"threshold_minutes":' .. tostring(tonumber(evidence.threshold_minutes) or 0)
     .. ',"failing_check":' .. strings.json_string(evidence.failing_check)
@@ -750,7 +752,7 @@ function M.rollup_health_dedup_key(repo, evidence)
     tostring(repo or ""),
     failure_identity(evidence and evidence.failing_check),
     tostring(evidence and evidence.head_sha or ""),
-    tostring(evidence and evidence.red_started_at or ""),
+    tostring(evidence and evidence.incident_epoch or ""),
   })
 end
 
@@ -767,6 +769,7 @@ local function alert_body(evidence, snapshot)
     "Branches: `" .. tostring(evidence.integration_branch) .. "` -> `" .. tostring(evidence.upstream_branch) .. "`",
     "Head: `" .. tostring(evidence.head_sha) .. "`",
     "Failing check: `" .. tostring(evidence.failing_check) .. "`",
+    "Incident epoch: `" .. tostring(evidence.incident_epoch) .. "`",
     "Red age: " .. tostring(evidence.age_minutes) .. " minutes",
     "Threshold: " .. tostring(evidence.threshold_minutes) .. " minutes",
     "Evidence snapshot: `" .. tostring(snapshot) .. "`",
@@ -811,27 +814,29 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
   local current_seconds = tonumber(now_seconds) or now()
   local threshold = tonumber(threshold_minutes) or M.rollup_red_window_minutes()
   local green, reason = check_runs.pr_rollup_green(pr)
+  local incident = rollup_health_incident.derive(pr, green, reason, current_seconds)
+  local state_request = rollup_health_incident.comment_request(repo, pr and pr.number, incident)
   if green then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op reason=rollup-green")
-    return { action = "no-op", reason = "rollup-green" }
+    return { action = "no-op", reason = "rollup-green", state_request = state_request }
   end
   if reason ~= "rollup-red" then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op reason=" .. tostring(reason))
-    return { action = "no-op", reason = reason }
+    return { action = "no-op", reason = reason, state_request = state_request }
   end
 
   local red_started_at = rollup_red_started_at(pr)
   local age = age_minutes(red_started_at, current_seconds)
   if age == nil then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op reason=age-unknown")
-    return { action = "no-op", reason = "age-unknown" }
+    return { action = "no-op", reason = "age-unknown", state_request = state_request }
   end
   if age < threshold then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=suppress"
       .. " reason=red-window"
       .. " age_minutes=" .. tostring(age)
       .. " threshold_minutes=" .. tostring(threshold))
-    return { action = "suppress", reason = "red-window", age_minutes = age }
+    return { action = "suppress", reason = "red-window", age_minutes = age, state_request = state_request }
   end
 
   local failing_check = parsers_misc.pr_rollup_failure_summary(pr)
@@ -847,6 +852,7 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
     head_sha = pr and pr.head_sha,
     updated_at = pr and pr.updated_at,
     red_started_at = red_started_at,
+    incident_epoch = incident.incident_epoch,
     age_minutes = age,
     threshold_minutes = threshold,
     failing_check = failing_check,
@@ -868,6 +874,7 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
     action = "raise",
     request = request,
     snapshot_path = snapshot,
+    state_request = state_request,
   }
 end
 end
