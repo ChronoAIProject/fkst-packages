@@ -179,6 +179,10 @@ local function count_claim_writes(claim_mode)
   return count
 end
 
+local function simulate_crash_before_replay_sentinel(number)
+  cache_set("github-proxy/issue/" .. repo .. "/" .. tostring(number), updated_at)
+end
+
 local function require_consumer_failure(trace, round)
   t.eq(trace.status, "quiescent")
   local step = graph.find_delivery(trace, {
@@ -255,6 +259,8 @@ local function run_claim_crash_replay(claim_mode, number)
   require_consumer_failure(first, 1)
   t.eq(count_claim_writes(claim_mode), 1)
 
+  simulate_crash_before_replay_sentinel(number)
+
   mock_poll_round(number, claimed_labels, claimed_assignees)
   mock_issue_view(number, claimed_labels, claimed_assignees)
   mock_judge_failure(number)
@@ -270,13 +276,13 @@ local function run_claim_crash_replay(claim_mode, number)
   local third = graph.run(poll_event(3), { max_steps = 8 })
   require_consumer_failure(third, 3)
   graph.assert_covers(third, {
-    "github-proxy.github_entity_changed -> github-devloop-intake.admission",
+    "github-proxy.github_issue_observed -> github-devloop-intake.admission",
     "github-devloop-intake.devloop_intake_candidate -> github-devloop-intake-default.intake_judge",
   })
-  local replay = graph.require_raise(third, "github-proxy.github_entity_changed", function(raised)
+  local replay = graph.require_raise(third, "github-proxy.github_issue_observed", function(raised)
     return tonumber(raised.payload and raised.payload.number) == number
   end)
-  t.eq(replay.payload.dedup_key, repo .. "#issue#" .. tostring(number) .. "@" .. updated_at .. "/poll/3")
+  t.eq(replay.payload.dedup_key, repo .. "#issue#" .. tostring(number) .. "@" .. updated_at .. "/observe/3")
 
   local decision = trusted_intake_decision(number)
   mock_poll_round(number, claimed_labels, claimed_assignees)
@@ -285,11 +291,12 @@ local function run_claim_crash_replay(claim_mode, number)
   local stopped = graph.run(poll_event(4), { max_steps = 8 })
   require_no_intake_candidate(stopped)
   graph.require_delivery(stopped, {
-    queue = "github-proxy.github_entity_changed",
+    queue = "github-proxy.github_issue_observed",
     consumer = "github-devloop-intake.admission",
   })
 
   mock_poll_round(number, claimed_labels, claimed_assignees)
+  mock_issue_view(number, claimed_labels, claimed_assignees, { decision })
   local quiet = graph.run(poll_event(5), { max_steps = 8 })
   require_no_intake_candidate(quiet)
   t.eq(graph.find_raise(quiet, "github-proxy.github_entity_changed", function(raised)
@@ -313,6 +320,7 @@ local function run_foreign_claim_rejection()
   })
 
   mock_poll_round(number, {}, foreign_assignees)
+  mock_issue_view(number, {}, foreign_assignees)
   local quiet = graph.run(poll_event(2), { max_steps = 8 })
   require_no_intake_candidate(quiet)
   t.eq(graph.find_raise(quiet, "github-proxy.github_entity_changed", function(raised)

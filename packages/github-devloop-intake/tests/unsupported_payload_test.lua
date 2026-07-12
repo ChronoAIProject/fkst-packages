@@ -61,6 +61,7 @@ local function payload_for_queue(queue)
       source_ref = entity_lib.issue_source_ref("owner/repo", 42),
     },
   }
+  payloads["github-proxy.github_issue_observed"] = payloads["github-proxy.github_entity_changed"]
   local payload = payloads[queue]
   if payload == nil then
     error("github-devloop-intake: no production-shaped queue fixture for " .. tostring(queue))

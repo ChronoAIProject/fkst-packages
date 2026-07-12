@@ -136,7 +136,7 @@ return {
     mock_poll()
     local second = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(second.exit_code, 0)
-    t.eq(#second.raises, 0)
+    t.eq(#second.raises, 1) t.eq(second.raises[1].queue, "github_issue_observed")
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues?state=open&per_page=100"), 2)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/pulls?state=open&per_page=100"), 2)
   end,
@@ -232,8 +232,8 @@ return {
     mock_pr_list("[]\n")
     local second = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(second.exit_code, 0)
-    t.eq(#second.raises, 1)
-    t.eq(second.raises[1].payload.number, 44)
+    t.eq(#second.raises, 3)
+    t.eq(second.raises[1].payload.number, 44) t.eq(second.raises[2].queue, "github_issue_observed") t.eq(second.raises[3].queue, "github_issue_observed")
   end,
 
   test_inbound_poll_replay_budget_is_shared_across_issue_and_pr_lanes = function()
@@ -266,11 +266,11 @@ return {
     mock_pr_list(prs)
     local second = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(second.exit_code, 0)
-    t.eq(#second.raises, 2)
+    t.eq(#second.raises, 3)
     t.eq(second.raises[1].payload.type, "issue")
     t.eq(second.raises[1].payload.number, 44)
     t.eq(second.raises[2].payload.type, "pr")
-    t.eq(second.raises[2].payload.number, 8)
+    t.eq(second.raises[2].payload.number, 8) t.eq(second.raises[3].queue, "github_issue_observed")
   end,
 
   test_inbound_poll_replay_budget_tie_breaks_shared_lanes_deterministically = function()
@@ -304,11 +304,11 @@ return {
     mock_pr_list(prs)
     local second = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(second.exit_code, 0)
-    t.eq(#second.raises, 2)
+    t.eq(#second.raises, 3)
     t.eq(second.raises[1].payload.type, "pr")
     t.eq(second.raises[1].payload.number, 43)
     t.eq(second.raises[2].payload.type, "issue")
-    t.eq(second.raises[2].payload.number, 44)
+    t.eq(second.raises[2].payload.number, 44) t.eq(second.raises[3].queue, "github_issue_observed")
   end,
 
   test_inbound_poll_defaults_cold_replay_budget_to_ten = function()
@@ -406,8 +406,8 @@ return {
       ts = "poll-2",
     }, run_opts)
     t.eq(second.exit_code, 0)
-    t.eq(#second.raises, 1)
-    t.eq(second.raises[1].payload.number, 50)
+    t.eq(#second.raises, 2)
+    t.eq(second.raises[1].payload.number, 50) t.eq(second.raises[2].queue, "github_issue_observed")
     t.eq(second.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-2")
 
     mock_poll_env("1")
@@ -422,8 +422,8 @@ return {
       ts = "poll-3",
     }, run_opts)
     t.eq(labelled.exit_code, 0)
-    t.eq(#labelled.raises, 1)
-    t.eq(labelled.raises[1].payload.number, 50)
+    t.eq(#labelled.raises, 2)
+    t.eq(labelled.raises[1].payload.number, 50) t.eq(labelled.raises[2].queue, "github_issue_observed")
     t.eq(labelled.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
 
     mock_poll_env("1")
@@ -438,7 +438,7 @@ return {
       ts = "poll-4",
     }, run_opts)
     t.eq(cached_labelled.exit_code, 0)
-    t.eq(#cached_labelled.raises, 0)
+    t.eq(#cached_labelled.raises, 2) t.eq(cached_labelled.raises[1].queue, "github_issue_observed") t.eq(cached_labelled.raises[2].queue, "github_issue_observed")
   end,
 
   test_inbound_poll_rejects_invalid_replay_budget = function()

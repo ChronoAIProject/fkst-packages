@@ -3,7 +3,7 @@ local saga = require("workflow.saga")
 
 local spec = {
   consumes = { "github_poll_tick" },
-  produces = { "github_entity_changed" },
+  produces = { "github_entity_changed", "github_issue_observed" },
   stall_window = "30s",
 }
 
@@ -50,19 +50,17 @@ local function is_unassigned_intake_candidate_snapshot(entity_type, entity, poll
     and #(entity.assignees or {}) == 0
 end
 
-local function collect_changed(repo, entity_type, entities, fresh_changes, replay_candidates, poll_label_prefixes)
+local function collect_changed(repo, entity_type, entities, fresh_changes, replay_candidates, issue_observations, poll_label_prefixes)
   for _, entity in ipairs(entities) do
     local key = core.entity_cache_key(repo, entity_type, entity.number)
     local cached_updated_at = cache_get(key)
     local level_replay = is_unassigned_intake_candidate_snapshot(entity_type, entity, poll_label_prefixes)
-    local poll_redrive = cached_updated_at == ""
     if level_replay or cached_updated_at ~= entity.updated_at then
       local item = {
         entity_type = entity_type,
         entity = entity,
         key = key,
         level_replay = level_replay,
-        poll_scoped = level_replay or poll_redrive,
         replay = cached_updated_at == nil,
       }
       item.entity.type = entity_type
@@ -71,6 +69,8 @@ local function collect_changed(repo, entity_type, entities, fresh_changes, repla
       else
         table.insert(fresh_changes, item)
       end
+    elseif entity_type == "issue" and tostring(entity.state or ""):upper() == "OPEN" then
+      table.insert(issue_observations, entity)
     end
   end
 end
@@ -89,7 +89,7 @@ end
 local function item_dedup_key(repo, item, poll_token)
   local entity = item.entity
   local dedup_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
-  if item.poll_scoped then
+  if item.level_replay then
     return dedup_key .. "/poll/" .. tostring(poll_token or now())
   end
   return dedup_key
@@ -135,7 +135,27 @@ local function raise_changed(repo, fresh_changes, replay_changes, poll_token)
   end
 end
 
-local function poll_entities(repo, event, fresh_changes, replay_candidates, poll_label_prefixes)
+local function raise_issue_observations(repo, observations, poll_token)
+  for _, entity in ipairs(observations or {}) do
+    local dedup_key = core.entity_dedup_key(repo, "issue", entity.number, entity.updated_at)
+      .. "/observe/" .. tostring(poll_token or now())
+    raise("github_issue_observed", {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = repo,
+      number = entity.number,
+      title = entity.title,
+      url = entity.url,
+      state = entity.state,
+      labels = entity.labels,
+      updated_at = entity.updated_at,
+      dedup_key = dedup_key,
+      source_ref = core.entity_source_ref(repo, "issue", entity.number),
+    })
+  end
+end
+
+local function poll_entities(repo, event, fresh_changes, replay_candidates, issue_observations, poll_label_prefixes)
   for _, entity_type in ipairs(entity_types) do
     local ok, result_or_err = core.gh_exec_result(function(timeout)
       return entity_type.read(repo, timeout)
@@ -150,7 +170,7 @@ local function poll_entities(repo, event, fresh_changes, replay_candidates, poll
         error(result_or_err.message)
       end
     else
-      collect_changed(repo, entity_type.type, core.parse_entity_list(result_or_err.stdout, entity_type.type), fresh_changes, replay_candidates, poll_label_prefixes)
+      collect_changed(repo, entity_type.type, core.parse_entity_list(result_or_err.stdout, entity_type.type), fresh_changes, replay_candidates, issue_observations, poll_label_prefixes)
     end
   end
 end
@@ -166,8 +186,10 @@ local function act(event)
   local poll_label_prefixes = core.github_proxy_poll_label_prefixes()
   local fresh_changes = {}
   local replay_candidates = {}
-  poll_entities(repo, event, fresh_changes, replay_candidates, poll_label_prefixes)
+  local issue_observations = {}
+  poll_entities(repo, event, fresh_changes, replay_candidates, issue_observations, poll_label_prefixes)
   raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), event and event.ts)
+  raise_issue_observations(repo, issue_observations, event and event.ts)
 end
 
 return saga.department(spec, {

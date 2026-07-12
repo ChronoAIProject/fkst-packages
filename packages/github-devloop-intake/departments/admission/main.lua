@@ -9,10 +9,9 @@ local saga = require("workflow.saga")
 local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
-local entity_view = require("devloop.github_proxy_entity_view")
 
 local spec = {
-  consumes = { "github-proxy.github_entity_changed" },
+  consumes = { "github-proxy.github_entity_changed", "github-proxy.github_issue_observed" },
   produces = {
     "devloop_intake_candidate",
     "github-proxy.github_issue_comment_request",
@@ -115,8 +114,6 @@ local function admit_issue_event(event, entity)
     return
   end
 
-  -- Arm the next level-triggered observation before publishing the candidate.
-  entity_view.invalidate_entity_after_write(repo, "issue", issue_number)
   local payload = core.build_intake_admission_candidate(repo, issue, nil, now())
   devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
     "devloop_intake_candidate",
@@ -135,8 +132,17 @@ local function act_entity_changed(event)
   admit_issue_event(event, entity)
 end
 
+local function act_issue_observed(event)
+  local entity = event.payload or {}
+  if core.should_skip_known_intake_issue(entity.labels) then
+    return
+  end
+  act_entity_changed(event)
+end
+
 local handlers = {
   ["github-proxy.github_entity_changed"] = act_entity_changed,
+  ["github-proxy.github_issue_observed"] = act_issue_observed,
 }
 
 local function act(event)
