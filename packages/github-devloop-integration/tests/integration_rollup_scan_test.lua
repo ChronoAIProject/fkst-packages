@@ -644,13 +644,13 @@ return {
   test_rollup_scan_dedupes_one_red_incident_and_realerts_after_same_head_recovers = function()
     local base_now = now()
     local same_source_second = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 180 * 60):sub(1, -2)
-    local incident_a_started_at = same_source_second .. ".100Z"
-    local incident_a_rerun_at = same_source_second .. ".200Z"
-    local incident_a_pending_at = same_source_second .. ".300Z"
-    local incident_a_after_pending_at = same_source_second .. ".400Z"
-    local stale_incident_a_at = same_source_second .. ".500Z"
-    local recovered_at = same_source_second .. ".600Z"
-    local incident_b_started_at = same_source_second .. ".700Z"
+    local incident_a_started_at = same_source_second .. ".700Z"
+    local incident_a_rerun_at = same_source_second .. ".600Z"
+    local incident_a_pending_at = same_source_second .. ".100Z"
+    local incident_a_after_pending_at = same_source_second .. ".500Z"
+    local stale_incident_a_at = same_source_second .. ".300Z"
+    local recovered_at = same_source_second .. ".400Z"
+    local incident_b_started_at = same_source_second .. ".200Z"
     local health_observation_bodies = {}
 
     local function completed(minutes_ago)
@@ -756,6 +756,7 @@ return {
     t.is_true(incident_a_after_pending ~= nil)
     t.eq(recovery, nil)
     t.is_true(recovery_observation ~= nil)
+    t.is_true(recovery_observation.payload.body:find("source_event_at=" .. completed(60), 1, true) ~= nil)
     t.is_true(stale_incident_b ~= nil)
     t.is_true(stale_incident_b_observation ~= nil)
     t.is_true(stale_incident_a ~= nil)

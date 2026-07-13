@@ -54,7 +54,11 @@ local function check_timestamp(entry)
   if type(entry) ~= "table" then
     return nil
   end
-  return entry.startedAt or entry.started_at or entry.completedAt or entry.completed_at
+  local state = tostring(entry.state or entry.status or ""):upper()
+  if state == "COMPLETED" then
+    return entry.completedAt or entry.completed_at
+  end
+  return entry.startedAt or entry.started_at
 end
 
 local function source_identity(entry)
