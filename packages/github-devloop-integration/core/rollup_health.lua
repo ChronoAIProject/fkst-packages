@@ -814,7 +814,7 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
   local current_seconds = tonumber(now_seconds) or now()
   local threshold = tonumber(threshold_minutes) or M.rollup_red_window_minutes()
   local green, reason = check_runs.pr_rollup_green(pr)
-  local incident = rollup_health_incident.derive(pr, green, reason, current_seconds)
+  local incident = rollup_health_incident.derive(pr, green, reason)
   local observation_request = rollup_health_incident.comment_request(repo, pr and pr.number, incident)
   if green then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op reason=rollup-green")

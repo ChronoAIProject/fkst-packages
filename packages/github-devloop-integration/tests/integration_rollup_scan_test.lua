@@ -163,19 +163,26 @@ local function mock_rollup_pr_view(fields)
     conclusion = ""
   end
   local updated_at = fields.updated_at or "2026-06-14T01:02:03Z"
-  local completed_at = fields.completed_at or updated_at
+  local completed_at = fields.completed_at
+  if completed_at == nil and fields.completed_at_null ~= true then
+    completed_at = updated_at
+  end
+  local started_at = fields.started_at or completed_at or updated_at
+  local completed_at_json = completed_at == nil and "null" or ('"' .. h.json_string(completed_at) .. '"')
   t.mock_command("gh pr view '" .. tostring(fields.pr_number or 9) .. "'", {
     stdout = string.format(
-      '{"number":%d,"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","state":"OPEN","updatedAt":"%s","isDraft":false,"mergedAt":"","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"headRepositoryOwner":{"login":"owner"},"isCrossRepository":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"test","state":"%s","conclusion":"%s","headSha":"%s","completedAt":"%s"}]}\n',
+      '{"number":%d,"headRefName":"%s","headRefOid":"%s","baseRefName":"dev","state":"OPEN","updatedAt":"%s","isDraft":false,"mergedAt":"","comments":[%s],"headRepository":{"nameWithOwner":"owner/repo"},"headRepositoryOwner":{"login":"owner"},"isCrossRepository":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":[{"__typename":"CheckRun","detailsUrl":"%s","name":"test","state":"%s","conclusion":"%s","headSha":"%s","startedAt":"%s","completedAt":%s}]}\n',
       fields.pr_number or 9,
       h.json_string(fields.head_ref or "integration/dev"),
       h.json_string(fields.head_sha or "def456"),
       h.json_string(updated_at),
       comments_json(fields.comments),
+      h.json_string(fields.details_url or "https://example.invalid/checks/test"),
       h.json_string(state),
       h.json_string(conclusion),
       h.json_string(fields.head_sha or "def456"),
-      h.json_string(completed_at)
+      h.json_string(started_at),
+      completed_at_json
     ),
     stderr = "",
     exit_code = 0,
@@ -636,14 +643,19 @@ return {
 
   test_rollup_scan_dedupes_one_red_incident_and_realerts_after_same_head_recovers = function()
     local base_now = now()
-    local incident_a_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 120 * 60)
-    local incident_a_rerun_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 105 * 60)
-    local incident_a_pending_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 90 * 60)
-    local incident_a_after_pending_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 75 * 60)
-    local stale_incident_a_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 70 * 60)
-    local recovered_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 60 * 60)
-    local incident_b_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 45 * 60)
+    local same_source_second = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 180 * 60):sub(1, -2)
+    local incident_a_started_at = same_source_second .. ".100Z"
+    local incident_a_rerun_at = same_source_second .. ".200Z"
+    local incident_a_pending_at = same_source_second .. ".300Z"
+    local incident_a_after_pending_at = same_source_second .. ".400Z"
+    local stale_incident_a_at = same_source_second .. ".500Z"
+    local recovered_at = same_source_second .. ".600Z"
+    local incident_b_started_at = same_source_second .. ".700Z"
     local health_observation_bodies = {}
+
+    local function completed(minutes_ago)
+      return os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - minutes_ago * 60)
+    end
 
     local function persist_observation(observation)
       if observation.payload.replace_marker ~= nil then
@@ -667,7 +679,7 @@ return {
       return nil
     end
 
-    local function observe(status, completed_at, name, should_persist, observed_at)
+    local function observe(status, started_at, completed_at, source_event_id, name, should_persist, observed_at)
       mock_env("1", "auto")
       mock_fetches()
       mock_ahead(2)
@@ -678,7 +690,10 @@ return {
         status = status,
         head_sha = "def456",
         updated_at = completed_at,
+        started_at = started_at,
         completed_at = completed_at,
+        completed_at_null = completed_at == nil,
+        details_url = "https://example.invalid/checks/" .. tostring(source_event_id),
         comments = (function()
           local comments = {}
           for _, body in ipairs(health_observation_bodies) do
@@ -704,42 +719,40 @@ return {
       return h.find_raise(result.raises, "github-proxy.github_issue_create_request"), observation
     end
 
-    local incident_a = observe("red", incident_a_started_at, "rollup-health-incident-a")
-    local incident_a_rerun = observe("red", incident_a_rerun_at, "rollup-health-incident-a-rerun")
-    local pending = observe("pending", incident_a_pending_at, "rollup-health-incident-a-pending")
-    local incident_a_after_pending = observe(
-      "red",
-      incident_a_after_pending_at,
-      "rollup-health-incident-a-after-pending"
+    local incident_a = observe("red", incident_a_started_at, completed(120),
+      "incident-a", "rollup-health-incident-a")
+    local incident_a_rerun = observe("red", incident_a_rerun_at, completed(105),
+      "incident-a-rerun", "rollup-health-incident-a-rerun")
+    local pending, pending_observation = observe(
+      "pending", incident_a_pending_at, nil, "incident-a-pending", "rollup-health-incident-a-pending"
     )
-    local recovery, recovery_observation = observe("green", recovered_at, "rollup-health-recovery", false)
+    local incident_a_after_pending = observe("red", incident_a_after_pending_at, completed(75),
+      "incident-a-after-pending", "rollup-health-incident-a-after-pending")
+    local recovery, recovery_observation = observe(
+      "green", recovered_at, completed(60), "recovery", "rollup-health-recovery", false
+    )
     local stale_incident_b, stale_incident_b_observation = observe(
-      "red",
-      incident_b_started_at,
-      "rollup-health-incident-b-before-recovery-visible",
-      false
+      "red", incident_b_started_at, completed(45), "incident-b",
+      "rollup-health-incident-b-before-recovery-visible", false
     )
     persist_observation(recovery_observation)
     persist_observation(stale_incident_b_observation)
     local stale_incident_a, stale_incident_a_observation = observe(
-      "red",
-      stale_incident_a_at,
-      "rollup-health-stale-incident-a-after-recovery-visible",
-      nil,
-      base_now + 1
+      "red", stale_incident_a_at, completed(70), "stale-incident-a",
+      "rollup-health-stale-incident-a-after-recovery-visible", nil, base_now + 1
     )
     local stale_incident_a_replay, stale_incident_a_replay_observation = observe(
-      "red",
-      stale_incident_a_at,
-      "rollup-health-stale-incident-a-replay",
-      false,
-      base_now + 2
+      "red", stale_incident_a_at, completed(70), "stale-incident-a",
+      "rollup-health-stale-incident-a-replay", false, base_now + 2
     )
-    local incident_b, incident_b_observation = observe("red", incident_b_started_at, "rollup-health-incident-b")
+    local incident_b, incident_b_observation = observe("red", incident_b_started_at, completed(45),
+      "incident-b", "rollup-health-incident-b")
 
     t.is_true(incident_a ~= nil)
     t.is_true(incident_a_rerun ~= nil)
     t.eq(pending, nil)
+    t.is_true(pending_observation ~= nil)
+    t.is_true(pending_observation.payload.body:find("source_event_at=" .. incident_a_pending_at, 1, true) ~= nil)
     t.is_true(incident_a_after_pending ~= nil)
     t.eq(recovery, nil)
     t.is_true(recovery_observation ~= nil)
