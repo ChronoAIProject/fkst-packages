@@ -179,12 +179,12 @@ local function act(event)
       rollup_pr.comments
     )
     devloop_logging.log_raise("rollup_scan", "rollup", "github-proxy.github_pr_comment_request", sample)
-    if rollup_health_result.state_request ~= nil then
+    if rollup_health_result.observation_request ~= nil then
       devloop_logging.log_raise(
         "rollup_scan",
-        "rollup-health-state/" .. tostring(pr.number),
+        "rollup-health-observation/" .. tostring(pr.number),
         "github-proxy.github_pr_comment_request",
-        rollup_health_result.state_request
+        rollup_health_result.observation_request
       )
     end
     if cfg.rollup_merge == "manual" then

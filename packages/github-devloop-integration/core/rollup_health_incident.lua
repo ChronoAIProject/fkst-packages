@@ -6,8 +6,7 @@ local parsers_misc = require("devloop.parsers.misc")
 
 local C = {}
 
-local marker_name = "fkst:github-devloop-integration:rollup-health-state:v1"
-local replace_marker = "<!-- " .. marker_name
+local marker_name = "fkst:github-devloop-integration:rollup-health-observation:v1"
 local marker_pattern = "<!%-%-%s*" .. marker_name:gsub("%-", "%%-") .. ".-%-%->"
 local initial_epoch = "initial"
 
@@ -36,7 +35,7 @@ local function check_timestamp(entry)
     or entry.createdAt or entry.created_at
 end
 
-local function green_recovery_at(pr, fallback_seconds)
+local function source_event_at(pr, fallback_seconds)
   local latest_at = nil
   local latest_seconds = nil
   for _, entry in ipairs(type(pr) == "table" and pr.status_check_rollup or {}) do
@@ -52,106 +51,135 @@ end
 
 local function parse_marker(marker)
   local text = tostring(marker or "")
-  local state = {
+  local observation = {
     head_sha = text:match('head_sha="([^"]+)"'),
     status = text:match('status="([^"]+)"'),
-    last_green_at = text:match('last_green_at="([^"]*)"') or "",
-    incident_epoch = text:match('incident_epoch="([^"]*)"') or "",
+    source_event_at = text:match('source_event_at="([^"]+)"'),
     observed_at = text:match('observed_at="([^"]+)"'),
   }
-  if not forge_validators.is_git_sha(state.head_sha) or not valid_status[state.status] then
+  if not forge_validators.is_git_sha(observation.head_sha) or not valid_status[observation.status] then
     return nil
   end
-  if state.last_green_at ~= "" and contract_time.iso_timestamp_epoch_seconds(state.last_green_at) == nil then
+  observation.source_event_at_seconds = contract_time.iso_timestamp_epoch_seconds(observation.source_event_at)
+  observation.observed_at_seconds = contract_time.iso_timestamp_epoch_seconds(observation.observed_at)
+  if observation.source_event_at_seconds == nil or observation.observed_at_seconds == nil then
     return nil
   end
-  if state.incident_epoch ~= ""
-    and state.incident_epoch ~= initial_epoch
-    and contract_time.iso_timestamp_epoch_seconds(state.incident_epoch) == nil then
-    return nil
-  end
-  state.observed_at_seconds = contract_time.iso_timestamp_epoch_seconds(state.observed_at)
-  if state.observed_at_seconds == nil then
-    return nil
-  end
-  if state.status == "red" and state.incident_epoch == "" then
-    return nil
-  end
-  return state
+  return observation
 end
 
-local function latest_state(comments, head_sha)
-  local latest = nil
+local function persisted_observations(comments, head_sha)
+  local observations = {}
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments or {})) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local state = parse_marker(marker)
-      if state ~= nil
-        and tostring(state.head_sha) == tostring(head_sha)
-        and (latest == nil or state.observed_at_seconds >= latest.observed_at_seconds) then
-        latest = state
+      local observation = parse_marker(marker)
+      if observation ~= nil and tostring(observation.head_sha) == tostring(head_sha) then
+        table.insert(observations, observation)
       end
     end
   end
-  return latest
+  return observations
+end
+
+local function same_source_observation(left, right)
+  return tostring(left.head_sha) == tostring(right.head_sha)
+    and tostring(left.status) == tostring(right.status)
+    and tostring(left.source_event_at) == tostring(right.source_event_at)
+end
+
+local function sort_observations(observations)
+  table.sort(observations, function(left, right)
+    if left.observed_at_seconds ~= right.observed_at_seconds then
+      return left.observed_at_seconds < right.observed_at_seconds
+    end
+    if left.source_event_at_seconds ~= right.source_event_at_seconds then
+      return left.source_event_at_seconds < right.source_event_at_seconds
+    end
+    return tostring(left.status) < tostring(right.status)
+  end)
 end
 
 function C.derive(pr, green, reason, now_seconds)
   local head_sha = type(pr) == "table" and pr.head_sha or nil
   if not forge_validators.is_git_sha(head_sha) then
-    error("github-devloop-integration: rollup-health-state-head-invalid: invalid rollup health state head sha")
+    error("github-devloop-integration: rollup-health-observation-head-invalid: invalid rollup health observation head sha")
   end
   local status = green and "green" or (reason == "rollup-red" and "red" or "pending")
-  local previous = latest_state(pr.comments, head_sha)
-  local last_green_at = previous and previous.last_green_at or ""
-  local incident_epoch = previous and previous.incident_epoch or ""
+  local current = {
+    head_sha = head_sha,
+    status = status,
+    source_event_at = source_event_at(pr, now_seconds),
+    observed_at = format_timestamp(now_seconds),
+  }
+  current.source_event_at_seconds = contract_time.iso_timestamp_epoch_seconds(current.source_event_at)
+  current.observed_at_seconds = contract_time.iso_timestamp_epoch_seconds(current.observed_at)
 
-  if status == "green" then
-    if previous == nil or previous.status ~= "green" or last_green_at == "" then
-      last_green_at = green_recovery_at(pr, now_seconds)
+  local observations = persisted_observations(pr.comments, head_sha)
+  local current_is_persisted = false
+  for _, observation in ipairs(observations) do
+    if same_source_observation(observation, current) then
+      current_is_persisted = true
+      break
     end
-    incident_epoch = ""
-  elseif status == "red" and incident_epoch == "" then
-    incident_epoch = last_green_at ~= "" and last_green_at or initial_epoch
+  end
+  if not current_is_persisted then
+    table.insert(observations, current)
+  end
+  sort_observations(observations)
+
+  local previous_status = nil
+  local last_green_at = ""
+  local incident_epoch = ""
+  for _, observation in ipairs(observations) do
+    if observation.status == "green" then
+      if previous_status ~= "green" then
+        last_green_at = observation.source_event_at
+      end
+      incident_epoch = ""
+    elseif observation.status == "red" and incident_epoch == "" then
+      incident_epoch = last_green_at ~= "" and last_green_at or initial_epoch
+    end
+    previous_status = observation.status
   end
 
   return {
     head_sha = head_sha,
     status = status,
+    source_event_at = current.source_event_at,
     last_green_at = last_green_at,
     incident_epoch = incident_epoch,
-    observed_at = format_timestamp(now_seconds),
+    observed_at = current.observed_at,
   }
 end
 
-local function marker(state)
+local function marker(observation)
   return "<!-- " .. marker_name
-    .. ' head_sha="' .. tostring(state.head_sha)
-    .. '" status="' .. tostring(state.status)
-    .. '" last_green_at="' .. tostring(state.last_green_at)
-    .. '" incident_epoch="' .. tostring(state.incident_epoch)
-    .. '" observed_at="' .. tostring(state.observed_at)
+    .. ' head_sha="' .. tostring(observation.head_sha)
+    .. '" status="' .. tostring(observation.status)
+    .. '" source_event_at="' .. tostring(observation.source_event_at)
+    .. '" observed_at="' .. tostring(observation.observed_at)
     .. '" -->'
 end
 
-function C.comment_request(repo, pr_number, state)
-  local body = "github-devloop-integration rollup health state"
-    .. "\n\nstatus=" .. tostring(state.status)
-    .. "\nhead_sha=" .. tostring(state.head_sha)
-    .. "\nlast_green_at=" .. tostring(state.last_green_at)
-    .. "\nincident_epoch=" .. tostring(state.incident_epoch)
-    .. "\nobserved_at=" .. tostring(state.observed_at)
-    .. "\n\n" .. marker(state)
+function C.comment_request(repo, pr_number, observation)
+  local body = "github-devloop-integration rollup health observation"
+    .. "\n\nstatus=" .. tostring(observation.status)
+    .. "\nhead_sha=" .. tostring(observation.head_sha)
+    .. "\nsource_event_at=" .. tostring(observation.source_event_at)
+    .. "\nobserved_at=" .. tostring(observation.observed_at)
+    .. "\n\n" .. marker(observation)
   return devloop_entity.build_entity_comment_request({
     kind = "pr",
     repo = repo,
     number = pr_number,
   }, body, base_ids.dedup_key({
-    "rollup-health-state",
+    "rollup-health-observation",
     tostring(repo or ""),
     tostring(pr_number or ""),
-  }), devloop_entity.pr_source_ref(repo, pr_number), {
-    replace_marker = replace_marker,
-  })
+    tostring(observation.head_sha),
+    tostring(observation.status),
+    tostring(observation.source_event_at),
+  }), devloop_entity.pr_source_ref(repo, pr_number))
 end
 
 return C

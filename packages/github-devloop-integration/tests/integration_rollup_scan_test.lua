@@ -641,13 +641,21 @@ return {
     local incident_a_after_pending_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 75 * 60)
     local recovered_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60 * 60)
     local incident_b_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60)
-    local health_state_body = nil
+    local health_observation_bodies = {}
 
-    local function health_state_raise(result)
+    local function persist_observation(observation)
+      if observation.payload.replace_marker ~= nil then
+        health_observation_bodies = { observation.payload.body }
+      else
+        table.insert(health_observation_bodies, observation.payload.body)
+      end
+    end
+
+    local function health_observation_raise(result)
       for _, raised in ipairs(result.raises or {}) do
         if raised.queue == "github-proxy.github_pr_comment_request"
           and tostring(raised.payload and raised.payload.body or ""):find(
-            "fkst:github-devloop-integration:rollup-health-state:v1",
+            "fkst:github-devloop-integration:rollup-health-observation:v1",
             1,
             true
           ) ~= nil then
@@ -657,7 +665,7 @@ return {
       return nil
     end
 
-    local function observe(status, completed_at, name)
+    local function observe(status, completed_at, name, should_persist)
       mock_env("1", "auto")
       mock_fetches()
       mock_ahead(2)
@@ -669,23 +677,27 @@ return {
         head_sha = "def456",
         updated_at = completed_at,
         completed_at = completed_at,
-        comments = health_state_body and {
-          { body = health_state_body, author_login = core._test_bot_login },
-        } or nil,
+        comments = (function()
+          local comments = {}
+          for _, body in ipairs(health_observation_bodies) do
+            table.insert(comments, { body = body, author_login = core._test_bot_login })
+          end
+          return comments
+        end)(),
       })
       local result = run_scan(opts(name, {
         FKST_GITHUB_WRITE = "1",
         FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
       }))
       t.eq(result.exit_code, 0)
-      local state = health_state_raise(result)
-      if state ~= nil then
-        health_state_body = state.payload.body
+      local observation = health_observation_raise(result)
+      if observation ~= nil and should_persist ~= false then
+        persist_observation(observation)
       end
-      return h.find_raise(result.raises, "github-proxy.github_issue_create_request"), state
+      return h.find_raise(result.raises, "github-proxy.github_issue_create_request"), observation
     end
 
-    local incident_a, incident_a_state = observe("red", incident_a_started_at, "rollup-health-incident-a")
+    local incident_a, incident_a_observation = observe("red", incident_a_started_at, "rollup-health-incident-a")
     local incident_a_rerun = observe("red", incident_a_rerun_at, "rollup-health-incident-a-rerun")
     local pending = observe("pending", incident_a_pending_at, "rollup-health-incident-a-pending")
     local incident_a_after_pending = observe(
@@ -693,20 +705,33 @@ return {
       incident_a_after_pending_at,
       "rollup-health-incident-a-after-pending"
     )
-    local recovery, recovery_state = observe("green", recovered_at, "rollup-health-recovery")
-    local incident_b, incident_b_state = observe("red", incident_b_started_at, "rollup-health-incident-b")
+    local recovery, recovery_observation = observe("green", recovered_at, "rollup-health-recovery", false)
+    local stale_incident_b, stale_incident_b_observation = observe(
+      "red",
+      incident_b_started_at,
+      "rollup-health-incident-b-before-recovery-visible",
+      false
+    )
+    persist_observation(recovery_observation)
+    persist_observation(stale_incident_b_observation)
+    local incident_b, incident_b_observation = observe("red", incident_b_started_at, "rollup-health-incident-b")
 
     t.is_true(incident_a ~= nil)
-    t.is_true(incident_a_state ~= nil)
+    t.is_true(incident_a_observation ~= nil)
     t.is_true(incident_a_rerun ~= nil)
     t.eq(pending, nil)
     t.is_true(incident_a_after_pending ~= nil)
     t.eq(recovery, nil)
-    t.is_true(recovery_state ~= nil)
+    t.is_true(recovery_observation ~= nil)
+    t.is_true(stale_incident_b ~= nil)
+    t.is_true(stale_incident_b_observation ~= nil)
     t.is_true(incident_b ~= nil)
-    t.is_true(incident_b_state ~= nil)
+    t.is_true(incident_b_observation ~= nil)
+    t.eq(recovery_observation.payload.replace_marker, nil)
+    t.eq(stale_incident_b_observation.payload.replace_marker, nil)
     t.eq(incident_a.payload.dedup_key, incident_a_rerun.payload.dedup_key)
     t.eq(incident_a.payload.dedup_key, incident_a_after_pending.payload.dedup_key)
+    t.eq(incident_a.payload.dedup_key, stale_incident_b.payload.dedup_key)
     t.is_true(incident_a.payload.dedup_key ~= incident_b.payload.dedup_key)
   end,
 

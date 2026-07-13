@@ -815,28 +815,28 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
   local threshold = tonumber(threshold_minutes) or M.rollup_red_window_minutes()
   local green, reason = check_runs.pr_rollup_green(pr)
   local incident = rollup_health_incident.derive(pr, green, reason, current_seconds)
-  local state_request = rollup_health_incident.comment_request(repo, pr and pr.number, incident)
+  local observation_request = rollup_health_incident.comment_request(repo, pr and pr.number, incident)
   if green then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op reason=rollup-green")
-    return { action = "no-op", reason = "rollup-green", state_request = state_request }
+    return { action = "no-op", reason = "rollup-green", observation_request = observation_request }
   end
   if reason ~= "rollup-red" then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op reason=" .. tostring(reason))
-    return { action = "no-op", reason = reason, state_request = state_request }
+    return { action = "no-op", reason = reason, observation_request = observation_request }
   end
 
   local red_started_at = rollup_red_started_at(pr)
   local age = age_minutes(red_started_at, current_seconds)
   if age == nil then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=no-op reason=age-unknown")
-    return { action = "no-op", reason = "age-unknown", state_request = state_request }
+    return { action = "no-op", reason = "age-unknown", observation_request = observation_request }
   end
   if age < threshold then
     log.info("github-devloop dept=rollup_scan tag=ROLLUP_HEALTH action=suppress"
       .. " reason=red-window"
       .. " age_minutes=" .. tostring(age)
       .. " threshold_minutes=" .. tostring(threshold))
-    return { action = "suppress", reason = "red-window", age_minutes = age, state_request = state_request }
+    return { action = "suppress", reason = "red-window", age_minutes = age, observation_request = observation_request }
   end
 
   local failing_check = parsers_misc.pr_rollup_failure_summary(pr)
@@ -874,7 +874,7 @@ function M.observe_rollup_health(repo, upstream, integration, pr, now_seconds, t
     action = "raise",
     request = request,
     snapshot_path = snapshot,
-    state_request = state_request,
+    observation_request = observation_request,
   }
 end
 end
