@@ -11,6 +11,33 @@ local repo = "owner/repo"
 local updated_at = "2026-06-03T01:02:03Z"
 local intake_selector = "title,body,createdAt,updatedAt,labels,comments,state,assignees,author"
 local state_selector = "title,createdAt,updatedAt,labels,state,comments,assignees,author"
+local dlq_test_env = "FKST_TEST_CLAIM_CRASH_DLQ"
+
+local function shell_quote(value)
+  return "'" .. tostring(value):gsub("'", "'\"'\"'") .. "'"
+end
+
+local function run_with_immediate_retry_exhaustion()
+  local bin = os.getenv("BIN") or ""
+  local root = os.getenv("PWD") or ""
+  if bin == "" or root == "" then
+    error("claim crash DLQ test requires BIN and PWD", 2)
+  end
+  local command = table.concat({
+    dlq_test_env .. "=1",
+    "FKST_RETRY_DEFAULT_MAX_ATTEMPTS=1",
+    "FKST_NO_AUTOBUILD=1",
+    "BIN=" .. shell_quote(bin),
+    shell_quote(root .. "/scripts/run.sh"),
+    "test github-devloop-intake-default",
+  }, " ")
+  local handle = assert(io.popen(command .. " 2>&1"))
+  local output = handle:read("*a")
+  local ok, _, exit_code = handle:close()
+  if not ok then
+    error("claim crash DLQ subprocess failed exit=" .. tostring(exit_code) .. "\n" .. output, 2)
+  end
+end
 
 local function encode_labels(labels)
   local encoded = {}
@@ -183,7 +210,7 @@ local function simulate_crash_before_replay_sentinel(number)
   cache_set("github-proxy/issue/" .. repo .. "/" .. tostring(number), updated_at)
 end
 
-local function require_consumer_failure(trace, round)
+local function require_consumer_dlq(trace, round)
   t.eq(trace.status, "quiescent")
   local step = graph.find_delivery(trace, {
     queue = "github-devloop-intake.devloop_intake_candidate",
@@ -209,6 +236,7 @@ local function require_consumer_failure(trace, round)
       .. " calls=" .. table.concat(calls, "|"), 2)
   end
   t.eq(step.exit_code, 1)
+  t.is_true(trace.final.dead_letters > 0)
 end
 
 local function require_no_intake_candidate(trace)
@@ -256,7 +284,7 @@ local function run_claim_crash_replay(claim_mode, number)
   mock_judge_failure(number)
   mock_observe_skip(number, claimed_labels, claimed_assignees)
   local first = graph.run(poll_event(1), { max_steps = 8 })
-  require_consumer_failure(first, 1)
+  require_consumer_dlq(first, 1)
   t.eq(count_claim_writes(claim_mode), 1)
 
   simulate_crash_before_replay_sentinel(number)
@@ -266,7 +294,7 @@ local function run_claim_crash_replay(claim_mode, number)
   mock_judge_failure(number)
   mock_observe_skip(number, claimed_labels, claimed_assignees)
   local second = graph.run(poll_event(2), { max_steps = 8 })
-  require_consumer_failure(second, 2)
+  require_consumer_dlq(second, 2)
   t.eq(count_claim_writes(claim_mode), 1)
 
   mock_poll_round(number, claimed_labels, claimed_assignees)
@@ -274,7 +302,7 @@ local function run_claim_crash_replay(claim_mode, number)
   mock_judge_failure(number)
   mock_observe_skip(number, claimed_labels, claimed_assignees)
   local third = graph.run(poll_event(3), { max_steps = 8 })
-  require_consumer_failure(third, 3)
+  require_consumer_dlq(third, 3)
   graph.assert_covers(third, {
     "github-proxy.github_issue_observed -> github-devloop-intake.admission",
     "github-devloop-intake.devloop_intake_candidate -> github-devloop-intake-default.intake_judge",
@@ -329,11 +357,23 @@ local function run_foreign_claim_rejection()
 end
 
 return {
-  test_run_graph_replays_self_assignee_claim_after_repeated_consumer_failures = function()
+  test_run_graph_claim_crash_replay_uses_immediate_retry_exhaustion = function()
+    if os.getenv(dlq_test_env) ~= "1" then
+      run_with_immediate_retry_exhaustion()
+    end
+  end,
+
+  test_run_graph_replays_self_assignee_claim_after_consumer_dlq_exhaustion = function()
+    if os.getenv(dlq_test_env) ~= "1" then
+      return
+    end
     run_claim_crash_replay("assignee", 42)
   end,
 
-  test_run_graph_replays_claim_label_after_repeated_consumer_failures = function()
+  test_run_graph_replays_claim_label_after_consumer_dlq_exhaustion = function()
+    if os.getenv(dlq_test_env) ~= "1" then
+      return
+    end
     run_claim_crash_replay("label", 43)
   end,
 
