@@ -635,12 +635,14 @@ return {
   end,
 
   test_rollup_scan_dedupes_one_red_incident_and_realerts_after_same_head_recovers = function()
-    local incident_a_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 120 * 60)
-    local incident_a_rerun_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 105 * 60)
-    local incident_a_pending_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 90 * 60)
-    local incident_a_after_pending_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 75 * 60)
-    local recovered_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60 * 60)
-    local incident_b_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 45 * 60)
+    local base_now = now()
+    local incident_a_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 120 * 60)
+    local incident_a_rerun_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 105 * 60)
+    local incident_a_pending_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 90 * 60)
+    local incident_a_after_pending_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 75 * 60)
+    local stale_incident_a_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 70 * 60)
+    local recovered_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 60 * 60)
+    local incident_b_started_at = os.date("!%Y-%m-%dT%H:%M:%SZ", base_now - 45 * 60)
     local health_observation_bodies = {}
 
     local function persist_observation(observation)
@@ -665,7 +667,7 @@ return {
       return nil
     end
 
-    local function observe(status, completed_at, name, should_persist)
+    local function observe(status, completed_at, name, should_persist, observed_at)
       mock_env("1", "auto")
       mock_fetches()
       mock_ahead(2)
@@ -685,10 +687,15 @@ return {
           return comments
         end)(),
       })
+      local original_now = now
+      now = function()
+        return observed_at or base_now
+      end
       local result = run_scan(opts(name, {
         FKST_GITHUB_WRITE = "1",
         FKST_DEVLOOP_ROLLUP_RED_WINDOW_MINUTES = "30",
       }))
+      now = original_now
       t.eq(result.exit_code, 0)
       local observation = health_observation_raise(result)
       if observation ~= nil and should_persist ~= false then
@@ -697,7 +704,7 @@ return {
       return h.find_raise(result.raises, "github-proxy.github_issue_create_request"), observation
     end
 
-    local incident_a, incident_a_observation = observe("red", incident_a_started_at, "rollup-health-incident-a")
+    local incident_a = observe("red", incident_a_started_at, "rollup-health-incident-a")
     local incident_a_rerun = observe("red", incident_a_rerun_at, "rollup-health-incident-a-rerun")
     local pending = observe("pending", incident_a_pending_at, "rollup-health-incident-a-pending")
     local incident_a_after_pending = observe(
@@ -714,10 +721,23 @@ return {
     )
     persist_observation(recovery_observation)
     persist_observation(stale_incident_b_observation)
+    local stale_incident_a, stale_incident_a_observation = observe(
+      "red",
+      stale_incident_a_at,
+      "rollup-health-stale-incident-a-after-recovery-visible",
+      nil,
+      base_now + 1
+    )
+    local stale_incident_a_replay, stale_incident_a_replay_observation = observe(
+      "red",
+      stale_incident_a_at,
+      "rollup-health-stale-incident-a-replay",
+      false,
+      base_now + 2
+    )
     local incident_b, incident_b_observation = observe("red", incident_b_started_at, "rollup-health-incident-b")
 
     t.is_true(incident_a ~= nil)
-    t.is_true(incident_a_observation ~= nil)
     t.is_true(incident_a_rerun ~= nil)
     t.eq(pending, nil)
     t.is_true(incident_a_after_pending ~= nil)
@@ -725,6 +745,10 @@ return {
     t.is_true(recovery_observation ~= nil)
     t.is_true(stale_incident_b ~= nil)
     t.is_true(stale_incident_b_observation ~= nil)
+    t.is_true(stale_incident_a ~= nil)
+    t.is_true(stale_incident_a_observation ~= nil)
+    t.is_true(stale_incident_a_replay ~= nil)
+    t.is_true(stale_incident_a_replay_observation ~= nil)
     t.is_true(incident_b ~= nil)
     t.is_true(incident_b_observation ~= nil)
     t.eq(recovery_observation.payload.replace_marker, nil)
@@ -732,6 +756,10 @@ return {
     t.eq(incident_a.payload.dedup_key, incident_a_rerun.payload.dedup_key)
     t.eq(incident_a.payload.dedup_key, incident_a_after_pending.payload.dedup_key)
     t.eq(incident_a.payload.dedup_key, stale_incident_b.payload.dedup_key)
+    t.eq(incident_a.payload.dedup_key, stale_incident_a.payload.dedup_key)
+    t.eq(incident_a.payload.dedup_key, stale_incident_a_replay.payload.dedup_key)
+    t.eq(stale_incident_a_observation.payload.dedup_key, stale_incident_a_replay_observation.payload.dedup_key)
+    t.eq(stale_incident_a_observation.payload.body, stale_incident_a_replay_observation.payload.body)
     t.is_true(incident_a.payload.dedup_key ~= incident_b.payload.dedup_key)
   end,
 

@@ -55,14 +55,12 @@ local function parse_marker(marker)
     head_sha = text:match('head_sha="([^"]+)"'),
     status = text:match('status="([^"]+)"'),
     source_event_at = text:match('source_event_at="([^"]+)"'),
-    observed_at = text:match('observed_at="([^"]+)"'),
   }
   if not forge_validators.is_git_sha(observation.head_sha) or not valid_status[observation.status] then
     return nil
   end
   observation.source_event_at_seconds = contract_time.iso_timestamp_epoch_seconds(observation.source_event_at)
-  observation.observed_at_seconds = contract_time.iso_timestamp_epoch_seconds(observation.observed_at)
-  if observation.source_event_at_seconds == nil or observation.observed_at_seconds == nil then
+  if observation.source_event_at_seconds == nil then
     return nil
   end
   return observation
@@ -89,9 +87,6 @@ end
 
 local function sort_observations(observations)
   table.sort(observations, function(left, right)
-    if left.observed_at_seconds ~= right.observed_at_seconds then
-      return left.observed_at_seconds < right.observed_at_seconds
-    end
     if left.source_event_at_seconds ~= right.source_event_at_seconds then
       return left.source_event_at_seconds < right.source_event_at_seconds
     end
@@ -109,10 +104,8 @@ function C.derive(pr, green, reason, now_seconds)
     head_sha = head_sha,
     status = status,
     source_event_at = source_event_at(pr, now_seconds),
-    observed_at = format_timestamp(now_seconds),
   }
   current.source_event_at_seconds = contract_time.iso_timestamp_epoch_seconds(current.source_event_at)
-  current.observed_at_seconds = contract_time.iso_timestamp_epoch_seconds(current.observed_at)
 
   local observations = persisted_observations(pr.comments, head_sha)
   local current_is_persisted = false
@@ -130,6 +123,7 @@ function C.derive(pr, green, reason, now_seconds)
   local previous_status = nil
   local last_green_at = ""
   local incident_epoch = ""
+  local current_incident_epoch = ""
   for _, observation in ipairs(observations) do
     if observation.status == "green" then
       if previous_status ~= "green" then
@@ -139,6 +133,9 @@ function C.derive(pr, green, reason, now_seconds)
     elseif observation.status == "red" and incident_epoch == "" then
       incident_epoch = last_green_at ~= "" and last_green_at or initial_epoch
     end
+    if same_source_observation(observation, current) then
+      current_incident_epoch = incident_epoch
+    end
     previous_status = observation.status
   end
 
@@ -147,8 +144,7 @@ function C.derive(pr, green, reason, now_seconds)
     status = status,
     source_event_at = current.source_event_at,
     last_green_at = last_green_at,
-    incident_epoch = incident_epoch,
-    observed_at = current.observed_at,
+    incident_epoch = current_incident_epoch,
   }
 end
 
@@ -157,7 +153,6 @@ local function marker(observation)
     .. ' head_sha="' .. tostring(observation.head_sha)
     .. '" status="' .. tostring(observation.status)
     .. '" source_event_at="' .. tostring(observation.source_event_at)
-    .. '" observed_at="' .. tostring(observation.observed_at)
     .. '" -->'
 end
 
@@ -166,7 +161,6 @@ function C.comment_request(repo, pr_number, observation)
     .. "\n\nstatus=" .. tostring(observation.status)
     .. "\nhead_sha=" .. tostring(observation.head_sha)
     .. "\nsource_event_at=" .. tostring(observation.source_event_at)
-    .. "\nobserved_at=" .. tostring(observation.observed_at)
     .. "\n\n" .. marker(observation)
   return devloop_entity.build_entity_comment_request({
     kind = "pr",
