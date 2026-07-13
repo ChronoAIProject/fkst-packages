@@ -265,6 +265,8 @@ def shrink_only_messages(root: Path, current_lines: list[str], enforce_base: boo
 
 
 def repository_messages(root: Path, enforce_base: bool = True) -> list[str]:
+    if not (root / INVENTORY).exists():
+        return []
     inventory = load_inventory(root)
     messages = validate_top_level(inventory)
     if inventory.get("schema") != SCHEMA:

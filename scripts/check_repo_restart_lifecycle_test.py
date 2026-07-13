@@ -75,6 +75,11 @@ class RestartLifecycleRatchetTest(unittest.TestCase):
     def test_valid_fixture_passes(self):
         self.assertEqual(self.messages_for(), [])
 
+    def test_missing_inventory_skips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(ratchet.repository_messages(root, enforce_base=False), [])
+
     def test_tampered_artifact_sha256_fails(self):
         def mutate(inventory):
             inventory['artifact_sha256'] = 'tampered'
