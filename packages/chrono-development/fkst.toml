@@ -1,0 +1,26 @@
+kind = "package.composed"
+name = "chrono-development"
+persistence_class = "stateless_adapter"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["workflow", "testkit"]
+
+[event_deps]
+packages = [
+  "github-proxy",
+  "consensus",
+  "github-devloop-intake",
+  "github-devloop-intake-default",
+  "github-devloop-decompose",
+  "github-devloop",
+  "github-devloop-pr",
+  "github-devloop-ops",
+  "github-devloop-integration",
+]
+
+[conformance]
+pack = "conformance/pack.toml"
+function = "core.profile_conformance_errors"
