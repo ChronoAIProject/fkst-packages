@@ -105,12 +105,26 @@ end
 local EFFECTS = {
   ["github-devloop.reviewing"] = {
     effect_id = "comment:pr:observe-pr-reviewing",
+    queue = "github-proxy.github_pr_comment_request",
     sink_kind = "comment",
     authority_class = "lifecycle-authoritative",
   },
   ["github-devloop.closed_unmerged"] = {
     effect_id = "comment:pr:observe-pr-closed-unmerged",
+    queue = "github-proxy.github_pr_comment_request",
     sink_kind = "comment",
+    authority_class = "lifecycle-authoritative",
+  },
+  ["github-proxy.github_issue_comment_request"] = {
+    effect_id = "comment:issue:observe-pr-merged-replay",
+    queue = "github-proxy.github_issue_comment_request",
+    sink_kind = "comment",
+    authority_class = "lifecycle-authoritative",
+  },
+  ["github-proxy.github_issue_label_request"] = {
+    effect_id = "label:issue:observe-pr-merged-replay",
+    queue = "github-proxy.github_issue_label_request",
+    sink_kind = "label",
     authority_class = "lifecycle-authoritative",
   },
 }
@@ -139,6 +153,10 @@ local function outcome_status(probe, decision, apply)
     t.eq(apply.to_state, "closed-unmerged", "closed pr-open replay applies the terminal child state")
     return "apply", "closed-pr-replay", decision.outcome
   end
+  if decision.outcome == "applied(linked-pr-merged)" then
+    t.eq(apply.to_state, "merged", "merged pr-open replay applies the terminal issue state")
+    return "apply", "merged-pr-replay", decision.outcome
+  end
   if decision.outcome == "applied" then
     t.eq(apply.to_state, "reviewing", "open admitted input applies reviewing")
     return "apply", "apply", decision.outcome
@@ -151,12 +169,12 @@ local function effects_from_raises(raises)
   local effects = json_array()
   local writes = json_array()
   for ordinal, raised in ipairs(raises) do
-    t.eq(raised.queue, "github-proxy.github_pr_comment_request", "observe_pr OLD writer queue")
     local handoff_kind = raised.payload and raised.payload.handoff and raised.payload.handoff.kind
-    local shape = EFFECTS[handoff_kind]
+    local shape = EFFECTS[handoff_kind] or EFFECTS[raised.queue]
     if shape == nil then
       error("unclassified OLD observe_pr raise handoff: " .. tostring(handoff_kind))
     end
+    t.eq(raised.queue, shape.queue, "observe_pr OLD writer queue")
     table.insert(effects, {
       effect_id = shape.effect_id,
       sink_kind = shape.sink_kind,
@@ -303,6 +321,21 @@ local FIXTURES = {
     expected_effects = 0,
     expected_source_state = JSON_NULL,
     expected_source_boundary = "github-proxy.github_entity_changed",
+  },
+  {
+    name = "pr-open-merged-replay",
+    pr_number = 9708,
+    current_state = "pr-open",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    pr_state = "MERGED",
+    expected_probe = "apply",
+    expected_status = "apply",
+    expected_reason = "merged-pr-replay",
+    expected_cas_outcome = "applied(linked-pr-merged)",
+    expected_effects = 2,
+    expected_source_state = "pr-open",
+    expected_source_boundary = JSON_NULL,
   },
 }
 
