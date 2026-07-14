@@ -44,7 +44,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   to_state = to_state or (declined and "declined" or gate and gate.ok and "ready" or "dependency_wait")
   local comment_request = requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
   local label_request = declined
-    and requests_labels.build_state_label_request(repo, issue_number, "declined", reached.proposal_id .. "/label/decline", reached.source_ref)
+    and requests_labels.build_result_state_label_request(repo, issue_number, reached, "declined")
     or requests_labels.build_result_label_request(repo, issue_number, reached)
   local dependency_comment_request = nil
   local dependency_label_request = nil

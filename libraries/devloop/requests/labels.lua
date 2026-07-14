@@ -52,7 +52,25 @@ function C.build_result_label_request(repo, issue_number, reached)
     repo,
     issue_number,
     "ready",
-    tostring(reached.proposal_id) .. "/label/" .. tostring(reached.decision),
+    C.result_label_dedup_key(reached),
+    reached.source_ref
+  )
+end
+
+function C.result_label_dedup_key(reached)
+  return base_ids.dedup_key({
+    tostring(reached.proposal_id),
+    "label",
+    tostring(reached.effect_version or reached.dedup_key),
+  })
+end
+
+function C.build_result_state_label_request(repo, issue_number, reached, to_state)
+  return C.build_state_label_request(
+    repo,
+    issue_number,
+    to_state,
+    C.result_label_dedup_key(reached),
     reached.source_ref
   )
 end
