@@ -485,7 +485,7 @@ local FIXTURES = {
     incoming_version = core.next_fix_version(core.next_fix_version(V_EQUAL)),
     expected_target = "review-meta",
     expected_status = "apply",
-    expected_raise_count = 3,
+    expected_raise_count = 2,
   },
   {
     decision = "approve",

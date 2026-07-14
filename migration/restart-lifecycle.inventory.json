@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "7f74bf207ab3984f6bcc8a61af36770ce9ac1a506f54c3ab85dc29d6a3c4033a",
+  "artifact_sha256": "4ce213bf49f40d7130614d7667e243cd044bf53abecac17332fdf1b3e8555a2c",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -692,12 +692,6 @@
             "effect_id": "label:issue:review-result",
             "ordinal": 2,
             "sink_kind": "label"
-          },
-          {
-            "authority_class": "lifecycle-authoritative",
-            "effect_id": "queue:github-devloop-pr.devloop_review_meta",
-            "ordinal": 3,
-            "sink_kind": "queue"
           }
         ],
         "handoff_direct_lookup_count": 0,
@@ -707,6 +701,23 @@
             "payload": {
               "body": "github-devloop PR review decision: reject\nBlocking gap: missing OLD observation evidence\n\nReview consensus rejects the diff.\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"review-meta\" version=\"2026-06-03T01-02-03Z/fix/1/fix/2/fix/3\" stage_rank=\"710\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000003/000000000000/000000000000/000000000000/000000000000/000000000000/000000000710\" -->\n<!-- fkst:github-devloop:review-result:v1 proposal=\"github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456\" issue_proposal=\"github-devloop/issue/owner/repo/42\" decision=\"reject\" dedup=\"consensus:github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456/review\" fix_round=\"3\" gap=\"missing OLD observation evidence\" -->\n<!-- fkst:github-devloop:fix-reflection:v1 proposal=\"github-devloop/issue/owner/repo/42\" dedup=\"consensus:github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456/review\" verdict=\"checkpoint\" version=\"2026-06-03T01-02-03Z/fix/1/fix/2/fix/3\" fix_round=\"3\" -->\n⟦AI:FKST⟧",
               "dedup_key": "review-result/comment/github-devloop/issue/owner/repo/42/reject/consensus-github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456/review",
+              "handoff": {
+                "blocking_gap": "missing OLD observation evidence",
+                "dedup_key": "fix-reflection/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456/review",
+                "fix_round": 3,
+                "kind": "github-devloop.review_meta",
+                "mode": "fix-reflection",
+                "n": 3,
+                "pr_number": "7",
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "review_dedup_key": "consensus:github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456/review",
+                "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+              },
               "pr_number": "7",
               "repo": "owner/repo",
               "schema": "github-proxy.v1",
@@ -760,27 +771,6 @@
               "target_number": "42"
             },
             "queue": "github-proxy.github_issue_label_request"
-          },
-          {
-            "effect_id": "queue:github-devloop-pr.devloop_review_meta",
-            "payload": {
-              "blocking_gap": "missing OLD observation evidence",
-              "dedup_key": "fix-reflection/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456/review",
-              "fix_round": 3,
-              "mode": "fix-reflection",
-              "n": 3,
-              "pr_number": "7",
-              "proposal_id": "github-devloop/issue/owner/repo/42",
-              "review_dedup_key": "consensus:github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456/review",
-              "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456",
-              "schema": "github-devloop.review-meta.v1",
-              "source_ref": {
-                "kind": "external",
-                "ref": "owner/repo#pr/7"
-              },
-              "version": "2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
-            },
-            "queue": "devloop_review_meta"
           }
         ],
         "reason_code": "apply",
