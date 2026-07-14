@@ -330,6 +330,31 @@ function C.current_state(comments, proposal_id)
   return derive_current_marker(comments, proposal_id)
 end
 
+-- Monotone reimplement-round accessor: the MAX reimplement round across ALL
+-- state:v1 markers for a proposal. State markers are append-only, so this is
+-- monotone (once a lineage reimplements, the round never drops) -- unlike a
+-- transient current_state cursor read. Used to detect that an issue has already
+-- entered a replacement generation (round >= 1).
+function C.max_reimplement_round(comments, proposal_id)
+  if type(comments) ~= "table" then
+    return 0
+  end
+  local highest = 0
+  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local candidate = state_marker_fact(marker, comment)
+      if candidate ~= nil and candidate.proposal_id == proposal_id then
+        local round = transition_version.reimplement_round(candidate.version)
+        if round > highest then
+          highest = round
+        end
+      end
+    end
+  end
+  return highest
+end
+
 local function current_marker_state(comments, proposal_id)
   local current = derive_current_marker(comments, proposal_id)
   if current == nil or current.state == nil then

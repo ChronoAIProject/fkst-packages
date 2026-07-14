@@ -132,6 +132,26 @@ function M.implementation_attempt_version(version, attempt)
   return transition_version.reimplement_at(base, n)
 end
 
+-- Branch-naming version for the implementation worktree/branch. Unlike
+-- implementation_base_version (which STRIPS a trailing /reimplement/N so an
+-- in-place impl_retry_attempt reuses one branch), this PRESERVES a
+-- /reimplement/N that is baked into the ready version itself. A replacement
+-- generation reached via the awaiting-pr closed-unmerged -> ready path carries
+-- version "<base>/reimplement/1"; naming its branch by the base would REUSE the
+-- abandoned original branch history, so the round is kept to make the
+-- replacement branch provably distinct (issue #2275). Bounded: an invalid or
+-- out-of-range round falls back to the base, and a version with no trailing
+-- reimplement returns the base unchanged (identical to
+-- implementation_base_version), so original generations are never affected.
+function M.implementation_branch_version(version)
+  local base = M.implementation_base_version(version)
+  local round = valid_attempt(transition_version.trailing_reimplement_round(version))
+  if round == nil then
+    return base
+  end
+  return transition_version.reimplement_at(base, round)
+end
+
 function M.has_implementation_fact_marker(comments, proposal_id, dedup_key)
   return m_facts.has_implementing_marker(comments, proposal_id, dedup_key)
     or M.has_impl_failure_marker(comments, proposal_id, dedup_key)

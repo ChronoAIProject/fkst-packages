@@ -639,7 +639,13 @@ local function process_ready_event(event)
 
     local branches = config.branch_config()
     local implementation_version = core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt)
-    local branch_version = core.implementation_base_version(ready.dedup_key)
+    -- Name the branch by the reimplement-preserving version so a replacement
+    -- generation ("<base>/reimplement/N") gets a branch provably distinct from
+    -- the abandoned original branch instead of collapsing onto it (issue #2275).
+    -- For an original ready version (no trailing /reimplement/N) this is
+    -- identical to implementation_base_version, so original impl and in-place
+    -- impl_retry_attempt runs keep their existing branch.
+    local branch_version = core.implementation_branch_version(ready.dedup_key)
     local marker_ready = ready_for_implementation_version(ready, implementation_version)
     local branch = devloop_base.implement_branch(repo, issue_number, branch_version)
 
