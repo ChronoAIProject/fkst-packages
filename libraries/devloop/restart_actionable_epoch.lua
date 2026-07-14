@@ -501,6 +501,10 @@ function C.actionable_epoch_codex_run_decision(M, row, state, facts, due, age)
     return { action = "wait", age_minutes = age }
   end
   local attempt = M.liveness_timeout_attempt(row, state, facts)
+  local limit = tonumber(row.on_timeout and row.on_timeout.escalate_after_attempts)
+  if limit ~= nil and attempt + 1 >= limit then
+    return { action = "wait", age_minutes = age }
+  end
   return {
     action = "redrive",
     attempt = attempt + 1,

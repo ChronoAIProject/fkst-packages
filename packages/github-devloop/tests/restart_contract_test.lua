@@ -7,6 +7,7 @@ local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_core_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local conv_rounds = require("devloop.convergence.rounds")
+local conv_attempts = require("devloop.convergence.attempts")
 local core = h.core
 local t = h.t
 local replay_fields = require("devloop.replay_fields")
@@ -636,6 +637,79 @@ return {
     t.eq(raised[1].payload.issue_version, base .. "/timeout/thinking/3")
     t.eq(raised[1].payload.round, 3)
     t.eq(raised[1].payload.dedup_key, "timeout-reconcile:" .. base .. "/timeout/thinking/3/timeout-reconcile/thinking/3")
+  end,
+
+  test_thinking_codex_run_redrive_waits_after_attempt_limit_before_budget = function()
+    local row = table_by_state().thinking
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    local state = {
+      state = "thinking",
+      version = "github-devloop/issue/owner/repo/42/intake/seed",
+      proposal_id = proposal_id,
+      marker_created_at = "2026-06-03T01:00:00Z",
+    }
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:10:00Z")
+    local facts = {
+      proposal_id = proposal_id,
+      source_ref = source_ref,
+      current = { comments = {} },
+      now_seconds = now_seconds,
+    }
+
+    with_codex_runs({}, function()
+      local due = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
+      t.eq(due, false)
+      local generation_key = facts.actionable_epoch_eval.generation_key
+      table.insert(facts.current.comments, {
+        body = conv_attempts.timeout_attempt_v2_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key, 1, source_ref),
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:01:00Z",
+      })
+      table.insert(facts.current.comments, {
+        body = conv_attempts.timeout_attempt_v2_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key, 2, source_ref),
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:02:00Z",
+      })
+
+      local decision = core.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
+      t.eq(decision.action, "wait")
+      t.eq(core.liveness_timeout_attempt(row, state, facts), 2)
+    end)
+  end,
+
+  test_thinking_timeout_escalation_clamps_existing_over_limit_attempts = function()
+    local row = table_by_state().thinking
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    local state = {
+      state = "thinking",
+      version = "github-devloop/issue/owner/repo/42/intake/seed",
+      proposal_id = proposal_id,
+      marker_created_at = "2026-06-03T01:00:00Z",
+    }
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T04:00:00Z")
+    local facts = {
+      proposal_id = proposal_id,
+      source_ref = source_ref,
+      current = { comments = {} },
+      now_seconds = now_seconds,
+    }
+
+    with_codex_runs({}, function()
+      local due = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
+      t.eq(due, true)
+      local generation_key = facts.actionable_epoch_eval.generation_key
+      table.insert(facts.current.comments, {
+        body = conv_attempts.timeout_attempt_v2_marker(proposal_id, row.from_state, row.liveness_class_id, generation_key, 30, source_ref),
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T03:30:00Z",
+      })
+
+      local decision = core.liveness_timeout_decision_with_facts(row, state, facts, now_seconds)
+      t.eq(decision.action, "escalate")
+      t.eq(decision.attempt, row.on_timeout.escalate_after_attempts)
+    end)
   end,
 
   test_restart_table_matches_state_graph_and_stage_rank = function()

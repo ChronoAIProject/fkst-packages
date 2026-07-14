@@ -106,14 +106,14 @@ local function timeout_escalation(row, state, age, facts)
   if attempt >= limit then
     return {
       action = "escalate",
-      attempt = attempt,
+      attempt = limit,
       age_minutes = age,
     }
   end
   if attempt + 1 >= limit then
     return {
       action = "escalate",
-      attempt = attempt + 1,
+      attempt = limit,
       age_minutes = age,
     }
   end
