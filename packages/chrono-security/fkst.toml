@@ -1,0 +1,16 @@
+kind = "package.composed"
+name = "chrono-security"
+persistence_class = "composed_judgment_pipeline"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "testkit"]
+
+[event_deps]
+packages = ["github-proxy"]
+
+[conformance]
+pack = "conformance/pack.toml"
+function = "core.conformance_errors"
