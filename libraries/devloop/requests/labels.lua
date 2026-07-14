@@ -172,8 +172,7 @@ function C.build_review_result_label_request(repo, issue_number, issue_proposal_
       "review-result",
       "label",
       tostring(issue_proposal_id),
-      tostring(reached.decision),
-      tostring(reached.dedup_key),
+      tostring(reached.proposal_id),
     }),
     source_ref
   )
