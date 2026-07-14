@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "fb2f530a8e5f004dfaddf6ef32ebfb1fb154a9eca109abc8d25ae894cb138800",
+  "artifact_sha256": "f7024fedbf6404da6724a33fafcf603e3456596c53b3db2624e229be2f197b13",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -2003,6 +2003,148 @@
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
         "reason_code": "liveness-deferred",
+        "status": "apply",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "cyclic_transition_status:fixing->reviewing",
+        "path": "packages/github-devloop-pr/departments/fix/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.fixing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+        },
+        "kind": "cyclic_transition_status",
+        "lineage": {
+          "dedup_key": "fixing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/noci",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "review_dedup_key": "consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review",
+          "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          },
+          "work_unit_key": "review-feedback/def456/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review"
+        },
+        "source_boundary": null,
+        "source_state": "fixing",
+        "target": "reviewing"
+      }
+    },
+    {
+      "boundary": "writer",
+      "evidence_refs": [
+        {
+          "kind": "runtime-cas-probe",
+          "ref": "devloop.state.cyclic_transition_status:apply"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "owner/repo#pr/7"
+        }
+      ],
+      "observation_id": "writer:github-devloop-pr:fix/reviewing/apply/self-heal-push-already-visible/reviewing",
+      "old_inputs": {
+        "caller_from_states": [
+          "fixing"
+        ],
+        "current_fact": {
+          "stage_rank": 700,
+          "state": "fixing",
+          "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+      },
+      "old_outcome": {
+        "cas_outcome": "applied",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:fix-reviewing",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "label:issue:fix-reviewing",
+            "ordinal": 2,
+            "sink_kind": "label"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:fix-reviewing",
+            "payload": {
+              "body": "github-devloop fix pushed for re-review\n\nPrevious reviewed head: def456\nNew head: feedface\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"reviewing\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1\" stage_rank=\"675\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000675\" -->\n<!-- fkst:github-devloop:fix:v1 proposal=\"github-devloop/issue/owner/repo/42\" review_proposal=\"github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456\" review_dedup=\"consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review\" old_head_sha=\"def456\" new_head_sha=\"feedface\" -->",
+              "dedup_key": "fix/comment/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/feedface",
+              "handoff": {
+                "kind": "github-devloop.reviewing",
+                "pr_number": 7,
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+              },
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          },
+          {
+            "effect_id": "label:issue:fix-reviewing",
+            "payload": {
+              "add_labels": [
+                "fkst-dev:reviewing"
+              ],
+              "dedup_key": "fix/label/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/feedface",
+              "issue_number": "42",
+              "label_colors": {
+                "fkst-dev:reviewing": "5319E7"
+              },
+              "remove_labels": [
+                "fkst-dev:thinking",
+                "fkst-dev:ready",
+                "fkst-dev:implementing",
+                "fkst-dev:pr-open",
+                "fkst-dev:merge-ready",
+                "fkst-dev:fixing",
+                "fkst-dev:impl-failed",
+                "fkst-dev:declined",
+                "fkst-dev:blocked",
+                "fkst-dev:review-meta",
+                "fkst-dev:merging",
+                "fkst-dev:merged",
+                "fkst-dev:awaiting-pr"
+              ],
+              "repo": "owner/repo",
+              "schema": "github-proxy.label.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              },
+              "target_kind": "issue",
+              "target_number": "42"
+            },
+            "queue": "github-proxy.github_issue_label_request"
+          }
+        ],
+        "reason_code": "self-heal-push-already-visible",
         "status": "apply",
         "timeout_evidence_source": null
       },
