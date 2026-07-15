@@ -17,6 +17,7 @@ local substrate_ref_path = ".fkst/substrate-ref"
 local substrate_repo = "ChronoAIProject/fkst-substrate"
 local substrate_remote = "https://github.com/ChronoAIProject/fkst-substrate.git"
 local substrate_branch = "dev"
+local substrate_required_check_run_names = { "verify" }
 local bump_branch = "chore/substrate-ref-bump"
 local bump_title = "chore: bump fkst-substrate pin"
 local substrate_dev_ref = "refs/remotes/fkst-substrate/dev"
@@ -203,7 +204,10 @@ local function substrate_commit_publishable(sha)
   local result = run_gh(function()
     return github().api_get(substrate_repo, "commits/" .. tostring(sha) .. "/check-runs", 60)
   end, "substrate upstream check-runs read")
-  local ok, reason = check_runs.commit_check_runs_green(check_runs.parse_commit_check_runs(result.stdout))
+  local ok, reason = check_runs.commit_check_runs_green(
+    check_runs.parse_commit_check_runs(result.stdout),
+    substrate_required_check_run_names
+  )
   if ok then
     return true, "substrate-ci-green"
   end

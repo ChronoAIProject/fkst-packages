@@ -32,10 +32,7 @@ local check_run_state = check_runs.check_run_state
 local parse_commit_check_runs = check_runs.parse_commit_check_runs
 local required_head_check_run_status_value = check_runs.required_head_check_run_status
 local required_head_ci_failure_key_value = check_runs.required_head_ci_failure_key
-local required_check_run_names = {}
-for _, name in ipairs(check_runs.required_check_run_names or {}) do
-  table.insert(required_check_run_names, name)
-end
+local required_check_run_names = { "test" }
 
 local function log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
   if type(M.log_line) ~= "function" then

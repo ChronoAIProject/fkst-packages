@@ -75,15 +75,6 @@ local red_status_states = {
   FAILURE = true,
 }
 
-local required_check_run_names = {
-  "test",
-}
-
-local required_check_run_name_set = {}
-for _, name in ipairs(required_check_run_names) do
-  required_check_run_name_set[name] = true
-end
-
 local function check_name(entry)
   if type(entry) ~= "table" then
     return ""
@@ -113,9 +104,19 @@ function C.pr_rollup_green(pr)
   return true, "rollup-green"
 end
 
-function C.commit_check_runs_green(runs)
+function C.commit_check_runs_green(runs, required_names)
   if type(runs) ~= "table" or #runs == 0 then
     return false, "missing-status-rollup"
+  end
+  if type(required_names) ~= "table" or #required_names == 0 then
+    return false, "missing-status-rollup"
+  end
+  local required_name_set = {}
+  for _, name in ipairs(required_names) do
+    if type(name) ~= "string" or name == "" then
+      return false, "missing-status-rollup"
+    end
+    required_name_set[name] = true
   end
   local seen_required = {}
   local pending_required = {}
@@ -126,14 +127,14 @@ function C.commit_check_runs_green(runs)
       if not green_check_run_conclusions[conclusion] then
         return false, "rollup-red"
       end
-    elseif required_check_run_name_set[name] then
+    elseif required_name_set[name] then
       pending_required[name] = true
     end
-    if required_check_run_name_set[name] then
+    if required_name_set[name] then
       seen_required[name] = true
     end
   end
-  for _, name in ipairs(required_check_run_names) do
+  for _, name in ipairs(required_names) do
     if pending_required[name] then
       return false, "rollup-pending"
     end
@@ -377,7 +378,5 @@ function C.required_head_ci_failure_key(runs, head_sha, required_names)
   local head = tostring(head_sha):lower()
   return "head:" .. head .. "/checks:digest-" .. strings.decimal_checksum(head .. "\n" .. table.concat(parts, "\n"))
 end
-
-C.required_check_run_names = required_check_run_names
 
 return C

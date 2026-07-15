@@ -55,7 +55,7 @@ local function commit_check_runs_merge_gate(repo, head_sha, opts)
     error("forge.merge: gh commit check-runs failed: " .. tostring(result.stderr))
   end
   local runs = parse_commit_check_runs(result.stdout)
-  local green, reason = commit_check_runs_green(runs)
+  local green, reason = commit_check_runs_green(runs, shared.required_check_run_names)
   log_check_runs_fallback(M, opts, repo, head_sha, runs, reason)
   return green, reason, runs
 end
