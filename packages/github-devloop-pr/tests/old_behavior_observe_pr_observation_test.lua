@@ -77,7 +77,7 @@ local function prepare_fixture(fixture)
     number = fixture.pr_number,
     comments = fixture_comments(fixture),
     head = BRANCH,
-    head_sha = HEAD_SHA,
+    head_sha = fixture.missing_head_sha and "" or HEAD_SHA,
     state = fixture.pr_state or "OPEN",
     base_branch = BASE_BRANCH,
     labels = {},
@@ -152,6 +152,10 @@ local function outcome_status(probe, decision, apply)
   if decision.outcome == "applied(orphaned-pr-closed)" then
     t.eq(apply.to_state, "closed-unmerged", "closed pr-open replay applies the terminal child state")
     return "apply", "closed-pr-replay", decision.outcome
+  end
+  if decision.outcome == "skip-foreign(head)" then
+    t.eq(apply, nil, "merged replay without a head sha emits no apply effect")
+    return "skip-foreign(head)", "merged-pr-missing-head", decision.outcome
   end
   if decision.outcome == "applied(linked-pr-merged)" then
     t.eq(apply.to_state, "merged", "merged pr-open replay applies the terminal issue state")
@@ -321,6 +325,22 @@ local FIXTURES = {
     expected_effects = 0,
     expected_source_state = JSON_NULL,
     expected_source_boundary = "github-proxy.github_entity_changed",
+  },
+  {
+    name = "pr-open-merged-missing-head-sha",
+    pr_number = 9709,
+    current_state = "pr-open",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    pr_state = "MERGED",
+    missing_head_sha = true,
+    expected_probe = "apply",
+    expected_status = "skip-foreign(head)",
+    expected_reason = "merged-pr-missing-head",
+    expected_cas_outcome = "skip-foreign(head)",
+    expected_effects = 0,
+    expected_source_state = "pr-open",
+    expected_source_boundary = JSON_NULL,
   },
   {
     name = "pr-open-merged-replay",
