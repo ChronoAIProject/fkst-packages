@@ -82,6 +82,13 @@ local function check_name(entry)
   return tostring(entry.name or entry.context or entry.workflowName or entry.workflow_name or "")
 end
 
+local function check_app_slug(entry)
+  if type(entry) ~= "table" or type(entry.app) ~= "table" then
+    return ""
+  end
+  return tostring(entry.app.slug or "")
+end
+
 function C.pr_rollup_green(pr)
   local entries = type(pr) == "table" and pr.status_check_rollup or nil
   if type(entries) ~= "table" or #entries == 0 then
@@ -104,11 +111,14 @@ function C.pr_rollup_green(pr)
   return true, "rollup-green"
 end
 
-function C.commit_check_runs_green(runs, required_names)
+function C.commit_check_runs_green(runs, required_names, required_app_slug)
   if type(runs) ~= "table" or #runs == 0 then
     return false, "missing-status-rollup"
   end
   if type(required_names) ~= "table" or #required_names == 0 then
+    return false, "missing-status-rollup"
+  end
+  if required_app_slug ~= nil and (type(required_app_slug) ~= "string" or required_app_slug == "") then
     return false, "missing-status-rollup"
   end
   local required_name_set = {}
@@ -123,14 +133,16 @@ function C.commit_check_runs_green(runs, required_names)
   for _, run in ipairs(runs) do
     local name = check_name(run)
     local state, conclusion = check_entry_state(run)
+    local matches_required = required_name_set[name]
+      and (required_app_slug == nil or check_app_slug(run) == required_app_slug)
     if state == "COMPLETED" then
       if not green_check_run_conclusions[conclusion] then
         return false, "rollup-red"
       end
-    elseif required_name_set[name] then
+    elseif matches_required then
       pending_required[name] = true
     end
-    if required_name_set[name] then
+    if matches_required then
       seen_required[name] = true
     end
   end

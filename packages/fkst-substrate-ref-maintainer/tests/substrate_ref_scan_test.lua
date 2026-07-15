@@ -98,7 +98,7 @@ end
 local function mock_substrate_check_runs(sha, status, conclusion)
   local conclusion_json = conclusion == nil and "null" or ('"' .. tostring(conclusion) .. '"')
   t.mock_command(core.gh_commit_check_runs_cmd(substrate_repo, sha), {
-    stdout = '{"total_count":1,"check_runs":[{"name":"verify","status":"'
+    stdout = '{"total_count":1,"check_runs":[{"name":"verify","app":{"slug":"github-actions"},"status":"'
       .. tostring(status)
       .. '","conclusion":'
       .. conclusion_json

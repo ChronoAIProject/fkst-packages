@@ -17,7 +17,10 @@ local substrate_ref_path = ".fkst/substrate-ref"
 local substrate_repo = "ChronoAIProject/fkst-substrate"
 local substrate_remote = "https://github.com/ChronoAIProject/fkst-substrate.git"
 local substrate_branch = "dev"
+-- Producer contract: fkst-substrate/.github/workflows/ci.yml defines jobs.verify,
+-- emitted by the GitHub Actions app with slug "github-actions".
 local substrate_required_check_run_names = { "verify" }
+local substrate_required_check_run_app_slug = "github-actions"
 local bump_branch = "chore/substrate-ref-bump"
 local bump_title = "chore: bump fkst-substrate pin"
 local substrate_dev_ref = "refs/remotes/fkst-substrate/dev"
@@ -206,7 +209,8 @@ local function substrate_commit_publishable(sha)
   end, "substrate upstream check-runs read")
   local ok, reason = check_runs.commit_check_runs_green(
     check_runs.parse_commit_check_runs(result.stdout),
-    substrate_required_check_run_names
+    substrate_required_check_run_names,
+    substrate_required_check_run_app_slug
   )
   if ok then
     return true, "substrate-ci-green"
