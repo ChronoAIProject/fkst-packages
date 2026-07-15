@@ -40,15 +40,16 @@ return {
 
     local packages = profile.platform_packages
     t.eq(packages[1], "github-proxy")
-    t.eq(packages[2], "consensus")
-    t.eq(packages[3], "github-devloop-intake")
-    t.eq(packages[4], "github-devloop-intake-default")
-    t.eq(packages[5], "github-devloop-decompose")
-    t.eq(packages[6], "github-devloop")
-    t.eq(packages[7], "github-devloop-pr")
-    t.eq(packages[8], "github-devloop-ops")
-    t.eq(packages[9], "github-devloop-integration")
-    t.eq(packages[10], "frontend-devloop")
+    t.eq(packages[2], "browser-qa")
+    t.eq(packages[3], "consensus")
+    t.eq(packages[4], "github-devloop-intake")
+    t.eq(packages[5], "github-devloop-intake-default")
+    t.eq(packages[6], "github-devloop-decompose")
+    t.eq(packages[7], "github-devloop")
+    t.eq(packages[8], "github-devloop-pr")
+    t.eq(packages[9], "github-devloop-ops")
+    t.eq(packages[10], "github-devloop-integration")
+    t.eq(packages[11], "frontend-devloop")
 
     t.is_true(list_contains(profile.host_capabilities.required_commands, "install"))
     t.is_true(list_contains(profile.host_capabilities.required_commands, "lint"))
@@ -197,6 +198,7 @@ return {
     t.eq(roots.project_root_owner, "host")
     t.eq(roots.platform_source, "fkst-packages-platform")
     t.eq(roots.compose_file, ".fkst/compose/package-roots")
+    t.is_true(list_contains(roots.required_entries, "fkst-packages:packages/browser-qa"))
     t.is_true(list_contains(roots.required_entries, "fkst-packages:packages/frontend-devloop"))
   end,
 }

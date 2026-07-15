@@ -1,0 +1,12 @@
+kind = "package.composed"
+name = "browser-qa"
+persistence_class = "stateless_adapter"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "testkit"]
+
+[event_deps]
+packages = ["github-proxy"]

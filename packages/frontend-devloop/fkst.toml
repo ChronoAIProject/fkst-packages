@@ -11,6 +11,7 @@ libraries = []
 [event_deps]
 packages = [
   "github-proxy",
+  "browser-qa",
   "consensus",
   "github-devloop-intake",
   "github-devloop-intake-default",
