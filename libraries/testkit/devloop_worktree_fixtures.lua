@@ -178,6 +178,81 @@ function M.new(deps)
     return worktree
   end
 
+  local function mock_fresh_external_pr_implement_worktree(path, provision)
+    local runtime, opts = worktree_options(path)
+    local worktree = implement_worktree_for(runtime, opts)
+    local external = provision or {}
+    local pr_number = external.pr_number or 7
+    local head_sha = external.head_sha or "1234567890abcdef1234567890abcdef12345678"
+    t.mock_command("git fetch 'origin' 'dev'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
+      stdout = "abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+      stdout = runtime,
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree remove --force", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree prune", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_worktree_parent_mkdir()
+    t.mock_command("git worktree add -B", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("merge --no-edit 'abc123'", {
+      stdout = "Already up to date.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git fetch 'origin' 'refs/pull/" .. tostring(pr_number) .. "/head'", {
+      stdout = "",
+      stderr = "",
+      exit_code = external.fetch_exit_code or 0,
+    })
+    if external.fetch_exit_code == nil or external.fetch_exit_code == 0 then
+      t.mock_command("git rev-parse --verify FETCH_HEAD^{commit}", {
+        stdout = head_sha .. "\n",
+        stderr = "",
+        exit_code = 0,
+      })
+      t.mock_command("merge --no-edit '" .. head_sha .. "'", {
+        stdout = external.merge_stdout or "Merge made by the 'ort' strategy.\n",
+        stderr = external.merge_stderr or "",
+        exit_code = external.merge_exit_code or 0,
+      })
+      if external.merge_exit_code ~= nil and external.merge_exit_code ~= 0 then
+        t.mock_command("ls-files -u", {
+          stdout = external.unmerged_stdout or "100644 abc123 1\tpackages/github-devloop/core.lua\n",
+          stderr = "",
+          exit_code = 0,
+        })
+      end
+    end
+    mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin)
+    return worktree
+  end
+
   local function mock_existing_empty_implement_worktree(path, base_pin, branch_pin)
     local runtime, opts = worktree_options(path)
     local worktree = implement_worktree_for(runtime, opts)
@@ -528,11 +603,11 @@ function M.new(deps)
     })
   end
 
-  local function mock_no_conflict_markers()
-    t.mock_command("grep -n -I -E", {
-      stdout = "",
-      stderr = "",
-      exit_code = 1,
+  local function mock_candidate_diff_check(merge)
+    t.mock_command("diff --check", {
+      stdout = merge and merge.candidate_diff_stdout or "",
+      stderr = merge and merge.candidate_diff_stderr or "",
+      exit_code = merge and merge.candidate_diff_exit_code or 0,
     })
   end
 
@@ -580,15 +655,7 @@ function M.new(deps)
     else
       mock_no_unmerged_paths()
     end
-    if merge ~= nil and merge.post_codex_conflict_markers_stdout ~= nil then
-      t.mock_command("grep -n -I -E", {
-        stdout = merge.post_codex_conflict_markers_stdout,
-        stderr = merge.post_codex_conflict_markers_stderr or "",
-        exit_code = merge.post_codex_conflict_markers_exit_code or 0,
-      })
-    else
-      mock_no_conflict_markers()
-    end
+    mock_candidate_diff_check(merge)
     return worktree
   end
 
@@ -637,7 +704,7 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_no_unmerged_paths()
-    mock_no_conflict_markers()
+    mock_candidate_diff_check()
     return worktree
   end
 
@@ -686,7 +753,7 @@ function M.new(deps)
       exit_code = 0,
     })
     mock_no_unmerged_paths()
-    mock_no_conflict_markers()
+    mock_candidate_diff_check()
     return worktree
   end
 
@@ -774,6 +841,7 @@ function M.new(deps)
     mock_setup_worktree = mock_setup_worktree,
     deterministic_branch_for = deterministic_branch_for,
     mock_fresh_implement_worktree = mock_fresh_implement_worktree,
+    mock_fresh_external_pr_implement_worktree = mock_fresh_external_pr_implement_worktree,
     mock_existing_empty_implement_worktree = mock_existing_empty_implement_worktree,
     mock_existing_empty_implement_worktree_reuse = mock_existing_empty_implement_worktree_reuse,
     mock_existing_dirty_implement_worktree_reuse = mock_existing_dirty_implement_worktree_reuse,

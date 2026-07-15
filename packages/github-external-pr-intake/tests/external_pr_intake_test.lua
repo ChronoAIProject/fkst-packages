@@ -147,7 +147,7 @@ local function new_fake_github(opts)
     fail_pr_cli_view_once = options.fail_pr_cli_view_once,
     created_count = 0,
   }
-  local handle = { _model = model }
+  local handle = { _model = model, is_authorized_author = function(_login) return true end }
   function handle.pr_list(repo, timeout)
     table.insert(model.writes, { kind = "pr_list", repo = repo, timeout = timeout })
     return { stdout = pr_list_json(model.list or model.prs), stderr = "", exit_code = 0 }
@@ -625,10 +625,11 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
     t.eq(count_kind(writes, "issue_create"), 1)
     t.eq(count_kind(writes, "pr_comment"), 1)
     t.eq(count_kind(writes, "issue_close"), 0)
-    t.eq(created.title, "Integrate external PR #7: Contributor patch")
+    t.eq(created.title, "Integrate external PR #7 from @contributor")
     t.eq(#created.labels, 0)
     t.is_true(created.body:find("source_ref: external:owner/repo#pr/7", 1, true) ~= nil)
-    t.is_true(created.body:find("fetch `refs/pull/7/head`", 1, true) ~= nil)
+    t.is_true(created.body:find("already provisioned in your worktree", 1, true) ~= nil)
+    t.eq(created.body:find("fetch `refs/pull/7/head`", 1, true), nil)
     t.is_true(created.body:find("implement against `dev`", 1, true) ~= nil)
     t.is_true(marker.body:find('external-pr-bridge:v1 repo="owner/repo" pr="7"', 1, true) ~= nil)
     t.is_true(marker.body:find('issue="77"', 1, true) ~= nil)
