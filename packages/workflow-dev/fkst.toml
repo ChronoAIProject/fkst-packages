@@ -17,7 +17,7 @@ libraries = ["contract", "workflow"]
 packages = [
   "github-proxy",
   "consensus",
-  "github-devloop-intake",
+  "github-devloop-dev-intake",
   "github-devloop-workflow",
   "github-devloop-decompose",
   "github-devloop",
@@ -31,11 +31,12 @@ packages = [
 [conformance]
 pack = "conformance/pack.toml"
 
-# Host-readable declaration: the work label this dev topology is intended to be
-# driven by (fkst-dev), so fkst-hosted can auto-discover it for the session
-# wake-gate. NOTE: today workflow-dev still composes github-devloop-workflow's
-# poll-all intake; making the runtime intake genuinely fkst-dev-scoped (via the
-# shared github-issue discovery + a candidate builder) is a deferred rearchitecture
-# that needs codex/integration validation. The declaration is engine-ignored.
+# Host-readable declaration: the work label this dev topology is driven by
+# (fkst-dev), so fkst-hosted can auto-discover it for the session wake-gate. The
+# runtime intake is genuinely fkst-dev-scoped: workflow-dev composes
+# github-devloop-dev-intake, which discovers OPEN fkst-dev issues via the shared
+# github-issue label discovery and produces the github-devloop-intake candidate seam
+# github-devloop-workflow consumes -- so it never claims a sibling package's issues.
+# The declaration itself is engine-ignored.
 [github]
 work_labels = ["fkst-dev"]

@@ -47,7 +47,7 @@ return {
 
     t.eq(packages[1], "github-proxy")
     t.eq(packages[2], "consensus")
-    t.eq(packages[3], "github-devloop-intake")
+    t.eq(packages[3], "github-devloop-dev-intake")
     t.eq(packages[4], "github-devloop-workflow")
     t.eq(packages[5], "github-devloop-decompose")
     t.eq(packages[6], "github-devloop")

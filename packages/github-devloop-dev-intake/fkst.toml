@@ -1,0 +1,26 @@
+kind = "package.composed"
+name = "github-devloop-dev-intake"
+persistence_class = "saga"
+
+[code]
+root = "."
+
+# github-devloop-dev-intake is the LABEL-SCOPED dev intake for the workflow-dev
+# topology. On a cron tick it discovers OPEN fkst-dev issues via the shared
+# github-issue label discovery and produces the EXISTING candidate seam
+# github-devloop-intake.devloop_intake_candidate that github-devloop-workflow's
+# workflow_select already consumes. Because discovery is label-scoped it NEVER
+# claims a sibling package's issues (e.g. workflow-security's fkst-security issues),
+# so it replaces github-devloop-intake's poll-all admission in the dev topology.
+[lib_deps]
+libraries = ["contract", "workflow", "testkit", "forge", "devloop", "github-issue"]
+
+[event_deps]
+packages = ["github-proxy"]
+
+# Host-readable declaration: the work label this dev intake polls, mirrored from
+# dev_intake.LABEL so fkst-hosted can auto-discover it. The engine ignores this
+# section; the label parity to the runtime constant is by convention (as with the
+# sibling workflow-security / workflow-dev packages).
+[github]
+work_labels = ["fkst-dev"]
