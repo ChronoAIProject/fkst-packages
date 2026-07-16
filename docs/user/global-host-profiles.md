@@ -59,6 +59,7 @@ The profile schema is the existing host-run environment surface:
 | `FKST_GITHUB_REPO` | package-dependent | GitHub repository identity such as `owner/repo`. |
 | `FKST_GITHUB_BOT_LOGIN` | package-dependent | This host's bot login and device identity. |
 | `FKST_DEVLOOP_INTEGRATION_BRANCH` | `github-devloop` | Per-device integration branch. |
+| `FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS` | optional | Comma-separated GitHub milestone numbers eligible for an initial issue claim. |
 
 `FKST_GITHUB_WRITE=1` is intentionally commented in the scaffold. Unset means dry-run.
 

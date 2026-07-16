@@ -54,8 +54,6 @@ local function production_replay_dept(core)
 end
 
 local function marker_author(core)
-  if type(core.assert_trusted_bot_configured) == "function" then devloop_base.assert_trusted_bot_configured() end
-  if type(core.trusted_bot_login) == "function" then return devloop_base.trusted_bot_login() end
   return tostring(core._test_bot_login or "fkst-test-bot")
 end
 local function comment(core, body, when)
@@ -769,16 +767,22 @@ local function behavioral_errors(core, rows, allowlist)
         local passes_positive = ok and issued == true and advanced_to(events, row.from_state, declared.successor)
         local positive_message = nil
         if not passes_positive then
-          positive_message = label .. ": positive poll fixture did not advance to declared successor"
+          if not ok then
+            positive_message = label .. ": positive poll fixture errored: " .. tostring(issued)
+          else
+            positive_message = label .. ": positive poll fixture did not advance to declared successor"
+          end
         end
         ok, issued, events = pcall(function()
           return with_poll_fakes(core, function()
             return replay(core, row, declared, false)
           end)
         end)
-        local passes_negative = not (ok and issued == true and advanced_to(events, row.from_state, declared.successor))
+        local passes_negative = ok and not (issued == true and advanced_to(events, row.from_state, declared.successor))
         local negative_message = nil
-        if ok and issued == true and advanced_to(events, row.from_state, declared.successor) then
+        if not ok then
+          negative_message = label .. ": negative poll fixture errored: " .. tostring(issued)
+        elseif issued == true and advanced_to(events, row.from_state, declared.successor) then
           negative_message = label .. ": negative poll fixture advanced without declared fact"
         end
         if row_allowlisted then

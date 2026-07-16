@@ -56,7 +56,7 @@ local function mock_issue(number, fields)
     comments = f.comments or {},
     assignees = f.assignees or { "fkst-test-bot" },
     author_login = f.author_login or "fkst-test-bot",
-  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author")
+  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
 end
 
 local function run_admission(event, run_opts)

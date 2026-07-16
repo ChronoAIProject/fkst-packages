@@ -213,7 +213,7 @@ return {
 
   test_gh_issue_view_commands_match_existing_strings = function()
     local cases = {
-      { core.gh_issue_view_intake_judge_cmd, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author" },
+      { core.gh_issue_view_intake_judge_cmd, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone" },
       { core.gh_issue_view_state_cmd, "title,createdAt,updatedAt,labels,state,comments,assignees,author" },
       { core.gh_issue_view_result_cmd, "labels,comments" },
       { core.gh_issue_view_loop_cmd, "title,updatedAt,labels,comments,state,author" },

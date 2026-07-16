@@ -156,7 +156,7 @@ local function mock_issue_view(assignees, comments, times)
     comments = comments or {},
     assignees = assignees,
     author_login = owner,
-  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author", times or 1)
+  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone", times or 1)
 end
 
 local function mock_claim_verify()
@@ -299,7 +299,7 @@ end
 
 local function issue_refetch_call_count()
   local count = 0
-  local fields = "--json title,body,createdAt,updatedAt,labels,comments,state,assignees,author"
+  local fields = "--json title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone"
   for _, call in ipairs(t.command_calls()) do
     local rendered = tostring(call.rendered or call.command or call.cmd or call)
     if rendered:find("gh issue view", 1, true) ~= nil

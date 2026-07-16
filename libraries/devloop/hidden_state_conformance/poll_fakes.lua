@@ -2,6 +2,8 @@ local payloads_board = require("devloop.payloads.board")
 local S = {}
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
+local devloop_base = require("devloop.base")
+local git_mechanics = require("devloop.git_mechanics")
 local git_commands = require("devloop.commands.git_ops")
 local pr_commands = require("devloop.commands.prs")
 
@@ -10,6 +12,8 @@ function S.with(core, opts, fn)
   local base_branch = opts.base_branch
   local previous_children = core.gh_issue_list_decompose_children
   local previous_branch_config = config.branch_config
+  local previous_bot_login = devloop_base.configured_trusted_bot_login()
+  local previous_repo_ref_store_lock = git_mechanics.with_repo_ref_store_lock
   local previous_git_is_ancestor = core.git.is_ancestor
   local previous_git_fetch_branch = core.git.fetch_branch
   local previous_git_fetch_head_commit = core.git.fetch_head_commit
@@ -25,6 +29,10 @@ function S.with(core, opts, fn)
     core.gh_issue_list_decompose_children = function()
       return { exit_code = 0, stdout = "[]", stderr = "" }
     end
+  end
+  devloop_base.configure_trusted_bot_login(core._test_bot_login or "fkst-test-bot")
+  git_mechanics.with_repo_ref_store_lock = function(_, locked_fn)
+    return locked_fn()
   end
   config.branch_config = function(_core)
     return { integration = base_branch, upstream = "dev" }
@@ -73,6 +81,8 @@ function S.with(core, opts, fn)
   if type(previous_children) == "function" then
     core.gh_issue_list_decompose_children = previous_children
   end
+  devloop_base.configure_trusted_bot_login(previous_bot_login)
+  git_mechanics.with_repo_ref_store_lock = previous_repo_ref_store_lock
   config.branch_config = previous_branch_config
   core.git.is_ancestor = previous_git_is_ancestor
   core.git.fetch_branch = previous_git_fetch_branch

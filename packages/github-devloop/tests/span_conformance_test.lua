@@ -5,6 +5,8 @@ local replayer = require("devloop.replayer")
 local m_rrc = require("devloop.restart_responsibility_contract")
 local h = require("tests.devloop_core_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
+local devloop_base = require("devloop.base")
+local git_mechanics = require("devloop.git_mechanics")
 local devloop_logging = require("devloop.logging")
 local core = h.core
 local t = h.t
@@ -223,6 +225,58 @@ return {
     if not ok then error(err) end
     t.eq(seen.observe_issue, true)
     t.eq(seen.behavioral_hidden_state_conformance, nil)
+  end,
+
+  test_hidden_state_conformance_exposes_poll_fixture_errors = function()
+    local fake_core = setmetatable({
+      restart_package_name = core.restart_package_name,
+      restart_consumer_sources = core.restart_consumer_sources,
+    }, { __index = core })
+    local previous = replayer.replay_from_table
+    replayer.replay_from_table = function()
+      error("synthetic hidden-state replay failure")
+    end
+    local rows = {
+      {
+        from_state = "ready",
+        to_states = { "implementing" },
+        observe_surfaces = { issue = true },
+        terminal = false,
+        advancing_facts = {
+          {
+            fact_family = "state",
+            successor = "implementing",
+            observe_surfaces = { issue = true },
+            source_ref_derivation = "source_ref:issue",
+          },
+        },
+      },
+    }
+    local ok, errors = pcall(function()
+      return hidden_state_conformance.hidden_state_conformance_errors(fake_core, rows, {})
+    end)
+    replayer.replay_from_table = previous
+    if not ok then error(errors) end
+    local joined = table.concat(errors, "\n")
+    t.is_true(joined:find("positive poll fixture errored:", 1, true) ~= nil, joined)
+    t.is_true(joined:find("negative poll fixture errored:", 1, true) ~= nil, joined)
+    t.is_true(joined:find("synthetic hidden-state replay failure", 1, true) ~= nil, joined)
+  end,
+
+  test_hidden_state_conformance_isolates_host_identity_and_runtime_lock = function()
+    local previous_bot_login = devloop_base.configured_trusted_bot_login()
+    local previous_repo_ref_store_lock = git_mechanics.with_repo_ref_store_lock
+    devloop_base.configure_trusted_bot_login("host-configured-bot")
+    git_mechanics.with_repo_ref_store_lock = function()
+      error("host runtime lock leaked into hidden-state conformance")
+    end
+    local ok, errors = pcall(function()
+      return hidden_state_conformance.hidden_state_conformance_errors(core)
+    end)
+    devloop_base.configure_trusted_bot_login(previous_bot_login)
+    git_mechanics.with_repo_ref_store_lock = previous_repo_ref_store_lock
+    if not ok then error(errors) end
+    t.eq(#errors, 0, join_error_messages(errors))
   end,
 
   test_hidden_state_conformance_rejects_non_poll_declaration = function()

@@ -377,8 +377,10 @@ function C.log_claim_admission_skip(dept, proposal_id, detail)
   log_claim(dept, proposal_id, detail.action, detail.reason)
 end
 
-function C.claim_issue_for_management(M, dept, repo, issue_number, current, proposal_id)
-  local admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current))
+function C.claim_issue_for_management(M, dept, repo, issue_number, current, proposal_id, admission, detail)
+  if admission == nil then
+    admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current))
+  end
   if admission == "held" then
     return true
   end

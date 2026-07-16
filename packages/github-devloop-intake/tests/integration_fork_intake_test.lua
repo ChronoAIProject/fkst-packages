@@ -58,7 +58,7 @@ local function mock_admission_view(fields)
     comments = {},
     assignees = {},
     author_login = f.author_login or "trusted-human",
-  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author")
+  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
 end
 
 local function mock_state_view(fields)

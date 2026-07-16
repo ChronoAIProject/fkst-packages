@@ -668,7 +668,7 @@ local function install_legacy_command_renderers(core)
   end
 
   core.gh_issue_view_intake_judge_cmd = core.gh_issue_view_intake_judge_cmd or function(repo, number)
-    return gh_issue_view_command(repo, number, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author")
+    return gh_issue_view_command(repo, number, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
   end
   core.gh_issue_view_state_cmd = core.gh_issue_view_state_cmd or function(repo, number)
     return gh_issue_view_command(repo, number, "title,createdAt,updatedAt,labels,state,comments,assignees,author")

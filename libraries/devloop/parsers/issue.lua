@@ -144,6 +144,23 @@ end
 function C.parse_issue_view_intake_judge(M, stdout)
   local decoded = json.decode(stdout or "{}")
   local result = C.parse_issue_view_result(M, stdout)
+  local milestone = decoded.milestone
+  if type(milestone) == "userdata" then
+    milestone = nil
+  end
+  local milestone_number = nil
+  if milestone ~= nil then
+    if type(milestone) ~= "table" then
+      error("github-devloop: issue milestone must be an object or null")
+    end
+    milestone_number = tonumber(milestone.number)
+    if milestone_number == nil
+      or milestone_number < 1
+      or milestone_number > 2147483647
+      or milestone_number ~= math.floor(milestone_number) then
+      error("github-devloop: issue milestone number must be a positive integer")
+    end
+  end
   return {
     title = tostring(decoded.title or ""),
     body = tostring(decoded.body or ""),
@@ -154,6 +171,7 @@ function C.parse_issue_view_intake_judge(M, stdout)
     comments = result.comments,
     assignees = result.assignees,
     author_login = result.author_login,
+    milestone_number = milestone_number,
   }
 end
 

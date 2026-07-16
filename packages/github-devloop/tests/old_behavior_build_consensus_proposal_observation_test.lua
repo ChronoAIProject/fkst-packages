@@ -60,7 +60,7 @@ local function prepare_fixture(request)
     comments = {},
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author", 1)
+  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone", 1)
   h.mock_context_bundle(request)
 end
 

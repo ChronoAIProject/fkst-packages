@@ -226,7 +226,7 @@ local function execute_request_entry()
     comments = {},
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
-  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author", 1)
+  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone", 1)
   h.mock_context_bundle(request)
   local result = t.run_department("departments/execute_start/main.lua", {
     queue = queue_name,

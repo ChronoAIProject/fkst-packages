@@ -9,6 +9,7 @@ local saga = require("workflow.saga")
 local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
+local config = require("devloop.config")
 local entity_lib = require("devloop.entity")
 local admission_core = require("core.admission")
 local replay_authorization = require("core.replay_authorization")
@@ -76,7 +77,7 @@ local function current_issue_from_source_ref(source_ref, updated_at)
   if repo == nil or issue_number == nil then
     return nil, nil, nil, "invalid issue source_ref"
   end
-  local view = devloop_commands.gh_issue_view(repo, issue_number, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author", 30)
+  local view = devloop_commands.gh_issue_view_intake_judge(repo, issue_number, 30)
   if view.exit_code ~= 0 then
     error("github-devloop-intake: gh-issue-admission-view-failed: gh issue admission view failed: " .. tostring(view.stderr))
   end
@@ -106,6 +107,15 @@ local function issue_from_current(issue_number, current)
     body = current.body,
     updated_at = current.updated_at,
   }
+end
+
+local function initial_claim_is_in_milestone_scope(current)
+  local admission, detail = m_claims.claim_admission_precheck(current, m_claims.claim_admission_inputs(current))
+  if admission ~= "needs-claim" then
+    return true, admission, detail
+  end
+  local milestones = config.intake_milestone_numbers()
+  return milestones == nil or milestones[current.milestone_number] == true, admission, detail
 end
 
 local function admit_issue_event(event, entity)
@@ -139,7 +149,12 @@ local function admit_issue_event(event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
   end
-  if not m_claims.claim_issue_for_management(core, "admission", repo, issue_number, current, proposal_id) then
+  local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(current)
+  if not in_milestone_scope then
+    devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
+    return
+  end
+  if not m_claims.claim_issue_for_management(core, "admission", repo, issue_number, current, proposal_id, claim_admission, claim_detail) then
     return
   end
 

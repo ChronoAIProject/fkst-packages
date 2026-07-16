@@ -15,6 +15,7 @@ local allowed_env = {
   FKST_GITHUB_WRITE = true,
   FKST_DEVLOOP_UPSTREAM_BRANCH = true,
   FKST_DEVLOOP_INTEGRATION_BRANCH = true,
+  FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS = true,
   FKST_DEVLOOP_FORK_GRACE_HOURS = true,
   FKST_DEVLOOP_MAX_INFLIGHT = true,
   FKST_DEVLOOP_MANAGED_SIBLING_REPOS = true,
@@ -128,6 +129,29 @@ function C.max_inflight(exec)
     error("github-devloop: invalid FKST_DEVLOOP_MAX_INFLIGHT")
   end
   return parsed
+end
+
+function C.intake_milestone_numbers(exec)
+  local raw = strings.trim(C.read_env("FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS", exec) or "")
+  if raw == "" then
+    return nil
+  end
+
+  local milestones = {}
+  for token in (raw .. ","):gmatch("(.-),") do
+    token = strings.trim(token)
+    local number = tonumber(token)
+    if token == ""
+      or token:find("^%d+$") == nil
+      or number == nil
+      or number < 1
+      or number > 2147483647
+      or number ~= math.floor(number) then
+      error("github-devloop: invalid FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS")
+    end
+    milestones[number] = true
+  end
+  return milestones
 end
 
 function C.managed_sibling_repos(exec)

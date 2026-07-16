@@ -5,7 +5,7 @@ local support = require("devloop.commands.support")
 local validators = require("devloop.commands.validators")
 
 local issue_view_fields = {
-  intake_judge = "title,body,createdAt,updatedAt,labels,comments,state,assignees,author",
+  intake_judge = "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone",
   view_state = "title,createdAt,updatedAt,labels,state,comments,assignees,author",
   claim = "assignees,author",
   result = "labels,comments",
