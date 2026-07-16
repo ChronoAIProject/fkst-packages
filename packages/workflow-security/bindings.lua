@@ -16,7 +16,7 @@ local github_factory = require("devloop.github_factory")
 
 local security_logic = require("security_logic")
 local records = require("records")
-local discovery_mod = require("discovery")
+local discovery_mod = require("github-issue.discovery")
 local executor_mod = require("executor")
 local completion_mod = require("completion")
 local catalog_mod = require("catalog")
@@ -50,12 +50,30 @@ local marker = engine.marker.for_namespace(security_logic.NAMESPACE)
 local repo = read_env("FKST_GITHUB_REPO") or ""
 local bot_login = read_env("FKST_GITHUB_BOT_LOGIN") or ""
 
+-- The security-specific resolver for a `created` materialization fact: a created
+-- marker is only ever written by the executor AFTER a codex step's output
+-- validated, so "created" == "ready". (The generic listing/marker/lease seams now
+-- live in github-issue.discovery; only this per-package differ stays here.)
+local function decorate_created(fact)
+  if type(fact) == "table" and fact.state == "created" then
+    fact.child_ref = {
+      kind = "analysis",
+      slot = fact.slot,
+      child_issue = fact.child_issue,
+      result = { state = "ready" },
+    }
+  end
+  return fact
+end
+
 local discovery, lease = discovery_mod.build({
   github = github_handle(),
   repo = repo,
   marker = marker,
   bot_login = bot_login,
   label = security_logic.LABEL,
+  resolve_created_fact = decorate_created,
+  log_prefix = "workflow-security",
 })
 
 local executor = executor_mod.build({
