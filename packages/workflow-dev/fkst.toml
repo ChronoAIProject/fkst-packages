@@ -30,3 +30,12 @@ packages = [
 # runs them whenever workflow-dev is an active package root.
 [conformance]
 pack = "conformance/pack.toml"
+
+# Host-readable declaration: the work label this dev topology is intended to be
+# driven by (fkst-dev), so fkst-hosted can auto-discover it for the session
+# wake-gate. NOTE: today workflow-dev still composes github-devloop-workflow's
+# poll-all intake; making the runtime intake genuinely fkst-dev-scoped (via the
+# shared github-issue discovery + a candidate builder) is a deferred rearchitecture
+# that needs codex/integration validation. The declaration is engine-ignored.
+[github]
+work_labels = ["fkst-dev"]
