@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "f893f88f672474137316f6f7893c57173a61ea434a46afc12cb6d9c4c75bfc64",
+  "artifact_sha256": "071f53075b12dea71fb920beec484c7743353848421c5a4389e1a1710e1fe352",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -93,6 +93,133 @@
     }
   ],
   "old_behavior_observations": [
+    {
+      "boundary": "published_intent_producer",
+      "evidence_refs": [
+        {
+          "kind": "runtime-raise-capture",
+          "ref": "devloop.logging.log_raise:execute_start:consensus.proposal"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "owner/repo#issue/42"
+        },
+        {
+          "kind": "production-callsite",
+          "ref": "packages/github-devloop/departments/execute_start/main.lua:68"
+        },
+        {
+          "kind": "production-condition",
+          "ref": "libraries/devloop/execution_start.lua:60-80"
+        }
+      ],
+      "observation_id": "intent:github-devloop:execute-start/intake-enable",
+      "old_inputs": {
+        "caller_from_states": [
+          "execution-request"
+        ],
+        "current_fact": {
+          "stage_rank": null,
+          "state": null,
+          "version": null
+        },
+        "handoff_reference": {
+          "decision": "enable",
+          "dedup_key": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "kind": "own-intake-decision",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          }
+        },
+        "incoming_version": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable-published-intent",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "queue:consensus.proposal",
+            "ordinal": 1,
+            "sink_kind": "queue"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "queue:consensus.proposal",
+            "payload": {
+              "body": "Judge the current GitHub issue from the full source content.\nIssue: owner/repo#42\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver.",
+              "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/intake-github-devloop-issue-owner-repo-42-2026-06-0150137095",
+              "dedup_key": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "effect_version": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "intake_hand_off": {
+                "decision": "enable",
+                "dedup_key": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+                "kind": "own-intake-decision",
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "proposal_id": "github-devloop/issue/owner/repo/42",
+              "schema": "consensus.proposal.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              },
+              "title": "Capture execute-start consensus proposal",
+              "verdict_mode": "converge",
+              "worktree": "."
+            },
+            "queue": "consensus.proposal"
+          }
+        ],
+        "reason_code": "intake-enable-proposal",
+        "status": "raised",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consensus.proposal",
+        "path": "packages/github-devloop/departments/execute_start/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.execution-request.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "payload_version": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "source_version": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "published_intent",
+        "lineage": {
+          "intake_hand_off": {
+            "decision": "enable",
+            "dedup_key": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+            "kind": "own-intake-decision",
+            "proposal_id": "github-devloop/issue/owner/repo/42",
+            "source_ref": {
+              "kind": "external",
+              "ref": "owner/repo#issue/42"
+            }
+          },
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          }
+        },
+        "source_boundary": "devloop_execute_request",
+        "source_state": "execution-request",
+        "target": "consensus.proposal"
+      }
+    },
     {
       "boundary": "writer",
       "evidence_refs": [
@@ -17148,14 +17275,6 @@
       "path": "packages/github-devloop-pr/core/pr_review_replayer.lua",
       "site_id": "row-replay:github-devloop-pr:review-replayer",
       "symbol": "review_converge_fact",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "published_intent_sites",
-      "ordinal": "consensus.proposal",
-      "path": "packages/github-devloop/departments/execute_start/main.lua",
-      "site_id": "intent:github-devloop:execute-start",
-      "symbol": "pipeline",
       "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
     },
     {
