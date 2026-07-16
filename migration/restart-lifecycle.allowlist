@@ -9,7 +9,6 @@ row-replay:github-devloop:awaiting-pr
 row-replay:github-devloop-pr:observe-pr-local
 row-replay:github-devloop-pr:review-replayer
 intent:github-devloop:observe-issue-decompose
-intent:github-devloop-pr:observe-pr-decompose
 intent:github-devloop-pr:merge-decompose
 acceptor:github-devloop:execute-start
 acceptor:github-devloop:observe-issue
