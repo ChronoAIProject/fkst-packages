@@ -140,6 +140,8 @@ exact = true
 [visibility]
 allow = [
   "archaudit",
+  "github-devloop-dev-intake",
+  "workflow-security",
   "github-devloop",
   "github-devloop-decompose",
   "github-devloop-intake-default",
