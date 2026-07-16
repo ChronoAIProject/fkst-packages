@@ -16,7 +16,7 @@ local github_factory = require("devloop.github_factory")
 
 local authoring = require("authoring")
 local records = require("records")
-local discovery_mod = require("discovery")
+local discovery_mod = require("github-issue.discovery")
 local executor_mod = require("executor")
 local completion_mod = require("completion")
 local catalog_mod = require("catalog")
@@ -52,13 +52,68 @@ end
 local marker = engine.marker.for_namespace(authoring.NAMESPACE)
 local repo = env_value("FKST_GITHUB_REPO") or ""
 local bot_login = env_value("FKST_GITHUB_BOT_LOGIN") or ""
+local github = production_github()
+
+-- The writer-specific resolver for a `created` materialization fact: unlike the
+-- static security case, a created marker records the delivered PR (its number in
+-- child_issue), whose durable result is read LIVE from the PR's lifecycle so the
+-- completion reader reflects whether the authored template actually landed. This
+-- PR-lifecycle read is the only per-package difference from the shared
+-- github-issue.discovery seam; everything else (listing/markers/lease) is shared.
+local PR_FIELDS = "state,mergedAt,merged"
+local PR_VIEW_TIMEOUT = 30
+
+local function pr_state_of(payload)
+  if type(payload) ~= "table" then
+    return "transient"
+  end
+  local merged_at = payload.mergedAt or payload.merged_at
+  if payload.merged == true or (type(merged_at) == "string" and merged_at ~= "") then
+    return "merged"
+  end
+  if tostring(payload.state or ""):upper() == "OPEN" then
+    return "open"
+  end
+  return "invalid"
+end
+
+local function read_pr_state(pr_ref)
+  local pr_number = tonumber(pr_ref)
+  if pr_number == nil or type(github) ~= "table" or type(github.pr_cli_view) ~= "function" then
+    return "transient"
+  end
+  local ok, result = pcall(github.pr_cli_view, repo, pr_number, PR_FIELDS, PR_VIEW_TIMEOUT)
+  if not ok or type(result) ~= "table" or result.exit_code ~= 0 then
+    return "transient"
+  end
+  local decoded
+  local decode_ok, decoded_value = pcall(json.decode, tostring(result.stdout or ""))
+  if decode_ok then
+    decoded = decoded_value
+  end
+  return pr_state_of(decoded)
+end
+
+local function attach_pr_result(fact)
+  if type(fact) == "table" and fact.state == "created" then
+    fact.child_ref = {
+      kind = "authoring-pr",
+      slot = fact.slot,
+      child_issue = fact.child_issue,
+      result = { state = read_pr_state(fact.child_issue) },
+    }
+  end
+  return fact
+end
 
 local discovery, lease = discovery_mod.build({
-  github = production_github(),
+  github = github,
   repo = repo,
   marker = marker,
   bot_login = bot_login,
   label = authoring.LABEL,
+  resolve_created_fact = attach_pr_result,
+  log_prefix = "workflow-writer",
 })
 
 local catalog = catalog_mod.build({

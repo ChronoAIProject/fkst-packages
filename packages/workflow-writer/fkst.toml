@@ -14,7 +14,13 @@ root = "."
 # invariant is preserved. The deliverable is a reviewable github-proxy PR that adds/edits
 # a template file under the target package; the kernel's blueprint.validate gates it.
 [lib_deps]
-libraries = ["contract", "workflow", "testkit", "forge", "devloop"]
+libraries = ["contract", "workflow", "testkit", "forge", "devloop", "github-issue"]
 
 [event_deps]
 packages = ["github-proxy"]
+
+# Host-readable declaration: the work label this adapter polls, mirrored from
+# authoring.LABEL so fkst-hosted can auto-discover it (engine ignores this
+# section; github-issue.conformance pins it to the used label).
+[github]
+work_labels = ["fkst-workflow"]
