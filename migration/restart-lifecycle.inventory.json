@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "da9c4f2012a54e355b1b6bed79f53fa6bab2792bf64fd65ce5ab08576dfe273a",
+  "artifact_sha256": "91aa29defa462173b19e53bd518b8ce673d797fe71e03a21498844d439334266",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -18488,6 +18488,428 @@
         "source_state": "merge-ready",
         "target": "github-devloop-decompose.devloop_decompose"
       }
+    },
+    {
+      "boundary": "row_replay",
+      "evidence_refs": [
+        {
+          "kind": "runtime-row-replay-dispatch",
+          "ref": "packages/github-devloop/departments/observe_issue/main.lua:179-183"
+        },
+        {
+          "kind": "runtime-row-replay-handler",
+          "ref": "libraries/devloop/replayer.lua:111-115"
+        },
+        {
+          "kind": "runtime-disposition",
+          "ref": "devloop.logging.log_cas_decision:observe_issue:skip-idempotent(live-exec-ref)"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "owner/repo#issue/42"
+        }
+      ],
+      "observation_id": "row-replay:github-devloop:replayer-thinking/matching-live-run-defer",
+      "old_inputs": {
+        "caller_from_states": [
+          "thinking"
+        ],
+        "current_fact": {
+          "stage_rank": 100,
+          "state": "thinking",
+          "version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "handoff_reference": null,
+        "incoming_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-idempotent(live-exec-ref)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "matching-consensus-run-live",
+        "status": "no-op",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "row-replay/thinking",
+        "path": "libraries/devloop/replayer.lua",
+        "symbol": "replay_thinking"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "converge_round": null,
+          "replay_version": null,
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "row_replay",
+        "lineage": {
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          },
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "source_boundary": "github-proxy.github_entity_changed",
+        "source_state": "thinking",
+        "target": "consensus.proposal"
+      }
+    },
+    {
+      "boundary": "row_replay",
+      "evidence_refs": [
+        {
+          "kind": "runtime-row-replay-dispatch",
+          "ref": "packages/github-devloop/departments/observe_issue/main.lua:179-183"
+        },
+        {
+          "kind": "runtime-row-replay-handler",
+          "ref": "libraries/devloop/replayer.lua:111-115"
+        },
+        {
+          "kind": "runtime-disposition",
+          "ref": "devloop.logging.log_cas_decision:observe_issue:applied(replay)"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "owner/repo#issue/42"
+        }
+      ],
+      "observation_id": "row-replay:github-devloop:replayer-thinking/next-converge-round-reraise",
+      "old_inputs": {
+        "caller_from_states": [
+          "thinking"
+        ],
+        "current_fact": {
+          "stage_rank": 100,
+          "state": "thinking",
+          "version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "handoff_reference": null,
+        "incoming_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1"
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(replay)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "queue:consensus.proposal",
+            "ordinal": 1,
+            "sink_kind": "queue"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "queue:consensus.proposal",
+            "payload": {
+              "body": "Judge the current GitHub issue from the full source content.\nIssue: owner/repo#42\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver.",
+              "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/github-devloop-issue-owner-repo-42-2026-06-03T01-3306236848",
+              "convergence_question": "Latest visible question",
+              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+              "proposal_id": "github-devloop/issue/owner/repo/42",
+              "round": 1,
+              "schema": "consensus.proposal.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              },
+              "title": "Capture thinking row replay behavior",
+              "verdict_mode": "converge",
+              "worktree": "."
+            },
+            "queue": "consensus.proposal"
+          }
+        ],
+        "reason_code": "replay-next-converge-round-proposal",
+        "status": "re-raised",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "row-replay/thinking",
+        "path": "libraries/devloop/replayer.lua",
+        "symbol": "replay_thinking"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "converge_round": 0,
+          "replay_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "row_replay",
+        "lineage": {
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          },
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "source_boundary": "github-proxy.github_entity_changed",
+        "source_state": "thinking",
+        "target": "consensus.proposal"
+      }
+    },
+    {
+      "boundary": "row_replay",
+      "evidence_refs": [
+        {
+          "kind": "runtime-row-replay-dispatch",
+          "ref": "packages/github-devloop/departments/observe_issue/main.lua:179-183"
+        },
+        {
+          "kind": "runtime-row-replay-handler",
+          "ref": "libraries/devloop/replayer.lua:111-115"
+        },
+        {
+          "kind": "runtime-disposition",
+          "ref": "devloop.logging.log_cas_decision:observe_issue:applied(replay)"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "owner/repo#issue/42"
+        }
+      ],
+      "observation_id": "row-replay:github-devloop:replayer-thinking/plain-proposal-reraise",
+      "old_inputs": {
+        "caller_from_states": [
+          "thinking"
+        ],
+        "current_fact": {
+          "stage_rank": 100,
+          "state": "thinking",
+          "version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "handoff_reference": null,
+        "incoming_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(replay)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "queue:consensus.proposal",
+            "ordinal": 1,
+            "sink_kind": "queue"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "queue:consensus.proposal",
+            "payload": {
+              "body": "Judge the current GitHub issue from the full source content.\nIssue: owner/repo#42\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver.",
+              "content_fetch": "runtime-cache:github-devloop/context-bundle-manifest-v2/github-devloop/issue/owner/repo/42/github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z",
+              "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "proposal_id": "github-devloop/issue/owner/repo/42",
+              "schema": "consensus.proposal.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              },
+              "title": "Capture thinking row replay behavior",
+              "verdict_mode": "converge",
+              "worktree": "."
+            },
+            "queue": "consensus.proposal"
+          }
+        ],
+        "reason_code": "replay-current-thinking-proposal",
+        "status": "re-raised",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "row-replay/thinking",
+        "path": "libraries/devloop/replayer.lua",
+        "symbol": "replay_thinking"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "converge_round": null,
+          "replay_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "row_replay",
+        "lineage": {
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          },
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "source_boundary": "github-proxy.github_entity_changed",
+        "source_state": "thinking",
+        "target": "consensus.proposal"
+      }
+    },
+    {
+      "boundary": "row_replay",
+      "evidence_refs": [
+        {
+          "kind": "runtime-row-replay-dispatch",
+          "ref": "packages/github-devloop/departments/observe_issue/main.lua:179-183"
+        },
+        {
+          "kind": "runtime-row-replay-handler",
+          "ref": "libraries/devloop/replayer.lua:111-115"
+        },
+        {
+          "kind": "runtime-disposition",
+          "ref": "devloop.logging.log_cas_decision:observe_issue:applied"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "owner/repo#issue/42"
+        }
+      ],
+      "observation_id": "row-replay:github-devloop:replayer-thinking/terminal-convergence-route-blocked",
+      "old_inputs": {
+        "caller_from_states": [
+          "thinking"
+        ],
+        "current_fact": {
+          "stage_rank": 100,
+          "state": "thinking",
+          "version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "handoff_reference": null,
+        "incoming_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1"
+      },
+      "old_outcome": {
+        "cas_outcome": "applied",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:issue:reconcile-blocked",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "label:issue:reconcile-blocked",
+            "ordinal": 2,
+            "sink_kind": "label"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:issue:reconcile-blocked",
+            "payload": {
+              "body": "github-devloop reconcile action: drop\n\nReason:\nevidence-continuation-budget-exhausted-after-1-rounds\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000800\" -->\n<!-- fkst:github-devloop:reconcile:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1\" round=\"1\" action=\"drop\" terminal_cause=\"evidence-continuation-budget-exhausted\" dedup=\"reconcile:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1\" -->\n⟦AI:FKST⟧",
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "reconcile/comment/reconcile-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+              "issue_number": 42,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              }
+            },
+            "queue": "github-proxy.github_issue_comment_request"
+          },
+          {
+            "effect_id": "label:issue:reconcile-blocked",
+            "payload": {
+              "add_labels": [
+                "fkst-dev:blocked"
+              ],
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "reconcile/label/reconcile-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+              "issue_number": 42,
+              "label_colors": {
+                "fkst-dev:blocked": "1B1F23"
+              },
+              "remove_labels": [
+                "fkst-dev:thinking",
+                "fkst-dev:ready",
+                "fkst-dev:implementing",
+                "fkst-dev:pr-open",
+                "fkst-dev:reviewing",
+                "fkst-dev:merge-ready",
+                "fkst-dev:fixing",
+                "fkst-dev:impl-failed",
+                "fkst-dev:declined",
+                "fkst-dev:review-meta",
+                "fkst-dev:merging",
+                "fkst-dev:merged",
+                "fkst-dev:awaiting-pr"
+              ],
+              "repo": "owner/repo",
+              "schema": "github-proxy.label.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              },
+              "target_kind": "issue",
+              "target_number": 42
+            },
+            "queue": "github-proxy.github_issue_label_request"
+          }
+        ],
+        "reason_code": "evidence-continuation-budget-exhausted-after-1-rounds",
+        "status": "route-to-transition",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "row-replay/thinking",
+        "path": "libraries/devloop/replayer.lua",
+        "symbol": "replay_thinking"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "converge_round": 1,
+          "replay_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "row_replay",
+        "lineage": {
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          },
+          "state_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "source_boundary": "github-proxy.github_entity_changed",
+        "source_state": "thinking",
+        "target": "blocked"
+      }
     }
   ],
   "old_pending_projection": {
@@ -18777,14 +19199,6 @@
       "path": "packages/github-devloop/departments/observe_issue/main.lua",
       "site_id": "row-replay:github-devloop:observe-issue",
       "symbol": "replay_or_timeout",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "row_replay_sites",
-      "ordinal": "row-replay/thinking",
-      "path": "libraries/devloop/replayer.lua",
-      "site_id": "row-replay:github-devloop:replayer-thinking",
-      "symbol": "replay_thinking",
       "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
     },
     {

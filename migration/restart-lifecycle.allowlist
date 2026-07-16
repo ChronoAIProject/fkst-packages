@@ -2,7 +2,6 @@ writer:github-devloop:implement-enter
 sink-catalog:github-devloop
 sink-catalog:github-devloop-pr
 row-replay:github-devloop:observe-issue
-row-replay:github-devloop:replayer-thinking
 row-replay:github-devloop:replayer-implementing
 row-replay:github-devloop:replayer-impl-failed
 row-replay:github-devloop:awaiting-pr
