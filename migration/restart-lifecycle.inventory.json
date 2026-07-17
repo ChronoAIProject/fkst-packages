@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "48bf25b61d5b157b3548a75423bee59fade49081e56a305041b5e6e5ca6627c4",
+  "artifact_sha256": "b29994afef5b10043b69ce8ee73d48a8a451f8d1c96737cd1f9d44950f8cf7da",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -23245,6 +23245,2621 @@
         "source_state": "impl-failed",
         "target": "implementing"
       }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:577"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-admitted-replay-dispatched",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "dispatched(replay_from_table)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "admitted-replay-dispatched",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "replay"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:435"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-base-self-heal-reviewing",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(pr-base-unmanaged-self-heal)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:observe-reviewing",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:observe-reviewing",
+            "payload": {
+              "body": "github-devloop PR is ready for review\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"reviewing\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1\" stage_rank=\"675\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000675\" -->",
+              "dedup_key": "observe-pr/comment/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1/7",
+              "handoff": {
+                "kind": "github-devloop.reviewing",
+                "pr_number": 7,
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
+              },
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "base-self-heal",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/pr-base-unmanaged",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reviewing"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:488"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-base-unmanaged-blocked",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(pr-base-unmanaged)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:base-unmanaged",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:base-unmanaged",
+            "payload": {
+              "body": "github-devloop blocked PR because its base branch is not managed by this instance.\n\nReason: pr-base-unmanaged\nPR base: feature-base\nConfigured integration branch: dev\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/pr-base-unmanaged\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000800\" -->\n<!-- fkst:github-devloop:pr-base-unmanaged:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"7\" reason=\"pr-base-unmanaged\" pr_base=\"feature-base\" integration_branch=\"dev\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "observe-pr/blocked/pr-base-unmanaged/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/feature-base/dev",
+              "handoff": {
+                "kind": "github-devloop.blocked",
+                "pr_number": 7,
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/pr-base-unmanaged"
+              },
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "base-unmanaged",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "blocked"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:545"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-claim-not-acquired",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-claimed-by-other",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "claim-not-acquired",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:330"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-not-mergeable-already-fixing",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-idempotent(already at to_state)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "already-fixing",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:379"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-not-mergeable-routes-fixing",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(not-mergeable)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:observe-merge-gate-fix",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "label:issue:observe-merge-gate-fix",
+            "ordinal": 2,
+            "sink_kind": "label"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:observe-merge-gate-fix",
+            "payload": {
+              "body": "github-devloop merge gate failed: merge-state-dirty\nReproduce locally with `scripts/run.sh test` from the repository root.\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"fixing\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1\" stage_rank=\"700\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000700\" -->\n<!-- fkst:github-devloop:merge-gate:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"7\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1\" review_proposal=\"github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456\" review_dedup=\"observe-pr-conflict/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7\" head_sha=\"def456\" reason=\"merge-state-dirty\" -->",
+              "dedup_key": "merge/comment/fixing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/nopred/noci/merge-state-dirty",
+              "handoff": {
+                "gate_failure_excerpt": "merge-state-dirty",
+                "kind": "github-devloop.fixing",
+                "pr_number": 7,
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "repair_input": "review-feedback",
+                "review_dedup_key": "observe-pr-conflict/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7",
+                "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+                "reviewed_head_sha": "def456",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+              },
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          },
+          {
+            "effect_id": "label:issue:observe-merge-gate-fix",
+            "payload": {
+              "add_labels": [
+                "fkst-dev:fixing"
+              ],
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/observe-pr-conflict/label/fixing",
+              "issue_number": "42",
+              "label_colors": {
+                "fkst-dev:fixing": "D93F0B"
+              },
+              "remove_labels": [
+                "fkst-dev:thinking",
+                "fkst-dev:ready",
+                "fkst-dev:implementing",
+                "fkst-dev:pr-open",
+                "fkst-dev:reviewing",
+                "fkst-dev:merge-ready",
+                "fkst-dev:impl-failed",
+                "fkst-dev:declined",
+                "fkst-dev:blocked",
+                "fkst-dev:review-meta",
+                "fkst-dev:merging",
+                "fkst-dev:merged",
+                "fkst-dev:awaiting-pr"
+              ],
+              "repo": "owner/repo",
+              "schema": "github-proxy.label.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              },
+              "target_kind": "issue",
+              "target_number": "42"
+            },
+            "queue": "github-proxy.github_issue_label_request"
+          }
+        ],
+        "reason_code": "not-mergeable",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "fixing"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:221"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-operator-refused-active-reviewing",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "refused(active-reviewing)",
+        "emitted_effects": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "comment:pr:operator-refusal",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:operator-refusal",
+            "payload": {
+              "body": "github-devloop operator command refused: rereview requires blocked, review-meta, or stalled reviewing state\n\n<!-- fkst:github-devloop:operator-command:v1 command=\"rereview\" key=\"operator-command/IC_operator_rereview\" outcome=\"refused\" reason=\"rereview-requires-blocked--review-meta--or-stalled-reviewing-state\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "operator-command/comment/operator-command/IC_operator_rereview/refused/rereview-requires-blocked--review-meta--or-stalled-reviewing-state",
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "operator-active-reviewing",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:244"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-operator-refused-head-missing",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "refused(head-missing)",
+        "emitted_effects": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "comment:pr:operator-refusal",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:operator-refusal",
+            "payload": {
+              "body": "github-devloop operator command refused: rereview requires a current PR head\n\n<!-- fkst:github-devloop:operator-command:v1 command=\"rereview\" key=\"operator-command/IC_operator_rereview\" outcome=\"refused\" reason=\"rereview-requires-a-current-PR-head\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "operator-command/comment/operator-command/IC_operator_rereview/refused/rereview-requires-a-current-PR-head",
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "operator-head-missing",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:210"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-operator-refused-invalid-state",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "refused(invalid-state)",
+        "emitted_effects": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "comment:pr:operator-refusal",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:operator-refusal",
+            "payload": {
+              "body": "github-devloop operator command refused: rereview requires blocked, review-meta, or stalled reviewing state\n\n<!-- fkst:github-devloop:operator-command:v1 command=\"rereview\" key=\"operator-command/IC_operator_rereview\" outcome=\"refused\" reason=\"rereview-requires-blocked--review-meta--or-stalled-reviewing-state\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "operator-command/comment/operator-command/IC_operator_rereview/refused/rereview-requires-blocked--review-meta--or-stalled-reviewing-state",
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "operator-invalid-state",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:233"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-operator-refused-pr-closed",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "refused(pr-closed)",
+        "emitted_effects": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "comment:pr:operator-refusal",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:operator-refusal",
+            "payload": {
+              "body": "github-devloop operator command refused: rereview requires an open PR\n\n<!-- fkst:github-devloop:operator-command:v1 command=\"rereview\" key=\"operator-command/IC_operator_rereview\" outcome=\"refused\" reason=\"rereview-requires-an-open-PR\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "operator-command/comment/operator-command/IC_operator_rereview/refused/rereview-requires-an-open-PR",
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "operator-pr-closed",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:260"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-operator-rereview-applied",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(operator-rereview)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:operator-rereview",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:operator-rereview",
+            "payload": {
+              "body": "github-devloop operator command accepted: rereview\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"reviewing\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1/rereview/1/def456\" stage_rank=\"675\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000675\" -->\n<!-- fkst:github-devloop:operator-command:v1 command=\"rereview\" key=\"operator-command/IC_operator_rereview\" outcome=\"applied\" reason=\"rereview\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "operator-command/comment/operator-command/IC_operator_rereview/applied/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1/rereview/1/def456",
+              "handoff": {
+                "kind": "github-devloop.reviewing",
+                "pr_number": 7,
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1/rereview/1/def456"
+              },
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "operator-rereview",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reviewing"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:515"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-skip-branch-facts-missing",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-foreign(pr)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "branch-facts-missing",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:500"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-skip-foreign-payload",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "bad",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-foreign(pr)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "skip-foreign(pr)",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "unsupported.pr.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "bad"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": null
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:528"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-skip-origin-base-mismatch",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-foreign(base)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "origin-base-mismatch",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/observe_pr/main.lua:528"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_observe_pr"
+        }
+      ],
+      "observation_id": "receiver-activation-observe-pr-skip-origin-head-mismatch",
+      "old_inputs": {
+        "caller_from_states": [
+          "observed-pr"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "owner/repo#pr#7@2026-06-03T02:03:04Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-foreign(head)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "origin-head-mismatch",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_observe_pr",
+        "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-proxy.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "owner/repo#pr#7@2026-06-03T02:03:04Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": null,
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_observe_pr",
+        "source_state": "observed-pr",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:249"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-admitted-block",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "codex.dispatch:review-meta",
+            "ordinal": 1,
+            "sink_kind": "codex"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:review-meta-result",
+            "ordinal": 2,
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "label:issue:review-meta-result",
+            "ordinal": 3,
+            "sink_kind": "label"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "adapter_call": {
+              "kind": "codex",
+              "proposal_id": "github-devloop/issue/owner/repo/42",
+              "role": "review-meta",
+              "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+            },
+            "effect_id": "codex.dispatch:review-meta"
+          },
+          {
+            "effect_id": "comment:pr:review-meta-result",
+            "payload": {
+              "body": "github-devloop review-meta action: block\n\nReason:\nReceiver activation decision.\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"blocked\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1\" stage_rank=\"800\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000800\" -->\n<!-- fkst:github-devloop:review-meta:v1 proposal=\"github-devloop/issue/owner/repo/42\" dedup=\"review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2\" action=\"block\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1\" -->",
+              "dedup_key": "review-meta/comment/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          },
+          {
+            "effect_id": "label:issue:review-meta-result",
+            "payload": {
+              "add_labels": [
+                "fkst-dev:blocked"
+              ],
+              "dedup_key": "review-meta/label/block/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "issue_number": "42",
+              "label_colors": {
+                "fkst-dev:blocked": "1B1F23"
+              },
+              "remove_labels": [
+                "fkst-dev:thinking",
+                "fkst-dev:ready",
+                "fkst-dev:implementing",
+                "fkst-dev:pr-open",
+                "fkst-dev:reviewing",
+                "fkst-dev:merge-ready",
+                "fkst-dev:fixing",
+                "fkst-dev:impl-failed",
+                "fkst-dev:declined",
+                "fkst-dev:review-meta",
+                "fkst-dev:merging",
+                "fkst-dev:merged",
+                "fkst-dev:awaiting-pr"
+              ],
+              "repo": "owner/repo",
+              "schema": "github-proxy.label.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              },
+              "target_kind": "issue",
+              "target_number": "42"
+            },
+            "queue": "github-proxy.github_issue_label_request"
+          }
+        ],
+        "reason_code": "admitted-block",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "blocked"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:249"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-admitted-fix",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "codex.dispatch:review-meta",
+            "ordinal": 1,
+            "sink_kind": "codex"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:review-meta-result",
+            "ordinal": 2,
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "label:issue:review-meta-result",
+            "ordinal": 3,
+            "sink_kind": "label"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "adapter_call": {
+              "kind": "codex",
+              "proposal_id": "github-devloop/issue/owner/repo/42",
+              "role": "review-meta",
+              "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+            },
+            "effect_id": "codex.dispatch:review-meta"
+          },
+          {
+            "effect_id": "comment:pr:review-meta-result",
+            "payload": {
+              "body": "github-devloop review-meta action: fix\n\nReason:\nReceiver activation decision.\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"fixing\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1\" stage_rank=\"700\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000700\" -->\n<!-- fkst:github-devloop:review-meta:v1 proposal=\"github-devloop/issue/owner/repo/42\" dedup=\"review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2\" action=\"fix\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1\" gap=\"missing receiver activation evidence\" -->",
+              "dedup_key": "review-meta/comment/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "handoff": {
+                "blocking_gap": "missing receiver activation evidence",
+                "kind": "github-devloop.fixing",
+                "pr_number": 7,
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "repair_input": "review-feedback",
+                "review_dedup_key": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2",
+                "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+                "reviewed_head_sha": "def456",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1"
+              },
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          },
+          {
+            "effect_id": "label:issue:review-meta-result",
+            "payload": {
+              "add_labels": [
+                "fkst-dev:fixing"
+              ],
+              "dedup_key": "review-meta/label/fix/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "issue_number": "42",
+              "label_colors": {
+                "fkst-dev:fixing": "D93F0B"
+              },
+              "remove_labels": [
+                "fkst-dev:thinking",
+                "fkst-dev:ready",
+                "fkst-dev:implementing",
+                "fkst-dev:pr-open",
+                "fkst-dev:reviewing",
+                "fkst-dev:merge-ready",
+                "fkst-dev:impl-failed",
+                "fkst-dev:declined",
+                "fkst-dev:blocked",
+                "fkst-dev:review-meta",
+                "fkst-dev:merging",
+                "fkst-dev:merged",
+                "fkst-dev:awaiting-pr"
+              ],
+              "repo": "owner/repo",
+              "schema": "github-proxy.label.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              },
+              "target_kind": "issue",
+              "target_number": "42"
+            },
+            "queue": "github-proxy.github_issue_label_request"
+          }
+        ],
+        "reason_code": "admitted-fix",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "fixing"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:166"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-claim-not-acquired",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-claimed-by-other",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "claim-not-acquired",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:247"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-codex-deferred",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "codex.dispatch:review-meta",
+            "ordinal": 1,
+            "sink_kind": "codex"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "adapter_call": {
+              "kind": "codex",
+              "proposal_id": "github-devloop/issue/owner/repo/42",
+              "role": "review-meta",
+              "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+            },
+            "effect_id": "codex.dispatch:review-meta"
+          }
+        ],
+        "reason_code": "codex-deferred",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "defer"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:242"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-live-exec-deferred",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-idempotent(live-exec-ref)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "live-exec-ref",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "defer"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:220"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-skip-advanced-or-diverged",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-advanced-or-diverged",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "advanced-or-diverged",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:154"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-skip-foreign-payload",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "bad",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-foreign(payload)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "skip-foreign(payload)",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "unsupported.review-meta.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "bad"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": null,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": null
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:216"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-skip-result-marker-visible",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-idempotent(review-meta marker already visible)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "result-marker-visible",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_meta/main.lua:224"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_review_meta"
+        }
+      ],
+      "observation_id": "receiver-activation-review-meta-skip-version-mismatch",
+      "old_inputs": {
+        "caller_from_states": [
+          "review-meta"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(version-mismatch)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "version-mismatch",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_review_meta",
+        "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.review-meta.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/01",
+          "effect_version": null,
+          "request_version": "review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2599093192/def456/review/loop/2"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_review_meta",
+        "source_state": "review-meta",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:102"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-admitted-verified-handoff-from-earlier-state",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": {
+          "comment_id": "IC_receiver_activation_review_pr",
+          "event_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "kind": "own-state-marker",
+          "marker_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "stage_rank": 675,
+          "state": "reviewing"
+        },
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "apply(verified-own-reviewing-hand-off)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "queue:consensus.proposal",
+            "ordinal": 1,
+            "sink_kind": "queue"
+          }
+        ],
+        "handoff_direct_lookup_count": 1,
+        "observable_writes": [
+          {
+            "effect_id": "queue:consensus.proposal",
+            "payload": {
+              "body": "Review the PR diff and decide whether it should advance to merge-ready.\nEntity proposal: github-devloop/issue/owner/repo/42\nReviewed PR head: def456\nIssue title: Implement decision recorder\nReview boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review.\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment.\nRead the local context bundle before judging.",
+              "content_fetch": {
+                "kind": "context-bundle",
+                "ref": "receiver-activation-review-pr"
+              },
+              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review",
+              "proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "schema": "consensus.proposal.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              },
+              "title": "Review PR #7: Implement decision recorder",
+              "verdict_mode": "gate",
+              "worktree": "."
+            },
+            "queue": "consensus.proposal"
+          }
+        ],
+        "reason_code": "verified-own-reviewing-hand-off-earlier-state",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "consensus.proposal"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:102"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-admitted-verified-handoff-from-version-mismatch",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": {
+          "comment_id": "IC_receiver_activation_review_pr",
+          "event_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
+          "kind": "own-state-marker",
+          "marker_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "stage_rank": 675,
+          "state": "reviewing"
+        },
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "apply(verified-own-reviewing-hand-off)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "queue:consensus.proposal",
+            "ordinal": 1,
+            "sink_kind": "queue"
+          }
+        ],
+        "handoff_direct_lookup_count": 1,
+        "observable_writes": [
+          {
+            "effect_id": "queue:consensus.proposal",
+            "payload": {
+              "body": "Review the PR diff and decide whether it should advance to merge-ready.\nEntity proposal: github-devloop/issue/owner/repo/42\nReviewed PR head: def456\nIssue title: Implement decision recorder\nReview boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review.\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment.\nRead the local context bundle before judging.",
+              "content_fetch": {
+                "kind": "context-bundle",
+                "ref": "receiver-activation-review-pr"
+              },
+              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2180345483/def456/review",
+              "proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2180345483/def456",
+              "schema": "consensus.proposal.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              },
+              "title": "Review PR #7: Implement decision recorder",
+              "verdict_mode": "gate",
+              "worktree": "."
+            },
+            "queue": "consensus.proposal"
+          }
+        ],
+        "reason_code": "verified-own-reviewing-hand-off",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "consensus.proposal"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:187"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-admitted-visible-marker",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "queue:consensus.proposal",
+            "ordinal": 1,
+            "sink_kind": "queue"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "queue:consensus.proposal",
+            "payload": {
+              "body": "Review the PR diff and decide whether it should advance to merge-ready.\nEntity proposal: github-devloop/issue/owner/repo/42\nReviewed PR head: def456\nIssue title: Implement decision recorder\nReview boundary: CI/mergeability/head-binding are later merge-gate facts; do not demand them in review.\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment.\nRead the local context bundle before judging.",
+              "content_fetch": {
+                "kind": "context-bundle",
+                "ref": "receiver-activation-review-pr"
+              },
+              "dedup_key": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review",
+              "proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "schema": "consensus.proposal.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              },
+              "title": "Review PR #7: Implement decision recorder",
+              "verdict_mode": "gate",
+              "worktree": "."
+            },
+            "queue": "consensus.proposal"
+          }
+        ],
+        "reason_code": "admitted-proceed",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "consensus.proposal"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:181"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-cannot-build-valid-proposal",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "cannot-build-valid-review-proposal",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "cannot-build-valid-review-proposal",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:151"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-claim-not-acquired",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-claimed-by-other",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "claim-not-acquired",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:121"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-skip-advanced-or-diverged",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale/diverged",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "advanced-or-diverged",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:58"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-skip-foreign-payload",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "bad",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-foreign(payload)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "skip-foreign(payload)",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "unsupported.reviewing.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "bad"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": null,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": null
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:134"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-skip-pr-closed",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(pr-closed)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "pr-closed",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:113"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-skip-version-mismatch",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(version-mismatch)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "version-mismatch",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:113"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_reviewing"
+        }
+      ],
+      "observation_id": "receiver-activation-review-pr-skip-version-mismatch-invalid-handoff",
+      "old_inputs": {
+        "caller_from_states": [
+          "reviewing"
+        ],
+        "current_fact": {},
+        "handoff_reference": {
+          "comment_id": "IC_receiver_activation_review_pr",
+          "event_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
+          "kind": "own-state-marker",
+          "marker_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "stage_rank": 675,
+          "state": "reviewing"
+        },
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(version-mismatch)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 1,
+        "observable_writes": [],
+        "reason_code": "version-mismatch-invalid-handoff",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_reviewing",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.reviewing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z/7"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_reviewing",
+        "source_state": "reviewing",
+        "target": "reject"
+      }
     }
   ],
   "old_pending_projection": {
@@ -23414,12 +26029,6 @@
       "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
       "site_id": "acceptor:github-devloop-pr:review-meta",
       "symbol": "pipeline"
-    },
-    {
-      "ordinal": "consumes:devloop_merge_ready",
-      "path": "packages/github-devloop-pr/departments/merge/main.lua",
-      "site_id": "acceptor:github-devloop-pr:merge",
-      "symbol": "pipeline"
     }
   ],
   "row_replay_sites": [
@@ -23550,30 +26159,6 @@
       "path": "packages/github-devloop/departments/observe_issue/main.lua",
       "site_id": "intent:github-devloop:observe-issue-decompose",
       "symbol": "process_issue_event",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "receiver_activation_acceptors",
-      "ordinal": "consumes:devloop_observe_pr",
-      "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
-      "site_id": "acceptor:github-devloop-pr:observe-pr",
-      "symbol": "pipeline",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "receiver_activation_acceptors",
-      "ordinal": "consumes:devloop_reviewing",
-      "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
-      "site_id": "acceptor:github-devloop-pr:review-pr",
-      "symbol": "pipeline",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "receiver_activation_acceptors",
-      "ordinal": "consumes:devloop_review_meta",
-      "path": "packages/github-devloop-pr/departments/review_meta/main.lua",
-      "site_id": "acceptor:github-devloop-pr:review-meta",
-      "symbol": "pipeline",
       "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
     },
     {
