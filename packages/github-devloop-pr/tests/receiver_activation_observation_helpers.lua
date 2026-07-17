@@ -1,12 +1,16 @@
 local github_fake = require("forge.github_fake")
 local git_fake = require("forge.git_fake")
+local git_adapter = require("forge.git")
 local github_factory = require("devloop.github_factory")
+local command_support = require("devloop.commands.support")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
 local sink_inventory = require("core.restart.sink_inventory")
 
 local M = {}
 local active_ports = nil
 local production_github_handle = github_factory.production_handle
+local production_git_handle = command_support.git
+local production_git_adapter_handle = git_adapter.production_handle
 local github_port_proxy = setmetatable({}, {
   __index = function(_, key)
     return function(...)
@@ -21,6 +25,12 @@ local github_port_proxy = setmetatable({}, {
 })
 github_factory.production_handle = function()
   return github_port_proxy
+end
+command_support.git = function()
+  return active_ports and active_ports.git or production_git_handle()
+end
+git_adapter.production_handle = function(context)
+  return active_ports and active_ports.git or production_git_adapter_handle(context)
 end
 
 M.JSON_NULL = observation_support.JSON_NULL
@@ -197,9 +207,9 @@ function M.record(opts)
     observation_id = opts.prefix .. fixture.disposition,
     owner = "github-devloop-pr",
     site = M.copy_value(opts.site),
-    boundary = "receiver_activation",
+    boundary = opts.boundary or "receiver_activation",
     typed_intent = {
-      kind = "receiver_activation",
+      kind = opts.boundary or "receiver_activation",
       source_state = opts.source_state,
       source_boundary = opts.event.queue,
       target = fixture.target,
@@ -233,7 +243,8 @@ function M.record(opts)
       timeout_evidence_source = M.JSON_NULL,
     },
     evidence_refs = M.json_array({
-      { kind = "runtime-receiver-activation", ref = (opts.evidence_path or opts.site.path) .. ":" .. tostring(fixture.source_line) },
+      { kind = opts.boundary == "entry_acceptor" and "runtime-entry-acceptor" or "runtime-receiver-activation",
+        ref = (opts.evidence_path or opts.site.path) .. ":" .. tostring(fixture.source_line) },
       { kind = "runtime-event-source", ref = opts.event.queue },
     }),
   }
@@ -270,13 +281,22 @@ local function assert_same_set(actual, expected, actual_label, expected_label)
 end
 
 function M.assert_site(t, opts)
+  local boundary_label = opts.boundary or "receiver_activation"
   local first = M.json_array()
   local second = M.json_array()
-  for _, fixture in ipairs(opts.fixtures) do table.insert(first, opts.capture(fixture)) end
-  for _, fixture in ipairs(opts.fixtures) do table.insert(second, opts.capture(fixture)) end
+  for _, fixture in ipairs(opts.fixtures) do
+    local ok, record = pcall(opts.capture, fixture)
+    if not ok then error(tostring(fixture.disposition) .. ": " .. tostring(record), 0) end
+    table.insert(first, record)
+  end
+  for _, fixture in ipairs(opts.fixtures) do
+    local ok, record = pcall(opts.capture, fixture)
+    if not ok then error(tostring(fixture.disposition) .. " repeat: " .. tostring(record), 0) end
+    table.insert(second, record)
+  end
   table.sort(first, function(a, b) return a.observation_id < b.observation_id end)
   table.sort(second, function(a, b) return a.observation_id < b.observation_id end)
-  local repeat_difference = M.first_difference(second, first, "receiver_activation[repeat]")
+  local repeat_difference = M.first_difference(second, first, boundary_label .. "[repeat]")
   if repeat_difference or M.canonical_json(second) ~= M.canonical_json(first) then
     error(opts.dept .. " repeated capture differs at " .. tostring(repeat_difference or "canonical-json"), 0)
   end
@@ -290,19 +310,19 @@ function M.assert_site(t, opts)
   end
   table.sort(committed, function(a, b) return a.observation_id < b.observation_id end)
   if #committed == 0 then
-    error("missing committed receiver activation records; runtime_records=" .. M.canonical_json(first), 0)
+    error("missing committed " .. boundary_label .. " records; runtime_records=" .. M.canonical_json(first), 0)
   end
   local runtime_set = tuple_set(first, function(record) return tuple_from_record(record, opts.prefix) end, "runtime")
   local fixture_set = tuple_set(opts.fixtures, tuple_from_fixture, "fixture")
   local inventory_set = tuple_set(committed, function(record) return tuple_from_record(record, opts.prefix) end, "inventory")
   assert_same_set(runtime_set, fixture_set, "runtime", "fixture")
   assert_same_set(runtime_set, inventory_set, "runtime", "inventory")
-  local inventory_difference = M.first_difference(first, committed, "receiver_activation[" .. opts.dept .. "]")
+  local inventory_difference = M.first_difference(first, committed, boundary_label .. "[" .. opts.dept .. "]")
   if inventory_difference or M.canonical_json(first) ~= M.canonical_json(committed) then
     error("runtime-bound OLD " .. opts.dept .. " differs at "
       .. tostring(inventory_difference or "canonical-json") .. "; runtime_records=" .. M.canonical_json(first), 0)
   end
-  t.eq(#first, #opts.fixtures, opts.dept .. ": complete receiver activation disposition count")
+  t.eq(#first, #opts.fixtures, opts.dept .. ": complete " .. boundary_label .. " disposition count")
 end
 
 return M
