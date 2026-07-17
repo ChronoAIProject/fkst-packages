@@ -3,13 +3,16 @@ local core = require("core")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
+local github_fake = require("forge.github_fake")
 local h = require("tests.devloop_helpers")
 local forks = require("devloop.forks")
 local m_claims = require("devloop.claims")
 local m_mq = require("devloop.merge_queue")
 local observation_support = require("testkit.old_behavior_observation_support")
 local replayer = require("devloop.replayer")
+local sink_inventory = require("core.restart.sink_inventory")
 local testing = require("testkit.testing")
+local devloop_commands = require("devloop.commands")
 local implement_department = require("departments.implement.main")
 local observe_issue_department = require("departments.observe_issue.main")
 
@@ -52,44 +55,48 @@ local PREFIXES = {
   implement = "receiver-activation-implement-",
 }
 
-local EFFECTS = {
+local EFFECT_ROUTES = {
   ["comment:issue:dependency-canonicalization"] = {
     queue = "github-proxy.github_issue_comment_request",
-    effect_id = "comment:issue:dependency-canonicalization",
-    sink_kind = "comment",
-    authority_class = "lifecycle-authoritative",
   },
   ["label:issue:dependency-canonicalization"] = {
     queue = "github-proxy.github_issue_label_request",
-    effect_id = "label:issue:dependency-canonicalization",
-    sink_kind = "label",
-    authority_class = "lifecycle-authoritative",
   },
   ["comment:issue:duplicate-slice"] = {
     queue = "github-proxy.github_issue_comment_request",
-    effect_id = "comment:issue:duplicate-slice",
-    sink_kind = "comment",
-    authority_class = "grantless-non-lifecycle",
   },
   ["label:issue:duplicate-slice"] = {
     queue = "github-proxy.github_issue_label_request",
-    effect_id = "label:issue:duplicate-slice",
-    sink_kind = "label",
-    authority_class = "grantless-non-lifecycle",
+  },
+  ["adapter:github.issue-close-duplicate-slice"] = {
+    adapter_context = "gh issue close",
   },
   ["comment:issue:duplicate-fork"] = {
     queue = "github-proxy.github_issue_comment_request",
-    effect_id = "comment:issue:duplicate-fork",
-    sink_kind = "comment",
-    authority_class = "grantless-non-lifecycle",
   },
   ["label:issue:duplicate-fork"] = {
     queue = "github-proxy.github_issue_label_request",
-    effect_id = "label:issue:duplicate-fork",
-    sink_kind = "label",
-    authority_class = "grantless-non-lifecycle",
+  },
+  ["adapter:github.issue-close-duplicate-fork"] = {
+    adapter_context = "gh issue close",
   },
 }
+
+local function inventory_effect(effect_id)
+  local selected = nil
+  for _, effect in ipairs(sink_inventory) do
+    if effect.id == effect_id and effect.callsite and effect.callsite.department == "implement" then
+      if selected ~= nil then
+        error("duplicate implement sink inventory effect: " .. tostring(effect_id), 0)
+      end
+      selected = effect
+    end
+  end
+  if selected == nil then
+    error("missing implement sink inventory effect: " .. tostring(effect_id), 0)
+  end
+  return selected
+end
 
 local OBSERVE_FIXTURES = json_array({
   {
@@ -195,7 +202,9 @@ local IMPLEMENT_FIXTURES = json_array({
     expected_effect_ids = json_array({
       "comment:issue:duplicate-slice",
       "label:issue:duplicate-slice",
+      "adapter:github.issue-close-duplicate-slice",
     }),
+    adapter_effect_id = "adapter:github.issue-close-duplicate-slice",
   },
   {
     disposition = "skip-fork-backing-closed",
@@ -218,7 +227,9 @@ local IMPLEMENT_FIXTURES = json_array({
     expected_effect_ids = json_array({
       "comment:issue:duplicate-fork",
       "label:issue:duplicate-fork",
+      "adapter:github.issue-close-duplicate-fork",
     }),
+    adapter_effect_id = "adapter:github.issue-close-duplicate-fork",
   },
   {
     disposition = "dependency-gate-held",
@@ -381,27 +392,54 @@ local function prepare_implement_fixture(fixture, payload)
   end
 end
 
-local function captured_effects(raises, dept, fixture)
+local function captured_effects(raises, captured, dept, fixture)
   local emitted = json_array()
   local writes = json_array()
-  for ordinal, raised in ipairs(raises or {}) do
+  local raise_index = 0
+  local adapter_index = 0
+  local sequence = captured.effect_sequence or json_array()
+  local adapter_writes = captured.adapter_writes or json_array()
+  for ordinal, effect in ipairs(sequence) do
     local effect_id = fixture.expected_effect_ids and fixture.expected_effect_ids[ordinal]
-    local shape = effect_id and EFFECTS[effect_id]
-    if dept ~= "implement" or shape == nil or shape.queue ~= raised.queue then
-      error("unclassified " .. tostring(dept) .. " receiver activation OLD raise: " .. tostring(raised.queue), 0)
+    local route = effect_id and EFFECT_ROUTES[effect_id]
+    local inventory = effect_id and inventory_effect(effect_id)
+    if dept ~= "implement" or route == nil or inventory == nil then
+      error("unclassified " .. tostring(dept) .. " receiver activation OLD effect", 0)
     end
     table.insert(emitted, {
-      effect_id = shape.effect_id,
-      sink_kind = shape.sink_kind,
-      authority_class = shape.authority_class,
+      effect_id = inventory.id,
+      sink_kind = inventory.effect_kind,
+      authority_class = inventory.authority_class,
       ordinal = ordinal,
     })
-    table.insert(writes, {
-      effect_id = shape.effect_id,
-      queue = raised.queue,
-      payload = copy_value(raised.payload),
-    })
+    if effect.kind == "raise" then
+      raise_index = raise_index + 1
+      local raised = raises[raise_index]
+      if route.queue == nil or raised == nil or route.queue ~= raised.queue or effect.queue ~= raised.queue then
+        error("unclassified " .. tostring(dept) .. " receiver activation OLD raise: " .. tostring(raised and raised.queue), 0)
+      end
+      table.insert(writes, {
+        effect_id = inventory.id,
+        queue = raised.queue,
+        payload = copy_value(raised.payload),
+      })
+    elseif effect.kind == "adapter" then
+      adapter_index = adapter_index + 1
+      local adapter_write = adapter_writes[adapter_index]
+      if effect.effect_id ~= effect_id or route.adapter_context == nil or adapter_write == nil
+        or adapter_write.kind ~= "exec" or adapter_write.context ~= route.adapter_context then
+        error("unclassified " .. tostring(dept) .. " receiver activation OLD adapter effect", 0)
+      end
+      table.insert(writes, {
+        effect_id = inventory.id,
+        adapter_call = copy_value(adapter_write),
+      })
+    else
+      error("unknown receiver activation OLD effect kind: " .. tostring(effect.kind), 0)
+    end
   end
+  t.eq(raise_index, #(raises or {}), fixture.disposition .. ": all raises classified")
+  t.eq(adapter_index, #adapter_writes, fixture.disposition .. ": all adapter writes classified")
   return emitted, writes
 end
 
@@ -465,10 +503,32 @@ local function capture_implement(fixture)
   local restorations = {}
   local decisions = json_array()
   local lock_calls = json_array()
+  local effect_sequence = json_array()
+  local github_model = github_fake.model()
+  local github = github_fake.new(github_model)
+  local original_read_env = config.read_env
+  local original_log_raise = devloop_logging.log_raise
   replace(config, "branch_config", function()
     return { upstream = "dev", integration = "integration-test" }
   end, restorations)
+  replace(config, "read_env", function(name, ...)
+    if name == "FKST_GITHUB_WRITE" then
+      return fixture.adapter_effect_id and "1" or nil
+    end
+    return original_read_env(name, ...)
+  end, restorations)
   replace(m_claims, "managed_bot_logins", function() return { "fkst-test-bot" } end, restorations)
+  replace(devloop_logging, "log_raise", function(dept, proposal_id, raised_queue, raised_payload)
+    if dept == "implement" then
+      table.insert(effect_sequence, { kind = "raise", queue = raised_queue })
+    end
+    return original_log_raise(dept, proposal_id, raised_queue, raised_payload)
+  end, restorations)
+  replace(devloop_commands, "gh_issue_close", function(repo, issue_number, timeout)
+    local result = github.issue_close(repo, issue_number, timeout)
+    table.insert(effect_sequence, { kind = "adapter", effect_id = fixture.adapter_effect_id })
+    return result
+  end, restorations)
   replace(core, "dependency_gate", function()
     if fixture.dependency_held then
       return { ok = false, kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
@@ -497,7 +557,12 @@ local function capture_implement(fixture)
   local selected = decisions[#decisions]
   t.is_true(selected ~= nil, fixture.disposition .. ": admission decision is observable")
   t.eq(selected.outcome, fixture.cas, fixture.disposition .. ": exact admission mapping")
-  return event, result, { decisions = decisions, lock_calls = lock_calls }
+  return event, result, {
+    decisions = decisions,
+    lock_calls = lock_calls,
+    effect_sequence = effect_sequence,
+    adapter_writes = copy_value(github_model.writes),
+  }
 end
 
 local function build_record(dept, fixture)
@@ -507,7 +572,7 @@ local function build_record(dept, fixture)
   else
     event, result, captured = capture_implement(fixture)
   end
-  local emitted_effects, observable_writes = captured_effects(result.raises, dept, fixture)
+  local emitted_effects, observable_writes = captured_effects(result.raises, captured, dept, fixture)
   local expected_effect_ids = fixture.expected_effect_ids or json_array()
   t.eq(canonical_json(effect_ids(emitted_effects)), canonical_json(expected_effect_ids), fixture.disposition .. ": exact effect set")
   local current_version = nil

@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "96abae16c4f0020365a844174668192d7b4ad028eb8618d48934bdbfb8fe4b93",
+  "artifact_sha256": "48bf25b61d5b157b3548a75423bee59fade49081e56a305041b5e6e5ca6627c4",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -997,6 +997,12 @@
             "effect_id": "label:issue:duplicate-fork",
             "ordinal": 2,
             "sink_kind": "label"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "adapter:github.issue-close-duplicate-fork",
+            "ordinal": 3,
+            "sink_kind": "adapter"
           }
         ],
         "handoff_direct_lookup_count": 0,
@@ -1049,6 +1055,22 @@
               "target_number": "42"
             },
             "queue": "github-proxy.github_issue_label_request"
+          },
+          {
+            "adapter_call": {
+              "argv": [
+                "gh",
+                "issue",
+                "close",
+                "42",
+                "--repo",
+                "owner/repo"
+              ],
+              "context": "gh issue close",
+              "kind": "exec",
+              "timeout": 30
+            },
+            "effect_id": "adapter:github.issue-close-duplicate-fork"
           }
         ],
         "reason_code": "skip-noncanonical-fork",
@@ -1131,6 +1153,12 @@
             "effect_id": "label:issue:duplicate-slice",
             "ordinal": 2,
             "sink_kind": "label"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "adapter:github.issue-close-duplicate-slice",
+            "ordinal": 3,
+            "sink_kind": "adapter"
           }
         ],
         "handoff_direct_lookup_count": 0,
@@ -1183,6 +1211,22 @@
               "target_number": "42"
             },
             "queue": "github-proxy.github_issue_label_request"
+          },
+          {
+            "adapter_call": {
+              "argv": [
+                "gh",
+                "issue",
+                "close",
+                "42",
+                "--repo",
+                "owner/repo"
+              ],
+              "context": "gh issue close",
+              "kind": "exec",
+              "timeout": 30
+            },
+            "effect_id": "adapter:github.issue-close-duplicate-slice"
           }
         ],
         "reason_code": "skip-noncanonical-slice",
