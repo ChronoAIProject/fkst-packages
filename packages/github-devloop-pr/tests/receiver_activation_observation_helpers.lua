@@ -156,11 +156,13 @@ function M.capture_logging(dept, devloop_logging, restorations)
   local captured = {
     decisions = M.json_array(),
     applies = M.json_array(),
+    gates = M.json_array(),
     effect_sequence = M.json_array(),
   }
   local original_decision = devloop_logging.log_cas_decision
   local original_apply = devloop_logging.log_apply
   local original_raise = devloop_logging.log_raise
+  local original_line = devloop_logging.log_line
   M.replace(devloop_logging, "log_cas_decision", function(actual_dept, proposal_id, current, from_state, to_state, outcome, reason)
     if actual_dept == dept then
       table.insert(captured.decisions, {
@@ -189,6 +191,17 @@ function M.capture_logging(dept, devloop_logging, restorations)
   M.replace(devloop_logging, "log_raise", function(actual_dept, proposal_id, queue, payload)
     if actual_dept == dept then table.insert(captured.effect_sequence, { kind = "raise", queue = queue }) end
     return original_raise(actual_dept, proposal_id, queue, payload)
+  end, restorations)
+  M.replace(devloop_logging, "log_line", function(level, actual_dept, proposal_id, tag, fields)
+    if actual_dept == dept and tag == "GATE" then
+      local gate = { proposal_id = proposal_id }
+      for _, field in ipairs(fields or {}) do
+        local key, value = tostring(field):match("^([^=]+)=(.*)$")
+        if key ~= nil then gate[key] = value end
+      end
+      table.insert(captured.gates, gate)
+    end
+    return original_line(level, actual_dept, proposal_id, tag, fields)
   end, restorations)
   return captured
 end
