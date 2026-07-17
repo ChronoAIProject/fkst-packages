@@ -70,6 +70,16 @@ local FIXTURES = ra.json_array({
     }),
   },
   {
+    disposition = "skip-foreign-entity-mismatch", status = "rejected",
+    reason = "proposal-entity-mismatch", cas = "skip-foreign(proposal_id)",
+    decision_reason = "no transition lock key", target = "reject", source_line = 328,
+    payload = merge_payload({
+      proposal_id = "github-devloop/pr/owner/repo/8",
+      dedup_key = "merge-ready/github-devloop/pr/owner/repo/8/7/def456",
+      source_ref = { kind = "external", ref = REPO .. "#pr/8" },
+    }),
+  },
+  {
     disposition = "claim-not-acquired", status = "rejected", reason = "claim-not-acquired",
     cas = "skip-claimed-by-other", target = "reject", source_line = 335,
     current_state = "merge-ready", current_version = VERSION, claim = false,
@@ -247,14 +257,14 @@ local FIXTURES = ra.json_array({
   {
     disposition = "own-ci-red-before-rollup-routes-fixing", status = "admitted", reason = "own-ci-red",
     cas = "applied", target = "fixing", source_line = 535,
-    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "mergeable-unknown",
+    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
     ci_merge_reason = "own-ci-red", classification_red = true,
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
     disposition = "own-ci-reclassified-external-holds", status = "rejected", reason = "external-ci-red",
     cas = "hold", target = "hold", source_line = 126,
-    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "mergeable-unknown",
+    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
     ci_merge_reason = "own-ci-red", classification_external = true, expected_error = "merge-ci-wait",
     effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
   },
@@ -263,12 +273,6 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "fixing", source_line = 564,
     current_state = "merge-ready", current_version = VERSION, rollup_reason = "rollup-red",
     classification_red = true,
-    effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
-  },
-  {
-    disposition = "own-ci-red-rollup-routes-fixing", status = "admitted", reason = "own-ci-red-rollup",
-    cas = "applied", target = "fixing", source_line = 588,
-    current_state = "merge-ready", current_version = VERSION, rollup_reason = "own-ci-red",
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
@@ -648,7 +652,11 @@ local function capture(fixture)
   end
   local selected = nil
   for _, decision in ipairs(captured.decisions) do
-    if decision.outcome == fixture.cas then selected = decision break end
+    if decision.outcome == fixture.cas
+      and (fixture.decision_reason == nil or decision.reason == fixture.decision_reason) then
+      selected = decision
+      break
+    end
   end
   for _, gate in ipairs(captured.gates or {}) do
     if gate.outcome == fixture.cas then selected = { outcome = gate.outcome } break end
