@@ -651,8 +651,17 @@ board_one() { # $1 name, $2 stale_hours
   echo "supervise: $([ -n "$p" ] && echo "pid $p up $(ps -o etime= -p $p 2>/dev/null|tr -d ' ')" || echo 'NOT RUNNING locally') | graphql $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
   local openpr; openpr=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|.head.ref' 2>/dev/null | grep -oE '/[0-9]+/' | tr -d '/' | sort -u)
   echo "── PRs (active work · CI · recency) ──"
-  gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null | \
-  while IFS=$'\t' read -r num sha upd base title; do
+  # Capture + check gh's exit status so a REST failure (e.g. the HTML 503 page GitHub serves
+  # during an outage, which makes `--jq` error and gh exit non-zero) FAILS LOUD instead of the
+  # old `2>/dev/null | while` swallowing it into a silently-EMPTY section — an empty board is
+  # indistinguishable from "all resolved" (real blind spot hit during the 2026-07-17 REST outage).
+  local pr_rows pr_rc
+  pr_rows=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|"\(.number)\t\(.head.sha[0:8])\t\(.updated_at)\t\(.base.ref)\t\(.title[0:42])"' 2>/dev/null); pr_rc=$?
+  if [ "$pr_rc" -ne 0 ]; then
+    echo "  ⚠ BOARD FETCH FAILED (pulls: gh api exit $pr_rc) — GitHub REST likely down; cross-check: gh pr list --repo $REPO --state open"
+  else
+  printf '%s\n' "$pr_rows" | while IFS=$'\t' read -r num sha upd base title; do
+    [ -z "$num" ] && continue
     local chk a flow; chk=$(gh api "repos/$REPO/commits/$sha/check-runs" --jq '[.check_runs[]|select(.name|test("CodeQL")|not)|.conclusion//.status]|join(",")' 2>/dev/null)
     a=$(( (now - $(epoch_utc "$upd")) / 3600 ))
     if   echo "$chk"|grep -qE 'failure|cancelled'; then flow="⚠ CI-RED"
@@ -661,9 +670,15 @@ board_one() { # $1 name, $2 stale_hours
     else flow="✓ flowing ${a}h"; fi
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
   done
+  fi
   echo "── issues (by fkst-dev state) ──"
-  gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updated_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null | \
-  while IFS=$'\t' read -r num upd label title; do
+  local issue_rows issue_rc
+  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updated_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
+  if [ "$issue_rc" -ne 0 ]; then
+    echo "  ⚠ BOARD FETCH FAILED (issues: gh api exit $issue_rc) — GitHub REST likely down; cross-check: gh issue list --repo $REPO --state open"
+  else
+  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num upd label title; do
+    [ -z "$num" ] && continue
     local a st cls workflow_fact; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
     if [ "$label" = "__fkst_dashboard__" ]; then
       # fkst-dashboard is an intentionally long-lived tracked surface (intake decision=track), not pipeline work — never STRANDED
@@ -681,6 +696,7 @@ board_one() { # $1 name, $2 stale_hours
     fi
     printf "  #%-4s [%-12s] %s\n" "$num" "$st" "$cls"
   done
+  fi
   echo ""
 }
 
