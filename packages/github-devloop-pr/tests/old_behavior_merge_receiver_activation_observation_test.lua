@@ -24,6 +24,7 @@ local PR_NUMBER = 7
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local OTHER_VERSION = VERSION .. "/review-loop/2"
+local FIX_VERSION = VERSION .. "/fix/1"
 local HEAD_SHA = "def456"
 local OTHER_HEAD = "fed789"
 local BRANCH = "devloop-owner-repo-42-01HY"
@@ -45,11 +46,27 @@ local function merge_payload(extra)
   return payload
 end
 
+local function merge_payload_for_fix()
+  local payload = merge_payload({ version = FIX_VERSION })
+  local review_id = devloop_base.pr_review_proposal_id(REPO, PR_NUMBER, FIX_VERSION, HEAD_SHA)
+  payload.review_proposal_id = review_id
+  payload.review_dedup_key = "consensus:" .. review_id .. "/review"
+  return payload
+end
+
 local FIXTURES = ra.json_array({
   {
     disposition = "skip-foreign-payload", status = "rejected", reason = "skip-foreign(payload)",
     cas = "skip-foreign(payload)", target = "reject", source_line = 725,
     payload = { schema = "unsupported.merge-ready.v1", proposal_id = PROPOSAL_ID, dedup_key = "bad" },
+  },
+  {
+    disposition = "skip-not-owned", status = "rejected", reason = "backing-issue-absent",
+    cas = "skip-not-owned", target = "reject", source_line = 332,
+    payload = merge_payload({
+      proposal_id = "github-devloop/pr/owner/repo/7",
+      dedup_key = "merge-ready/github-devloop/pr/owner/repo/7/7/def456",
+    }),
   },
   {
     disposition = "claim-not-acquired", status = "rejected", reason = "claim-not-acquired",
@@ -65,6 +82,16 @@ local FIXTURES = ra.json_array({
     disposition = "skip-from-state-mismatch", status = "rejected", reason = "from-state-mismatch",
     cas = "skip-stale(from-state-mismatch)", target = "reject", source_line = 352,
     current_state = "fixing", current_version = VERSION,
+  },
+  {
+    disposition = "skip-advanced-or-diverged", status = "rejected", reason = "advanced-or-diverged",
+    cas = "skip-advanced-or-diverged", target = "reject", source_line = 360,
+    current_state = "merged", current_version = VERSION,
+  },
+  {
+    disposition = "skip-incoming-version-older", status = "rejected", reason = "incoming-version-older",
+    cas = "skip-stale(incoming version < current marker version)", target = "reject", source_line = 360,
+    current_state = "merge-ready", current_version = OTHER_VERSION,
   },
   {
     disposition = "skip-version-mismatch", status = "rejected", reason = "version-mismatch",
@@ -83,6 +110,11 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, origin_base = "other-base",
   },
   {
+    disposition = "skip-pr-fact-mismatch", status = "rejected", reason = "pr-not-open",
+    cas = "skip-stale(pr-not-open)", target = "reject", source_line = 437,
+    current_state = "merge-ready", current_version = VERSION, pr_state = "CLOSED",
+  },
+  {
     disposition = "skip-external-merge", status = "rejected", reason = "external-merge-no-marker",
     cas = "skip-external-merge(no-bot-merging-marker)", target = "reject", source_line = 409,
     current_state = "merge-ready", current_version = VERSION, pr_state = "MERGED",
@@ -92,6 +124,12 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "merged", source_line = 415,
     current_state = "merging", current_version = VERSION, pr_state = "MERGED", merging_marker = true,
     effects = ra.json_array({ "comment:pr:merged-state" }),
+  },
+  {
+    disposition = "already-merged-finalization-write-disabled", status = "rejected", reason = "already-merged-write-disabled",
+    cas = "dry-run", target = "hold", source_line = 413,
+    current_state = "merging", current_version = VERSION, pr_state = "MERGED", merging_marker = true,
+    write_mode = "dry-run",
   },
   {
     disposition = "head-mismatch-merging-routes-fixing", status = "admitted", reason = "head-mismatch-merging",
@@ -122,6 +160,19 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, queue_non_head = true,
   },
   {
+    disposition = "hold-wip-cap", status = "rejected", reason = "wip-capacity-exhausted",
+    cas = "hold-wip-cap", target = "hold", source_line = 486,
+    current_state = "merge-ready", current_version = VERSION, queue_non_head = true,
+    not_mergeable = true, wip_capacity = false,
+  },
+  {
+    disposition = "speculative-predecessor-mismatch-routes-fixing", status = "admitted",
+    reason = "speculative-predecessor-mismatch", cas = "applied", target = "fixing", source_line = 469,
+    current_state = "merge-ready", current_version = FIX_VERSION, queue_non_head = true,
+    payload = merge_payload_for_fix(), speculative_predecessor = true,
+    effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
+  },
+  {
     disposition = "dry-run-write-disabled", status = "rejected", reason = "write-disabled",
     cas = "dry-run", target = "hold", source_line = 507,
     current_state = "merge-ready", current_version = VERSION, write_mode = "dry-run",
@@ -136,6 +187,34 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "fixing", source_line = 548,
     current_state = "merge-ready", current_version = VERSION, not_mergeable = true,
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
+  },
+  {
+    disposition = "fix-loop-max-rounds-routes-reconcile", status = "admitted", reason = "fix-loop-max-rounds",
+    cas = "applied(fix-loop-max-rounds)", target = "blocked", source_line = 548,
+    current_state = "merge-ready", current_version = FIX_VERSION, not_mergeable = true,
+    payload = merge_payload_for_fix(), fix_terminate = true,
+    effects = ra.json_array({
+      "queue:github-devloop-pr.devloop_fix_reconcile",
+      "queue:github-devloop-decompose.devloop_decompose",
+    }),
+  },
+  {
+    disposition = "skip-write-gate", status = "rejected", reason = "write-gate-stale",
+    cas = "skip-stale(write-gate)", target = "reject", source_line = 604,
+    current_state = "merge-ready", current_version = VERSION, write_gate_stale = true,
+  },
+  {
+    disposition = "merge-confirmation-mismatch", status = "rejected", reason = "merged-pr-fact-mismatch",
+    cas = "fail-closed(merge-confirmation)", target = "reject", source_line = 656,
+    current_state = "merge-ready", current_version = VERSION, merge_confirmation_mismatch = true,
+    expected_error = "merge-confirmation-mismatch",
+    effects = ra.json_array({ "comment:pr:merging-state", "github.merge:verified-pr" }),
+  },
+  {
+    disposition = "admitted-merge-existing-merging-marker", status = "admitted",
+    reason = "verified-merge-existing-merging-marker", cas = "applied", target = "merged", source_line = 705,
+    current_state = "merging", current_version = VERSION, merging_marker = true, merge = true,
+    effects = ra.json_array({ "github.merge:verified-pr", "comment:pr:merged-state" }),
   },
   {
     disposition = "admitted-merge", status = "admitted", reason = "verified-merge",
@@ -182,6 +261,10 @@ local function capture(fixture)
   if fixture.merging_marker then
     table.insert(comments, m_builders.merging_marker(PROPOSAL_ID, PR_NUMBER, VERSION, HEAD_SHA))
   end
+  if fixture.speculative_predecessor then
+    table.insert(comments, m_builders.merge_gate_marker(PROPOSAL_ID, PR_NUMBER, VERSION,
+      review_id, review_dedup, HEAD_SHA, "abc123", "mergeable-conflicting", "pred-a"))
+  end
   local merged = false
   local draft = fixture.draft == true
   function ports.git.fetch_branch(remote, branch, timeout)
@@ -212,13 +295,15 @@ local function capture(fixture)
   end
   local function pr_fields()
     local state = merged and "MERGED" or (fixture.pr_state or "OPEN")
+    local head_sha = fixture.current_head_sha or HEAD_SHA
+    if merged and fixture.merge_confirmation_mismatch then head_sha = OTHER_HEAD end
     return {
       repo = REPO, number = PR_NUMBER, comments = comments, head = BRANCH,
-      head_sha = fixture.current_head_sha or HEAD_SHA, base_branch = origin_base, base_sha = "abc123",
+      head_sha = head_sha, base_branch = origin_base, base_sha = "abc123",
       state = state, merged_at = state == "MERGED" and "2026-06-03T02:05:04Z" or nil,
       is_draft = draft and not merged, mergeable = fixture.not_mergeable and "CONFLICTING" or "MERGEABLE",
       merge_state = fixture.not_mergeable and "DIRTY" or "CLEAN",
-      status_check_rollup_json = '[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS","headSha":"' .. (fixture.current_head_sha or HEAD_SHA) .. '"}]',
+      status_check_rollup_json = '[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS","headSha":"' .. head_sha .. '"}]',
     }
   end
   function ports.github.issue_view(repo, number, fields, timeout)
@@ -254,9 +339,16 @@ local function capture(fixture)
     merged = true
     return { stdout = "merged\n", stderr = "", exit_code = 0 }
   end
+  local state_read_count = 0
   ra.replace(entity_lib, "current_entity_state", function()
-    return { state = fixture.current_state, version = fixture.current_version,
-      stage_rank = fixture.current_state and core.stage_rank(fixture.current_state) or nil }
+    state_read_count = state_read_count + 1
+    local state = fixture.current_state
+    local version = fixture.current_version
+    if fixture.write_gate_stale and state_read_count >= 3 then
+      state = "fixing"
+    end
+    return { state = state, version = version,
+      stage_rank = state and core.stage_rank(state) or nil }
   end, restorations)
   ra.replace(m_claims, "verify_pr_review_issue_claim", function(dept, _, _, _, proposal_id)
     if fixture.claim == false then
@@ -271,17 +363,25 @@ local function capture(fixture)
     return { proposal_id = PROPOSAL_ID, version = VERSION, pr_number = PR_NUMBER, head_sha = HEAD_SHA }, {}
   end, restorations)
   ra.replace(m_mq, "merge_queue_position", function()
-    return { is_head = false, predecessors = { 8 }, predecessor_set = "8:abc123" }, "ok"
+    return { is_head = false, predecessors = { 8 }, predecessor_set = "pred-current" }, "ok"
+  end, restorations)
+  ra.replace(m_mq, "wip_capacity_allows_start", function()
+    if fixture.wip_capacity == false then return false, "wip-capacity-exhausted" end
+    return true, "wip-capacity-available"
   end, restorations)
   ra.replace(check_runs, "pr_mergeable", function()
     if fixture.not_mergeable then return false, "merge-state-dirty" end
     return true, "mergeable"
   end, restorations)
   ra.replace(check_runs, "is_not_mergeable_reason", function(reason) return reason == "merge-state-dirty" end, restorations)
-  ra.replace(fix_rounds, "admit_merge_failure", function(_, _, current_pr, _, reason)
-    return { kind = "admit", version = VERSION .. "/fix/1", reason = reason,
-      current_pr = current_pr, ci_failure_key = nil }
-  end, restorations)
+  if fixture.fix_terminate then
+    ra.replace(config, "max_fix_rounds", function() return 1 end, restorations)
+  else
+    ra.replace(fix_rounds, "admit_merge_failure", function(_, _, current_pr, _, reason)
+      return { kind = "admit", version = VERSION .. "/fix/1", reason = reason,
+        current_pr = current_pr, ci_failure_key = nil }
+    end, restorations)
+  end
   ra.replace(core, "evaluate_ci_status_gate", function() return true, "rollup-green", {} end, restorations)
   ra.replace(core, "evaluate_ci_merge_gate", function() return true, "merge-gate-green", {} end, restorations)
   ra.replace(high_risk_merge_gate, "assert_evidence", function() return true end, restorations)
@@ -289,15 +389,21 @@ local function capture(fixture)
   ra.replace(config, "write_mode", function() return fixture.write_mode or "real" end, restorations)
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
   local department = ra.make_department(merge_module, ports, core)
-  local ok, result = pcall(testing.run_fake, department, event)
+  local runner = fixture.expected_error and testing.run_fake_expecting_failure or testing.run_fake
+  local ok, result = pcall(runner, department, event)
   ra.restore_all(restorations)
   if not ok then error(fixture.disposition .. ": " .. tostring(result), 0) end
+  if fixture.expected_error then
+    t.is_true(tostring(result.failure and result.failure.error or ""):find(fixture.expected_error, 1, true) ~= nil,
+      fixture.disposition .. ": expected failure")
+  end
   local selected = nil
   for _, decision in ipairs(captured.decisions) do
     if decision.outcome == fixture.cas then selected = decision break end
   end
   if fixture.cas == "dry-run" then selected = { outcome = "dry-run" } end
-  t.is_true(selected ~= nil, fixture.disposition .. ": observable admission decision")
+  t.is_true(selected ~= nil, fixture.disposition .. ": observable admission decision; decisions="
+    .. ra.canonical_json(captured.decisions))
   return ra.record({ dept = "merge", fixture = fixture, result = result, captured = captured, event = event,
     prefix = PREFIX, site = SITE, source_state = "merge-ready",
     evidence_path = "packages/github-devloop-pr/core/merge_executor.lua",
