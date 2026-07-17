@@ -14,6 +14,7 @@ local merge_queue = require("devloop.merge_queue")
 local payloads_builders = require("devloop.payloads.builders")
 local requests_review = require("devloop.requests.review")
 local testing = require("testkit_internal.testing")
+local transition_version = require("contract.transition_version")
 local _observation_support = require("testkit_internal.old_behavior_observation_support")
 local workflow_codex = require("workflow_internal.codex")
 local fix_module = require("departments.fix.main")
@@ -43,13 +44,13 @@ local REVIEWING_LABEL = "label:issue:fix-reviewing"
 local META_COMMENT = "comment:pr:fix-review-meta"
 local META_LABEL = "label:issue:fix-review-meta"
 local CI_ATTEMPT = "comment:pr:ci-repair-attempt"
+local FIX_RECONCILE = "queue:github-devloop-pr.devloop_fix_reconcile"
+local DECOMPOSE = "queue:github-devloop-decompose.devloop_decompose"
 
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-payload",
     cas = "skip-foreign(payload)", target = "reject", source_line = 485,
     payload = { schema = "unsupported.fixing.v1", proposal_id = PROPOSAL_ID, dedup_key = "bad" } },
-  { disposition = "skip-lock-unavailable", status = "rejected", reason = "lock-key-unavailable",
-    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 503, no_lock = true },
   { disposition = "skip-already-reviewing", status = "rejected", reason = "already-reviewing-marker",
     cas = "skip-idempotent(already at to_state)", target = "reject", source_line = 520,
     current_state = "reviewing", target_marker = true },
@@ -111,6 +112,18 @@ local FIXTURES = ra.json_array({
     cas = "admitted(ci-repair-attempt)", target = "fixing", source_line = 426,
     repair_input = "ci-failure", codex = "no-fix", ci_red = true,
     effects = ra.json_array({ CODEX, CI_ATTEMPT }) },
+  { disposition = "own-ci-cleared-routes-reviewing", status = "admitted", reason = "own-ci-cleared",
+    cas = "applied", target = "reviewing", source_line = 349,
+    repair_input = "ci-failure", own_ci_cleared = true,
+    effects = ra.json_array({ REVIEWING_COMMENT, REVIEWING_LABEL }) },
+  { disposition = "max-round-no-new-head-routes-reconcile", status = "admitted",
+    reason = "max-round-no-new-head", cas = "applied(fix-loop-max-rounds)", target = "blocked",
+    source_line = 429, max_fix_rounds = true, codex = "no-new-head",
+    effects = ra.json_array({ CODEX, FIX_RECONCILE, DECOMPOSE }) },
+  { disposition = "max-round-no-fix-routes-reconcile", status = "admitted",
+    reason = "max-round-no-fix", cas = "applied(fix-loop-max-rounds)", target = "blocked",
+    source_line = 431, max_fix_rounds = true, codex = "no-fix",
+    effects = ra.json_array({ CODEX, FIX_RECONCILE, DECOMPOSE }) },
   { disposition = "existing-head-routes-reviewing", status = "admitted", reason = "existing-head",
     cas = "applied", target = "reviewing", source_line = 478, codex = "existing-head",
     branch_head = NEW_HEAD, effects = ra.json_array({ CODEX, PUSH, REVIEWING_COMMENT, REVIEWING_LABEL }) },
@@ -122,13 +135,25 @@ local FIXTURES = ra.json_array({
 local function fixing_payload(fixture)
   if fixture.payload then return ra.copy_value(fixture.payload) end
   local base = h.fixing()
-  local version = fixture.event_version or VERSION
+  local version = fixture.max_fix_rounds and h.reviewing().version or fixture.event_version or VERSION
+  if fixture.max_fix_rounds then
+    for _ = 1, config.max_fix_rounds() do
+      version = devloop_state.next_fix_version(version)
+    end
+  end
+  local review_proposal_id = base.review_proposal_id
+  local review_dedup_key = base.review_dedup_key
+  if fixture.max_fix_rounds then
+    local review_version = transition_version.safe_version_segment(core._strip_latest_fix_version_suffix(version))
+    review_proposal_id = devloop_base.pr_review_proposal_id(REPO, PR_NUMBER, review_version, HEAD_SHA)
+    review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
+  end
   local payload = payloads_builders.build_devloop_fixing_payload({
     proposal_id = PROPOSAL_ID,
     impl_version = version,
   }, PR_NUMBER, {
-    review_proposal_id = base.review_proposal_id,
-    review_dedup_key = base.review_dedup_key,
+    review_proposal_id = review_proposal_id,
+    review_dedup_key = review_dedup_key,
     reviewed_head_sha = HEAD_SHA,
     blocking_gap = "missing OLD entry observation evidence",
     predecessor_set = fixture.speculative_refix and "recorded-predecessor-set" or nil,
@@ -192,7 +217,8 @@ local function capture(fixture)
       head = BRANCH, head_sha = head_sha, base_branch = "dev", state = fixture.pr_state or "OPEN",
       head_repo = fixture.head_repo or REPO,
       status_check_rollup_json = fixture.repair_input == "ci-failure"
-        and '[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE","headSha":"def456"}]'
+        and ('[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"'
+          .. (fixture.own_ci_cleared and "SUCCESS" or "FAILURE") .. '","headSha":"def456"}]')
         or nil }), stderr = "", exit_code = 0 }
   end
   function ports.github.issue_view(repo, number, fields, timeout)
@@ -207,7 +233,8 @@ local function capture(fixture)
     })
     return {
       stdout = '{"check_runs":[{"id":101,"name":"test","status":"completed",'
-        .. '"conclusion":"failure","head_sha":"def456"}]}',
+        .. '"conclusion":"' .. (fixture.own_ci_cleared and "success" or "failure")
+        .. '","head_sha":"def456"}]}',
       stderr = "",
       exit_code = 0,
     }
@@ -225,7 +252,8 @@ local function capture(fixture)
   function ports.git.merge_no_edit() return git_result("merge_no_edit") end
   function ports.git.unmerged_paths() return git_result("unmerged_paths") end
   function ports.git.status_porcelain()
-    return git_result("status", nil, fixture.codex == "changed" and " M changed.lua\n" or "")
+    return git_result("status", nil,
+      (fixture.codex == "changed" or fixture.codex == "no-new-head") and " M changed.lua\n" or "")
   end
   function ports.git.branch_ahead_count() return git_result("branch_ahead_count", nil,
     fixture.codex == "existing-head" and "1\n" or "0\n") end
@@ -235,7 +263,9 @@ local function capture(fixture)
   function ports.git.add_all() return git_result("add_all") end
   function ports.git.commit_message() return git_result("commit") end
   function ports.git.current_branch_worktree() return git_result("current_branch", nil, BRANCH .. "\n") end
-  function ports.git.head_sha() return git_result("head_sha", nil, NEW_HEAD .. "\n") end
+  function ports.git.head_sha()
+    return git_result("head_sha", nil, (fixture.codex == "no-new-head" and HEAD_SHA or NEW_HEAD) .. "\n")
+  end
   function ports.git.push_ref_update(remote, sha, ref)
     table.insert(captured.effect_sequence, { kind = "adapter", call = { kind = "git.push", remote = remote, sha = sha, ref = ref } })
     return git_result("push_ref_update", { remote = remote, sha = sha, ref = ref })
@@ -254,7 +284,6 @@ local function capture(fixture)
     return { kind = "context-bundle", ref = "entry-fix" }
   end, restorations)
   ra.replace(dispatch_live_run, "dispatch_live_run_dedup", function() return fixture.live_run == true end, restorations)
-  if fixture.no_lock then ra.replace(entity_lib, "transition_lock_key", function() return nil end, restorations) end
   if fixture.speculative_refix then
     ra.replace(merge_queue, "merge_queue_predecessors", function()
       return {{
