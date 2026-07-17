@@ -155,15 +155,34 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, queue_empty = true,
   },
   {
+    disposition = "merge-queue-position-unavailable", status = "rejected", reason = "not-in-merge-queue",
+    cas = "hold-merge-queue", target = "hold", source_line = 466,
+    current_state = "merge-ready", current_version = VERSION,
+    queue_non_head = true, queue_position_unavailable = true,
+  },
+  {
     disposition = "hold-merge-queue-non-head", status = "rejected", reason = "merge-queue-non-head",
     cas = "hold-merge-queue", target = "hold", source_line = 494,
     current_state = "merge-ready", current_version = VERSION, queue_non_head = true,
+  },
+  {
+    disposition = "speculative-non-head-write-disabled", status = "rejected",
+    reason = "speculative-fix-write-disabled", cas = "dry-run", target = "hold", source_line = 480,
+    current_state = "merge-ready", current_version = VERSION, queue_non_head = true,
+    not_mergeable = true, write_mode = "dry-run",
   },
   {
     disposition = "hold-wip-cap", status = "rejected", reason = "wip-capacity-exhausted",
     cas = "hold-wip-cap", target = "hold", source_line = 486,
     current_state = "merge-ready", current_version = VERSION, queue_non_head = true,
     not_mergeable = true, wip_capacity = false,
+  },
+  {
+    disposition = "speculative-non-head-routes-fixing", status = "admitted",
+    reason = "speculative-not-mergeable", cas = "applied", target = "fixing", source_line = 490,
+    current_state = "merge-ready", current_version = VERSION, queue_non_head = true,
+    not_mergeable = true,
+    effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
     disposition = "speculative-predecessor-mismatch-routes-fixing", status = "admitted",
@@ -363,6 +382,7 @@ local function capture(fixture)
     return { proposal_id = PROPOSAL_ID, version = VERSION, pr_number = PR_NUMBER, head_sha = HEAD_SHA }, {}
   end, restorations)
   ra.replace(m_mq, "merge_queue_position", function()
+    if fixture.queue_position_unavailable then return nil, "not-in-merge-queue" end
     return { is_head = false, predecessors = { 8 }, predecessor_set = "pred-current" }, "ok"
   end, restorations)
   ra.replace(m_mq, "wip_capacity_allows_start", function()
