@@ -56,6 +56,7 @@ UPSTREAM_BRANCH="${FKST_DEVLOOP_UPSTREAM_BRANCH:-${UPSTREAM_BRANCH:-dev}}"
 INTEGRATION_BRANCH="${FKST_DEVLOOP_INTEGRATION_BRANCH:-${INTEGRATION_BRANCH:-integration}}"  # e.g. integration-<device> on a 2nd machine
 ROLLUP_MERGE="${FKST_DEVLOOP_ROLLUP_MERGE:-${ROLLUP_MERGE:-auto}}"
 MANAGED_BOT_LOGINS="${FKST_DEVLOOP_MANAGED_BOT_LOGINS:-${MANAGED_BOT_LOGINS:-}}"  # collaborating managed-bot logins (this device + peers); lets external-pr-intake skip our own automation
+AUTHORIZE_ORG_MEMBERS="${FKST_GITHUB_AUTHORIZE_ORG_MEMBERS:-${AUTHORIZE_ORG_MEMBERS:-0}}"  # 1 = auto-authorize every member of the repo owner's GH org into the devloop author allowlist (issue intake auto-dev + external-PR bridge); default 0 = only static FKST_GITHUB_AUTHORIZED_LOGINS. Fail-closed: if the token cannot list org members, the policy falls back to static-only.
 GITHUB_PROXY_POLL_LABEL_PREFIX="${FKST_GITHUB_PROXY_POLL_LABEL_PREFIX:-${GITHUB_PROXY_POLL_LABEL_PREFIX:-fkst-dev:}}"
 GH_ORG="${GH_ORG:-ChronoAIProject}"
 DOGFOOD_REPOS="${DOGFOOD_REPOS:-packages substrate website}"             # repos this host drives ('all' / board default expand here)
@@ -408,6 +409,7 @@ launch_one() { # $1 name, $2 restart flag (0|1)
     FKST_GITHUB_PROXY_POLL_LABEL_PREFIX="$GITHUB_PROXY_POLL_LABEL_PREFIX" \
     FKST_DEVLOOP_UPSTREAM_BRANCH="$UPSTREAM_BRANCH" FKST_DEVLOOP_INTEGRATION_BRANCH="$INTEGRATION_BRANCH" \
     FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$MANAGED_BOT_LOGINS" \
+    FKST_GITHUB_AUTHORIZE_ORG_MEMBERS="$AUTHORIZE_ORG_MEMBERS" \
     FKST_RATE_POOL_ROOT="$RATE_POOL" \
     nohup "${args[@]}" > "$log" 2>&1 &
   local pid=$!

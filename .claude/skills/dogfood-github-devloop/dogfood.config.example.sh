@@ -33,6 +33,15 @@
 # Label prefix replayed by the generic github-proxy poller for this devloop deployment.
 # GITHUB_PROXY_POLL_LABEL_PREFIX=fkst-dev:
 
+# Auto-authorize every member of the repo owner's GH org into the devloop author allowlist.
+# 1 = the pipeline treats issues/PRs authored by ANY org member as authorized (issue-intake
+# auto-development AND external-PR bridging); 0 (default) = only the static
+# FKST_GITHUB_AUTHORIZED_LOGINS list is trusted. This is a security-policy posture: it widens
+# the trust boundary to org membership. Fail-closed — if the gh token cannot list org members
+# (needs read:org), the policy falls back to static-only. Downstream merge gates (CI, branch
+# protection, PR-diff review consensus) still apply.
+# AUTHORIZE_ORG_MEMBERS=1
+
 # GitHub org owning the three repos.  default: ChronoAIProject
 # GH_ORG=ChronoAIProject
 
