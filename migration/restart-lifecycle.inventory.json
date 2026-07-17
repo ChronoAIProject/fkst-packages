@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "2e2269540763e342509d31a2fd9b3fd00e070d2232b0ffab04eb6b5503682a89",
+  "artifact_sha256": "53ed2f6fe21c93f14813e01328d4205086b23426b1e973aac29d75002300aa59",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -32759,6 +32759,2008 @@
         "source_state": "reviewing",
         "target": "merge-ready"
       }
+    },
+    {
+      "boundary": "effect_sink",
+      "evidence_refs": [
+        {
+          "kind": "source-module-export",
+          "ref": "packages/github-devloop/core/restart/sink_inventory.lua"
+        }
+      ],
+      "observation_id": "effect-sink-catalog-gd-exact-set",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "record_count": 79
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "consensus_result",
+            "effect_id": "comment:issue:result-divergence",
+            "family": "result-divergence:v1;dedup=result-divergence/logical-result",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "adapter:github.issue-close-duplicate-fork",
+            "family": "issue-close/duplicate-fork",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "adapter:github.issue-close-duplicate-slice",
+            "family": "issue-close/duplicate-slice",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "adapter:github.pr-create",
+            "family": "pr-create/head+base+issue",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "comment:issue:duplicate-fork",
+            "family": "duplicate-fork:v1;dedup=implement/duplicate-fork",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "comment:issue:duplicate-slice",
+            "family": "duplicate-slice:v1;dedup=implement/duplicate-slice",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "label:issue:duplicate-fork",
+            "family": "label:fkst:duplicate-fork;dedup=implement/duplicate-fork/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "label:issue:duplicate-slice",
+            "family": "label:fkst:duplicate-slice;dedup=implement/duplicate-slice/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.claim-label-add",
+            "family": "claim-label/add/fkst-dev:claimed",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.claim-label-remove",
+            "family": "claim-label/remove/fkst-dev:claimed",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.issue-assign",
+            "family": "assignee-claim/assign/self",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.issue-create-fork",
+            "family": "fork-issue-create:v1;dedup=fork/original",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.issue-unassign",
+            "family": "assignee-claim/unassign/self",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "comment:issue:operator-refusal",
+            "family": "operator-command:v1/refused;dedup=operator-command/refusal",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_board_digest_probe",
+            "effect_id": "queue:github-devloop.board_digest_probe",
+            "family": "test-probe/board-digest-request",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_board_digest_probe",
+            "effect_id": "queue:github-devloop.board_digest_result",
+            "family": "test-probe/board-digest-result",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_cache_seed",
+            "effect_id": "queue:github-devloop.cache_seed",
+            "family": "test-probe/cache-seed-request",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_cache_seed",
+            "effect_id": "queue:github-devloop.cache_seeded",
+            "family": "test-probe/cache-seed-result",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_context_bundle_probe",
+            "effect_id": "queue:github-devloop.context_bundle_probe",
+            "family": "test-probe/context-bundle-request",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_context_bundle_probe",
+            "effect_id": "queue:github-devloop.context_bundle_probe_result",
+            "family": "test-probe/context-bundle-result",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "observe_issue",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "all",
+            "effect_id": "adapter:structured-log",
+            "family": "structured-log:v1/dept+proposal+tag",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop.devloop_observe_issue",
+            "family": "observe-issue:v1/source-ref+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop.devloop_ready",
+            "family": "ready:v1/proposal+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop.devloop_reconcile",
+            "family": "reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "consensus_result",
+            "effect_id": "comment:issue:consensus-result",
+            "family": "state:v1+result:v1;dedup=proposal/comment/logical-result",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "consensus_result",
+            "effect_id": "comment:issue:dependency-hold",
+            "family": "dependency-wait|dependency-cycle|dependency-unresolvable:v1;dedup=dependency/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "consensus_result",
+            "effect_id": "comment:issue:dependency-release",
+            "family": "dependency-release:v1;dedup=dependency/comment/release",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "consensus_result",
+            "effect_id": "label:issue:consensus-result",
+            "family": "state-label:ready|declined;dedup=proposal/label/logical-result",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "consensus_result",
+            "effect_id": "label:issue:dependency-hold",
+            "family": "label:fkst-dev:blocked-on-dependency;dedup=dependency/label/hold",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "execute_start",
+            "effect_id": "comment:issue:thinking-state",
+            "family": "state:v1/thinking;dedup=execution-start/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "execute_start",
+            "effect_id": "label:issue:thinking-state",
+            "family": "state-label:thinking;dedup=execution-start/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "execute_start",
+            "effect_id": "queue:consensus.proposal",
+            "family": "consensus-proposal:v1/proposal+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "codex.dispatch:implement",
+            "family": "codex-run:implement/proposal+dedup+worker",
+            "sink_kind": "codex"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:awaiting-pr-state",
+            "family": "state:v1/awaiting-pr+pr-delegation:v1;dedup=awaiting-pr",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:dependency-canonicalization",
+            "family": "state:v1/dependency_wait+ready-split-canonicalized:v1",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:implementation-attempt",
+            "family": "implement-attempt:v1;dedup=implement/comment/attempt",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:implementation-failed",
+            "family": "state:v1/impl-failed+impl-failure:v1;dedup=implement/comment/failure",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:implementation-progress",
+            "family": "implementing:v1+implement-attempt:v1;dedup=implement/comment/implementing",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:implementation-start",
+            "family": "state:v1/implementing+implement-attempt:v1;dedup=implement/comment/implementing-state",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:implementation-version-mismatch",
+            "family": "implement-version-mismatch:v1;dedup=implement/comment/version-mismatch",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:issue:pr-delegation",
+            "family": "pr-delegation:v1;dedup=pr-delegation/issue",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "comment:pr:pr-child-open",
+            "family": "state:v1/pr-open+pr-origin:v1+pr-link:v1;dedup=pr-delegation/pr-open",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "git.push:implementation-branch",
+            "family": "git-push/implementation-branch/proposal+version",
+            "sink_kind": "git"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "label:issue:awaiting-pr-state",
+            "family": "state-label:awaiting-pr;dedup=awaiting-pr/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "label:issue:dependency-canonicalization",
+            "family": "label:fkst-dev:blocked-on-dependency;dedup=dependency/label/hold",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "label:issue:implementation-failed",
+            "family": "state-label:impl-failed;dedup=implement/label/impl-failed",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "implement",
+            "effect_id": "label:issue:implementation-start",
+            "family": "state-label:implementing;dedup=implement/label/implementing",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "comment:issue:row-replay",
+            "family": "restart-row-replay/issue-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "comment:pr:row-replay",
+            "family": "restart-row-replay/pr-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:consensus.proposal",
+            "family": "consensus-proposal:v1/proposal+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop.devloop_ready",
+            "family": "ready:v1/proposal+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop.devloop_reconcile",
+            "family": "reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop.devloop_timeout_reconcile",
+            "family": "timeout-reconcile:v1/proposal+state+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "loop",
+            "effect_id": "comment:issue:converge-round",
+            "family": "converge-round:v1;dedup=converge-round/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "loop",
+            "effect_id": "queue:consensus.proposal",
+            "family": "consensus-proposal:v1/proposal+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "comment:issue:dependency-waiver",
+            "family": "dependency-waiver:v1+operator-command:v1;dedup=dependency-waiver",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "comment:issue:operator-reimplement",
+            "family": "operator-command:v1/reimplement;dedup=operator-command/reimplement",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "comment:issue:operator-rereview",
+            "family": "state:v1/thinking+operator-command:v1/rereview",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "comment:issue:row-replay",
+            "family": "restart-row-replay/issue-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "comment:issue:thinking-state",
+            "family": "state:v1/thinking;dedup=proposal/comment/thinking",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "comment:pr:row-replay",
+            "family": "restart-row-replay/pr-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "label:issue:dependency-stale-clear",
+            "family": "label-remove:fkst-dev:blocked-on-dependency;dedup=dependency/label/clear-stale",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "label:issue:row-replay",
+            "family": "restart-row-replay/state-label-families",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "label:issue:thinking-state",
+            "family": "state-label:thinking;dedup=proposal/label/thinking",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "queue:consensus.proposal",
+            "family": "consensus-proposal:v1/proposal+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "queue:github-devloop.devloop_ready",
+            "family": "ready:v1/proposal+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "queue:github-devloop.devloop_reconcile",
+            "family": "reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "queue:github-devloop.devloop_timeout_reconcile",
+            "family": "timeout-reconcile:v1/proposal+state+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:issue:decompose-exhausted",
+            "family": "decompose-exhausted:v1;dedup=decompose-exhausted/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:issue:reconcile-blocked",
+            "family": "state:v1/blocked+reconcile:v1;dedup=reconcile/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:issue:timeout-adopt-open-pr",
+            "family": "state:v1/awaiting-pr+pr-delegation:v1;dedup=awaiting-pr",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:issue:timeout-adopt-pr-delegation",
+            "family": "pr-delegation:v1;dedup=pr-delegation/issue",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:issue:timeout-reconcile",
+            "family": "state:v1/blocked+timeout-reconcile:v1;dedup=timeout-reconcile/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:pr:reconcile-blocked",
+            "family": "state:v1/blocked+review-reconcile|fix-reconcile:v1",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:pr:timeout-adopt-open-pr",
+            "family": "state:v1/pr-open+pr-origin:v1+pr-link:v1;dedup=pr-delegation/pr-open",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "label:issue:reconcile-blocked",
+            "family": "state-label:blocked;dedup=reconcile/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "label:issue:timeout-adopt-open-pr",
+            "family": "state-label:awaiting-pr;dedup=awaiting-pr/label",
+            "sink_kind": "label"
+          }
+        ],
+        "reason_code": "exact-declared-sink-set",
+        "status": "observed",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "sink-inventory",
+        "path": "packages/github-devloop/core/restart/sink_inventory.lua",
+        "symbol": "records"
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "effect_sink_catalog",
+        "lineage": {
+          "observation_id": "effect-sink-catalog-gd-exact-set",
+          "owner": "github-devloop"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "declared sink set"
+      }
+    },
+    {
+      "boundary": "owner_observation_fact",
+      "evidence_refs": [
+        {
+          "kind": "runtime-fake-dispatch",
+          "ref": "packages/github-devloop/departments/observe_issue/main.lua:602"
+        },
+        {
+          "kind": "source-state-reader",
+          "ref": "libraries/devloop/state.lua:300-331"
+        }
+      ],
+      "observation_id": "fact-current-state-trusted-marker-selection",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "candidate_fields": [
+            "marker_created_at",
+            "stage_rank",
+            "state",
+            "version"
+          ],
+          "marker_family": "github-devloop:state:v1",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_comment_count": 4,
+          "state_value_space": [
+            "awaiting-pr",
+            "blocked",
+            "closed-unmerged",
+            "declined",
+            "dependency_wait",
+            "fixing",
+            "impl-failed",
+            "implementing",
+            "merge-ready",
+            "merged",
+            "merging",
+            "pr-open",
+            "ready",
+            "review-meta",
+            "reviewing",
+            "thinking"
+          ],
+          "trusted_author_only": true,
+          "version_basis": [
+            "transition_version.compare",
+            "stage_rank",
+            "marker_order_key"
+          ]
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": {
+          "derived_fact": {
+            "marker_created_at": "2026-06-03T01:01:00Z",
+            "stage_rank": 500,
+            "state": "ready",
+            "version": "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-04Z"
+          }
+        },
+        "reason_code": "trusted-proposal-state-marker-selected",
+        "status": "read",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "devloop_state.current_state",
+        "path": "packages/github-devloop/departments/observe_issue/main.lua",
+        "symbol": "process_issue_event"
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "authoritative_current_state_read",
+        "lineage": {
+          "observation_id": "fact-current-state-trusted-marker-selection",
+          "owner": "github-devloop"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "current lifecycle fact"
+      }
+    },
+    {
+      "boundary": "observation_fact_reader",
+      "evidence_refs": [
+        {
+          "kind": "source-module-filter",
+          "ref": "packages/github-devloop/core/restart/sink_inventory.lua:authority_class"
+        }
+      ],
+      "observation_id": "grantless-sink-gd-exact-set",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "authority_class_prefix": "grantless-",
+          "record_count": 24
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "consensus_result",
+            "effect_id": "comment:issue:result-divergence",
+            "family": "result-divergence:v1;dedup=result-divergence/logical-result",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "adapter:github.issue-close-duplicate-fork",
+            "family": "issue-close/duplicate-fork",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "adapter:github.issue-close-duplicate-slice",
+            "family": "issue-close/duplicate-slice",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "adapter:github.pr-create",
+            "family": "pr-create/head+base+issue",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "comment:issue:duplicate-fork",
+            "family": "duplicate-fork:v1;dedup=implement/duplicate-fork",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "comment:issue:duplicate-slice",
+            "family": "duplicate-slice:v1;dedup=implement/duplicate-slice",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "label:issue:duplicate-fork",
+            "family": "label:fkst:duplicate-fork;dedup=implement/duplicate-fork/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "implement",
+            "effect_id": "label:issue:duplicate-slice",
+            "family": "label:fkst:duplicate-slice;dedup=implement/duplicate-slice/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.claim-label-add",
+            "family": "claim-label/add/fkst-dev:claimed",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.claim-label-remove",
+            "family": "claim-label/remove/fkst-dev:claimed",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.issue-assign",
+            "family": "assignee-claim/assign/self",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.issue-create-fork",
+            "family": "fork-issue-create:v1;dedup=fork/original",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "adapter:github.issue-unassign",
+            "family": "assignee-claim/unassign/self",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_issue",
+            "effect_id": "comment:issue:operator-refusal",
+            "family": "operator-command:v1/refused;dedup=operator-command/refusal",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_board_digest_probe",
+            "effect_id": "queue:github-devloop.board_digest_probe",
+            "family": "test-probe/board-digest-request",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_board_digest_probe",
+            "effect_id": "queue:github-devloop.board_digest_result",
+            "family": "test-probe/board-digest-result",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_cache_seed",
+            "effect_id": "queue:github-devloop.cache_seed",
+            "family": "test-probe/cache-seed-request",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_cache_seed",
+            "effect_id": "queue:github-devloop.cache_seeded",
+            "family": "test-probe/cache-seed-result",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_context_bundle_probe",
+            "effect_id": "queue:github-devloop.context_bundle_probe",
+            "family": "test-probe/context-bundle-request",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "test_context_bundle_probe",
+            "effect_id": "queue:github-devloop.context_bundle_probe_result",
+            "family": "test-probe/context-bundle-result",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "observe_issue",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "all",
+            "effect_id": "adapter:structured-log",
+            "family": "structured-log:v1/dept+proposal+tag",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop.devloop_observe_issue",
+            "family": "observe-issue:v1/source-ref+dedup",
+            "sink_kind": "queue"
+          }
+        ],
+        "reason_code": "exact-grantless-classified-sink-set",
+        "status": "read",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "grantless-classified-sinks",
+        "path": "packages/github-devloop/core/restart/sink_inventory.lua",
+        "symbol": "records"
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "grantless_sink_catalog_read",
+        "lineage": {
+          "observation_id": "grantless-sink-gd-exact-set",
+          "owner": "github-devloop"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "grantless-classified sink set"
+      }
+    },
+    {
+      "boundary": "shared_row_export",
+      "evidence_refs": [
+        {
+          "kind": "source-module-export",
+          "ref": "packages/github-devloop/core/restart/marker_fields/dependency_wait.lua"
+        }
+      ],
+      "observation_id": "shared-row-dependency-wait-exact-fields",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "exported_fields": [
+            "hold_kind",
+            "proposal",
+            "reason",
+            "version"
+          ],
+          "family": "dependency-wait"
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": {
+          "family": "dependency-wait",
+          "fields": [
+            "hold_kind",
+            "proposal",
+            "reason",
+            "version"
+          ]
+        },
+        "reason_code": "exact-exported-field-set",
+        "status": "observed",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "shared-row-export/dependency-wait",
+        "path": "packages/github-devloop/core/restart/marker_fields/dependency_wait.lua",
+        "symbol": "family = \"dependency-wait\""
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "shared_marker_field_family_export",
+        "lineage": {
+          "observation_id": "shared-row-dependency-wait-exact-fields",
+          "owner": "github-devloop"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "dependency-wait"
+      }
+    },
+    {
+      "boundary": "shared_row_export",
+      "evidence_refs": [
+        {
+          "kind": "source-module-export",
+          "ref": "packages/github-devloop/core/restart/marker_fields/state.lua"
+        }
+      ],
+      "observation_id": "shared-row-state-exact-fields",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "exported_fields": [
+            "effects",
+            "proposal",
+            "stage_rank",
+            "state",
+            "version"
+          ],
+          "family": "state"
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": {
+          "family": "state",
+          "fields": [
+            "effects",
+            "proposal",
+            "stage_rank",
+            "state",
+            "version"
+          ]
+        },
+        "reason_code": "exact-exported-field-set",
+        "status": "observed",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "shared-row-export/state",
+        "path": "packages/github-devloop/core/restart/marker_fields/state.lua",
+        "symbol": "family = \"state\""
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "shared_marker_field_family_export",
+        "lineage": {
+          "observation_id": "shared-row-state-exact-fields",
+          "owner": "github-devloop"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "state"
+      }
+    },
+    {
+      "boundary": "effect_sink",
+      "evidence_refs": [
+        {
+          "kind": "source-module-export",
+          "ref": "packages/github-devloop-pr/core/restart/sink_inventory.lua"
+        }
+      ],
+      "observation_id": "effect-sink-catalog-pr-exact-set",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "record_count": 83
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_pr",
+            "effect_id": "comment:pr:operator-refusal",
+            "family": "operator-command:v1/refused;dedup=operator-command/refusal",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "review_result",
+            "effect_id": "comment:pr:review-result-divergence",
+            "family": "result-divergence:v1;dedup=review-result-divergence/logical-result",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "fix",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "merge",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "merge_queue",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "reconcile",
+            "effect_id": "comment:issue:decompose-exhausted",
+            "family": "decompose-exhausted:v1/issue+attempt",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "reconcile",
+            "effect_id": "comment:pr:decompose-exhausted",
+            "family": "decompose-exhausted:v1/pr+attempt",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "review_result",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "all",
+            "effect_id": "adapter:structured-log",
+            "family": "structured-log:v1/dept+proposal+tag",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop-pr.devloop_observe_pr",
+            "family": "observe-pr:v1/source-ref+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_observe_pr",
+            "family": "observe-pr:v1/source-ref+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "comment_handoff",
+            "effect_id": "label:issue:comment-handoff-state",
+            "family": "state-label:pr-state;dedup=comment-handoff/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop-pr.devloop_fixing",
+            "family": "state:v1/fixing+head+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop-pr.devloop_merge_ready",
+            "family": "state:v1/merge-ready+review+head",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop-pr.devloop_review_meta",
+            "family": "state:v1/review-meta+review+head",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop-pr.devloop_reviewing",
+            "family": "state:v1/reviewing+head+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "codex.dispatch:fix",
+            "family": "codex-run:fix/proposal+work-unit+worker",
+            "sink_kind": "codex"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "comment:pr:ci-repair-attempt",
+            "family": "ci-repair-attempt:v1;dedup=fix/ci-repair/attempt",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "comment:pr:fix-review-meta",
+            "family": "state:v1/review-meta;dedup=fix/review-meta/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "comment:pr:fix-reviewing",
+            "family": "state:v1/reviewing;dedup=fix/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "comment:pr:fix-speculative-refix",
+            "family": "state:v1/fixing+merge-gate:v1;dedup=refix/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "git.push:fix-branch",
+            "family": "git-push/fix-branch/proposal+head",
+            "sink_kind": "git"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "label:issue:fix-review-meta",
+            "family": "state-label:review-meta;dedup=fix/review-meta/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "label:issue:fix-reviewing",
+            "family": "state-label:reviewing;dedup=fix/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "label:issue:fix-speculative-refix",
+            "family": "state-label:fixing;dedup=refix/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "fix",
+            "effect_id": "queue:github-devloop-pr.devloop_fix_reconcile",
+            "family": "fix-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "comment:issue:row-replay",
+            "family": "restart-row-replay/issue-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "comment:pr:row-replay",
+            "family": "restart-row-replay/pr-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:consensus.proposal",
+            "family": "consensus-proposal:v1/review-proposal+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_fixing",
+            "family": "state:v1/fixing+head+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_merge_ready",
+            "family": "state:v1/merge-ready+review+head",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_review_meta",
+            "family": "state:v1/review-meta+review+head",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_review_reconcile",
+            "family": "review-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_reviewing",
+            "family": "state:v1/reviewing+head+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_timeout_reconcile",
+            "family": "timeout-reconcile:v1/proposal+state+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "adapter:github.pr-ready",
+            "family": "pr-ready/pr+head",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "comment:pr:merge-ci-wait",
+            "family": "merge-gate-wait:v1;dedup=merge/ci-wait/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "comment:pr:merge-fixing",
+            "family": "state:v1/fixing+merge-gate:v1;dedup=merge/fixing/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "comment:pr:merge-head-reviewing",
+            "family": "state:v1/reviewing+head-change;dedup=merge/reviewing/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "comment:pr:merge-queue-starvation",
+            "family": "queue-starvation-reconcile:v1;dedup=merge/queue-starvation",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "comment:pr:merged-state",
+            "family": "state:v1/merged+autonomy-result:v1;dedup=merge/merged/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "comment:pr:merging-state",
+            "family": "state:v1/merging;dedup=merge/merging/head",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "github.merge:verified-pr",
+            "family": "verified-merge/pr+reviewed-head+base",
+            "sink_kind": "merge"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "label:issue:merge-fixing",
+            "family": "state-label:fixing;dedup=merge/fixing/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "label:issue:merge-head-reviewing",
+            "family": "state-label:reviewing;dedup=merge/reviewing/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge",
+            "effect_id": "queue:github-devloop-pr.devloop_fix_reconcile",
+            "family": "fix-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge_queue",
+            "effect_id": "comment:pr:merge-queue-executor",
+            "family": "merge-executor/pr-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge_queue",
+            "effect_id": "label:issue:merge-queue-executor",
+            "family": "merge-executor/issue-label-families",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge_queue",
+            "effect_id": "queue:github-devloop-pr.devloop_fix_reconcile",
+            "family": "fix-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "merge_queue",
+            "effect_id": "queue:github-devloop-pr.devloop_merge_queue_tick",
+            "family": "merge-queue-tick:v1/repo+head",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "comment:pr:base-unmanaged",
+            "family": "state:v1/blocked+pr-base-unmanaged:v1",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "comment:pr:observe-merge-gate-fix",
+            "family": "state:v1/fixing+merge-gate:v1;dedup=observe-pr/fixing/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "comment:pr:observe-reviewing",
+            "family": "state:v1/reviewing;dedup=observe-pr/reviewing/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "comment:pr:operator-rereview",
+            "family": "state:v1/reviewing+operator-command:v1/rereview",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "comment:pr:row-replay",
+            "family": "restart-row-replay/pr-comment-marker-families",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "label:issue:observe-merge-gate-fix",
+            "family": "state-label:fixing;dedup=observe-pr/fixing/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "label:issue:observe-pr-state",
+            "family": "state-label:pr-state;dedup=observe-pr/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "label:issue:row-replay",
+            "family": "restart-row-replay/issue-label-families",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-pr.devloop_fix_reconcile",
+            "family": "fix-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-pr.devloop_fixing",
+            "family": "state:v1/fixing+head+version",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-pr.devloop_merge_ready",
+            "family": "state:v1/merge-ready+review+head",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-pr.devloop_review_meta",
+            "family": "state:v1/review-meta+review+head",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-pr.devloop_review_reconcile",
+            "family": "review-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-pr.devloop_timeout_reconcile",
+            "family": "timeout-reconcile:v1/proposal+state+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:issue:timeout-reconcile",
+            "family": "state:v1/blocked+timeout-reconcile:v1;dedup=timeout/issue",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:pr:reconcile-blocked",
+            "family": "state:v1/blocked+review-reconcile|fix-reconcile:v1",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "comment:pr:timeout-reconcile",
+            "family": "state:v1/blocked+timeout-reconcile:v1;dedup=timeout/pr",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "label:issue:reconcile-blocked",
+            "family": "state-label:blocked;dedup=reconcile/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "reconcile",
+            "effect_id": "label:issue:timeout-reconcile",
+            "family": "state-label:blocked;dedup=timeout/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_loop",
+            "effect_id": "comment:pr:review-converge-round",
+            "family": "review-converge-round:v1;dedup=review-loop/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_loop",
+            "effect_id": "queue:consensus.proposal",
+            "family": "consensus-proposal:v1/review-proposal+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_loop",
+            "effect_id": "queue:github-devloop-pr.devloop_review_reconcile",
+            "family": "review-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_meta",
+            "effect_id": "codex.dispatch:review-meta",
+            "family": "codex-run:review-meta/proposal+version+worker",
+            "sink_kind": "codex"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_meta",
+            "effect_id": "comment:pr:review-meta-result",
+            "family": "state:v1/fixing|blocked+review-meta:v1",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_meta",
+            "effect_id": "label:issue:review-meta-result",
+            "family": "state-label:fixing|blocked;dedup=review-meta/label",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_pr",
+            "effect_id": "adapter:github.pr-close",
+            "family": "pr-close/no-legitimate-diff/pr",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_pr",
+            "effect_id": "comment:pr:review-no-legitimate-diff",
+            "family": "state:v1/closed-unmerged;dedup=review-pr/no-legitimate-diff",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_pr",
+            "effect_id": "queue:consensus.proposal",
+            "family": "consensus-proposal:v1/review-proposal+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_result",
+            "effect_id": "comment:pr:high-risk-review-evidence",
+            "family": "high-risk-review-evidence:v1;dedup=review-result/evidence",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_result",
+            "effect_id": "comment:pr:review-result",
+            "family": "review-result:v1+state:v1;dedup=review-result/comment",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_result",
+            "effect_id": "label:issue:review-result",
+            "family": "state-label:merge-ready|fixing|review-meta",
+            "sink_kind": "label"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "review_result",
+            "effect_id": "queue:github-devloop-pr.devloop_fix_reconcile",
+            "family": "fix-reconcile:v1/proposal+round",
+            "sink_kind": "queue"
+          }
+        ],
+        "reason_code": "exact-declared-sink-set",
+        "status": "observed",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "sink-inventory",
+        "path": "packages/github-devloop-pr/core/restart/sink_inventory.lua",
+        "symbol": "records"
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "effect_sink_catalog",
+        "lineage": {
+          "observation_id": "effect-sink-catalog-pr-exact-set",
+          "owner": "github-devloop-pr"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "declared sink set"
+      }
+    },
+    {
+      "boundary": "owner_observation_fact",
+      "evidence_refs": [
+        {
+          "kind": "runtime-fake-dispatch",
+          "ref": "packages/github-devloop-pr/departments/review_pr/main.lua:88"
+        },
+        {
+          "kind": "source-state-reader",
+          "ref": "libraries/devloop/entity.lua:54-56"
+        }
+      ],
+      "observation_id": "fact-current-entity-state-trusted-marker-selection",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "candidate_fields": [
+            "marker_created_at",
+            "stage_rank",
+            "state",
+            "version"
+          ],
+          "marker_family": "github-devloop:state:v1",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_comment_count": 5,
+          "state_value_space": [
+            "awaiting-pr",
+            "blocked",
+            "closed-unmerged",
+            "declined",
+            "dependency_wait",
+            "fixing",
+            "impl-failed",
+            "implementing",
+            "merge-ready",
+            "merged",
+            "merging",
+            "pr-open",
+            "ready",
+            "review-meta",
+            "reviewing",
+            "thinking"
+          ],
+          "trusted_author_only": true,
+          "version_basis": [
+            "transition_version.compare",
+            "stage_rank",
+            "marker_order_key"
+          ]
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": {
+          "derived_fact": {
+            "marker_created_at": "2026-06-03T01:00:00Z",
+            "stage_rank": 900,
+            "state": "merged",
+            "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta/1"
+          }
+        },
+        "reason_code": "trusted-proposal-state-marker-selected",
+        "status": "read",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "devloop.entity.current_entity_state",
+        "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "authoritative_current_entity_state_read",
+        "lineage": {
+          "observation_id": "fact-current-entity-state-trusted-marker-selection",
+          "owner": "github-devloop-pr"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "current PR lifecycle fact"
+      }
+    },
+    {
+      "boundary": "owner_observation_fact",
+      "evidence_refs": [
+        {
+          "kind": "runtime-fake-dispatch",
+          "ref": "packages/github-devloop-pr/departments/review_loop/main.lua:42-55"
+        },
+        {
+          "kind": "runtime-state-read",
+          "ref": "packages/github-devloop-pr/departments/review_loop/main.lua:115"
+        }
+      ],
+      "observation_id": "fact-review-loop-state-safe-version-segment",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "candidate_fields": [
+            "marker_created_at",
+            "stage_rank",
+            "state",
+            "version"
+          ],
+          "marker_family": "github-devloop:state:v1",
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "review_version_basis": [
+            "safe_version_segment equality",
+            "stage_rank after reviewing"
+          ],
+          "source_comment_count": 5,
+          "state_value_space": [
+            "awaiting-pr",
+            "blocked",
+            "closed-unmerged",
+            "declined",
+            "dependency_wait",
+            "fixing",
+            "impl-failed",
+            "implementing",
+            "merge-ready",
+            "merged",
+            "merging",
+            "pr-open",
+            "ready",
+            "review-meta",
+            "reviewing",
+            "thinking"
+          ],
+          "transition_value_space": [
+            "apply",
+            "pending",
+            "stale"
+          ],
+          "trusted_author_only": true,
+          "version_basis": [
+            "transition_version.compare",
+            "stage_rank",
+            "marker_order_key"
+          ]
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": {
+          "derived_fact": {
+            "marker_created_at": "2026-06-03T01:00:00Z",
+            "stage_rank": 900,
+            "state": "merged",
+            "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta/1"
+          },
+          "transition": "stale"
+        },
+        "reason_code": "advanced-state-classified-stale",
+        "status": "read",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "reviewing-segment-state-read",
+        "path": "packages/github-devloop-pr/departments/review_loop/main.lua",
+        "symbol": "reviewing_segment_transition_status"
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "reviewing_segment_current_state_read",
+        "lineage": {
+          "observation_id": "fact-review-loop-state-safe-version-segment",
+          "owner": "github-devloop-pr"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "review-loop state fact"
+      }
+    },
+    {
+      "boundary": "observation_fact_reader",
+      "evidence_refs": [
+        {
+          "kind": "source-module-filter",
+          "ref": "packages/github-devloop-pr/core/restart/sink_inventory.lua:authority_class"
+        }
+      ],
+      "observation_id": "grantless-sink-pr-exact-set",
+      "old_inputs": {
+        "caller_from_states": [],
+        "current_fact": {
+          "authority_class_prefix": "grantless-",
+          "record_count": 12
+        },
+        "handoff_reference": null,
+        "incoming_version": "source-snapshot:v1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "not-applicable",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "observe_pr",
+            "effect_id": "comment:pr:operator-refusal",
+            "family": "operator-command:v1/refused;dedup=operator-command/refusal",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "department": "review_result",
+            "effect_id": "comment:pr:review-result-divergence",
+            "family": "result-divergence:v1;dedup=review-result-divergence/logical-result",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "fix",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "merge",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "merge_queue",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "observe_pr",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "reconcile",
+            "effect_id": "comment:issue:decompose-exhausted",
+            "family": "decompose-exhausted:v1/issue+attempt",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "reconcile",
+            "effect_id": "comment:pr:decompose-exhausted",
+            "family": "decompose-exhausted:v1/pr+attempt",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-published-intent",
+            "department": "review_result",
+            "effect_id": "queue:github-devloop-decompose.devloop_decompose",
+            "family": "decompose.v1/proposal+attempt",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "all",
+            "effect_id": "adapter:structured-log",
+            "family": "structured-log:v1/dept+proposal+tag",
+            "sink_kind": "adapter"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "comment_handoff",
+            "effect_id": "queue:github-devloop-pr.devloop_observe_pr",
+            "family": "observe-pr:v1/source-ref+dedup",
+            "sink_kind": "queue"
+          },
+          {
+            "authority_class": "grantless-telemetry",
+            "department": "liveness_scan",
+            "effect_id": "queue:github-devloop-pr.devloop_observe_pr",
+            "family": "observe-pr:v1/source-ref+dedup",
+            "sink_kind": "queue"
+          }
+        ],
+        "reason_code": "exact-grantless-classified-sink-set",
+        "status": "read",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "grantless-classified-sinks",
+        "path": "packages/github-devloop-pr/core/restart/sink_inventory.lua",
+        "symbol": "records"
+      },
+      "typed_intent": {
+        "cause_schema_id": "restart-metadata-observation.v1",
+        "generation_epoch": {
+          "snapshot_basis": "OLD source module at test dispatch"
+        },
+        "kind": "grantless_sink_catalog_read",
+        "lineage": {
+          "observation_id": "grantless-sink-pr-exact-set",
+          "owner": "github-devloop-pr"
+        },
+        "source_boundary": "source-module",
+        "source_state": null,
+        "target": "grantless-classified sink set"
+      }
     }
   ],
   "old_pending_projection": {
@@ -33021,22 +35023,6 @@
       "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
     },
     {
-      "category": "effect_sink_sites",
-      "ordinal": "sink-inventory",
-      "path": "packages/github-devloop/core/restart/sink_inventory.lua",
-      "site_id": "sink-catalog:github-devloop",
-      "symbol": "records",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "effect_sink_sites",
-      "ordinal": "sink-inventory",
-      "path": "packages/github-devloop-pr/core/restart/sink_inventory.lua",
-      "site_id": "sink-catalog:github-devloop-pr",
-      "symbol": "records",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
       "category": "row_replay_sites",
       "ordinal": "row-replay/pr-local-state",
       "path": "packages/github-devloop-pr/departments/observe_pr/main.lua",
@@ -33082,62 +35068,6 @@
       "path": "packages/github-devloop-pr/departments/reconcile/main.lua",
       "site_id": "entry:github-devloop-pr:reconcile",
       "symbol": "pipeline",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "shared_issue_row_exports",
-      "ordinal": "shared-row-export/state",
-      "path": "packages/github-devloop/core/restart/marker_fields/state.lua",
-      "site_id": "shared-row-export:github-devloop:state-marker-fields",
-      "symbol": "family = \"state\"",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "shared_issue_row_exports",
-      "ordinal": "shared-row-export/dependency-wait",
-      "path": "packages/github-devloop/core/restart/marker_fields/dependency_wait.lua",
-      "site_id": "shared-row-export:github-devloop:dependency-wait-marker-fields",
-      "symbol": "family = \"dependency-wait\"",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "owner_observation_fact_sites",
-      "ordinal": "devloop_state.current_state",
-      "path": "packages/github-devloop/departments/observe_issue/main.lua",
-      "site_id": "fact:github-devloop:current-state",
-      "symbol": "process_issue_event",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "owner_observation_fact_sites",
-      "ordinal": "devloop.entity.current_entity_state",
-      "path": "packages/github-devloop-pr/departments/review_pr/main.lua",
-      "site_id": "fact:github-devloop-pr:current-entity-state",
-      "symbol": "pipeline",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "owner_observation_fact_sites",
-      "ordinal": "reviewing-segment-state-read",
-      "path": "packages/github-devloop-pr/departments/review_loop/main.lua",
-      "site_id": "fact:github-devloop-pr:review-loop-state",
-      "symbol": "reviewing_segment_transition_status",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "grantless_sink_sites",
-      "ordinal": "grantless-classified-sinks",
-      "path": "packages/github-devloop/core/restart/sink_inventory.lua",
-      "site_id": "grantless:github-devloop:sink-catalog",
-      "symbol": "records",
-      "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
-    },
-    {
-      "category": "grantless_sink_sites",
-      "ordinal": "grantless-classified-sinks",
-      "path": "packages/github-devloop-pr/core/restart/sink_inventory.lua",
-      "site_id": "grantless:github-devloop-pr:sink-catalog",
-      "symbol": "records",
       "why": "Enumerated from OLD live code or OLD sink inventory; not yet captured as a fully observed OLD behavior record in increment 1."
     }
   ],

@@ -1,16 +1,7 @@
 writer:github-devloop:implement-enter
-sink-catalog:github-devloop
-sink-catalog:github-devloop-pr
 row-replay:github-devloop-pr:observe-pr-local
 row-replay:github-devloop-pr:review-replayer
 intent:github-devloop:observe-issue-decompose
 acceptor:github-devloop-pr:merge
 entry:github-devloop-pr:fix
 entry:github-devloop-pr:reconcile
-shared-row-export:github-devloop:state-marker-fields
-shared-row-export:github-devloop:dependency-wait-marker-fields
-fact:github-devloop:current-state
-fact:github-devloop-pr:current-entity-state
-fact:github-devloop-pr:review-loop-state
-grantless:github-devloop:sink-catalog
-grantless:github-devloop-pr:sink-catalog
