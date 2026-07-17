@@ -15,7 +15,6 @@ local m_mq = require("devloop.merge_queue")
 local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
 local merge_module = require("departments.merge.main")
-
 local t = h.t
 local core = h.core
 local REPO = "owner/repo"
@@ -56,6 +55,12 @@ local function merge_payload_for_fix()
 end
 
 local FIXTURES = ra.json_array({
+  {
+    disposition = "verified-merge-not-mergeable-shadow-crash", status = "rejected",
+    reason = "verified-not-mergeable-shadow-crash", cas = "applied", target = "reject", source_line = 682,
+    current_state = "merge-ready", current_version = VERSION, verified_not_mergeable = true,
+    expected_error = "is_not_mergeable_reason",
+  },
   {
     disposition = "skip-foreign-payload", status = "rejected", reason = "skip-foreign(payload)",
     cas = "skip-foreign(payload)", target = "reject", source_line = 725,
@@ -262,6 +267,13 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
+    disposition = "own-ci-red-before-rollup-head-mismatch-routes-reviewing", status = "admitted",
+    reason = "own-ci-red-head-mismatch", cas = "applied", target = "reviewing", source_line = 535,
+    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
+    ci_merge_reason = "own-ci-red", classification_red = true, own_ci_head_mismatch = true,
+    effects = ra.json_array({ "comment:pr:merge-head-reviewing", "label:issue:merge-head-reviewing" }),
+  },
+  {
     disposition = "own-ci-reclassified-external-holds", status = "rejected", reason = "external-ci-red",
     cas = "hold", target = "hold", source_line = 126,
     current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
@@ -274,6 +286,19 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, rollup_reason = "rollup-red",
     classification_red = true,
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
+  },
+  {
+    disposition = "rollup-red-head-mismatch-routes-reviewing", status = "admitted",
+    reason = "rollup-red-head-mismatch", cas = "applied", target = "reviewing", source_line = 564,
+    current_state = "merge-ready", current_version = VERSION, rollup_reason = "rollup-red",
+    classification_red = true, own_ci_head_mismatch = true,
+    effects = ra.json_array({ "comment:pr:merge-head-reviewing", "label:issue:merge-head-reviewing" }),
+  },
+  {
+    disposition = "rollup-pending-waits", status = "rejected", reason = "rollup-pending",
+    cas = "dry-run", target = "hold", source_line = 584,
+    current_state = "merge-ready", current_version = VERSION, rollup_reason = "rollup-pending",
+    expected_error = "merge-ci-wait",
   },
   {
     disposition = "fix-loop-max-rounds-routes-reconcile", status = "admitted", reason = "fix-loop-max-rounds",
@@ -318,9 +343,17 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
+    disposition = "verified-merge-own-ci-red-head-mismatch-routes-reviewing", status = "admitted",
+    reason = "verified-own-ci-red-head-mismatch", cas = "applied", target = "reviewing", source_line = 672,
+    current_state = "merge-ready", current_version = VERSION, verified_reason = "own-ci-red",
+    classification_red = true, verified_own_ci_head_mismatch = true,
+    effects = ra.json_array({ "comment:pr:merge-head-reviewing", "label:issue:merge-head-reviewing" }),
+  },
+  {
     disposition = "verified-merge-ci-wait", status = "rejected", reason = "verified-checks-pending",
-    cas = "hold", target = "hold", source_line = 680,
-    current_state = "merge-ready", current_version = VERSION, verified_reason = "checks-pending",
+    cas = "hold", target = "hold", source_line = 107,
+    evidence_path = "libraries/forge/merge/verified_merge.lua",
+    current_state = "merge-ready", current_version = VERSION, verified_ci_wait = true,
     expected_error = "merge-ci-wait",
     effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
   },
@@ -500,15 +533,23 @@ local function capture(fixture)
         VERSION, "other-base"))
     end
     if merged and fixture.merge_confirmation_mismatch then head_sha = OTHER_HEAD end
+    local rollup_status = "COMPLETED"
+    local rollup_conclusion = ((fixture.classification_red or fixture.classification_external) and '"FAILURE"' or '"SUCCESS"')
+    if fixture.verified_ci_wait and (read_count or 0) >= 3 then
+      rollup_status = "IN_PROGRESS"
+      rollup_conclusion = "null"
+    end
     return {
       repo = REPO, number = PR_NUMBER, comments = active_comments, head = BRANCH,
       head_sha = head_sha, base_branch = origin_base, base_sha = string.rep("a", 40),
       state = state, merged_at = state == "MERGED" and "2026-06-03T02:05:04Z" or nil,
-      is_draft = draft and not merged, mergeable = fixture.not_mergeable and "CONFLICTING" or "MERGEABLE",
-      merge_state = fixture.not_mergeable and "DIRTY" or "CLEAN",
-      status_check_rollup_json = '[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"'
-        .. ((fixture.classification_red or fixture.classification_external) and "FAILURE" or "SUCCESS")
-        .. '","headSha":"' .. head_sha .. '"}]',
+      is_draft = draft and not merged,
+      mergeable = (fixture.not_mergeable or (fixture.verified_not_mergeable and (read_count or 0) >= 3))
+        and "CONFLICTING" or "MERGEABLE",
+      merge_state = (fixture.not_mergeable or (fixture.verified_not_mergeable and (read_count or 0) >= 3))
+        and "DIRTY" or "CLEAN",
+      status_check_rollup_json = '[{"__typename":"CheckRun","name":"test","status":"' .. rollup_status
+        .. '","conclusion":' .. rollup_conclusion .. ',"headSha":"' .. head_sha .. '"}]',
     }
   end
   function ports.github.issue_view(repo, number, fields, timeout)
@@ -522,6 +563,8 @@ local function capture(fixture)
     pr_read_count = pr_read_count + 1
     local fields_value = pr_fields(pr_read_count)
     if fixture.recheck_head_mismatch and pr_read_count >= 2 then fields_value.head_sha = OTHER_HEAD end
+    if fixture.own_ci_head_mismatch and pr_read_count >= 2 then fields_value.head_sha = OTHER_HEAD end
+    if fixture.verified_own_ci_head_mismatch and pr_read_count >= 3 then fields_value.head_sha = OTHER_HEAD end
     return { stdout = entity_read_mocks.pr_view_stdout(fields_value), stderr = "", exit_code = 0 }
   end
   function ports.github.pr_ready(repo, number, timeout)
@@ -539,9 +582,12 @@ local function capture(fixture)
     ra.record_write(ports.github_model, "commit_check_runs", {
       repo = repo, head_sha = head_sha, timeout = timeout,
     })
-    local conclusion = fixture.classification_red and "failure" or "success"
-    return { stdout = '{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"'
-      .. conclusion .. '","head_sha":"' .. tostring(head_sha) .. '"}]}\n', stderr = "", exit_code = 0 }
+    local status = fixture.verified_ci_wait and "in_progress" or "completed"
+    local conclusion = fixture.verified_ci_wait and "null"
+      or ('"' .. (fixture.classification_red and "failure" or "success") .. '"')
+    return { stdout = '{"total_count":1,"check_runs":[{"name":"test","status":"' .. status
+      .. '","conclusion":' .. conclusion .. ',"head_sha":"' .. tostring(head_sha) .. '"}]}\n',
+      stderr = "", exit_code = 0 }
   end
   function ports.github.pr_comment(repo, number, body_file, timeout)
     local call = { kind = "exec", context = "gh pr comment", argv = { "gh", "pr", "comment", tostring(number), "--repo", repo, "--body-file", body_file }, timeout = timeout }
@@ -665,7 +711,7 @@ local function capture(fixture)
     .. ra.canonical_json(captured.decisions))
   return ra.record({ dept = "merge", fixture = fixture, result = result, captured = captured, event = event,
     prefix = PREFIX, site = SITE, source_state = "merge-ready",
-    evidence_path = "packages/github-devloop-pr/core/merge_executor.lua",
+    evidence_path = fixture.evidence_path or "packages/github-devloop-pr/core/merge_executor.lua",
   })
 end
 
