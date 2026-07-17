@@ -4,8 +4,6 @@ sink-catalog:github-devloop-pr
 row-replay:github-devloop-pr:observe-pr-local
 row-replay:github-devloop-pr:review-replayer
 intent:github-devloop:observe-issue-decompose
-acceptor:github-devloop:observe-issue
-acceptor:github-devloop:implement
 acceptor:github-devloop-pr:observe-pr
 acceptor:github-devloop-pr:review-pr
 acceptor:github-devloop-pr:review-meta
