@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "98a96a2d59c005b1522412f3243ba6bc9d1070489925c771d15a1768e27066ce",
+  "artifact_sha256": "06bf964839c211f487bae7284ced68ba02d99c529869c90ce176b18c789feaa3",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -93,6 +93,186 @@
     }
   ],
   "old_behavior_observations": [
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/core/merge_executor.lua:415"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_merge_ready"
+        }
+      ],
+      "observation_id": "receiver-activation-merge-already-merged-self-heal-finalization",
+      "old_inputs": {
+        "caller_from_states": [
+          "merge-ready"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:merged-state",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:merged-state",
+            "payload": {
+              "body": "github-devloop merged PR #7\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"merging\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"695\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000695\" -->\n<!-- fkst:github-devloop:merging:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"7\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"def456\" -->\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"merged\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"900\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000900\" -->\n<!-- fkst:github-devloop:merged:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"7\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"def456\" autonomy_result=\"v1\" repo=\"owner/repo\" issue=\"42\" task_class=\"unknown\" human_touch_count=\"0\" pre_merge_ci=\"pass\" rounds=\"0\" retry_count=\"0\" codex_calls=\"null\" gate_human_touch=\"pass\" gate_evidence_manifest=\"pending\" gate_post_merge_probe=\"pass\" post_merge_probe_green=\"pass\" gate_no_revert_reopen=\"pending\" gate_cost_budget=\"pending\" valid_autonomous_merge=\"pending\" -->\n<!-- fkst:github-devloop:autonomy-result:v1 proposal=\"github-devloop/issue/owner/repo/42\" repo=\"owner/repo\" issue=\"42\" pr=\"7\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" head_sha=\"def456\" task_class=\"unknown\" human_touch_count=\"0\" pre_merge_ci=\"pass\" rounds=\"0\" retry_count=\"0\" codex_calls=\"null\" gate_human_touch=\"pass\" gate_evidence_manifest=\"pending\" gate_post_merge_probe=\"pass\" post_merge_probe_green=\"pass\" gate_no_revert_reopen=\"pending\" gate_cost_budget=\"pending\" valid_autonomous_merge=\"pending\" -->",
+              "dedup_key": "merge-ready/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/def456/comment/merged",
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "already-merged-self-heal",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_merge_ready",
+        "path": "packages/github-devloop-pr/departments/merge/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.merge-ready.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "merge-ready/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/def456"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_merge_ready",
+        "source_state": "merge-ready",
+        "target": "merged"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop-pr/core/merge_executor.lua:428"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_merge_ready"
+        }
+      ],
+      "observation_id": "receiver-activation-merge-head-mismatch-merge-ready-review-carry-over",
+      "old_inputs": {
+        "caller_from_states": [
+          "merge-ready"
+        ],
+        "current_fact": {},
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(review-carry-over)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:review-carry-over",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:pr:review-carry-over",
+            "payload": {
+              "body": "github-devloop PR review approval carried over\nResolution delta proof: merge-tree-empty-delta\nApproved head: def456\nNew head: fed789\nBase head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n\n<!-- fkst:github-devloop:state:v1 proposal=\"github-devloop/issue/owner/repo/42\" state=\"merge-ready\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" stage_rank=\"690\" marker_order_key=\"2026-06-03T01-02-03Z/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000690\" -->\n<!-- fkst:github-devloop:review-result:v1 proposal=\"github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789\" issue_proposal=\"github-devloop/issue/owner/repo/42\" decision=\"approve\" dedup=\"consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789/review\" -->\n<!-- fkst:github-devloop:merge-ready:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"7\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" review_proposal=\"github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789\" review_dedup=\"consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789/review\" head_sha=\"fed789\" -->\n<!-- fkst:github-devloop:review-carry-over:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" old_review_proposal=\"github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456\" old_review_dedup=\"consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review\" approved_head_sha=\"def456\" new_review_proposal=\"github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789\" new_review_dedup=\"consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789/review\" new_head_sha=\"fed789\" base_head_sha=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" proof=\"merge-tree-empty-delta\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "review-carry-over/comment/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/def456/fed789",
+              "handoff": {
+                "current_head_sha": "fed789",
+                "kind": "github-devloop.merge_ready",
+                "pr_number": 7,
+                "proposal_id": "github-devloop/issue/owner/repo/42",
+                "review_dedup_key": "consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789/review",
+                "review_proposal_id": "github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/fed789",
+                "reviewed_head_sha": "fed789",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#pr/7"
+                },
+                "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+              },
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "review-carry-over",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_merge_ready",
+        "path": "packages/github-devloop-pr/departments/merge/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.merge-ready.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+          "effect_version": null,
+          "request_version": "merge-ready/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/def456"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": null,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_merge_ready",
+        "source_state": "merge-ready",
+        "target": "merge-ready"
+      }
+    },
     {
       "boundary": "receiver_activation",
       "evidence_refs": [

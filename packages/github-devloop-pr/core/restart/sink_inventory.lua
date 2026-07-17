@@ -70,6 +70,7 @@ add("comment:pr:merge-fixing", "merge", "raise_fixing.comment", "comment", "life
 add("label:issue:merge-fixing", "merge", "raise_fixing.label", "label", "lifecycle-authoritative", "state-label:fixing;dedup=merge/fixing/label")
 add("comment:pr:merge-head-reviewing", "merge", "raise_reviewing_for_current_head.comment", "comment", "lifecycle-authoritative", "state:v1/reviewing+head-change;dedup=merge/reviewing/comment")
 add("label:issue:merge-head-reviewing", "merge", "raise_reviewing_for_current_head.label", "label", "lifecycle-authoritative", "state-label:reviewing;dedup=merge/reviewing/label")
+add("comment:pr:review-carry-over", "merge", "review_carry_over.raise_review_carry_over.comment", "comment", "lifecycle-authoritative", "state:v1/merge-ready+review-result:v1/approve+merge-ready:v1+review-carry-over:v1+merge_ready-handoff;dedup=review-carry-over/comment/proposal+version+approved-head+new-head")
 add("comment:pr:merging-state", "merge", "write_merging_marker.comment", "comment", "lifecycle-authoritative", "state:v1/merging;dedup=merge/merging/head")
 add("comment:pr:merged-state", "merge", "finalize_merged.comment", "comment", "lifecycle-authoritative", "state:v1/merged+autonomy-result:v1;dedup=merge/merged/comment")
 add("comment:pr:merge-ci-wait", "merge", "merge_ci_wait.hold.comment", "comment", "lifecycle-authoritative", "merge-gate-wait:v1;dedup=merge/ci-wait/comment")

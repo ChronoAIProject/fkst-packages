@@ -88,10 +88,22 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, pr_state = "MERGED",
   },
   {
+    disposition = "already-merged-self-heal-finalization", status = "admitted", reason = "already-merged-self-heal",
+    cas = "applied", target = "merged", source_line = 415,
+    current_state = "merging", current_version = VERSION, pr_state = "MERGED", merging_marker = true,
+    effects = ra.json_array({ "comment:pr:merged-state" }),
+  },
+  {
     disposition = "head-mismatch-merging-routes-fixing", status = "admitted", reason = "head-mismatch-merging",
     cas = "applied", target = "fixing", source_line = 425,
     current_state = "merging", current_version = VERSION, current_head_sha = OTHER_HEAD,
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
+  },
+  {
+    disposition = "head-mismatch-merge-ready-review-carry-over", status = "admitted", reason = "review-carry-over",
+    cas = "applied(review-carry-over)", target = "merge-ready", source_line = 428,
+    current_state = "merge-ready", current_version = VERSION, current_head_sha = OTHER_HEAD, carry_over = true,
+    effects = ra.json_array({ "comment:pr:review-carry-over" }),
   },
   {
     disposition = "head-mismatch-merge-ready-routes-reviewing", status = "admitted", reason = "head-mismatch-reviewing",
@@ -167,6 +179,9 @@ local function capture(fixture)
   if fixture.merged_marker then
     table.insert(comments, m_builders.merged_marker(core, PROPOSAL_ID, PR_NUMBER, VERSION, HEAD_SHA))
   end
+  if fixture.merging_marker then
+    table.insert(comments, m_builders.merging_marker(PROPOSAL_ID, PR_NUMBER, VERSION, HEAD_SHA))
+  end
   local merged = false
   local draft = fixture.draft == true
   function ports.git.fetch_branch(remote, branch, timeout)
@@ -181,7 +196,19 @@ local function capture(fixture)
     ra.record_write(ports.git_model, "is_ancestor", {
       ancestor_sha = ancestor_sha, descendant_sha = descendant_sha, timeout = timeout,
     })
-    return { stdout = "", stderr = "", exit_code = 1 }
+    return { stdout = "", stderr = "", exit_code = fixture.carry_over and 0 or 1 }
+  end
+  function ports.git.merge_tree(approved_head_sha, base_head_sha, timeout)
+    ra.record_write(ports.git_model, "merge_tree", {
+      approved_head_sha = approved_head_sha, base_head_sha = base_head_sha, timeout = timeout,
+    })
+    return { stdout = string.rep("b", 40) .. "\n", stderr = "", exit_code = 0 }
+  end
+  function ports.git.trees_equal_quiet(sha_a, sha_b, timeout)
+    ra.record_write(ports.git_model, "trees_equal_quiet", {
+      sha_a = sha_a, sha_b = sha_b, timeout = timeout,
+    })
+    return { stdout = "", stderr = "", exit_code = fixture.carry_over and 0 or 1 }
   end
   local function pr_fields()
     local state = merged and "MERGED" or (fixture.pr_state or "OPEN")
@@ -255,7 +282,6 @@ local function capture(fixture)
     return { kind = "admit", version = VERSION .. "/fix/1", reason = reason,
       current_pr = current_pr, ci_failure_key = nil }
   end, restorations)
-  ra.replace(core, "raise_review_carry_over", function() return nil end, restorations)
   ra.replace(core, "evaluate_ci_status_gate", function() return true, "rollup-green", {} end, restorations)
   ra.replace(core, "evaluate_ci_merge_gate", function() return true, "merge-gate-green", {} end, restorations)
   ra.replace(high_risk_merge_gate, "assert_evidence", function() return true end, restorations)
