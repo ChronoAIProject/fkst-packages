@@ -3,13 +3,12 @@ local core = require("core")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
-local fork_gate = require("departments.implement.fork_gate")
 local h = require("tests.devloop_helpers")
+local forks = require("devloop.forks")
 local m_claims = require("devloop.claims")
 local m_mq = require("devloop.merge_queue")
 local observation_support = require("testkit.old_behavior_observation_support")
 local replayer = require("devloop.replayer")
-local slice_gate = require("departments.implement.slice_gate")
 local testing = require("testkit.testing")
 local implement_department = require("departments.implement.main")
 local observe_issue_department = require("departments.observe_issue.main")
@@ -29,6 +28,11 @@ local ISSUE_NUMBER = 42
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local UPDATED_AT = "2026-06-03T01:02:03Z"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
+local SLICE_ENTRY_KEY = string.rep("1", 64)
+local SLICE_LEDGER_REF = "refs/fkst/migration-slices/" .. SLICE_ENTRY_KEY
+local SLICE_LEDGER_SHA = string.rep("a", 40)
+local CANONICAL_ISSUE_NUMBER = 41
+local FORK_BACKING_ISSUE_NUMBER = 618
 
 local SITES = {
   observe_issue = {
@@ -49,15 +53,41 @@ local PREFIXES = {
 }
 
 local EFFECTS = {
-  ["github-proxy.github_issue_comment_request"] = {
+  ["comment:issue:dependency-canonicalization"] = {
+    queue = "github-proxy.github_issue_comment_request",
     effect_id = "comment:issue:dependency-canonicalization",
     sink_kind = "comment",
     authority_class = "lifecycle-authoritative",
   },
-  ["github-proxy.github_issue_label_request"] = {
+  ["label:issue:dependency-canonicalization"] = {
+    queue = "github-proxy.github_issue_label_request",
     effect_id = "label:issue:dependency-canonicalization",
     sink_kind = "label",
     authority_class = "lifecycle-authoritative",
+  },
+  ["comment:issue:duplicate-slice"] = {
+    queue = "github-proxy.github_issue_comment_request",
+    effect_id = "comment:issue:duplicate-slice",
+    sink_kind = "comment",
+    authority_class = "grantless-non-lifecycle",
+  },
+  ["label:issue:duplicate-slice"] = {
+    queue = "github-proxy.github_issue_label_request",
+    effect_id = "label:issue:duplicate-slice",
+    sink_kind = "label",
+    authority_class = "grantless-non-lifecycle",
+  },
+  ["comment:issue:duplicate-fork"] = {
+    queue = "github-proxy.github_issue_comment_request",
+    effect_id = "comment:issue:duplicate-fork",
+    sink_kind = "comment",
+    authority_class = "grantless-non-lifecycle",
+  },
+  ["label:issue:duplicate-fork"] = {
+    queue = "github-proxy.github_issue_label_request",
+    effect_id = "label:issue:duplicate-fork",
+    sink_kind = "label",
+    authority_class = "grantless-non-lifecycle",
   },
 }
 
@@ -153,6 +183,42 @@ local IMPLEMENT_FIXTURES = json_array({
     cas = "skip-stale(original-closed)",
     target = "reject",
     source_line = 596,
+  },
+  {
+    disposition = "skip-noncanonical-slice",
+    noncanonical_slice = true,
+    status = "rejected",
+    reason = "skip-noncanonical-slice",
+    cas = "skip-stale(noncanonical-slice)",
+    target = "reject",
+    source_line = 600,
+    expected_effect_ids = json_array({
+      "comment:issue:duplicate-slice",
+      "label:issue:duplicate-slice",
+    }),
+  },
+  {
+    disposition = "skip-fork-backing-closed",
+    fork_backing_state = "CLOSED",
+    status = "rejected",
+    reason = "skip-closed",
+    cas = "skip-stale(original-closed)",
+    target = "reject",
+    source_line = 604,
+  },
+  {
+    disposition = "skip-noncanonical-fork",
+    fork_backing_state = "OPEN",
+    fork_canonical_issue_number = CANONICAL_ISSUE_NUMBER,
+    status = "rejected",
+    reason = "skip-noncanonical-fork",
+    cas = "skip-stale(noncanonical-fork)",
+    target = "reject",
+    source_line = 608,
+    expected_effect_ids = json_array({
+      "comment:issue:duplicate-fork",
+      "label:issue:duplicate-fork",
+    }),
   },
   {
     disposition = "dependency-gate-held",
@@ -253,23 +319,75 @@ local function prepare_implement_fixture(fixture, payload)
   if fixture.disposition == "skip-foreign-payload" then
     return
   end
-  h.mock_issue_implement_raw({ "fkst-dev:ready" }, {
+  local comments = {
     core.state_marker(PROPOSAL_ID, "ready", payload.dedup_key),
-  }, {
+  }
+  if fixture.fork_backing_state ~= nil then
+    table.insert(comments, forks.fork_origin_marker(
+      REPO,
+      FORK_BACKING_ISSUE_NUMBER,
+      "human",
+      { kind = "external", ref = REPO .. "#issue/" .. tostring(FORK_BACKING_ISSUE_NUMBER) }
+    ))
+  end
+  local body = "Receiver activation boundary fixture"
+  if fixture.noncanonical_slice then
+    body = body .. "\n\n<!-- fkst:ratchet-slice:v1 entry_key=\"" .. SLICE_ENTRY_KEY .. "\" -->"
+  end
+  h.mock_issue_implement_raw({ "fkst-dev:ready" }, comments, {
     state = fixture.issue_state or "OPEN",
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
     title = "Capture implement receiver activation",
-    body = "Receiver activation boundary fixture",
+    body = body,
   })
+  if fixture.noncanonical_slice then
+    t.mock_command("git ls-remote origin " .. SLICE_LEDGER_REF, {
+      stdout = SLICE_LEDGER_SHA .. "\t" .. SLICE_LEDGER_REF .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git fetch origin " .. SLICE_LEDGER_REF, {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git cat-file -p " .. SLICE_LEDGER_SHA, {
+      stdout = "tree 0000000000000000000000000000000000000000\n\n"
+        .. '{"schema":"fkst.ratchet-migration-slice-ledger.v1","state":"issue-created","entry_key":"'
+        .. SLICE_ENTRY_KEY .. '","allowlist_path":"migration/saga-handler.allowlist","generation":1,'
+        .. '"claim_owner":"fkst-test-bot","claimed_at":"2026-06-19T00:00:00Z","issue_number":'
+        .. tostring(CANONICAL_ISSUE_NUMBER) .. ',"updated_at":"2026-06-19T00:00:00Z"}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  if fixture.fork_backing_state ~= nil then
+    local original_comments = ""
+    if fixture.fork_canonical_issue_number ~= nil then
+      local dedup_key = forks.fork_issue_dedup_key(REPO, FORK_BACKING_ISSUE_NUMBER)
+      original_comments = ',"comments":[{"body":"<!-- fkst:github-proxy:issue-created:v1 dedup=\\\"'
+        .. dedup_key .. '\\\" issue=\\\"' .. tostring(fixture.fork_canonical_issue_number)
+        .. '\\\" -->","author":{"login":"fkst-test-bot"}}]'
+    else
+      original_comments = ',"comments":[]'
+    end
+    t.mock_command(core.gh_issue_view_state_cmd(REPO, FORK_BACKING_ISSUE_NUMBER), {
+      stdout = '{"title":"Original","state":"' .. fixture.fork_backing_state
+        .. '","labels":[],"assignees":[],"author":{"login":"human"}' .. original_comments .. '}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
-local function captured_effects(raises, dept)
+local function captured_effects(raises, dept, fixture)
   local emitted = json_array()
   local writes = json_array()
   for ordinal, raised in ipairs(raises or {}) do
-    local shape = EFFECTS[raised.queue]
-    if dept ~= "implement" or shape == nil then
+    local effect_id = fixture.expected_effect_ids and fixture.expected_effect_ids[ordinal]
+    local shape = effect_id and EFFECTS[effect_id]
+    if dept ~= "implement" or shape == nil or shape.queue ~= raised.queue then
       error("unclassified " .. tostring(dept) .. " receiver activation OLD raise: " .. tostring(raised.queue), 0)
     end
     table.insert(emitted, {
@@ -351,8 +469,6 @@ local function capture_implement(fixture)
     return { upstream = "dev", integration = "integration-test" }
   end, restorations)
   replace(m_claims, "managed_bot_logins", function() return { "fkst-test-bot" } end, restorations)
-  replace(slice_gate, "check", function() return false end, restorations)
-  replace(fork_gate, "check", function() return false end, restorations)
   replace(core, "dependency_gate", function()
     if fixture.dependency_held then
       return { ok = false, kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
@@ -391,7 +507,7 @@ local function build_record(dept, fixture)
   else
     event, result, captured = capture_implement(fixture)
   end
-  local emitted_effects, observable_writes = captured_effects(result.raises, dept)
+  local emitted_effects, observable_writes = captured_effects(result.raises, dept, fixture)
   local expected_effect_ids = fixture.expected_effect_ids or json_array()
   t.eq(canonical_json(effect_ids(emitted_effects)), canonical_json(expected_effect_ids), fixture.disposition .. ": exact effect set")
   local current_version = nil
@@ -406,6 +522,25 @@ local function build_record(dept, fixture)
   local current_labels = fixture.disposition == "skip-foreign-payload" and {}
     or fixture.labels
     or (dept == "observe_issue" and { "fkst-dev:enabled", "fkst-dev:ready" } or { "fkst-dev:ready" })
+  local current_fact = {
+    issue_state = fixture.issue_state or (fixture.disposition == "skip-foreign-payload" and JSON_NULL or "OPEN"),
+    labels = json_array(current_labels),
+    assignees = json_array(fixture.assignees or (fixture.disposition == "skip-foreign-payload" and {} or { "fkst-test-bot" })),
+  }
+  if fixture.noncanonical_slice then
+    current_fact.slice = {
+      entry_key = SLICE_ENTRY_KEY,
+      canonical_issue_number = CANONICAL_ISSUE_NUMBER,
+    }
+  end
+  if fixture.fork_backing_state ~= nil then
+    current_fact.fork_backing = {
+      repo = REPO,
+      issue_number = FORK_BACKING_ISSUE_NUMBER,
+      issue_state = fixture.fork_backing_state,
+      canonical_issue_number = nullable(fixture.fork_canonical_issue_number),
+    }
+  end
   return {
     schema = "restart-old-behavior-observation.v2",
     observation_id = PREFIXES[dept] .. fixture.disposition,
@@ -430,11 +565,7 @@ local function build_record(dept, fixture)
       },
     },
     old_inputs = {
-      current_fact = {
-        issue_state = fixture.issue_state or (fixture.disposition == "skip-foreign-payload" and JSON_NULL or "OPEN"),
-        labels = json_array(current_labels),
-        assignees = json_array(fixture.assignees or (fixture.disposition == "skip-foreign-payload" and {} or { "fkst-test-bot" })),
-      },
+      current_fact = current_fact,
       caller_from_states = json_array({ dept == "implement" and "ready" or "observed-issue" }),
       incoming_version = tostring(event.payload.dedup_key),
       target_version = nullable(target_version),
@@ -580,6 +711,6 @@ return {
   end,
 
   test_implement_receiver_activation_old_behavior_is_real_dispatch_and_bidirectional = function()
-    assert_site("implement", IMPLEMENT_FIXTURES, 5)
+    assert_site("implement", IMPLEMENT_FIXTURES, 8)
   end,
 }

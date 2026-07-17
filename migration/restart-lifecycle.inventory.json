@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "6f747e59a5581538c78f137a60e1081ded8b22c897069d890028e69f3e91a1a5",
+  "artifact_sha256": "96abae16c4f0020365a844174668192d7b4ad028eb8618d48934bdbfb8fe4b93",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -843,6 +843,349 @@
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
         "reason_code": "skip-closed",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_ready",
+        "path": "packages/github-devloop/departments/implement/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.ready.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          }
+        },
+        "source_boundary": "github-devloop.devloop_ready",
+        "source_state": "ready",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop/departments/implement/main.lua:604"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop.devloop_ready"
+        }
+      ],
+      "observation_id": "receiver-activation-implement-skip-fork-backing-closed",
+      "old_inputs": {
+        "caller_from_states": [
+          "ready"
+        ],
+        "current_fact": {
+          "assignees": [
+            "fkst-test-bot"
+          ],
+          "fork_backing": {
+            "canonical_issue_number": null,
+            "issue_number": 618,
+            "issue_state": "CLOSED",
+            "repo": "owner/repo"
+          },
+          "issue_state": "OPEN",
+          "labels": [
+            "fkst-dev:ready"
+          ]
+        },
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(original-closed)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "skip-closed",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_ready",
+        "path": "packages/github-devloop/departments/implement/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.ready.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          }
+        },
+        "source_boundary": "github-devloop.devloop_ready",
+        "source_state": "ready",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop/departments/implement/main.lua:608"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop.devloop_ready"
+        }
+      ],
+      "observation_id": "receiver-activation-implement-skip-noncanonical-fork",
+      "old_inputs": {
+        "caller_from_states": [
+          "ready"
+        ],
+        "current_fact": {
+          "assignees": [
+            "fkst-test-bot"
+          ],
+          "fork_backing": {
+            "canonical_issue_number": 41,
+            "issue_number": 618,
+            "issue_state": "OPEN",
+            "repo": "owner/repo"
+          },
+          "issue_state": "OPEN",
+          "labels": [
+            "fkst-dev:ready"
+          ]
+        },
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(noncanonical-fork)",
+        "emitted_effects": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "comment:issue:duplicate-fork",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "label:issue:duplicate-fork",
+            "ordinal": 2,
+            "sink_kind": "label"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:issue:duplicate-fork",
+            "payload": {
+              "body": "Duplicate fork for owner/repo#618; canonical fork is #41\n\n<!-- fkst:github-devloop:duplicate-fork:v1 original_issue=\"618\" canonical=\"41\" -->",
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "implement/duplicate-fork/owner/repo/618/42/41",
+              "issue_number": "42",
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              }
+            },
+            "queue": "github-proxy.github_issue_comment_request"
+          },
+          {
+            "effect_id": "label:issue:duplicate-fork",
+            "payload": {
+              "add_labels": [
+                "fkst:duplicate-fork"
+              ],
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "implement/duplicate-fork/label/owner/repo/618/42/41",
+              "issue_number": "42",
+              "remove_labels": {},
+              "repo": "owner/repo",
+              "schema": "github-proxy.label.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              },
+              "target_kind": "issue",
+              "target_number": "42"
+            },
+            "queue": "github-proxy.github_issue_label_request"
+          }
+        ],
+        "reason_code": "skip-noncanonical-fork",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_ready",
+        "path": "packages/github-devloop/departments/implement/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.ready.v1",
+        "generation_epoch": {
+          "current_version": null,
+          "effect_version": null,
+          "request_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+        },
+        "kind": "receiver_activation",
+        "lineage": {
+          "issue_number": 42,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#issue/42"
+          }
+        },
+        "source_boundary": "github-devloop.devloop_ready",
+        "source_state": "ready",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "receiver_activation",
+      "evidence_refs": [
+        {
+          "kind": "runtime-receiver-activation",
+          "ref": "packages/github-devloop/departments/implement/main.lua:600"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop.devloop_ready"
+        }
+      ],
+      "observation_id": "receiver-activation-implement-skip-noncanonical-slice",
+      "old_inputs": {
+        "caller_from_states": [
+          "ready"
+        ],
+        "current_fact": {
+          "assignees": [
+            "fkst-test-bot"
+          ],
+          "issue_state": "OPEN",
+          "labels": [
+            "fkst-dev:ready"
+          ],
+          "slice": {
+            "canonical_issue_number": 41,
+            "entry_key": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        },
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(noncanonical-slice)",
+        "emitted_effects": [
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "comment:issue:duplicate-slice",
+            "ordinal": 1,
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "grantless-non-lifecycle",
+            "effect_id": "label:issue:duplicate-slice",
+            "ordinal": 2,
+            "sink_kind": "label"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "effect_id": "comment:issue:duplicate-slice",
+            "payload": {
+              "body": "Duplicate migration slice for entry_key=1111111111111111111111111111111111111111111111111111111111111111; canonical is #41\n\n<!-- fkst:github-devloop:duplicate-slice:v1 entry_key=\"1111111111111111111111111111111111111111111111111111111111111111\" canonical=\"41\" -->",
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "implement/duplicate-slice/1111111111111111111111111111111111111111111111111111111111111111/42/41",
+              "issue_number": "42",
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              }
+            },
+            "queue": "github-proxy.github_issue_comment_request"
+          },
+          {
+            "effect_id": "label:issue:duplicate-slice",
+            "payload": {
+              "add_labels": [
+                "fkst:duplicate-slice"
+              ],
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "implement/duplicate-slice/label/1111111111111111111111111111111111111111111111111111111111111111/42/41",
+              "issue_number": "42",
+              "remove_labels": {},
+              "repo": "owner/repo",
+              "schema": "github-proxy.label.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              },
+              "target_kind": "issue",
+              "target_number": "42"
+            },
+            "queue": "github-proxy.github_issue_label_request"
+          }
+        ],
+        "reason_code": "skip-noncanonical-slice",
         "status": "rejected",
         "timeout_evidence_source": null
       },
