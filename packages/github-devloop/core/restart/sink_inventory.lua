@@ -49,6 +49,7 @@ add("label:issue:consensus-result", "consensus_result", "raise_result_effects.re
 add("comment:issue:dependency-hold", "consensus_result", "raise_result_effects.dependency_hold_comment", "comment", "lifecycle-authoritative", "dependency-wait|dependency-cycle|dependency-unresolvable:v1;dedup=dependency/comment")
 add("label:issue:dependency-hold", "consensus_result", "raise_result_effects.dependency_hold_label", "label", "lifecycle-authoritative", "label:fkst-dev:blocked-on-dependency;dedup=dependency/label/hold")
 add("comment:issue:dependency-release", "consensus_result", "raise_result_effects.dependency_release_comment", "comment", "lifecycle-authoritative", "dependency-release:v1;dedup=dependency/comment/release")
+add("comment:issue:result-divergence", "consensus_result", "act_result.result_divergence_comment", "comment", "grantless-non-lifecycle", "result-divergence:v1;dedup=result-divergence/logical-result")
 add("comment:issue:thinking-state", "execute_start", "raise_execution_start.thinking_comment", "comment", "lifecycle-authoritative", "state:v1/thinking;dedup=execution-start/comment")
 add("label:issue:thinking-state", "execute_start", "raise_execution_start.thinking_label", "label", "lifecycle-authoritative", "state-label:thinking;dedup=execution-start/label")
 add("comment:issue:implementation-failed", "implement", "raise_impl_failed.comment", "comment", "lifecycle-authoritative", "state:v1/impl-failed+impl-failure:v1;dedup=implement/comment/failure")
@@ -95,5 +96,10 @@ add("comment:issue:reconcile-blocked", "reconcile", "emit_blocked_reconcile.issu
 add("label:issue:reconcile-blocked", "reconcile", "emit_blocked_reconcile.issue_label", "label", "lifecycle-authoritative", "state-label:blocked;dedup=reconcile/label")
 add("comment:pr:reconcile-blocked", "reconcile", "emit_effects.pr_comment", "comment", "lifecycle-authoritative", "state:v1/blocked+review-reconcile|fix-reconcile:v1")
 add("comment:issue:timeout-reconcile", "reconcile", "pipeline_timeout.comment", "comment", "lifecycle-authoritative", "state:v1/blocked+timeout-reconcile:v1;dedup=timeout-reconcile/comment")
+add("comment:pr:timeout-adopt-open-pr", "reconcile", "maybe_adopt_open_implementation_pr.child_effect", "comment", "lifecycle-authoritative", "state:v1/pr-open+pr-origin:v1+pr-link:v1;dedup=pr-delegation/pr-open")
+add("comment:issue:timeout-adopt-pr-delegation", "reconcile", "maybe_adopt_open_implementation_pr.child_delegation_effect", "comment", "lifecycle-authoritative", "pr-delegation:v1;dedup=pr-delegation/issue")
+add("comment:issue:timeout-adopt-open-pr", "reconcile", "maybe_adopt_open_implementation_pr.issue_comment", "comment", "lifecycle-authoritative", "state:v1/awaiting-pr+pr-delegation:v1;dedup=awaiting-pr")
+add("label:issue:timeout-adopt-open-pr", "reconcile", "maybe_adopt_open_implementation_pr.issue_label", "label", "lifecycle-authoritative", "state-label:awaiting-pr;dedup=awaiting-pr/label")
+add("comment:issue:decompose-exhausted", "reconcile", "pipeline_timeout.decompose_exhausted_comment", "comment", "lifecycle-authoritative", "decompose-exhausted:v1;dedup=decompose-exhausted/comment")
 
 return records
