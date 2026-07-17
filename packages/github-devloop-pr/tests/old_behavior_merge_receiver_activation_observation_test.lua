@@ -59,6 +59,7 @@ local FIXTURES = ra.json_array({
     disposition = "verified-merge-not-mergeable-shadow-crash", status = "rejected",
     reason = "verified-not-mergeable-shadow-crash", cas = "applied", target = "reject", source_line = 682,
     current_state = "merge-ready", current_version = VERSION, verified_not_mergeable = true,
+    verified_return = "mergeable-conflicting",
     expected_error = "is_not_mergeable_reason",
   },
   {
@@ -325,28 +326,36 @@ local FIXTURES = ra.json_array({
     disposition = "merge-confirmation-mismatch", status = "rejected", reason = "merged-pr-fact-mismatch",
     cas = "fail-closed(merge-confirmation)", target = "reject", source_line = 656,
     current_state = "merge-ready", current_version = VERSION, merge_confirmation_mismatch = true,
+    verified_return = "merge-confirmation-mismatch",
     expected_error = "merge-confirmation-mismatch",
     effects = ra.json_array({ "comment:pr:merging-state", "github.merge:verified-pr" }),
   },
   {
     disposition = "verified-merge-head-mismatch-routes-reviewing", status = "admitted",
     reason = "verified-head-mismatch", cas = "applied", target = "reviewing", source_line = 662,
-    current_state = "merge-ready", current_version = VERSION, verified_reason = "head-sha-mismatch",
-    verified_head_sha = OTHER_HEAD,
+    current_state = "merge-ready", current_version = VERSION, verified_head_mismatch = true,
+    verified_return = "head-sha-mismatch",
     effects = ra.json_array({ "comment:pr:merge-head-reviewing", "label:issue:merge-head-reviewing" }),
+  },
+  {
+    disposition = "verified-merge-identity-mismatch-shadow-crash", status = "rejected",
+    reason = "verified-head-branch-mismatch-shadow-crash", cas = "applied", target = "reject", source_line = 41,
+    evidence_path = "libraries/forge/merge/verified_merge.lua",
+    current_state = "merge-ready", current_version = VERSION, verified_identity_mismatch = true,
+    verified_return = "head-branch-mismatch", expected_error = "is_not_mergeable_reason",
   },
   {
     disposition = "verified-merge-own-ci-red-routes-fixing", status = "admitted",
     reason = "verified-own-ci-red", cas = "applied", target = "fixing", source_line = 672,
-    current_state = "merge-ready", current_version = VERSION, verified_reason = "own-ci-red",
-    classification_red = true,
+    current_state = "merge-ready", current_version = VERSION, classification_red = true,
+    verified_return = "own-ci-red",
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
     disposition = "verified-merge-own-ci-red-head-mismatch-routes-reviewing", status = "admitted",
     reason = "verified-own-ci-red-head-mismatch", cas = "applied", target = "reviewing", source_line = 672,
-    current_state = "merge-ready", current_version = VERSION, verified_reason = "own-ci-red",
-    classification_red = true, verified_own_ci_head_mismatch = true,
+    current_state = "merge-ready", current_version = VERSION, classification_red = true,
+    verified_own_ci_head_mismatch = true, verified_return = "own-ci-red",
     effects = ra.json_array({ "comment:pr:merge-head-reviewing", "label:issue:merge-head-reviewing" }),
   },
   {
@@ -354,25 +363,36 @@ local FIXTURES = ra.json_array({
     cas = "hold", target = "hold", source_line = 107,
     evidence_path = "libraries/forge/merge/verified_merge.lua",
     current_state = "merge-ready", current_version = VERSION, verified_ci_wait = true,
+    verified_return = "rollup-pending",
     expected_error = "merge-ci-wait",
     effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
+  },
+  {
+    disposition = "verified-merge-confirmation-pending", status = "rejected",
+    reason = "merge-confirmation-pending", cas = "retry-pending(merge-confirmation)",
+    target = "hold", source_line = 96, evidence_path = "libraries/forge/merge/verified_merge.lua",
+    current_state = "merge-ready", current_version = VERSION, merge_confirmation_pending = true,
+    verified_return = "merge-confirmation-pending", expected_error = "merge-confirmation-pending",
+    effects = ra.json_array({ "comment:pr:merging-state", "github.merge:verified-pr" }),
   },
   {
     disposition = "admitted-merge-existing-merging-marker", status = "admitted",
     reason = "verified-merge-existing-merging-marker", cas = "applied", target = "merged", source_line = 705,
     current_state = "merging", current_version = VERSION, merging_marker = true, merge = true,
     effects = ra.json_array({ "github.merge:verified-pr", "comment:pr:merged-state" }),
+    verified_return = "merged",
   },
   {
     disposition = "admitted-merge", status = "admitted", reason = "verified-merge",
     cas = "applied", target = "merged", source_line = 705,
-    current_state = "merge-ready", current_version = VERSION, merge = true,
+    current_state = "merge-ready", current_version = VERSION, merge = true, verified_return = "merged",
     effects = ra.json_array({ "comment:pr:merging-state", "github.merge:verified-pr", "comment:pr:merged-state" }),
   },
   {
     disposition = "admitted-draft-ready-merge", status = "admitted", reason = "draft-ready-verified-merge",
     cas = "applied", target = "merged", source_line = 705,
     current_state = "merge-ready", current_version = VERSION, merge = true, draft = true,
+    verified_return = "merged",
     effects = ra.json_array({ "adapter:github.pr-ready", "comment:pr:merging-state", "github.merge:verified-pr", "comment:pr:merged-state" }),
   },
   {
@@ -407,6 +427,7 @@ local FIXTURES = ra.json_array({
     disposition = "verified-recheck-origin-changed", status = "rejected",
     reason = "verified-origin-shadow-crash", cas = "applied", target = "reject", source_line = 639,
     current_state = "merge-ready", current_version = VERSION, verified_origin_changed = true,
+    verified_return = "pr-origin-changed",
     expected_error = "is_not_mergeable_reason",
   },
   {
@@ -414,6 +435,7 @@ local FIXTURES = ra.json_array({
     reason = "verified-evidence-shadow-crash", cas = "applied",
     target = "reject", source_line = 643,
     current_state = "merge-ready", current_version = VERSION, verified_evidence_missing = true,
+    verified_return = "retry-pending(high-risk-review-evidence-missing)",
     expected_error = "is_not_mergeable_reason",
   },
 })
@@ -501,8 +523,11 @@ local function capture(fixture)
     return { stdout = "", stderr = "", exit_code = fixture.carry_over and 0 or 1 }
   end
   local function pr_fields(read_count)
-    local state = merged and "MERGED" or (fixture.pr_state or "OPEN")
+    local confirmation_pending = fixture.merge_confirmation_pending and (read_count or 0) >= 4
+    local state = merged and not confirmation_pending and "MERGED" or (fixture.pr_state or "OPEN")
     local head_sha = fixture.current_head_sha or HEAD_SHA
+    local head_branch = BRANCH
+    if fixture.verified_identity_mismatch and (read_count or 0) >= 3 then head_branch = BRANCH .. "-changed" end
     local active_comments = comments
     local change = fixture.ready_recheck_reason
     if change ~= nil and (read_count or 0) >= 2 then
@@ -540,7 +565,7 @@ local function capture(fixture)
       rollup_conclusion = "null"
     end
     return {
-      repo = REPO, number = PR_NUMBER, comments = active_comments, head = BRANCH,
+      repo = REPO, number = PR_NUMBER, comments = active_comments, head = head_branch,
       head_sha = head_sha, base_branch = origin_base, base_sha = string.rep("a", 40),
       state = state, merged_at = state == "MERGED" and "2026-06-03T02:05:04Z" or nil,
       is_draft = draft and not merged,
@@ -564,7 +589,8 @@ local function capture(fixture)
     local fields_value = pr_fields(pr_read_count)
     if fixture.recheck_head_mismatch and pr_read_count >= 2 then fields_value.head_sha = OTHER_HEAD end
     if fixture.own_ci_head_mismatch and pr_read_count >= 2 then fields_value.head_sha = OTHER_HEAD end
-    if fixture.verified_own_ci_head_mismatch and pr_read_count >= 3 then fields_value.head_sha = OTHER_HEAD end
+    if fixture.verified_head_mismatch and pr_read_count >= 3 then fields_value.head_sha = OTHER_HEAD end
+    if fixture.verified_own_ci_head_mismatch and pr_read_count >= 4 then fields_value.head_sha = OTHER_HEAD end
     return { stdout = entity_read_mocks.pr_view_stdout(fields_value), stderr = "", exit_code = 0 }
   end
   function ports.github.pr_ready(repo, number, timeout)
@@ -669,13 +695,13 @@ local function capture(fixture)
     if fixture.ci_merge_reason then return false, fixture.ci_merge_reason, {} end
     return true, "merge-gate-green", {}
   end, restorations)
-  if fixture.verified_reason then
-    ra.replace(core, "run_verified_pr_merge", function()
-      local observed = pr_fields(pr_read_count)
-      if fixture.verified_head_sha then observed.head_sha = fixture.verified_head_sha end
-      return false, fixture.verified_reason, observed
-    end, restorations)
-  end
+  local verified_returns = ra.json_array()
+  local run_verified_pr_merge = core.run_verified_pr_merge
+  ra.replace(core, "run_verified_pr_merge", function(request)
+    local merge_ok, reason, current_pr, classification = run_verified_pr_merge(request)
+    table.insert(verified_returns, { merge_ok = merge_ok, reason = reason })
+    return merge_ok, reason, current_pr, classification
+  end, restorations)
   ra.replace(high_risk_merge_gate, "assert_evidence", function() return true end, restorations)
   ra.replace(high_risk_merge_gate, "require_evidence", function()
     if fixture.verified_evidence_missing then
@@ -692,6 +718,13 @@ local function capture(fixture)
   local ok, result = pcall(runner, department, event)
   ra.restore_all(restorations)
   if not ok then error(fixture.disposition .. ": " .. tostring(result), 0) end
+  if fixture.verified_return ~= nil then
+    t.eq(#verified_returns, 1, fixture.disposition .. ": one delegated verified-merge return")
+    t.eq(verified_returns[1].reason, fixture.verified_return,
+      fixture.disposition .. ": exact delegated verified-merge return")
+  else
+    t.eq(#verified_returns, 0, fixture.disposition .. ": verified merge not reached")
+  end
   if fixture.expected_error then
     t.is_true(tostring(result.failure and result.failure.error or ""):find(fixture.expected_error, 1, true) ~= nil,
       fixture.disposition .. ": expected failure")
