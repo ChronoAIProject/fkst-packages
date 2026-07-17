@@ -391,6 +391,32 @@ local function precheck_fix_write_gate(repo, fix, branch)
   return prechecked, prechecked_state
 end
 
+local function pre_spawn_fix_attempt(repo, fix, attempt_plan)
+  local prechecked_pr, prechecked_state = precheck_fix_write_gate(repo, fix, attempt_plan.branch)
+  if prechecked_pr == nil then
+    return false
+  end
+  if dispatch_live_run.dispatch_live_run_dedup(dispatch_liveness, "fix", fix.proposal_id, fix.work_unit_key, {
+    state = prechecked_state,
+    current_pr = prechecked_pr,
+    proposal_id = fix.proposal_id,
+    work_unit_key = fix.work_unit_key,
+    now_seconds = now(),
+  }) then
+    devloop_logging.log_cas_decision(
+      "fix",
+      fix.proposal_id,
+      { state = "fixing", version = fix.version, stage_rank = devloop_state.stage_rank("fixing") },
+      "fixing",
+      "reviewing|review-meta",
+      "skip-idempotent(live-exec-ref)",
+      "matching fix codex run is still live"
+    )
+    return false
+  end
+  return true
+end
+
 local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
   if outcome == nil then
     return
@@ -562,8 +588,24 @@ local function act_fix(event)
           devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(superseded-merge-gate-fact)", "a newer canonical merge-gate fact supersedes this fix event")
           return
         end
-        devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "fail-closed(merge-gate-fact-mismatch)", "active fix event does not match any trusted merge-gate fact")
-        error("github-devloop: active-merge-gate-fact-mismatch: active fix event does not match any trusted merge-gate fact")
+        local _, base_skew_lineage_matches = m_facts.merge_gate_fix_fact(current_pr.comments, fix.proposal_id, fix.version, {
+          review_proposal_id = fix.review_proposal_id,
+          review_dedup_key = fix.review_dedup_key,
+          reviewed_head_sha = fix.reviewed_head_sha,
+          predecessor_set = fix.predecessor_set,
+          match_predecessor_set = true,
+          ci_failure_key = fix.ci_failure_key,
+          match_ci_failure_key = true,
+        })
+        if base_skew_lineage_matches and fix.ci_failure_key == nil then
+          devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(base-skewed-merge-gate-fact)", "canonical merge-gate replay owns recovery for a baseline-only mismatch")
+          return
+        end
+        if not base_skew_lineage_matches then
+          devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "fail-closed(merge-gate-fact-mismatch)", "active fix event does not match any trusted merge-gate fact")
+          error("github-devloop: active-merge-gate-fact-mismatch: active fix event does not match any trusted merge-gate fact")
+        end
+        devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "applied(base-skewed-ci-recovery)", "canonical merge-gate fact drives CI repair against the current baseline")
       end
     end
     if reject_fact == nil and meta_fix_fact == nil and merge_gate_fact == nil then
@@ -690,26 +732,7 @@ local function act_fix(event)
   end
   local pre_spawn_gate_ok = false
   with_lock(lock_key, function()
-    local prechecked_pr, prechecked_state = precheck_fix_write_gate(repo, fix, attempt_plan.branch)
-    pre_spawn_gate_ok = prechecked_pr ~= nil
-    if pre_spawn_gate_ok and dispatch_live_run.dispatch_live_run_dedup(dispatch_liveness, "fix", fix.proposal_id, fix.work_unit_key, {
-      state = prechecked_state,
-      current_pr = prechecked_pr,
-      proposal_id = fix.proposal_id,
-      work_unit_key = fix.work_unit_key,
-      now_seconds = now(),
-    }) then
-      devloop_logging.log_cas_decision(
-        "fix",
-        fix.proposal_id,
-        { state = "fixing", version = fix.version, stage_rank = devloop_state.stage_rank("fixing") },
-        "fixing",
-        "reviewing|review-meta",
-        "skip-idempotent(live-exec-ref)",
-        "matching fix codex run is still live"
-      )
-      pre_spawn_gate_ok = false
-    end
+    pre_spawn_gate_ok = pre_spawn_fix_attempt(repo, fix, attempt_plan)
   end)
   if not pre_spawn_gate_ok then
     return

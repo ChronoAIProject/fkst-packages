@@ -102,6 +102,47 @@ local function replay_fixing_payload(event, comments)
   return raised.payload
 end
 
+local function assert_active_merge_gate_mismatch(name, event_fields, marker_fields)
+  local seed = fixing()
+  local event = payloads_builders.build_replayed_fixing_payload({
+    proposal_id = seed.proposal_id,
+    impl_version = seed.version,
+  }, seed.pr_number, {
+    review_proposal_id = seed.review_proposal_id,
+    review_dedup_key = seed.review_dedup_key,
+    reviewed_head_sha = seed.reviewed_head_sha,
+    gate_baseline_sha = "828df8d3",
+    predecessor_set = event_fields.predecessor_set,
+    ci_failure_key = event_fields.ci_failure_key,
+    gate_failure_excerpt = "own-ci-red",
+  }, seed.source_ref)
+  local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+  local feedback = m_builders.merge_gate_marker(
+    event.proposal_id,
+    event.pr_number,
+    event.version,
+    event.review_proposal_id,
+    event.review_dedup_key,
+    event.reviewed_head_sha,
+    event.gate_baseline_sha,
+    "own-ci-red",
+    marker_fields.predecessor_set,
+    marker_fields.ci_failure_key
+  )
+  local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+  mock_bot_env()
+  mock_write_env("1")
+  mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+    core.state_marker(event.proposal_id, "fixing", event.version),
+    feedback,
+  }, branch, event.version)
+  mock_pr_fix({ origin_marker }, branch, event.reviewed_head_sha)
+
+  local result = run_fix(event, opts("fix-active-merge-gate-" .. name .. "-mismatch", { FKST_GITHUB_WRITE = "1" }))
+  t.eq(result.exit_code, 1)
+  t.eq(find_causal_raise(result, "devloop_reviewing"), nil)
+end
+
 return {
   test_merge_ci_red_without_rollup_sha_uses_pr_base_baseline = function()
     local event = merge_ready()
@@ -316,6 +357,78 @@ return {
     local result = run_fix(event, opts("fix-active-merge-gate-lineage-mismatch", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 1)
     t.eq(find_causal_raise(result, "devloop_reviewing"), nil)
+  end,
+
+  test_active_fixing_merge_gate_predecessor_mismatch_fails_closed = function()
+    assert_active_merge_gate_mismatch("predecessor", {
+      predecessor_set = "pred-a",
+      ci_failure_key = "head:def456/checks:digest-0000000101",
+    }, {
+      predecessor_set = "pred-b",
+      ci_failure_key = "head:def456/checks:digest-0000000101",
+    })
+  end,
+
+  test_active_fixing_merge_gate_ci_mismatch_fails_closed = function()
+    assert_active_merge_gate_mismatch("ci", {
+      predecessor_set = "pred-a",
+      ci_failure_key = "head:def456/checks:digest-0000000101",
+    }, {
+      predecessor_set = "pred-a",
+      ci_failure_key = "head:def456/checks:digest-0000000102",
+    })
+  end,
+
+  test_active_fixing_merge_gate_nil_predecessor_does_not_match_present_marker = function()
+    assert_active_merge_gate_mismatch("nil-predecessor", {}, {
+      predecessor_set = "pred-b",
+    })
+  end,
+
+  test_active_fixing_merge_gate_nil_ci_failure_does_not_match_present_marker = function()
+    assert_active_merge_gate_mismatch("nil-ci-failure", {}, {
+      ci_failure_key = "head:def456/checks:digest-0000000101",
+    })
+  end,
+
+  test_ci_failure_replay_keeps_forward_delivery_identity_across_baseline_change = function()
+    local seed = fixing()
+    local ci_failure_key = "head:def456/checks:digest-0000000101"
+    local event = payloads_builders.build_replayed_fixing_payload({
+      proposal_id = seed.proposal_id,
+      impl_version = seed.version,
+    }, seed.pr_number, {
+      review_proposal_id = seed.review_proposal_id,
+      review_dedup_key = seed.review_dedup_key,
+      reviewed_head_sha = seed.reviewed_head_sha,
+      gate_baseline_sha = "281c4f9e",
+      predecessor_set = "none",
+      ci_failure_key = ci_failure_key,
+      gate_failure_excerpt = "own-ci-red",
+    }, seed.source_ref)
+    local replayed = replay_fixing_payload(event, { {
+      body = "github-devloop merge gate failed: own-ci-red\n"
+        .. m_builders.merge_gate_marker(
+          event.proposal_id,
+          event.pr_number,
+          event.version,
+          event.review_proposal_id,
+          event.review_dedup_key,
+          event.reviewed_head_sha,
+          "828df8d3",
+          "own-ci-red",
+          event.predecessor_set,
+          ci_failure_key
+        ),
+      author_login = "fkst-test-bot",
+      created_at = "2026-06-03T01:00:00Z",
+    } })
+
+    t.eq(replayed.repair_input, "ci-failure")
+    t.eq(replayed.ci_failure_key, ci_failure_key)
+    t.eq(replayed.gate_baseline_sha, "828df8d3")
+    t.eq(replayed.work_unit_key, event.work_unit_key)
+    t.eq(replayed.dedup_key, event.dedup_key)
   end,
 
   test_older_matching_merge_gate_fact_is_superseded_by_newer_canonical_fact = function()
