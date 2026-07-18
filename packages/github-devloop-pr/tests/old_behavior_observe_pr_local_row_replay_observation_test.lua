@@ -67,10 +67,10 @@ local BASE_VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06
 local SOURCE_REF = { kind = "external", ref = "owner/repo#pr/7001" }
 local EXPECTED_ROW_COUNTS = {
   ["pr-open"] = 3,
-  reviewing = 3,
+  reviewing = 5,
   fixing = 8,
   ["review-meta"] = 3,
-  ["merge-ready"] = 2,
+  ["merge-ready"] = 3,
   merging = 3,
   blocked = 3,
   ["closed-unmerged"] = 1,
@@ -83,6 +83,8 @@ local FIXTURES = json_array({
   { name = "route-reviewing-no-result", state = "reviewing", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "reviewing", expected_effect_ids = json_array({ "comment:pr:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:167-169,241-245,782-831" },
   { name = "route-reviewing-current-redrive-result-visible", state = "reviewing", marker = "review-result-redrive-visible", expected_status = "routed-noop", expected_decision = "skip-idempotent(review result visible)", expected_target = "reviewing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:782-797" },
   { name = "route-reviewing-foreign-result-binding", state = "reviewing", marker = "review-result-foreign-binding", expected_status = "routed-noop", expected_decision = "skip-foreign(review-result-binding)", expected_target = "review-result", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:164-174" },
+  { name = "route-reviewing-approve-without-merge-ready", state = "reviewing", marker = "review-result-approve-only", expected_status = "routed-noop", expected_decision = "skip-foreign(merge-ready)", expected_target = "merge-ready", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:175-179,770-776" },
+  { name = "route-reviewing-closed", state = "reviewing", pr_state = "CLOSED", expected_status = "routed", expected_decision = "applied(orphaned-pr-closed)", expected_target = "closed-unmerged", expected_effect_ids = json_array({ "comment:pr:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:52-65,695-696,770-773" },
   { name = "route-fixing", state = "fixing", suffix = "/fix/1", marker = "fix-feedback", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "fixing", expected_effect_ids = json_array({ "comment:pr:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:261-337" },
   { name = "route-fixing-no-feedback", state = "fixing", suffix = "/fix/1", expected_status = "routed-noop", expected_decision = "skip-foreign(fix-feedback)", expected_target = "fixing|reviewing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:268-271" },
   { name = "route-fixing-head-advanced-stale", state = "fixing", suffix = "/fix/1", marker = "fix-feedback-head-advanced", branch_head_sha = "cab123", expected_status = "routed-noop", expected_decision = "skip-stale(head-advanced)", expected_target = "fixing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:275-279" },
@@ -96,6 +98,7 @@ local FIXTURES = json_array({
   { name = "route-review-meta-open-head-missing", state = "review-meta", suffix = "/fix/1/meta-no-head", head_sha = "", expected_status = "routed-noop", expected_decision = "skip-foreign(pr-head)", expected_target = "fixing|blocked", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:41-45,69-70,343-346" },
   { name = "route-merge-ready", state = "merge-ready", marker = "merge-ready", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "merging", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_merge_ready" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:398-454" },
   { name = "route-merge-ready-carry-over", state = "merge-ready", suffix = "/carry", marker = "merge-ready-stale", carry_success = true, expected_status = "routed", expected_decision = "applied(review-carry-over)", expected_target = "merge-ready", expected_effect_ids = json_array({ "comment:pr:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:408-428" },
+  { name = "route-merge-ready-without-marker", state = "merge-ready", suffix = "/without-marker", expected_status = "routed-noop", expected_decision = "skip-foreign(merge-ready)", expected_target = "merging|blocked", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:398-406" },
   { name = "route-merging", state = "merging", marker = "merging", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "merging", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_merge_ready" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:498-603" },
   { name = "route-merging-no-authorization", state = "merging", suffix = "/no-auth", expected_status = "routed-noop", expected_decision = "skip-foreign(merge-ready)", expected_target = "merged|reviewing|fixing|blocked", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:498-512" },
   { name = "route-merging-open-head-missing", state = "merging", marker = "merging", head_sha = "", no_local_decision = true, expected_status = "routed-noop", expected_decision = "return(false-invalid-current-head)", expected_target = "reviewing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:460-466,520-525" },
@@ -484,14 +487,14 @@ local function assert_row_universe()
     t.eq(counts[state], expected, state .. ": complete production-reachable row disposition count")
   end
   t.eq(reason_count, 22, "collapsed distinct decision reason-code count")
-  t.eq(#FIXTURES, 27, "collapsed production-reachable observe_pr local row decision-class count")
+  t.eq(#FIXTURES, 30, "collapsed production-reachable observe_pr local row decision-class count")
 end
 
 return {
   test_observe_pr_local_row_replay_old_behavior_is_real_dispatch_and_bidirectional = function()
     assert_row_universe()
     local fixtures, first, second = fixture_tuples(), capture_records(), capture_records()
-    t.eq(#first, 27, "collapsed production-reachable observe_pr local row replay count")
+    t.eq(#first, 30, "collapsed production-reachable observe_pr local row replay count")
     local repeat_difference = first_difference(second, first, "old_behavior_observations[observe-pr-local-row-replay][repeat]")
     if repeat_difference ~= nil or canonical_json(second) ~= canonical_json(first) then error("second OLD observe_pr local row replay capture differs at " .. tostring(repeat_difference or "canonical-json"), 0) end
     local runtime = record_tuples(first, "runtime records")
