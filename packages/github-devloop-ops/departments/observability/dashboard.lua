@@ -229,6 +229,17 @@ local function append_state_section(lines, title, state, by_state, now_seconds)
   append_entity_lines(lines, by_state[state] or {}, now_seconds)
 end
 
+local function partial_observation_line(summary)
+  return "- reason=" .. tostring(summary.reason or "unknown")
+    .. " listed_issues=" .. tostring(summary.listed_issues or 0)
+    .. " listed_prs=" .. tostring(summary.listed_prs or 0)
+    .. " processed_issues=" .. tostring(summary.processed_issues or 0)
+    .. " processed_prs=" .. tostring(summary.processed_prs or 0)
+    .. " deferred_issues=" .. tostring(summary.deferred_issues or 0)
+    .. " deferred_prs=" .. tostring(summary.deferred_prs or 0)
+    .. " entity_cap=" .. tostring(summary.entity_cap or 0)
+end
+
 local function false_consensus_pair_line(pair)
   local reverted = tonumber(pair and pair.reverted_pr)
   if reverted == nil then
@@ -296,6 +307,7 @@ function core.render_observability_dashboard(args)
   local counts = args and args.counts or {}
   local stalls = args and args.stalls or {}
   local state_gap_report = args and args.state_gap_report or {}
+  local observability_deferred = args and args.observability_deferred or nil
   local topology_mermaid = args and args.topology_mermaid or nil
   local recent_merged_prs = args and args.recent_merged_prs or nil
   local recent_merged_issues = args and args.recent_merged_issues or nil
@@ -350,6 +362,15 @@ function core.render_observability_dashboard(args)
   end
   if counts.unmanaged ~= nil then
     table.insert(lines, "- unmanaged: " .. tostring(counts.unmanaged))
+  end
+  append_section(sections, lines)
+
+  lines = {}
+  table.insert(lines, "## Partial observations")
+  if type(observability_deferred) == "table" then
+    table.insert(lines, partial_observation_line(observability_deferred))
+  else
+    table.insert(lines, "- None")
   end
   append_section(sections, lines)
 

@@ -64,6 +64,7 @@ function core.observe_devloop_entities(event)
     counts = observed.counts,
     stalls = observed.stalls,
     state_gap_report = observed.state_gap_report,
+    observability_deferred = observed.observability_deferred,
     recent_merged_prs = recent_merged_prs,
     recent_merged_issues = recent_merged_issues,
     now_seconds = observed.now_seconds,

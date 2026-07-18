@@ -268,6 +268,33 @@ return {
     t.eq(dashboard.body:find("TOTAL", 1, true), nil)
   end,
 
+  test_dashboard_renders_partial_observations = function()
+    mock_dashboard_env()
+    local dashboard = core.render_observability_dashboard({
+      entities = {},
+      counts = {},
+      stalls = {},
+      observability_deferred = {
+        reason = "timeout",
+        listed_issues = 3,
+        listed_prs = 2,
+        processed_issues = 1,
+        processed_prs = 0,
+        deferred_issues = 2,
+        deferred_prs = 2,
+        entity_cap = 25,
+      },
+      now_seconds = 1770000000,
+    })
+
+    t.is_true(dashboard.body:find("## Partial observations", 1, true) ~= nil)
+    t.is_true(dashboard.body:find(
+      "- reason=timeout listed_issues=3 listed_prs=2 processed_issues=1 processed_prs=0 deferred_issues=2 deferred_prs=2 entity_cap=25",
+      1,
+      true
+    ) ~= nil)
+  end,
+
   test_false_consensus_detector_flags_explicit_merged_revert_pr = function()
     mock_dashboard_env()
     local proposal_id = "github-devloop/issue/owner/repo/44"

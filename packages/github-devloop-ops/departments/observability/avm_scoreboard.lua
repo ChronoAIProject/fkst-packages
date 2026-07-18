@@ -365,7 +365,7 @@ end
 
 function core.collect_recent_merged_prs(repo, limits, deadline)
   local limit = math.max(1, math.floor(tonumber(limits and limits.entity_cap) or 25))
-  local listed = core.observability_run_cmd({
+  local listed = core.observability_display_read_cmd({
     run = function(timeout)
       return core.gh_pr_list_recent_merged(repo, limit, timeout)
     end,
@@ -383,13 +383,13 @@ function core.collect_recent_merged_prs(repo, limits, deadline)
       log.warn("github-devloop dept=observability tag=AVM_FALSE_CONSENSUS_DEFERRED reason=deadline processed_prs=" .. tostring(#prs))
       break
     end
-    local view = core.observability_run_cmd({
+    local view = core.observability_display_read_cmd({
       run = function(timeout)
         return core.gh_pr_view_observe(repo, item.number, timeout)
       end,
     }, limits, deadline, "recent merged PR view")
     if core.observability_result_deferred(view) then
-      log.warn("github-devloop dept=observability tag=AVM_FALSE_CONSENSUS_DEFERRED reason=deadline processed_prs=" .. tostring(#prs))
+      log.warn("github-devloop dept=observability tag=AVM_FALSE_CONSENSUS_DEFERRED reason=" .. tostring(view.reason or "deadline") .. " processed_prs=" .. tostring(#prs))
       break
     end
     table.insert(prs, recent_merged_pr_view(parsers_pr.parse_pr_view_origin(view.stdout), item))
@@ -399,7 +399,7 @@ end
 
 function core.collect_recent_merged_issues(repo, limits, deadline)
   local limit = math.max(1, math.floor(tonumber(limits and limits.entity_cap) or 25))
-  local listed = core.observability_run_cmd({
+  local listed = core.observability_display_read_cmd({
     run = function(timeout)
       return core.gh_issue_list_recent_closed(repo, limit, timeout)
     end,
@@ -417,13 +417,13 @@ function core.collect_recent_merged_issues(repo, limits, deadline)
       log.warn("github-devloop dept=observability tag=AVM_SCOREBOARD_DEFERRED reason=deadline processed_issues=" .. tostring(#issues))
       break
     end
-    local view = core.observability_run_cmd({
+    local view = core.observability_display_read_cmd({
       run = function(timeout)
         return core.gh_issue_view_observe(repo, item.number, timeout)
       end,
     }, limits, deadline, "recent merged issue view")
     if core.observability_result_deferred(view) then
-      log.warn("github-devloop dept=observability tag=AVM_SCOREBOARD_DEFERRED reason=deadline processed_issues=" .. tostring(#issues))
+      log.warn("github-devloop dept=observability tag=AVM_SCOREBOARD_DEFERRED reason=" .. tostring(view.reason or "deadline") .. " processed_issues=" .. tostring(#issues))
       break
     end
     table.insert(issues, recent_merged_issue_view(parsers_issue.parse_issue_view_observe(core, view.stdout), item))

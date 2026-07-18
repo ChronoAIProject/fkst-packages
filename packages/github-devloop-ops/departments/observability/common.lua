@@ -79,26 +79,28 @@ function M.require_observe_bot(core)
   end
 end
 
-function M.fetch_issue(core, repo, issue_number, limits, deadline)
-  local view = core.observability_run_cmd({
+function M.fetch_issue(core, repo, issue_number, limits, deadline, read_cmd)
+  local run_read = read_cmd or core.observability_run_cmd
+  local view = run_read({
     run = function(timeout)
       return core.gh_issue_view_observe(repo, issue_number, timeout)
     end,
   }, limits, deadline, "observability issue view")
   if core.observability_result_deferred(view) then
-    return nil
+    return nil, view.reason
   end
   return parsers_issue.parse_issue_view_observe(core, view.stdout)
 end
 
-function M.fetch_pr(core, repo, pr_number, limits, deadline)
-  local view = core.observability_run_cmd({
+function M.fetch_pr(core, repo, pr_number, limits, deadline, read_cmd)
+  local run_read = read_cmd or core.observability_run_cmd
+  local view = run_read({
     run = function(timeout)
       return core.gh_pr_view_observe(repo, pr_number, timeout)
     end,
   }, limits, deadline, "observability PR view")
   if core.observability_result_deferred(view) then
-    return nil
+    return nil, view.reason
   end
   return parsers_pr.parse_pr_view_origin(view.stdout)
 end
