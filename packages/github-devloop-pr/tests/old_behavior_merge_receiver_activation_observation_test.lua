@@ -267,7 +267,7 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "fixing", source_line = 535,
     current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
     ci_merge_reason = "own-ci-red", classification_red = true, reclassification_outcome = "own-ci-red",
-    expected_admission = "admit", expected_classification = "OWN_CI_RED",
+    expected_admission = "admit", expected_classification = "OWN_CI_RED", ci_enum_kind = "OWN_CI_RED",
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
@@ -284,7 +284,8 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
     ci_merge_reason = "own-ci-red", classification_external = true,
     reclassification_outcome = "external-holds", expected_admission = "not-own-ci",
-    expected_classification = "EXTERNAL_CI_RED", expected_error = "merge-ci-wait",
+    expected_classification = "EXTERNAL_CI_RED", ci_enum_kind = "EXTERNAL_CI_RED",
+    expected_error = "merge-ci-wait",
     effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
   },
   {
@@ -292,7 +293,28 @@ local FIXTURES = ra.json_array({
     cas = "hold", target = "hold", source_line = 126,
     current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
     ci_merge_reason = "own-ci-red", reclassification_outcome = "own-ci-green",
-    expected_admission = "not-own-ci", expected_classification = "OK", expected_error = "merge-ci-wait",
+    expected_admission = "not-own-ci", expected_classification = "OK", ci_enum_kind = "OK",
+    expected_error = "merge-ci-wait",
+    effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
+  },
+  {
+    disposition = "own-ci-reclassified-unknown-holds", status = "rejected", reason = "ci-unknown",
+    cas = "hold", target = "hold", source_line = 126,
+    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
+    ci_merge_reason = "own-ci-red", reclassification_unknown = true,
+    reclassification_outcome = "ci-unknown", expected_admission = "not-own-ci",
+    expected_classification = "CI_UNKNOWN", ci_enum_kind = "CI_UNKNOWN",
+    expected_error = "merge-ci-wait",
+    effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
+  },
+  {
+    disposition = "own-ci-reclassified-integration-red-holds", status = "rejected",
+    reason = "integration-ci-red", cas = "hold", target = "hold", source_line = 126,
+    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
+    ci_merge_reason = "own-ci-red", reclassification_integration_red = true,
+    reclassification_outcome = "integration-red", expected_admission = "not-own-ci",
+    expected_classification = "INTEGRATION_RED", ci_enum_kind = "INTEGRATION_RED",
+    expected_error = "merge-ci-wait",
     effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
   },
   {
@@ -315,13 +337,14 @@ local FIXTURES = ra.json_array({
   },
   {
     disposition = "rollup-red-routes-fixing", status = "admitted", reason = "rollup-red",
-    cas = "applied", target = "fixing", source_line = 564,
-    current_state = "merge-ready", current_version = VERSION, rollup_reason = "rollup-red",
-    classification_red = true,
+    cas = "applied", target = "fixing", source_line = 564, status_gate_red = true,
+    current_state = "merge-ready", current_version = VERSION, classification_red = true,
+    capture_classification = true, expected_admission = "admit", expected_classification = "OWN_CI_RED",
+    expected_classification_reason = "own-ci-red",
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
-    disposition = "rollup-red-head-mismatch-routes-reviewing", status = "admitted",
+    disposition = "rollup-red-head-mismatch-routes-reviewing", status = "admitted", status_gate_red = true,
     reason = "rollup-red-head-mismatch", cas = "applied", target = "reviewing", source_line = 564,
     current_state = "merge-ready", current_version = VERSION, rollup_reason = "rollup-red",
     classification_red = true, own_ci_head_mismatch = true,
@@ -333,7 +356,8 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
     ci_merge_reason = "own-ci-red", reclassification_pending = true,
     reclassification_outcome = "rollup-pending", expected_admission = "not-own-ci",
-    expected_classification = "CHECKS_PENDING", expected_error = "merge-ci-wait",
+    expected_classification = "CHECKS_PENDING", ci_enum_kind = "CHECKS_PENDING",
+    expected_error = "merge-ci-wait",
     effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
   },
   {
@@ -380,16 +404,18 @@ local FIXTURES = ra.json_array({
     verified_return = "head-branch-mismatch", expected_error = "is_not_mergeable_reason",
   },
   {
-    disposition = "verified-merge-own-ci-red-routes-fixing", status = "admitted",
-    reason = "verified-own-ci-red", cas = "applied", target = "fixing", source_line = 672,
-    current_state = "merge-ready", current_version = VERSION, classification_red = true,
-    verified_return = "own-ci-red",
+    disposition = "verified-merge-own-ci-red-routes-fixing", status = "admitted", reason = "verified-own-ci-red",
+    cas = "applied", target = "fixing", source_line = 672, verified_ci_red = true,
+    current_state = "merge-ready", current_version = VERSION, verified_return = "own-ci-red",
+    capture_classification = true, expected_admission = "admit", expected_classification = "OWN_CI_RED",
+    expected_classification_reason = "own-ci-red",
     effects = ra.json_array({ "comment:pr:merge-fixing", "label:issue:merge-fixing" }),
   },
   {
     disposition = "verified-merge-own-ci-red-head-mismatch-routes-reviewing", status = "admitted",
+    verified_ci_red = true,
     reason = "verified-own-ci-red-head-mismatch", cas = "applied", target = "reviewing", source_line = 672,
-    current_state = "merge-ready", current_version = VERSION, classification_red = true,
+    current_state = "merge-ready", current_version = VERSION,
     verified_own_ci_head_mismatch = true, verified_return = "own-ci-red",
     effects = ra.json_array({ "comment:pr:merge-head-reviewing", "label:issue:merge-head-reviewing" }),
   },
@@ -596,8 +622,17 @@ local function capture(fixture)
         VERSION, "other-base"))
     end
     if merged and fixture.merge_confirmation_mismatch then head_sha = OTHER_HEAD end
-    local rollup_status = fixture.reclassification_pending and (read_count or 0) >= 2 and "IN_PROGRESS" or "COMPLETED"
-    local rollup_conclusion = ((fixture.classification_red or fixture.classification_external) and '"FAILURE"' or '"SUCCESS"')
+    local fresh_reclassification = (read_count or 0) >= 2
+    local verified_red = fixture.verified_ci_red and (read_count or 0) >= 3
+    local ci_unknown_active = fixture.reclassification_unknown and fresh_reclassification
+    local red_from_other_head = fixture.reclassification_integration_red and fresh_reclassification
+    local checks_are_pending = fixture.reclassification_pending and fresh_reclassification
+    local failure_rollup = fixture.classification_red or fixture.classification_external
+      or fixture.status_gate_red or verified_red or ci_unknown_active or red_from_other_head
+    local rollup_status = checks_are_pending and "IN_PROGRESS" or "COMPLETED"
+    local rollup_conclusion = failure_rollup and '"FAILURE"' or '"SUCCESS"'
+    local rollup_name = ci_unknown_active and "fkst-host-policy" or "test"
+    local rollup_head_sha = red_from_other_head and OTHER_HEAD or head_sha
     if rollup_status == "IN_PROGRESS" then rollup_conclusion = "null" end
     if fixture.verified_ci_wait and (read_count or 0) >= 3 then
       rollup_status = "IN_PROGRESS"
@@ -611,9 +646,10 @@ local function capture(fixture)
       mergeable = (fixture.not_mergeable or (fixture.verified_not_mergeable and (read_count or 0) >= 3))
         and "CONFLICTING" or "MERGEABLE",
       merge_state = (fixture.not_mergeable or (fixture.verified_not_mergeable and (read_count or 0) >= 3))
-        and "DIRTY" or "CLEAN",
-      status_check_rollup_json = '[{"__typename":"CheckRun","name":"test","status":"' .. rollup_status
-        .. '","conclusion":' .. rollup_conclusion .. ',"headSha":"' .. head_sha .. '"}]',
+        and "DIRTY" or (fixture.status_gate_red and "UNSTABLE" or "CLEAN"),
+      status_check_rollup_json = '[{"__typename":"CheckRun","name":"' .. rollup_name
+        .. '","status":"' .. rollup_status .. '","conclusion":' .. rollup_conclusion
+        .. ',"headSha":"' .. rollup_head_sha .. '"}]',
     }
   end
   function ports.github.issue_view(repo, number, fields, timeout)
@@ -647,10 +683,15 @@ local function capture(fixture)
     ra.record_write(ports.github_model, "commit_check_runs", {
       repo = repo, head_sha = head_sha, timeout = timeout,
     })
+    if fixture.reclassification_unknown then
+      return { stdout = '{"total_count":2,"check_runs":[{"name":"fkst-host-policy","status":"completed","conclusion":"failure","head_sha":"' .. tostring(head_sha) .. '"},{"name":"fast-gates","status":"completed","conclusion":"failure","head_sha":"' .. tostring(head_sha) .. '"}]}\n',
+        stderr = "", exit_code = 0 }
+    end
     local pending = fixture.verified_ci_wait or fixture.reclassification_pending
     local status = pending and "in_progress" or "completed"
+    local required_red = fixture.classification_red or fixture.status_gate_red or fixture.verified_ci_red
     local conclusion = pending and "null"
-      or ('"' .. (fixture.classification_red and "failure" or "success") .. '"')
+      or ('"' .. (required_red and "failure" or "success") .. '"')
     return { stdout = '{"total_count":1,"check_runs":[{"name":"test","status":"' .. status
       .. '","conclusion":' .. conclusion .. ',"head_sha":"' .. tostring(head_sha) .. '"}]}\n',
       stderr = "", exit_code = 0 }
@@ -709,14 +750,18 @@ local function capture(fixture)
       return true, "predecessor-set-match"
     end, restorations)
   end
-  ra.replace(check_runs, "pr_mergeable", function()
+  local production_pr_mergeable = check_runs.pr_mergeable
+  ra.replace(check_runs, "pr_mergeable", function(pr)
+    if fixture.status_gate_red or fixture.verified_ci_red then
+      return production_pr_mergeable(pr)
+    end
     if fixture.mergeable_reason then return false, fixture.mergeable_reason end
     if fixture.not_mergeable then return false, "merge-state-dirty" end
     return true, "mergeable"
   end, restorations)
   ra.replace(check_runs, "is_not_mergeable_reason", function(reason) return reason == "merge-state-dirty" end, restorations)
   local admissions = observation_support.json_array()
-  if fixture.reclassification_outcome ~= nil then
+  if fixture.reclassification_outcome ~= nil or fixture.capture_classification then
     local admit_merge_failure = fix_rounds.admit_merge_failure
     ra.replace(fix_rounds, "admit_merge_failure", function(...)
       local args = { ... }
@@ -739,11 +784,19 @@ local function capture(fixture)
         current_pr = current_pr, ci_failure_key = nil }
     end, restorations)
   end
-  ra.replace(core, "evaluate_ci_status_gate", function()
+  local production_evaluate_ci_status_gate = core.evaluate_ci_status_gate
+  ra.replace(core, "evaluate_ci_status_gate", function(pr, opts)
+    if fixture.status_gate_red or fixture.verified_ci_red then
+      return production_evaluate_ci_status_gate(pr, opts)
+    end
     if fixture.rollup_reason then return false, fixture.rollup_reason, {} end
     return true, "rollup-green", {}
   end, restorations)
-  ra.replace(core, "evaluate_ci_merge_gate", function()
+  local production_evaluate_ci_merge_gate = core.evaluate_ci_merge_gate
+  ra.replace(core, "evaluate_ci_merge_gate", function(pr, opts)
+    if fixture.verified_ci_red then
+      return production_evaluate_ci_merge_gate(pr, opts)
+    end
     if fixture.ci_merge_reason then return false, fixture.ci_merge_reason, {} end
     return true, "merge-gate-green", {}
   end, restorations)
@@ -781,7 +834,7 @@ local function capture(fixture)
     t.is_true(tostring(result.failure and result.failure.error or ""):find(fixture.expected_error, 1, true) ~= nil,
       fixture.disposition .. ": expected failure")
   end
-  if fixture.reclassification_outcome ~= nil then
+  if fixture.reclassification_outcome ~= nil or fixture.capture_classification then
     local expected_count = fixture.expected_admission == false and 0 or 1
     t.eq(#admissions, expected_count, fixture.disposition .. ": production reclassification admission count")
     if expected_count == 1 then
@@ -818,27 +871,22 @@ end
 
 return {
   test_merge_receiver_activation_old_behavior_is_real_dispatch_and_bidirectional = function()
-    local required = {
-      ["own-ci-red"] = true,
-      ["own-ci-green"] = true,
-      ["external-holds"] = true,
-      ["pr-merged"] = true,
-      ["pr-closed"] = true,
-      ["head-mismatch"] = true,
-      ["rollup-pending"] = true,
+    local required_ci_enum = {
+      CHECKS_PENDING = true, CI_UNKNOWN = true, EXTERNAL_CI_RED = true,
+      INTEGRATION_RED = true, OK = true, OWN_CI_RED = true,
     }
-    local observed = {}
+    local observed_ci_enum = {}
     for _, fixture in ipairs(FIXTURES) do
-      if fixture.reclassification_outcome ~= nil then
-        t.is_true(required[fixture.reclassification_outcome] == true,
-          "unexpected own-CI reclassification outcome " .. tostring(fixture.reclassification_outcome))
-        t.is_true(observed[fixture.reclassification_outcome] == nil,
-          "duplicate own-CI reclassification outcome " .. fixture.reclassification_outcome)
-        observed[fixture.reclassification_outcome] = true
+      if fixture.ci_enum_kind ~= nil then
+        t.is_true(required_ci_enum[fixture.ci_enum_kind] == true,
+          "unexpected CI classification " .. tostring(fixture.ci_enum_kind))
+        t.is_true(observed_ci_enum[fixture.ci_enum_kind] == nil,
+          "duplicate CI classification " .. fixture.ci_enum_kind)
+        observed_ci_enum[fixture.ci_enum_kind] = true
       end
     end
-    for outcome in pairs(required) do
-      t.is_true(observed[outcome] == true, "missing own-CI reclassification outcome " .. outcome)
+    for classification in pairs(required_ci_enum) do
+      t.is_true(observed_ci_enum[classification] == true, "missing CI classification " .. classification)
     end
     ra.assert_site(t, { dept = "merge", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE })
   end,
