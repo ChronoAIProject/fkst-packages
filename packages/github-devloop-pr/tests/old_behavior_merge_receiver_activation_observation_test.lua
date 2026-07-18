@@ -8,6 +8,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local fix_rounds = require("core.fix_rounds")
 local h = require("tests.devloop_helpers")
 local high_risk_merge_gate = require("core.high_risk_merge_gate")
+local ci_facts = require("tests.merge_receiver_activation_ci_facts_helpers")
 local m_builders = require("devloop.markers.builders")
 local m_claims = require("devloop.claims")
 local m_facts = require("devloop.markers.facts")
@@ -500,6 +501,9 @@ local FIXTURES = ra.json_array({
     expected_error = "is_not_mergeable_reason",
   },
 })
+local DELEGATION_FIXTURES = ci_facts.delegation_fixtures({ array = ra.json_array, version = VERSION,
+  fix_version = FIX_VERSION, merge_payload_for_fix = merge_payload_for_fix })
+for _, fixture in ipairs(DELEGATION_FIXTURES) do table.insert(FIXTURES, fixture) end
 
 local function event_for(fixture)
   return { queue = "github-devloop-pr.devloop_merge_ready", ts = "2026-06-03T02:03:04Z",
@@ -622,22 +626,9 @@ local function capture(fixture)
         VERSION, "other-base"))
     end
     if merged and fixture.merge_confirmation_mismatch then head_sha = OTHER_HEAD end
-    local fresh_reclassification = (read_count or 0) >= 2
-    local verified_red = fixture.verified_ci_red and (read_count or 0) >= 3
-    local ci_unknown_active = fixture.reclassification_unknown and fresh_reclassification
-    local red_from_other_head = fixture.reclassification_integration_red and fresh_reclassification
-    local checks_are_pending = fixture.reclassification_pending and fresh_reclassification
-    local failure_rollup = fixture.classification_red or fixture.classification_external
-      or fixture.status_gate_red or verified_red or ci_unknown_active or red_from_other_head
-    local rollup_status = checks_are_pending and "IN_PROGRESS" or "COMPLETED"
-    local rollup_conclusion = failure_rollup and '"FAILURE"' or '"SUCCESS"'
-    local rollup_name = ci_unknown_active and "fkst-host-policy" or "test"
-    local rollup_head_sha = red_from_other_head and OTHER_HEAD or head_sha
-    if rollup_status == "IN_PROGRESS" then rollup_conclusion = "null" end
-    if fixture.verified_ci_wait and (read_count or 0) >= 3 then
-      rollup_status = "IN_PROGRESS"
-      rollup_conclusion = "null"
-    end
+    fixture.other_head = OTHER_HEAD
+    local rollup_status, rollup_conclusion, rollup_name, rollup_head_sha =
+      ci_facts.rollup(fixture, read_count, head_sha)
     return {
       repo = REPO, number = PR_NUMBER, comments = active_comments, head = head_branch,
       head_sha = head_sha, base_branch = origin_base, base_sha = string.rep("a", 40),
@@ -683,18 +674,7 @@ local function capture(fixture)
     ra.record_write(ports.github_model, "commit_check_runs", {
       repo = repo, head_sha = head_sha, timeout = timeout,
     })
-    if fixture.reclassification_unknown then
-      return { stdout = '{"total_count":2,"check_runs":[{"name":"fkst-host-policy","status":"completed","conclusion":"failure","head_sha":"' .. tostring(head_sha) .. '"},{"name":"fast-gates","status":"completed","conclusion":"failure","head_sha":"' .. tostring(head_sha) .. '"}]}\n',
-        stderr = "", exit_code = 0 }
-    end
-    local pending = fixture.verified_ci_wait or fixture.reclassification_pending
-    local status = pending and "in_progress" or "completed"
-    local required_red = fixture.classification_red or fixture.status_gate_red or fixture.verified_ci_red
-    local conclusion = pending and "null"
-      or ('"' .. (required_red and "failure" or "success") .. '"')
-    return { stdout = '{"total_count":1,"check_runs":[{"name":"test","status":"' .. status
-      .. '","conclusion":' .. conclusion .. ',"head_sha":"' .. tostring(head_sha) .. '"}]}\n',
-      stderr = "", exit_code = 0 }
+    return { stdout = ci_facts.commit_check_runs(fixture, pr_read_count, head_sha), stderr = "", exit_code = 0 }
   end
   function ports.github.pr_comment(repo, number, body_file, timeout)
     local call = { kind = "exec", context = "gh pr comment", argv = { "gh", "pr", "comment", tostring(number), "--repo", repo, "--body-file", body_file }, timeout = timeout }
@@ -730,7 +710,8 @@ local function capture(fixture)
   ra.replace(m_mq, "merge_queue_head", function()
     if fixture.queue_empty then return nil, {} end
     if fixture.queue_non_head then return { proposal_id = "other", version = VERSION, pr_number = 8, head_sha = "abc123" }, {} end
-    return { proposal_id = PROPOSAL_ID, version = VERSION, pr_number = PR_NUMBER, head_sha = HEAD_SHA }, {}
+    local version = fixture.fix_terminate and event.payload.version or VERSION
+    return { proposal_id = PROPOSAL_ID, version = version, pr_number = PR_NUMBER, head_sha = HEAD_SHA }, {}
   end, restorations)
   local queue_position_reads = 0
   ra.replace(m_mq, "merge_queue_position", function()
@@ -775,14 +756,15 @@ local function capture(fixture)
       })
       return admission
     end, restorations)
-  elseif fixture.fix_terminate then
-    ra.replace(config, "max_fix_rounds", function() return 1 end, restorations)
-  else
+  elseif not fixture.fix_terminate then
     ra.replace(fix_rounds, "admit_merge_failure", function(_, _, current_pr, _, reason, classification)
       current_pr = current_pr or (classification and classification.current_pr)
       return { kind = "admit", version = VERSION .. "/fix/1", reason = reason,
         current_pr = current_pr, ci_failure_key = nil }
     end, restorations)
+  end
+  if fixture.fix_terminate then
+    ra.replace(config, "max_fix_rounds", function() return 1 end, restorations)
   end
   local production_evaluate_ci_status_gate = core.evaluate_ci_status_gate
   ra.replace(core, "evaluate_ci_status_gate", function(pr, opts)
@@ -804,7 +786,11 @@ local function capture(fixture)
   local run_verified_pr_merge = core.run_verified_pr_merge
   ra.replace(core, "run_verified_pr_merge", function(request)
     local merge_ok, reason, current_pr, classification = run_verified_pr_merge(request)
-    table.insert(verified_returns, { merge_ok = merge_ok, reason = reason })
+    table.insert(verified_returns, {
+      merge_ok = merge_ok,
+      reason = reason,
+      classification = classification and classification.kind or nil,
+    })
     return merge_ok, reason, current_pr, classification
   end, restorations)
   ra.replace(high_risk_merge_gate, "assert_evidence", function() return true end, restorations)
@@ -827,6 +813,10 @@ local function capture(fixture)
     t.eq(#verified_returns, 1, fixture.disposition .. ": one delegated verified-merge return")
     t.eq(verified_returns[1].reason, fixture.verified_return,
       fixture.disposition .. ": exact delegated verified-merge return")
+    if fixture.expected_verified_classification ~= nil then
+      t.eq(verified_returns[1].classification, fixture.expected_verified_classification,
+        fixture.disposition .. ": exact verified-merge classification")
+    end
   else
     t.eq(#verified_returns, 0, fixture.disposition .. ": verified merge not reached")
   end
