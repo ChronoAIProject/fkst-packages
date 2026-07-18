@@ -79,9 +79,12 @@ local required_check_run_names = {
   "test",
 }
 
-local required_check_run_name_set = {}
-for _, name in ipairs(required_check_run_names) do
-  required_check_run_name_set[name] = true
+local function required_name_set(required_names)
+  local required = {}
+  for _, name in ipairs(required_names or {}) do
+    required[tostring(name)] = true
+  end
+  return required
 end
 
 local function check_name(entry)
@@ -113,10 +116,15 @@ function C.pr_rollup_green(pr)
   return true, "rollup-green"
 end
 
-function C.commit_check_runs_green(runs)
+function C.commit_check_runs_green(runs, required_names)
   if type(runs) ~= "table" or #runs == 0 then
     return false, "missing-status-rollup"
   end
+  local resolved_required_names = required_check_run_names
+  if type(required_names) == "table" and #required_names > 0 then
+    resolved_required_names = required_names
+  end
+  local resolved_required_name_set = required_name_set(resolved_required_names)
   local seen_required = {}
   local pending_required = {}
   for _, run in ipairs(runs) do
@@ -126,14 +134,14 @@ function C.commit_check_runs_green(runs)
       if not green_check_run_conclusions[conclusion] then
         return false, "rollup-red"
       end
-    elseif required_check_run_name_set[name] then
+    elseif resolved_required_name_set[name] then
       pending_required[name] = true
     end
-    if required_check_run_name_set[name] then
+    if resolved_required_name_set[name] then
       seen_required[name] = true
     end
   end
-  for _, name in ipairs(required_check_run_names) do
+  for _, name in ipairs(resolved_required_names) do
     if pending_required[name] then
       return false, "rollup-pending"
     end
@@ -246,14 +254,6 @@ local green_required_check_conclusions = {
   NEUTRAL = true,
   SKIPPED = true,
 }
-
-local function required_name_set(required_names)
-  local required = {}
-  for _, name in ipairs(required_names or {}) do
-    required[tostring(name)] = true
-  end
-  return required
-end
 
 local function run_matches_head(run, expected)
   local run_head = C.check_run_head_sha(run)
