@@ -1,6 +1,9 @@
 local h = require("tests.devloop_ops_helpers")
 local t = h.t
 local core = h.core
+local testing = require("testkit_internal.testing")
+local failure_triage_cap = require("failure_triage_cap")
+local queue_starvation = require("devloop.queue_starvation")
 require("departments.observability.main")
 
 local function mock_env()
@@ -60,5 +63,105 @@ return {
     t.is_true(logs:find("tag=OBSERVE_DEFERRED reason=timeout", 1, true) ~= nil)
     t.is_true(logs:find("## Partial observations", 1, true) ~= nil)
     t.is_true(logs:find("- reason=timeout", 1, true) ~= nil)
+  end,
+
+  test_partial_observations_do_not_drive_control_effects = function()
+    mock_env()
+    local department = require("departments.observability.main")
+    local calls = {
+      reaper = 0,
+      queue_starvation = 0,
+      blocked_obligation_patrol = 0,
+      conflict_hotspot = 0,
+      render = 0,
+      publish = 0,
+    }
+    local originals = {
+      collect_observability_entities = core.collect_observability_entities,
+      collect_recent_merged_prs = core.collect_recent_merged_prs,
+      collect_recent_merged_issues = core.collect_recent_merged_issues,
+      reap_orphan_prs = core.reap_orphan_prs,
+      observe_conflict_hotspots = core.observe_conflict_hotspots,
+      render_observability_dashboard = core.render_observability_dashboard,
+      publish_observability_dashboard = core.publish_observability_dashboard,
+      observability_topology_mermaid = core.observability_topology_mermaid,
+      observe_queue_starvation = queue_starvation.observe_queue_starvation,
+      blocked_obligation_patrol_once = failure_triage_cap.blocked_obligation_patrol_once,
+    }
+
+    core.collect_observability_entities = function()
+      return {
+        list = {
+          {
+            proposal_id = "github-devloop/issue/owner/repo/42",
+            repo = "owner/repo",
+            number = 42,
+            comments = {},
+            current_state = { state = "blocked" },
+          },
+        },
+        counts = { blocked = 1 },
+        stalls = {},
+        state_gap_report = { edges = {} },
+        now_seconds = now(),
+        observability_deferred = { reason = "timeout" },
+      }
+    end
+    core.collect_recent_merged_prs = function() return {} end
+    core.collect_recent_merged_issues = function() return {} end
+    core.reap_orphan_prs = function() calls.reaper = calls.reaper + 1 end
+    queue_starvation.observe_queue_starvation = function()
+      calls.queue_starvation = calls.queue_starvation + 1
+      return { action = "called" }
+    end
+    failure_triage_cap.blocked_obligation_patrol_once = function()
+      calls.blocked_obligation_patrol = calls.blocked_obligation_patrol + 1
+      return {
+        {
+          queue = "github-proxy.github_issue_create_request",
+          payload = { schema = "github-proxy.issue-create.v1" },
+          fact = { proposal_id = "github-devloop/issue/owner/repo/42" },
+        },
+      }
+    end
+    core.observe_conflict_hotspots = function()
+      calls.conflict_hotspot = calls.conflict_hotspot + 1
+      return { facts = 1, hotspots = 1, raised = 1 }
+    end
+    core.render_observability_dashboard = function(args)
+      calls.render = calls.render + 1
+      t.eq(args.observability_deferred.reason, "timeout")
+      return { hash = "partial-dashboard", body = "partial dashboard" }
+    end
+    core.publish_observability_dashboard = function()
+      calls.publish = calls.publish + 1
+      return "dry-run"
+    end
+    core.observability_topology_mermaid = function() return nil end
+
+    local ok, result = pcall(function()
+      return testing.run_fake(department, {
+        queue = "devloop_observe_tick",
+        payload = { schema = "github-devloop.observe-tick.v1" },
+      })
+    end)
+    for name, original in pairs(originals) do
+      if name == "observe_queue_starvation" then
+        queue_starvation.observe_queue_starvation = original
+      elseif name == "blocked_obligation_patrol_once" then
+        failure_triage_cap.blocked_obligation_patrol_once = original
+      else
+        core[name] = original
+      end
+    end
+    if not ok then error(result) end
+
+    t.eq(calls.reaper, 0)
+    t.eq(calls.queue_starvation, 0)
+    t.eq(calls.blocked_obligation_patrol, 0)
+    t.eq(calls.conflict_hotspot, 0)
+    t.eq(calls.render, 1)
+    t.eq(calls.publish, 1)
+    t.eq(#result.raises, 0)
   end,
 }
