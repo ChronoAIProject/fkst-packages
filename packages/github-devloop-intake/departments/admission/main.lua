@@ -157,10 +157,10 @@ local function issue_from_current(issue_number, current)
   }
 end
 
-local function initial_claim_is_in_milestone_scope(context, current)
+local function initial_claim_is_in_milestone_scope(context, repo, current)
   local admission, detail = context.claims.claim_admission_precheck(
     current,
-    context.claims.claim_admission_inputs(current)
+    context.claims.claim_admission_inputs(current, repo)
   )
   if admission ~= "needs-claim" then
     return true, admission, detail
@@ -203,7 +203,7 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
   end
-  local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(context, current)
+  local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(context, repo, current)
   if not in_milestone_scope then
     reconcile_capacity(context, repo, proposal_id)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")

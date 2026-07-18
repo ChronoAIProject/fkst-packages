@@ -11,6 +11,7 @@ local github_author_policy = require("devloop.github_author_policy")
 local github_view = require("forge.github_view")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local marker_shared = require("devloop.markers.shared")
 local forks_handle = nil
 local devloop_state_handle = nil
 
@@ -117,7 +118,20 @@ function C.is_managed_bot_login(login, managed)
 end
 
 local claimed_label = "fkst-dev:claimed"
-local state_marker_literal = "fkst:github-devloop:state:v1"
+local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+local peer_activity_scan_limit = 100
+local marker_attr = marker_shared.marker_attr
+
+local function decode_json_array(result)
+  if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
+    return nil
+  end
+  local ok, decoded = pcall(json.decode, result.stdout or "[]")
+  if not ok or type(decoded) ~= "table" then
+    return nil
+  end
+  return decoded
+end
 
 function C.claimed_label()
   return claimed_label
@@ -130,20 +144,73 @@ local function comment_body(comment)
   return nil
 end
 
-local function comment_author_login(comment)
-  if type(comment) ~= "table" then
+local function github_actor_login(value)
+  if type(value) ~= "table" then
     return nil
   end
-  if comment.author_login ~= nil then
-    return devloop_base.strip_bot_login_suffix(comment.author_login)
+  local seen = {}
+  local only = nil
+  local function add(login)
+    local normalized = devloop_base.strip_bot_login_suffix(login)
+    if normalized == nil or normalized == "" then
+      return
+    end
+    seen[normalized] = true
+    only = normalized
   end
-  if type(comment.author) == "table" and comment.author.login ~= nil then
-    return devloop_base.strip_bot_login_suffix(comment.author.login)
+  add(value.author_login)
+  if type(value.author) == "table" then
+    add(value.author.login)
   end
-  if type(comment.user) == "table" and comment.user.login ~= nil then
-    return devloop_base.strip_bot_login_suffix(comment.user.login)
+  if type(value.user) == "table" then
+    add(value.user.login)
   end
-  return nil
+  local count = 0
+  for _ in pairs(seen) do
+    count = count + 1
+  end
+  if count ~= 1 then
+    return nil
+  end
+  return only
+end
+
+local function has_state_marker_comment(body)
+  if type(body) ~= "string" then
+    return false
+  end
+  for marker in body:gmatch(state_marker_pattern) do
+    if marker_attr(marker, "proposal") ~= nil
+      and devloop_state().is_state(marker_attr(marker, "state"))
+      and marker_attr(marker, "version") ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+local function add_authorized_candidate(logins, login, trusted_author_policy, owner)
+  if type(logins) ~= "table" or type(trusted_author_policy) ~= "table" then
+    return
+  end
+  local normalized = devloop_base.strip_bot_login_suffix(login)
+  local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
+  if normalized ~= nil and normalized ~= "" and normalized ~= normalized_owner
+    and github_author_policy.is_authorized(trusted_author_policy, normalized) then
+    logins[normalized] = true
+  end
+end
+
+local function add_state_marker_comment_candidates(logins, comments, trusted_author_policy, owner)
+  if type(comments) ~= "table" then
+    return
+  end
+  for _, comment in ipairs(comments) do
+    local body = comment_body(comment)
+    if has_state_marker_comment(body) then
+      add_authorized_candidate(logins, github_actor_login(comment), trusted_author_policy, owner)
+    end
+  end
 end
 
 function C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)
@@ -151,22 +218,89 @@ function C.observed_state_marker_managed_bot_logins(current, trusted_author_poli
   if type(current) ~= "table" or type(current.comments) ~= "table" or type(trusted_author_policy) ~= "table" then
     return logins
   end
-  local normalized_owner = devloop_base.strip_bot_login_suffix(owner)
-  for _, comment in ipairs(current.comments) do
-    local body = comment_body(comment)
-    if body ~= nil and body:find(state_marker_literal, 1, true) ~= nil then
-      local login = comment_author_login(comment)
-      if login ~= nil and login ~= "" and login ~= normalized_owner
-        and github_author_policy.is_authorized(trusted_author_policy, login) then
-        logins[login] = true
-      end
-    end
-  end
+  add_state_marker_comment_candidates(logins, current.comments, trusted_author_policy, owner)
   return logins
 end
 
 local function add_observed_state_marker_managed_bot_logins(managed, current, trusted_author_policy, owner)
   for login, allowed in pairs(C.observed_state_marker_managed_bot_logins(current, trusted_author_policy, owner)) do
+    if allowed == true then
+      managed[login] = true
+    end
+  end
+end
+
+local function issue_row_comments(row)
+  if type(row) ~= "table" or type(row.comments) ~= "table" then
+    return {}
+  end
+  return row.comments
+end
+
+local function pr_head_branch(row)
+  if type(row) ~= "table" then
+    return nil
+  end
+  if row.headRefName ~= nil then
+    return tostring(row.headRefName)
+  end
+  if type(row.head) == "table" and row.head.ref ~= nil then
+    return tostring(row.head.ref)
+  end
+  return nil
+end
+
+local function pr_base_branch(row)
+  if type(row) ~= "table" then
+    return nil
+  end
+  if row.baseRefName ~= nil then
+    return tostring(row.baseRefName)
+  end
+  if type(row.base) == "table" and row.base.ref ~= nil then
+    return tostring(row.base.ref)
+  end
+  return nil
+end
+
+function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle)
+  local logins = {}
+  if type(trusted_author_policy) ~= "table" or repo == nil or tostring(repo) == "" then
+    return logins
+  end
+  local handle = github_handle or github()
+  local ok_issues, issues = pcall(function()
+    return handle.issue_list_cli(repo, "all", peer_activity_scan_limit, "number,comments,author", 30)
+  end)
+  if ok_issues then
+    for _, row in ipairs(decode_json_array(issues) or {}) do
+      add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
+    end
+  end
+
+  local ok_config, branches = pcall(config.branch_config)
+  local upstream = ok_config and branches and branches.upstream or nil
+  local integration = ok_config and branches and branches.integration or nil
+  if upstream == nil or tostring(upstream) == "" or integration == nil or tostring(integration) == "" then
+    return logins
+  end
+  local ok_prs, prs = pcall(function()
+    return handle.pr_list_cli(repo, "all", peer_activity_scan_limit, "number,headRefName,baseRefName,comments,author", 30)
+  end)
+  if not ok_prs then
+    return logins
+  end
+  for _, row in ipairs(decode_json_array(prs) or {}) do
+    add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
+    if pr_base_branch(row) == tostring(upstream) and pr_head_branch(row) == tostring(integration) then
+      add_authorized_candidate(logins, github_actor_login(row), trusted_author_policy, owner)
+    end
+  end
+  return logins
+end
+
+local function add_repo_scoped_observed_managed_bot_logins(managed, repo, trusted_author_policy, owner, github_handle)
+  for login, allowed in pairs(C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle)) do
     if allowed == true then
       managed[login] = true
     end
@@ -342,7 +476,7 @@ function C.fork_grace_elapsed(repo, issue_number, current, now_seconds, grace_se
   return true, "fork-grace-elapsed", age_seconds
 end
 
-function C.claim_admission_inputs(current)
+function C.claim_admission_inputs(current, repo)
   local owner = C.claim_owner()
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
   if status == "other" then
@@ -362,8 +496,12 @@ function C.claim_admission_inputs(current)
   if claim_mode ~= "label" and author ~= nil and author ~= "" and author ~= owner then
     managed = C.managed_bot_logins()
     if not C.is_managed_bot_login(author, managed) then
-      trusted_author_policy = github_author_policy.from_handle_policy(github)
+      local github_handle = github()
+      trusted_author_policy = github_author_policy.from_handle_policy(github_handle)
       add_observed_state_marker_managed_bot_logins(managed, current, trusted_author_policy, owner)
+      if not C.is_managed_bot_login(author, managed) then
+        add_repo_scoped_observed_managed_bot_logins(managed, repo or (current and current.repo), trusted_author_policy, owner, github_handle)
+      end
     end
   end
   return {
@@ -437,7 +575,7 @@ end
 
 function C.claim_issue_for_management(M, dept, repo, issue_number, current, proposal_id, admission, detail)
   if admission == nil then
-    admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current))
+    admission, detail = C.claim_admission_precheck(current, C.claim_admission_inputs(current, repo))
   end
   if admission == "held" then
     return true
