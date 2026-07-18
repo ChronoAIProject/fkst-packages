@@ -48,6 +48,37 @@
 
 **实证落地：liveness 必须是真实执行状态，不是 receiver 可能无法刷新的自报代理。** watchdog/心跳 doctrine 有个隐藏假设——被监督的 receiver 会周期「踢狗」（自写心跳）。但 **detach/阻塞的 receiver 踢不了狗**（implement codex 阻塞在 `spawn_codex_sync`、detach 跑、无 Lua 循环写心跳），于是「心跳 defer」退化成「从 spawn 起的固定秒表」（`now − started_at`）——一个没有踢狗、只有秒表的假 watchdog，会在 receiver 活着干活时误杀它（实证 false-terminal 根）。新增任何 live-defer 态前先问「这个 receiver **能不能**自己刷新心跳？不能 → 它的 liveness 必须**外部观测**真实执行（进程 / worktree-mtime / 引擎 live-child lease），而非自报 marker 年龄」。且「盲重投」的「盲」只施于**动作**（重发驱动事件、不分析为何慢），**绝不施于前置条件**：重投 / force-terminate 前**必须查 receiver 是否还在执行**（这不是「原因分析」，是 ground state）——在跑 → drop 重投（它唯一目的是激活没在跑的）；没跑 → 激活；没跑 + 激活预算耗尽 → 终止。
 
+## 不动点标架：诚实分栏 硬/软——别让「harness」比它实际保证的更强（整合自姊妹仓 trureturing 不动点标架·元诚实门）
+
+**框架（先立精神）**：本文件的每条原则皆**非本仓发明**，而是人类长期沉淀、经时间检验的成熟理论与最佳实践——它们是「变换下不变的不动点」（好坐标系 = 变换下的不动标架）。任何模型作用于本仓都是一次**变换**；本文件是变换下**不变**的标架。这与「先找 harness 再执行」「Harness 的本质：唯一确定一种写法」同源：锚定成熟 prior art，不重造。本节从姊妹仓 trureturing（同一作者的 Lean 真值-DAG 库）的「不动点标架」整合**四条元诚实律**，强化本文件既有 doctrine 的**自省**，非新增第 N 条——是既有原则（competence 轴 / BEAUTY·WORTH GATE / 先找 harness / 无 AskUserQuestion / saga）在「**如何诚实地不夸大自己**」上的同一张脸。
+
+**（一）硬/软 守护分栏诚实律（keystone·元诚实门）：每条 harness/gate/doctrine 声明必须诚实标注它靠什么守护——机器强制（CI 红＝硬）还是评审/自觉守护（软）；绝不让「harness」这个名字比它实际保证的更强。**
+- **硬（machine-enforced）**：违则 CI 红、逃不掉——G-ADAPTER / G-DEDUP / 强制 saga conformance / god-state checker / liveness 契约 / `raise ⊆ produces ⊆ published_seam` graph-scan / `check_repo*` ratchets。这些是「变换下真正不变」的硬不动点。
+- **软（review-guarded）**：机器判不了、会漂移，靠对抗 review（sshx 席位 + 跨模型 GPT Pro + user-as-oracle）与自觉守护——BEAUTY GATE「美不美」、WORTH GATE「值不值」、迪米特/SRP/低耦合透镜、「模式服务当前问题 / 三次法则」、fanout-only 的 requester-provenance noninterference（其 checker 现为 `DESIGNED, NOT YET ENFORCED`）。
+- **诚实纪律**：① 新增任何规范性 doctrine，同时标硬/软——硬则指到具体 checker/ratchet，软则指到守护它的对抗机制；② **绝不把软说成硬**——`DESIGNED NOT YET ENFORCED` 必须如实写「尚未强制、CI 尚未执行」（fanout-only R11 已如此，是范式；写成「CI 已禁止」即撒谎）；③ 一条 doctrine 若能从软升硬（落成 conformance/ratchet），那是**欠的债**，按「Harness 的本质」强度梯度还（scan→schema→runtime-guard→capability），别永久停在软或停在 scan。这条统一并命名了 competence 轴「审证据不审叙事」、BEAUTY GATE「自评必被作弊 → 必挂对抗机器、绝不自造可自证的自检门」、「先找 harness」的**诚实面**：**别用「有 harness」的叙事，冒充「机器真的挡得住」的事实。**
+
+**（二）四态归位：系统里没有「人判断」这个认知范畴——一切归四态，无一是「等人判」（锐化「无 AskUserQuestion·按架构原则自主决策」+ 接 saga `blocked`-with-WHY）。** 本文件既有「禁 AskUserQuestion、遇分叉自主定」；trureturing 把它锐化成**穷尽的四态归位**，任一分叉必落其一，绝不停摆问人：
+- **机器可判** → 判了就走（对错由 CI + conformance + sshx 多模型对抗判，不假手于人）；
+- **形式/证据不可判** → 标 `blocked`-with-WHY（saga 终态），不当「待人裁决」——正是本仓 saga「保证到达枚举内带 WHY 的终止态」+ 活性 sweep force-terminate；
+- **能力/授权/资源缺口**（配额、平台、不可逆业务/运营决策） → 记 open 约束**等灯亮**，用 event-gated wait arm 起来（接「Event-gated waiting：arm a wait, don't busy-spin」），其余 lane 继续推进，绝不 busy-spin 制造 motion；
+- **harness 自身 bug（含门自锁 / 自驱卡死）** → 按「先止血再根因」+ sshx 独立 worktree 自主修复（付更高成本论证 + 复现集成测试），门立即恢复 + 尸检入账，不停摆等授权。
+「等人」态不存在：自主走完、如实汇报——**汇报是输出，不是请示**。用户**主动**给的指令是新输入、照常执行并入账；但机器**不得主动索取**裁决或确认（弹窗＝把「人判断」从正门送走又从侧门迎回）。
+
+**（三）预测检验想法，适应检验方法（接 held-out challenge suite / competence 轴 / harness-first）：**
+- **充分预测未来，才能判想法好坏**——想法向未来下注；不做预测的想法不可证伪即无内容。预测须**留底**：held-out challenge suite（冻结的 L0-L4 fixture，每晚 clean-checkout 检验）、AVM ledger（competence 的机器度量）、golden-master 等价测试——都是「冻结的预测，每次 CI 盖章」。叙事（「它一定是 X」）不算预测，除非留了**可被未来证伪的底**（接「核实数据再建叙事」）。
+- **能适应未来变更的才是好方法**——方法为未来留门：**位置锚死于变更、内容指纹活于变更**（本仓实证：行号/裸名锚脆，`source_ref`/GID/命名空间队列名稳；硬编码状态枚举死，原语层通用活——接「通用 > 枚举、原语层 > 业务语义层」）。为当前形态优化到死的部件首次变更即断裂。适应 ≠ 任意变——变更被约束为**不翻旧真的单调生长**（shrink-only ratchet 只减不增、expand-migrate-contract 必须收尾 contract、集成分支单调前向、marker version 全序 CAS）。**正因真值层（marker-as-fact / git / 外部源）绝对不动，机制层才敢大胆变。**
+
+**（四）古典不动点（成熟锚之极致：同一批不动点的古典表述；本仓已有「实事求是」+「工欲善其事，必先利其器」，此处补齐同源古训，各带硬/软守护）：**
+- **知之为知之，不知为不知，是知也**——诚实标 `blocked`/`ASSUMED-UNVERIFIED`/「尚未强制」，账上没有的不冒领。〔软 + 硬投影：完成声明之「绿」须 CI/conformance 机器判，禁浅校验冒充——**看 EXIT/CI/marker，不看已用时间**〕
+- **毋意，毋必，毋固，毋我**——勿臆测、勿武断、勿固执、勿自我背书；谁自信谁把结论交独立机器/对抗席校验（接「再聪明的单点也会错」+「self-grade 不可靠」）。〔软〕
+- **兼听则明，偏信则暗**——异模型交叉破相关先验（sshx 跨模型族 + GPT Pro oracle）；当前只有单模型时**如实声明，不冒充「多样性共识」**。〔流程纪律〕
+- **君子求诸己，小人求诸人**——出错先查自己（harness/包），不甩锅（接「重启永不作为问题的解释」「信任契约·『下游不稳定』是错误前提」）。〔软〕
+- **欲速则不达；生于忧患，死于安乐**——诚实 > 速度；**安乐**（EXIT-3 短路、假绿冒领、不亲验、band-aid 省事）则亡，**忧患**（失败入账、亲跑亲核、对抗评审、直接改根因）则生。每次失败经尸检长成 harness 新规则（接「有问题不可怕：discover→harness-ify」「deferred cost 10-100×」）。〔软 + 硬投影：coverage/ratchet 账本〕
+- **过犹不及**——门只设在会说谎处，不过度门控、不镀金（即 WORTH GATE「贵的气味」）。〔软〕
+- **大道至简；上善若水，利万物而不争**——唯一真源、删无可删、框架做稳定公共层而服务下级不争特权（即「Lua 脚本用最简单无重复代码表达业务，框架把公共部分做好做稳定」的理想）。〔软 + 硬投影：G-DEDUP / 单一真源 helper〕
+
+> **格言是伦理语言的不动点，harness/conformance 是机器语言的不动点，同一个。** 能机器判的归 CI/ratchet（硬），不能的靠这些古训与对抗 review 守着（软）——古今同为诚实的形状。**仓库可以无人值守，诚实不能**：别让「有 harness」比「机器真的挡得住」说得更强。⟦AI:FKST⟧
+
 ## 工作语言
 
 源文件内部一律英文：`.lua`、`.sh`、`.py`、`.rs` 等里的注释、docstring、log/error 文本、模板字符串和标识符都保持英文，与 fkst-substrate 引擎、命令行工具和 LLM 语料一致。例外：明确作为本地化资源表保存的 outward text values 可以使用目标语言的 UTF-8 字面量；这些文本必须保持源码可读、可 grep，禁止用 hex/base64/byte-escape/`string.char` 等 decode helper 隐藏。源文件之外的对外产物（文档、issue/PR/comment、commit message、变更说明）**一律英文**：英文是唯一准绳文本，不附加中文补注/restatement。代码标识符、路径、crate/命令/协议名、测试断言、引用原文保留英文。对话回复跟随用户语言。不要中英混杂凑句子。存量中文文档（含本文件）可保留中文，新增规范性文本英文优先。
