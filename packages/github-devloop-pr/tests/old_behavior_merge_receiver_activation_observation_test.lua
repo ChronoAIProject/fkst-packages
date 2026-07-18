@@ -13,7 +13,9 @@ local m_claims = require("devloop.claims")
 local m_facts = require("devloop.markers.facts")
 local m_mq = require("devloop.merge_queue")
 local payloads_builders = require("devloop.payloads.builders")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local testing = require("testkit_internal.testing")
+local _workflow_codex = require("workflow_internal.codex")
 local merge_module = require("departments.merge.main")
 local t = h.t
 local core = h.core
@@ -282,6 +284,20 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ "comment:pr:merge-ci-wait" }),
   },
   {
+    disposition = "own-ci-reclassified-pr-merged-drops", status = "rejected", reason = "pr-merged",
+    cas = "fixing", target = "reject", source_line = 535,
+    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
+    ci_merge_reason = "own-ci-red", classification_red = true,
+    reclassification_pr_state = "MERGED", expected_admission = "pr-merged",
+  },
+  {
+    disposition = "own-ci-reclassified-pr-closed-drops", status = "rejected", reason = "pr-closed",
+    cas = "fixing", target = "reject", source_line = 535,
+    current_state = "merge-ready", current_version = VERSION, mergeable_reason = "merge-state-blocked",
+    ci_merge_reason = "own-ci-red", classification_red = true,
+    reclassification_pr_state = "CLOSED", expected_admission = "pr-closed",
+  },
+  {
     disposition = "rollup-red-routes-fixing", status = "admitted", reason = "rollup-red",
     cas = "applied", target = "fixing", source_line = 564,
     current_state = "merge-ready", current_version = VERSION, rollup_reason = "rollup-red",
@@ -525,6 +541,9 @@ local function capture(fixture)
   local function pr_fields(read_count)
     local confirmation_pending = fixture.merge_confirmation_pending and (read_count or 0) >= 4
     local state = merged and not confirmation_pending and "MERGED" or (fixture.pr_state or "OPEN")
+    if fixture.reclassification_pr_state ~= nil and (read_count or 0) >= 2 then
+      state = fixture.reclassification_pr_state
+    end
     local head_sha = fixture.current_head_sha or HEAD_SHA
     local head_branch = BRANCH
     if fixture.verified_identity_mismatch and (read_count or 0) >= 3 then head_branch = BRANCH .. "-changed" end
@@ -675,7 +694,15 @@ local function capture(fixture)
     return true, "mergeable"
   end, restorations)
   ra.replace(check_runs, "is_not_mergeable_reason", function(reason) return reason == "merge-state-dirty" end, restorations)
-  if fixture.fix_terminate then
+  local admissions = observation_support.json_array()
+  if fixture.expected_admission ~= nil then
+    local admit_merge_failure = fix_rounds.admit_merge_failure
+    ra.replace(fix_rounds, "admit_merge_failure", function(...)
+      local admission = admit_merge_failure(...)
+      table.insert(admissions, admission.kind)
+      return admission
+    end, restorations)
+  elseif fixture.fix_terminate then
     ra.replace(config, "max_fix_rounds", function() return 1 end, restorations)
   else
     ra.replace(fix_rounds, "admit_merge_failure", function(_, _, current_pr, _, reason, classification)
@@ -728,6 +755,11 @@ local function capture(fixture)
   if fixture.expected_error then
     t.is_true(tostring(result.failure and result.failure.error or ""):find(fixture.expected_error, 1, true) ~= nil,
       fixture.disposition .. ": expected failure")
+  end
+  if fixture.expected_admission ~= nil then
+    t.eq(#admissions, 1, fixture.disposition .. ": one production own-CI admission")
+    t.eq(admissions[1], fixture.expected_admission,
+      fixture.disposition .. ": exact production own-CI admission")
   end
   local selected = nil
   for _, decision in ipairs(captured.decisions) do
