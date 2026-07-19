@@ -5,6 +5,7 @@
 -- only from structured CAS logs plus the first post-admission safe-head guard.
 
 local catalog = require("devloop.restart_cas_catalog")
+local restart_authority = require("core.restart_authority")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -36,6 +37,8 @@ local V_DIFFERENT = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-
 local V_SAFE_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_SAFE_EQUAL_EVENT = V_EQUAL .. "/loop/1"
 local HANDOFF_COMMENT_ID = "IC_review_activation_handoff"
+local SOURCE_BOUNDARY = "github-devloop-pr.devloop_reviewing"
+local SEMANTIC_VARIANT = "review_receiver"
 
 local function observe_department(reviewing_version, run)
   local probes = {}
@@ -129,6 +132,26 @@ local function evidence_from_observations(probe, handoff_checks)
     reviewing_version = probe.reviewing_version,
     handoff = handoff_evidence(handoff_checks),
   }
+end
+
+local function observe_shadow(run)
+  local captured = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, evidence, candidate_projection)
+    captured = evidence
+    return original_resolve(policy_id, evidence, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, captured
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-old " .. field)
+  t.eq(expected[field], actual[field], context .. ": old-to-shadow " .. field)
 end
 
 local function find_decision(decisions, outcome)
@@ -447,6 +470,46 @@ local function assert_case(fixture)
   t.eq(observed.reason_code, fixture.admission_reason, fixture.name .. ": observed admission reason")
   t.eq(resolved.status, fixture.admission_status, fixture.name .. ": catalog admission status")
   t.eq(resolved.reason_code, fixture.admission_reason, fixture.name .. ": catalog admission reason")
+
+  local sealed = restart_authority.seal_snapshot({
+    owner = core.restart_package_name,
+    proposal_id = event.proposal_id,
+    current = {
+      state = probe.current.state,
+      version = probe.current.version,
+    },
+  })
+  local shadow, shadow_evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed, {
+      semantic_variant = SEMANTIC_VARIANT,
+      source_boundary = SOURCE_BOUNDARY,
+      target = "reviewing",
+      evidence_refs = { "review-pr-cas-probe", "reviewing-hand-off-verification" },
+      reviewing_version = event.version,
+      handoff = handoff_evidence(handoff_checks),
+    })
+  end)
+  assert_bidirectional(shadow, resolved, "reason_code", fixture.name)
+  assert_bidirectional(shadow, resolved, "status", fixture.name)
+  assert_bidirectional(shadow, resolved, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    "github-devloop-pr/reviewing/entry/review_receiver",
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(shadow_evidence.current.state, probe.current.state, fixture.name .. ": evidence current state")
+  t.eq(shadow_evidence.current.version, probe.current.version, fixture.name .. ": evidence current version")
+  t.eq(shadow_evidence.reviewing_version, event.version, fixture.name .. ": evidence reviewing version")
+  t.eq(
+    shadow_evidence.handoff and shadow_evidence.handoff.status or nil,
+    expected_handoff_status,
+    fixture.name .. ": evidence handoff status"
+  )
+  t.eq(shadow_evidence.variant, nil, fixture.name .. ": resolve-based evidence has no variant")
+  t.eq(shadow_evidence.incoming_version, nil, fixture.name .. ": resolve-based evidence has no incoming version")
+  t.eq(shadow_evidence.overlay_version, nil, fixture.name .. ": resolve-based evidence has no overlay version")
 
   local expected_effect_count = boundary_reached and 1 or 0
   t.eq(#result.raises, expected_effect_count, fixture.name .. ": captured effect count")

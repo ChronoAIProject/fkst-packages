@@ -1,6 +1,6 @@
 -- This grant-disabled shadow slice proves CAS-admission-composition parity only.
--- It models selected review_result and fix edges while preserving the raw snapshot
--- fact for each policy profile to project independently.
+-- It models selected PR lifecycle edges while preserving the raw snapshot fact
+-- for each policy profile to project independently.
 -- No live effect is authorized or emitted by this module.
 
 local core = require("core")
@@ -25,6 +25,8 @@ local intent_fields = {
   source_boundary = true,
   target = true,
   evidence_refs = true,
+  reviewing_version = true,
+  handoff = true,
   incoming_version = true,
   target_version = true,
   overlay_version = true,
@@ -52,17 +54,24 @@ local function normalize_intent(intent)
   if type(intent.semantic_variant) ~= "string" or intent.semantic_variant == "" then
     return nil
   end
-  for _, field in ipairs({ "incoming_version", "target_version", "overlay_version" }) do
+  for _, field in ipairs({ "reviewing_version", "incoming_version", "target_version", "overlay_version" }) do
     local value = intent[field]
     if value ~= nil and (type(value) ~= "string" or value == "") then
       return nil
     end
+  end
+  if intent.handoff ~= nil
+    and (type(intent.handoff) ~= "table"
+      or (intent.handoff.status ~= "valid" and intent.handoff.status ~= "invalid")) then
+    return nil
   end
   return {
     semantic_variant = intent.semantic_variant,
     source_boundary = intent.source_boundary,
     target = intent.target,
     evidence_refs = intent.evidence_refs,
+    reviewing_version = intent.reviewing_version,
+    handoff = intent.handoff and { status = intent.handoff.status } or nil,
     incoming_version = intent.incoming_version,
     target_version = intent.target_version,
     overlay_version = intent.overlay_version,
@@ -145,12 +154,15 @@ function M.decide_transition(sealed_snapshot, intent)
   local supported_pr_fix_reconcile = edge.cas_policy_id == "cas.legacy_pr_fix_reconcile_v1"
     and (edge.cas_variant == "review_reject_to_blocked"
       or edge.cas_variant == "bounded_fix_to_blocked")
+  local supported_review_activation = edge.cas_policy_id == "cas.legacy_review_activation_handoff_v1"
+    and edge.semantic_variant == "review_receiver"
   if not supported_review_result
     and not supported_fix
     and not supported_observe_pr
     and not supported_timeout_reconcile
     and not supported_merge
-    and not supported_pr_fix_reconcile then
+    and not supported_pr_fix_reconcile
+    and not supported_review_activation then
     return illegal("unsupported-shadow-edge")
   end
 
@@ -177,50 +189,73 @@ function M.decide_transition(sealed_snapshot, intent)
   end
 
   local definition = catalog.definition(edge.cas_policy_id)
-  local variant = definition
-    and type(definition.variants) == "table"
-    and definition.variants[edge.cas_variant]
-    or nil
-  if variant == nil
-    or variant.target_state ~= edge.target then
-    return illegal("policy-variant-shape-mismatch")
-  end
-  if concrete_source_mode then
-    local source_admitted = restart_source_admission.exact_source_state(variant.source_states, edge.source.state)
-    if supported_merge or supported_pr_fix_reconcile then
+  local resolve_based = supported_review_activation
+    and definition ~= nil
+    and definition.variants == nil
+    and definition.base == nil
+  local variant = nil
+  if not resolve_based then
+    variant = definition
+      and type(definition.variants) == "table"
+      and definition.variants[edge.cas_variant]
+      or nil
+    if variant == nil
+      or variant.target_state ~= edge.target then
+      return illegal("policy-variant-shape-mismatch")
+    end
+    if concrete_source_mode then
+      local source_admitted = restart_source_admission.exact_source_state(variant.source_states, edge.source.state)
+      if supported_merge or supported_pr_fix_reconcile then
+        local admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
+        source_admitted = admitted_sources ~= nil and admitted_sources[edge.source.state] == true
+      end
+      if not source_admitted then
+        return illegal("policy-variant-shape-mismatch")
+      end
+    end
+    if ingress_mode then
       local admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
-      source_admitted = admitted_sources ~= nil and admitted_sources[edge.source.state] == true
+      if admitted_sources == nil then
+        return illegal("policy-variant-shape-mismatch")
+      end
+      local current_state = current.state == nil and "unmanaged" or current.state
+      if admitted_sources[current_state] ~= true then
+        return illegal("source-state-not-admitted")
+      end
     end
-    if not source_admitted then
-      return illegal("policy-variant-shape-mismatch")
+    local cas_base = variant.base or definition.base
+    if (cas_base == "versioned" or cas_base == "cyclic")
+      and normalized.incoming_version == nil then
+      return illegal("incoming-version-required")
     end
-  end
-  if ingress_mode then
-    local admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
-    if admitted_sources == nil then
-      return illegal("policy-variant-shape-mismatch")
-    end
-    local current_state = current.state == nil and "unmanaged" or current.state
-    if admitted_sources[current_state] ~= true then
-      return illegal("source-state-not-admitted")
-    end
-  end
-  local cas_base = variant.base or definition.base
-  if (cas_base == "versioned" or cas_base == "cyclic")
-    and normalized.incoming_version == nil then
-    return illegal("incoming-version-required")
   end
 
-  local evidence = {
-    current = {
-      state = current.state,
-      version = current.version,
-    },
-    variant = edge.cas_variant,
-    incoming_version = normalized.incoming_version,
-    target_version = normalized.target_version,
-    overlay_version = normalized.overlay_version,
-  }
+  local evidence
+  if resolve_based then
+    local current_version = current.version
+    if current.state == nil and current_version == "" then
+      current_version = nil
+    end
+    evidence = {
+      current = {
+        state = current.state,
+        version = current_version,
+      },
+      reviewing_version = normalized.reviewing_version,
+      handoff = normalized.handoff,
+    }
+  else
+    evidence = {
+      current = {
+        state = current.state,
+        version = current.version,
+      },
+      variant = edge.cas_variant,
+      incoming_version = normalized.incoming_version,
+      target_version = normalized.target_version,
+      overlay_version = normalized.overlay_version,
+    }
+  end
   local resolved = catalog.resolve(edge.cas_policy_id, evidence, projection)
   local disposition = ({
     apply = "apply",
