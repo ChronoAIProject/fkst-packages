@@ -16,11 +16,13 @@ local conv_rounds = require("devloop.convergence.rounds")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
+local restart_authority = require("core.restart_authority")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local loop_department = require("departments.loop.main")
 
+local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_loop_plain_v1"
 local VARIANT = "thinking_to_blocked"
 local V_CURRENT = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -110,6 +112,21 @@ local function observe_department(run)
     error(result, 0)
   end
   return result, probes, decisions, boundary_calls
+end
+
+local function observe_shadow(run)
+  local evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, candidate, candidate_projection)
+    evidence = candidate
+    return original_resolve(policy_id, candidate, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, evidence
 end
 
 local function evidence_from_probe(probe, outcome_version)
@@ -210,6 +227,11 @@ local function fixture_comments(event, fixture)
   return comments
 end
 
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
+  t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
+end
+
 local function assert_case(fixture)
   local event = h.unresolved({
     dedup_key = fixture.raw_event_version or V_CURRENT,
@@ -271,6 +293,42 @@ local function assert_case(fixture)
   if fixture.catalog_cas_outcome ~= nil then
     t.eq(actual.cas_outcome, fixture.catalog_cas_outcome, fixture.name .. ": catalog CAS outcome")
   end
+
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local intent = {
+    semantic_variant = "consensus-stalled",
+    target = "blocked",
+    incoming_version = event.dedup_key,
+    overlay_version = nil,
+  }
+
+  local shadow, shadow_evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, intent)
+  end)
+  local shadow_observed = {
+    status = observed.status,
+    reason_code = observed.reason_code,
+    cas_outcome = devloop_state.cas_outcome(probe.current, probe.outcome, event.dedup_key),
+  }
+
+  assert_bidirectional(shadow, shadow_observed, "status", fixture.name)
+  assert_bidirectional(shadow, shadow_observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, shadow_observed, "cas_outcome", fixture.name)
+  t.eq(shadow.edge_id, OWNER .. "/thinking/autonomous/consensus-stalled", fixture.name .. ": selected edge")
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(shadow_evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(shadow_evidence.current.version, fixture.current_version, fixture.name .. ": evidence raw current version")
+  t.eq(shadow_evidence.variant, VARIANT, fixture.name .. ": evidence variant")
+  t.eq(shadow_evidence.incoming_version, event.dedup_key, fixture.name .. ": evidence incoming version")
+  t.eq(shadow_evidence.target_version, nil, fixture.name .. ": evidence target version")
+  t.eq(shadow_evidence.overlay_version, nil, fixture.name .. ": evidence overlay version")
 
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
   t.eq(#result.raises, fixture.effect_count or 0, fixture.name .. ": captured effect count")
