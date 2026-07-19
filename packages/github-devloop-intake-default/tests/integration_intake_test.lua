@@ -126,6 +126,21 @@ local function has_value(values, expected)
   return false
 end
 
+local function assert_folded_label_guard(payload, candidate)
+  t.eq(payload.require_marker_guard, true)
+  t.eq(payload.expected_proposal_id, candidate.proposal_id)
+  t.eq(payload.expected_state, "blocked")
+  t.eq(payload.expected_version, candidate.dedup_key)
+  t.eq(payload.marker_guard.namespace, "github-devloop")
+  t.eq(payload.marker_guard.marker, "state")
+  t.eq(payload.marker_guard.version, "v1")
+  t.eq(payload.marker_guard.match.proposal, candidate.proposal_id)
+  t.eq(payload.marker_guard.expected.state, "blocked")
+  t.eq(payload.marker_guard.expected.version, candidate.dedup_key)
+  t.eq(payload.marker_guard.marker_target.kind, "issue")
+  t.eq(tostring(payload.marker_guard.marker_target.number), "42")
+end
+
 local function issue_list_json(issues)
   local rendered = {}
   for _, issue in ipairs(issues or {}) do
@@ -462,6 +477,7 @@ return {
     t.is_true(followup.body:find('outcome="folded"', 1, true) ~= nil)
     t.is_true(followup.body:find('carrier="pending-create"', 1, true) ~= nil)
     t.eq(folded_label.add_labels[1], "fkst-dev:blocked")
+    assert_folded_label_guard(folded_label, payload)
     t.eq(class_label.add_labels[1], "fkst-class:standard")
     t.is_true(has_value(class_label.remove_labels, "fkst-class:expedite"))
     t.is_true(has_value(class_label.remove_labels, "fkst-class:background"))
@@ -499,6 +515,7 @@ return {
     t.is_true(followup.body:find("Class carrier: #77", 1, true) ~= nil)
     t.is_true(followup.body:find('carrier="77"', 1, true) ~= nil)
     t.eq(folded_label.add_labels[1], "fkst-dev:blocked")
+    assert_folded_label_guard(folded_label, payload)
     t.eq(class_label.add_labels[1], "fkst-class:standard")
     t.is_nil(find_raise(result.raises, "github-proxy.github_issue_create_request"))
   end,

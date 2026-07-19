@@ -220,6 +220,21 @@ local function assert_common_issue_request(payload, schema, dedup_key)
   assert_issue_claim(payload)
 end
 
+local function assert_folded_label_guard(payload, candidate)
+  t.eq(payload.require_marker_guard, true)
+  t.eq(payload.expected_proposal_id, candidate.proposal_id)
+  t.eq(payload.expected_state, "blocked")
+  t.eq(payload.expected_version, candidate.dedup_key)
+  t.eq(payload.marker_guard.namespace, "github-devloop")
+  t.eq(payload.marker_guard.marker, "state")
+  t.eq(payload.marker_guard.version, "v1")
+  t.eq(payload.marker_guard.match.proposal, candidate.proposal_id)
+  t.eq(payload.marker_guard.expected.state, "blocked")
+  t.eq(payload.marker_guard.expected.version, candidate.dedup_key)
+  t.eq(payload.marker_guard.marker_target.kind, "issue")
+  t.eq(tostring(payload.marker_guard.marker_target.number), "42")
+end
+
 local function assert_decision_comment(payload, action, class, expected_key, reason_fragment)
   assert_common_issue_request(payload, "github-proxy.v1", base_ids.dedup_key({
     "intake",
@@ -411,6 +426,7 @@ return {
     }))
     t.eq(folded.add_labels[1], "fkst-dev:blocked")
     t.eq(folded.label_colors["fkst-dev:blocked"], "1B1F23")
+    assert_folded_label_guard(folded, payload)
     t.is_true(has_value(folded.remove_labels, "fkst-dev:thinking"))
     t.is_true(has_value(folded.remove_labels, "fkst-dev:ready"))
     local create = result.raises[4].payload
