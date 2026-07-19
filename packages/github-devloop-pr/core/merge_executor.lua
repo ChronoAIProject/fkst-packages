@@ -100,8 +100,12 @@ local function raise_fixing(repo, issue_number, merge_ready, current_state, curr
   local label_request = issue_number ~= nil and requests_labels.build_state_label_request(repo,
     issue_number,
     "fixing",
+    merge_ready.proposal_id,
+    fix_version,
     merge_ready.dedup_key .. "/label/fixing",
-    entity_lib.issue_source_ref(repo, issue_number)
+    entity_lib.issue_source_ref(repo, issue_number),
+    nil,
+    { kind = "pr", number = merge_ready.pr_number }
   ) or nil
   local add_labels, remove_labels = devloop_state.state_label_changes("fixing")
   devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, current_state, "merge-ready", "fixing", "applied", reason)

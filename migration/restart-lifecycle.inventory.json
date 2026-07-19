@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "1f41983f01897a76b3b614e16cb54c8c51b1cfc884c9d0882c6c5f38bd38e378",
+  "artifact_sha256": "af5510cc1492a633457f6c8e5a18ad005f624541d55e1c18ccd9b0891fd1f48b",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -190,9 +190,33 @@
                 }
               },
               "dedup_key": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/label/thinking",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "thinking",
+              "expected_version": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:thinking": "8250DF"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "thinking",
+                  "version": "intake/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:ready",
@@ -210,6 +234,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -2323,9 +2348,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -2343,6 +2392,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -2602,9 +2652,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merge-ready",
+              "expected_version": "2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:merge-ready": "2EA44F"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merge-ready",
+                  "version": "2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -2622,6 +2696,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -2884,9 +2959,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/2026-06-03T01-02-03Z-fix-1-fix-2/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "review-meta",
+              "expected_version": "2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:review-meta": "BFD4F2"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "review-meta",
+                  "version": "2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -2904,6 +3003,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -3016,9 +3116,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "review-meta/label/block/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -3036,6 +3160,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -3164,9 +3289,33 @@
                 "fkst-dev:fixing"
               ],
               "dedup_key": "review-meta/label/fix/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -3184,6 +3333,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -3721,9 +3871,33 @@
                 }
               },
               "dedup_key": "fixing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/noci/label/refix/2",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -3741,6 +3915,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -3863,9 +4038,33 @@
                 "fkst-dev:reviewing"
               ],
               "dedup_key": "fix/label/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/feedface",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "reviewing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:reviewing": "5319E7"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "reviewing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -3883,6 +4082,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -4255,9 +4455,33 @@
                 "fkst-dev:reviewing"
               ],
               "dedup_key": "fix/label/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/feedface",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "reviewing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:reviewing": "5319E7"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "reviewing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -4275,6 +4499,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -5656,9 +5881,33 @@
                 }
               },
               "dedup_key": "orphaned-pr/label/merged/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/9708/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merged",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:merged": "8957E5"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merged",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -5676,6 +5925,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -5952,9 +6202,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "review-reconcile/label/review-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -5972,6 +6246,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -6506,9 +6781,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.merge-gate-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -6526,6 +6825,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -6643,9 +6943,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.merge-gate-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -6663,6 +6987,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -6780,9 +7105,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.merge-gate-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -6800,6 +7149,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -7061,9 +7411,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/fix-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -7081,6 +7455,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -7343,9 +7718,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/fix-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -7363,6 +7762,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -7481,9 +7881,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/fix-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -7501,6 +7925,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -7619,9 +8044,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/fix-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -7639,6 +8088,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -8042,9 +8492,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -8062,6 +8536,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -8248,9 +8723,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -8268,6 +8767,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -8385,9 +8885,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -8405,6 +8929,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -8593,9 +9118,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/ci-repair-retry-policy-invalid",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -8613,6 +9162,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -8941,9 +9491,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -8961,6 +9535,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -9208,9 +9783,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -9228,6 +9827,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -9546,9 +10146,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -9566,6 +10190,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -9813,9 +10438,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -9833,6 +10482,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -9946,9 +10596,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merge-ready/3/timeout-reconcile/merge-ready/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -9966,6 +10640,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -10284,9 +10959,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -10304,6 +11003,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -10551,9 +11251,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -10571,6 +11295,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -10684,9 +11409,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/merging/3/timeout-reconcile/merging/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -10704,6 +11453,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -11022,9 +11772,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/pr-open/3/timeout-reconcile/pr-open/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/pr-open/3/timeout-reconcile/pr-open/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/pr-open/3/timeout-reconcile/pr-open/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -11042,6 +11816,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -11289,9 +12064,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/pr-open/3/timeout-reconcile/pr-open/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/pr-open/3/timeout-reconcile/pr-open/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/pr-open/3/timeout-reconcile/pr-open/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -11309,6 +12108,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -11627,9 +12427,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/review-meta/3/timeout-reconcile/review-meta/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/review-meta/3/timeout-reconcile/review-meta/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/review-meta/3/timeout-reconcile/review-meta/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -11647,6 +12471,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -11894,9 +12719,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/review-meta/3/timeout-reconcile/review-meta/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/review-meta/3/timeout-reconcile/review-meta/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/review-meta/3/timeout-reconcile/review-meta/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -11914,6 +12763,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -12232,9 +13082,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/reviewing/3/timeout-reconcile/reviewing/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/reviewing/3/timeout-reconcile/reviewing/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/reviewing/3/timeout-reconcile/reviewing/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -12252,6 +13126,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -12499,9 +13374,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/reviewing/3/timeout-reconcile/reviewing/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/reviewing/3/timeout-reconcile/reviewing/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/reviewing/3/timeout-reconcile/reviewing/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -12519,6 +13418,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -12780,9 +13680,33 @@
                 }
               },
               "dedup_key": "reconcile/label/reconcile-consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -12800,6 +13724,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -14406,9 +15331,33 @@
                 }
               },
               "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/label/thinking",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "thinking",
+              "expected_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:thinking": "8250DF"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "thinking",
+                  "version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:ready",
@@ -14426,6 +15375,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -15393,9 +16343,33 @@
                 }
               },
               "dedup_key": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/label/thinking",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "thinking",
+              "expected_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:thinking": "8250DF"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "thinking",
+                  "version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:ready",
@@ -15413,6 +16387,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -15996,7 +16971,31 @@
                 }
               },
               "dedup_key": "awaiting-pr/canonicalize/implementing/label/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/9708/g1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "awaiting-pr",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": 42,
+              "marker_guard": {
+                "expected": {
+                  "state": "awaiting-pr",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
+              },
               "remove_labels": [
                 "fkst-dev:thinking",
                 "fkst-dev:ready",
@@ -16013,6 +17012,7 @@
                 "fkst-dev:merged"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -16604,9 +17604,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9813/g1/blocked/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -16624,6 +17648,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -16761,9 +17786,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9811/g1/ready/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "ready",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:ready": "0E8A16"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "ready",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -16781,6 +17830,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -16908,9 +17958,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9810/g1/merged/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merged",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:merged": "8957E5"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merged",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -16928,6 +18002,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -17457,9 +18532,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9812/g1/blocked/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -17477,6 +18576,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -20548,9 +21648,33 @@
                 }
               },
               "dedup_key": "reconcile/label/reconcile-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -20568,6 +21692,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -21725,9 +22850,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9813/g1/blocked/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -21745,6 +22894,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -21888,9 +23038,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9811/g1/ready/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "ready",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:ready": "0E8A16"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "ready",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -21908,6 +23082,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -22041,9 +23216,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9810/g1/merged/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merged",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:merged": "8957E5"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merged",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -22061,6 +23260,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -22632,9 +23832,33 @@
                 }
               },
               "dedup_key": "awaiting-pr/label/github-devloop/issue/owner/repo/42/9812/g1/blocked/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted",
               "issue_number": 42,
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": 42
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -22652,6 +23876,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -23696,9 +24921,33 @@
                 }
               },
               "dedup_key": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/observe-pr-conflict/label/fixing",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -23716,6 +24965,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -24499,9 +25749,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "review-meta/label/block/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -24519,6 +25793,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -24655,9 +25930,33 @@
                 "fkst-dev:fixing"
               ],
               "dedup_key": "review-meta/label/fix/review-meta/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/3/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/loop/2/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-meta-action/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -24675,6 +25974,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -30465,9 +31765,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merge-ready",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:merge-ready": "2EA44F"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merge-ready",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -30485,6 +31809,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -30617,9 +31942,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merge-ready",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:merge-ready": "2EA44F"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merge-ready",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -30637,6 +31986,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -30907,9 +32257,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merge-ready",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:merge-ready": "2EA44F"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merge-ready",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -30927,6 +32301,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -31060,9 +32435,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -31080,6 +32479,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -31213,9 +32613,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -31233,6 +32657,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -31366,9 +32791,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -31386,6 +32835,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -32708,9 +34158,33 @@
                 }
               },
               "dedup_key": "review-result/label/github-devloop/issue/owner/repo/42/github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "merge-ready",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:merge-ready": "2EA44F"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "merge-ready",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -32728,6 +34202,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -34898,9 +36373,33 @@
                 }
               },
               "dedup_key": "implement/label/implementing/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/2",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "implementing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:implementing": "FBCA04"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "implementing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/reimplement/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -34918,6 +36417,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -35079,9 +36579,33 @@
                 }
               },
               "dedup_key": "implement/label/implementing/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "implementing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:implementing": "FBCA04"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "implementing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -35099,6 +36623,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -40442,9 +41967,33 @@
                 "fkst-dev:reviewing"
               ],
               "dedup_key": "fix/label/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/feedface",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "reviewing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:reviewing": "5319E7"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "reviewing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -40462,6 +42011,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -40597,9 +42147,33 @@
                 }
               },
               "dedup_key": "fixing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/noci/label/refix/2",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -40617,6 +42191,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -41049,9 +42624,33 @@
                 "fkst-dev:review-meta"
               ],
               "dedup_key": "fix/label/review-meta/codex-failed/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "review-meta",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:review-meta": "BFD4F2"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "review-meta",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -41069,6 +42668,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -41287,9 +42887,33 @@
                 "fkst-dev:reviewing"
               ],
               "dedup_key": "fix/label/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/feedface",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "reviewing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:reviewing": "5319E7"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "reviewing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -41307,6 +42931,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -41923,9 +43548,33 @@
                 "fkst-dev:reviewing"
               ],
               "dedup_key": "fix/label/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/feedface",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "reviewing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:reviewing": "5319E7"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "reviewing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -41943,6 +43592,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -42084,9 +43734,33 @@
                 "fkst-dev:review-meta"
               ],
               "dedup_key": "fix/label/review-meta/no-fix/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "review-meta",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:review-meta": "BFD4F2"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "review-meta",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -42104,6 +43778,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -42245,9 +43920,33 @@
                 "fkst-dev:review-meta"
               ],
               "dedup_key": "fix/label/review-meta/no-new-head/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "review-meta",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:review-meta": "BFD4F2"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "review-meta",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -42265,6 +43964,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -42387,9 +44087,33 @@
                 "fkst-dev:reviewing"
               ],
               "dedup_key": "fix/label/github-devloop/issue/owner/repo/42/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/def456",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "reviewing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:reviewing": "5319E7"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "reviewing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -42407,6 +44131,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -43439,9 +45164,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/fix-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -43459,6 +45208,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -43957,9 +45707,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.merge-gate-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -43977,6 +45751,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -44088,9 +45863,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "fix-reconcile/label/github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix-loop-max-rounds",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -44108,6 +45907,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -44414,9 +46214,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "review-reconcile/label/review-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -44434,6 +46258,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -45057,9 +46882,33 @@
                 }
               },
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -45077,6 +46926,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -45188,9 +47038,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": "7"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -45208,6 +47082,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -45319,9 +47194,33 @@
                 "fkst-dev:blocked"
               ],
               "dedup_key": "timeout-reconcile/label/timeout-reconcile-ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "blocked",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:blocked": "1B1F23"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "blocked",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/timeout/fixing/3/timeout-reconcile/fixing/3"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "issue",
+                  "number": "42"
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -45339,6 +47238,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -45986,9 +47886,33 @@
                 }
               },
               "dedup_key": "merge-ready/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/def456/label/fixing",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "fixing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:fixing": "D93F0B"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "fixing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -46006,6 +47930,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",
@@ -46212,9 +48137,33 @@
                 }
               },
               "dedup_key": "merge/label/reviewing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1/fed789",
+              "expected_proposal_id": "github-devloop/issue/owner/repo/42",
+              "expected_state": "reviewing",
+              "expected_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1",
               "issue_number": "42",
               "label_colors": {
                 "fkst-dev:reviewing": "5319E7"
+              },
+              "marker_guard": {
+                "expected": {
+                  "state": "reviewing",
+                  "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/review-loop/1"
+                },
+                "marker": "state",
+                "marker_target": {
+                  "kind": "pr",
+                  "number": 7
+                },
+                "match": {
+                  "proposal": "github-devloop/issue/owner/repo/42"
+                },
+                "namespace": "github-devloop",
+                "order_by": [
+                  "marker_order_key",
+                  "version_order_key",
+                  "stage_rank"
+                ],
+                "version": "v1"
               },
               "remove_labels": [
                 "fkst-dev:thinking",
@@ -46232,6 +48181,7 @@
                 "fkst-dev:awaiting-pr"
               ],
               "repo": "owner/repo",
+              "require_marker_guard": true,
               "schema": "github-proxy.label.v1",
               "source_ref": {
                 "kind": "external",

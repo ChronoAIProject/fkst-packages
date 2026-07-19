@@ -250,11 +250,16 @@ return {
     local awaiting = requests_labels.build_state_label_request("owner/repo",
       "42",
       "awaiting-pr",
+      proposal_id,
+      "awaiting-version",
       "github-devloop/issue/owner/repo/42/label/awaiting-pr",
       { kind = "external", ref = "owner/repo#issue/42" }
     )
     t.eq(awaiting.add_labels[1], "fkst-dev:awaiting-pr")
     t.is_nil(awaiting.label_colors)
+    t.eq(awaiting.require_marker_guard, true)
+    t.eq(awaiting.marker_guard.expected.state, "awaiting-pr")
+    t.eq(awaiting.marker_guard.expected.version, "awaiting-version")
 
     t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:reviewing" }, "reviewing"), true)
     t.eq(core.state_label_hint_matches({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "reviewing"), false)

@@ -12,3 +12,4 @@ __pycache__/
 .env
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.sshx-results/

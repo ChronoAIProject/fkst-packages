@@ -18,7 +18,7 @@ function S.install(M)
     return has_color and colors or nil
   end
 
-  local function state_marker_guard(proposal_id, state, version)
+  local function state_marker_guard(proposal_id, state, version, marker_target)
     return {
       namespace = "github-devloop",
       marker = "state",
@@ -35,6 +35,7 @@ function S.install(M)
         "version_order_key",
         "stage_rank",
       },
+      marker_target = marker_target,
     }
   end
 
@@ -56,7 +57,10 @@ function M.build_pr_state_label_request(repo, issue_number, pr_number, proposal_
     expected_proposal_id = proposal_id,
     expected_state = to_state,
     expected_version = version,
-    marker_guard = state_marker_guard(proposal_id, to_state, version),
+    marker_guard = state_marker_guard(proposal_id, to_state, version, {
+      kind = "pr",
+      number = pr_number,
+    }),
     add_labels = add_labels,
     remove_labels = remove_labels,
     label_colors = label_colors_for(add_labels),

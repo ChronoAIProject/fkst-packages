@@ -63,6 +63,8 @@ function M.build_fix_review_meta_label_request(repo, issue_number, fix, reason)
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "review-meta",
+    fix.proposal_id,
+    fix.version,
     base_ids.dedup_key({
       "fix",
       "label",
@@ -70,7 +72,9 @@ function M.build_fix_review_meta_label_request(repo, issue_number, fix, reason)
       tostring(reason or "no-fix"),
       tostring(fix.review_dedup_key),
     }),
-    fix.source_ref
+    fix.source_ref,
+    nil,
+    { kind = "pr", number = fix.pr_number }
   )
 end
 
@@ -106,6 +110,8 @@ function M.build_review_meta_label_request(repo, issue_number, review_meta, acti
   return requests_labels.build_state_label_request(repo,
     issue_number,
     review_meta_to_state(normalized),
+    review_meta.proposal_id,
+    version or review_meta.version,
     base_ids.dedup_key({
       "review-meta",
       "label",
@@ -113,7 +119,9 @@ function M.build_review_meta_label_request(repo, issue_number, review_meta, acti
       tostring(review_meta.dedup_key),
       tostring(version or review_meta.version),
     }),
-    review_meta.source_ref
+    review_meta.source_ref,
+    nil,
+    { kind = "pr", number = review_meta.pr_number }
   )
 end
 
@@ -150,28 +158,38 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
 end
 
 function M.build_review_reconcile_label_request(repo, issue_number, review_reconcile)
+  local _, pr_number = devloop_base.parse_pr_source_ref(review_reconcile.source_ref)
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
+    review_reconcile.proposal_id,
+    conv_reconcile.review_reconcile_state_version(review_reconcile.issue_version, review_reconcile.round),
     base_ids.dedup_key({
       "review-reconcile",
       "label",
       tostring(review_reconcile.dedup_key),
     }),
-    review_reconcile.source_ref
+    review_reconcile.source_ref,
+    nil,
+    { kind = "pr", number = pr_number }
   )
 end
 
 function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
+  local _, pr_number = devloop_base.parse_pr_source_ref(fix_reconcile.source_ref)
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
+    fix_reconcile.proposal_id,
+    conv_reconcile.fix_reconcile_state_version(fix_reconcile.issue_version),
     base_ids.dedup_key({
       "fix-reconcile",
       "label",
       tostring(fix_reconcile.dedup_key),
     }),
-    fix_reconcile.source_ref
+    fix_reconcile.source_ref,
+    nil,
+    { kind = "pr", number = pr_number }
   )
 end
 

@@ -287,14 +287,14 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
       new_version,
       source_ref
     )
-    local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "reviewing", base_ids.dedup_key({
+    local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "reviewing", proposal_id, new_version, base_ids.dedup_key({
       "observe",
       "fixing",
       "renormalize",
       tostring(proposal_id),
       tostring(new_version),
       tostring(link.pr_number),
-    }), issue.source_ref)
+    }), issue.source_ref, nil, { kind = "pr", number = link.pr_number })
     devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing", "applied(replay)", "no feedback fact is visible; re-entering review for current PR head")
     return raise_effects(M, dept, proposal_id, "reviewing", new_version, { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:fixing" } }, {
       { queue = "github-proxy.github_pr_comment_request", payload = comment_request },

@@ -269,6 +269,8 @@ function M.canonicalize_implementing_merged_delegated_pr(dept, issue, state, fac
   local label_request = requests_labels.build_state_label_request(issue.repo,
     issue.number,
     "awaiting-pr",
+    proposal_id,
+    state.version,
     base_ids.dedup_key({
       "awaiting-pr",
       "canonicalize",
@@ -405,6 +407,8 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
   local label_request = requests_labels.build_state_label_request(issue.repo,
     issue.number,
     next_state.to_state,
+    proposal_id,
+    next_state.version,
     base_ids.dedup_key({
       "awaiting-pr",
       "label",

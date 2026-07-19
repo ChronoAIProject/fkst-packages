@@ -228,13 +228,15 @@ local function raise_dependency_gate_blocked(M, dept, issue, proposal_id, state,
     dedup_key = base_ids.dedup_key({ "dependency", "blocked", tostring(proposal_id), tostring(state.version), tostring(gate.kind), tostring(gate.reason) }),
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
   }, issue.source_ref)
-  local label_request = requests_labels.build_label_request(issue.repo,
+  local label_request = requests_labels.build_state_label_request(issue.repo,
     issue.number,
-    add_labels,
-    remove_labels,
+    "blocked",
+    proposal_id,
+    state.version,
     base_ids.dedup_key({ "dependency", "blocked", "label", tostring(proposal_id), tostring(state.version), tostring(gate.kind), tostring(gate.reason) }),
     issue.source_ref
   )
+  table.insert(label_request.remove_labels, M._blocked_on_dependency_label)
   devloop_logging.log_cas_decision(dept, proposal_id, state, "dependency_wait", "blocked", "applied(dependency-gate-unresolvable)", gate.reason)
   return replay_fields_resolver.replay_raise_effects(devloop_logging.log_apply, devloop_logging.log_raise, dept, proposal_id, "blocked", state.version, { add = add_labels, remove = remove_labels }, {
     { queue = "github-proxy.github_issue_comment_request", payload = comment_request },

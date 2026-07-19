@@ -72,23 +72,23 @@ local function linked_open_pr(dept, issue, state, facts, tools, from_state, to_s
   return link, current_pr, nil
 end
 
-local function append_issue_label_effect(issue, proposal_id, to_state, version, source_ref, effects, key)
+local function append_issue_label_effect(issue, proposal_id, to_state, version, source_ref, effects, key, marker_target)
   if issue.number == nil then
     return
   end
   table.insert(effects, {
     queue = "github-proxy.github_issue_label_request",
-    payload = requests_labels.build_state_label_request(issue.repo, issue.number, to_state, key, source_ref),
+    payload = requests_labels.build_state_label_request(issue.repo, issue.number, to_state, proposal_id, version, key, source_ref, nil, marker_target),
   })
 end
 
-local function add_issue_label_effect(issue, proposal_id, to_state, version, source_ref, effects, dedup_parts)
+local function add_issue_label_effect(issue, proposal_id, to_state, version, source_ref, effects, dedup_parts, marker_target)
   if issue.number == nil then
     return
   end
   table.insert(effects, {
     queue = "github-proxy.github_issue_label_request",
-    payload = requests_labels.build_state_label_request(issue.repo, issue.number, to_state, base_ids.dedup_key(dedup_parts), source_ref),
+    payload = requests_labels.build_state_label_request(issue.repo, issue.number, to_state, proposal_id, version, base_ids.dedup_key(dedup_parts), source_ref, nil, marker_target),
   })
 end
 
@@ -207,7 +207,7 @@ local function replay_review_result(dept, issue, state, facts, tools, link, curr
     tostring(proposal_id),
     tostring(state.version),
     tostring(link.pr_number),
-  })
+  }, { kind = "pr", number = link.pr_number })
   devloop_logging.log_cas_decision(dept, proposal_id, state, "reviewing", "fixing", "applied(replay)", "trusted reject review-result fact is visible")
   return tools.raise_effects(dept, proposal_id, "fixing", state.version, { add = { "fkst-dev:fixing" }, remove = { "fkst-dev:reviewing" } }, effects)
 end
@@ -369,7 +369,7 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
       tostring(proposal_id),
       tostring(fact.version),
       tostring(link.pr_number),
-    })
+    }, { kind = "pr", number = link.pr_number })
     devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "fixing", "applied(replay)", "trusted review-meta fix decision fact is visible")
     return tools.raise_effects(dept, proposal_id, "fixing", fact.version, { add = { "fkst-dev:fixing" }, remove = { "fkst-dev:review-meta" } }, effects)
   end
@@ -380,9 +380,9 @@ local function replay_review_meta_result(dept, issue, state, row, facts, tools)
     tostring(proposal_id),
     tostring(fact.version),
     tostring(link.pr_number),
-  })
+  }, { kind = "pr", number = link.pr_number })
   local effects = {}
-  append_issue_label_effect(issue, proposal_id, "blocked", fact.version, issue_source_ref(issue), effects, label_key)
+  append_issue_label_effect(issue, proposal_id, "blocked", fact.version, issue_source_ref(issue), effects, label_key, { kind = "pr", number = link.pr_number })
   devloop_logging.log_cas_decision(dept, proposal_id, state, "review-meta", "blocked", "applied(replay)", "trusted review-meta block decision fact is visible")
   return tools.raise_effects(dept, proposal_id, "blocked", fact.version, { add = { "fkst-dev:blocked" }, remove = { "fkst-dev:review-meta" } }, effects)
 end
@@ -490,7 +490,7 @@ raise_reviewing_for_current_head = function(dept, issue, state, proposal_id, lin
     tostring(review_version),
     tostring(link.pr_number),
     tostring(current_pr.head_sha),
-  })
+  }, { kind = "pr", number = link.pr_number })
   devloop_logging.log_cas_decision(dept, proposal_id, state, "merging", "reviewing", outcome, reason)
   return tools.raise_effects(dept, proposal_id, "reviewing", review_version, { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:merging" } }, effects)
 end
@@ -550,7 +550,7 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
       tostring(proposal_id),
       tostring(fix_version),
       tostring(link.pr_number),
-    })
+    }, { kind = "pr", number = link.pr_number })
     devloop_logging.log_cas_decision(dept, proposal_id, state, "merging", "fixing", "applied(replay)", mergeable_reason)
     return tools.raise_effects(dept, proposal_id, "fixing", fix_version, { add = { "fkst-dev:fixing" }, remove = { "fkst-dev:merging" } }, effects)
   end
@@ -590,7 +590,8 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
         local request = requests_review.build_merge_gate_fix_comment_request(M, issue.repo, issue.number, merge_ready, admission.version, admission.reason, current.base_ref_oid, source_ref, nil, { ci_failure_key = admission.ci_failure_key })
         local effects = { { queue = "github-proxy.github_pr_comment_request", payload = request } }
         add_issue_label_effect(issue, proposal_id, "fixing", admission.version, issue_source_ref(issue), effects,
-          { "merging", "label", "fixing", tostring(proposal_id), tostring(admission.version), tostring(link.pr_number) })
+          { "merging", "label", "fixing", tostring(proposal_id), tostring(admission.version), tostring(link.pr_number) },
+          { kind = "pr", number = link.pr_number })
         devloop_logging.log_cas_decision(dept, proposal_id, state, "merging", "fixing", "applied(replay)", ci_reason)
         return tools.raise_effects(dept, proposal_id, "fixing", admission.version, { add = { "fkst-dev:fixing" }, remove = { "fkst-dev:merging" } }, effects)
       end,
@@ -658,6 +659,8 @@ mark_issue_merged_from_linked_pr = function(dept, issue, state, proposal_id, lin
   local label_request = requests_labels.build_state_label_request(issue.repo,
     issue.number,
     "merged",
+    proposal_id,
+    state.version,
     base_ids.dedup_key({
       "orphaned-pr",
       "label",

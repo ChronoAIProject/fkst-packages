@@ -522,10 +522,10 @@ function C.raise_fixing_replay_reviewing(raise_reviewing, dept, issue, state, pr
     source_ref = source_ref,
   }
   local label_request = issue.number ~= nil and labels.build_state_label_request(
-    issue.repo, issue.number, "reviewing", base_ids.dedup_key({
+    issue.repo, issue.number, "reviewing", proposal_id, new_version, base_ids.dedup_key({
       "fixing", "label", "reviewing", tostring(proposal_id), tostring(new_version),
       tostring(link.pr_number), tostring(current_pr.head_sha),
-    }), entity_lib.issue_source_ref(issue.repo, issue.number)
+    }), entity_lib.issue_source_ref(issue.repo, issue.number), nil, { kind = "pr", number = link.pr_number }
   ) or nil
   raise_reviewing({
     dept = dept,

@@ -1,5 +1,6 @@
 local core = require("core")
 local saga = require("workflow.saga")
+local state_labels = require("devloop.state_labels")
 
 local spec = {
   consumes = { "github_issue_label_request" },
@@ -18,6 +19,41 @@ end
 
 local function label_list(labels)
   return table.concat(labels or {}, ",")
+end
+
+local function contains_state_label(labels)
+  for _, label in ipairs(labels or {}) do
+    if state_labels.is_state_label(label) then
+      return true
+    end
+  end
+  return false
+end
+
+local function is_state_label_write(kind, add_labels, remove_labels)
+  return kind == "issue"
+    and (contains_state_label(add_labels) or contains_state_label(remove_labels))
+end
+
+local function marker_target(payload, default_kind, default_number)
+  local target = payload.marker_guard and payload.marker_guard.marker_target
+  if target == nil then
+    return default_kind, default_number
+  end
+  local kind = tostring(target.kind or "")
+  if kind ~= "issue" and kind ~= "pr" then
+    return nil, nil
+  end
+  local number = target.number
+  if number == nil then
+    return nil, nil
+  end
+  return kind, number
+end
+
+local function same_entity(left_kind, left_number, right_kind, right_number)
+  return tostring(left_kind) == tostring(right_kind)
+    and tostring(left_number) == tostring(right_number)
 end
 
 local function target_kind(payload)
@@ -78,17 +114,28 @@ local function log_skip(payload, repo, add_labels, remove_labels, reason)
 end
 
 local function marker_guard_allows_write(payload, repo, kind, number, add_labels, remove_labels)
+  local state_label_write = is_state_label_write(kind, add_labels, remove_labels)
   if payload.marker_guard == nil then
-    if payload.require_marker_guard == true or kind == "pr" then
+    if payload.require_marker_guard == true or kind == "pr" or state_label_write then
       log_skip(payload, repo, add_labels, remove_labels, "marker-guard-required")
       return false
     end
     return true
   end
   local bot_login = core.assert_trusted_bot_configured()
-  local comments = core.fetch_marker_guard_comments(repo, kind, number)
+  local guard_kind, guard_number = marker_target(payload, kind, number)
+  if guard_kind == nil then
+    log_skip(payload, repo, add_labels, remove_labels, "invalid-marker-target")
+    return false
+  end
+  local comments = core.fetch_marker_guard_comments(repo, guard_kind, guard_number)
   local ok, reason = core.marker_guard_current(comments, payload.marker_guard, bot_login)
   if not ok then
+    if state_label_write
+      and reason == "marker-guard-missing"
+      and same_entity(kind, number, guard_kind, guard_number) then
+      return true
+    end
     log_skip(payload, repo, add_labels, remove_labels, reason or "marker-guard-failed")
     return false
   end

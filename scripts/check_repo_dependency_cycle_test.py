@@ -107,7 +107,6 @@ class DependencyCycleGuardTest(unittest.TestCase):
                 "devloop.claims <-> devloop.forks <-> devloop.parsers.issue",
                 "devloop.claims <-> devloop.requests.labels <-> devloop.state",
                 "devloop.payloads.predicates <-> devloop.state",
-                "devloop.requests.labels <-> devloop.state",
             },
         )
 

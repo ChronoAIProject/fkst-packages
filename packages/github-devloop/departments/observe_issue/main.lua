@@ -701,7 +701,7 @@ local function process_issue_event(event)
         tostring(issue_state.version),
         tostring(link.pr_number),
       }), issue.source_ref)
-      local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "awaiting-pr", base_ids.dedup_key({
+      local label_request = requests_labels.build_state_label_request(issue.repo, issue.number, "awaiting-pr", proposal_id, issue_state.version, base_ids.dedup_key({
         "canonicalize",
         "pr-open",
         "label",
@@ -754,10 +754,11 @@ local function process_issue_event(event)
       local label_state = issue_label_projection_state(issue_state, link, snapshot)
       local add_labels, remove_labels = devloop_state.state_label_reconcile_changes(current.labels, label_state.state)
       if #add_labels > 0 or #remove_labels > 0 then
-        local label_request = requests_labels.build_label_request(issue.repo,
+        local label_request = requests_labels.build_state_label_request(issue.repo,
           issue.number,
-          add_labels,
-          remove_labels,
+          label_state.state,
+          proposal_id,
+          label_state.version,
           base_ids.dedup_key({
             "reconcile",
             "label",
@@ -765,7 +766,8 @@ local function process_issue_event(event)
             label_state.state,
             tostring(label_state.version or "unversioned"),
           }),
-          issue.source_ref
+          issue.source_ref,
+          current.labels
         )
         devloop_logging.log_apply("observe_issue", proposal_id, label_state.state, label_state.version, { add = add_labels, remove = remove_labels }, {
           "github-proxy.github_issue_label_request",

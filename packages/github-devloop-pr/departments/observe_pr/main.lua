@@ -360,8 +360,12 @@ local function maybe_redrive_not_mergeable_pr(origin, pr_number, current_pr, sta
   local label_request = origin.issue_number ~= nil and requests_labels.build_state_label_request(origin.repo,
     origin.issue_number,
     "fixing",
+    origin.proposal_id,
+    fix_version,
     tostring(state.version) .. "/observe-pr-conflict/label/fixing",
-    entity_lib.issue_source_ref(origin.repo, origin.issue_number)
+    entity_lib.issue_source_ref(origin.repo, origin.issue_number),
+    nil,
+    { kind = "pr", number = pr_number }
   ) or nil
   devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, recovery.to_state, "applied(not-mergeable)", reason)
   local raised = {

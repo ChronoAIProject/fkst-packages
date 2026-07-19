@@ -1,6 +1,7 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
 local m_claims = require("devloop.claims")
+local state_labels = require("devloop.state_labels")
 local C = {}
 
 local function label_colors_for(add_labels)
@@ -31,10 +32,64 @@ function C.build_label_request(repo, issue_number, add_labels, remove_labels, de
   }, source_ref)
 end
 
-function C.build_state_label_request(repo, issue_number, to_state, dedup_key_value, source_ref)
-  local devloop_state = require("devloop.state")
-  local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
-  return C.build_label_request(repo, issue_number, add_labels, remove_labels, dedup_key_value, source_ref)
+local function state_marker_guard(proposal_id, state, version, marker_target)
+  local guard = {
+    namespace = "github-devloop",
+    marker = "state",
+    version = "v1",
+    match = {
+      proposal = tostring(proposal_id),
+    },
+    expected = {
+      state = tostring(state),
+      version = tostring(version),
+    },
+    order_by = {
+      "marker_order_key",
+      "version_order_key",
+      "stage_rank",
+    },
+  }
+  if marker_target ~= nil then
+    guard.marker_target = {
+      kind = tostring(marker_target.kind),
+      number = marker_target.number,
+    }
+  end
+  return guard
+end
+
+function C.build_state_label_request(repo, issue_number, to_state, proposal_id, state_marker_version, dedup_key_value, source_ref, current_labels, marker_target)
+  if proposal_id == nil or state_marker_version == nil then
+    error("github-devloop: state label request requires proposal_id and state marker version")
+  end
+  local add_labels, remove_labels
+  if current_labels ~= nil then
+    add_labels, remove_labels = state_labels.state_label_reconcile_changes(current_labels, to_state)
+  else
+    add_labels, remove_labels = state_labels.state_label_changes(to_state)
+  end
+  local guard_target = marker_target or {
+    kind = "issue",
+    number = issue_number,
+  }
+  return m_claims.attach_issue_claim({
+    schema = "github-proxy.label.v1",
+    repo = repo,
+    target_kind = "issue",
+    target_number = issue_number,
+    issue_number = issue_number,
+    require_marker_guard = true,
+    expected_proposal_id = proposal_id,
+    expected_state = to_state,
+    expected_version = state_marker_version,
+    marker_guard = state_marker_guard(proposal_id, to_state, state_marker_version, guard_target),
+    add_labels = add_labels,
+    remove_labels = remove_labels,
+    label_colors = label_colors_for(add_labels),
+    dedup_key = dedup_key_value,
+    source_ref = base_ids.normalize_source_ref(source_ref),
+  }, source_ref)
 end
 
 function C.build_thinking_label_request(issue, proposal)
@@ -42,6 +97,8 @@ function C.build_thinking_label_request(issue, proposal)
     issue.repo,
     issue.number,
     "thinking",
+    proposal.proposal_id,
+    tostring(proposal.effect_version or proposal.dedup_key),
     tostring(proposal.effect_version or proposal.dedup_key) .. "/label/thinking",
     issue.source_ref
   )
@@ -52,6 +109,8 @@ function C.build_result_label_request(repo, issue_number, reached)
     repo,
     issue_number,
     "ready",
+    reached.proposal_id,
+    tostring(reached.effect_version or reached.dedup_key),
     C.result_label_dedup_key(reached),
     reached.source_ref
   )
@@ -70,6 +129,8 @@ function C.build_result_state_label_request(repo, issue_number, reached, to_stat
     repo,
     issue_number,
     to_state,
+    reached.proposal_id,
+    tostring(reached.effect_version or reached.dedup_key),
     C.result_label_dedup_key(reached),
     reached.source_ref
   )
@@ -117,6 +178,8 @@ function C.build_implementing_label_request(repo, issue_number, ready)
     repo,
     issue_number,
     "implementing",
+    ready.proposal_id,
+    ready.dedup_key,
     base_ids.dedup_key({
       "implement",
       "label",
@@ -132,6 +195,8 @@ function C.build_impl_failed_label_request(repo, issue_number, ready, reason)
     repo,
     issue_number,
     "impl-failed",
+    ready.proposal_id,
+    ready.dedup_key,
     base_ids.dedup_key({
       "implement",
       "label",
@@ -148,6 +213,8 @@ function C.build_reviewing_label_request(repo, issue_number, origin, pr_number, 
     repo,
     issue_number,
     "reviewing",
+    origin.proposal_id,
+    origin.impl_version,
     base_ids.dedup_key({
       "observe-pr",
       "label",
@@ -164,6 +231,8 @@ function C.build_pr_base_unmanaged_label_request(repo, issue_number, origin, pr_
     repo,
     issue_number,
     "blocked",
+    origin.proposal_id,
+    tostring(origin.impl_version or "") .. "/blocked/pr-base-unmanaged",
     base_ids.dedup_key({
       "observe-pr",
       "label",
@@ -178,7 +247,7 @@ function C.build_pr_base_unmanaged_label_request(repo, issue_number, origin, pr_
   )
 end
 
-function C.build_review_result_label_request(repo, issue_number, issue_proposal_id, reached, source_ref)
+function C.build_review_result_label_request(repo, issue_number, issue_proposal_id, issue_version, reached, source_ref, marker_target)
   local to_state = reached.reflection_checkpoint and "review-meta"
     or reached.decision == "approve" and "merge-ready"
     or "fixing"
@@ -186,13 +255,17 @@ function C.build_review_result_label_request(repo, issue_number, issue_proposal_
     repo,
     issue_number,
     to_state,
+    issue_proposal_id,
+    issue_version,
     base_ids.dedup_key({
       "review-result",
       "label",
       tostring(issue_proposal_id),
       tostring(reached.proposal_id),
     }),
-    source_ref
+    source_ref,
+    nil,
+    marker_target
   )
 end
 
@@ -201,6 +274,8 @@ function C.build_fix_reviewing_label_request(repo, issue_number, fix, new_head_s
     repo,
     issue_number,
     "reviewing",
+    fix.proposal_id,
+    new_version or fix.version,
     base_ids.dedup_key({
       "fix",
       "label",
@@ -208,7 +283,9 @@ function C.build_fix_reviewing_label_request(repo, issue_number, fix, new_head_s
       tostring(fix.review_dedup_key),
       tostring(new_head_sha),
     }),
-    fix.source_ref
+    fix.source_ref,
+    nil,
+    { kind = "pr", number = fix.pr_number }
   )
 end
 
@@ -217,6 +294,8 @@ function C.build_merge_head_reviewing_label_request(repo, issue_number, merge_re
     repo,
     issue_number,
     "reviewing",
+    merge_ready.proposal_id,
+    new_version,
     base_ids.dedup_key({
       "merge",
       "label",
@@ -225,7 +304,9 @@ function C.build_merge_head_reviewing_label_request(repo, issue_number, merge_re
       tostring(new_version),
       tostring(new_head_sha),
     }),
-    source_ref
+    source_ref,
+    nil,
+    { kind = "pr", number = merge_ready.pr_number }
   )
 end
 

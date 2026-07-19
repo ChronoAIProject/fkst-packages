@@ -202,8 +202,12 @@ function C.raise_speculative(M, repo, issue_number, fix, current_state, current_
     local label_request = issue_number ~= nil and requests_labels.build_state_label_request(repo,
       issue_number,
       "fixing",
+      fix.proposal_id,
+      next_version,
       fix.dedup_key .. "/label/refix/" .. tostring(devloop_state.version_fix_round(next_version)),
-      entity_lib.issue_source_ref(repo, issue_number)
+      entity_lib.issue_source_ref(repo, issue_number),
+      nil,
+      { kind = "pr", number = fix.pr_number }
     ) or nil
     local add_labels, remove_labels = devloop_state.state_label_changes("fixing")
     devloop_logging.log_cas_decision("fix", fix.proposal_id, current_state, "fixing", "fixing", "applied", reason)
@@ -375,14 +379,14 @@ raise_admitted_round = function(M, dept, issue, state, proposal_id, link, feedba
   if issue.number ~= nil then
     table.insert(effects, {
       queue = "github-proxy.github_issue_label_request",
-      payload = requests_labels.build_state_label_request(issue.repo, issue.number, "fixing", base_ids.dedup_key({
+      payload = requests_labels.build_state_label_request(issue.repo, issue.number, "fixing", proposal_id, decision.version, base_ids.dedup_key({
         "ci-repair",
         "label",
         "fixing",
         tostring(proposal_id),
         tostring(link.pr_number),
         tostring(decision.version),
-      }), entity_lib.issue_source_ref(issue.repo, issue.number)),
+      }), entity_lib.issue_source_ref(issue.repo, issue.number), nil, { kind = "pr", number = link.pr_number }),
     })
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(ci-repair-next-round)", decision.reason)
