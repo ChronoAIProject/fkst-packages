@@ -16,12 +16,14 @@ local devloop_claims = require("devloop.claims")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local dispatch_live_run = require("devloop.dispatch_live_run")
+local restart_authority = require("core.restart_authority")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local observe_issue_department = require("departments.observe_issue.main")
 
+local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_observe_issue_entry_v1"
 local VARIANT = "unmanaged_to_thinking"
 local V_OLDER = "github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
@@ -101,6 +103,21 @@ local function evidence_from_probe(probe)
     incoming_version = probe.incoming_version,
     target_version = probe.target_version,
   }
+end
+
+local function observe_shadow(run)
+  local evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, candidate, candidate_projection)
+    evidence = candidate
+    return original_resolve(policy_id, candidate, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, evidence
 end
 
 local function emitted_state(result)
@@ -261,7 +278,58 @@ local function assert_catalog_matches_observed_decision(fixture)
   local actual = catalog.resolve(POLICY_ID, evidence_from_probe(probe), projection)
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
-  return "cas"
+  return {
+    probe = probe,
+    decision = decision,
+    observed = observed,
+  }
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
+  t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
+end
+
+local function assert_observe_issue_entry_shadow_case(fixture)
+  local production = assert_catalog_matches_observed_decision(fixture)
+  t.eq(type(production), "table", fixture.name .. ": production reaches CAS")
+
+  local edge_id = OWNER .. "/thinking/entry/unmanaged_issue"
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local intent = {
+    semantic_variant = "unmanaged_issue",
+    source_boundary = "github-proxy.github_entity_changed",
+    target = "thinking",
+    incoming_version = fixture.incoming_version,
+  }
+
+  local shadow, evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, intent)
+  end)
+  local observed = {
+    status = production.observed.status,
+    reason_code = production.observed.reason_code,
+    cas_outcome = production.decision.outcome,
+  }
+
+  assert_bidirectional(shadow, observed, "status", fixture.name)
+  assert_bidirectional(shadow, observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, observed, "cas_outcome", fixture.name)
+  t.eq(shadow.edge_id, edge_id, fixture.name .. ": selected edge")
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(evidence.current.version, fixture.current_version, fixture.name .. ": evidence raw current version")
+  t.eq(evidence.variant, VARIANT, fixture.name .. ": evidence variant")
+  t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
+  t.eq(evidence.overlay_version, nil, fixture.name .. ": evidence overlay version")
 end
 
 local function assert_malformed_fails_closed_before_cas()
@@ -281,7 +349,7 @@ end
 
 return {
   test_observe_issue_entry_unmanaged_source_is_admitted_and_emits = function()
-    assert_catalog_matches_observed_decision({
+    assert_observe_issue_entry_shadow_case({
       name = "observe-issue-entry-source-apply",
       current_state = nil,
       current_version = nil,

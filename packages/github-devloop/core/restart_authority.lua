@@ -141,7 +141,9 @@ function M.decide_transition(sealed_snapshot, intent)
         or edge.cas_variant == "awaiting_pr_to_merged"
         or edge.cas_variant == "awaiting_pr_to_blocked"))
     and not (edge.cas_policy_id == "cas.legacy_issue_reconcile_v1"
-      and edge.cas_variant == "thinking_to_blocked") then
+      and edge.cas_variant == "thinking_to_blocked")
+    and not (edge.cas_policy_id == "cas.legacy_observe_issue_entry_v1"
+      and edge.cas_variant == "unmanaged_to_thinking") then
     return illegal("unsupported-shadow-edge")
   end
   local concrete_source_mode = edge.source.state ~= nil
