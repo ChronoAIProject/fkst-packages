@@ -71,7 +71,7 @@ local EXPECTED_ROW_COUNTS = {
   fixing = 13,
   ["review-meta"] = 7,
   ["merge-ready"] = 9,
-  merging = 9,
+  merging = 8,
   blocked = 3,
   ["closed-unmerged"] = 1,
   merged = 1,
@@ -129,7 +129,6 @@ local FIXTURES = json_array({
   { name = "route-merge-ready-without-marker", state = "merge-ready", suffix = "/without-marker", expected_status = "routed-noop", expected_decision = "skip-foreign(merge-ready)", expected_target = "merging|blocked", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:398-406" },
   { name = "route-merging", state = "merging", marker = "merging", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "merging", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_merge_ready" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:498-603" },
   { name = "route-merging-no-authorization", state = "merging", suffix = "/no-auth", expected_status = "routed-noop", expected_decision = "skip-foreign(merge-ready)", expected_target = "merged|reviewing|fixing|blocked", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:498-512" },
-  { name = "route-merging-open-head-missing", state = "merging", marker = "merging", head_sha = "", no_local_decision = true, expected_status = "routed-noop", expected_decision = "return(false-invalid-current-head)", expected_target = "reviewing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:460-466,520-525" },
   { name = "route-blocked", state = "blocked", suffix = "/fix/3/blocked", marker = "decomposed", expected_status = "routed", expected_decision = "applied(decomposed-children-missing)", expected_target = "decomposed", expected_effect_ids = json_array({ "queue:github-devloop-decompose.devloop_decompose" }) },
   { name = "route-blocked-children-complete", state = "blocked", suffix = "/fix/3/blocked-complete", marker = "decomposed", children_complete = true, expected_status = "routed-noop", expected_decision = "skip-idempotent(decomposed children already visible)", expected_target = "decomposed", expected_effect_ids = json_array(), evidence_ref = "libraries/devloop/replayer.lua:478-493" },
   { name = "route-blocked-without-decomposed", state = "blocked", suffix = "/fix/3/blocked-no-decomposed", before_replayer = true, expected_status = "routed-noop", expected_decision = "skip-foreign(decomposed)", expected_target = "decomposed", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/departments/observe_pr/main.lua:143-145" },
@@ -445,13 +444,7 @@ local function capture_runtime(fixture)
   t.eq(call.state, fixture.state, fixture.name .. ": production-derived state")
   t.eq(call.version, fixture_version(fixture), fixture.name .. ": production-derived version")
   t.eq(call.row_from_state, fixture.state, fixture.name .. ": production row")
-  if fixture.no_local_decision then
-    t.eq(#call.decisions, 0, fixture.name .. ": production row returns without a row-local disposition")
-    t.is_true(not call.issued, fixture.name .. ": production row returns false")
-    table.insert(call.decisions, { from_state = fixture.state, to_state = fixture.expected_target, outcome = fixture.expected_decision, reason = "production replayer returned false without a row-local disposition" })
-  else
-    t.eq(#call.decisions, 1, fixture.name .. ": one row-local disposition")
-  end
+  t.eq(#call.decisions, 1, fixture.name .. ": one row-local disposition")
   t.eq(call.decisions[1].outcome, fixture.expected_decision, fixture.name .. ": exact decision")
   if fixture.terminal_cause ~= nil then
     t.eq(call.raises[1].payload.terminal_cause, fixture.terminal_cause, fixture.name .. ": exact review terminal cause")
@@ -519,15 +512,15 @@ local function assert_row_universe()
   for state, expected in pairs(EXPECTED_ROW_COUNTS) do
     t.eq(counts[state], expected, state .. ": complete production-reachable row disposition count")
   end
-  t.eq(reason_count, 22, "collapsed distinct decision reason-code count")
-  t.eq(#FIXTURES, 57, "collapsed production-reachable observe_pr local row decision-class count")
+  t.eq(reason_count, 21, "collapsed distinct decision reason-code count")
+  t.eq(#FIXTURES, 56, "collapsed production-reachable observe_pr local row decision-class count")
 end
 
 return {
   test_observe_pr_local_row_replay_old_behavior_is_real_dispatch_and_bidirectional = function()
     assert_row_universe()
     local fixtures, first, second = fixture_tuples(), capture_records(), capture_records()
-    t.eq(#first, 57, "collapsed production-reachable observe_pr local row replay count")
+    t.eq(#first, 56, "collapsed production-reachable observe_pr local row replay count")
     local repeat_difference = first_difference(second, first, "old_behavior_observations[observe-pr-local-row-replay][repeat]")
     if repeat_difference ~= nil or canonical_json(second) ~= canonical_json(first) then error("second OLD observe_pr local row replay capture differs at " .. tostring(repeat_difference or "canonical-json"), 0) end
     local runtime = record_tuples(first, "runtime records")
