@@ -16,6 +16,7 @@ local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
+local restart_authority = require("core.restart_authority")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
@@ -23,6 +24,7 @@ local merge_department = require("departments.merge.main")
 
 local POLICY_ID = "cas.legacy_merge_v1"
 local VARIANT = "merge_ready_or_merging_to_merging"
+local OWNER = core.restart_package_name
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
@@ -99,29 +101,33 @@ end
 local function observed_admission(probe, decision, boundary_reached)
   local legacy_outcome = tostring(decision and decision.outcome or "")
   if not boundary_reached and legacy_outcome:find("from-state-mismatch", 1, true) ~= nil then
-    return { status = "stale", reason_code = "from-state-mismatch" }
+    return { status = "stale", reason_code = "from-state-mismatch", cas_outcome = legacy_outcome }
   end
   if not boundary_reached and legacy_outcome:find("version-mismatch", 1, true) ~= nil then
-    return { status = "stale", reason_code = "version-mismatch" }
+    return { status = "stale", reason_code = "version-mismatch", cas_outcome = legacy_outcome }
   end
   if probe.outcome == "pending" then
-    return { status = "pending", reason_code = "source-marker-not-visible" }
+    return { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = legacy_outcome }
   end
   if probe.outcome == "stale" then
     if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
-      return { status = "stale", reason_code = "incoming-version-older" }
+      return { status = "stale", reason_code = "incoming-version-older", cas_outcome = legacy_outcome }
     end
-    return { status = "stale", reason_code = "advanced-or-diverged" }
+    return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = legacy_outcome }
   end
 
   if probe.outcome == "idempotent" then
-    return { status = "idempotent", reason_code = "already-at-target" }
+    return {
+      status = "idempotent",
+      reason_code = "already-at-target",
+      cas_outcome = "skip-idempotent(already at to_state)",
+    }
   end
   if probe.outcome ~= "apply" then
     error("merge admission probe returned an unknown outcome: " .. tostring(probe.outcome))
   end
   if boundary_reached then
-    return { status = "apply", reason_code = "apply" }
+    return { status = "apply", reason_code = "apply", cas_outcome = "applied" }
   end
   error("merge admission apply did not reach a classified guard")
 end
@@ -215,6 +221,7 @@ local function assert_catalog_matches_observed_decision(fixture)
   local actual = catalog.resolve(POLICY_ID, evidence, projection)
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
+  t.eq(actual.cas_outcome, observed.cas_outcome, fixture.name .. ": admission CAS outcome parity")
   if fixture.probe_outcome ~= nil then
     t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
   end
@@ -234,6 +241,46 @@ local function assert_catalog_matches_observed_decision(fixture)
   if fixture.legacy_log_outcome ~= nil then
     t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
   end
+  return {
+    evidence = evidence,
+    observed = observed,
+  }
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-old " .. field)
+  t.eq(expected[field], actual[field], context .. ": old-to-shadow " .. field)
+end
+
+local function assert_shadow_parity(fixture)
+  local production = assert_catalog_matches_observed_decision(fixture)
+  local sealed = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local shadow = restart_authority.decide_transition(sealed, {
+    semantic_variant = "handoff_to_merge_gate",
+    target = "merging",
+    incoming_version = fixture.incoming_version,
+    target_version = production.evidence.target_version,
+    overlay_version = production.evidence.overlay_version,
+  })
+
+  assert_bidirectional(shadow, production.observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, production.observed, "status", fixture.name)
+  assert_bidirectional(shadow, production.observed, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate",
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.evidence.facts.source, "merge-ready", fixture.name .. ": selected edge source")
+  t.eq(shadow.evidence.facts.target, "merging", fixture.name .. ": selected edge target")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
 end
 
 local function assert_pre_cas_rejection(name, payload, expected_reason_code)
@@ -290,7 +337,7 @@ end
 
 return {
   test_merge_source_equal_is_admitted_before_merge_ready_fact_guard = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-source-equal",
       current_state = "merge-ready",
       current_version = V_EQUAL,
@@ -306,7 +353,7 @@ return {
   end,
 
   test_merge_target_equal_is_idempotent_before_merge_ready_fact_guard = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-target-equal",
       current_state = "merging",
       current_version = V_EQUAL,
@@ -321,7 +368,7 @@ return {
   end,
 
   test_merge_source_older_is_stale = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-source-older",
       current_state = "merge-ready",
       current_version = V_EQUAL,
@@ -333,7 +380,7 @@ return {
   end,
 
   test_merge_source_newer_is_pending = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-source-newer",
       current_state = "merge-ready",
       current_version = V_EQUAL,
@@ -346,7 +393,7 @@ return {
   end,
 
   test_merge_target_older_is_stale = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-target-older",
       current_state = "merging",
       current_version = V_EQUAL,
@@ -358,7 +405,7 @@ return {
   end,
 
   test_merge_target_newer_is_pending = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-target-newer",
       current_state = "merging",
       current_version = V_EQUAL,
@@ -371,7 +418,7 @@ return {
   end,
 
   test_merge_missing_current_marker_is_stale_from_state_mismatch = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-current-missing",
       current_state = nil,
       current_version = nil,
@@ -413,7 +460,7 @@ return {
   end,
 
   test_merge_unrelated_state_is_stale = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-unrelated-stale",
       current_state = "blocked",
       current_version = V_EQUAL,
@@ -422,7 +469,7 @@ return {
   end,
 
   test_merge_merged_without_terminal_fact_is_admissible_then_stale = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-merged-without-terminal-fact",
       current_state = "merged",
       current_version = V_EQUAL,
@@ -460,7 +507,7 @@ return {
   end,
 
   test_merge_non_admissible_predecessor_raw_apply_is_stale_from_state_mismatch = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-predecessor-equal",
       current_state = "reviewing",
       current_version = V_EQUAL,
@@ -477,7 +524,7 @@ return {
       V_ORDERING_EQUAL_CURRENT ~= V_ORDERING_EQUAL_INCOMING,
       "merge-ordering-equal-raw-different: fixture versions must be byte-different"
     )
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-ordering-equal-raw-different",
       current_state = "merge-ready",
       current_version = V_ORDERING_EQUAL_CURRENT,
@@ -490,7 +537,7 @@ return {
   end,
 
   test_merge_idempotent_ordering_equal_raw_different_is_stale_version_mismatch = function()
-    assert_catalog_matches_observed_decision({
+    assert_shadow_parity({
       name = "merge-idempotent-ordering-equal-raw-different",
       current_state = "merging",
       current_version = V_ORDERING_EQUAL_CURRENT,
