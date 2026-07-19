@@ -16,6 +16,7 @@ local devloop_state = require("devloop.state")
 local fix_rounds = require("core.fix_rounds")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
+local restart_authority = require("core.restart_authority")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
@@ -23,6 +24,7 @@ local projection = owner_pending_projection.derive(core.restart_package_name, co
 local POLICY_ID = "cas.legacy_pr_fix_reconcile_v1"
 local REVIEW_REJECT_VARIANT = "review_reject_to_blocked"
 local BOUNDED_FIX_VARIANT = "bounded_fix_to_blocked"
+local OWNER = core.restart_package_name
 
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z/fix/1/fix/2/fix/3"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
@@ -188,29 +190,30 @@ local function state_is_in(state_name, states)
   return false
 end
 
-local function observed_admission(probe, boundary_reached)
+local function observed_admission(probe, decision, boundary_reached)
+  local cas_outcome = decision.outcome
   if boundary_reached then
-    return { status = "apply", reason_code = "apply" }
+    return { status = "apply", reason_code = "apply", cas_outcome = cas_outcome }
   end
   if probe.outcome == "pending" then
-    return { status = "pending", reason_code = "source-marker-not-visible" }
+    return { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = cas_outcome }
   end
   if probe.outcome == "idempotent" then
-    return { status = "idempotent", reason_code = "already-at-target" }
+    return { status = "idempotent", reason_code = "already-at-target", cas_outcome = cas_outcome }
   end
   if probe.outcome == "stale" then
     if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
-      return { status = "stale", reason_code = "incoming-version-older" }
+      return { status = "stale", reason_code = "incoming-version-older", cas_outcome = cas_outcome }
     end
-    return { status = "stale", reason_code = "advanced-or-diverged" }
+    return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = cas_outcome }
   end
   if probe.outcome ~= "apply" then
     error("PR fix reconcile admission probe returned an unknown outcome: " .. tostring(probe.outcome))
   end
   if not state_is_in(probe.current.state, probe.from_states) then
-    return { status = "stale", reason_code = "from-state-mismatch" }
+    return { status = "stale", reason_code = "from-state-mismatch", cas_outcome = cas_outcome }
   end
-  return { status = "stale", reason_code = "version-mismatch" }
+  return { status = "stale", reason_code = "version-mismatch", cas_outcome = cas_outcome }
 end
 
 local function post_admission_disposition(result, boundary_reached)
@@ -307,7 +310,7 @@ local function assert_catalog_matches_observed_admission(fixture)
   local probe = probes[1]
   if probe ~= nil then
     assert_probe_shape(fixture.name, probe, variant, fixture)
-    local observed = observed_admission(probe, boundary_reached)
+    local observed = observed_admission(probe, decision, boundary_reached)
     local evidence = evidence_from_probe(probe, variant)
     t.eq(evidence.current, probe.current, fixture.name .. ": catalog current comes from probe")
     t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": catalog incoming version comes from probe")
@@ -341,6 +344,49 @@ local function assert_catalog_matches_observed_admission(fixture)
   if fixture.legacy_log_outcome ~= nil then
     t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
   end
+  return probe and {
+    evidence = evidence_from_probe(probe, variant),
+    observed = observed_admission(probe, decision, boundary_reached),
+  } or nil
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-old " .. field)
+  t.eq(expected[field], actual[field], context .. ": old-to-shadow " .. field)
+end
+
+local function assert_shadow_parity(fixture)
+  local production = assert_catalog_matches_observed_admission(fixture)
+  t.is_true(production ~= nil, fixture.name .. ": OLD reached the CAS probe")
+  local variant = fixture.variant or REVIEW_REJECT_VARIANT
+  local sealed = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local shadow = restart_authority.decide_transition(sealed, {
+    semantic_variant = variant,
+    source_boundary = "devloop_fix_reconcile",
+    target = "blocked",
+    incoming_version = production.evidence.incoming_version,
+    target_version = production.evidence.target_version,
+    overlay_version = production.evidence.overlay_version,
+  })
+
+  assert_bidirectional(shadow, production.observed, "status", fixture.name)
+  assert_bidirectional(shadow, production.observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, production.observed, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    "github-devloop-pr/" .. fixture.current_state .. "/entry/" .. variant,
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.evidence.facts.source, fixture.current_state, fixture.name .. ": selected edge source")
+  t.eq(shadow.evidence.facts.target, "blocked", fixture.name .. ": selected edge target")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
 end
 
 local function assert_malformed_fails_closed(payload)
@@ -356,33 +402,37 @@ local function assert_malformed_fails_closed(payload)
 end
 
 return {
-  test_pr_fix_reconcile_review_reject_source_equal_applies_at_effect_boundary = function()
-    assert_catalog_matches_observed_admission({
-      name = "review-reject-source-equal",
-      current_state = "reviewing",
-      current_version = V_EQUAL,
-      incoming_version = V_EQUAL,
-      boundary_reached = true,
-      admission_status = "apply",
-      effect_count = 2,
-      post_admission_disposition = "effect-emitted(blocked)",
-      legacy_log_outcome = "applied",
-    })
+  test_pr_fix_reconcile_review_reject_shadow_matches_old_across_source_states = function()
+    for _, current_state in ipairs(variant_source_states[REVIEW_REJECT_VARIANT]) do
+      assert_shadow_parity({
+        name = "review-reject-" .. current_state .. "-source-equal",
+        current_state = current_state,
+        current_version = V_EQUAL,
+        incoming_version = V_EQUAL,
+        boundary_reached = true,
+        admission_status = "apply",
+        effect_count = 2,
+        post_admission_disposition = "effect-emitted(blocked)",
+        legacy_log_outcome = "applied",
+      })
+    end
   end,
 
-  test_pr_fix_reconcile_bounded_fix_source_equal_applies_at_effect_boundary = function()
-    assert_catalog_matches_observed_admission({
-      name = "bounded-fix-source-equal",
-      variant = BOUNDED_FIX_VARIANT,
-      current_state = "fixing",
-      current_version = V_EQUAL,
-      incoming_version = V_EQUAL,
-      boundary_reached = true,
-      admission_status = "apply",
-      effect_count = 2,
-      post_admission_disposition = "effect-emitted(blocked)",
-      legacy_log_outcome = "applied",
-    })
+  test_pr_fix_reconcile_bounded_fix_shadow_matches_old_across_source_states = function()
+    for _, current_state in ipairs(variant_source_states[BOUNDED_FIX_VARIANT]) do
+      assert_shadow_parity({
+        name = "bounded-fix-" .. current_state .. "-source-equal",
+        variant = BOUNDED_FIX_VARIANT,
+        current_state = current_state,
+        current_version = V_EQUAL,
+        incoming_version = V_EQUAL,
+        boundary_reached = true,
+        admission_status = "apply",
+        effect_count = 2,
+        post_admission_disposition = "effect-emitted(blocked)",
+        legacy_log_outcome = "applied",
+      })
+    end
   end,
 
   test_pr_fix_reconcile_source_older_is_stale = function()
@@ -435,7 +485,7 @@ return {
         ~= transition_version.safe_version_segment(V_ORDERING_EQUAL_INCOMING),
       "ordering-equal-safe-different: safe segments must differ"
     )
-    assert_catalog_matches_observed_admission({
+    assert_shadow_parity({
       name = "review-reject-ordering-equal-safe-different",
       current_state = "reviewing",
       current_version = V_ORDERING_EQUAL_CURRENT,
@@ -457,7 +507,7 @@ return {
       transition_version.safe_version_segment(V_SAFE_EQUIVALENT_INCOMING),
       "raw-different-safe-equal: fixture safe segments"
     )
-    assert_catalog_matches_observed_admission({
+    assert_shadow_parity({
       name = "review-reject-raw-different-safe-equal",
       current_state = "reviewing",
       current_version = V_SAFE_EQUIVALENT_CURRENT,
