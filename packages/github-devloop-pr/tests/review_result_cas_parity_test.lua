@@ -426,6 +426,46 @@ local function assert_fixing_shadow_case(fixture)
   t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
 end
 
+local function assert_review_meta_shadow_case(fixture)
+  local production = assert_catalog_matches_observed_decision(fixture)
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local intent = {
+    semantic_variant = "needs_review_meta",
+    target = "review-meta",
+    incoming_version = fixture.incoming_version,
+    overlay_version = fixture.incoming_version,
+  }
+  t.eq(intent.source_boundary, nil, fixture.name .. ": nil boundary is omitted from shadow intent")
+
+  local shadow, evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, intent)
+  end)
+  local observed = {
+    status = production.observed.status,
+    reason_code = production.observed.reason_code,
+    cas_outcome = production.decision.outcome,
+  }
+
+  assert_bidirectional(shadow, observed, "status", fixture.name)
+  assert_bidirectional(shadow, observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, observed, "cas_outcome", fixture.name)
+  t.eq(shadow.edge_id, "github-devloop-pr/reviewing/autonomous/needs_review_meta", fixture.name .. ": selected edge")
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(evidence.current.version, fixture.current_version or "", fixture.name .. ": evidence raw current version")
+  t.eq(evidence.variant, "reviewing_to_review_meta", fixture.name .. ": evidence variant")
+  t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
+  t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
+end
+
 local function assert_rejected_before_cas(name, payload)
   local result, probes, _, comment_builders = observe_department(function()
     return run_real_department(payload)
@@ -486,6 +526,91 @@ return {
     }
     for _, fixture in ipairs(fixtures) do
       assert_fixing_shadow_case(fixture)
+    end
+  end,
+
+  test_shadow_review_result_needs_review_meta_matches_reachable_cas_outcomes = function()
+    local reflection_version = core.next_fix_version(core.next_fix_version(V_EQUAL))
+    local safe_mismatch_current = core.next_fix_version(core.next_fix_version(V_ORDERING_EQUAL_CURRENT))
+    local safe_mismatch_incoming = core.next_fix_version(core.next_fix_version(V_ORDERING_EQUAL_INCOMING))
+    t.is_true(
+      transition_version.safe_version_segment(safe_mismatch_current)
+        ~= transition_version.safe_version_segment(safe_mismatch_incoming),
+      "shadow-review-result-review-meta-safe-overlay-stale: safe versions must be byte-different"
+    )
+    t.eq(
+      transition_version.compare(
+        transition_version.safe_version_segment(safe_mismatch_current),
+        transition_version.safe_version_segment(safe_mismatch_incoming)
+      ),
+      0,
+      "shadow-review-result-review-meta-safe-overlay-stale: safe versions must be ordering-equal"
+    )
+    local fixtures = {
+      {
+        name = "shadow-review-result-review-meta-apply",
+        current_state = "reviewing",
+        current_version = reflection_version,
+        incoming_version = reflection_version,
+        target_state = "review-meta",
+        comment_builder_reached = true,
+        effect_state = "review-meta",
+        post_admission_disposition = "effect-emitted(review-meta)",
+        expected_queues = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+        legacy_log_outcome = "applied",
+      },
+      {
+        name = "shadow-review-result-review-meta-source-older",
+        current_state = "reviewing",
+        current_version = reflection_version,
+        incoming_version = V_OLDER,
+        target_state = "review-meta",
+        legacy_log_outcome = "skip-stale(incoming version < current marker version)",
+      },
+      {
+        name = "shadow-review-result-review-meta-source-newer",
+        current_state = "reviewing",
+        current_version = reflection_version,
+        incoming_version = V_NEWER,
+        target_state = "review-meta",
+        expected_exit_code = 1,
+        legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+      },
+      {
+        name = "shadow-review-result-review-meta-idempotent",
+        current_state = "review-meta",
+        current_version = reflection_version,
+        incoming_version = reflection_version,
+        target_state = "review-meta",
+        legacy_log_outcome = "skip-idempotent(already at to_state)",
+      },
+      {
+        name = "shadow-review-result-review-meta-missing-pending",
+        decision = "approve",
+        current_state = nil,
+        current_version = nil,
+        incoming_version = V_EQUAL,
+        target_state = "merge-ready",
+        expected_exit_code = 1,
+        legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+      },
+      {
+        name = "shadow-review-result-review-meta-safe-overlay-stale",
+        current_state = "reviewing",
+        current_version = safe_mismatch_current,
+        incoming_version = safe_mismatch_incoming,
+        target_state = "review-meta",
+        probe_outcome = "apply",
+        admission_status = "stale",
+        admission_reason_code = "version-mismatch",
+        legacy_log_outcome = "skip-stale(version-mismatch)",
+      },
+    }
+    for _, fixture in ipairs(fixtures) do
+      assert_review_meta_shadow_case(fixture)
     end
   end,
 

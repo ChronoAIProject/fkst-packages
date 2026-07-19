@@ -112,7 +112,8 @@ function M.decide_transition(sealed_snapshot, intent)
   end
   local supported_review_result = edge.cas_policy_id == "cas.legacy_review_result_v1"
     and (edge.cas_variant == "reviewing_to_merge_ready"
-      or edge.cas_variant == "reviewing_to_fixing")
+      or edge.cas_variant == "reviewing_to_fixing"
+      or edge.cas_variant == "reviewing_to_review_meta")
   local supported_fix = edge.cas_policy_id == "cas.legacy_fix_v1"
     and edge.cas_variant == "fixing_to_reviewing"
   local supported_observe_pr = edge.cas_policy_id == "cas.legacy_observe_pr_v1"
