@@ -57,6 +57,13 @@ local function merge_payload_for_fix()
   return payload
 end
 
+local DELEGATION_FIXTURES = ci_facts.delegation_fixtures({
+  array = ra.json_array,
+  version = VERSION,
+  fix_version = FIX_VERSION,
+  merge_payload_for_fix = merge_payload_for_fix,
+})
+
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-payload",
     cas = "skip-foreign(payload)", target = "reject", source_line = 724,
@@ -154,6 +161,8 @@ local FIXTURES = ra.json_array({
     current_state = "merge-ready", current_version = VERSION, merge_confirmation_mismatch = true,
     verified_return = "merge-confirmation-mismatch", expected_error = "merge-confirmation-mismatch",
     effects = ra.json_array({ "comment:pr:merging-state", "github.merge:verified-pr" }) },
+  DELEGATION_FIXTURES[4],
+  DELEGATION_FIXTURES[3],
 })local function event_for(fixture)
   return { queue = "github-devloop-pr.devloop_merge_ready", ts = "2026-06-03T02:03:04Z",
     payload = fixture.payload and ra.copy_value(fixture.payload) or merge_payload() }
@@ -497,6 +506,15 @@ local function capture(fixture)
       and (fixture.decision_reason == nil or decision.reason == fixture.decision_reason) then
       selected = decision
       break
+    end
+  end
+  if selected == nil then
+    for _, gate in ipairs(captured.gates) do
+      if gate.outcome == fixture.cas
+        and (fixture.decision_reason == nil or gate.reason == fixture.decision_reason) then
+        selected = gate
+        break
+      end
     end
   end
   t.is_true(selected ~= nil, fixture.disposition .. ": observable admission decision; decisions="
