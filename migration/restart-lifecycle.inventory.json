@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "ba01efb7e1c6e336fb58abf1a1359262691ccd88455b106ff48da3fb2c9c659e",
+  "artifact_sha256": "cf59e4c8bfa9772acf92fb771ef494d077f663e02913c180c7e53507e11d2f07",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -40763,6 +40763,110 @@
       "evidence_refs": [
         {
           "kind": "runtime-entry-acceptor",
+          "ref": "packages/github-devloop-pr/departments/fix/main.lua:608"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_fixing"
+        }
+      ],
+      "observation_id": "entry-fix-applied-base-skewed-ci-recovery",
+      "old_inputs": {
+        "caller_from_states": [
+          "fixing"
+        ],
+        "current_fact": {
+          "head_sha": "def456",
+          "pr_state": "OPEN",
+          "repair_input": "ci-failure",
+          "state": "fixing",
+          "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+        },
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "applied(base-skewed-ci-recovery)",
+        "emitted_effects": [
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "codex.dispatch:fix",
+            "ordinal": 1,
+            "sink_kind": "codex"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "comment:pr:ci-repair-attempt",
+            "ordinal": 2,
+            "sink_kind": "comment"
+          }
+        ],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [
+          {
+            "adapter_call": {
+              "kind": "codex",
+              "proposal_id": "github-devloop/issue/owner/repo/42",
+              "role": "fix",
+              "work_unit_key": "ci-failure/github-devloop/issue/owner/repo/42/7/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+            },
+            "effect_id": "codex.dispatch:fix"
+          },
+          {
+            "effect_id": "comment:pr:ci-repair-attempt",
+            "payload": {
+              "body": "github-devloop recorded a completed own-CI repair round.\n\nProposal: github-devloop/issue/owner/repo/42\nPR: 7\nVersion: ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1\nFix round: 1\nReviewed head: def456\nCI failure key: head:def456/checks:digest-0000000101\nOutcome: no-fix\n\nDetail:\nOLD entry fix result\n\n<!-- fkst:github-devloop:ci-repair-attempt:v1 proposal=\"github-devloop/issue/owner/repo/42\" pr=\"7\" version=\"ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1\" fix_round=\"1\" reviewed_head_sha=\"def456\" ci_failure_key=\"head:def456/checks:digest-0000000101\" outcome=\"no-fix\" -->\n⟦AI:FKST⟧",
+              "dedup_key": "fix/ci-repair-attempt/github-devloop/issue/owner/repo/42/7/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
+              "pr_number": 7,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#pr/7"
+              }
+            },
+            "queue": "github-proxy.github_pr_comment_request"
+          }
+        ],
+        "reason_code": "base-skewed-ci-recovery",
+        "status": "admitted",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_fixing",
+        "path": "packages/github-devloop-pr/departments/fix/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.fixing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
+          "effect_version": null,
+          "request_version": "fixing/ci-failure/github-devloop/issue/owner/repo/42/7/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+        },
+        "kind": "entry_acceptor",
+        "lineage": {
+          "issue_number": 42,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_fixing",
+        "source_state": "fixing",
+        "target": "fixing"
+      }
+    },
+    {
+      "boundary": "entry_acceptor",
+      "evidence_refs": [
+        {
+          "kind": "runtime-entry-acceptor",
           "ref": "packages/github-devloop-pr/departments/fix/main.lua:718"
         },
         {
@@ -41311,7 +41415,7 @@
       "evidence_refs": [
         {
           "kind": "runtime-entry-acceptor",
-          "ref": "packages/github-devloop-pr/departments/fix/main.lua:565"
+          "ref": "packages/github-devloop-pr/departments/fix/main.lua:605"
         },
         {
           "kind": "runtime-event-source",
@@ -43097,6 +43201,72 @@
         "handoff_direct_lookup_count": 0,
         "observable_writes": [],
         "reason_code": "superseded-merge-gate",
+        "status": "rejected",
+        "timeout_evidence_source": null
+      },
+      "owner": "github-devloop-pr",
+      "schema": "restart-old-behavior-observation.v2",
+      "site": {
+        "ordinal": "consumes:devloop_fixing",
+        "path": "packages/github-devloop-pr/departments/fix/main.lua",
+        "symbol": "pipeline"
+      },
+      "typed_intent": {
+        "cause_schema_id": "github-devloop.fixing.v1",
+        "generation_epoch": {
+          "current_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
+          "effect_version": null,
+          "request_version": "fixing/github-devloop/issue/owner/repo/42/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/7/consensus-github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review/noci"
+        },
+        "kind": "entry_acceptor",
+        "lineage": {
+          "issue_number": 42,
+          "pr_number": 7,
+          "proposal_id": "github-devloop/issue/owner/repo/42",
+          "source_ref": {
+            "kind": "external",
+            "ref": "owner/repo#pr/7"
+          }
+        },
+        "source_boundary": "github-devloop-pr.devloop_fixing",
+        "source_state": "fixing",
+        "target": "reject"
+      }
+    },
+    {
+      "boundary": "entry_acceptor",
+      "evidence_refs": [
+        {
+          "kind": "runtime-entry-acceptor",
+          "ref": "packages/github-devloop-pr/departments/fix/main.lua:601"
+        },
+        {
+          "kind": "runtime-event-source",
+          "ref": "github-devloop-pr.devloop_fixing"
+        }
+      ],
+      "observation_id": "entry-fix-skip-base-skewed-merge-gate",
+      "old_inputs": {
+        "caller_from_states": [
+          "fixing"
+        ],
+        "current_fact": {
+          "head_sha": "def456",
+          "pr_state": "OPEN",
+          "repair_input": null,
+          "state": "fixing",
+          "version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"
+        },
+        "handoff_reference": null,
+        "incoming_version": "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
+        "target_version": null
+      },
+      "old_outcome": {
+        "cas_outcome": "skip-stale(base-skewed-merge-gate-fact)",
+        "emitted_effects": [],
+        "handoff_direct_lookup_count": 0,
+        "observable_writes": [],
+        "reason_code": "base-skewed-merge-gate-fact",
         "status": "rejected",
         "timeout_evidence_source": null
       },

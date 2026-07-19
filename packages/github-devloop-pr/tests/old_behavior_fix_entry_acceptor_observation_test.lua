@@ -69,9 +69,16 @@ local FIXTURES = ra.json_array({
   { disposition = "skip-superseded-merge-gate", status = "rejected", reason = "superseded-merge-gate",
     cas = "skip-stale(superseded-merge-gate-fact)", target = "reject", source_line = 562,
     merge_gate = "superseded" },
+  { disposition = "skip-base-skewed-merge-gate", status = "rejected", reason = "base-skewed-merge-gate-fact",
+    cas = "skip-stale(base-skewed-merge-gate-fact)", target = "reject", source_line = 601,
+    merge_gate = "base-skewed" },
   { disposition = "fail-merge-gate-mismatch", status = "error", reason = "merge-gate-mismatch",
-    cas = "fail-closed(merge-gate-fact-mismatch)", target = "reject", source_line = 565,
+    cas = "fail-closed(merge-gate-fact-mismatch)", target = "reject", source_line = 605,
     merge_gate = "mismatch", error = "active-merge-gate-fact-mismatch" },
+  { disposition = "applied-base-skewed-ci-recovery", status = "admitted", reason = "base-skewed-ci-recovery",
+    cas = "applied(base-skewed-ci-recovery)", target = "fixing", source_line = 608,
+    merge_gate = "base-skewed-ci", repair_input = "ci-failure", codex = "no-fix", ci_red = true,
+    effects = ra.json_array({ CODEX, CI_ATTEMPT }) },
   { disposition = "retry-feedback-marker-pending", status = "error", reason = "feedback-marker-pending",
     cas = "retry-pending(fix feedback marker not visible)", target = "retry", source_line = 570,
     no_feedback = true, error = "fix-feedback-marker-missing" },
@@ -205,9 +212,27 @@ local function capture(fixture)
     table.insert(comments, reject_comment(fix))
   end
   if fixture.merge_gate then
-    comments[#comments] = m_builders.merge_gate_marker(PROPOSAL_ID, PR_NUMBER, fix.version,
-      fix.review_proposal_id, fix.review_dedup_key, HEAD_SHA,
-      fixture.merge_gate == "superseded" and "abcdef1" or "abcdef2", "mergeable-conflicting")
+    local canonical_review = fix.review_proposal_id
+    local canonical_dedup = fix.review_dedup_key
+    local canonical_head = HEAD_SHA
+    if fixture.merge_gate == "mismatch" then
+      canonical_review = devloop_base.pr_review_proposal_id(REPO, PR_NUMBER, fix.version, NEW_HEAD)
+      canonical_dedup = devloop_base.pr_review_consensus_dedup_key(canonical_review)
+      canonical_head = NEW_HEAD
+    end
+    if fixture.merge_gate == "superseded" then
+      comments[#comments] = m_builders.merge_gate_marker(PROPOSAL_ID, PR_NUMBER, fix.version,
+        fix.review_proposal_id, fix.review_dedup_key, HEAD_SHA, fix.gate_baseline_sha,
+        "mergeable-conflicting", fix.predecessor_set, fix.ci_failure_key)
+    end
+    local canonical_marker = m_builders.merge_gate_marker(PROPOSAL_ID, PR_NUMBER, fix.version,
+      canonical_review, canonical_dedup, canonical_head, "abcdef2", "mergeable-conflicting",
+      fix.predecessor_set, fix.ci_failure_key)
+    if fixture.merge_gate == "superseded" then
+      table.insert(comments, canonical_marker)
+    else
+      comments[#comments] = canonical_marker
+    end
   end
   if fixture.ci_attempt_visible then
     table.insert(comments, require("core.ci_repair_attempts").marker(fix, "no-fix"))
@@ -306,11 +331,6 @@ local function capture(fixture)
       return nil, "not-in-merge-queue"
     end, restorations)
   end
-  if fixture.merge_gate then
-    ra.replace(require("devloop.markers.facts"), "merge_gate_fix_fact", function()
-      return { review_reason = "mergeable-conflicting" }, false, fixture.merge_gate == "superseded"
-    end, restorations)
-  end
   ra.replace(workflow_codex, "dispatch", function()
     table.insert(captured.effect_sequence, { kind = "adapter", call = { kind = "codex", role = "fix",
       proposal_id = fix.proposal_id, work_unit_key = fix.work_unit_key } })
@@ -337,7 +357,10 @@ local function capture(fixture)
   end
   if fixture.dry_run then fixture.cas = "dry-run(write-disabled)" end
   if fixture.codex == "deferred" then fixture.cas = "admitted(dispatch-deferred)" end
-  if fixture.repair_input == "ci-failure" and fixture.codex == "no-fix" then fixture.cas = "admitted(ci-repair-attempt)" end
+  if fixture.repair_input == "ci-failure" and fixture.codex == "no-fix"
+      and fixture.merge_gate ~= "base-skewed-ci" then
+    fixture.cas = "admitted(ci-repair-attempt)"
+  end
   fixture.current_state = current_state
   fixture.current_version = current_state and current_version or nil
   fixture.current_fact = { state = ra.nullable(current_state), version = ra.nullable(fixture.current_version),
