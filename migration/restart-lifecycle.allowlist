@@ -1,4 +1,2 @@
 intent:github-devloop:observe-issue-decompose
 acceptor:github-devloop-pr:merge
-entry:github-devloop-pr:fix
-entry:github-devloop-pr:reconcile
