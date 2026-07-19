@@ -18,12 +18,14 @@ local m_builders = require("devloop.markers.builders")
 local m_mq = require("devloop.merge_queue")
 local payloads_predicates = require("devloop.payloads.predicates")
 local transitions = require("departments.implement.transitions")
+local restart_authority = require("core.restart_authority")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local implement_department = require("departments.implement.main")
 
+local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_implement_activation_handoff_v1"
 local REPO = "owner/repo"
 local ISSUE_NUMBER = 42
@@ -207,6 +209,21 @@ local function evidence_from_probe(probe, handoff_checks)
   }
 end
 
+local function observe_shadow(run)
+  local evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, candidate, candidate_projection)
+    evidence = candidate
+    return original_resolve(policy_id, candidate, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, evidence
+end
+
 local function decision_after_probe(decisions, probe, boundary_calls)
   local boundary_sequence = boundary_calls[1] and boundary_calls[1].sequence or math.huge
   for _, decision in ipairs(decisions) do
@@ -379,6 +396,54 @@ local function run_real_department(event)
   }
 end
 
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
+  t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
+end
+
+local function assert_shadow_case(fixture, probe, evidence, observed, decision)
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    proposal_id = PROPOSAL_ID,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local shadow, shadow_evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, {
+      semantic_variant = fixture.semantic_variant,
+      source_boundary = fixture.source_boundary,
+      target = "implementing",
+      incoming_version = evidence.incoming_version,
+      target_version = evidence.target_version,
+      phase = evidence.phase,
+      retry = evidence.retry,
+      handoff = evidence.handoff,
+    })
+  end)
+  local production = {
+    status = observed.status,
+    reason_code = observed.reason_code,
+    cas_outcome = decision.outcome,
+  }
+
+  assert_bidirectional(shadow, production, "status", fixture.name)
+  assert_bidirectional(shadow, production, "reason_code", fixture.name)
+  assert_bidirectional(shadow, production, "cas_outcome", fixture.name)
+  t.eq(shadow.edge_id, fixture.edge_id, fixture.name .. ": selected edge")
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(shadow_evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(shadow_evidence.current.version, fixture.current_version, fixture.name .. ": evidence raw current version")
+  t.eq(shadow_evidence.variant, probe.variant, fixture.name .. ": evidence variant")
+  t.eq(shadow_evidence.incoming_version, probe.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(shadow_evidence.target_version, probe.target_version, fixture.name .. ": evidence target version")
+  t.eq(shadow_evidence.phase, evidence.phase, fixture.name .. ": evidence phase")
+  t.eq(shadow_evidence.retry, evidence.retry, fixture.name .. ": evidence retry")
+  t.eq(shadow_evidence.handoff, evidence.handoff, fixture.name .. ": evidence handoff")
+end
+
 local function assert_case(fixture)
   local event = make_event(fixture)
   mock_case(fixture, event)
@@ -420,6 +485,9 @@ local function assert_case(fixture)
     end
     if fixture.legacy_log_outcome ~= nil then
       t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
+    end
+    if fixture.semantic_variant ~= nil then
+      assert_shadow_case(fixture, probe, evidence, observed, decision)
     end
   else
     t.eq(#boundary_calls, 0, fixture.name .. ": pre-CAS input cannot reach admission boundary")
@@ -467,6 +535,8 @@ return {
       admission_status = "apply",
       legacy_log_outcome = "applied",
       post_admission_disposition = "wip-deferred",
+      semantic_variant = "implementation_kicked_off",
+      edge_id = OWNER .. "/ready/entry/implementation_kicked_off",
     })
   end,
 
@@ -559,6 +629,8 @@ return {
       boundary_reached = true,
       admission_status = "apply",
       post_admission_disposition = "wip-deferred",
+      semantic_variant = "retry-implementation",
+      edge_id = OWNER .. "/impl-failed/entry/retry-implementation",
     })
   end,
 
@@ -575,6 +647,9 @@ return {
       admission_status = "apply",
       probe_incoming_differs_from_event = true,
       post_admission_disposition = "wip-deferred",
+      semantic_variant = "reimplement_blocked_open_pr",
+      source_boundary = "open-pr",
+      edge_id = OWNER .. "/implementing/operator_reentry/reimplement_blocked_open_pr",
     })
   end,
 

@@ -39,6 +39,10 @@ local intent_fields = {
   incoming_version = true,
   target_version = true,
   overlay_version = true,
+  phase = true,
+  retry = true,
+  handoff = true,
+  accepted_handoff = true,
 }
 
 local function illegal(reason_code, outcome_reason)
@@ -74,6 +78,20 @@ local function normalize_intent(intent)
     and (type(intent.overlay_version) ~= "string" or intent.overlay_version == "") then
     return nil
   end
+  if intent.phase ~= nil and intent.phase ~= "initial" and intent.phase ~= "recheck" then
+    return nil
+  end
+  if intent.retry ~= nil and type(intent.retry) ~= "boolean" then
+    return nil
+  end
+  if intent.accepted_handoff ~= nil and type(intent.accepted_handoff) ~= "boolean" then
+    return nil
+  end
+  if intent.handoff ~= nil
+    and (type(intent.handoff) ~= "table"
+      or (intent.handoff.status ~= "valid" and intent.handoff.status ~= "invalid")) then
+    return nil
+  end
   return {
     semantic_variant = intent.semantic_variant,
     source_boundary = intent.source_boundary,
@@ -82,6 +100,10 @@ local function normalize_intent(intent)
     incoming_version = intent.incoming_version,
     target_version = intent.target_version,
     overlay_version = intent.overlay_version,
+    phase = intent.phase,
+    retry = intent.retry,
+    handoff = intent.handoff and { status = intent.handoff.status } or nil,
+    accepted_handoff = intent.accepted_handoff,
   }
 end
 
@@ -145,7 +167,11 @@ function M.decide_transition(sealed_snapshot, intent)
     and not (edge.cas_policy_id == "cas.legacy_observe_issue_entry_v1"
       and edge.cas_variant == "unmanaged_to_thinking")
     and not (edge.cas_policy_id == "cas.legacy_timeout_reconcile_v1"
-      and edge.cas_variant == "ready_to_blocked") then
+      and edge.cas_variant == "ready_to_blocked")
+    and not (edge.cas_policy_id == "cas.legacy_implement_activation_handoff_v1"
+      and (edge.cas_variant == "ready_to_implementing"
+        or edge.cas_variant == "impl_failed_to_implementing"
+        or edge.cas_variant == "blocked_to_implementing")) then
     return illegal("unsupported-shadow-edge")
   end
   local concrete_source_mode = edge.source.state ~= nil
@@ -194,6 +220,9 @@ function M.decide_transition(sealed_snapshot, intent)
     end
   end
   local cas_base = variant.base or definition.base
+  if edge.cas_policy_id == "cas.legacy_implement_activation_handoff_v1" and cas_base == nil then
+    cas_base = "versioned"
+  end
   if (cas_base == "versioned" or cas_base == "cyclic")
     and normalized.incoming_version == nil then
     return illegal("incoming-version-required")
@@ -209,6 +238,12 @@ function M.decide_transition(sealed_snapshot, intent)
     target_version = normalized.target_version,
     overlay_version = normalized.overlay_version,
   }
+  if edge.cas_policy_id == "cas.legacy_implement_activation_handoff_v1" then
+    evidence.phase = normalized.phase
+    evidence.retry = normalized.retry
+    evidence.handoff = normalized.handoff
+    evidence.accepted_handoff = normalized.accepted_handoff
+  end
   local resolved = catalog.resolve(edge.cas_policy_id, evidence, projection)
   local disposition = ({
     apply = "apply",
