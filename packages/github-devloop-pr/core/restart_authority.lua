@@ -146,6 +146,10 @@ function M.decide_transition(sealed_snapshot, intent)
       or edge.cas_variant == "reviewing_to_review_meta")
   local supported_fix = edge.cas_policy_id == "cas.legacy_fix_v1"
     and edge.cas_variant == "fixing_to_reviewing"
+  local supported_review_meta = edge.cas_policy_id == "cas.legacy_review_meta_v1"
+    and edge.cas_variant == "predecision_eligibility"
+    and (edge.semantic_variant == "fix"
+      or edge.semantic_variant == "block")
   local supported_observe_pr = edge.cas_policy_id == "cas.legacy_observe_pr_v1"
     and edge.cas_variant == "pr_open_to_reviewing"
   local supported_timeout_reconcile = edge.cas_policy_id == "cas.legacy_timeout_reconcile_v1"
@@ -162,6 +166,7 @@ function M.decide_transition(sealed_snapshot, intent)
     and edge.semantic_variant == "review_convergence_round"
   if not supported_review_result
     and not supported_fix
+    and not supported_review_meta
     and not supported_observe_pr
     and not supported_timeout_reconcile
     and not supported_merge
@@ -204,8 +209,16 @@ function M.decide_transition(sealed_snapshot, intent)
       and type(definition.variants) == "table"
       and definition.variants[edge.cas_variant]
       or nil
-    if variant == nil
-      or variant.target_state ~= edge.target then
+    if variant == nil then
+      return illegal("policy-variant-shape-mismatch")
+    end
+    if supported_review_meta then
+      if variant.target_state ~= nil
+        or type(variant.legacy_probe_target_state) ~= "string"
+        or variant.legacy_probe_target_state == "" then
+        return illegal("policy-variant-shape-mismatch")
+      end
+    elseif variant.target_state ~= edge.target then
       return illegal("policy-variant-shape-mismatch")
     end
     if concrete_source_mode then

@@ -20,7 +20,9 @@ local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local review_meta_department = require("departments.review_meta.main")
+local restart_authority = require("core.restart_authority")
 
+local OWNER = "github-devloop-pr"
 local POLICY_ID = "cas.legacy_review_meta_v1"
 local VARIANT = "predecision_eligibility"
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
@@ -98,6 +100,21 @@ local function observe_department(run)
     error(result, 0)
   end
   return result, probes, decisions, marker_checks
+end
+
+local function observe_shadow(run)
+  local evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, candidate, candidate_projection)
+    evidence = candidate
+    return original_resolve(policy_id, candidate, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, evidence
 end
 
 local function current_fact(state, version)
@@ -275,6 +292,63 @@ local function assert_catalog_matches_observed_decision(fixture)
   else
     t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
   end
+  return {
+    probe = probe,
+    observed = observed,
+  }
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
+  t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
+end
+
+local function assert_shadow_case(fixture, semantic_variant, target)
+  local production = assert_catalog_matches_observed_decision(fixture)
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local intent = {
+    semantic_variant = semantic_variant,
+    target = target,
+    incoming_version = fixture.incoming_version,
+    overlay_version = fixture.incoming_version,
+  }
+  t.eq(intent.source_boundary, nil, fixture.name .. ": nil boundary is omitted from shadow intent")
+
+  local shadow, evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, intent)
+  end)
+  local observed = {
+    status = production.observed.status,
+    reason_code = production.observed.reason_code,
+    cas_outcome = devloop_state.cas_outcome(
+      production.probe.current,
+      production.probe.outcome,
+      production.probe.incoming_version
+    ),
+  }
+
+  assert_bidirectional(shadow, observed, "status", fixture.name)
+  assert_bidirectional(shadow, observed, "reason_code", fixture.name)
+  assert_bidirectional(shadow, observed, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    "github-devloop-pr/review-meta/autonomous/" .. semantic_variant,
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(evidence.current.version, fixture.current_version or "", fixture.name .. ": evidence raw current version")
+  t.eq(evidence.variant, VARIANT, fixture.name .. ": evidence variant")
+  t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
+  t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
 end
 
 local function assert_rejected_before_cas(name, payload, expected_reason_code)
@@ -328,6 +402,54 @@ local function assert_local_source_marker_pending(name, current_state, current_v
 end
 
 return {
+  test_shadow_review_meta_predecision_matches_reachable_cas_outcomes = function()
+    local fixtures = {
+      {
+        fixture = {
+          name = "shadow-review-meta-fix-apply",
+          current_state = "review-meta",
+          current_version = V_EQUAL,
+          incoming_version = V_EQUAL,
+          codex_stdout = h.action_label .. " fix\n" .. h.reason_label .. " Run another fix pass.\nBlocking gap: missing CAS parity guard",
+          effect_state = "fixing",
+          marker_check_reached = true,
+          post_admission_disposition = "effect-emitted(fixing)",
+        },
+        semantic_variant = "fix",
+        target = "fixing",
+      },
+      {
+        fixture = {
+          name = "shadow-review-meta-block-apply",
+          current_state = "review-meta",
+          current_version = V_EQUAL,
+          incoming_version = V_EQUAL,
+          codex_stdout = h.action_label .. " block\n" .. h.reason_label .. " The review cannot be repaired safely.",
+          effect_state = "blocked",
+          marker_check_reached = true,
+          post_admission_disposition = "effect-emitted(blocked)",
+        },
+        semantic_variant = "block",
+        target = "blocked",
+      },
+      {
+        fixture = {
+          name = "shadow-review-meta-fix-idempotent",
+          current_state = "fixing",
+          current_version = V_EQUAL,
+          incoming_version = V_EQUAL,
+          result_marker_visible = true,
+          marker_check_reached = true,
+          post_admission_disposition = "effect-idempotent",
+        },
+        semantic_variant = "fix",
+        target = "fixing",
+      },
+    }
+    for _, case in ipairs(fixtures) do
+      assert_shadow_case(case.fixture, case.semantic_variant, case.target)
+    end
+  end,
   test_review_meta_source_older_is_stale = function()
     assert_catalog_matches_observed_decision({
       name = "review-meta-source-older",
