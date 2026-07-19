@@ -1,4 +1,3 @@
-row-replay:github-devloop-pr:observe-pr-local
 intent:github-devloop:observe-issue-decompose
 acceptor:github-devloop-pr:merge
 entry:github-devloop-pr:fix
