@@ -72,15 +72,25 @@ local function put_pr_entity(entities, repo, pr_number, pr)
   return entity
 end
 
+
+local function display_fetch_issue(repo, issue_number, limits, deadline)
+  return common.fetch_issue(core, repo, issue_number, limits, deadline, core.observability_display_read_cmd)
+end
+
+local function display_fetch_pr(repo, pr_number, limits, deadline)
+  return common.fetch_pr(core, repo, pr_number, limits, deadline, core.observability_display_read_cmd)
+end
+
 local function observe_issue_candidate(repo, issue_number, entities, seen_prs, limits, deadline, budget)
   local issue_views = 0
   local pr_views = 0
   if (budget.remaining or 0) <= 0 or not core.observability_has_budget(deadline) then
     return issue_views, pr_views
   end
-  local issue = common.fetch_issue(core, repo, issue_number, limits, deadline)
+  local issue, reason = display_fetch_issue(repo, issue_number, limits, deadline)
   if issue == nil then
     budget.deadline_deferred = true
+    budget.deferred_reason = core.observability_merge_deferred_reason(budget.deferred_reason, reason or "deadline")
     return issue_views, pr_views
   end
   budget.remaining = budget.remaining - 1
@@ -91,9 +101,10 @@ local function observe_issue_candidate(repo, issue_number, entities, seen_prs, l
       return issue_views, pr_views
     end
     seen_prs[link.pr_number] = true
-    local pr = common.fetch_pr(core, repo, link.pr_number, limits, deadline)
+    local pr, reason = display_fetch_pr(repo, link.pr_number, limits, deadline)
     if pr == nil then
       budget.deadline_deferred = true
+      budget.deferred_reason = core.observability_merge_deferred_reason(budget.deferred_reason, reason or "deadline")
       return issue_views, pr_views
     end
     budget.remaining = budget.remaining - 1
@@ -112,9 +123,10 @@ local function observe_pr_candidate(repo, pr_number, entities, seen_prs, limits,
   end
   if seen_prs[pr_number] == nil then
     seen_prs[pr_number] = true
-    local pr = common.fetch_pr(core, repo, pr_number, limits, deadline)
+    local pr, reason = display_fetch_pr(repo, pr_number, limits, deadline)
     if pr == nil then
       budget.deadline_deferred = true
+      budget.deferred_reason = core.observability_merge_deferred_reason(budget.deferred_reason, reason or "deadline")
       return pr_views
     end
     budget.remaining = budget.remaining - 1
@@ -143,7 +155,7 @@ local function observe_candidates(repo, candidates, entities, seen_prs, limits, 
       break
     end
   end
-  return processed_issues, processed_prs, budget.remaining
+  return processed_issues, processed_prs, budget.remaining, budget.deferred_reason
 end
 
 local function entity_sort_key(entity)
@@ -252,18 +264,25 @@ function core.collect_observability_entities(event, repo, limits, deadline)
     table.insert(labels, devloop_state.state_label(state))
   end
   local rotation_seed = core.observability_rotation_seed(event)
-  local issue_items, deferred_issue_pages = core.observability_list_issue_candidates(repo, labels, limits, deadline, rotation_seed)
-  local pr_items, deferred_pr_pages = core.observability_list_pr_candidates(repo, limits, deadline, rotation_seed)
+  local issue_items, deferred_issue_pages, issue_list_deferred_reason = core.observability_list_issue_candidates(repo, labels, limits, deadline, rotation_seed)
+  local pr_items, deferred_pr_pages, pr_list_deferred_reason = core.observability_list_pr_candidates(repo, limits, deadline, rotation_seed)
   local issue_numbers = core.observability_sorted_numbers(issue_items)
   local pr_numbers = core.observability_sorted_numbers(pr_items)
   local candidates, deferred_candidates = core.observability_entity_candidates(issue_numbers, pr_numbers, rotation_seed, limits.entity_cap)
   local entities = {}
   local seen_prs = {}
 
-  local processed_issues, processed_prs, remaining_budget = observe_candidates(repo, candidates, entities, seen_prs, limits, deadline)
-  if deferred_issue_pages > 0 or deferred_pr_pages > 0 or deferred_candidates > 0 or remaining_budget == 0 or not core.observability_has_budget(deadline) then
-    log.warn(core.observability_deferred_log_line({
-      reason = core.observability_has_budget(deadline) and "batch-cap" or "deadline",
+  local processed_issues, processed_prs, remaining_budget, view_deferred_reason = observe_candidates(repo, candidates, entities, seen_prs, limits, deadline)
+  local observability_deferred = nil
+  if deferred_issue_pages > 0 or deferred_pr_pages > 0 or deferred_candidates > 0
+    or view_deferred_reason ~= nil or remaining_budget == 0 or not core.observability_has_budget(deadline) then
+    local deferred_reason = nil
+    deferred_reason = core.observability_merge_deferred_reason(deferred_reason, issue_list_deferred_reason)
+    deferred_reason = core.observability_merge_deferred_reason(deferred_reason, pr_list_deferred_reason)
+    deferred_reason = core.observability_merge_deferred_reason(deferred_reason, view_deferred_reason)
+    deferred_reason = deferred_reason or (core.observability_has_budget(deadline) and "batch-cap" or "deadline")
+    observability_deferred = {
+      reason = deferred_reason,
       listed_issues = #issue_numbers,
       listed_prs = #pr_numbers,
       processed_issues = processed_issues,
@@ -271,7 +290,8 @@ function core.collect_observability_entities(event, repo, limits, deadline)
       deferred_issues = math.max(0, #issue_numbers - processed_issues),
       deferred_prs = math.max(0, #pr_numbers - processed_prs),
       entity_cap = limits.entity_cap,
-    }))
+    }
+    log.warn(core.observability_deferred_log_line(observability_deferred))
   end
 
   local list = {}
@@ -308,6 +328,7 @@ function core.collect_observability_entities(event, repo, limits, deadline)
     stalls = stalls,
     state_gap_report = state_gap_report,
     now_seconds = now_seconds,
+    observability_deferred = observability_deferred,
   }
 end
 end

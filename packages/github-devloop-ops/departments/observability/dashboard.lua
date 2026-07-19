@@ -28,6 +28,7 @@ local function ensure_dashboard_label(repo, limits, deadline)
     end,
   }, limits, deadline, "dashboard label get")
   if core.observability_result_deferred(existing) then return "deferred" end
+  if core.observability_result_timeout(existing) then return "deferred" end
   if existing.exit_code == 0 then
     return "exists"
   end
@@ -42,6 +43,7 @@ local function ensure_dashboard_label(repo, limits, deadline)
     end,
   }, limits, deadline, "dashboard label create")
   if core.observability_result_deferred(created) then return "deferred" end
+  if core.observability_result_timeout(created) then return "deferred" end
   if created.exit_code == 0 then
     log.info("github-devloop dept=observability tag=DASHBOARD_LABEL_CREATED label=" .. dashboard_label)
     return "created"
@@ -229,6 +231,17 @@ local function append_state_section(lines, title, state, by_state, now_seconds)
   append_entity_lines(lines, by_state[state] or {}, now_seconds)
 end
 
+local function partial_observation_line(summary)
+  return "- reason=" .. tostring(summary.reason or "unknown")
+    .. " listed_issues=" .. tostring(summary.listed_issues or 0)
+    .. " listed_prs=" .. tostring(summary.listed_prs or 0)
+    .. " processed_issues=" .. tostring(summary.processed_issues or 0)
+    .. " processed_prs=" .. tostring(summary.processed_prs or 0)
+    .. " deferred_issues=" .. tostring(summary.deferred_issues or 0)
+    .. " deferred_prs=" .. tostring(summary.deferred_prs or 0)
+    .. " entity_cap=" .. tostring(summary.entity_cap or 0)
+end
+
 local function false_consensus_pair_line(pair)
   local reverted = tonumber(pair and pair.reverted_pr)
   if reverted == nil then
@@ -296,6 +309,7 @@ function core.render_observability_dashboard(args)
   local counts = args and args.counts or {}
   local stalls = args and args.stalls or {}
   local state_gap_report = args and args.state_gap_report or {}
+  local observability_deferred = args and args.observability_deferred or nil
   local topology_mermaid = args and args.topology_mermaid or nil
   local recent_merged_prs = args and args.recent_merged_prs or nil
   local recent_merged_issues = args and args.recent_merged_issues or nil
@@ -350,6 +364,15 @@ function core.render_observability_dashboard(args)
   end
   if counts.unmanaged ~= nil then
     table.insert(lines, "- unmanaged: " .. tostring(counts.unmanaged))
+  end
+  append_section(sections, lines)
+
+  lines = {}
+  table.insert(lines, "## Partial observations")
+  if type(observability_deferred) == "table" then
+    table.insert(lines, partial_observation_line(observability_deferred))
+  else
+    table.insert(lines, "- None")
   end
   append_section(sections, lines)
 
@@ -447,6 +470,9 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
   if core.observability_result_deferred(listed) then
     return "deferred"
   end
+  if core.observability_result_timeout(listed) then
+    return "deferred"
+  end
   if listed.exit_code ~= 0 then
     log.warn("github-devloop dept=observability tag=DASHBOARD_LOCATOR_FAILED"
       .. " locator=label-list"
@@ -471,7 +497,7 @@ local function trusted_dashboard_issue(repo, bot_login, limits, deadline)
 end
 
 local function trusted_dashboard_issue_by_number(repo, issue_number, bot_login, limits, deadline)
-  local view = core.observability_run_cmd({
+  local view = core.observability_display_read_cmd({
     run = function(timeout)
       return dashboard_commands.gh_dashboard_issue_get(repo, issue_number, timeout)
     end,

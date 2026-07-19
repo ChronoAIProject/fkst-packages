@@ -46,12 +46,85 @@ function M.observability_result_deferred(result)
   return sweep_bounds.sweep_result_deferred(result)
 end
 
+local function log_segment(value)
+  local text = tostring(value or "unknown")
+  text = text:gsub("[^%w%._%-]", "-"):gsub("%-+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+  if text == "" then
+    return "unknown"
+  end
+  return text
+end
+
+function M.observability_result_timeout(result)
+  -- Ground truth for a call timeout is the engine's `timed_out` field on the exec
+  -- result (per the exec_argv contract {stdout, stderr, exit_code, timed_out?}). When
+  -- the engine reports it, trust it EXCLUSIVELY: a genuine failure with timed_out=false
+  -- must still fail-closed even if it happens to exit 124 (and a free-text stderr match
+  -- is never used). We fall back to exit-code 124 only when the field is absent, which
+  -- in production it is not -- it is the `fkst.test` command mock that does not yet
+  -- carry timed_out (substrate follow-up: propagate timed_out through the mock, then
+  -- drop this fallback so exit_code is never consulted).
+  if type(result) ~= "table" then
+    return false
+  end
+  if result.timed_out ~= nil then
+    return result.timed_out == true
+  end
+  return tonumber(result.exit_code) == 124
+end
+
+function M.observability_merge_deferred_reason(current, incoming)
+  local next_reason = incoming
+  if type(incoming) == "table" then
+    next_reason = incoming.reason
+  end
+  next_reason = tostring(next_reason or "")
+  if next_reason == "" then
+    return current
+  end
+  if current == nil or current == "" or next_reason == "timeout" then
+    return next_reason
+  end
+  if current == "timeout" then
+    return current
+  end
+  if next_reason == "deadline" then
+    return next_reason
+  end
+  return current
+end
+
 function M.observability_exec(cmd_or_opts, limits, deadline, error_class, exec)
   local result = sweep_bounds.sweep_exec(cmd_or_opts, limits, deadline, error_class or "observability command", exec)
   if sweep_bounds.sweep_result_deferred(result) then
     result.stderr = "observability deadline exhausted"
   end
   return result
+end
+
+function M.observability_display_read_cmd(cmd_or_opts, limits, deadline, error_class, exec)
+  local label = error_class or "observability display read"
+  local result = M.observability_exec(cmd_or_opts, limits, deadline, label, exec)
+  if M.observability_result_deferred(result) then
+    return result
+  end
+  if result.exit_code == 0 then
+    return result
+  end
+  if M.observability_result_timeout(result) then
+    if type(log) == "table" and type(log.warn) == "function" then
+      log.warn("github-devloop dept=observability tag=OBSERVE_READ_DEFERRED"
+        .. " reason=timeout"
+        .. " error_class=" .. log_segment(label)
+        .. " exit_code=" .. tostring(result.exit_code or ""))
+    end
+    local deferred = M.observability_deadline_deferred_result(label)
+    deferred.reason = "timeout"
+    deferred.stderr = tostring(result.stderr or "")
+    deferred.exit_code = result.exit_code
+    return deferred
+  end
+  error("github-devloop: observability-command-failed: " .. tostring(label) .. " failed: " .. tostring(result.stderr))
 end
 
 function M.observability_run_cmd(cmd_or_opts, limits, deadline, error_class, exec)
@@ -187,9 +260,9 @@ local function response_body(stdout)
 end
 
 local function list_rotating_pages(first_cmd, page_cmd, parse, limits, deadline, seed, error_class, exec)
-  local first = M.observability_run_cmd(first_cmd, limits, deadline, error_class, exec)
+  local first = M.observability_display_read_cmd(first_cmd, limits, deadline, error_class, exec)
   if M.observability_result_deferred(first) then
-    return {}, 1
+    return {}, 1, first.reason
   end
   local first_parsed = parse(response_body(first.stdout))
   local total_pages = M.observability_total_pages_from_headers(first.stdout, #first_parsed)
@@ -202,9 +275,9 @@ local function list_rotating_pages(first_cmd, page_cmd, parse, limits, deadline,
       parsed = first_parsed
       used_first = true
     else
-      local listed = M.observability_run_cmd(page_cmd(page), limits, deadline, error_class, exec)
+      local listed = M.observability_display_read_cmd(page_cmd(page), limits, deadline, error_class, exec)
       if M.observability_result_deferred(listed) then
-        return items, deferred_pages + 1
+        return items, deferred_pages + 1, listed.reason
       end
       parsed = parse(listed.stdout)
     end
@@ -217,14 +290,15 @@ local function list_rotating_pages(first_cmd, page_cmd, parse, limits, deadline,
       table.insert(items, item)
     end
   end
-  return items, deferred_pages
+  return items, deferred_pages, nil
 end
 
 function M.observability_list_issue_candidates(repo, labels, limits, deadline, seed, exec)
   local items = {}
   local deferred_pages = 0
+  local deferred_reason = nil
   for _, label in ipairs(labels or {}) do
-    local listed, deferred = list_rotating_pages(
+    local listed, deferred, reason = list_rotating_pages(
       M.gh_issue_list_observe_opts(repo, label, 1, true),
       function(page)
         return M.gh_issue_list_observe_opts(repo, label, page)
@@ -239,11 +313,12 @@ function M.observability_list_issue_candidates(repo, labels, limits, deadline, s
       exec
     )
     deferred_pages = deferred_pages + deferred
+    deferred_reason = M.observability_merge_deferred_reason(deferred_reason, reason)
     for _, issue in ipairs(listed) do
       table.insert(items, issue)
     end
   end
-  return items, deferred_pages
+  return items, deferred_pages, deferred_reason
 end
 
 function M.observability_list_pr_candidates(repo, limits, deadline, seed, exec)

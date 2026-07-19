@@ -44,6 +44,39 @@ return {
     t.is_true(tostring(err):find("gh observability issue list failed: timed out", 1, true) ~= nil)
   end,
 
+  test_observability_display_read_cmd_degrades_timeout_failure = function()
+    local result = core.observability_display_read_cmd(
+      "gh issue list",
+      core.observability_limits(),
+      now() + 90,
+      "gh observability issue list",
+      function()
+        return { stdout = "", stderr = "timed out", exit_code = 124 }
+      end
+    )
+
+    t.eq(core.observability_result_deferred(result), true)
+    t.eq(result.reason, "timeout")
+    t.eq(result.exit_code, 124)
+  end,
+
+  test_observability_display_read_cmd_still_fails_closed_on_non_timeout_failure = function()
+    local ok, err = pcall(function()
+      core.observability_display_read_cmd(
+        "gh issue list",
+        core.observability_limits(),
+        now() + 90,
+        "gh observability issue list",
+        function()
+          return { stdout = "", stderr = "permission denied", exit_code = 1 }
+        end
+      )
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("gh observability issue list failed: permission denied", 1, true) ~= nil)
+  end,
+
   test_observability_fetch_issue_returns_nil_when_deadline_exhausted = function()
     local old_gh_issue_view_observe_cmd = core.gh_issue_view_observe_cmd
     core.gh_issue_view_observe_cmd = function()

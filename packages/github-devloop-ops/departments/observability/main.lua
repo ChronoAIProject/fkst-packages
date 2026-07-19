@@ -42,6 +42,27 @@ function core.observability_topology_mermaid()
   return result
 end
 
+local function partial_observation_reason(observed)
+  local deferred = type(observed) == "table" and observed.observability_deferred or nil
+  if type(deferred) ~= "table" then
+    return nil
+  end
+  return tostring(deferred.reason or "unknown")
+end
+
+local function log_control_skipped(action, reason)
+  log.info("github-devloop dept=observability tag=OBSERVE_CONTROL_SKIPPED"
+    .. " action=" .. tostring(action)
+    .. " reason=" .. tostring(reason or "partial-observations"))
+end
+
+local function skipped_control_result(reason)
+  return {
+    action = "skipped",
+    reason = tostring(reason or "partial-observations"),
+  }
+end
+
 function core.observe_devloop_entities(event)
   common.require_observe_bot(core)
   local repo = common.require_observe_repo(core)
@@ -51,19 +72,31 @@ function core.observe_devloop_entities(event)
   local recent_merged_prs = core.collect_recent_merged_prs(repo, limits, deadline)
   local recent_merged_issues = core.collect_recent_merged_issues(repo, limits, deadline)
 
-  core.reap_orphan_prs(repo, observed.list)
-  local queue_starvation_result = queue_starvation.observe_queue_starvation(core, repo, observed.list, limits, deadline, observed.now_seconds)
-  for _, entity in ipairs(observed.list or {}) do
-    for _, raised in ipairs(failure_triage_cap.blocked_obligation_patrol_once(entity, observed.list, recent_merged_issues)) do
-      devloop_logging.log_raise("blocked_obligation_patrol", raised.fact.proposal_id, raised.queue, raised.payload)
+  local partial_reason = partial_observation_reason(observed)
+  local queue_starvation_result = skipped_control_result("partial-observations")
+  local conflict_hotspot = { facts = 0, hotspots = 0, raised = 0, action = "skipped", reason = "partial-observations" }
+  if partial_reason == nil then
+    core.reap_orphan_prs(repo, observed.list)
+    queue_starvation_result = queue_starvation.observe_queue_starvation(core, repo, observed.list, limits, deadline, observed.now_seconds)
+    if recent_merged_issues ~= nil then
+      for _, entity in ipairs(observed.list or {}) do
+        for _, raised in ipairs(failure_triage_cap.blocked_obligation_patrol_once(entity, observed.list, recent_merged_issues)) do
+          devloop_logging.log_raise("blocked_obligation_patrol", raised.fact.proposal_id, raised.queue, raised.payload)
+        end
+      end
+    else
+      log_control_skipped("blocked-obligation-patrol", "recent-merged-issues-deferred")
     end
+    conflict_hotspot = core.observe_conflict_hotspots(repo, core.observability_call_timeout(limits, deadline))
+  else
+    log_control_skipped("snapshot-control", "partial-observations")
   end
-  local conflict_hotspot = core.observe_conflict_hotspots(repo, core.observability_call_timeout(limits, deadline))
   local rendered_dashboard = core.render_observability_dashboard({
     entities = observed.list,
     counts = observed.counts,
     stalls = observed.stalls,
     state_gap_report = observed.state_gap_report,
+    observability_deferred = observed.observability_deferred,
     recent_merged_prs = recent_merged_prs,
     recent_merged_issues = recent_merged_issues,
     now_seconds = observed.now_seconds,
