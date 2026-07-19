@@ -4,6 +4,7 @@
 -- arguments; no transition helper computes the expected admission result.
 
 local catalog = require("devloop.restart_cas_catalog")
+local restart_authority = require("core.restart_authority")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -30,6 +31,8 @@ local PR_NUMBER = 7
 local BRANCH = "devloop-owner-repo-42-01HY"
 local BASE_BRANCH = "dev"
 local HEAD_SHA = "def456"
+local SOURCE_BOUNDARY = "consensus.consensus_converge"
+local SEMANTIC_VARIANT = "review_convergence_round"
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
@@ -125,6 +128,26 @@ local function evidence_from_probe(probe)
     current = probe.current,
     review_version = probe.review_version,
   }
+end
+
+local function observe_shadow(run)
+  local captured = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, evidence, candidate_projection)
+    captured = evidence
+    return original_resolve(policy_id, evidence, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, captured
+end
+
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-old " .. field)
+  t.eq(expected[field], actual[field], context .. ": old-to-shadow " .. field)
 end
 
 local function review_event(version, overrides)
@@ -265,6 +288,43 @@ local function assert_review_loop_admission_case(fixture)
   t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
   t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
   t.eq(resolved.status, fixture.admission_status, fixture.name .. ": catalog admission status")
+
+  local sealed = restart_authority.seal_snapshot({
+    owner = core.restart_package_name,
+    proposal_id = event.proposal_id,
+    current = {
+      state = probe.current.state,
+      version = probe.current.version,
+    },
+  })
+  local shadow, shadow_evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed, {
+      semantic_variant = SEMANTIC_VARIANT,
+      source_boundary = SOURCE_BOUNDARY,
+      target = "reviewing",
+      evidence_refs = { "review-loop-cas-probe" },
+      review_version = probe.review_version,
+    })
+  end)
+  assert_bidirectional(shadow, resolved, "status", fixture.name)
+  assert_bidirectional(shadow, resolved, "reason_code", fixture.name)
+  assert_bidirectional(shadow, resolved, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    "github-devloop-pr/reviewing/entry/review_convergence_round",
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(shadow_evidence.current.state, probe.current.state, fixture.name .. ": evidence current state")
+  t.eq(shadow_evidence.current.version, probe.current.version, fixture.name .. ": evidence current version")
+  t.eq(shadow_evidence.review_version, probe.review_version, fixture.name .. ": evidence review version")
+  t.eq(shadow_evidence.reviewing_version, nil, fixture.name .. ": review-loop evidence has no activation version")
+  t.eq(shadow_evidence.handoff, nil, fixture.name .. ": review-loop evidence has no activation handoff")
+  t.eq(shadow_evidence.variant, nil, fixture.name .. ": resolve-based evidence has no variant")
+  t.eq(shadow_evidence.incoming_version, nil, fixture.name .. ": resolve-based evidence has no incoming version")
+  t.eq(shadow_evidence.target_version, nil, fixture.name .. ": resolve-based evidence has no target version")
+  t.eq(shadow_evidence.overlay_version, nil, fixture.name .. ": resolve-based evidence has no overlay version")
   t.eq(
     post_admission_disposition(result, decision, boundary_reached),
     fixture.post_admission_disposition or "not-admitted",

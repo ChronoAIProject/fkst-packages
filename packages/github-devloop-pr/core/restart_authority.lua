@@ -25,6 +25,7 @@ local intent_fields = {
   source_boundary = true,
   target = true,
   evidence_refs = true,
+  review_version = true,
   reviewing_version = true,
   handoff = true,
   incoming_version = true,
@@ -54,7 +55,7 @@ local function normalize_intent(intent)
   if type(intent.semantic_variant) ~= "string" or intent.semantic_variant == "" then
     return nil
   end
-  for _, field in ipairs({ "reviewing_version", "incoming_version", "target_version", "overlay_version" }) do
+  for _, field in ipairs({ "review_version", "reviewing_version", "incoming_version", "target_version", "overlay_version" }) do
     local value = intent[field]
     if value ~= nil and (type(value) ~= "string" or value == "") then
       return nil
@@ -70,6 +71,7 @@ local function normalize_intent(intent)
     source_boundary = intent.source_boundary,
     target = intent.target,
     evidence_refs = intent.evidence_refs,
+    review_version = intent.review_version,
     reviewing_version = intent.reviewing_version,
     handoff = intent.handoff and { status = intent.handoff.status } or nil,
     incoming_version = intent.incoming_version,
@@ -156,13 +158,16 @@ function M.decide_transition(sealed_snapshot, intent)
       or edge.cas_variant == "bounded_fix_to_blocked")
   local supported_review_activation = edge.cas_policy_id == "cas.legacy_review_activation_handoff_v1"
     and edge.semantic_variant == "review_receiver"
+  local supported_review_loop = edge.cas_policy_id == "cas.legacy_review_loop_safe_v1"
+    and edge.semantic_variant == "review_convergence_round"
   if not supported_review_result
     and not supported_fix
     and not supported_observe_pr
     and not supported_timeout_reconcile
     and not supported_merge
     and not supported_pr_fix_reconcile
-    and not supported_review_activation then
+    and not supported_review_activation
+    and not supported_review_loop then
     return illegal("unsupported-shadow-edge")
   end
 
@@ -189,7 +194,7 @@ function M.decide_transition(sealed_snapshot, intent)
   end
 
   local definition = catalog.definition(edge.cas_policy_id)
-  local resolve_based = supported_review_activation
+  local resolve_based = (supported_review_activation or supported_review_loop)
     and definition ~= nil
     and definition.variants == nil
     and definition.base == nil
@@ -241,9 +246,13 @@ function M.decide_transition(sealed_snapshot, intent)
         state = current.state,
         version = current_version,
       },
-      reviewing_version = normalized.reviewing_version,
-      handoff = normalized.handoff,
     }
+    if supported_review_loop then
+      evidence.review_version = normalized.review_version
+    else
+      evidence.reviewing_version = normalized.reviewing_version
+      evidence.handoff = normalized.handoff
+    end
   else
     evidence = {
       current = {
