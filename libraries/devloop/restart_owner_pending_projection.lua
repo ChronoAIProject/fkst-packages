@@ -1,26 +1,44 @@
 local pending_projection = require("devloop.restart_pending_projection")
 local restart_edges = require("devloop.restart_edges")
+local restart_metadata = require("devloop.restart_metadata")
 
 local M = {}
 
-local frozen_projection = {
-  unmanaged = { thinking = true },
-  thinking = { dependency_wait = true, ready = true, blocked = true },
-  dependency_wait = { dependency_wait = true, ready = true, blocked = true },
-  ready = { dependency_wait = true, implementing = true, blocked = true },
-  implementing = { ["awaiting-pr"] = true, ["impl-failed"] = true },
-  ["awaiting-pr"] = { merged = true, ready = true, blocked = true },
-  ["pr-open"] = { reviewing = true, blocked = true },
-  reviewing = { ["merge-ready"] = true, fixing = true, ["review-meta"] = true },
-  ["merge-ready"] = { merging = true, blocked = true },
-  merging = { merged = true, reviewing = true, fixing = true, blocked = true },
-  fixing = { reviewing = true, ["review-meta"] = true },
-  ["review-meta"] = { fixing = true, blocked = true },
-  ["impl-failed"] = { implementing = true },
-  merged = {},
-  ["closed-unmerged"] = {},
-  blocked = {},
+local frozen_predecessors = {
+  "unmanaged",
+  "thinking",
+  "dependency_wait",
+  "ready",
+  "implementing",
+  "awaiting-pr",
+  "pr-open",
+  "reviewing",
+  "merge-ready",
+  "merging",
+  "fixing",
+  "review-meta",
+  "impl-failed",
+  "merged",
+  "closed-unmerged",
+  "blocked",
 }
+
+local excluded_successors = {
+  thinking = { declined = true },
+  fixing = { blocked = true },
+}
+
+local frozen_projection = {}
+for _, predecessor in ipairs(frozen_predecessors) do
+  local targets = {}
+  local excluded = excluded_successors[predecessor] or {}
+  for _, target in ipairs(restart_metadata.state_successors(predecessor)) do
+    if excluded[target] ~= true then
+      targets[target] = true
+    end
+  end
+  frozen_projection[predecessor] = targets
+end
 
 local function deep_copy(value)
   if type(value) ~= "table" then

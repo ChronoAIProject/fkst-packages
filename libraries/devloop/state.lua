@@ -2,21 +2,14 @@ local base_ids = require("devloop.base_ids")
 local requests_labels = require("devloop.requests.labels")
 local parsers_misc = require("devloop.parsers.misc")
 local payloads_predicates = require("devloop.payloads.predicates")
-local label_defs = require("devloop.state_labels")
+local restart_metadata = require("devloop.restart_metadata")
 local S = {}
 local C = {}
+restart_metadata.export_into(C)
 local devloop_base = require("devloop.base")
 local transition_version = require("contract.transition_version")
 local m_builders = require("devloop.markers.builders")
 local issue_observation_facts = require("devloop.restart.issue_observation_facts")
-
-local label_by_state = label_defs.label_by_state
-local state_labels = label_defs.state_labels
-local state_graph = label_defs.state_graph
-local issue_state_order = label_defs.issue_state_order
-local state_order = label_defs.state_order
-local state_stage_rank = label_defs.state_stage_rank
-local copy_array = label_defs.copy_array
 
 local function marker_attrs(marker)
   local attrs = {}
@@ -24,36 +17,6 @@ local function marker_attrs(marker)
     attrs[key] = value
   end
   return attrs
-end
-
-function C.has_label(labels, expected)
-  if type(labels) ~= "table" then
-    return false
-  end
-  for _, label in ipairs(labels) do
-    if tostring(label) == expected then
-      return true
-    end
-  end
-  return false
-end
-
-function C.is_state(state) return label_by_state[state] ~= nil end
-function C.is_state_label(label) return state_labels[tostring(label)] == true end
-function C.state_label(state) return label_by_state[state] end
-function C.state_order() return copy_array(state_order) end
-function C.issue_state_order() return copy_array(issue_state_order) end
-function C.state_successors(state) return copy_array(state_graph[state]) end
-function C.lifecycle_state_set()
-  local out = {}
-  for state, _ in pairs(label_by_state) do out[state] = true end
-  for state, next_states in pairs(state_graph) do
-    if state ~= "unmanaged" then out[state] = true end
-    for _, next_state in ipairs(next_states or {}) do if next_state ~= "unmanaged" then out[next_state] = true end end
-  end
-  for _, state in ipairs(state_order) do out[state] = true end
-  for state, _ in pairs(state_stage_rank) do out[state] = true end
-  return out
 end
 
 function C.state_marker(proposal_id, state, version, effects)
@@ -72,70 +35,6 @@ function C.state_marker(proposal_id, state, version, effects)
     .. '"'
     .. effects_field
     .. ' -->'
-end
-
-function C.version_order_key(version)
-  return transition_version.version_order_key(version)
-end
-
-function C.stage_rank(state)
-  return state_stage_rank[state] or 0
-end
-
-function C.version_updated_at(version)
-  return transition_version.updated_at(version)
-end
-
-function C.version_loop_round(version)
-  return transition_version.loop_round(version)
-end
-
-function C.version_fix_round(version)
-  return transition_version.fix_round(version)
-end
-
-function C.version_review_meta_action_round(version)
-  return transition_version.review_meta_action_round(version)
-end
-
-function C.version_review_loop_round(version)
-  return transition_version.review_loop_round(version)
-end
-
-function C.version_timeout_round(version, state_name)
-  return transition_version.timeout_round(version, state_name)
-end
-
-function C.version_reimplement_round(version)
-  return transition_version.reimplement_round(version)
-end
-
-function C.version_ready_split_round(version)
-  return transition_version.ready_split_round(version)
-end
-
-function C.next_fix_version(version)
-  return transition_version.next_fix(version)
-end
-
-function C.fix_version_from_review_version(version)
-  return C.next_fix_version(version)
-end
-
-function C.next_review_meta_action_version(version)
-  return transition_version.next_review_meta_action(version)
-end
-
-function C.next_review_loop_version(version)
-  return transition_version.next_review_loop(version)
-end
-
-function C.marker_order_key(version, state_or_stage_rank)
-  local stage_rank = tonumber(state_or_stage_rank)
-  if stage_rank == nil then
-    stage_rank = C.stage_rank(state_or_stage_rank)
-  end
-  return transition_version.marker_order_key(version, stage_rank)
 end
 
 local function marker_stage_rank(marker, state)
@@ -170,53 +69,11 @@ local function versions_equivalent(left, right)
   return transition_version.safe_version_segment(left) == transition_version.safe_version_segment(right)
 end
 
-local function strip_latest_fix_version_suffix(version)
-  return transition_version.strip_trailing_fix(version)
-end
-
-local function compare_transition_versions(incoming_version, current_version)
-  return transition_version.compare(incoming_version, current_version)
-end
-
-local function sign_order(value)
-  if value > 0 then
-    return 1
-  end
-  if value < 0 then
-    return -1
-  end
-  return 0
-end
-
-function C.compare_state_marker_order(current, target_state, target_version)
-  if current == nil or current.version == nil then
-    return -1
-  end
-  local version_order = compare_transition_versions(current.version, target_version)
-  if version_order ~= 0 then
-    return sign_order(version_order)
-  end
-  return sign_order(C.stage_rank(current.state) - C.stage_rank(target_state))
-end
-
-function C.timeout_lineage_matches_current(scheduled, current)
-  if type(scheduled) ~= "table" or type(current) ~= "table" then
-    return true
-  end
-  if tostring(current.state or "") ~= tostring(scheduled.state or "") then
-    return false, "state-advanced"
-  end
-  if transition_version.strip_suffixes(current.version) ~= transition_version.strip_suffixes(scheduled.version) then
-    return false, "lineage-mismatch"
-  end
-  return true
-end
-
 local function compare_state_marker(a, b)
   if a == nil then
     return true
   end
-  local version_order = compare_transition_versions(b.version, a.version)
+  local version_order = C._compare_transition_versions(b.version, a.version)
   if version_order ~= 0 then
     return version_order > 0
   end
@@ -228,55 +85,6 @@ local function compare_state_marker(a, b)
   local a_key = C.marker_order_key(a.version, a.stage_rank)
   local b_key = C.marker_order_key(b.version, b.stage_rank)
   return b_key > a_key
-end
-
-local milestone_domains = {
-  ["github-devloop"] = nil,
-  ["github-devloop-issue"] = {
-    thinking = true,
-    dependency_wait = true,
-    ready = true,
-    implementing = true,
-    ["awaiting-pr"] = true,
-    ["impl-failed"] = true,
-    declined = true,
-    blocked = true,
-    merged = true,
-  },
-  ["github-devloop-pr"] = {
-    ["pr-open"] = true,
-    reviewing = true,
-    ["review-meta"] = true,
-    ["merge-ready"] = true,
-    merging = true,
-    fixing = true,
-    blocked = true,
-    ["closed-unmerged"] = true,
-    merged = true,
-  },
-}
-
-local function domain_allows_state(domain, state)
-  if domain == nil or domain == "" then
-    return true
-  end
-  local allowed = milestone_domains[domain]
-  if allowed == nil then
-    return domain == "github-devloop" and C.is_state(state)
-  end
-  return allowed[state] == true
-end
-
-local function validate_milestone_domain(domain, milestone)
-  if domain == nil or domain == "" then
-    return
-  end
-  if milestone_domains[domain] == nil and domain ~= "github-devloop" then
-    error("github-devloop: unknown milestone domain")
-  end
-  if not domain_allows_state(domain, milestone) then
-    error("github-devloop: milestone is outside milestone domain")
-  end
 end
 
 local function lineage_matches(version, opts)
@@ -385,29 +193,6 @@ function C.reintake_effect_updated_at(issue, command, comments, proposal_id)
   return updated_at or (issue and issue.updated_at)
 end
 
-function C.compare_phase(left, right, opts)
-  local options = opts or {}
-  local left_state = type(left) == "table" and left.state or left
-  local right_state = type(right) == "table" and right.state or right
-  local right_rank = C.stage_rank(right_state)
-  if not C.is_state(right_state) then
-    error("github-devloop: invalid milestone")
-  end
-  validate_milestone_domain(options.domain or options.milestone_domain, right_state)
-  local left_rank = type(left) == "table" and tonumber(left.stage_rank) or nil
-  if left_rank == nil then
-    if not C.is_state(left_state) then
-      return nil
-    end
-    left_rank = C.stage_rank(left_state)
-  end
-  return sign_order(left_rank - right_rank)
-end
-
-function C.is_at_or_after(state_or_marker, milestone, opts)
-  return (C.compare_phase(state_or_marker, milestone, opts) or -1) >= 0
-end
-
 function C.reached(comments, proposal_id, milestone, opts)
   if type(comments) ~= "table" then
     return false
@@ -417,7 +202,7 @@ function C.reached(comments, proposal_id, milestone, opts)
     error("github-devloop: invalid milestone")
   end
   local domain = options.domain or options.milestone_domain
-  validate_milestone_domain(domain, milestone)
+  restart_metadata._validate_milestone_domain(domain, milestone)
 
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
@@ -425,7 +210,7 @@ function C.reached(comments, proposal_id, milestone, opts)
       local candidate = state_marker_fact(marker, comment)
       if candidate ~= nil
         and candidate.proposal_id == proposal_id
-        and domain_allows_state(domain, candidate.state)
+        and restart_metadata._domain_allows_state(domain, candidate.state)
         and lineage_matches(candidate.version, options)
         and C.is_at_or_after(candidate, milestone, options) then
         return true
@@ -498,7 +283,7 @@ local function can_reach(from_state, to_state, seen)
   if from == to_state then
     return true
   end
-  local next_states = state_graph[from]
+  local next_states = restart_metadata.state_successors(from)
   if next_states == nil then
     return false
   end
@@ -541,7 +326,7 @@ function C.versioned_transition_status(current, from_states, to_state, incoming_
   if type(current) == "table"
     and current.version ~= nil
     and incoming_version ~= nil
-    and compare_transition_versions(incoming_version, current.version) < 0 then
+    and C._compare_transition_versions(incoming_version, current.version) < 0 then
     return "stale"
   end
   local status = C.transition_status(current, from_states, to_state)
@@ -562,7 +347,7 @@ function C.cyclic_transition_status(current, from_states, to_state, incoming_ver
     return "idempotent"
   end
 
-  local version_order = compare_transition_versions(incoming_version, current_version)
+  local version_order = C._compare_transition_versions(incoming_version, current_version)
   if version_order > 0 then
     return "pending"
   end
@@ -599,17 +384,13 @@ function C.cas_outcome(current, transition, incoming_version)
     if type(current) == "table"
       and current.version ~= nil
       and incoming_version ~= nil
-      and compare_transition_versions(incoming_version, current.version) < 0 then
+      and C._compare_transition_versions(incoming_version, current.version) < 0 then
       return "skip-stale(incoming version < current marker version)"
     end
     return "skip-advanced-or-diverged"
   end
   return tostring(transition or "unknown")
 end
-
-function C.state_label_changes(to_state) return label_defs.state_label_changes(to_state) end
-function C.state_label_reconcile_changes(labels, to_state) return label_defs.state_label_reconcile_changes(labels, to_state) end
-function C.state_label_hint_matches(labels, state) return label_defs.state_label_hint_matches(labels, state) end
 
 function C.build_reconcile_state_label_request(repo, issue_number, proposal_id, state, version, source_ref, current_labels)
   return requests_labels.build_state_label_request(repo,
@@ -629,99 +410,6 @@ function C.build_reconcile_state_label_request(repo, issue_number, proposal_id, 
   )
 end
 
-function C.has_terminal_label(labels)
-  return C.has_label(labels, devloop_base._ready_label)
-    or C.has_label(labels, devloop_base._implementing_label)
-    or C.has_label(labels, devloop_base._pr_open_label)
-    or C.has_label(labels, devloop_base._reviewing_label)
-    or C.has_label(labels, devloop_base._review_meta_label)
-    or C.has_label(labels, devloop_base._merge_ready_label)
-    or C.has_label(labels, devloop_base._merging_label)
-    or C.has_label(labels, devloop_base._merged_label)
-    or C.has_label(labels, devloop_base._fixing_label)
-    or C.has_label(labels, devloop_base._impl_failed_label)
-    or C.has_label(labels, devloop_base._declined_label)
-    or C.has_label(labels, devloop_base._blocked_label)
-end
-
-function C.has_thinking_label(labels)
-  return C.has_label(labels, devloop_base._thinking_label)
-end
-
-function C.has_blocked_label(labels)
-  return C.has_label(labels, devloop_base._blocked_label)
-end
-
-function C.has_ready_label(labels)
-  return C.has_label(labels, devloop_base._ready_label)
-end
-
-function C.has_implementing_label(labels)
-  return C.has_label(labels, devloop_base._implementing_label)
-end
-
-function C.has_pr_open_label(labels)
-  return C.has_label(labels, devloop_base._pr_open_label)
-end
-
-function C.has_reviewing_label(labels)
-  return C.has_label(labels, devloop_base._reviewing_label)
-end
-
-function C.has_merge_ready_label(labels)
-  return C.has_label(labels, devloop_base._merge_ready_label)
-end
-
-function C.has_merging_label(labels)
-  return C.has_label(labels, devloop_base._merging_label)
-end
-
-function C.has_merged_label(labels)
-  return C.has_label(labels, devloop_base._merged_label)
-end
-
-function C.has_fixing_label(labels)
-  return C.has_label(labels, devloop_base._fixing_label)
-end
-
-function C.has_review_meta_label(labels)
-  return C.has_label(labels, devloop_base._review_meta_label)
-end
-
-function C.has_impl_failed_label(labels)
-  return C.has_label(labels, devloop_base._impl_failed_label)
-end
-
-function C.has_decision_terminal_label(labels)
-  return C.has_label(labels, devloop_base._ready_label)
-    or C.has_label(labels, devloop_base._implementing_label)
-    or C.has_label(labels, devloop_base._pr_open_label)
-    or C.has_label(labels, devloop_base._reviewing_label)
-    or C.has_label(labels, devloop_base._review_meta_label)
-    or C.has_label(labels, devloop_base._merge_ready_label)
-    or C.has_label(labels, devloop_base._merging_label)
-    or C.has_label(labels, devloop_base._merged_label)
-    or C.has_label(labels, devloop_base._fixing_label)
-    or C.has_label(labels, devloop_base._impl_failed_label)
-    or C.has_label(labels, devloop_base._declined_label)
-    or C.has_label(labels, devloop_base._blocked_label)
-end
-
-function C.is_loop_terminal(labels)
-  return C.has_label(labels, devloop_base._ready_label)
-    or C.has_label(labels, devloop_base._implementing_label)
-    or C.has_label(labels, devloop_base._pr_open_label)
-    or C.has_label(labels, devloop_base._reviewing_label)
-    or C.has_label(labels, devloop_base._review_meta_label)
-    or C.has_label(labels, devloop_base._merge_ready_label)
-    or C.has_label(labels, devloop_base._merging_label)
-    or C.has_label(labels, devloop_base._merged_label)
-    or C.has_label(labels, devloop_base._fixing_label)
-    or C.has_label(labels, devloop_base._impl_failed_label)
-    or C.has_label(labels, devloop_base._declined_label)
-    or C.has_label(labels, devloop_base._blocked_label)
-end
-
 function C.has_result_marker(comments, proposal_id, decision, dedup_key, decision_reason)
   if type(comments) ~= "table" then
     return false
@@ -738,8 +426,6 @@ function C.has_result_marker(comments, proposal_id, decision, dedup_key, decisio
 end
 
 
-C._strip_latest_fix_version_suffix = strip_latest_fix_version_suffix
-C._compare_transition_versions = compare_transition_versions
 
 function S.install(M)
   for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "cyclic_transition_status", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "transition_status", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at", "versioned_transition_status"}) do M[n] = C[n] end

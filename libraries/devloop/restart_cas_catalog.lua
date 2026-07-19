@@ -1,6 +1,6 @@
 local transition_version = require("contract.transition_version")
 local pending_projection = require("devloop.restart_pending_projection")
-local devloop_state = require("devloop.state")
+local restart_metadata = require("devloop.restart_metadata")
 
 local M = {}
 
@@ -139,7 +139,7 @@ local function cyclic_status(current, source_states, target_state, incoming_vers
   if state_is_one_of(current_state, source_states) then
     return "apply"
   end
-  if devloop_state.stage_rank(target_state) > devloop_state.stage_rank(current_state) then
+  if restart_metadata.stage_rank(target_state) > restart_metadata.stage_rank(current_state) then
     return "apply"
   end
   return "stale"
@@ -311,7 +311,7 @@ local function resolve_review_loop(evidence)
     return result("apply", "apply", "applied")
   end
   if current.state ~= nil
-    and devloop_state.stage_rank(current.state) > devloop_state.stage_rank("reviewing") then
+    and restart_metadata.stage_rank(current.state) > restart_metadata.stage_rank("reviewing") then
     return result("stale", "reviewing-version", "skip-stale(reviewing-version)")
   end
   if state_is_one_of(current.state, { "reviewing" }) then
@@ -339,7 +339,7 @@ local function resolve_review_activation(evidence)
     if state_is_one_of(current.state, { "reviewing" }) then
       preliminary = tostring(current_base) == tostring(reviewing_base) and "apply" or "version-mismatch"
     else
-      local order = devloop_state.compare_state_marker_order({
+      local order = restart_metadata.compare_state_marker_order({
         state = current.state,
         version = current_base,
       }, "reviewing", reviewing_base)
