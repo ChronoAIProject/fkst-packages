@@ -1,3 +1,4 @@
+local catalog = require("devloop.restart_cas_catalog")
 local config = require("devloop.config")
 local conv_attempts = require("devloop.convergence.attempts")
 local conv_reconcile = require("devloop.convergence.reconcile")
@@ -10,6 +11,7 @@ local m_rae = require("devloop.restart_actionable_epoch")
 local m_mgw = require("devloop.merge_gate_wait")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
 local replay_fields = require("devloop.replay_fields")
+local restart_authority = require("core.restart_authority")
 local testing = require("testkit_internal.testing")
 local reconcile_department = require("departments.reconcile.main")
 
@@ -36,6 +38,18 @@ local NOW_SECONDS = 1784048400
 local OLD_CREATED_AT = "2026-06-03T01:00:00Z"
 local RECENT_CREATED_AT = "2026-07-14T16:59:00Z"
 local SOURCE_STATES = { "pr-open", "reviewing", "fixing", "review-meta", "merge-ready", "merging" }
+local SHADOW_TIMEOUT_VARIANTS = {
+  reviewing = {
+    semantic_variant = "watchdog_reconcile_terminal",
+    cas_variant = "reviewing_to_blocked",
+    edge_id = "github-devloop-pr/reviewing/timeout/watchdog_reconcile_terminal",
+  },
+  ["merge-ready"] = {
+    semantic_variant = "watchdog_reconcile_terminal",
+    cas_variant = "merge_ready_to_blocked",
+    edge_id = "github-devloop-pr/merge-ready/timeout/merge_gate/watchdog_reconcile_terminal",
+  },
+}
 
 local function restart_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
@@ -307,6 +321,53 @@ local function build_apply_record(source_state, surface, event, result, captured
   return record
 end
 
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-old " .. field)
+  t.eq(expected[field], actual[field], context .. ": old-to-shadow " .. field)
+end
+
+local function assert_shadow_apply_parity(source_state, record)
+  local shadow_variant = SHADOW_TIMEOUT_VARIANTS[source_state]
+  if shadow_variant == nil then return end
+
+  local current = record.old_inputs.current_fact
+  local incoming_version = record.old_inputs.incoming_version
+  local sealed = restart_authority.seal_snapshot({
+    owner = "github-devloop-pr",
+    proposal_id = record.typed_intent.lineage.proposal_id,
+    current = {
+      state = current.state,
+      version = current.version,
+    },
+  })
+  local shadow_evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, evidence, projection)
+    shadow_evidence = evidence
+    return original_resolve(policy_id, evidence, projection)
+  end
+  local ok, shadow = pcall(restart_authority.decide_transition, sealed, {
+      semantic_variant = shadow_variant.semantic_variant,
+      target = "blocked",
+      incoming_version = incoming_version,
+    })
+  catalog.resolve = original_resolve
+  if not ok then error(shadow, 0) end
+
+  local old = record.old_outcome
+  local context = source_state .. "/pr-apply-shadow"
+
+  assert_bidirectional(shadow, old, "status", context)
+  assert_bidirectional(shadow, old, "reason_code", context)
+  assert_bidirectional(shadow, old, "cas_outcome", context)
+  t.eq(shadow.edge_id, shadow_variant.edge_id, context .. ": selected edge")
+  t.eq(shadow.cas_policy_id, "cas.legacy_timeout_reconcile_v1", context .. ": selected policy")
+  t.eq(shadow_evidence.variant, shadow_variant.cas_variant, context .. ": selected policy variant")
+  t.eq(shadow.grant, nil, context .. ": grant disabled")
+  t.eq(shadow.evidence.facts.source, source_state, context .. ": evidence source")
+  t.eq(shadow.evidence.facts.target, "blocked", context .. ": evidence target")
+end
+
 local function capture_apply_record(source_state, surface, options)
   options = options or {}
   local event = timeout_event(source_state)
@@ -349,6 +410,9 @@ local function capture_apply_record(source_state, surface, options)
       result.raises[1].payload.body:find("reason_class=external-ci-wait-expired", 1, true) ~= nil,
       name .. ": external CI wait reason reaches the timeout comment"
     )
+  end
+  if surface == "pr" and options.reason_code == nil then
+    assert_shadow_apply_parity(source_state, record)
   end
   return record
 end

@@ -69,6 +69,31 @@ local function normalize_intent(intent)
   }
 end
 
+local function select_edge(semantic_variant, current_state)
+  local selected = nil
+  local matches = 0
+  for _, candidate in ipairs(edges) do
+    if candidate.semantic_variant == semantic_variant then
+      selected = candidate
+      matches = matches + 1
+    end
+  end
+  if matches <= 1 then
+    return selected, matches
+  end
+
+  local exact = nil
+  local exact_matches = 0
+  for _, candidate in ipairs(edges) do
+    if candidate.semantic_variant == semantic_variant
+      and candidate.source.state == current_state then
+      exact = candidate
+      exact_matches = exact_matches + 1
+    end
+  end
+  return exact, exact_matches == 1 and 1 or matches
+end
+
 function M.seal_snapshot(fields)
   if type(fields) ~= "table" or fields.owner ~= owner then
     error("restart-authority: snapshot-owner-mismatch: owner must be " .. tostring(owner))
@@ -96,14 +121,8 @@ function M.decide_transition(sealed_snapshot, intent)
     return illegal("malformed-intent")
   end
 
-  local edge = nil
-  local matches = 0
-  for _, candidate in ipairs(edges) do
-    if candidate.semantic_variant == normalized.semantic_variant then
-      edge = candidate
-      matches = matches + 1
-    end
-  end
+  local current = type(sealed_snapshot.current) == "table" and sealed_snapshot.current or {}
+  local edge, matches = select_edge(normalized.semantic_variant, current.state)
   if matches == 0 then
     return illegal("unknown-variant")
   end
@@ -118,7 +137,13 @@ function M.decide_transition(sealed_snapshot, intent)
     and edge.cas_variant == "fixing_to_reviewing"
   local supported_observe_pr = edge.cas_policy_id == "cas.legacy_observe_pr_v1"
     and edge.cas_variant == "pr_open_to_reviewing"
-  if not supported_review_result and not supported_fix and not supported_observe_pr then
+  local supported_timeout_reconcile = edge.cas_policy_id == "cas.legacy_timeout_reconcile_v1"
+    and (edge.cas_variant == "reviewing_to_blocked"
+      or edge.cas_variant == "merge_ready_to_blocked")
+  if not supported_review_result
+    and not supported_fix
+    and not supported_observe_pr
+    and not supported_timeout_reconcile then
     return illegal("unsupported-shadow-edge")
   end
 
@@ -153,7 +178,6 @@ function M.decide_transition(sealed_snapshot, intent)
     or variant.target_state ~= edge.target then
     return illegal("policy-variant-shape-mismatch")
   end
-  local current = type(sealed_snapshot.current) == "table" and sealed_snapshot.current or {}
   if concrete_source_mode
     and not restart_source_admission.exact_source_state(variant.source_states, edge.source.state) then
     return illegal("policy-variant-shape-mismatch")
