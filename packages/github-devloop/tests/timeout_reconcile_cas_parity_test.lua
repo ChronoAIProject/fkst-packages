@@ -16,11 +16,13 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
+local restart_authority = require("core.restart_authority")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local reconcile_department = require("departments.reconcile.main")
 
+local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_timeout_reconcile_v1"
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local SOURCE_REF = { kind = "external", ref = "owner/repo#issue/42" }
@@ -132,6 +134,21 @@ local function observe_department(run)
   return result, probes, decisions, boundary_calls
 end
 
+local function observe_shadow(run)
+  local evidence = nil
+  local original_resolve = catalog.resolve
+  catalog.resolve = function(policy_id, candidate, candidate_projection)
+    evidence = candidate
+    return original_resolve(policy_id, candidate, candidate_projection)
+  end
+  local ok, result = pcall(run)
+  catalog.resolve = original_resolve
+  if not ok then
+    error(result, 0)
+  end
+  return result, evidence
+end
+
 local function probe_variant(probe)
   if type(probe.from_states) ~= "table" or #probe.from_states ~= 1 or probe.to_state ~= "blocked" then
     return nil
@@ -239,6 +256,51 @@ local function fixture_comments(event, fixture)
   return comments
 end
 
+local function assert_bidirectional(actual, expected, field, context)
+  t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
+  t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
+end
+
+local function assert_timeout_shadow_case(fixture, probe, observed, decision)
+  local sealed_snapshot = restart_authority.seal_snapshot({
+    owner = OWNER,
+    proposal_id = PROPOSAL_ID,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+  })
+  local shadow, evidence = observe_shadow(function()
+    return restart_authority.decide_transition(sealed_snapshot, {
+      semantic_variant = "actionable_kickoff_timeout",
+      target = "blocked",
+      incoming_version = probe.incoming_version,
+    })
+  end)
+  local production = {
+    status = observed.status,
+    reason_code = observed.reason_code,
+    cas_outcome = decision.outcome,
+  }
+
+  assert_bidirectional(shadow, production, "status", fixture.name)
+  assert_bidirectional(shadow, production, "reason_code", fixture.name)
+  assert_bidirectional(shadow, production, "cas_outcome", fixture.name)
+  t.eq(
+    shadow.edge_id,
+    OWNER .. "/ready/timeout/actionable_kickoff_timeout",
+    fixture.name .. ": selected edge"
+  )
+  t.eq(shadow.cas_policy_id, POLICY_ID, fixture.name .. ": selected CAS policy")
+  t.eq(shadow.grant, nil, fixture.name .. ": grant disabled")
+  t.eq(evidence.current.state, fixture.current_state, fixture.name .. ": evidence current state")
+  t.eq(evidence.current.version, fixture.current_version, fixture.name .. ": evidence raw current version")
+  t.eq(evidence.variant, "ready_to_blocked", fixture.name .. ": evidence variant")
+  t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": evidence incoming version")
+  t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
+  t.eq(evidence.overlay_version, nil, fixture.name .. ": evidence overlay version")
+end
+
 local function assert_case(fixture)
   local event = fixture.event or timeout_event(
     fixture.event_state or "ready",
@@ -280,6 +342,7 @@ local function assert_case(fixture)
     local actual = catalog.resolve(POLICY_ID, evidence, projection)
     t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
     t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
+    assert_timeout_shadow_case(fixture, probe, observed, decision)
     if fixture.admission_status ~= nil then
       t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
       t.eq(actual.status, fixture.admission_status, fixture.name .. ": catalog admission status")
