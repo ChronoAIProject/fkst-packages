@@ -291,6 +291,9 @@ local function assert_catalog_matches_observed_admission(fixture)
   t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
   t.eq(observed.reason_code, fixture.admission_reason_code, fixture.name .. ": observed admission reason")
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
+  if fixture.expected_raise_count ~= nil then
+    t.eq(#result.raises, fixture.expected_raise_count, fixture.name .. ": production raise count")
+  end
 
   local disposition = post_admission_disposition(result, probe, boundary_reached)
   t.eq(disposition, fixture.post_admission_disposition, fixture.name .. ": post-admission disposition")
@@ -391,10 +394,6 @@ local function assert_rejected_before_cas()
 end
 
 local TRACE_EDGE_ID = OWNER .. "/thinking/autonomous/consensus-reached"
-local TRACE_EFFECT_IDS = {
-  "github-proxy.github_issue_comment_request",
-  "github-proxy.github_issue_label_request",
-}
 local TRACE_FIXTURES = {
   {
     fixture_id = "newer-source-marker-missing-pending",
@@ -452,42 +451,46 @@ local TRACE_FIXTURES = {
     post_admission_disposition = "effect-repair(ready)",
     legacy_log_outcome = "applied(result effects incomplete)",
     effect_state = "ready",
+    expected_raise_count = 1,
   },
 }
+
+local function trace_write(ordinal, effect_id, payload)
+  local write_kind = nil
+  if type(payload) == "table" and type(payload.body) == "string" then
+    write_kind = "comment"
+  elseif type(payload) == "table"
+    and (type(payload.add_labels) == "table" or type(payload.remove_labels) == "table") then
+    write_kind = "label"
+  else
+    error("R9 thinking trace saw an unsupported observable effect shape for " .. tostring(effect_id), 0)
+  end
+  return {
+    ordinal = ordinal,
+    effect_id = effect_id,
+    write_kind = write_kind,
+    marker_write = write_kind == "comment"
+      and payload.body:find("fkst:github-devloop:state:v1", 1, true) ~= nil,
+  }
+end
 
 local function trace_writes(raises)
   local writes = json_array()
   for ordinal, raised in ipairs(raises or {}) do
-    local write_kind = nil
-    if raised.queue == TRACE_EFFECT_IDS[1] then
-      write_kind = "comment"
-    elseif raised.queue == TRACE_EFFECT_IDS[2] then
-      write_kind = "label"
-    else
-      error("R9 thinking trace saw unsupported OLD effect " .. tostring(raised.queue), 0)
-    end
-    table.insert(writes, {
-      ordinal = ordinal,
-      effect_id = raised.queue,
-      write_kind = write_kind,
-      marker_write = write_kind == "comment"
-        and type(raised.payload) == "table"
-        and type(raised.payload.body) == "string"
-        and raised.payload.body:find("fkst:github-devloop:state:v1", 1, true) ~= nil,
-    })
+    table.insert(writes, trace_write(ordinal, raised.queue, raised.payload))
   end
   return writes
 end
 
-local function effect_ids(writes)
-  local ids = json_array()
-  for _, write in ipairs(writes) do
-    table.insert(ids, write.effect_id)
-  end
-  return ids
-end
-
-local function trace_fixture(fixture, status, reason_code, cas_outcome, entitlement_id, writes)
+local function trace_fixture(
+  fixture,
+  status,
+  reason_code,
+  cas_outcome,
+  entitlement_id,
+  granted_effect_ids,
+  writes
+)
   return {
     fixture_id = fixture.fixture_id,
     edge_id = TRACE_EDGE_ID,
@@ -495,7 +498,7 @@ local function trace_fixture(fixture, status, reason_code, cas_outcome, entitlem
     reason_code = reason_code,
     cas_outcome = cas_outcome,
     effect_entitlement_id = entitlement_id or JSON_NULL,
-    granted_effect_ids = effect_ids(writes),
+    granted_effect_ids = granted_effect_ids or json_array(),
     observable_writes = writes,
   }
 end
@@ -528,7 +531,10 @@ local function new_trace_fixture(fixture, production)
     incoming_version = fixture.incoming_version,
   })
   local writes = json_array()
-  if decided.effect_entitlement_id ~= nil then
+  -- The normalized trace records admission application writes only. Idempotent effect repair
+  -- is a separately observed post-admission disposition, even though admission grants the full
+  -- idempotent entitlement.
+  if decided.status == "apply" then
     local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:thinking-state")
     t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
     local facade = restart_effect_facade.make({
@@ -547,14 +553,7 @@ local function new_trace_fixture(fixture, production)
     for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
       local emitted = facade.emit(grant, effect_id, snapshot, args)
       t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
-      table.insert(writes, {
-        ordinal = ordinal,
-        effect_id = effect_id,
-        write_kind = effect_id == TRACE_EFFECT_IDS[1] and "comment" or "label",
-        marker_write = effect_id == TRACE_EFFECT_IDS[1]
-          and type(emitted.body) == "string"
-          and emitted.body:find("fkst:github-devloop:state:v1", 1, true) ~= nil,
-      })
+      table.insert(writes, trace_write(ordinal, effect_id, emitted))
     end
   end
   local normalized = trace_fixture(
@@ -563,10 +562,10 @@ local function new_trace_fixture(fixture, production)
     decided.reason_code,
     decided.cas_outcome,
     decided.effect_entitlement_id,
+    decided.granted_effect_ids,
     writes
   )
-  normalized.granted_effect_ids = decided.granted_effect_ids or json_array()
-  return normalized
+  return normalized, decided
 end
 
 local function assert_thinking_trace_equality()
@@ -575,27 +574,32 @@ local function assert_thinking_trace_equality()
   local new_fixtures = json_array()
   for _, fixture in ipairs(TRACE_FIXTURES) do
     local production = assert_catalog_matches_observed_admission(fixture)
-    local old_writes = trace_writes(production.result.raises)
-    local old_entitlement = nil
-    if production.observed.status == "apply" or production.observed.status == "idempotent" then
-      old_entitlement = TRACE_EDGE_ID .. "/" .. production.observed.status
-    end
+    local new_fixture, normalized_admission = new_trace_fixture(fixture, production)
+    local old_writes = production.observed.status == "apply"
+      and trace_writes(production.result.raises)
+      or json_array()
     table.insert(old_fixtures, trace_fixture(
       fixture,
       production.observed.status,
       production.observed.reason_code,
       devloop_state.cas_outcome(production.probe.current, production.probe.outcome, fixture.incoming_version),
-      old_entitlement,
+      normalized_admission.effect_entitlement_id,
+      normalized_admission.granted_effect_ids,
       old_writes
     ))
-    table.insert(new_fixtures, new_trace_fixture(fixture, production))
+    table.insert(new_fixtures, new_fixture)
   end
 
   local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
   local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(canonical_json(old_trace), canonical_json(new_trace), "R9 thinking OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 thinking trace could not create its artifact directory", 0)
+  end
+  file.write(THINKING_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
   t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 thinking OLD observation corpus")
   t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 thinking NEW semantic trace")
-  file.write(THINKING_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
 end
 
 return {

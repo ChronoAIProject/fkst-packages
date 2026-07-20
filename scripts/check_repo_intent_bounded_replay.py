@@ -180,8 +180,13 @@ def _thinking_trace_shape_messages(
                 messages.append(f"{write_label} marker_write must be boolean")
             if _nonempty_string(write.get("effect_id")):
                 observed_ids.append(write["effect_id"])
-        if observed_ids != effect_ids:
-            messages.append(f"{label} granted_effect_ids must equal observable write order")
+        if fixture.get("cas_status") == "apply":
+            if observed_ids != effect_ids:
+                messages.append(f"{label} granted_effect_ids must equal observable write order")
+        elif observed_ids:
+            messages.append(
+                f"{label} {fixture.get('cas_status')} admission must not include observable writes"
+            )
 
     if fixture_ids != sorted(fixture_ids) or len(fixture_ids) != len(set(fixture_ids)):
         messages.append(f"{relative} fixture_id values must be unique and byte-sorted")

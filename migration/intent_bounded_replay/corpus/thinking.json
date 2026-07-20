@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "73d2b801919e53f4a2937c27f6ce84b37e84acf6bc8d537568d612e7869382aa",
+  "artifact_sha256": "d4435fe2cf81d2d91d5c7b26f60bec1cb64a2386c9369d6de5fe1ffe0dd227c6",
   "family": "thinking",
   "fixtures": [
     {
@@ -58,20 +58,7 @@
         "github-proxy.github_issue_comment_request",
         "github-proxy.github_issue_label_request"
       ],
-      "observable_writes": [
-        {
-          "effect_id": "github-proxy.github_issue_comment_request",
-          "marker_write": true,
-          "ordinal": 1,
-          "write_kind": "comment"
-        },
-        {
-          "effect_id": "github-proxy.github_issue_label_request",
-          "marker_write": false,
-          "ordinal": 2,
-          "write_kind": "label"
-        }
-      ],
+      "observable_writes": [],
       "reason_code": "already-at-target"
     }
   ],

@@ -59,6 +59,24 @@ def thinking_trace() -> dict[str, object]:
     return artifact
 
 
+def idempotent_thinking_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["fixture_id"] = "target-incomplete-idempotent"
+    fixture["cas_status"] = "idempotent"
+    fixture["reason_code"] = "already-at-target"
+    fixture["cas_outcome"] = "skip-idempotent(already at to_state)"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/thinking/autonomous/consensus-reached/idempotent"
+    )
+    fixture["observable_writes"] = []
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def write(root: Path, relative_path: str, content: str) -> Path:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,6 +157,32 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         write_json(self.root, checker.THINKING_NEW_TRACE, thinking_trace())
 
         self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_idempotent_admission_entitlement_has_no_admission_write(self) -> None:
+        write_json(self.root, checker.THINKING_OLD_CORPUS, idempotent_thinking_trace())
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_idempotent_post_admission_repair_write_is_rejected(self) -> None:
+        artifact = idempotent_thinking_trace()
+        fixtures = artifact["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["observable_writes"] = [
+            {
+                "ordinal": 1,
+                "effect_id": "github-proxy.github_issue_comment_request",
+                "write_kind": "comment",
+                "marker_write": True,
+            }
+        ]
+        artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+        write_json(self.root, checker.THINKING_OLD_CORPUS, artifact)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("idempotent admission must not include observable writes" in message for message in messages))
 
     def test_thinking_trace_output_mismatch_fails_closed(self) -> None:
         changed = thinking_trace()
