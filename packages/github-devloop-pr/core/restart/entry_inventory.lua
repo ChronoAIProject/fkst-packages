@@ -12,6 +12,16 @@ return {
     pending_order = { participates = false },
     cas_policy_id = "cas.legacy_observe_pr_v1",
     cas_variant = "pr_open_to_reviewing",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/reviewing/entry/first_seen_pr/apply",
+        effect_ids = { "github-proxy.github_pr_comment_request" },
+      },
+      idempotent = {
+        id = "github-devloop-pr/reviewing/entry/first_seen_pr/idempotent",
+        effect_ids = {},
+      },
+    },
     provenance = {
       owner = "github-devloop-pr",
       row = "reviewing",

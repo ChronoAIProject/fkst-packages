@@ -7,6 +7,25 @@ local M = {}
 local COMMENT_EFFECT_ID = "github-proxy.github_pr_comment_request"
 local LABEL_EFFECT_ID = "github-proxy.github_issue_label_request"
 
+local function serialize_review_activation_comment(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.repo) ~= "string"
+    or type(args.origin) ~= "table"
+    or args.pr_number == nil
+    or type(args.source_ref) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_review.build_reviewing_comment_request(
+    args.core,
+    args.repo,
+    args.issue_number,
+    args.origin,
+    args.pr_number,
+    args.source_ref
+  )
+end
+
 local function valid_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
@@ -139,6 +158,13 @@ local REVIEW_RESULT_SERIALIZERS = {
   },
 }
 
+local REVIEW_ACTIVATION_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:observe-reviewing",
+    serialize = serialize_review_activation_comment,
+  },
+}
+
 local FIX_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:fix-reviewing",
@@ -162,6 +188,7 @@ local REVIEW_META_SERIALIZERS = {
 }
 
 local SERIALIZERS_BY_FAMILY = {
+  ["pr-review-activation"] = REVIEW_ACTIVATION_SERIALIZERS,
   ["pr-review-result"] = REVIEW_RESULT_SERIALIZERS,
   ["pr-review-meta"] = REVIEW_META_SERIALIZERS,
   ["pr-fix"] = FIX_SERIALIZERS,

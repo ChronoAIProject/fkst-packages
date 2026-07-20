@@ -154,7 +154,7 @@
 {"path":"packages/github-devloop-pr/core/restart/transitions/review_meta.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/transitions/reviewing.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart_authority.lua","owner":"pr","reason":"owner-local grant-disabled shadow decider for PR-side restart transitions (Step 0.0.3 PR twin); composes typed edges + owner pending projection + CAS catalog in shadow, grant=nil, constructs no lifecycle effect."}
-{"path":"packages/github-devloop-pr/core/restart_effect_facade.lua","owner":"pr","reason":"owner-local PR shadow facade gates review-result and fix lifecycle-authoritative effect construction on exact grant verification without replacing OLD writers."}
+{"path":"packages/github-devloop-pr/core/restart_effect_facade.lua","owner":"pr","reason":"owner-local PR shadow facade gates review-activation, review-result, review-meta, and fix lifecycle-authoritative effect construction on exact grant verification without replacing OLD writers."}
 {"path":"packages/github-devloop-pr/core/restart_effects.lua","owner":"pr","reason":"owner-local PR grant seal and grant-consuming verifier for lifecycle-authoritative restart effects in Step 0.3 shadow mode."}
 {"path":"packages/github-devloop-pr/core/review_carry_over.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/review_meta_requests.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}

@@ -204,6 +204,23 @@ def pr_fix_trace() -> dict[str, object]:
     return artifact
 
 
+def pr_review_activation_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-review-activation-trace.v1"
+    artifact["family"] = "pr-review-activation"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/reviewing/entry/first_seen_pr"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    fixture["granted_effect_ids"] = ["github-proxy.github_pr_comment_request"]
+    fixture["observable_writes"] = [fixture["observable_writes"][0]]
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def idempotent_thinking_trace() -> dict[str, object]:
     artifact = thinking_trace()
     fixtures = artifact["fixtures"]
@@ -314,6 +331,11 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             pr_review_meta_trace(),
         )
         write_json(self.root, checker.PR_FIX_OLD_CORPUS, pr_fix_trace())
+        write_json(
+            self.root,
+            checker.PR_REVIEW_ACTIVATION_OLD_CORPUS,
+            pr_review_activation_trace(),
+        )
 
     def allow(self, relative_path: str) -> None:
         write(self.root, checker.ALLOWLIST, HEADER + relative_path + "\n")
@@ -548,6 +570,32 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
 
         self.assertTrue(any(
             "pr-fix trace canonical hash mismatch" in message
+            for message in messages
+        ))
+
+    def test_pr_review_activation_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(
+            self.root,
+            checker.PR_REVIEW_ACTIVATION_NEW_TRACE,
+            pr_review_activation_trace(),
+        )
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_pr_review_activation_trace_output_mismatch_fails_closed(self) -> None:
+        changed = pr_review_activation_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(self.root, checker.PR_REVIEW_ACTIVATION_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any(
+            "pr-review-activation trace canonical hash mismatch" in message
             for message in messages
         ))
 
