@@ -18,6 +18,7 @@ import check_repo_core_param
 import check_repo_hidden_state
 import check_repo_intake_default_surface
 import check_repo_intake_routing
+import check_repo_intent_bounded_replay
 import check_repo_integration_coverage
 import check_repo_lower_injected_m
 import check_repo_live_run_dispatch
@@ -163,6 +164,8 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
 
 def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
     root = config.project_root
+    for message in check_repo_intent_bounded_replay.repository_messages(root, enforce_base=True):
+        c.add(violations, "G-INTENT-BOUNDED-REPLAY", message)
     c.check_github_content_ingress(root, violations)
     c.check_ownership_gate_claim_owner(root, violations)
     c.check_std_dependency_model(root, violations, warnings)
