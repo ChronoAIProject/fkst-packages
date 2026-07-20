@@ -1,0 +1,80 @@
+{
+  "artifact_sha256": "73d2b801919e53f4a2937c27f6ce84b37e84acf6bc8d537568d612e7869382aa",
+  "family": "thinking",
+  "fixtures": [
+    {
+      "cas_outcome": "retry-pending(from-state marker not yet visible)",
+      "cas_status": "pending",
+      "edge_id": "github-devloop/thinking/autonomous/consensus-reached",
+      "effect_entitlement_id": null,
+      "fixture_id": "newer-source-marker-missing-pending",
+      "granted_effect_ids": [],
+      "observable_writes": [],
+      "reason_code": "source-marker-not-visible"
+    },
+    {
+      "cas_outcome": "applied",
+      "cas_status": "apply",
+      "edge_id": "github-devloop/thinking/autonomous/consensus-reached",
+      "effect_entitlement_id": "github-devloop/thinking/autonomous/consensus-reached/apply",
+      "fixture_id": "source-equal-apply",
+      "granted_effect_ids": [
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request"
+      ],
+      "observable_writes": [
+        {
+          "effect_id": "github-proxy.github_issue_comment_request",
+          "marker_write": true,
+          "ordinal": 1,
+          "write_kind": "comment"
+        },
+        {
+          "effect_id": "github-proxy.github_issue_label_request",
+          "marker_write": false,
+          "ordinal": 2,
+          "write_kind": "label"
+        }
+      ],
+      "reason_code": "apply"
+    },
+    {
+      "cas_outcome": "skip-stale(incoming version < current marker version)",
+      "cas_status": "stale",
+      "edge_id": "github-devloop/thinking/autonomous/consensus-reached",
+      "effect_entitlement_id": null,
+      "fixture_id": "source-older-stale",
+      "granted_effect_ids": [],
+      "observable_writes": [],
+      "reason_code": "incoming-version-older"
+    },
+    {
+      "cas_outcome": "skip-idempotent(already at to_state)",
+      "cas_status": "idempotent",
+      "edge_id": "github-devloop/thinking/autonomous/consensus-reached",
+      "effect_entitlement_id": "github-devloop/thinking/autonomous/consensus-reached/idempotent",
+      "fixture_id": "target-incomplete-idempotent",
+      "granted_effect_ids": [
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request"
+      ],
+      "observable_writes": [
+        {
+          "effect_id": "github-proxy.github_issue_comment_request",
+          "marker_write": true,
+          "ordinal": 1,
+          "write_kind": "comment"
+        },
+        {
+          "effect_id": "github-proxy.github_issue_label_request",
+          "marker_write": false,
+          "ordinal": 2,
+          "write_kind": "label"
+        }
+      ],
+      "reason_code": "already-at-target"
+    }
+  ],
+  "owner": "github-devloop",
+  "schema": "restart-thinking-trace.v1"
+}

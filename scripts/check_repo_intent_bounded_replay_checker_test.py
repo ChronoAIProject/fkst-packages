@@ -20,6 +20,45 @@ HEADER = "# R9 intent-bounded-replay: zero behavior-change intent-diffs during r
 ZERO_HASH = "0" * 64
 
 
+def thinking_trace() -> dict[str, object]:
+    artifact: dict[str, object] = {
+        "schema": "restart-thinking-trace.v1",
+        "owner": "github-devloop",
+        "family": "thinking",
+        "fixtures": [
+            {
+                "fixture_id": "source-equal-apply",
+                "edge_id": "github-devloop/thinking/autonomous/consensus-reached",
+                "cas_status": "apply",
+                "reason_code": "apply",
+                "cas_outcome": "applied",
+                "effect_entitlement_id": "github-devloop/thinking/autonomous/consensus-reached/apply",
+                "granted_effect_ids": [
+                    "github-proxy.github_issue_comment_request",
+                    "github-proxy.github_issue_label_request",
+                ],
+                "observable_writes": [
+                    {
+                        "ordinal": 1,
+                        "effect_id": "github-proxy.github_issue_comment_request",
+                        "write_kind": "comment",
+                        "marker_write": True,
+                    },
+                    {
+                        "ordinal": 2,
+                        "effect_id": "github-proxy.github_issue_label_request",
+                        "write_kind": "label",
+                        "marker_write": False,
+                    },
+                ],
+            }
+        ],
+        "artifact_sha256": "",
+    }
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def write(root: Path, relative_path: str, content: str) -> Path:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,12 +120,48 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             write(self.root, relative_path, "# protected fixture\n")
         write(self.root, checker.ALLOWLIST, HEADER)
         write(self.root, f"{checker.INTENT_DIFF_DIR}/.gitkeep", "")
+        write_json(self.root, checker.THINKING_OLD_CORPUS, thinking_trace())
 
     def allow(self, relative_path: str) -> None:
         write(self.root, checker.ALLOWLIST, HEADER + relative_path + "\n")
 
     def test_clean_refactor_state_passes(self) -> None:
         self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_missing_thinking_corpus_fails_closed(self) -> None:
+        (self.root / checker.THINKING_OLD_CORPUS).unlink()
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("missing protected input" in message for message in messages))
+
+    def test_thinking_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(self.root, checker.THINKING_NEW_TRACE, thinking_trace())
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_thinking_trace_output_mismatch_fails_closed(self) -> None:
+        changed = thinking_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(self.root, checker.THINKING_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("thinking trace canonical hash mismatch" in message for message in messages))
+
+    def test_thinking_corpus_self_hash_is_protected(self) -> None:
+        changed = thinking_trace()
+        changed["artifact_sha256"] = "f" * 64
+        write_json(self.root, checker.THINKING_OLD_CORPUS, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("artifact_sha256 mismatch" in message for message in messages))
 
     def test_stray_non_allowlisted_intent_diff_fails(self) -> None:
         relative_path = f"{checker.INTENT_DIFF_DIR}/123.json"

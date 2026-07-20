@@ -10,6 +10,7 @@ import re
 import subprocess
 from typing import Any
 
+from intent_bounded_replay.compare import compare_report
 from intent_bounded_replay.normalize import (
     canonical_artifact_hash_v1,
     canonical_json,
@@ -22,6 +23,8 @@ import ratchet_base
 
 ALLOWLIST = "migration/intent-bounded-replay.allowlist"
 INTENT_DIFF_DIR = "migration/intent-diffs"
+THINKING_OLD_CORPUS = "migration/intent_bounded_replay/corpus/thinking.json"
+THINKING_NEW_TRACE = ".fkst/run/r9-thinking-new-trace.json"
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
@@ -83,6 +86,143 @@ ATTESTATION_HASH_FIELDS = (
     "behavior_diff_sha256",
     "attestation_sha256",
 )
+
+
+def _exact_fields_messages(
+    artifact: dict[str, Any], expected: set[str], relative: str
+) -> list[str]:
+    actual = set(artifact)
+    messages: list[str] = []
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing:
+        messages.append(f"{relative} is missing fields: {', '.join(missing)}")
+    if extra:
+        messages.append(f"{relative} has unexpected fields: {', '.join(extra)}")
+    return messages
+
+
+def _thinking_trace_shape_messages(
+    artifact: dict[str, Any], relative: str
+) -> list[str]:
+    messages = _exact_fields_messages(
+        artifact,
+        {"schema", "owner", "family", "fixtures", "artifact_sha256"},
+        relative,
+    )
+    if artifact.get("schema") != "restart-thinking-trace.v1":
+        messages.append(f"{relative} schema must be restart-thinking-trace.v1")
+    if artifact.get("owner") != "github-devloop":
+        messages.append(f"{relative} owner must be github-devloop")
+    if artifact.get("family") != "thinking":
+        messages.append(f"{relative} family must be thinking")
+    fixtures = artifact.get("fixtures")
+    if not isinstance(fixtures, list) or not fixtures:
+        return messages + [f"{relative} fixtures must be a non-empty array"]
+
+    fixture_ids: list[str] = []
+    for index, fixture in enumerate(fixtures):
+        label = f"{relative} fixtures[{index}]"
+        if not isinstance(fixture, dict):
+            messages.append(f"{label} must be an object")
+            continue
+        messages.extend(
+            _exact_fields_messages(
+                fixture,
+                {
+                    "fixture_id",
+                    "edge_id",
+                    "cas_status",
+                    "reason_code",
+                    "cas_outcome",
+                    "effect_entitlement_id",
+                    "granted_effect_ids",
+                    "observable_writes",
+                },
+                label,
+            )
+        )
+        for field in ("fixture_id", "edge_id", "cas_status", "reason_code", "cas_outcome"):
+            if not _nonempty_string(fixture.get(field)):
+                messages.append(f"{label} field {field} must be a non-empty string")
+        if _nonempty_string(fixture.get("fixture_id")):
+            fixture_ids.append(fixture["fixture_id"])
+        entitlement = fixture.get("effect_entitlement_id")
+        if entitlement is not None and not _nonempty_string(entitlement):
+            messages.append(f"{label} effect_entitlement_id must be string or null")
+        effect_ids = fixture.get("granted_effect_ids")
+        if not _string_list(effect_ids):
+            messages.append(f"{label} granted_effect_ids must be an array of strings")
+            effect_ids = []
+        writes = fixture.get("observable_writes")
+        if not isinstance(writes, list):
+            messages.append(f"{label} observable_writes must be an array")
+            continue
+        observed_ids: list[str] = []
+        for write_index, write in enumerate(writes, 1):
+            write_label = f"{label} observable_writes[{write_index - 1}]"
+            if not isinstance(write, dict):
+                messages.append(f"{write_label} must be an object")
+                continue
+            messages.extend(
+                _exact_fields_messages(
+                    write,
+                    {"ordinal", "effect_id", "write_kind", "marker_write"},
+                    write_label,
+                )
+            )
+            if not _positive_integer(write.get("ordinal")) or int(write["ordinal"]) != write_index:
+                messages.append(f"{write_label} ordinal must match its one-based position")
+            for field in ("effect_id", "write_kind"):
+                if not _nonempty_string(write.get(field)):
+                    messages.append(f"{write_label} field {field} must be a non-empty string")
+            if not isinstance(write.get("marker_write"), bool):
+                messages.append(f"{write_label} marker_write must be boolean")
+            if _nonempty_string(write.get("effect_id")):
+                observed_ids.append(write["effect_id"])
+        if observed_ids != effect_ids:
+            messages.append(f"{label} granted_effect_ids must equal observable write order")
+
+    if fixture_ids != sorted(fixture_ids) or len(fixture_ids) != len(set(fixture_ids)):
+        messages.append(f"{relative} fixture_id values must be unique and byte-sorted")
+    messages.extend(_hash_field_messages(artifact, ("artifact_sha256",), relative))
+    messages.extend(_self_hash_messages(artifact, "artifact_sha256", relative))
+    return messages
+
+
+def _thinking_trace_messages(root: Path) -> list[str]:
+    old_path = root / THINKING_OLD_CORPUS
+    if not old_path.is_file():
+        return [f"missing protected input: {THINKING_OLD_CORPUS}"]
+    old, messages = _load_json_object(old_path)
+    if old is None:
+        return [message.replace(old_path.as_posix(), THINKING_OLD_CORPUS, 1) for message in messages]
+    messages.extend(_thinking_trace_shape_messages(old, THINKING_OLD_CORPUS))
+
+    new_path = root / THINKING_NEW_TRACE
+    if not new_path.is_file():
+        return messages
+    new, load_messages = _load_json_object(new_path)
+    messages.extend(message.replace(new_path.as_posix(), THINKING_NEW_TRACE, 1) for message in load_messages)
+    if new is None:
+        return messages
+    messages.extend(_thinking_trace_shape_messages(new, THINKING_NEW_TRACE))
+    if messages:
+        return messages
+    report = compare_report(old, new)
+    if not report["equal"]:
+        messages.append(
+            "thinking trace canonical hash mismatch: "
+            f"OLD={report['old_hash']} NEW={report['new_hash']} "
+            f"first_divergence={report.get('first_divergence', '')}"
+        )
+    return messages
+
+
+def thinking_trace_status(root: Path) -> str:
+    if not (Path(root) / THINKING_NEW_TRACE).is_file():
+        return f"thinking trace comparison skipped: {THINKING_NEW_TRACE} is absent"
+    return "thinking trace comparison executed by canonical artifact hash"
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -291,11 +431,12 @@ def _attestation_messages(
 
 def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
     root = Path(root)
-    messages = [
+    messages = _thinking_trace_messages(root)
+    messages.extend(
         f"missing protected input: {relative}"
         for relative in PROTECTED_MODULES
         if not (root / relative).is_file()
-    ]
+    )
     intent_diff_dir = root / INTENT_DIFF_DIR
     if not intent_diff_dir.is_dir():
         messages.append(f"missing protected input directory: {INTENT_DIFF_DIR}")
@@ -354,4 +495,5 @@ if __name__ == "__main__":
         for violation in violations:
             print(f"R9-INTENT-BOUNDED-REPLAY: {violation}")
         raise SystemExit(1)
-    print("OK: R9 intent-bounded-replay refactor-phase checks passed")
+    print("OK: R9 intent-bounded-replay refactor-phase checks passed; "
+          + thinking_trace_status(project_root))

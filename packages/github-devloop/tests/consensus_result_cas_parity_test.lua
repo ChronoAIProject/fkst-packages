@@ -4,7 +4,10 @@
 -- This test never computes the expected admission with a transition helper.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
   entry = require("core.restart.entry_inventory"),
@@ -18,6 +21,12 @@ local restart_authority = require("core.restart_authority")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
+
+local JSON_NULL = observation_support.JSON_NULL
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
+local THINKING_CORPUS_PATH = "migration/intent_bounded_replay/corpus/thinking.json"
+local THINKING_NEW_TRACE_PATH = ".fkst/run/r9-thinking-new-trace.json"
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_consensus_result_v1"
@@ -292,6 +301,7 @@ local function assert_catalog_matches_observed_admission(fixture)
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
   return {
+    result = result,
     source = source,
     probe = probe,
     decision = decisions[1],
@@ -378,6 +388,214 @@ local function assert_rejected_before_cas()
   t.eq(resolved.status, "illegal", "consensus-result-malformed: catalog status")
   t.eq(resolved.reason_code, "invalid-evidence", "consensus-result-malformed: catalog reason")
   t.eq(resolved.cas_outcome, "illegal(invalid-evidence)", "consensus-result-malformed: catalog fails closed")
+end
+
+local TRACE_EDGE_ID = OWNER .. "/thinking/autonomous/consensus-reached"
+local TRACE_EFFECT_IDS = {
+  "github-proxy.github_issue_comment_request",
+  "github-proxy.github_issue_label_request",
+}
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "newer-source-marker-missing-pending",
+    name = "r9-thinking-newer-source-marker-missing",
+    current_state = nil,
+    current_version = nil,
+    incoming_version = V_NEWER,
+    probe_outcome = "pending",
+    admission_status = "pending",
+    admission_reason_code = "source-marker-not-visible",
+    boundary_call_count = 0,
+    post_admission_disposition = "not-admitted",
+    legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+    effect_state = nil,
+    expected_exit_code = 1,
+  },
+  {
+    fixture_id = "source-equal-apply",
+    name = "r9-thinking-source-equal-apply",
+    current_state = "thinking",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    probe_outcome = "apply",
+    admission_status = "apply",
+    admission_reason_code = "apply",
+    boundary_call_count = 2,
+    post_admission_disposition = "effect-emitted(ready)",
+    legacy_log_outcome = "applied | applied",
+    effect_state = "ready",
+  },
+  {
+    fixture_id = "source-older-stale",
+    name = "r9-thinking-source-older-stale",
+    current_state = "thinking",
+    current_version = V_EQUAL,
+    incoming_version = V_OLDER,
+    probe_outcome = "stale",
+    admission_status = "stale",
+    admission_reason_code = "incoming-version-older",
+    boundary_call_count = 0,
+    post_admission_disposition = "not-admitted",
+    legacy_log_outcome = "skip-stale(incoming version < current marker version)",
+    effect_state = nil,
+  },
+  {
+    fixture_id = "target-incomplete-idempotent",
+    name = "r9-thinking-target-incomplete-idempotent",
+    current_state = "ready",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    probe_outcome = "idempotent",
+    admission_status = "idempotent",
+    admission_reason_code = "already-at-target",
+    boundary_call_count = 2,
+    post_admission_disposition = "effect-repair(ready)",
+    legacy_log_outcome = "applied(result effects incomplete)",
+    effect_state = "ready",
+  },
+}
+
+local function trace_writes(raises)
+  local writes = json_array()
+  for ordinal, raised in ipairs(raises or {}) do
+    local write_kind = nil
+    if raised.queue == TRACE_EFFECT_IDS[1] then
+      write_kind = "comment"
+    elseif raised.queue == TRACE_EFFECT_IDS[2] then
+      write_kind = "label"
+    else
+      error("R9 thinking trace saw unsupported OLD effect " .. tostring(raised.queue), 0)
+    end
+    table.insert(writes, {
+      ordinal = ordinal,
+      effect_id = raised.queue,
+      write_kind = write_kind,
+      marker_write = write_kind == "comment"
+        and type(raised.payload) == "table"
+        and type(raised.payload.body) == "string"
+        and raised.payload.body:find("fkst:github-devloop:state:v1", 1, true) ~= nil,
+    })
+  end
+  return writes
+end
+
+local function effect_ids(writes)
+  local ids = json_array()
+  for _, write in ipairs(writes) do
+    table.insert(ids, write.effect_id)
+  end
+  return ids
+end
+
+local function trace_fixture(fixture, status, reason_code, cas_outcome, entitlement_id, writes)
+  return {
+    fixture_id = fixture.fixture_id,
+    edge_id = TRACE_EDGE_ID,
+    cas_status = status,
+    reason_code = reason_code,
+    cas_outcome = cas_outcome,
+    effect_entitlement_id = entitlement_id or JSON_NULL,
+    granted_effect_ids = effect_ids(writes),
+    observable_writes = writes,
+  }
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return {
+    schema = "restart-thinking-trace.v1",
+    owner = OWNER,
+    family = "thinking",
+    fixtures = fixtures,
+    artifact_sha256 = corpus_hash,
+  }
+end
+
+local function new_trace_fixture(fixture, production)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "issue", repo = "owner/repo", number = 42 },
+    proposal_id = production.source.event.proposal_id,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+    snapshot_fingerprint = "r9-thinking:" .. fixture.fixture_id,
+    lock_epoch = "r9-thinking:lock",
+    generation = "r9-thinking:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "consensus-reached",
+    incoming_version = fixture.incoming_version,
+  })
+  local writes = json_array()
+  if decided.effect_entitlement_id ~= nil then
+    local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:thinking-state")
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local args = {
+      core = core,
+      issue = {
+        repo = "owner/repo",
+        number = 42,
+        source_ref = production.source.event.source_ref,
+      },
+      proposal = production.source.event,
+    }
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(writes, {
+        ordinal = ordinal,
+        effect_id = effect_id,
+        write_kind = effect_id == TRACE_EFFECT_IDS[1] and "comment" or "label",
+        marker_write = effect_id == TRACE_EFFECT_IDS[1]
+          and type(emitted.body) == "string"
+          and emitted.body:find("fkst:github-devloop:state:v1", 1, true) ~= nil,
+      })
+    end
+  end
+  local normalized = trace_fixture(
+    fixture,
+    decided.status,
+    decided.reason_code,
+    decided.cas_outcome,
+    decided.effect_entitlement_id,
+    writes
+  )
+  normalized.granted_effect_ids = decided.granted_effect_ids or json_array()
+  return normalized
+end
+
+local function assert_thinking_trace_equality()
+  local corpus = json.decode(file.read(THINKING_CORPUS_PATH))
+  local old_fixtures = json_array()
+  local new_fixtures = json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_catalog_matches_observed_admission(fixture)
+    local old_writes = trace_writes(production.result.raises)
+    local old_entitlement = nil
+    if production.observed.status == "apply" or production.observed.status == "idempotent" then
+      old_entitlement = TRACE_EDGE_ID .. "/" .. production.observed.status
+    end
+    table.insert(old_fixtures, trace_fixture(
+      fixture,
+      production.observed.status,
+      production.observed.reason_code,
+      devloop_state.cas_outcome(production.probe.current, production.probe.outcome, fixture.incoming_version),
+      old_entitlement,
+      old_writes
+    ))
+    table.insert(new_fixtures, new_trace_fixture(fixture, production))
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 thinking OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 thinking NEW semantic trace")
+  file.write(THINKING_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
 end
 
 return {
@@ -538,6 +756,10 @@ return {
       legacy_log_outcome = "skip-idempotent(first-result)",
       effect_state = nil,
     })
+  end,
+
+  test_r9_thinking_old_equals_new_normalized_trace = function()
+    assert_thinking_trace_equality()
   end,
 
   test_consensus_result_malformed_evidence_and_payload_fail_closed_before_cas = function()
