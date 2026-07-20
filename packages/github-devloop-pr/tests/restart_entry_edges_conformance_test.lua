@@ -67,6 +67,16 @@ local expected_entries = {
     field = "entry_inventory.review_convergence_round",
     semantic_variant = "review_convergence_round",
     cas_policy_id = "cas.legacy_review_loop_safe_v1",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/reviewing/entry/review_convergence_round/apply",
+        effect_ids = { "github-proxy.github_pr_comment_request" },
+      },
+      idempotent = {
+        id = "github-devloop-pr/reviewing/entry/review_convergence_round/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/pr-open/entry/pr_open_handoff"] = {
     row_id = "pr-open",
