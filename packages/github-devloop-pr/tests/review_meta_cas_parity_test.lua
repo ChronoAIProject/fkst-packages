@@ -4,6 +4,7 @@
 -- test never computes the expected result with a devloop.state transition helper.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -21,6 +22,8 @@ local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local review_meta_department = require("departments.review_meta.main")
 local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 
 local OWNER = "github-devloop-pr"
 local POLICY_ID = "cas.legacy_review_meta_v1"
@@ -30,6 +33,8 @@ local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T0
 local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
+local REVIEW_META_CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-review-meta.json"
+local REVIEW_META_NEW_TRACE_PATH = ".fkst/run/r9-pr-review-meta-new-trace.json"
 
 local function mock_meta_codex(stdout)
   t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
@@ -45,6 +50,9 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local marker_checks = {}
+  local effect_builders = { comment = {}, label = {} }
+  local original_build_comment = core.build_review_meta_comment_request
+  local original_build_label = core.build_review_meta_label_request
   local original_cyclic = devloop_state.cyclic_transition_status
   local original_log_cas = devloop_logging.log_cas_decision
   local original_has_review_meta_marker = m_facts.has_review_meta_marker
@@ -90,8 +98,32 @@ local function observe_department(run)
     })
     return original_has_review_meta_marker(comments, proposal_id, dedup_key)
   end
+  core.build_review_meta_comment_request = function(repo, issue_number, review_meta, action, reason, version, blocking_gap)
+    table.insert(effect_builders.comment, {
+      repo = repo,
+      issue_number = issue_number,
+      review_meta = review_meta,
+      action = action,
+      reason = reason,
+      version = version,
+      blocking_gap = blocking_gap,
+    })
+    return original_build_comment(repo, issue_number, review_meta, action, reason, version, blocking_gap)
+  end
+  core.build_review_meta_label_request = function(repo, issue_number, review_meta, action, version)
+    table.insert(effect_builders.label, {
+      repo = repo,
+      issue_number = issue_number,
+      review_meta = review_meta,
+      action = action,
+      version = version,
+    })
+    return original_build_label(repo, issue_number, review_meta, action, version)
+  end
 
   local ok, result = pcall(run)
+  core.build_review_meta_label_request = original_build_label
+  core.build_review_meta_comment_request = original_build_comment
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup
   m_facts.has_review_meta_marker = original_has_review_meta_marker
   devloop_logging.log_cas_decision = original_log_cas
@@ -99,7 +131,7 @@ local function observe_department(run)
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, marker_checks
+  return result, probes, decisions, marker_checks, effect_builders
 end
 
 local function observe_shadow(run)
@@ -233,7 +265,7 @@ local function assert_catalog_matches_observed_decision(fixture)
   h.mock_default_issue_claim()
   h.mock_pr_origin(nil, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev")
 
-  local result, probes, decisions, marker_checks = observe_department(function()
+  local result, probes, decisions, marker_checks, effect_builders = observe_department(function()
     return run_real_department(event)
   end)
 
@@ -293,9 +325,178 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
   end
   return {
+    result = result,
+    event = event,
     probe = probe,
+    decision = decision,
     observed = observed,
+    effect_builders = effect_builders,
   }
+end
+
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "source-equal-block-apply",
+    name = "r9-pr-review-meta-block-apply",
+    semantic_variant = "block",
+    target = "blocked",
+    current_state = "review-meta",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    codex_stdout = h.action_label .. " block\n" .. h.reason_label .. " The review cannot be repaired safely.",
+    effect_state = "blocked",
+    marker_check_reached = true,
+    post_admission_disposition = "effect-emitted(blocked)",
+  },
+  {
+    fixture_id = "source-equal-fix-apply",
+    name = "r9-pr-review-meta-fix-apply",
+    semantic_variant = "fix",
+    target = "fixing",
+    current_state = "review-meta",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    codex_stdout = h.action_label .. " fix\n" .. h.reason_label .. " Run another fix pass.\nBlocking gap: missing CAS parity guard",
+    effect_state = "fixing",
+    marker_check_reached = true,
+    post_admission_disposition = "effect-emitted(fixing)",
+  },
+  {
+    fixture_id = "source-older-stale",
+    name = "r9-pr-review-meta-stale",
+    semantic_variant = "fix",
+    target = "fixing",
+    current_state = "review-meta",
+    current_version = V_EQUAL,
+    incoming_version = V_OLDER,
+  },
+  {
+    fixture_id = "target-idempotent",
+    name = "r9-pr-review-meta-idempotent",
+    semantic_variant = "fix",
+    target = "fixing",
+    current_state = "fixing",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    result_marker_visible = true,
+    marker_check_reached = true,
+    post_admission_disposition = "effect-idempotent",
+  },
+}
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-pr-review-meta-trace.v1", OWNER, "pr-review-meta", corpus_hash, fixtures
+  )
+end
+
+local function new_trace_fixture(fixture, production)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "pr", repo = "owner/repo", number = 7 },
+    proposal_id = production.event.proposal_id,
+    current = { state = fixture.current_state, version = fixture.current_version },
+    snapshot_fingerprint = "r9-pr-review-meta:" .. fixture.fixture_id,
+    lock_epoch = "r9-pr-review-meta:lock",
+    generation = "r9-pr-review-meta:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = fixture.semantic_variant,
+    target = fixture.target,
+    incoming_version = fixture.incoming_version,
+    overlay_version = fixture.incoming_version,
+  })
+  local writes = observation_support.json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(snapshot, decided, "comment:pr:review-meta-result")
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local comment = production.effect_builders.comment[1]
+    local label = production.effect_builders.label[1]
+    t.is_true(comment ~= nil, fixture.fixture_id .. ": OLD comment builder observed")
+    t.is_true(label ~= nil, fixture.fixture_id .. ": OLD label builder observed")
+    local facade = restart_effect_facade.make({
+      family = "pr-review-meta",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local args = {
+      core = core,
+      repo = comment.repo,
+      issue_number = comment.issue_number,
+      review_meta = comment.review_meta,
+      action = comment.action,
+      reason = comment.reason,
+      version = comment.version,
+      blocking_gap = comment.blocking_gap,
+    }
+    t.eq(label.repo, args.repo, fixture.fixture_id .. ": OLD builders share repo")
+    t.eq(label.issue_number, args.issue_number, fixture.fixture_id .. ": OLD builders share issue")
+    t.eq(label.review_meta, args.review_meta, fixture.fixture_id .. ": OLD builders share payload")
+    t.eq(label.action, args.action, fixture.fixture_id .. ": OLD builders share action")
+    t.eq(label.version, args.version, fixture.fixture_id .. ": OLD builders share version")
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
+    end
+  end
+  return decided, writes
+end
+
+local function assert_review_meta_trace_equality()
+  local corpus = json.decode(file.read(REVIEW_META_CORPUS_PATH))
+  local old_fixtures = observation_support.json_array()
+  local new_fixtures = observation_support.json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_catalog_matches_observed_decision(fixture)
+    local decided, new_writes = new_trace_fixture(fixture, production)
+    local old_writes = production.observed.status == "apply"
+      and observation_support.admission_trace_writes(
+        production.result.raises,
+        "R9 PR review-meta trace"
+      )
+      or observation_support.json_array()
+    local edge_id = OWNER .. "/review-meta/autonomous/" .. fixture.semantic_variant
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      edge_id,
+      production.observed.status,
+      production.observed.reason_code,
+      devloop_state.cas_outcome(
+        production.probe.current,
+        production.probe.outcome,
+        fixture.incoming_version
+      ),
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      old_writes
+    ))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      edge_id,
+      decided.status,
+      decided.reason_code,
+      decided.cas_outcome,
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      new_writes
+    ))
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local canonical_json = observation_support.canonical_json
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 PR review-meta OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 PR review-meta trace could not create its artifact directory", 0)
+  end
+  file.write(REVIEW_META_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 PR review-meta OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus),
+    "R9 PR review-meta NEW semantic trace")
 end
 
 local function assert_bidirectional(actual, expected, field, context)
@@ -557,6 +758,10 @@ return {
 
   test_review_meta_predecessor_with_equal_event_matches_production_admission = function()
     assert_local_source_marker_pending("review-meta-predecessor-equal", "reviewing")
+  end,
+
+  test_r9_pr_review_meta_old_equals_new_normalized_trace = function()
+    assert_review_meta_trace_equality()
   end,
 
   test_review_meta_malformed_evidence_and_payload_fail_closed_before_cas = function()

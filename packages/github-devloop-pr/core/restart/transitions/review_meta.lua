@@ -9,6 +9,22 @@ return function(M, h)
   local liveness = h.liveness
   local responsibility_signature = h.responsibility_signature; local span_contract = h.span_contract
   local advancing_fact = h.advancing_fact
+  local function effect_entitlements(semantic_variant)
+    local edge_id = "github-devloop-pr/review-meta/autonomous/" .. semantic_variant
+    return {
+      apply = {
+        id = edge_id .. "/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = edge_id .. "/idempotent",
+        effect_ids = {},
+      },
+    }
+  end
   return {
     from_state = "review-meta",
     liveness_class_id = "review_meta.actionable",
@@ -63,6 +79,7 @@ return function(M, h)
           output_variant = "fix",
           cas_policy_id = "cas.legacy_review_meta_v1",
           cas_variant = "predecision_eligibility",
+          transition_effect_entitlements = effect_entitlements("fix"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "review-meta" },
           postcondition_family = "review-meta-decision",
@@ -74,6 +91,7 @@ return function(M, h)
           output_variant = "block",
           cas_policy_id = "cas.legacy_review_meta_v1",
           cas_variant = "predecision_eligibility",
+          transition_effect_entitlements = effect_entitlements("block"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "review-meta" },
           postcondition_family = "review-meta-decision",

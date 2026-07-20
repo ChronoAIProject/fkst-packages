@@ -174,6 +174,21 @@ def pr_review_result_trace() -> dict[str, object]:
     return artifact
 
 
+def pr_review_meta_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-review-meta-trace.v1"
+    artifact["family"] = "pr-review-meta"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/review-meta/autonomous/fix"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def pr_fix_trace() -> dict[str, object]:
     artifact = pr_review_result_trace()
     artifact["schema"] = "restart-pr-fix-trace.v1"
@@ -292,6 +307,11 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             self.root,
             checker.PR_REVIEW_RESULT_OLD_CORPUS,
             pr_review_result_trace(),
+        )
+        write_json(
+            self.root,
+            checker.PR_REVIEW_META_OLD_CORPUS,
+            pr_review_meta_trace(),
         )
         write_json(self.root, checker.PR_FIX_OLD_CORPUS, pr_fix_trace())
 
@@ -483,6 +503,32 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             for message in messages
         ))
 
+
+    def test_pr_review_meta_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(
+            self.root,
+            checker.PR_REVIEW_META_NEW_TRACE,
+            pr_review_meta_trace(),
+        )
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_pr_review_meta_trace_output_mismatch_fails_closed(self) -> None:
+        changed = pr_review_meta_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(self.root, checker.PR_REVIEW_META_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any(
+            "pr-review-meta trace canonical hash mismatch" in message
+            for message in messages
+        ))
     def test_pr_fix_trace_output_with_equal_canonical_hash_passes(self) -> None:
         write_json(self.root, checker.PR_FIX_NEW_TRACE, pr_fix_trace())
 

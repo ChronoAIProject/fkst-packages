@@ -89,6 +89,45 @@ local function serialize_fix_reviewing_label(args)
   )
 end
 
+local function valid_review_meta_args(args)
+  return type(args) == "table"
+    and type(args.core) == "table"
+    and type(args.repo) == "string"
+    and args.issue_number ~= nil
+    and type(args.review_meta) == "table"
+    and type(args.action) == "string"
+    and type(args.reason) == "string"
+    and type(args.version) == "string"
+end
+
+local function serialize_review_meta_comment(args)
+  if not valid_review_meta_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_review_meta_comment_request(
+    args.repo,
+    args.issue_number,
+    args.review_meta,
+    args.action,
+    args.reason,
+    args.version,
+    args.blocking_gap
+  )
+end
+
+local function serialize_review_meta_label(args)
+  if not valid_review_meta_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_review_meta_label_request(
+    args.repo,
+    args.issue_number,
+    args.review_meta,
+    args.action,
+    args.version
+  )
+end
+
 local REVIEW_RESULT_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:review-result",
@@ -111,8 +150,20 @@ local FIX_SERIALIZERS = {
   },
 }
 
+local REVIEW_META_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:review-meta-result",
+    serialize = serialize_review_meta_comment,
+  },
+  [LABEL_EFFECT_ID] = {
+    sink_id = "label:issue:review-meta-result",
+    serialize = serialize_review_meta_label,
+  },
+}
+
 local SERIALIZERS_BY_FAMILY = {
   ["pr-review-result"] = REVIEW_RESULT_SERIALIZERS,
+  ["pr-review-meta"] = REVIEW_META_SERIALIZERS,
   ["pr-fix"] = FIX_SERIALIZERS,
 }
 
