@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local transition_version = require("contract.transition_version")
 local t = fkst.test
 local core = require("core")
 local graph = require("testkit.graph")
@@ -25,7 +26,7 @@ local rollup_pr = 2140
 local integration_branch = "integration-elonsg"
 local upstream_branch = "dev"
 local revived_branch = "devloop-owner-repo-2137-01HY"
-local blocked_child_version = child_version .. "/blocked/child-pr-blocked"
+local blocked_child_version = transition_version.next_blocked(child_version, "child-pr-blocked")
 
 local function json_escape(value)
   return tostring(value or "")

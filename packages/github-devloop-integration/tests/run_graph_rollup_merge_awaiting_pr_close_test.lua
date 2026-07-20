@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local transition_version = require("contract.transition_version")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_helpers")
@@ -23,7 +24,7 @@ local rollup_head_sha = "fedcba9876543210fedcba9876543210fedcba98"
 local integration_branch = "integration-elonsg"
 local upstream_branch = "dev"
 local child_branch = "devloop-rollup-owner-rollup-repo-4242-01HY"
-local blocked_version = version .. "/blocked/child-pr-blocked"
+local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
 
 local function issue_comments_api_cmd()
   return "gh api --paginate --slurp repos/" .. repo .. "/issues/" .. tostring(issue_number) .. "/comments?per_page=100"

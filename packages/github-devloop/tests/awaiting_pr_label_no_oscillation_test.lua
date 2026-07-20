@@ -1,4 +1,5 @@
 local entity_lib = require("devloop.entity")
+local transition_version = require("contract.transition_version")
 local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
@@ -35,7 +36,7 @@ local function parent_comments(opts)
   }
   if options.blocked_visible == true then
     table.insert(comments, comment(
-      core.state_marker(parent, "blocked", version .. "/blocked/child-pr-blocked"),
+      core.state_marker(parent, "blocked", transition_version.next_blocked(version, "child-pr-blocked")),
       core._test_bot_login,
       "2026-06-03T01:05:03Z"
     ))

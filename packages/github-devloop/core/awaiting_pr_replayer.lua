@@ -84,7 +84,7 @@ local function parent_state_for_child_terminal(state, child_state, generation)
     if generation == "replacement" then
       return {
         to_state = "blocked",
-        version = tostring(state.version or "") .. "/blocked/replacement-budget-exhausted",
+        version = transition_version.next_blocked(state.version, "replacement-budget-exhausted"),
         reason = "replacement-budget-exhausted",
       }
     end
@@ -96,7 +96,7 @@ local function parent_state_for_child_terminal(state, child_state, generation)
   end
   return {
     to_state = "blocked",
-    version = tostring(state.version or "") .. "/blocked/child-pr-blocked",
+    version = transition_version.next_blocked(state.version, "child-pr-blocked"),
     reason = "child-pr-blocked",
   }
 end

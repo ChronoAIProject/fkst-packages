@@ -206,10 +206,10 @@ local function next_state_version(fixture)
     return REPLACEMENT_VERSION
   end
   if fixture.name == "replacement-budget-exhausted" then
-    return VERSION .. "/blocked/replacement-budget-exhausted"
+    return transition_version.next_blocked(VERSION, "replacement-budget-exhausted")
   end
   if fixture.expected_target == "blocked" then
-    return VERSION .. "/blocked/child-pr-blocked"
+    return transition_version.next_blocked(VERSION, "child-pr-blocked")
   end
   return VERSION
 end

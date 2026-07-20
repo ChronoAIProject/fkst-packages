@@ -14,6 +14,7 @@ local slash_suffix_specs = {
   ["reimplement"] = { kind = "reimplement", numeric = true },
   ["timeout-reconcile"] = { kind = "timeout_reconcile", state_numeric = true },
   ["timeout"] = { kind = "timeout", state_numeric = true },
+  ["blocked"] = { kind = "blocked", reason_numeric = true },
   ["rereview"] = { kind = "rereview", n_hex = true },
   ["review-meta"] = { kind = "review_meta", numeric = true },
   ["review"] = { kind = "review", numeric = true },
@@ -98,6 +99,19 @@ local function slash_n_hex_suffix(parts, pos, spec)
   return { kind = spec.kind, n = n, hex = hex, separator = "slash" }, pos + 3
 end
 
+local function slash_reason_numeric_suffix(parts, pos, spec)
+  local reason = parts[pos + 1]
+  local raw = parts[pos + 2]
+  if reason == nil or reason == "" or type(raw) ~= "string" or raw:match("^%d+$") == nil then
+    return nil
+  end
+  local n = tonumber(raw)
+  if n == nil then
+    return nil
+  end
+  return { kind = spec.kind, reason = reason, n = n, separator = "slash" }, pos + 3
+end
+
 local function parse_slash_suffix_chain(parts, start_pos)
   local suffixes = {}
   local pos = start_pos
@@ -113,6 +127,8 @@ local function parse_slash_suffix_chain(parts, start_pos)
       suffix, next_pos = slash_state_numeric_suffix(parts, pos, spec)
     elseif spec.n_hex then
       suffix, next_pos = slash_n_hex_suffix(parts, pos, spec)
+    elseif spec.reason_numeric then
+      suffix, next_pos = slash_reason_numeric_suffix(parts, pos, spec)
     end
     if suffix == nil then
       return nil
@@ -294,6 +310,7 @@ local function version_sort_key_from_parsed(parsed, stage_rank)
     fix_n = max_round(parsed, "fix"),
     reimplement_n = max_round(parsed, "reimplement"),
     timeout_n = max_timeout_round_from_parsed(parsed),
+    blocked_n = max_round(parsed, "blocked"),
     review_loop_n = max_round(parsed, "review_loop"),
     review_meta_action_n = max_round(parsed, "review_meta_action"),
     ready_split_n = max_round(parsed, "ready_split"),
@@ -319,6 +336,9 @@ local function compare_version_keys(left, right)
   end
   if left.timeout_n ~= right.timeout_n then
     return left.timeout_n > right.timeout_n and 1 or -1
+  end
+  if left.blocked_n ~= right.blocked_n then
+    return left.blocked_n > right.blocked_n and 1 or -1
   end
   if left.review_meta_action_n ~= right.review_meta_action_n then
     return left.review_meta_action_n > right.review_meta_action_n and 1 or -1
@@ -359,6 +379,9 @@ local function compare_same_base_transition_versions(left_parsed, right_parsed)
   end
   if left_key.timeout_n ~= right_key.timeout_n then
     return left_key.timeout_n > right_key.timeout_n and 1 or -1
+  end
+  if left_key.blocked_n ~= right_key.blocked_n then
+    return left_key.blocked_n > right_key.blocked_n and 1 or -1
   end
   if left_key.review_meta_action_n ~= right_key.review_meta_action_n then
     return left_key.review_meta_action_n > right_key.review_meta_action_n and 1 or -1
@@ -410,6 +433,7 @@ function V.strip_suffixes(version)
       :gsub("%-timeout%-reconcile%-[%w%-]+%-%d+$", "")
       :gsub("/timeout/[%w%-]+/%d+$", "")
       :gsub("%-timeout%-[%w%-]+%-%d+$", "")
+      :gsub("/blocked/[%w%-]+/%d+$", "")
       :gsub("/reimplement/%d+$", "")
       :gsub("%-reimplement%-%d+$", "")
       :gsub("/ready%-split/%d+$", "")
@@ -494,6 +518,8 @@ function V.render(version)
         text = text .. "-timeout-reconcile-" .. tostring(suffix.state or "") .. "-" .. tostring(suffix.n or 0)
       elseif suffix.kind == "rereview" then
         text = text .. "-rereview-" .. tostring(suffix.n or 0) .. "-" .. tostring(suffix.hex or "")
+      elseif suffix.kind == "blocked" then
+        text = text .. "-blocked-" .. tostring(suffix.reason or "") .. "-" .. tostring(suffix.n or 0)
       else
         text = text .. "-" .. tostring(suffix.kind or ""):gsub("_", "-") .. "-" .. tostring(suffix.n or 0)
       end
@@ -504,6 +530,8 @@ function V.render(version)
         text = text .. "/timeout-reconcile/" .. tostring(suffix.state or "") .. "/" .. tostring(suffix.n or 0)
       elseif suffix.kind == "rereview" then
         text = text .. "/rereview/" .. tostring(suffix.n or 0) .. "/" .. tostring(suffix.hex or "")
+      elseif suffix.kind == "blocked" then
+        text = text .. "/blocked/" .. tostring(suffix.reason or "") .. "/" .. tostring(suffix.n or 0)
       else
         text = text .. "/" .. tostring(suffix.kind or ""):gsub("_", "-") .. "/" .. tostring(suffix.n or 0)
       end
@@ -543,6 +571,10 @@ end
 
 function V.reimplement_round(version)
   return max_round(version, "reimplement")
+end
+
+function V.blocked_round(version)
+  return max_round(version, "blocked")
 end
 
 function V.timeout_round(version, state_name)
@@ -625,6 +657,31 @@ function V.reimplement_at(version, round)
   return tostring(version or "") .. "/reimplement/" .. tostring(round)
 end
 
+local function assert_blocked_reason(reason)
+  local text = tostring(reason or "")
+  if text == "" or text:find("/", 1, true) ~= nil then
+    error("contract.transition_version: blocked reason must be a non-empty slash-free segment")
+  end
+  return text
+end
+
+local function strip_trailing_blocked_suffixes(version)
+  local parsed = V.parse(version)
+  while #parsed.suffixes > 0 and parsed.suffixes[#parsed.suffixes].kind == "blocked" do
+    table.remove(parsed.suffixes)
+  end
+  return V.render(parsed)
+end
+
+function V.blocked_at(version, reason, round)
+  local base = strip_trailing_blocked_suffixes(version)
+  return base .. "/blocked/" .. assert_blocked_reason(reason) .. "/" .. tostring(round)
+end
+
+function V.next_blocked(version, reason)
+  return V.blocked_at(version, reason, V.blocked_round(version) + 1)
+end
+
 function V.timeout_at(version, state, round)
   local base = tostring(version or "")
   local state_name = tostring(state or "")
@@ -682,6 +739,7 @@ function V.marker_order_key(version, stage_rank)
     padded_order_number(key.fix_n),
     padded_order_number(key.reimplement_n),
     padded_order_number(key.timeout_n),
+    padded_order_number(key.blocked_n),
     padded_order_number(key.review_meta_action_n),
     padded_order_number(key.review_loop_n),
     padded_order_number(key.ready_split_n),

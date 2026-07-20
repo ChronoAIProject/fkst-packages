@@ -72,8 +72,8 @@ end
 
 local function next_state_version(fixture)
   if fixture.name == "child-pr-closed-unmerged" then return REPLACEMENT_VERSION end
-  if fixture.name == "replacement-budget-exhausted" then return VERSION .. "/blocked/replacement-budget-exhausted" end
-  if fixture.expected_target == "blocked" then return VERSION .. "/blocked/child-pr-blocked" end
+  if fixture.name == "replacement-budget-exhausted" then return transition_version.next_blocked(VERSION, "replacement-budget-exhausted") end
+  if fixture.expected_target == "blocked" then return transition_version.next_blocked(VERSION, "child-pr-blocked") end
   return VERSION
 end
 

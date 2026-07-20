@@ -4,6 +4,7 @@ local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
 local contract_time = require("contract.time")
 local m_facts = require("devloop.markers.facts")
+local transition_version = require("contract.transition_version")
 local core = h.core
 local t = h.t
 local replay_fields = require("devloop.replay_fields")
@@ -407,7 +408,7 @@ return {
   end,
 
   test_blocked_issue_poll_closes_after_canonical_child_merge_lands = function()
-    local blocked_version = version .. "/blocked/child-pr-blocked"
+    local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     mock_issue_close()
     mock_branch_config()
     mock_rollup_landing(0)
@@ -597,7 +598,7 @@ return {
   end,
 
   test_child_blocked_replay_is_idempotent_when_target_marker_is_visible = function()
-    local blocked_version = version .. "/blocked/child-pr-blocked"
+    local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     local comments = parent_comments()
     table.insert(comments, comment(core.state_marker(parent, "blocked", blocked_version), core._test_bot_login, "2026-06-03T01:05:03Z"))
     local state = {

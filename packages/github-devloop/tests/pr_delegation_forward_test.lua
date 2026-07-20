@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local transition_version = require("contract.transition_version")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local h = require("tests.devloop_core_helpers")
@@ -211,7 +212,7 @@ return {
     local pr_proposal = "github-devloop/pr/owner/repo/7"
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")
     local terminal_child = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-      .. "\n" .. core.state_marker(issue_proposal, "blocked", impl_version .. "/blocked/child-pr-blocked")
+      .. "\n" .. core.state_marker(issue_proposal, "blocked", transition_version.next_blocked(impl_version, "child-pr-blocked"))
     mock_branch_list(7)
 
     local result = core.ensure_pr_child(issue({

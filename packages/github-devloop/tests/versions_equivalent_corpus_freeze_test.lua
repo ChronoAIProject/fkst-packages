@@ -155,9 +155,9 @@ local golden_safe_segments = {
   ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z/fix/1/fix/2/fix/3"] = "ready-consensus-github-devloo-2435338907",
   ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z/fix/1/fix/2/fix/3/fix/4/fix/5/fix/6/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12"] = "ready-consensus-github-devloo-3513658906",
   ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"] = "ready-consensus-github-devloo-0661822820",
-  ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked"] = "ready-consensus-github-devloo-0800108593",
+  ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/child-pr-blocked/1"] = "ready-consensus-github-devloo-4170011938",
   ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/pr-base-unmanaged"] = "ready-consensus-github-devloo-2112364274",
-  ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted"] = "ready-consensus-github-devloo-0513988732",
+  ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/blocked/replacement-budget-exhausted/1"] = "ready-consensus-github-devloo-2426811012",
   ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/closed-unmerged"] = "ready-consensus-github-devloo-3210921550",
   ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"] = "ready-consensus-github-devloo-0994879708",
   ["ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2"] = "ready-consensus-github-devloo-2372379689",
@@ -445,8 +445,8 @@ return {
     -- corpus; any future change that alters this relationship fails here.
     t.eq(relationship_counts.equivalent_compare_equal, 200, "relationship counts not frozen (eq&compare-equal = self-diagonal)")
     t.eq(relationship_counts.equivalent_compare_nonzero, 0, "relationship counts not frozen (equivalent => compare-equal)")
-    t.eq(relationship_counts.non_equivalent_compare_equal, 4032, "relationship counts not frozen (compare-equal !=> equivalent)")
-    t.eq(relationship_counts.non_equivalent_compare_nonzero, 35768, "relationship counts not frozen")
+    t.eq(relationship_counts.non_equivalent_compare_equal, 3812, "relationship counts not frozen (compare-equal !=> equivalent)")
+    t.eq(relationship_counts.non_equivalent_compare_nonzero, 35988, "relationship counts not frozen")
   end,
 
   test_observed_suffix_families_freeze_base_stripping_and_equivalence = function()
