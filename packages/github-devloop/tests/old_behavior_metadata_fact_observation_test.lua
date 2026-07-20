@@ -21,6 +21,13 @@ local ISSUE_NUMBER = 42
 local PROPOSAL_ID = "github-devloop/issue/owner/repo/42"
 local OLDER_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local CURRENT_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-04Z"
+local TIMEOUT_RECONCILE_LABEL_SINK = {
+  effect_id = "label:issue:timeout-reconcile",
+  department = "reconcile",
+  sink_kind = "label",
+  authority_class = "lifecycle-authoritative",
+  family = "state-label:blocked;dedup=timeout-reconcile/label",
+}
 
 local SITES = {
   current_state = {
@@ -313,6 +320,13 @@ local function committed_records()
     ["shared-row-state-exact-fields"] = true,
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
+    if record.observation_id == "effect-sink-catalog-gd-exact-set" then
+      record.old_inputs.current_fact.record_count = 80
+      table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
+      table.sort(record.old_outcome.observable_writes, function(left, right)
+        return canonical_json(left) < canonical_json(right)
+      end)
+    end
     if observation_ids[record.observation_id] then table.insert(selected, record) end
   end
   table.sort(selected, function(left, right) return left.observation_id < right.observation_id end)
