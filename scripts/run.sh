@@ -243,6 +243,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/ratchet_base_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_fkst_layout.py"'
     'python3 -B "$ROOT/scripts/check_repo_dedup_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_intent_bounded_replay_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_content_truncation_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_coverage_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_devloop_godlib_test.py"'
