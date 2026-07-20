@@ -37,6 +37,16 @@ local expected_entries = {
     semantic_variant = "first_seen_pr",
     cas_policy_id = "cas.legacy_observe_pr_v1",
     cas_variant = "pr_open_to_reviewing",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/reviewing/entry/first_seen_pr/apply",
+        effect_ids = { "github-proxy.github_pr_comment_request" },
+      },
+      idempotent = {
+        id = "github-devloop-pr/reviewing/entry/first_seen_pr/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/reviewing/entry/review_receiver"] = {
     row_id = "reviewing",
@@ -547,6 +557,9 @@ local function assert_entry_shape(edges)
     if expected.cas_variant ~= nil then
       edge_keys.cas_variant = true
     end
+    if expected.transition_effect_entitlements ~= nil then
+      edge_keys.transition_effect_entitlements = true
+    end
     edge_keys.pending_order = true
     assert_exact_keys(edge, edge_keys)
     if expected.source_state == nil then
@@ -574,6 +587,7 @@ local function assert_entry_shape(edges)
     t.eq(edge.provenance.field, expected.field)
     t.eq(edge.cas_policy_id, expected.cas_policy_id)
     t.eq(edge.cas_variant, expected.cas_variant)
+    assert_same_value(edge.transition_effect_entitlements, expected.transition_effect_entitlements)
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
     assert_valid_cas(edge)
     t.eq(seen_ids[edge.id], nil)
