@@ -37,16 +37,39 @@ local function serialize_thinking_label(args)
   return requests_labels.build_thinking_label_request(args.issue, args.proposal)
 end
 
-function M.make(config)
-  assert(type(config) == "table", "restart-effect-facade: config is required")
-  assert(type(config.verify_grant) == "function",
-    "restart-effect-facade: verify_grant must be a function")
-  assert(type(config.sink_inventory) == "table",
-    "restart-effect-facade: sink_inventory must be a table")
+local function serialize_issue_reconcile_comment(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.reconcile) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_reconcile_comment_request(
+    args.issue.repo,
+    args.issue.number,
+    args.reconcile,
+    args.action,
+    args.reason,
+    args.state_version
+  )
+end
 
-  local verify_grant = config.verify_grant
-  local sinks_by_id = index_sinks(config.sink_inventory)
-  local serializers = {
+local function serialize_issue_reconcile_label(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.reconcile) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_reconcile_label_request(
+    args.issue.repo,
+    args.issue.number,
+    args.reconcile
+  )
+end
+
+local SERIALIZERS_BY_FAMILY = {
+  thinking = {
     [COMMENT_EFFECT_ID] = {
       sink_id = "comment:issue:thinking-state",
       serialize = serialize_thinking_comment,
@@ -55,7 +78,31 @@ function M.make(config)
       sink_id = "label:issue:thinking-state",
       serialize = serialize_thinking_label,
     },
-  }
+  },
+  ["issue-reconcile"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:reconcile-blocked",
+      serialize = serialize_issue_reconcile_comment,
+    },
+    [LABEL_EFFECT_ID] = {
+      sink_id = "label:issue:reconcile-blocked",
+      serialize = serialize_issue_reconcile_label,
+    },
+  },
+}
+
+function M.make(config)
+  assert(type(config) == "table", "restart-effect-facade: config is required")
+  assert(type(config.verify_grant) == "function",
+    "restart-effect-facade: verify_grant must be a function")
+  assert(type(config.sink_inventory) == "table",
+    "restart-effect-facade: sink_inventory must be a table")
+  assert(type(config.family) == "string" and SERIALIZERS_BY_FAMILY[config.family] ~= nil,
+    "restart-effect-facade: supported family is required")
+
+  local verify_grant = config.verify_grant
+  local sinks_by_id = index_sinks(config.sink_inventory)
+  local serializers = SERIALIZERS_BY_FAMILY[config.family]
 
   for effect_id, serializer in pairs(serializers) do
     local sink = sinks_by_id[serializer.sink_id]

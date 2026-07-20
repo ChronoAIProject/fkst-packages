@@ -287,6 +287,7 @@ function M.extract_entry_edges(owner, inventory, rows)
         },
       }
       attach_cas_metadata(edge, activation, "entry receiver activation")
+      attach_effect_entitlements(edge, activation, "entry receiver activation")
       attach_pending_order(edge, activation, "entry receiver activation")
       table.insert(edges, edge)
     end

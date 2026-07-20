@@ -22,7 +22,6 @@ local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 
-local JSON_NULL = observation_support.JSON_NULL
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local THINKING_CORPUS_PATH = "migration/intent_bounded_replay/corpus/thinking.json"
@@ -455,32 +454,8 @@ local TRACE_FIXTURES = {
   },
 }
 
-local function trace_write(ordinal, effect_id, payload)
-  local write_kind = nil
-  if type(payload) == "table" and type(payload.body) == "string" then
-    write_kind = "comment"
-  elseif type(payload) == "table"
-    and (type(payload.add_labels) == "table" or type(payload.remove_labels) == "table") then
-    write_kind = "label"
-  else
-    error("R9 thinking trace saw an unsupported observable effect shape for " .. tostring(effect_id), 0)
-  end
-  return {
-    ordinal = ordinal,
-    effect_id = effect_id,
-    write_kind = write_kind,
-    marker_write = write_kind == "comment"
-      and payload.body:find("fkst:github-devloop:state:v1", 1, true) ~= nil,
-  }
-end
-
-local function trace_writes(raises)
-  local writes = json_array()
-  for ordinal, raised in ipairs(raises or {}) do
-    table.insert(writes, trace_write(ordinal, raised.queue, raised.payload))
-  end
-  return writes
-end
+local trace_write = observation_support.admission_trace_write
+local trace_writes = observation_support.admission_trace_writes
 
 local function trace_fixture(
   fixture,
@@ -491,26 +466,26 @@ local function trace_fixture(
   granted_effect_ids,
   writes
 )
-  return {
-    fixture_id = fixture.fixture_id,
-    edge_id = TRACE_EDGE_ID,
-    cas_status = status,
-    reason_code = reason_code,
-    cas_outcome = cas_outcome,
-    effect_entitlement_id = entitlement_id or JSON_NULL,
-    granted_effect_ids = granted_effect_ids or json_array(),
-    observable_writes = writes,
-  }
+  return observation_support.admission_trace_fixture(
+    fixture,
+    TRACE_EDGE_ID,
+    status,
+    reason_code,
+    cas_outcome,
+    entitlement_id,
+    granted_effect_ids,
+    writes
+  )
 end
 
 local function trace_artifact(corpus_hash, fixtures)
-  return {
-    schema = "restart-thinking-trace.v1",
-    owner = OWNER,
-    family = "thinking",
-    fixtures = fixtures,
-    artifact_sha256 = corpus_hash,
-  }
+  return observation_support.admission_trace_artifact(
+    "restart-thinking-trace.v1",
+    OWNER,
+    "thinking",
+    corpus_hash,
+    fixtures
+  )
 end
 
 local function new_trace_fixture(fixture, production)
@@ -538,6 +513,7 @@ local function new_trace_fixture(fixture, production)
     local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:thinking-state")
     t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
     local facade = restart_effect_facade.make({
+      family = "thinking",
       verify_grant = restart_effects.verify_grant,
       sink_inventory = require("core.restart.sink_inventory"),
     })

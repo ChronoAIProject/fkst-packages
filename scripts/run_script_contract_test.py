@@ -99,6 +99,10 @@ class RunScriptContractTest(unittest.TestCase):
                 root / "migration/intent_bounded_replay/corpus/thinking.json",
                 thinking_corpus / "thinking.json",
             )
+            shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/issue-reconcile.json",
+                thinking_corpus / "issue-reconcile.json",
+            )
             (migration / "intent-bounded-replay.allowlist").write_text(
                 "# R9 intent-bounded-replay: zero behavior-change intent-diffs during refactor.\n",
                 encoding="utf-8",

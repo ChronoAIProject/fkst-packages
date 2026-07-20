@@ -1,0 +1,64 @@
+{
+  "artifact_sha256": "dd14f7ffd5fd56c4cac180e868eae614a966bef9ea6a55bf2412a95fbe95d49e",
+  "family": "issue-reconcile",
+  "fixtures": [
+    {
+      "cas_outcome": "applied",
+      "cas_status": "apply",
+      "edge_id": "github-devloop/thinking/entry/issue_reconcile_true_stall",
+      "effect_entitlement_id": "github-devloop/thinking/entry/issue_reconcile_true_stall/apply",
+      "fixture_id": "source-equal-apply",
+      "granted_effect_ids": [
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request"
+      ],
+      "observable_writes": [
+        {
+          "effect_id": "github-proxy.github_issue_comment_request",
+          "marker_write": true,
+          "ordinal": 1,
+          "write_kind": "comment"
+        },
+        {
+          "effect_id": "github-proxy.github_issue_label_request",
+          "marker_write": false,
+          "ordinal": 2,
+          "write_kind": "label"
+        }
+      ],
+      "reason_code": "apply"
+    },
+    {
+      "cas_outcome": "retry-pending(from-state marker not yet visible)",
+      "cas_status": "pending",
+      "edge_id": "github-devloop/thinking/entry/issue_reconcile_true_stall",
+      "effect_entitlement_id": null,
+      "fixture_id": "source-marker-missing-pending",
+      "granted_effect_ids": [],
+      "observable_writes": [],
+      "reason_code": "source-marker-not-visible"
+    },
+    {
+      "cas_outcome": "skip-advanced-or-diverged",
+      "cas_status": "stale",
+      "edge_id": "github-devloop/thinking/entry/issue_reconcile_true_stall",
+      "effect_entitlement_id": null,
+      "fixture_id": "source-state-advanced-stale",
+      "granted_effect_ids": [],
+      "observable_writes": [],
+      "reason_code": "advanced-or-diverged"
+    },
+    {
+      "cas_outcome": "skip-idempotent(already at to_state)",
+      "cas_status": "idempotent",
+      "edge_id": "github-devloop/thinking/entry/issue_reconcile_true_stall",
+      "effect_entitlement_id": "github-devloop/thinking/entry/issue_reconcile_true_stall/idempotent",
+      "fixture_id": "target-idempotent",
+      "granted_effect_ids": [],
+      "observable_writes": [],
+      "reason_code": "already-at-target"
+    }
+  ],
+  "owner": "github-devloop",
+  "schema": "restart-issue-reconcile-trace.v1"
+}

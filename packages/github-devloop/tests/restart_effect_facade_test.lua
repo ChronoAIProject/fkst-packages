@@ -82,6 +82,7 @@ end
 
 local function facade()
   return restart_effect_facade.make({
+    family = "thinking",
     verify_grant = restart_effects.verify_grant,
     sink_inventory = require("core.restart.sink_inventory"),
   })

@@ -365,4 +365,71 @@ function M.build_record(opts)
   }
 end
 
+function M.admission_trace_write(ordinal, effect_id, payload, context)
+  local write_kind = nil
+  if type(payload) == "table" and type(payload.body) == "string" then
+    write_kind = "comment"
+  elseif type(payload) == "table"
+    and (type(payload.add_labels) == "table" or type(payload.remove_labels) == "table") then
+    write_kind = "label"
+  else
+    error(
+      tostring(context or "R9 admission trace")
+        .. " saw an unsupported observable effect shape for "
+        .. tostring(effect_id),
+      0
+    )
+  end
+  return {
+    ordinal = ordinal,
+    effect_id = effect_id,
+    write_kind = write_kind,
+    marker_write = write_kind == "comment"
+      and payload.body:find("fkst:github-devloop:state:v1", 1, true) ~= nil,
+  }
+end
+
+function M.admission_trace_writes(raises, context)
+  local writes = M.json_array()
+  for ordinal, raised in ipairs(raises or {}) do
+    table.insert(
+      writes,
+      M.admission_trace_write(ordinal, raised.queue, raised.payload, context)
+    )
+  end
+  return writes
+end
+
+function M.admission_trace_fixture(
+  fixture,
+  edge_id,
+  status,
+  reason_code,
+  cas_outcome,
+  entitlement_id,
+  granted_effect_ids,
+  writes
+)
+  return {
+    fixture_id = fixture.fixture_id,
+    edge_id = edge_id,
+    cas_status = status,
+    reason_code = reason_code,
+    cas_outcome = cas_outcome,
+    effect_entitlement_id = entitlement_id or M.JSON_NULL,
+    granted_effect_ids = M.json_array(granted_effect_ids),
+    observable_writes = writes,
+  }
+end
+
+function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures)
+  return {
+    schema = schema,
+    owner = owner,
+    family = family,
+    fixtures = fixtures,
+    artifact_sha256 = corpus_hash,
+  }
+end
+
 return M

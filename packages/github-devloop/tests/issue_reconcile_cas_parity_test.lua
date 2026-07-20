@@ -4,7 +4,10 @@
 -- This test never computes expected admission with a state transition helper.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
   entry = require("core.restart.entry_inventory"),
@@ -19,6 +22,11 @@ local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local reconcile_department = require("departments.reconcile.main")
 local conv_reconcile = require("devloop.convergence.reconcile")
+
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
+local ISSUE_RECONCILE_CORPUS_PATH = "migration/intent_bounded_replay/corpus/issue-reconcile.json"
+local ISSUE_RECONCILE_NEW_TRACE_PATH = ".fkst/run/r9-issue-reconcile-new-trace.json"
 
 local POLICY_ID = "cas.legacy_issue_reconcile_v1"
 local VARIANT = "thinking_to_blocked"
@@ -186,6 +194,22 @@ local function observed_admission(probe, boundary_reached)
   error("issue reconcile admission probe applied without reaching the effect boundary")
 end
 
+local function observed_pre_cas_admission(decision)
+  if decision.outcome == "pending" then
+    return { status = "pending", reason_code = "source-marker-not-visible" }
+  end
+  if decision.outcome == "skip-idempotent(already terminal)" then
+    return { status = "idempotent", reason_code = "already-at-target" }
+  end
+  if decision.outcome == "skip-stale(state-advanced)" then
+    return { status = "stale", reason_code = "advanced-or-diverged" }
+  end
+  error(
+    "issue reconcile pre-CAS observation returned an unsupported outcome: "
+      .. tostring(decision.outcome)
+  )
+end
+
 local function post_admission_disposition(result, boundary_reached)
   if not boundary_reached then
     return "not-admitted"
@@ -263,8 +287,9 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(boundary.state_version, probe.incoming_version, fixture.name .. ": boundary terminal version")
   end
 
+  local observed = nil
   if probe ~= nil then
-    local observed = observed_admission(probe, boundary_reached)
+    observed = observed_admission(probe, boundary_reached)
     local evidence = evidence_from_probe(probe)
     t.eq(evidence.current, probe.current, fixture.name .. ": catalog current comes from probe")
     t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": catalog incoming version comes from probe")
@@ -278,6 +303,7 @@ local function assert_catalog_matches_observed_decision(fixture)
     end
   else
     t.eq(boundary_reached, false, fixture.name .. ": pre-CAS input cannot reach admission boundary")
+    observed = observed_pre_cas_admission(decision)
   end
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
   t.eq(#result.raises, fixture.effect_count or 0, fixture.name .. ": captured effect count")
@@ -289,6 +315,21 @@ local function assert_catalog_matches_observed_decision(fixture)
   if fixture.legacy_log_outcome ~= nil then
     t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
   end
+  local version_base = fixture.current_version or fixture.incoming_version
+  local normalized_incoming_version = probe and probe.incoming_version
+    or conv_reconcile.reconcile_terminal_state_version(version_base, event.round)
+  return {
+    event = event,
+    result = result,
+    decision = decision,
+    observed = observed,
+    incoming_version = normalized_incoming_version,
+    cas_outcome = devloop_state.cas_outcome(
+      decision.current,
+      observed.status,
+      normalized_incoming_version
+    ),
+  }
 end
 
 local function assert_shadow_matches_observed_decision(fixture)
@@ -330,6 +371,189 @@ local function assert_rejected_before_cas(name, payload)
   t.eq(#probes, 0, name .. ": invalid production input must not reach CAS")
   t.eq(#probes == 0 and "pre-cas" or "cas", "pre-cas", name .. ": admission phase")
   t.eq(#boundary_calls, 0, name .. ": invalid production input must not reach the admission boundary")
+end
+
+local TRACE_EDGE_ID = core.restart_package_name .. "/thinking/entry/issue_reconcile_true_stall"
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "source-equal-apply",
+    name = "r9-issue-reconcile-source-equal-apply",
+    current_state = "thinking",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    boundary_reached = true,
+    admission_status = "apply",
+    effect_count = 2,
+    post_admission_disposition = "effect-emitted(blocked)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "source-marker-missing-pending",
+    name = "r9-issue-reconcile-source-marker-missing-pending",
+    current_state = nil,
+    current_version = nil,
+    incoming_version = V_NEWER,
+    admission_phase = "pre-cas",
+    expected_exit_code = 1,
+    legacy_log_outcome = "pending",
+  },
+  {
+    fixture_id = "source-state-advanced-stale",
+    name = "r9-issue-reconcile-source-state-advanced-stale",
+    current_state = "ready",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    admission_phase = "pre-cas",
+    legacy_log_outcome = "skip-stale(state-advanced)",
+  },
+  {
+    fixture_id = "target-idempotent",
+    name = "r9-issue-reconcile-target-idempotent",
+    current_state = "blocked",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    admission_phase = "pre-cas",
+    legacy_log_outcome = "skip-idempotent(already terminal)",
+  },
+}
+
+local function trace_fixture(
+  fixture,
+  status,
+  reason_code,
+  cas_outcome,
+  entitlement_id,
+  granted_effect_ids,
+  writes
+)
+  return observation_support.admission_trace_fixture(
+    fixture,
+    TRACE_EDGE_ID,
+    status,
+    reason_code,
+    cas_outcome,
+    entitlement_id,
+    granted_effect_ids,
+    writes
+  )
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-issue-reconcile-trace.v1",
+    core.restart_package_name,
+    "issue-reconcile",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function new_trace_fixture(fixture, production)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = core.restart_package_name,
+    entity = { kind = "issue", repo = "owner/repo", number = 42 },
+    proposal_id = production.event.proposal_id,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+    snapshot_fingerprint = "r9-issue-reconcile:" .. fixture.fixture_id,
+    lock_epoch = "r9-issue-reconcile:lock",
+    generation = "r9-issue-reconcile:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "issue_reconcile_true_stall",
+    source_boundary = "devloop_reconcile",
+    target = "blocked",
+    incoming_version = production.incoming_version,
+  })
+  local writes = json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(
+      snapshot,
+      decided,
+      "comment:issue:reconcile-blocked"
+    )
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({
+      family = "issue-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local reason = tostring(production.event.terminal_cause)
+      .. "-after-" .. tostring(production.event.round) .. "-rounds"
+    local args = {
+      core = core,
+      issue = { repo = "owner/repo", number = "42" },
+      reconcile = production.event,
+      action = "drop",
+      reason = reason,
+      state_version = production.incoming_version,
+    }
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(
+        writes,
+        observation_support.admission_trace_write(
+          ordinal,
+          effect_id,
+          emitted,
+          "R9 issue-reconcile trace"
+        )
+      )
+    end
+  end
+  return trace_fixture(
+    fixture,
+    decided.status,
+    decided.reason_code,
+    decided.cas_outcome,
+    decided.effect_entitlement_id,
+    decided.granted_effect_ids,
+    writes
+  ), decided
+end
+
+local function assert_issue_reconcile_trace_equality()
+  local corpus = json.decode(file.read(ISSUE_RECONCILE_CORPUS_PATH))
+  local old_fixtures = json_array()
+  local new_fixtures = json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_catalog_matches_observed_decision(fixture)
+    local new_fixture, normalized_admission = new_trace_fixture(fixture, production)
+    local old_writes = production.observed.status == "apply"
+      and observation_support.admission_trace_writes(
+        production.result.raises,
+        "R9 issue-reconcile trace"
+      )
+      or json_array()
+    table.insert(old_fixtures, trace_fixture(
+      fixture,
+      production.observed.status,
+      production.observed.reason_code,
+      production.cas_outcome,
+      normalized_admission.effect_entitlement_id,
+      normalized_admission.granted_effect_ids,
+      old_writes
+    ))
+    table.insert(new_fixtures, new_fixture)
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(
+    canonical_json(old_trace),
+    canonical_json(new_trace),
+    "R9 issue-reconcile OLD and NEW semantic trace"
+  )
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 issue-reconcile trace could not create its artifact directory", 0)
+  end
+  file.write(ISSUE_RECONCILE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 issue-reconcile OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 issue-reconcile NEW semantic trace")
 end
 
 return {
@@ -443,6 +667,10 @@ return {
       expected_status = "apply",
       expected_reason_code = "apply",
     })
+  end,
+
+  test_issue_reconcile_old_equals_new_equals_committed_admission_trace = function()
+    assert_issue_reconcile_trace_equality()
   end,
 
   test_issue_reconcile_malformed_payload_fails_closed_before_cas = function()

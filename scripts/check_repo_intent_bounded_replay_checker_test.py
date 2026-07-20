@@ -59,6 +59,22 @@ def thinking_trace() -> dict[str, object]:
     return artifact
 
 
+def issue_reconcile_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-issue-reconcile-trace.v1"
+    artifact["family"] = "issue-reconcile"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["edge_id"] = "github-devloop/thinking/entry/issue_reconcile_true_stall"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/thinking/entry/issue_reconcile_true_stall/apply"
+    )
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def idempotent_thinking_trace() -> dict[str, object]:
     artifact = thinking_trace()
     fixtures = artifact["fixtures"]
@@ -139,6 +155,7 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         write(self.root, checker.ALLOWLIST, HEADER)
         write(self.root, f"{checker.INTENT_DIFF_DIR}/.gitkeep", "")
         write_json(self.root, checker.THINKING_OLD_CORPUS, thinking_trace())
+        write_json(self.root, checker.ISSUE_RECONCILE_OLD_CORPUS, issue_reconcile_trace())
 
     def allow(self, relative_path: str) -> None:
         write(self.root, checker.ALLOWLIST, HEADER + relative_path + "\n")
@@ -157,6 +174,31 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         write_json(self.root, checker.THINKING_NEW_TRACE, thinking_trace())
 
         self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_missing_issue_reconcile_corpus_fails_closed(self) -> None:
+        (self.root / checker.ISSUE_RECONCILE_OLD_CORPUS).unlink()
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("missing protected input" in message for message in messages))
+
+    def test_issue_reconcile_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(
+            self.root,
+            checker.ISSUE_RECONCILE_NEW_TRACE,
+            issue_reconcile_trace(),
+        )
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_issue_reconcile_trace_output_mismatch_fails_closed(self) -> None:
+        changed = issue_reconcile_trace()
+        changed["artifact_sha256"] = "f" * 64
+        write_json(self.root, checker.ISSUE_RECONCILE_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("artifact_sha256 mismatch" in message for message in messages))
 
     def test_idempotent_admission_entitlement_has_no_admission_write(self) -> None:
         write_json(self.root, checker.THINKING_OLD_CORPUS, idempotent_thinking_trace())

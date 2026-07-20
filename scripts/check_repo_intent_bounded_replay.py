@@ -25,6 +25,8 @@ ALLOWLIST = "migration/intent-bounded-replay.allowlist"
 INTENT_DIFF_DIR = "migration/intent-diffs"
 THINKING_OLD_CORPUS = "migration/intent_bounded_replay/corpus/thinking.json"
 THINKING_NEW_TRACE = ".fkst/run/r9-thinking-new-trace.json"
+ISSUE_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/issue-reconcile.json"
+ISSUE_RECONCILE_NEW_TRACE = ".fkst/run/r9-issue-reconcile-new-trace.json"
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
@@ -102,20 +104,20 @@ def _exact_fields_messages(
     return messages
 
 
-def _thinking_trace_shape_messages(
-    artifact: dict[str, Any], relative: str
+def _admission_trace_shape_messages(
+    artifact: dict[str, Any], relative: str, schema: str, family: str
 ) -> list[str]:
     messages = _exact_fields_messages(
         artifact,
         {"schema", "owner", "family", "fixtures", "artifact_sha256"},
         relative,
     )
-    if artifact.get("schema") != "restart-thinking-trace.v1":
-        messages.append(f"{relative} schema must be restart-thinking-trace.v1")
+    if artifact.get("schema") != schema:
+        messages.append(f"{relative} schema must be {schema}")
     if artifact.get("owner") != "github-devloop":
         messages.append(f"{relative} owner must be github-devloop")
-    if artifact.get("family") != "thinking":
-        messages.append(f"{relative} family must be thinking")
+    if artifact.get("family") != family:
+        messages.append(f"{relative} family must be {family}")
     fixtures = artifact.get("fixtures")
     if not isinstance(fixtures, list) or not fixtures:
         return messages + [f"{relative} fixtures must be a non-empty array"]
@@ -195,39 +197,80 @@ def _thinking_trace_shape_messages(
     return messages
 
 
-def _thinking_trace_messages(root: Path) -> list[str]:
-    old_path = root / THINKING_OLD_CORPUS
+def _trace_pair_messages(
+    root: Path,
+    old_relative: str,
+    new_relative: str,
+    schema: str,
+    family: str,
+) -> list[str]:
+    old_path = root / old_relative
     if not old_path.is_file():
-        return [f"missing protected input: {THINKING_OLD_CORPUS}"]
+        return [f"missing protected input: {old_relative}"]
     old, messages = _load_json_object(old_path)
     if old is None:
-        return [message.replace(old_path.as_posix(), THINKING_OLD_CORPUS, 1) for message in messages]
-    messages.extend(_thinking_trace_shape_messages(old, THINKING_OLD_CORPUS))
+        return [
+            message.replace(old_path.as_posix(), old_relative, 1)
+            for message in messages
+        ]
+    messages.extend(
+        _admission_trace_shape_messages(old, old_relative, schema, family)
+    )
 
-    new_path = root / THINKING_NEW_TRACE
+    new_path = root / new_relative
     if not new_path.is_file():
         return messages
     new, load_messages = _load_json_object(new_path)
-    messages.extend(message.replace(new_path.as_posix(), THINKING_NEW_TRACE, 1) for message in load_messages)
+    messages.extend(
+        message.replace(new_path.as_posix(), new_relative, 1)
+        for message in load_messages
+    )
     if new is None:
         return messages
-    messages.extend(_thinking_trace_shape_messages(new, THINKING_NEW_TRACE))
+    messages.extend(
+        _admission_trace_shape_messages(new, new_relative, schema, family)
+    )
     if messages:
         return messages
     report = compare_report(old, new)
     if not report["equal"]:
         messages.append(
-            "thinking trace canonical hash mismatch: "
+            f"{family} trace canonical hash mismatch: "
             f"OLD={report['old_hash']} NEW={report['new_hash']} "
             f"first_divergence={report.get('first_divergence', '')}"
         )
     return messages
 
 
-def thinking_trace_status(root: Path) -> str:
-    if not (Path(root) / THINKING_NEW_TRACE).is_file():
-        return f"thinking trace comparison skipped: {THINKING_NEW_TRACE} is absent"
-    return "thinking trace comparison executed by canonical artifact hash"
+def _admission_trace_messages(root: Path) -> list[str]:
+    messages = _trace_pair_messages(
+        root,
+        THINKING_OLD_CORPUS,
+        THINKING_NEW_TRACE,
+        "restart-thinking-trace.v1",
+        "thinking",
+    )
+    messages.extend(
+        _trace_pair_messages(
+            root,
+            ISSUE_RECONCILE_OLD_CORPUS,
+            ISSUE_RECONCILE_NEW_TRACE,
+            "restart-issue-reconcile-trace.v1",
+            "issue-reconcile",
+        )
+    )
+    return messages
+
+
+def admission_trace_status(root: Path) -> str:
+    emitted = [
+        relative
+        for relative in (THINKING_NEW_TRACE, ISSUE_RECONCILE_NEW_TRACE)
+        if (Path(root) / relative).is_file()
+    ]
+    if not emitted:
+        return "admission trace comparisons skipped: emitted traces are absent"
+    return "admission trace comparisons executed by canonical artifact hash: " + ", ".join(emitted)
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -436,7 +479,7 @@ def _attestation_messages(
 
 def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
     root = Path(root)
-    messages = _thinking_trace_messages(root)
+    messages = _admission_trace_messages(root)
     messages.extend(
         f"missing protected input: {relative}"
         for relative in PROTECTED_MODULES
@@ -501,4 +544,4 @@ if __name__ == "__main__":
             print(f"R9-INTENT-BOUNDED-REPLAY: {violation}")
         raise SystemExit(1)
     print("OK: R9 intent-bounded-replay refactor-phase checks passed; "
-          + thinking_trace_status(project_root))
+          + admission_trace_status(project_root))
