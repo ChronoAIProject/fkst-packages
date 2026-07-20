@@ -612,11 +612,46 @@ stray_supervise_report() {
   [ "$stray" -eq 0 ] && echo "  none (every running supervise is a managed target)"
 }
 
+# reap_leaked_test_procs: the CHEAP SYMPTOM PATROL (CLAUDE.md "出错即建兜底清理制度") for the
+# fkst-framework-test-process leak class. We CANNOT predict which subprocess/syscall a test run hangs
+# on (myriad, unenumerable causes), but "a test run should terminate within budget" is a cause-agnostic
+# positive-progress assertion: any `fkst-framework test` process older than DOGFOOD_TEST_REAP_MINUTES
+# (healthy full suite ~230-440s, so the 45min default is ~6-12x margin) is DEFINITELY wrong regardless
+# of WHY. Blind-kill its process GROUP (reaps the hung git/codex grandchildren a pid-only kill would
+# orphan) under two safety guards — never the caller's own group, never a group holding a live
+# supervise. The reap COUNT is fail-visible and is the EVIDENCE SIGNAL for whether the expensive
+# prevention (a bounded-execution test-runner watchdog) is worth building: count stays ~0 ⇒ the patrol
+# suffices; count keeps rising ⇒ a real active leak source, escalate to prevention.
+# DOGFOOD_REAP_DRYRUN=1 identifies + reports without killing (safe operator verify before enabling kill);
+# DOGFOOD_TEST_REAP_MINUTES overrides the 45min threshold.
+reap_leaked_test_procs() {
+  local reap_min="${DOGFOOD_TEST_REAP_MINUTES:-45}" self_pgid pid pgid etime secs reaped=0
+  self_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+  for pid in $(pgrep -f -- 'fkst-framework test' 2>/dev/null); do
+    etime=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' '); [ -n "$etime" ] || continue
+    # etime = [[DD-]HH:]MM:SS -> seconds
+    secs=$(printf '%s\n' "$etime" | awk -F'[:-]' '{n=NF;s=$n;m=$(n-1);h=(n>=3?$(n-2):0);d=(n>=4?$(n-3):0);print ((d*24+h)*60+m)*60+s}')
+    [ "${secs:-0}" -gt "$((reap_min*60))" ] 2>/dev/null || continue
+    pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+    if [ -z "$pgid" ] || [ "$pgid" = "$self_pgid" ] || pgrep -g "$pgid" -f -- 'supervise --project-root' >/dev/null 2>&1; then
+      printf '  ⚠ leaked test pid %s age %ss — SKIPPED (guard: own/supervise group)\n' "$pid" "$secs"; continue
+    fi
+    if [ "${DOGFOOD_REAP_DRYRUN:-0}" = "1" ]; then
+      printf '  would-reap pid %s pgid %s age %ss\n' "$pid" "$pgid" "$secs"
+    else
+      kill -9 -"$pgid" 2>/dev/null; printf '  reaped pid %s pgid %s age %ss\n' "$pid" "$pgid" "$secs"
+    fi
+    reaped=$((reaped+1))
+  done
+  printf '  leaked-test-proc reaper: %s reaped (threshold %smin; count rising ⇒ escalate to a bounded-exec test watchdog)\n' "$reaped" "$reap_min"
+}
+
 cmd_doctor() {
   echo "engine BIN:"; bin_freshness_report | sed 's/^/  /'
   echo "supervises:"
   for n in $(expand "${1:-all}"); do doctor_one "$n"; done
   echo "stray supervises (unmanaged — poison shared state):"; stray_supervise_report
+  echo "leaked test-proc reaper (cheap symptom patrol):"; reap_leaked_test_procs
   echo "upstream($UPSTREAM_BRANCH) CI:"; for n in $(expand "${1:-all}"); do upstream_ci_one "$n"; done
   echo "durable (redb delivery state):"; for n in $(expand "${1:-all}"); do durable_health_one "$n"; done
   echo "graphql: $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
