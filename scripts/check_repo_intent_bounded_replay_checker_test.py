@@ -110,6 +110,21 @@ def implement_activation_trace() -> dict[str, object]:
     return artifact
 
 
+def awaiting_pr_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-awaiting-pr-trace.v1"
+    artifact["family"] = "awaiting-pr"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def idempotent_thinking_trace() -> dict[str, object]:
     artifact = thinking_trace()
     fixtures = artifact["fixtures"]
@@ -197,6 +212,7 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             checker.IMPLEMENT_ACTIVATION_OLD_CORPUS,
             implement_activation_trace(),
         )
+        write_json(self.root, checker.AWAITING_PR_OLD_CORPUS, awaiting_pr_trace())
 
     def allow(self, relative_path: str) -> None:
         write(self.root, checker.ALLOWLIST, HEADER + relative_path + "\n")
@@ -288,6 +304,25 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         self.assertTrue(
             any("implement-activation trace canonical hash mismatch" in message for message in messages)
         )
+
+    def test_awaiting_pr_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(self.root, checker.AWAITING_PR_NEW_TRACE, awaiting_pr_trace())
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_awaiting_pr_trace_output_mismatch_fails_closed(self) -> None:
+        changed = awaiting_pr_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(self.root, checker.AWAITING_PR_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("awaiting-pr trace canonical hash mismatch" in message for message in messages))
 
     def test_idempotent_admission_entitlement_has_no_admission_write(self) -> None:
         write_json(self.root, checker.THINKING_OLD_CORPUS, idempotent_thinking_trace())

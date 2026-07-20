@@ -70,6 +70,38 @@ local function serialize_thinking_label(args)
   return requests_labels.build_thinking_label_request(args.issue, args.proposal)
 end
 
+local function serialize_awaiting_pr_comment(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.ready) ~= "table"
+    or type(args.child) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_parent_awaiting_pr_comment_request(
+    args.issue.repo,
+    args.issue.number,
+    args.ready,
+    args.child
+  )
+end
+
+local function serialize_awaiting_pr_label(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.ready) ~= "table"
+    or type(args.child) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_parent_awaiting_pr_label_request(
+    args.issue.repo,
+    args.issue.number,
+    args.ready,
+    args.child
+  )
+end
+
 local function serialize_loop_plain_comment(args)
   if type(args) ~= "table"
     or type(args.core) ~= "table"
@@ -120,6 +152,16 @@ local function serialize_issue_reconcile_label(args)
 end
 
 local SERIALIZERS_BY_FAMILY = {
+  ["awaiting-pr"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:awaiting-pr-state",
+      serialize = serialize_awaiting_pr_comment,
+    },
+    [LABEL_EFFECT_ID] = {
+      sink_id = "label:issue:awaiting-pr-state",
+      serialize = serialize_awaiting_pr_label,
+    },
+  },
   ["implement-activation"] = {
     [COMMENT_EFFECT_ID] = {
       sink_id = "comment:issue:implementation-start",

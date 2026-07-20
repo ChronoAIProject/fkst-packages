@@ -506,6 +506,7 @@ function M.extract_canonicalization_edges(owner, inventory)
       },
     }
     attach_cas_metadata(edge, authored, "canonicalization edge")
+    attach_effect_entitlements(edge, authored, "canonicalization edge")
     attach_pending_order(edge, authored, "canonicalization edge")
     table.insert(edges, edge)
   end

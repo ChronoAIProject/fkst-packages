@@ -54,6 +54,19 @@ return {
     pending_order = { participates = true, predecessor_state = "implementing" },
     cas_policy_id = "cas.legacy_awaiting_pr_v1",
     cas_variant = "implementing_to_awaiting_pr",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr/idempotent",
+        effect_ids = {},
+      },
+    },
     cause_evidence = {
       marker = "pr-delegation:v1",
       resolver = "pr_delegation_fact",

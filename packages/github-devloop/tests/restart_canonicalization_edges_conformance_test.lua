@@ -449,6 +449,9 @@ local function assert_canonicalization_shape(edges)
       edge_keys.cas_policy_id = true
       edge_keys.cas_variant = true
     end
+    if edge.id == implementing_merged_delegated_pr_id then
+      edge_keys.transition_effect_entitlements = true
+    end
     edge_keys.pending_order = true
     assert_exact_keys(edge, edge_keys)
     assert_exact_keys(edge.source, { state = true })
@@ -466,6 +469,12 @@ local function assert_canonicalization_shape(edges)
     t.eq(edge.provenance.row, edge.target)
     t.eq(edge.cas_policy_id, expected_cas and expected_cas.cas_policy_id or nil)
     t.eq(edge.cas_variant, expected_cas and expected_cas.cas_variant or nil)
+    if edge.id == implementing_merged_delegated_pr_id then
+      assert_same_value(
+        edge.transition_effect_entitlements,
+        canonicalization_inventory[3].transition_effect_entitlements
+      )
+    end
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
     t.eq(seen_ids[edge.id], nil)
     seen_ids[edge.id] = true

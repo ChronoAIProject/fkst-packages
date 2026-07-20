@@ -4,8 +4,11 @@
 -- from fixture fields. Effects and legacy CAS logs remain separate axes.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
   entry = require("core.restart.entry_inventory"),
@@ -20,8 +23,13 @@ local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local t = h.t
 local core = h.core
+local awaiting_pr_replayer = require("awaiting_pr_replay")
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local observe_issue_department = require("departments.observe_issue.main")
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
+local AWAITING_PR_CORPUS_PATH = "migration/intent_bounded_replay/corpus/awaiting-pr.json"
+local AWAITING_PR_NEW_TRACE_PATH = ".fkst/run/r9-awaiting-pr-new-trace.json"
 local OWNER = core.restart_package_name
 local IMPLEMENTING_SHADOW_VARIANT = "implementing_merged_delegated_pr"
 local AWAITING_PR_MERGED_SHADOW_VARIANT = "child_pr_merged"
@@ -453,7 +461,190 @@ local function assert_shadow_case(fixture)
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
 end
 
+local TRACE_EDGE_ID = OWNER .. "/awaiting-pr/canonicalization/implementing_merged_delegated_pr"
+local TRACE_FIXTURES = {
+  { fixture_id = "source-equal-apply", current_state = "implementing", current_version = V_EQUAL },
+  { fixture_id = "source-marker-missing-pending", current_state = "ready", current_version = V_EQUAL },
+  { fixture_id = "target-idempotent", current_state = "awaiting-pr", current_version = V_EQUAL },
+}
+
+local trace_write = observation_support.admission_trace_write
+local trace_writes = observation_support.admission_trace_writes
+
+local function trace_fixture(fixture, admission, decision, writes)
+  return observation_support.admission_trace_fixture(
+    fixture,
+    TRACE_EDGE_ID,
+    admission.status,
+    admission.reason_code,
+    decision.cas_outcome,
+    decision.effect_entitlement_id,
+    decision.granted_effect_ids,
+    writes
+  )
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-awaiting-pr-trace.v1",
+    OWNER,
+    "awaiting-pr",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function run_old_trace_fixture(fixture)
+  local state = { state = fixture.current_state, version = fixture.current_version }
+  local issue = {
+    repo = REPO,
+    number = ISSUE_NUMBER,
+    source_ref = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER),
+  }
+  local delegation = {
+    proposal_id = PROPOSAL_ID,
+    pr_proposal_id = PR_PROPOSAL_ID,
+    pr_number = PR_NUMBER,
+    version = V_EQUAL,
+    delegation = DELEGATION,
+  }
+  local current_pr = {
+    force_fresh = true,
+    state = "MERGED",
+    comments = child_comments({ current_version = V_EQUAL, child_state = "merged" }),
+    head_ref_name = BRANCH,
+    base_ref_name = BASE_BRANCH,
+    head_sha = HEAD_SHA,
+    merge_commit_sha = MERGE_COMMIT_SHA,
+  }
+  local raises = {}
+  local original_raise = raise
+  raise = function(queue, payload)
+    table.insert(raises, { queue = queue, payload = payload })
+  end
+  local result, probes, _, boundary_calls = observe_department(function()
+    local ok, failure = pcall(
+      awaiting_pr_replayer.canonicalize_implementing_merged_delegated_pr,
+      "observe_issue",
+      issue,
+      state,
+      {
+        proposal_id = PROPOSAL_ID,
+        current_pr = current_pr,
+        ["pr-delegation"] = delegation,
+      }
+    )
+    return {
+      exit_code = ok and 0 or 1,
+      error = ok and nil or tostring(failure),
+      raises = raises,
+    }
+  end)
+  raise = original_raise
+  t.eq(result.exit_code, 0, fixture.fixture_id .. ": OLD writer exit code error=" .. tostring(result.error))
+  t.eq(#probes, 1, fixture.fixture_id .. ": OLD writer CAS probe count")
+  local probe = probes[1]
+  local admission = observed_admission(
+    probe,
+    probe.outcome == "apply" and #boundary_calls == 1
+  )
+  return result, probe, admission
+end
+
+local function decide_trace(fixture, incoming_version, fingerprint)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "issue", repo = REPO, number = ISSUE_NUMBER },
+    proposal_id = PROPOSAL_ID,
+    current = { state = fixture.current_state, version = fixture.current_version },
+    snapshot_fingerprint = fingerprint,
+    lock_epoch = "r9-awaiting-pr:lock",
+    generation = "r9-awaiting-pr:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "implementing_merged_delegated_pr",
+    target = "awaiting-pr",
+    incoming_version = incoming_version,
+  })
+  return snapshot, decided
+end
+
+local function new_trace_fixture(fixture, probe, admission)
+  local snapshot, decided = decide_trace(
+    fixture,
+    probe.incoming_version,
+    "r9-awaiting-pr:" .. fixture.fixture_id
+  )
+  t.eq(decided.status, admission.status,
+    fixture.fixture_id .. ": NEW admission status reason=" .. tostring(decided.reason_code))
+  t.eq(decided.reason_code, admission.reason_code, fixture.fixture_id .. ": NEW admission reason")
+
+  local writes = json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:awaiting-pr-state")
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({
+      family = "awaiting-pr",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local args = {
+      core = core,
+      issue = { repo = REPO, number = ISSUE_NUMBER },
+      ready = {
+        proposal_id = PROPOSAL_ID,
+        dedup_key = V_EQUAL,
+        source_ref = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER),
+      },
+      child = {
+        pr_proposal_id = PR_PROPOSAL_ID,
+        pr_number = PR_NUMBER,
+        delegation_generation = DELEGATION,
+      },
+    }
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(writes, trace_write(ordinal, effect_id, emitted))
+    end
+  end
+  return trace_fixture(fixture, admission, decided, writes), decided
+end
+
+local function assert_awaiting_pr_trace_equality()
+  local corpus = json.decode(file.read(AWAITING_PR_CORPUS_PATH))
+  local old_fixtures = json_array()
+  local new_fixtures = json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local result, probe, admission = run_old_trace_fixture(fixture)
+    local new_fixture, decision = new_trace_fixture(fixture, probe, admission)
+    local old_writes = admission.status == "apply"
+      and trace_writes(result.raises)
+      or json_array()
+    table.insert(old_fixtures, trace_fixture(fixture, admission, decision, old_writes))
+    table.insert(new_fixtures, new_fixture)
+    if admission.status == "idempotent" then
+      t.eq(#result.raises, 0, "awaiting-pr idempotent post-admission path emits no repair writes")
+    end
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 awaiting-pr trace could not create its artifact directory", 0)
+  end
+  file.write(AWAITING_PR_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(new_trace), "R9 awaiting-pr OLD and NEW semantic trace")
+  t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 awaiting-pr OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 awaiting-pr NEW semantic trace")
+end
+
 return {
+  test_r9_awaiting_pr_old_equals_new_normalized_trace = function()
+    assert_awaiting_pr_trace_equality()
+  end,
+
   -- implementing_to_awaiting_pr is apply-only parity: observe_issue/main.lua:601
   -- gates this canonicalization behind state ~= "awaiting-pr", so an issue already
   -- in awaiting-pr never reaches this edge's idempotent branch via the real
