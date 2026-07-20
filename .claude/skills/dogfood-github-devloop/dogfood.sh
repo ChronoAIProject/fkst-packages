@@ -625,25 +625,45 @@ stray_supervise_report() {
 # DOGFOOD_REAP_DRYRUN=1 identifies + reports without killing (safe operator verify before enabling kill);
 # DOGFOOD_TEST_REAP_MINUTES overrides the 45min threshold.
 reap_leaked_test_procs() {
-  local reap_min="${DOGFOOD_TEST_REAP_MINUTES:-45}" self_pgid pid pgid etime secs reaped=0
+  local reap_min="${DOGFOOD_TEST_REAP_MINUTES:-45}" self_pgid pat pid pgid ppid comm etime secs reaped=0
   self_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
-  for pid in $(pgrep -f -- 'fkst-framework test' 2>/dev/null); do
-    etime=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' '); [ -n "$etime" ] || continue
-    # etime = [[DD-]HH:]MM:SS -> seconds
-    secs=$(printf '%s\n' "$etime" | awk -F'[:-]' '{n=NF;s=$n;m=$(n-1);h=(n>=3?$(n-2):0);d=(n>=4?$(n-3):0);print ((d*24+h)*60+m)*60+s}')
-    [ "${secs:-0}" -gt "$((reap_min*60))" ] 2>/dev/null || continue
-    pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
-    if [ -z "$pgid" ] || [ "$pgid" = "$self_pgid" ] || pgrep -g "$pgid" -f -- 'supervise --project-root' >/dev/null 2>&1; then
-      printf '  ⚠ leaked test pid %s age %ss — SKIPPED (guard: own/supervise group)\n' "$pid" "$secs"; continue
-    fi
-    if [ "${DOGFOOD_REAP_DRYRUN:-0}" = "1" ]; then
-      printf '  would-reap pid %s pgid %s age %ss\n' "$pid" "$pgid" "$secs"
-    else
-      kill -9 -"$pgid" 2>/dev/null; printf '  reaped pid %s pgid %s age %ss\n' "$pid" "$pgid" "$secs"
-    fi
-    reaped=$((reaped+1))
+  # Observed test-runner leak shapes (all the SAME unbounded-execution class): a test-suite process left
+  # running past DOGFOOD_TEST_REAP_MINUTES (healthy suite ~230-440s ⇒ ~6-12x margin) AND orphaned to init.
+  # When the codex worker running `scripts/run.sh test` is SIGKILLed, its children do NOT die with it — the
+  # `fkst-framework test` binary and each leaf `scripts/*_test.py` (host_run_equivalence_test.py, board_test.py,
+  # ...) orphan to init INDEPENDENTLY (separate groups) and hang for DAYS via untimed subprocess.run / syscalls
+  # — the empirical driver of a load-avg spike (11 day-old trees observed 2026-07-21). Match the leaf shapes
+  # (not each script by name); blind-kill each matched leader's whole process GROUP (reaps the run.sh shell).
+  for pat in 'fkst-framework test' 'scripts/[a-z0-9_]*_test\.py'; do
+    for pid in $(pgrep -f -- "$pat" 2>/dev/null); do
+      # REQUIRED safety guard (not an optimization): a codex worker embeds its ENTIRE prompt in argv, so a
+      # worker whose prompt merely MENTIONS a test file matches `pgrep -f` on a test pattern AND is ppid=1
+      # (codex runs detached) — it would be mis-reaped. Exclude by executable: reap only real test
+      # interpreters/binaries (python / fkst-framework), NEVER node/codex. Verified near-miss 2026-07-21.
+      comm=$(ps -o comm= -p "$pid" 2>/dev/null)
+      case "$comm" in *node*|*codex*|*Code*) continue;; esac
+      etime=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' '); [ -n "$etime" ] || continue
+      # etime = [[DD-]HH:]MM:SS -> seconds
+      secs=$(printf '%s\n' "$etime" | awk -F'[:-]' '{n=NF;s=$n;m=$(n-1);h=(n>=3?$(n-2):0);d=(n>=4?$(n-3):0);print ((d*24+h)*60+m)*60+s}')
+      [ "${secs:-0}" -gt "$((reap_min*60))" ] 2>/dev/null || continue
+      # Leak signature = over-budget AND orphaned (ppid=1). A LIVE test run still has its launching parent
+      # (run.sh / codex worker); an orphan will never be cleaned. Requiring the orphan spares a legitimately
+      # slow live run and keeps the kill decision to definite leaks only.
+      ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+      [ "$ppid" = "1" ] || { printf '  · %s pid %s age %ss has live parent %s — live, skip\n' "$pat" "$pid" "$secs" "$ppid"; continue; }
+      pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+      if [ -z "$pgid" ] || [ "$pgid" = "$self_pgid" ] || pgrep -g "$pgid" -f -- 'supervise --project-root' >/dev/null 2>&1; then
+        printf '  ⚠ leaked %s pid %s age %ss — SKIPPED (guard: own/supervise group)\n' "$pat" "$pid" "$secs"; continue
+      fi
+      if [ "${DOGFOOD_REAP_DRYRUN:-0}" = "1" ]; then
+        printf '  would-reap %s pid %s pgid %s age %ss\n' "$pat" "$pid" "$pgid" "$secs"
+      else
+        kill -9 -"$pgid" 2>/dev/null; printf '  reaped %s pid %s pgid %s age %ss\n' "$pat" "$pid" "$pgid" "$secs"
+      fi
+      reaped=$((reaped+1))
+    done
   done
-  printf '  leaked-test-proc reaper: %s reaped (threshold %smin; count rising ⇒ escalate to a bounded-exec test watchdog)\n' "$reaped" "$reap_min"
+  printf '  leaked-test-proc reaper: %s reaped (threshold %smin, orphaned-only; count rising ⇒ escalate to bounded-exec test watchdog)\n' "$reaped" "$reap_min"
 }
 
 cmd_doctor() {
