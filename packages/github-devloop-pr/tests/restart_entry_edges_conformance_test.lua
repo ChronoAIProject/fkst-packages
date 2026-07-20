@@ -87,6 +87,16 @@ local expected_entries = {
     semantic_variant = "handoff_to_merge_gate",
     cas_policy_id = "cas.legacy_merge_v1",
     cas_variant = "merge_ready_or_merging_to_merging",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/apply",
+        effect_ids = { "github-proxy.github_pr_comment_request" },
+      },
+      idempotent = {
+        id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/idempotent",
+        effect_ids = { "github-proxy.github_pr_comment_request" },
+      },
+    },
   },
   ["github-devloop-pr/reviewing/entry/review_reject_to_blocked"] = {
     row_id = "reviewing",

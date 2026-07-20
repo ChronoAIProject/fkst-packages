@@ -1,4 +1,5 @@
 local requests_labels = require("devloop.requests.labels")
+local requests_lifecycle = require("devloop.requests.lifecycle")
 local requests_review = require("devloop.requests.review")
 local restart_effect_facade = require("devloop.restart_effect_facade")
 
@@ -146,6 +147,18 @@ local function serialize_review_meta_label(args)
     args.version
   )
 end
+local function serialize_merge_comment(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.repo) ~= "string"
+    or type(args.merge_ready) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_lifecycle.build_merging_comment_request(
+    args.core, args.repo, args.merge_ready
+  )
+end
+
 
 local REVIEW_RESULT_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
@@ -187,11 +200,19 @@ local REVIEW_META_SERIALIZERS = {
   },
 }
 
+local MERGE_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:merging-state",
+    serialize = serialize_merge_comment,
+  },
+}
+
 local SERIALIZERS_BY_FAMILY = {
   ["pr-review-activation"] = REVIEW_ACTIVATION_SERIALIZERS,
   ["pr-review-result"] = REVIEW_RESULT_SERIALIZERS,
   ["pr-review-meta"] = REVIEW_META_SERIALIZERS,
   ["pr-fix"] = FIX_SERIALIZERS,
+  ["pr-merge"] = MERGE_SERIALIZERS,
 }
 
 function M.make(config)

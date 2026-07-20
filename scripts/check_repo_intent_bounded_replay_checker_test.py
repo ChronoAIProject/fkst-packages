@@ -220,6 +220,22 @@ def pr_review_activation_trace() -> dict[str, object]:
     artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
     return artifact
 
+def pr_merge_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-merge-trace.v1"
+    artifact["family"] = "pr-merge"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    fixture["granted_effect_ids"] = ["github-proxy.github_pr_comment_request"]
+    fixture["observable_writes"] = [fixture["observable_writes"][0]]
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
 
 def idempotent_thinking_trace() -> dict[str, object]:
     artifact = thinking_trace()
@@ -335,6 +351,11 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             self.root,
             checker.PR_REVIEW_ACTIVATION_OLD_CORPUS,
             pr_review_activation_trace(),
+        )
+        write_json(
+            self.root,
+            checker.PR_MERGE_OLD_CORPUS,
+            pr_merge_trace(),
         )
 
     def allow(self, relative_path: str) -> None:
@@ -596,6 +617,32 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
 
         self.assertTrue(any(
             "pr-review-activation trace canonical hash mismatch" in message
+            for message in messages
+        ))
+
+    def test_pr_merge_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(
+            self.root,
+            checker.PR_MERGE_NEW_TRACE,
+            pr_merge_trace(),
+        )
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_pr_merge_trace_output_mismatch_fails_closed(self) -> None:
+        changed = pr_merge_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(self.root, checker.PR_MERGE_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any(
+            "pr-merge trace canonical hash mismatch" in message
             for message in messages
         ))
 

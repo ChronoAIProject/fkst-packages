@@ -5,6 +5,7 @@
 -- never computes the expected result with a devloop.state transition helper.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -17,6 +18,8 @@ local m_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
@@ -25,6 +28,9 @@ local merge_department = require("departments.merge.main")
 local POLICY_ID = "cas.legacy_merge_v1"
 local VARIANT = "merge_ready_or_merging_to_merging"
 local OWNER = core.restart_package_name
+local MERGE_CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-merge.json"
+local MERGE_NEW_TRACE_PATH = ".fkst/run/r9-pr-merge-new-trace.json"
+local COMMENT_EFFECT_ID = "github-proxy.github_pr_comment_request"
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_NEWER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
@@ -36,9 +42,11 @@ local function observe_department(run)
   local decisions = {}
   local boundary_calls = {}
   local original_cyclic = devloop_state.cyclic_transition_status
+  local admission_writes = observation_support.json_array()
   local original_log_cas = devloop_logging.log_cas_decision
   local original_merge_ready_fact = m_facts.merge_ready_fact
 
+  local original_pr_comment = core.gh_pr_comment
   devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
     local outcome = original_cyclic(current, from_states, to_state, incoming_version, target_version)
     table.insert(probes, {
@@ -74,14 +82,22 @@ local function observe_department(run)
     return original_merge_ready_fact(comments, proposal_id, version, pr_number, head_sha)
   end
 
+  core.gh_pr_comment = function(repo, pr_number, body_path, timeout)
+    table.insert(admission_writes, {
+      queue = COMMENT_EFFECT_ID,
+      payload = { body = file.read(body_path) },
+    })
+    return original_pr_comment(repo, pr_number, body_path, timeout)
+  end
   local ok, result = pcall(run)
   m_facts.merge_ready_fact = original_merge_ready_fact
   devloop_logging.log_cas_decision = original_log_cas
+  core.gh_pr_comment = original_pr_comment
   devloop_state.cyclic_transition_status = original_cyclic
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, boundary_calls
+  return result, probes, decisions, boundary_calls, admission_writes
 end
 
 local function current_fact(state, version)
@@ -335,6 +351,217 @@ local function assert_pre_cas_merged_marker_idempotency()
   -- this trusted merged-marker effect-idempotency guard before the CAS probe.
 end
 
+local TRACE_EDGE_ID = OWNER .. "/merge-ready/entry/handoff_to_merge_gate"
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "source-equal-apply",
+    current_state = "merge-ready",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    exercise_marker_write = true,
+    old_marker_write_count = 1,
+  },
+  {
+    fixture_id = "source-newer-pending",
+    current_state = "merge-ready",
+    current_version = V_EQUAL,
+    incoming_version = V_NEWER,
+  },
+  {
+    fixture_id = "source-older-stale",
+    current_state = "merge-ready",
+    current_version = V_EQUAL,
+    incoming_version = V_OLDER,
+  },
+  {
+    fixture_id = "target-incomplete-idempotent",
+    current_state = "merging",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    exercise_marker_write = true,
+    old_marker_write_count = 1,
+  },
+}
+
+local function trace_pr_comments(event, current_state)
+  local comments = h.merge_comments(event)
+  if current_state == "merging" then
+    table.insert(comments, core.state_marker(event.proposal_id, "merging", event.version))
+  end
+  return comments
+end
+
+local function trace_origin_marker(event)
+  return m_builders.pr_origin_marker(
+    event.proposal_id,
+    "42",
+    "devloop-owner-repo-42-01HY",
+    event.version,
+    "dev"
+  )
+end
+
+local function mock_marker_write_path(event, fixture)
+  local comments = trace_pr_comments(event, fixture.current_state)
+  h.mock_bot_env()
+  h.mock_write_env("1")
+  h.mock_write_env("1")
+  h.mock_default_issue_claim()
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&base=dev&per_page=100'", {
+    stdout = '[{"number":7,"state":"open","base":{"ref":"dev"}}]\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  h.mock_pr_normal_risk_diff_name_only()
+  h.mock_pr_normal_risk_diff_name_only()
+  h.mock_issue_merge({ "fkst-dev:" .. fixture.current_state }, comments)
+  h.mock_pr_merge({ trace_origin_marker(event) })
+  h.mock_issue_merge({ "fkst-dev:" .. fixture.current_state }, comments)
+  h.mock_pr_merge(comments)
+  h.mock_merging_comment()
+end
+
+local function trace_decision(decisions)
+  for _, decision in ipairs(decisions) do
+    if decision.dept == "merge"
+      and decision.from_state == "merge-ready"
+      and decision.to_state == "merging" then
+      return decision
+    end
+  end
+  return nil
+end
+
+local function observe_old_trace_fixture(fixture)
+  local event = h.merge_ready({ version = fixture.incoming_version })
+  local original_verified_merge = core.run_verified_pr_merge
+  if fixture.exercise_marker_write then
+    mock_marker_write_path(event, fixture)
+    core.run_verified_pr_merge = function(options)
+      options.before_merge()
+      return false, "merge-confirmation-pending", {}
+    end
+  else
+    mock_current_pr(event, fixture)
+  end
+
+  local result, probes, decisions, boundary_calls, admission_writes = observe_department(function()
+    return run_real_department(event)
+  end)
+  core.run_verified_pr_merge = original_verified_merge
+
+  t.eq(#probes, 1, fixture.fixture_id .. ": OLD production CAS probe count")
+  local decision = trace_decision(decisions)
+  t.is_true(decision ~= nil, fixture.fixture_id .. ": OLD production admission decision")
+  local observed = observed_admission(probes[1], decision, #boundary_calls > 0)
+  t.eq(
+    #admission_writes,
+    fixture.old_marker_write_count or 0,
+    fixture.fixture_id .. ": OLD direct merging-marker write count"
+  )
+  if #admission_writes > 0 then
+    t.is_true(
+      admission_writes[1].payload.body:find('state="merging"', 1, true) ~= nil,
+      fixture.fixture_id .. ": OLD write is the merging state marker"
+    )
+  end
+  return {
+    event = event,
+    observed = observed,
+    admission_writes = admission_writes,
+    result = result,
+  }
+end
+
+local function new_trace_fixture(fixture, production)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "pr", repo = "owner/repo", number = 7 },
+    proposal_id = production.event.proposal_id,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+    snapshot_fingerprint = "r9-pr-merge:" .. fixture.fixture_id,
+    lock_epoch = "r9-pr-merge:lock",
+    generation = "r9-pr-merge:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "handoff_to_merge_gate",
+    target = "merging",
+    incoming_version = fixture.incoming_version,
+    overlay_version = fixture.incoming_version,
+  })
+  local writes = observation_support.json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(snapshot, decided, "comment:pr:merging-state")
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({
+      family = "pr-merge",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, {
+        core = core,
+        repo = "owner/repo",
+        merge_ready = production.event,
+      })
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(writes, observation_support.admission_trace_write(
+        ordinal, effect_id, emitted, "R9 PR merge trace"
+      ))
+    end
+  end
+  return decided, writes
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-pr-merge-trace.v1", OWNER, "pr-merge", corpus_hash, fixtures
+  )
+end
+
+local function assert_merge_trace_equality()
+  local corpus = json.decode(file.read(MERGE_CORPUS_PATH))
+  local old_fixtures = observation_support.json_array()
+  local new_fixtures = observation_support.json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = observe_old_trace_fixture(fixture)
+    local decided, new_writes = new_trace_fixture(fixture, production)
+    local old_writes = production.observed.status == "apply"
+      and observation_support.admission_trace_writes(
+        production.admission_writes, "R9 PR merge trace"
+      )
+      or observation_support.json_array()
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(
+      fixture, TRACE_EDGE_ID, production.observed.status,
+      production.observed.reason_code, production.observed.cas_outcome,
+      decided.effect_entitlement_id, decided.granted_effect_ids, old_writes
+    ))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(
+      fixture, TRACE_EDGE_ID, decided.status, decided.reason_code,
+      decided.cas_outcome, decided.effect_entitlement_id,
+      decided.granted_effect_ids, new_writes
+    ))
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local canonical_json = observation_support.canonical_json
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 PR merge OLD and NEW admission trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 PR merge trace could not create its artifact directory", 0)
+  end
+  file.write(MERGE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 PR merge OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus),
+    "R9 PR merge NEW semantic trace")
+end
+
 return {
   test_merge_source_equal_is_admitted_before_merge_ready_fact_guard = function()
     assert_shadow_parity({
@@ -547,6 +774,10 @@ return {
       admission_reason_code = "version-mismatch",
       legacy_log_outcome = "skip-stale(version-mismatch)",
     })
+  end,
+
+  test_r9_pr_merge_old_equals_new_admission_trace = function()
+    assert_merge_trace_equality()
   end,
 
   test_merge_malformed_evidence_and_payload_fail_closed_before_cas = function()

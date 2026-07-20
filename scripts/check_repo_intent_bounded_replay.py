@@ -45,6 +45,8 @@ PR_FIX_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-fix.json"
 PR_FIX_NEW_TRACE = ".fkst/run/r9-pr-fix-new-trace.json"
 PR_REVIEW_ACTIVATION_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-review-activation.json"
 PR_REVIEW_ACTIVATION_NEW_TRACE = ".fkst/run/r9-pr-review-activation-new-trace.json"
+PR_MERGE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-merge.json"
+PR_MERGE_NEW_TRACE = ".fkst/run/r9-pr-merge-new-trace.json"
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
@@ -364,6 +366,16 @@ def _admission_trace_messages(root: Path) -> list[str]:
             owner="github-devloop-pr",
         )
     )
+    messages.extend(
+        _trace_pair_messages(
+            root,
+            PR_MERGE_OLD_CORPUS,
+            PR_MERGE_NEW_TRACE,
+            "restart-pr-merge-trace.v1",
+            "pr-merge",
+            owner="github-devloop-pr",
+        )
+    )
     return messages
 
 
@@ -382,6 +394,7 @@ def admission_trace_status(root: Path) -> str:
             PR_REVIEW_META_NEW_TRACE,
             PR_FIX_NEW_TRACE,
             PR_REVIEW_ACTIVATION_NEW_TRACE,
+            PR_MERGE_NEW_TRACE,
         )
         if (Path(root) / relative).is_file()
     ]

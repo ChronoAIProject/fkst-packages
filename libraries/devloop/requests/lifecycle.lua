@@ -9,6 +9,7 @@ local comment_strings = require("devloop.strings")
 local shared = require("devloop.requests.shared")
 local m_shared = require("devloop.markers.shared")
 local m_builders = require("devloop.markers.builders")
+local request_bodies = require("devloop.requests.bodies")
 local result_facts = require("devloop.markers.result_facts")
 local m_mq = require("devloop.merge_queue")
 
@@ -383,6 +384,22 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
   }, ready.source_ref)
+end
+
+function C.build_merging_comment_request(M, repo, merge_ready)
+  return entity_lib.build_entity_comment_request({
+    kind = "pr",
+    repo = repo,
+    number = merge_ready.pr_number,
+  }, request_bodies.build_merging_comment_body(M, merge_ready), base_ids.dedup_key({
+    "merge",
+    "comment",
+    "merging",
+    tostring(merge_ready.proposal_id),
+    tostring(merge_ready.version),
+    tostring(merge_ready.pr_number),
+    tostring(merge_ready.reviewed_head_sha),
+  }), entity_lib.pr_source_ref(repo, merge_ready.pr_number))
 end
 
 function C.build_queue_starvation_reconcile_comment_request(repo, merge_ready, cause)
