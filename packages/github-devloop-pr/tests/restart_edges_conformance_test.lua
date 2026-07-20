@@ -164,6 +164,7 @@ local function expected_edges(owner, rows)
           pending_order = copy_value(successor.pending_order),
           cas_policy_id = expected_cas and expected_cas.cas_policy_id or nil,
           cas_variant = expected_cas and expected_cas.cas_variant or nil,
+          transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
           provenance = {
             owner = owner,
             row = row.from_state,
@@ -320,6 +321,9 @@ local function assert_edges(actual, expected, empty_rows)
       edge_keys.cas_variant = true
     end
     if expected_edge.pending_order ~= nil then edge_keys.pending_order = true end
+    if expected_edge.transition_effect_entitlements ~= nil then
+      edge_keys.transition_effect_entitlements = true
+    end
     assert_exact_keys(edge, edge_keys)
     assert_exact_keys(edge.source, { state = true })
     assert_exact_keys(edge.provenance, { owner = true, row = true, field = true })
@@ -335,6 +339,7 @@ local function assert_edges(actual, expected, empty_rows)
     t.eq(edge.cas_policy_id, expected_edge.cas_policy_id)
     t.eq(edge.cas_variant, expected_edge.cas_variant)
     assert_same_value(edge.pending_order, expected_edge.pending_order)
+    assert_same_value(edge.transition_effect_entitlements, expected_edge.transition_effect_entitlements)
     assert_valid_cas(edge)
     t.eq(edge.provenance.owner, expected_edge.provenance.owner)
     t.eq(edge.provenance.row, expected_edge.provenance.row)

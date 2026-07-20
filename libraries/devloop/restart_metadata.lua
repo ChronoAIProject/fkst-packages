@@ -11,6 +11,46 @@ local state_order = label_defs.state_order
 local state_stage_rank = label_defs.state_stage_rank
 local copy_array = label_defs.copy_array
 
+function R.is_nonempty_string(value)
+  return type(value) == "string" and value ~= ""
+end
+
+local function copy_value(value)
+  if type(value) ~= "table" then
+    return value
+  end
+  local copy = {}
+  for key, nested in pairs(value) do
+    copy[key] = copy_value(nested)
+  end
+  return copy
+end
+
+R.copy_value = copy_value
+R.copy_array = copy_array
+
+function R.arrays_equal(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then
+    return false
+  end
+  for index, value in ipairs(left) do
+    if value ~= right[index] then
+      return false
+    end
+  end
+  for key in pairs(left) do
+    if type(key) ~= "number" or key < 1 or key > #left or key % 1 ~= 0 then
+      return false
+    end
+  end
+  for key in pairs(right) do
+    if type(key) ~= "number" or key < 1 or key > #right or key % 1 ~= 0 then
+      return false
+    end
+  end
+  return true
+end
+
 function R.has_label(labels, expected)
   if type(labels) ~= "table" then
     return false

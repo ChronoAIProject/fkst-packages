@@ -100,6 +100,19 @@ return function(M, h)
           output_variant = "changes_requested",
           cas_policy_id = "cas.legacy_review_result_v1",
           cas_variant = "reviewing_to_fixing",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/reviewing/autonomous/changes_requested/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/reviewing/autonomous/changes_requested/idempotent",
+              effect_ids = {},
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "reviewing" },
           postcondition_family = "review_decision_recorded",
