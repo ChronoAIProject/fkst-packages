@@ -58,6 +58,16 @@ return {
     target = "reviewing",
     pending_order = { participates = false },
     cas_policy_id = "cas.legacy_review_loop_safe_v1",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/reviewing/entry/review_convergence_round/apply",
+        effect_ids = { "github-proxy.github_pr_comment_request" },
+      },
+      idempotent = {
+        id = "github-devloop-pr/reviewing/entry/review_convergence_round/idempotent",
+        effect_ids = {},
+      },
+    },
     provenance = {
       owner = "github-devloop-pr",
       row = "reviewing",

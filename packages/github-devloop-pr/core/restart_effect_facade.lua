@@ -27,6 +27,29 @@ local function serialize_review_activation_comment(args)
   )
 end
 
+local function serialize_review_loop_comment(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.repo) ~= "string"
+    or type(args.unresolved) ~= "table"
+    or type(args.issue_proposal_id) ~= "string"
+    or type(args.round) ~= "number"
+    or type(args.marker_body) ~= "string"
+    or type(args.source_ref) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_review.build_review_converge_round_comment_request(
+    args.core,
+    args.repo,
+    args.issue_number,
+    args.unresolved,
+    args.issue_proposal_id,
+    args.round,
+    args.marker_body,
+    args.source_ref
+  )
+end
+
 local function valid_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
@@ -178,6 +201,13 @@ local REVIEW_ACTIVATION_SERIALIZERS = {
   },
 }
 
+local REVIEW_LOOP_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:review-converge-round",
+    serialize = serialize_review_loop_comment,
+  },
+}
+
 local FIX_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:fix-reviewing",
@@ -208,6 +238,7 @@ local MERGE_SERIALIZERS = {
 }
 
 local SERIALIZERS_BY_FAMILY = {
+  ["pr-review-loop"] = REVIEW_LOOP_SERIALIZERS,
   ["pr-review-activation"] = REVIEW_ACTIVATION_SERIALIZERS,
   ["pr-review-result"] = REVIEW_RESULT_SERIALIZERS,
   ["pr-review-meta"] = REVIEW_META_SERIALIZERS,
