@@ -46,7 +46,8 @@
 # GH_ORG=ChronoAIProject
 
 # Which repos THIS machine drives ('all' and the board default expand to this list).
-# A machine that only dogfoods two of the three repos lists just those.
+# Default when unset is "packages substrate"; the website dogfood is OPT-IN — a machine that
+# wants it must list `website` explicitly. A machine that only dogfoods some repos lists just those.
 # DOGFOOD_REPOS="packages substrate website"
 
 # The github-devloop PLATFORM packages each supervise loads + runs from PKGSRC/packages/ come from the

@@ -59,7 +59,7 @@ MANAGED_BOT_LOGINS="${FKST_DEVLOOP_MANAGED_BOT_LOGINS:-${MANAGED_BOT_LOGINS:-}}"
 AUTHORIZE_ORG_MEMBERS="${FKST_GITHUB_AUTHORIZE_ORG_MEMBERS:-${AUTHORIZE_ORG_MEMBERS:-0}}"  # 1 = auto-authorize every member of the repo owner's GH org into the devloop author allowlist (issue intake auto-dev + external-PR bridge); default 0 = only static FKST_GITHUB_AUTHORIZED_LOGINS. Fail-closed: if the token cannot list org members, the policy falls back to static-only.
 GITHUB_PROXY_POLL_LABEL_PREFIX="${FKST_GITHUB_PROXY_POLL_LABEL_PREFIX:-${GITHUB_PROXY_POLL_LABEL_PREFIX:-fkst-dev:}}"
 GH_ORG="${GH_ORG:-ChronoAIProject}"
-DOGFOOD_REPOS="${DOGFOOD_REPOS:-packages substrate website}"             # repos this host drives ('all' / board default expand here)
+DOGFOOD_REPOS="${DOGFOOD_REPOS:-packages substrate}"             # repos this host drives ('all' / board default expand here); website is OPT-IN — a host that wants it adds `website` in dogfood.config.sh
 
 # The shared devloop family = the PLATFORM (like GitHub runners + marketplace actions), loaded from the
 # platform fkst-packages (Lua-primary) checkout's repo-root packages/ (PKGSRC). Each website-source-
