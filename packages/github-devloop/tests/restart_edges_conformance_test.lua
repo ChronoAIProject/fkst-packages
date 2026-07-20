@@ -142,8 +142,8 @@ local function expected_edges(owner, rows)
           source = { state = row.from_state, boundary = nil },
           target = successor.state,
           semantic_variant = successor.output_variant,
-          pending_order = copy_value(successor.pending_order),
           transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
+          pending_order = copy_value(successor.pending_order),
           provenance = {
             owner = owner,
             row = row.from_state,
@@ -176,6 +176,7 @@ local function expected_guard_boundary_edges(owner, rows)
           source = { state = row.from_state, boundary = nil },
           target = successor.state,
           semantic_variant = successor.output_variant,
+          transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
           pending_order = copy_value(successor.pending_order),
           provenance = {
             owner = owner,
@@ -244,6 +245,7 @@ local function expected_timeout_edges(owner, rows)
           source = { state = row.from_state, boundary = nil },
           target = successor.state,
           semantic_variant = successor.output_variant,
+          transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
           pending_order = copy_value(successor.pending_order),
           timeout_evidence_policy_id = policy_id,
           cas_policy_id = expected_cas and expected_cas.cas_policy_id or nil, cas_variant = expected_cas and expected_cas.cas_variant or nil,
@@ -266,6 +268,7 @@ local function expected_timeout_edges(owner, rows)
             source = { state = row.from_state, boundary = guard_boundary.name },
             target = successor.state,
             semantic_variant = successor.output_variant,
+            transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
             pending_order = copy_value(successor.pending_order),
             timeout_evidence_policy_id = policy_id,
             provenance = {
@@ -397,6 +400,7 @@ local function assert_timeout_edges(actual, expected)
     local edge_keys = key_set(structural_fields)
     edge_keys.semantic_variant = true
     edge_keys.timeout_evidence_policy_id = true
+    if expected_edge.transition_effect_entitlements ~= nil then edge_keys.transition_effect_entitlements = true end
     if expected_edge.pending_order ~= nil then edge_keys.pending_order = true end
     if expected_edge.cas_policy_id ~= nil then edge_keys.cas_policy_id = true end
     if expected_edge.cas_variant ~= nil then edge_keys.cas_variant = true end
@@ -419,6 +423,7 @@ local function assert_timeout_edges(actual, expected)
     t.eq(edge.timeout_evidence_policy_id, expected_edge.timeout_evidence_policy_id)
     t.eq(edge.cas_policy_id, expected_edge.cas_policy_id)
     t.eq(edge.cas_variant, expected_edge.cas_variant)
+    assert_same_value(edge.transition_effect_entitlements, expected_edge.transition_effect_entitlements)
     assert_same_value(edge.pending_order, expected_edge.pending_order)
     assert_valid_cas(edge)
     t.eq(edge.provenance.owner, expected_edge.provenance.owner)

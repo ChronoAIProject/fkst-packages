@@ -1,3 +1,5 @@
+local base_ids = require("devloop.base_ids")
+local conv_reconcile = require("devloop.convergence.reconcile")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 
@@ -151,6 +153,45 @@ local function serialize_issue_reconcile_label(args)
   )
 end
 
+local function serialize_timeout_reconcile_comment(args)
+  if type(args) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.reconcile) ~= "table"
+    or type(args.why_fields) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return conv_reconcile.build_timeout_reconcile_comment_request(
+    args.issue.repo,
+    args.issue.number,
+    args.reconcile,
+    args.action,
+    args.reason,
+    args.state_version,
+    args.why_fields
+  )
+end
+
+local function serialize_timeout_reconcile_label(args)
+  if type(args) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.reconcile) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_labels.build_state_label_request(
+    args.issue.repo,
+    args.issue.number,
+    "blocked",
+    args.reconcile.proposal_id,
+    args.state_version,
+    base_ids.dedup_key({
+      "timeout-reconcile",
+      "label",
+      tostring(args.reconcile.dedup_key),
+    }),
+    args.reconcile.source_ref
+  )
+end
+
 local SERIALIZERS_BY_FAMILY = {
   ["awaiting-pr"] = {
     [COMMENT_EFFECT_ID] = {
@@ -196,6 +237,16 @@ local SERIALIZERS_BY_FAMILY = {
     [LABEL_EFFECT_ID] = {
       sink_id = "label:issue:reconcile-blocked",
       serialize = serialize_issue_reconcile_label,
+    },
+  },
+  ["timeout-reconcile"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:timeout-reconcile",
+      serialize = serialize_timeout_reconcile_comment,
+    },
+    [LABEL_EFFECT_ID] = {
+      sink_id = "label:issue:timeout-reconcile",
+      serialize = serialize_timeout_reconcile_label,
     },
   },
 }

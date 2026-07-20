@@ -77,6 +77,19 @@ return function(M, h)
           kind = "timeout",
           cas_policy_id = "cas.legacy_timeout_reconcile_v1",
           cas_variant = "ready_to_blocked",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/ready/timeout/actionable_kickoff_timeout/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/ready/timeout/actionable_kickoff_timeout/idempotent",
+              effect_ids = {},
+            },
+          },
           pending_order = { participates = true, predecessor_state = "ready" },
           terminal = true,
           monotonic = true,

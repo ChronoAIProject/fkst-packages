@@ -5,7 +5,10 @@
 -- logs are recorded as separate axes.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
   entry = require("core.restart.entry_inventory"),
@@ -21,6 +24,11 @@ local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local reconcile_department = require("departments.reconcile.main")
+
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
+local TIMEOUT_RECONCILE_CORPUS_PATH = "migration/intent_bounded_replay/corpus/timeout-reconcile.json"
+local TIMEOUT_RECONCILE_NEW_TRACE_PATH = ".fkst/run/r9-timeout-reconcile-new-trace.json"
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_timeout_reconcile_v1"
@@ -327,14 +335,16 @@ local function assert_case(fixture)
 
   local boundary_reached = #boundary_calls > 0
   t.eq(#boundary_calls, fixture.boundary_reached and 1 or 0, fixture.name .. ": admission boundary reach")
+  local observed = nil
+  local probe = nil
   if admission_phase == "cas" then
-    local probe = probes[1]
+    probe = probes[1]
     t.eq(probe.from_states[1], event.state, fixture.name .. ": probe source state")
     t.eq(#probe.from_states, 1, fixture.name .. ": probe source-state count")
     t.eq(probe.to_state, "blocked", fixture.name .. ": probe target state")
     t.eq(probe.target_version, nil, fixture.name .. ": probe target version")
 
-    local observed = observed_admission(probe, boundary_reached)
+    observed = observed_admission(probe, boundary_reached)
     local evidence = evidence_from_probe(probe)
     t.eq(evidence.current, probe.current, fixture.name .. ": catalog current comes from probe")
     t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": catalog incoming comes from probe")
@@ -377,9 +387,177 @@ local function assert_case(fixture)
   if fixture.legacy_log_outcome ~= nil then
     t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
   end
+  return {
+    event = event,
+    result = result,
+    probe = probe,
+    decision = decision,
+    boundary = boundary_calls[1],
+    observed = observed,
+  }
+end
+
+local TRACE_EDGE_ID = OWNER .. "/ready/timeout/actionable_kickoff_timeout"
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "newer-source-marker-missing-pending",
+    name = "r9-timeout-reconcile-newer-source-marker-missing",
+    current_state = nil,
+    current_version = nil,
+    event_version = V_NEWER .. "/timeout/ready/3",
+    admission_phase = "pre-cas",
+    expected_exit_code = 1,
+    legacy_log_outcome = "pending",
+  },
+  {
+    fixture_id = "source-equal-apply",
+    name = "r9-timeout-reconcile-source-equal-apply",
+    current_state = "ready",
+    current_version = READY_ATTEMPT,
+    boundary_reached = true,
+    admission_status = "apply",
+    probe_incoming_is_derived = true,
+    effect_count = 2,
+    post_admission_disposition = "effect-emitted(blocked)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "source-older-stale",
+    name = "r9-timeout-reconcile-source-older-stale",
+    current_state = "ready",
+    current_version = READY_ATTEMPT,
+    event_version = V_OLDER .. "/timeout/ready/3",
+    admission_phase = "pre-cas",
+    legacy_log_outcome = "skip-stale(lineage-mismatch)",
+  },
+}
+
+local function normalized_old_admission(fixture, production, incoming_version)
+  if production.observed ~= nil then
+    return production.observed.status, production.observed.reason_code,
+      devloop_state.cas_outcome(production.probe.current, production.probe.outcome, incoming_version)
+  end
+  local outcome = production.decision.outcome
+  if outcome == "pending" then
+    return "pending", "source-marker-not-visible",
+      devloop_state.cas_outcome({ state = nil, version = nil }, "pending", incoming_version)
+  end
+  if outcome:find("lineage-mismatch", 1, true) ~= nil then
+    return "stale", "incoming-version-older",
+      devloop_state.cas_outcome({ state = fixture.current_state, version = fixture.current_version }, "stale", incoming_version)
+  end
+  error("timeout reconcile trace saw unsupported pre-CAS outcome: " .. tostring(outcome), 0)
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-timeout-reconcile-trace.v1",
+    OWNER,
+    "timeout-reconcile",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function assert_timeout_reconcile_trace_equality()
+  local corpus = json.decode(file.read(TIMEOUT_RECONCILE_CORPUS_PATH))
+  local old_fixtures = json_array()
+  local new_fixtures = json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_case(fixture)
+    local incoming_version = production.boundary and production.boundary.version
+      or conv_reconcile.timeout_reconcile_state_version(
+        production.event.issue_version,
+        production.event.state,
+        production.event.round
+      )
+    local old_status, old_reason, old_cas_outcome = normalized_old_admission(
+      fixture,
+      production,
+      incoming_version
+    )
+    local snapshot = restart_effects.seal_snapshot({
+      owner = OWNER,
+      entity = { kind = "issue", repo = "owner/repo", number = 42 },
+      proposal_id = production.event.proposal_id,
+      current = { state = fixture.current_state, version = fixture.current_version },
+      snapshot_fingerprint = "r9-timeout-reconcile:" .. fixture.fixture_id,
+      lock_epoch = "r9-timeout-reconcile:lock",
+      generation = "r9-timeout-reconcile:generation",
+    })
+    local decided = restart_effects.decide_transition(snapshot, {
+      semantic_variant = "actionable_kickoff_timeout",
+      target = "blocked",
+      incoming_version = incoming_version,
+    })
+    local new_writes = json_array()
+    if decided.status == "apply" then
+      local grant = restart_effects.mint_grant(
+        snapshot,
+        decided,
+        "comment:issue:timeout-reconcile"
+      )
+      t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+      local facade = restart_effect_facade.make({
+        family = "timeout-reconcile",
+        verify_grant = restart_effects.verify_grant,
+        sink_inventory = require("core.restart.sink_inventory"),
+      })
+      local args = {
+        issue = { repo = production.boundary.repo, number = production.boundary.issue_number },
+        reconcile = production.boundary.reconcile,
+        action = production.boundary.action,
+        reason = production.boundary.reason,
+        state_version = production.boundary.version,
+        why_fields = production.boundary.fields,
+      }
+      for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+        local emitted = facade.emit(grant, effect_id, snapshot, args)
+        t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+        table.insert(new_writes, observation_support.admission_trace_write(
+          ordinal,
+          effect_id,
+          emitted,
+          "R9 timeout-reconcile trace"
+        ))
+      end
+    end
+    local old_writes = old_status == "apply"
+      and observation_support.admission_trace_writes(
+        production.result.raises,
+        "R9 timeout-reconcile trace"
+      )
+      or json_array()
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(
+      fixture, TRACE_EDGE_ID, old_status, old_reason, old_cas_outcome,
+      decided.effect_entitlement_id, decided.granted_effect_ids, old_writes
+    ))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(
+      fixture, TRACE_EDGE_ID, decided.status, decided.reason_code, decided.cas_outcome,
+      decided.effect_entitlement_id, decided.granted_effect_ids, new_writes
+    ))
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 timeout-reconcile OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 timeout-reconcile trace could not create its artifact directory", 0)
+  end
+  file.write(TIMEOUT_RECONCILE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 timeout-reconcile OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus),
+    "R9 timeout-reconcile NEW semantic trace")
 end
 
 return {
+  test_r9_timeout_reconcile_old_equals_new_admission_trace = function()
+    assert_timeout_reconcile_trace_equality()
+  end,
+
   test_timeout_reconcile_source_applies_at_effect_builder_boundary = function()
     assert_case({
       name = "timeout-reconcile-source-apply",

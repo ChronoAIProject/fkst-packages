@@ -96,6 +96,7 @@ add("comment:issue:reconcile-blocked", "reconcile", "emit_blocked_reconcile.issu
 add("label:issue:reconcile-blocked", "reconcile", "emit_blocked_reconcile.issue_label", "label", "lifecycle-authoritative", "state-label:blocked;dedup=reconcile/label")
 add("comment:pr:reconcile-blocked", "reconcile", "emit_effects.pr_comment", "comment", "lifecycle-authoritative", "state:v1/blocked+review-reconcile|fix-reconcile:v1")
 add("comment:issue:timeout-reconcile", "reconcile", "pipeline_timeout.comment", "comment", "lifecycle-authoritative", "state:v1/blocked+timeout-reconcile:v1;dedup=timeout-reconcile/comment")
+add("label:issue:timeout-reconcile", "reconcile", "pipeline_timeout.label", "label", "lifecycle-authoritative", "state-label:blocked;dedup=timeout-reconcile/label")
 add("comment:pr:timeout-adopt-open-pr", "reconcile", "maybe_adopt_open_implementation_pr.child_effect", "comment", "lifecycle-authoritative", "state:v1/pr-open+pr-origin:v1+pr-link:v1;dedup=pr-delegation/pr-open")
 add("comment:issue:timeout-adopt-pr-delegation", "reconcile", "maybe_adopt_open_implementation_pr.child_delegation_effect", "comment", "lifecycle-authoritative", "pr-delegation:v1;dedup=pr-delegation/issue")
 add("comment:issue:timeout-adopt-open-pr", "reconcile", "maybe_adopt_open_implementation_pr.issue_comment", "comment", "lifecycle-authoritative", "state:v1/awaiting-pr+pr-delegation:v1;dedup=awaiting-pr")
