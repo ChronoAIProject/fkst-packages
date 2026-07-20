@@ -50,7 +50,46 @@ local function serialize_review_result_label(args)
   )
 end
 
-local SERIALIZERS = {
+local function valid_fix_args(args)
+  return type(args) == "table"
+    and type(args.core) == "table"
+    and type(args.repo) == "string"
+    and args.issue_number ~= nil
+    and type(args.fix) == "table"
+    and type(args.old_head_sha) == "string"
+    and type(args.new_head_sha) == "string"
+    and type(args.new_version) == "string"
+end
+
+local function serialize_fix_reviewing_comment(args)
+  if not valid_fix_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_review.build_fix_reviewing_comment_request(
+    args.core,
+    args.repo,
+    args.issue_number,
+    args.fix,
+    args.old_head_sha,
+    args.new_head_sha,
+    args.new_version
+  )
+end
+
+local function serialize_fix_reviewing_label(args)
+  if not valid_fix_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_labels.build_fix_reviewing_label_request(
+    args.repo,
+    args.issue_number,
+    args.fix,
+    args.new_head_sha,
+    args.new_version
+  )
+end
+
+local REVIEW_RESULT_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:review-result",
     serialize = serialize_review_result_comment,
@@ -61,14 +100,30 @@ local SERIALIZERS = {
   },
 }
 
+local FIX_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:fix-reviewing",
+    serialize = serialize_fix_reviewing_comment,
+  },
+  [LABEL_EFFECT_ID] = {
+    sink_id = "label:issue:fix-reviewing",
+    serialize = serialize_fix_reviewing_label,
+  },
+}
+
+local SERIALIZERS_BY_FAMILY = {
+  ["pr-review-result"] = REVIEW_RESULT_SERIALIZERS,
+  ["pr-fix"] = FIX_SERIALIZERS,
+}
+
 function M.make(config)
   assert(type(config) == "table", "restart-effect-facade: config is required")
-  assert(config.family == "pr-review-result",
-    "restart-effect-facade: supported family is required")
+  local serializers = SERIALIZERS_BY_FAMILY[config.family]
+  assert(serializers ~= nil, "restart-effect-facade: supported family is required")
   return restart_effect_facade.make({
     verify_grant = config.verify_grant,
     sink_inventory = config.sink_inventory,
-    serializers = SERIALIZERS,
+    serializers = serializers,
   })
 end
 

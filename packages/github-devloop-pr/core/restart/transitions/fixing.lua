@@ -86,6 +86,19 @@ return function(M, h)
           output_variant = "revision_published",
           cas_policy_id = "cas.legacy_fix_v1",
           cas_variant = "fixing_to_reviewing",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/fixing/autonomous/revision_published/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/fixing/autonomous/revision_published/idempotent",
+              effect_ids = {},
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "fixing" },
           postcondition_family = "revision_published",
