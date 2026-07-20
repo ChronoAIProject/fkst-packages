@@ -219,6 +219,16 @@ local SERIALIZERS_BY_FAMILY = {
       serialize = serialize_loop_plain_comment,
     },
   },
+  ["observe-issue-entry"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:thinking-state",
+      serialize = serialize_thinking_comment,
+    },
+    [LABEL_EFFECT_ID] = {
+      sink_id = "label:issue:thinking-state",
+      serialize = serialize_thinking_label,
+    },
+  },
   thinking = {
     [COMMENT_EFFECT_ID] = {
       sink_id = "comment:issue:thinking-state",

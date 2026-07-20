@@ -12,6 +12,19 @@ return {
     pending_order = { participates = true, predecessor_state = "unmanaged" },
     cas_policy_id = "cas.legacy_observe_issue_entry_v1",
     cas_variant = "unmanaged_to_thinking",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/thinking/entry/unmanaged_issue/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/thinking/entry/unmanaged_issue/idempotent",
+        effect_ids = {},
+      },
+    },
     provenance = {
       owner = "github-devloop",
       row = "thinking",

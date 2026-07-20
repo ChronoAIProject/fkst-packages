@@ -16,10 +16,15 @@ local devloop_claims = require("devloop.claims")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local dispatch_live_run = require("devloop.dispatch_live_run")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local observe_issue_department = require("departments.observe_issue.main")
 
@@ -31,6 +36,8 @@ local V_EQUAL = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_NEWER = "github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
+local OBSERVE_ISSUE_ENTRY_CORPUS_PATH = "migration/intent_bounded_replay/corpus/observe-issue-entry.json"
+local OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH = ".fkst/run/r9-observe-issue-entry-new-trace.json"
 
 local function observe_department(run)
   local probes = {}
@@ -279,6 +286,8 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
   return {
+    event = event,
+    result = result,
     probe = probe,
     decision = decision,
     observed = observed,
@@ -330,6 +339,144 @@ local function assert_observe_issue_entry_shadow_case(fixture)
   t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
   t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
   t.eq(evidence.overlay_version, nil, fixture.name .. ": evidence overlay version")
+end
+
+local TRACE_EDGE_ID = OWNER .. "/thinking/entry/unmanaged_issue"
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "unmanaged-source-apply",
+    name = "r9-observe-issue-entry-unmanaged-source-apply",
+    current_state = nil,
+    current_version = nil,
+    incoming_version = V_EQUAL,
+    effect_count = 3,
+    post_admission_disposition = "effect-emitted(thinking)",
+    legacy_log_outcome = "applied",
+  },
+}
+
+local ADMISSION_EFFECT_IDS = {
+  ["github-proxy.github_issue_comment_request"] = true,
+  ["github-proxy.github_issue_label_request"] = true,
+}
+
+local function admission_trace_writes(raises)
+  local scoped = json_array()
+  for _, raised in ipairs(raises or {}) do
+    if ADMISSION_EFFECT_IDS[raised.queue] == true then
+      table.insert(scoped, raised)
+    end
+  end
+  return observation_support.admission_trace_writes(scoped, "R9 observe-issue-entry admission trace")
+end
+
+local function raised_payload(result, queue)
+  for _, raised in ipairs(result.raises or {}) do
+    if raised.queue == queue then
+      return raised.payload
+    end
+  end
+  return nil
+end
+
+local function trace_fixture(fixture, decision, writes)
+  return observation_support.admission_trace_fixture(
+    fixture,
+    TRACE_EDGE_ID,
+    decision.status,
+    decision.reason_code,
+    decision.cas_outcome,
+    decision.effect_entitlement_id,
+    decision.granted_effect_ids,
+    writes
+  )
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-observe-issue-entry-trace.v1",
+    OWNER,
+    "observe-issue-entry",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function new_trace_fixture(fixture, production)
+  local proposal = raised_payload(production.result, "consensus.proposal")
+  t.is_true(proposal ~= nil, fixture.fixture_id .. ": OLD proposal observed")
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "issue", repo = "owner/repo", number = 42 },
+    proposal_id = proposal.proposal_id,
+    current = {
+      state = fixture.current_state,
+      -- Entry has no source marker; bind the grant to the incoming lifecycle effect version.
+      version = fixture.incoming_version,
+    },
+    snapshot_fingerprint = "r9-observe-issue-entry:" .. fixture.fixture_id,
+    lock_epoch = "r9-observe-issue-entry:lock",
+    generation = "r9-observe-issue-entry:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "unmanaged_issue",
+    source_boundary = "github-proxy.github_entity_changed",
+    target = "thinking",
+    incoming_version = fixture.incoming_version,
+  })
+  t.eq(decided.status, "apply", fixture.fixture_id .. ": NEW admission status " .. tostring(decided.reason_code))
+  t.eq(decided.effect_entitlement_id, TRACE_EDGE_ID .. "/apply", fixture.fixture_id .. ": NEW entitlement")
+  t.eq(#decided.granted_effect_ids, 2, fixture.fixture_id .. ": NEW granted effect count")
+  local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:thinking-state")
+  t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+  local facade = restart_effect_facade.make({
+    family = "observe-issue-entry",
+    verify_grant = restart_effects.verify_grant,
+    sink_inventory = require("core.restart.sink_inventory"),
+  })
+  local writes = json_array()
+  local args = {
+    core = core,
+    issue = production.event,
+    proposal = proposal,
+  }
+  for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+    local emitted = facade.emit(grant, effect_id, snapshot, args)
+    t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+    table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
+  end
+  return trace_fixture(fixture, decided, writes), decided
+end
+
+local function assert_observe_issue_entry_trace_equality()
+  local corpus = json.decode(file.read(OBSERVE_ISSUE_ENTRY_CORPUS_PATH))
+  local old_fixtures = json_array()
+  local new_fixtures = json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_catalog_matches_observed_decision(fixture)
+    local new_fixture, decided = new_trace_fixture(fixture, production)
+    local old_writes = admission_trace_writes(production.result.raises)
+    t.eq(#old_writes, #decided.granted_effect_ids, fixture.fixture_id .. ": OLD admission write count")
+    table.insert(old_fixtures, trace_fixture(fixture, {
+      status = production.observed.status,
+      reason_code = production.observed.reason_code,
+      cas_outcome = production.decision.outcome,
+      effect_entitlement_id = decided.effect_entitlement_id,
+      granted_effect_ids = decided.granted_effect_ids,
+    }, old_writes))
+    table.insert(new_fixtures, new_fixture)
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(canonical_json(old_trace), canonical_json(new_trace), "R9 observe-issue-entry OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 observe-issue-entry trace could not create its artifact directory", 0)
+  end
+  file.write(OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 observe-issue-entry OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 observe-issue-entry NEW semantic trace")
 end
 
 local function assert_malformed_fails_closed_before_cas()
@@ -402,5 +549,9 @@ return {
 
   test_observe_issue_entry_malformed_payload_fails_closed_before_cas = function()
     assert_malformed_fails_closed_before_cas()
+  end,
+
+  test_r9_observe_issue_entry_old_equals_new_normalized_trace = function()
+    assert_observe_issue_entry_trace_equality()
   end,
 }

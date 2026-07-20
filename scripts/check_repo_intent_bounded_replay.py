@@ -35,6 +35,8 @@ AWAITING_PR_OLD_CORPUS = "migration/intent_bounded_replay/corpus/awaiting-pr.jso
 AWAITING_PR_NEW_TRACE = ".fkst/run/r9-awaiting-pr-new-trace.json"
 TIMEOUT_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/timeout-reconcile.json"
 TIMEOUT_RECONCILE_NEW_TRACE = ".fkst/run/r9-timeout-reconcile-new-trace.json"
+OBSERVE_ISSUE_ENTRY_OLD_CORPUS = "migration/intent_bounded_replay/corpus/observe-issue-entry.json"
+OBSERVE_ISSUE_ENTRY_NEW_TRACE = ".fkst/run/r9-observe-issue-entry-new-trace.json"
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
@@ -303,6 +305,15 @@ def _admission_trace_messages(root: Path) -> list[str]:
             "timeout-reconcile",
         )
     )
+    messages.extend(
+        _trace_pair_messages(
+            root,
+            OBSERVE_ISSUE_ENTRY_OLD_CORPUS,
+            OBSERVE_ISSUE_ENTRY_NEW_TRACE,
+            "restart-observe-issue-entry-trace.v1",
+            "observe-issue-entry",
+        )
+    )
     return messages
 
 
@@ -316,6 +327,7 @@ def admission_trace_status(root: Path) -> str:
             IMPLEMENT_ACTIVATION_NEW_TRACE,
             AWAITING_PR_NEW_TRACE,
             TIMEOUT_RECONCILE_NEW_TRACE,
+            OBSERVE_ISSUE_ENTRY_NEW_TRACE,
         )
         if (Path(root) / relative).is_file()
     ]

@@ -259,6 +259,7 @@ function M.extract_entry_edges(owner, inventory, rows)
       },
     }
     attach_cas_metadata(edge, authored, "entry edge")
+    attach_effect_entitlements(edge, authored, "entry edge")
     attach_pending_order(edge, authored, "entry edge")
     table.insert(edges, edge)
   end
