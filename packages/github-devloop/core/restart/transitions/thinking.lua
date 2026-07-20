@@ -76,6 +76,22 @@ return function(M, h)
           output_variant = "consensus-reached",
           cas_policy_id = "cas.legacy_consensus_result_v1",
           cas_variant = "thinking_to_ready",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/thinking/autonomous/consensus-reached/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/thinking/autonomous/consensus-reached/idempotent",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "thinking" },
           postcondition_family = "issue-consensus",
