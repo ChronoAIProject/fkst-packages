@@ -75,6 +75,25 @@ def issue_reconcile_trace() -> dict[str, object]:
     return artifact
 
 
+def loop_plain_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-loop-plain-trace.v1"
+    artifact["family"] = "loop-plain"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["edge_id"] = "github-devloop/thinking/autonomous/consensus-stalled"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/thinking/autonomous/consensus-stalled/apply"
+    )
+    fixture["granted_effect_ids"] = ["github-proxy.github_issue_comment_request"]
+    fixture["observable_writes"] = [fixture["observable_writes"][0]]
+    fixture["observable_writes"][0]["marker_write"] = False
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def idempotent_thinking_trace() -> dict[str, object]:
     artifact = thinking_trace()
     fixtures = artifact["fixtures"]
@@ -156,6 +175,7 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         write(self.root, f"{checker.INTENT_DIFF_DIR}/.gitkeep", "")
         write_json(self.root, checker.THINKING_OLD_CORPUS, thinking_trace())
         write_json(self.root, checker.ISSUE_RECONCILE_OLD_CORPUS, issue_reconcile_trace())
+        write_json(self.root, checker.LOOP_PLAIN_OLD_CORPUS, loop_plain_trace())
 
     def allow(self, relative_path: str) -> None:
         write(self.root, checker.ALLOWLIST, HEADER + relative_path + "\n")
@@ -199,6 +219,25 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         messages = checker.repository_messages(self.root)
 
         self.assertTrue(any("artifact_sha256 mismatch" in message for message in messages))
+
+    def test_loop_plain_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(self.root, checker.LOOP_PLAIN_NEW_TRACE, loop_plain_trace())
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_loop_plain_trace_output_mismatch_fails_closed(self) -> None:
+        changed = loop_plain_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(self.root, checker.LOOP_PLAIN_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any("loop-plain trace canonical hash mismatch" in message for message in messages))
 
     def test_idempotent_admission_entitlement_has_no_admission_write(self) -> None:
         write_json(self.root, checker.THINKING_OLD_CORPUS, idempotent_thinking_trace())

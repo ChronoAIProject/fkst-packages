@@ -5,6 +5,7 @@
 -- Effects and legacy CAS logs are separate axes.
 
 local catalog = require("devloop.restart_cas_catalog")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -17,6 +18,8 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
@@ -28,6 +31,11 @@ local VARIANT = "thinking_to_blocked"
 local V_CURRENT = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_OLDER = "consensus:github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_DIFFERENT = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
+local TRACE_EDGE_ID = OWNER .. "/thinking/autonomous/consensus-stalled"
+local LOOP_PLAIN_CORPUS_PATH = "migration/intent_bounded_replay/corpus/loop-plain.json"
+local LOOP_PLAIN_NEW_TRACE_PATH = ".fkst/run/r9-loop-plain-new-trace.json"
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
 
 local state_labels = {
   thinking = "fkst-dev:thinking",
@@ -338,6 +346,208 @@ local function assert_case(fixture)
     fixture.name .. ": post-admission disposition"
   )
   t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
+  return {
+    event = event,
+    result = result,
+    probe = probe,
+    decision = decision,
+    observed = observed,
+  }
+end
+
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "newer-source-marker-missing-pending",
+    name = "r9-loop-plain-newer-source-marker-missing",
+    current_state = nil,
+    current_version = nil,
+    admission_status = "pending",
+    expected_exit_code = 1,
+    legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
+  },
+  {
+    fixture_id = "source-equal-apply",
+    name = "r9-loop-plain-source-equal-apply",
+    current_state = "thinking",
+    current_version = V_CURRENT,
+    boundary_reached = true,
+    admission_status = "apply",
+    effect_count = 2,
+    post_admission_disposition = "effects-emitted(2)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "source-older-stale",
+    name = "r9-loop-plain-source-older-stale",
+    current_state = "ready",
+    current_version = V_CURRENT,
+    raw_event_version = V_OLDER,
+    admission_status = "stale",
+    catalog_cas_outcome = "skip-stale(incoming version < current marker version)",
+    legacy_log_outcome = "skip-stale(incoming version < current marker version)",
+  },
+  {
+    fixture_id = "target-idempotent",
+    name = "r9-loop-plain-target-idempotent",
+    current_state = "blocked",
+    current_version = V_CURRENT,
+    admission_status = "idempotent",
+    legacy_log_outcome = "skip-idempotent(already at to_state)",
+  },
+}
+
+local function trace_fixture(
+  fixture,
+  status,
+  reason_code,
+  cas_outcome,
+  entitlement_id,
+  granted_effect_ids,
+  writes
+)
+  return observation_support.admission_trace_fixture(
+    fixture,
+    TRACE_EDGE_ID,
+    status,
+    reason_code,
+    cas_outcome,
+    entitlement_id,
+    granted_effect_ids,
+    writes
+  )
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-loop-plain-trace.v1",
+    OWNER,
+    "loop-plain",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function new_trace_fixture(fixture, production)
+  local event = production.event
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "issue", repo = "owner/repo", number = 42 },
+    proposal_id = event.proposal_id,
+    current = {
+      state = fixture.current_state,
+      version = fixture.current_version,
+    },
+    snapshot_fingerprint = "r9-loop-plain:" .. fixture.fixture_id,
+    lock_epoch = "r9-loop-plain:lock",
+    generation = "r9-loop-plain:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "consensus-stalled",
+    incoming_version = event.dedup_key,
+  })
+  local writes = json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(
+      snapshot,
+      decided,
+      "comment:issue:converge-round"
+    )
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({
+      family = "loop-plain",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local marker_body = conv_rounds.converge_round_marker(
+      event.proposal_id,
+      conv_rounds.converge_base_version(event.dedup_key),
+      convergence_shared.source_ref_digest(event.source_ref),
+      event.round or 0,
+      event.dedup_key,
+      event.narrowed_question,
+      event.angle_digests,
+      event.findings_record,
+      event.essence_stall == true
+    )
+    local args = {
+      core = core,
+      issue = { repo = "owner/repo", number = 42 },
+      unresolved = event,
+      round = event.round or 0,
+      marker_body = marker_body,
+    }
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(
+        writes,
+        observation_support.admission_trace_write(
+          ordinal,
+          effect_id,
+          emitted,
+          "R9 loop-plain trace"
+        )
+      )
+    end
+  end
+  return trace_fixture(
+    fixture,
+    decided.status,
+    decided.reason_code,
+    decided.cas_outcome,
+    decided.effect_entitlement_id,
+    decided.granted_effect_ids,
+    writes
+  ), decided
+end
+
+local function old_trace_writes(raises, granted_effect_ids)
+  local admitted = {}
+  for _, effect_id in ipairs(granted_effect_ids or {}) do
+    admitted[effect_id] = true
+  end
+  local scoped = json_array()
+  for _, raised in ipairs(raises or {}) do
+    if admitted[raised.queue] then
+      table.insert(scoped, raised)
+    end
+  end
+  t.eq(#scoped, #(granted_effect_ids or {}), "R9 loop-plain OLD admitted effect count")
+  return observation_support.admission_trace_writes(scoped, "R9 loop-plain trace")
+end
+
+local function assert_loop_plain_trace_equality()
+  local corpus = json.decode(file.read(LOOP_PLAIN_CORPUS_PATH))
+  local old_fixtures = json_array()
+  local new_fixtures = json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_case(fixture)
+    local new_fixture, normalized_admission = new_trace_fixture(fixture, production)
+    local writes = production.observed.status == "apply"
+      and old_trace_writes(production.result.raises, normalized_admission.granted_effect_ids)
+      or json_array()
+    table.insert(old_fixtures, trace_fixture(
+      fixture,
+      production.observed.status,
+      production.observed.reason_code,
+      production.decision.outcome,
+      normalized_admission.effect_entitlement_id,
+      normalized_admission.granted_effect_ids,
+      writes
+    ))
+    table.insert(new_fixtures, new_fixture)
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(canonical_json(old_trace), canonical_json(new_trace), "R9 loop-plain OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 loop-plain trace could not create its artifact directory", 0)
+  end
+  file.write(LOOP_PLAIN_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 loop-plain OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 loop-plain NEW semantic trace")
 end
 
 local function assert_malformed_pre_cas()
@@ -353,6 +563,10 @@ local function assert_malformed_pre_cas()
 end
 
 return {
+  test_loop_plain_admission_trace_matches_frozen_old_corpus = function()
+    assert_loop_plain_trace_equality()
+  end,
+
   test_loop_plain_source_state_applies_at_round_marker_boundary = function()
     assert_case({
       name = "loop-source-apply",

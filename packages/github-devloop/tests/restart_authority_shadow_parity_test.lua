@@ -17,6 +17,7 @@ local POLICY_ID = "cas.legacy_loop_plain_v1"
 local EDGE_ID = "github-devloop/thinking/autonomous/consensus-stalled"
 local APPLY_ENTITLEMENT_ID = EDGE_ID .. "/apply"
 local IDEMPOTENT_ENTITLEMENT_ID = EDGE_ID .. "/idempotent"
+local LOOP_COMMENT_EFFECT_ID = "github-proxy.github_issue_comment_request"
 local V_CURRENT = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local CONSENSUS_REACHED_VARIANT = "consensus-reached"
 local CONSENSUS_RESULT_POLICY_ID = "cas.legacy_consensus_result_v1"
@@ -439,7 +440,6 @@ local function lifecycle_authoritative_projection(apply_plans, context)
   local projection = {}
   local grantless_effect_ids = {
     ["consensus.proposal"] = true,
-    ["github-proxy.github_issue_comment_request"] = true,
   }
   for _, plan in ipairs(apply_plans) do
     t.eq(plan.dept, "loop", context .. ": apply plan department")
@@ -456,9 +456,9 @@ local function lifecycle_authoritative_projection(apply_plans, context)
     end
     for _, effect_id in ipairs(plan.effect_ids) do
       t.eq(
-        grantless_effect_ids[effect_id],
+        grantless_effect_ids[effect_id] == true or effect_id == LOOP_COMMENT_EFFECT_ID,
         true,
-        context .. ": observed effect is published-seam or non-lifecycle grantless"
+        context .. ": observed effect belongs to the loop-plain admission slice"
       )
       if grantless_effect_ids[effect_id] ~= true then
         table.insert(projection, effect_id)
@@ -514,7 +514,7 @@ local function assert_case(fixture)
   end
   assert_array(
     lifecycle_authoritative_projection(apply_plans, fixture.name),
-    {},
+    fixture.expected_status == "apply" and { LOOP_COMMENT_EFFECT_ID } or {},
     fixture.name .. ": lifecycle-authoritative projection"
   )
 
@@ -548,7 +548,11 @@ local function assert_case(fixture)
   t.eq(shadow.evidence.facts.target, "blocked", fixture.name .. ": evidence target")
   t.eq(shadow.effect_entitlement_id, fixture.expected_entitlement_id, fixture.name .. ": entitlement id")
   if fixture.expected_entitlement_id ~= nil then
-    assert_array(shadow.granted_effect_ids, {}, fixture.name .. ": granted effect ids")
+    assert_array(
+      shadow.granted_effect_ids,
+      fixture.expected_status == "apply" and { LOOP_COMMENT_EFFECT_ID } or {},
+      fixture.name .. ": granted effect ids"
+    )
   else
     t.eq(shadow.granted_effect_ids, nil, fixture.name .. ": no granted effect ids")
   end

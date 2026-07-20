@@ -27,6 +27,8 @@ THINKING_OLD_CORPUS = "migration/intent_bounded_replay/corpus/thinking.json"
 THINKING_NEW_TRACE = ".fkst/run/r9-thinking-new-trace.json"
 ISSUE_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/issue-reconcile.json"
 ISSUE_RECONCILE_NEW_TRACE = ".fkst/run/r9-issue-reconcile-new-trace.json"
+LOOP_PLAIN_OLD_CORPUS = "migration/intent_bounded_replay/corpus/loop-plain.json"
+LOOP_PLAIN_NEW_TRACE = ".fkst/run/r9-loop-plain-new-trace.json"
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
@@ -259,13 +261,26 @@ def _admission_trace_messages(root: Path) -> list[str]:
             "issue-reconcile",
         )
     )
+    messages.extend(
+        _trace_pair_messages(
+            root,
+            LOOP_PLAIN_OLD_CORPUS,
+            LOOP_PLAIN_NEW_TRACE,
+            "restart-loop-plain-trace.v1",
+            "loop-plain",
+        )
+    )
     return messages
 
 
 def admission_trace_status(root: Path) -> str:
     emitted = [
         relative
-        for relative in (THINKING_NEW_TRACE, ISSUE_RECONCILE_NEW_TRACE)
+        for relative in (
+            THINKING_NEW_TRACE,
+            ISSUE_RECONCILE_NEW_TRACE,
+            LOOP_PLAIN_NEW_TRACE,
+        )
         if (Path(root) / relative).is_file()
     ]
     if not emitted:

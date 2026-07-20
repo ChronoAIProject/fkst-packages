@@ -37,6 +37,24 @@ local function serialize_thinking_label(args)
   return requests_labels.build_thinking_label_request(args.issue, args.proposal)
 end
 
+local function serialize_loop_plain_comment(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.unresolved) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_lifecycle.build_converge_round_comment_request(
+    args.core,
+    args.issue.repo,
+    args.issue.number,
+    args.unresolved,
+    args.round,
+    args.marker_body,
+    args.handoff
+  )
+end
+
 local function serialize_issue_reconcile_comment(args)
   if type(args) ~= "table"
     or type(args.core) ~= "table"
@@ -69,6 +87,12 @@ local function serialize_issue_reconcile_label(args)
 end
 
 local SERIALIZERS_BY_FAMILY = {
+  ["loop-plain"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:converge-round",
+      serialize = serialize_loop_plain_comment,
+    },
+  },
   thinking = {
     [COMMENT_EFFECT_ID] = {
       sink_id = "comment:issue:thinking-state",
