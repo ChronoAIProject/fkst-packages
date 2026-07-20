@@ -189,8 +189,7 @@ issue_recency_class() { # $1 issue-number, $2 labels, $3 state, $4 age-hours, $5
       if echo "$openpr" | grep -qx "$num"; then echo "$st →see PR (active)"; else echo "⚠ STRANDED $st (no open PR)"; fi
       ;;
     awaiting-pr)
-      # parent waits on delegated child PR terminal + rollup cascade; hours are normal, days are not
-      if [ "$age" -ge "$stale" ]; then echo "⚠ STUCK awaiting-pr ${age}h (child cascade overdue)"; else echo "✓ waiting child-cascade ${age}h"; fi
+      echo "✓ waiting child-cascade ${age}h"
       ;;
     # unknown state: render it visibly instead of silently dropping the row (expose, don't swallow)
     *) echo "⚠ UNRENDERED-STATE $st ${age}h" ;;
@@ -219,6 +218,54 @@ workflow_board_fact() { # $1 issue-number
     --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
   [ -n "$fact" ] || return 1
   printf '%s\n' "$fact"
+}
+
+lifecycle_board_fact_tool() {
+  local tool="$PKGSRC/packages/github-devloop/tools/lifecycle_board_fact.py"
+  if [ -f "$tool" ]; then
+    printf '%s\n' "$tool"
+    return 0
+  fi
+  tool="$_repo_root/packages/github-devloop/tools/lifecycle_board_fact.py"
+  [ -f "$tool" ] && printf '%s\n' "$tool"
+}
+
+lifecycle_board_fact() { # $1 issue-number
+  local num="$1" origin comments fact tool
+  origin="github-devloop/issue/$REPO/$num"
+  tool="$(lifecycle_board_fact_tool)" || return 1
+  [ -n "$tool" ] || return 1
+  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  fact=$(printf '%s' "$comments" | python3 "$tool" \
+    --origin "$origin" \
+    --bot-login "$BOT" \
+    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
+  [ -n "$fact" ] || return 1
+  printf '%s\n' "$fact"
+}
+
+lifecycle_board_reclassify() { # $1 fact-json, $2 age-hours
+  FACT_JSON="$1" AGE_H="$2" python3 - <<'PY'
+import json
+import os
+import sys
+
+try:
+    fact = json.loads(os.environ.get("FACT_JSON", ""))
+except json.JSONDecodeError:
+    raise SystemExit(1)
+state = str(fact.get("state") or "")
+age = str(os.environ.get("AGE_H") or "0")
+if fact.get("pipeline_stuck") is True:
+    why = str(fact.get("why") or f"{state} pipeline-stuck")
+    print(f"{state}\t⚠ {why}")
+elif fact.get("terminal") is True:
+    print(f"{state}\tparked({state})")
+elif state == "awaiting-pr":
+    print(f"{state}\t✓ waiting child-cascade {age}h")
+else:
+    raise SystemExit(1)
+PY
 }
 
 # Sync a dogfood RUN checkout (behavior PKGSRC + target HOST) to the machine's
@@ -681,7 +728,7 @@ board_one() { # $1 name, $2 stale_hours
   else
   printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num upd label title; do
     [ -z "$num" ] && continue
-    local a st cls workflow_fact; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
+    local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
     if [ "$label" = "__fkst_dashboard__" ]; then
       # fkst-dashboard is an intentionally long-lived tracked surface (intake decision=track), not pipeline work — never STRANDED
       st="dashboard"; cls="✓ dashboard (tracked)"
@@ -695,6 +742,14 @@ board_one() { # $1 name, $2 stale_hours
       fi
     else
       cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")"
+      case "$st:$cls" in
+        awaiting-pr:*|*:⚠*)
+          if lifecycle_fact=$(lifecycle_board_fact "$num") && lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
+            st="${lifecycle_override%%$'\t'*}"
+            cls="${lifecycle_override#*$'\t'}"
+          fi
+          ;;
+      esac
     fi
     printf "  #%-4s [%-12s] %s\n" "$num" "$st" "$cls"
   done
