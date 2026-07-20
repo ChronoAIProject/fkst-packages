@@ -37,6 +37,8 @@ TIMEOUT_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/timeout-r
 TIMEOUT_RECONCILE_NEW_TRACE = ".fkst/run/r9-timeout-reconcile-new-trace.json"
 OBSERVE_ISSUE_ENTRY_OLD_CORPUS = "migration/intent_bounded_replay/corpus/observe-issue-entry.json"
 OBSERVE_ISSUE_ENTRY_NEW_TRACE = ".fkst/run/r9-observe-issue-entry-new-trace.json"
+PR_REVIEW_RESULT_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-review-result.json"
+PR_REVIEW_RESULT_NEW_TRACE = ".fkst/run/r9-pr-review-result-new-trace.json"
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
@@ -115,7 +117,8 @@ def _exact_fields_messages(
 
 
 def _admission_trace_shape_messages(
-    artifact: dict[str, Any], relative: str, schema: str, family: str
+    artifact: dict[str, Any], relative: str, schema: str, family: str,
+    owner: str = "github-devloop",
 ) -> list[str]:
     messages = _exact_fields_messages(
         artifact,
@@ -124,8 +127,8 @@ def _admission_trace_shape_messages(
     )
     if artifact.get("schema") != schema:
         messages.append(f"{relative} schema must be {schema}")
-    if artifact.get("owner") != "github-devloop":
-        messages.append(f"{relative} owner must be github-devloop")
+    if artifact.get("owner") != owner:
+        messages.append(f"{relative} owner must be {owner}")
     if artifact.get("family") != family:
         messages.append(f"{relative} family must be {family}")
     fixtures = artifact.get("fixtures")
@@ -213,6 +216,7 @@ def _trace_pair_messages(
     new_relative: str,
     schema: str,
     family: str,
+    owner: str = "github-devloop",
 ) -> list[str]:
     old_path = root / old_relative
     if not old_path.is_file():
@@ -224,7 +228,7 @@ def _trace_pair_messages(
             for message in messages
         ]
     messages.extend(
-        _admission_trace_shape_messages(old, old_relative, schema, family)
+        _admission_trace_shape_messages(old, old_relative, schema, family, owner)
     )
 
     new_path = root / new_relative
@@ -238,7 +242,7 @@ def _trace_pair_messages(
     if new is None:
         return messages
     messages.extend(
-        _admission_trace_shape_messages(new, new_relative, schema, family)
+        _admission_trace_shape_messages(new, new_relative, schema, family, owner)
     )
     if messages:
         return messages
@@ -314,6 +318,16 @@ def _admission_trace_messages(root: Path) -> list[str]:
             "observe-issue-entry",
         )
     )
+    messages.extend(
+        _trace_pair_messages(
+            root,
+            PR_REVIEW_RESULT_OLD_CORPUS,
+            PR_REVIEW_RESULT_NEW_TRACE,
+            "restart-pr-review-result-trace.v1",
+            "pr-review-result",
+            owner="github-devloop-pr",
+        )
+    )
     return messages
 
 
@@ -328,6 +342,7 @@ def admission_trace_status(root: Path) -> str:
             AWAITING_PR_NEW_TRACE,
             TIMEOUT_RECONCILE_NEW_TRACE,
             OBSERVE_ISSUE_ENTRY_NEW_TRACE,
+            PR_REVIEW_RESULT_NEW_TRACE,
         )
         if (Path(root) / relative).is_file()
     ]

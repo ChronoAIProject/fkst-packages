@@ -20,6 +20,7 @@ local devloop_state = require("devloop.state")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
+local review_result_trace = require("tests.review_result_trace_helpers")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
@@ -378,6 +379,7 @@ local function assert_catalog_matches_observed_decision(fixture)
     decision = decision,
     observed = observed,
     actual = actual,
+    comment_builders = comment_builders,
   }
 end
 
@@ -782,6 +784,10 @@ return {
       },
       legacy_log_outcome = "applied(fix-loop-max-rounds)",
     })
+  end,
+
+  test_r9_pr_review_result_old_equals_new_normalized_trace = function()
+    review_result_trace.assert_equality(assert_catalog_matches_observed_decision)
   end,
 
   test_review_result_malformed_evidence_and_payload_fail_closed_before_cas = function()

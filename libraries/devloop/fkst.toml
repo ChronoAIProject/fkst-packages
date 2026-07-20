@@ -109,6 +109,7 @@ public = [
   "devloop.restart_cas_catalog",
   "devloop.restart_edges",
   "devloop.restart_effect_entitlements",
+  "devloop.restart_effect_facade",
   "devloop.restart_effect_seal",
   "devloop.restart_metadata",
   "devloop.restart_owner_pending_projection",
