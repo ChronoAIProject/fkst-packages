@@ -29,6 +29,8 @@ ISSUE_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/issue-recon
 ISSUE_RECONCILE_NEW_TRACE = ".fkst/run/r9-issue-reconcile-new-trace.json"
 LOOP_PLAIN_OLD_CORPUS = "migration/intent_bounded_replay/corpus/loop-plain.json"
 LOOP_PLAIN_NEW_TRACE = ".fkst/run/r9-loop-plain-new-trace.json"
+IMPLEMENT_ACTIVATION_OLD_CORPUS = "migration/intent_bounded_replay/corpus/implement-activation.json"
+IMPLEMENT_ACTIVATION_NEW_TRACE = ".fkst/run/r9-implement-activation-new-trace.json"
 PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
@@ -270,6 +272,15 @@ def _admission_trace_messages(root: Path) -> list[str]:
             "loop-plain",
         )
     )
+    messages.extend(
+        _trace_pair_messages(
+            root,
+            IMPLEMENT_ACTIVATION_OLD_CORPUS,
+            IMPLEMENT_ACTIVATION_NEW_TRACE,
+            "restart-implement-activation-trace.v1",
+            "implement-activation",
+        )
+    )
     return messages
 
 
@@ -280,6 +291,7 @@ def admission_trace_status(root: Path) -> str:
             THINKING_NEW_TRACE,
             ISSUE_RECONCILE_NEW_TRACE,
             LOOP_PLAIN_NEW_TRACE,
+            IMPLEMENT_ACTIVATION_NEW_TRACE,
         )
         if (Path(root) / relative).is_file()
     ]

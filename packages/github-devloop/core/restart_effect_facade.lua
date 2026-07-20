@@ -28,6 +28,39 @@ local function serialize_thinking_comment(args)
   )
 end
 
+local function serialize_implement_activation_comment(args)
+  if type(args) ~= "table"
+    or type(args.core) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.ready) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_lifecycle.build_implementing_state_comment_request(
+    args.core,
+    args.issue.repo,
+    args.issue.number,
+    args.ready,
+    args.worktree,
+    args.branch,
+    args.base_branch,
+    args.base_sha,
+    args.attempt,
+    args.started_at,
+    args.exec_ref
+  )
+end
+
+local function serialize_implement_activation_label(args)
+  if type(args) ~= "table"
+    or type(args.issue) ~= "table"
+    or type(args.ready) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_labels.build_implementing_label_request(
+    args.issue.repo, args.issue.number, args.ready
+  )
+end
+
 local function serialize_thinking_label(args)
   if type(args) ~= "table"
     or type(args.issue) ~= "table"
@@ -87,6 +120,16 @@ local function serialize_issue_reconcile_label(args)
 end
 
 local SERIALIZERS_BY_FAMILY = {
+  ["implement-activation"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:implementation-start",
+      serialize = serialize_implement_activation_comment,
+    },
+    [LABEL_EFFECT_ID] = {
+      sink_id = "label:issue:implementation-start",
+      serialize = serialize_implement_activation_label,
+    },
+  },
   ["loop-plain"] = {
     [COMMENT_EFFECT_ID] = {
       sink_id = "comment:issue:converge-round",

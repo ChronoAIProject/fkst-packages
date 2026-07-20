@@ -36,6 +36,19 @@ return function(M, h)
         output_variant = "implementation_kicked_off",
         cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
         cas_variant = "ready_to_implementing",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop/ready/entry/implementation_kicked_off/apply",
+            effect_ids = {
+              "github-proxy.github_issue_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop/ready/entry/implementation_kicked_off/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = true, predecessor_state = "ready" },
       },
     },

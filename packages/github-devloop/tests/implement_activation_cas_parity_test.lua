@@ -5,6 +5,8 @@
 -- verification, effects, liveness dedup, and legacy logs remain separate axes.
 
 local catalog = require("devloop.restart_cas_catalog")
+local context_bundle = require("devloop.context_bundle")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
@@ -19,11 +21,21 @@ local m_mq = require("devloop.merge_queue")
 local payloads_predicates = require("devloop.payloads.predicates")
 local transitions = require("departments.implement.transitions")
 local restart_authority = require("core.restart_authority")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
+local requests_labels = require("devloop.requests.labels")
+local requests_lifecycle = require("devloop.requests.lifecycle")
+local workflow_codex = require("workflow_internal.codex")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
 local implement_department = require("departments.implement.main")
+
+local canonical_json = observation_support.canonical_json
+local json_array = observation_support.json_array
+local IMPLEMENT_ACTIVATION_CORPUS_PATH = "migration/intent_bounded_replay/corpus/implement-activation.json"
+local IMPLEMENT_ACTIVATION_NEW_TRACE_PATH = ".fkst/run/r9-implement-activation-new-trace.json"
 
 local OWNER = core.restart_package_name
 local POLICY_ID = "cas.legacy_implement_activation_handoff_v1"
@@ -59,12 +71,14 @@ local function probe_variant(from_states, to_state)
   return variants[tostring(from_states[1]) .. "\0" .. tostring(to_state)]
 end
 
-local function observe_department(run)
+local function observe_department(run, opts)
+  opts = opts or {}
   local named_calls = {}
   local probes = {}
   local decisions = {}
   local handoff_checks = {}
   local boundary_calls = {}
+  local serializer_calls = { comment = {}, label = {} }
   local sequence = 0
   local active_named_call = nil
   local original_implementation = transitions.implementation_transition_status
@@ -74,9 +88,48 @@ local function observe_department(run)
   local original_verified_hand_off_state = payloads_predicates.verified_hand_off_state
   local original_wip_capacity_allows_start = m_mq.wip_capacity_allows_start
   local original_dispatch_live_run_dedup = dispatch_live_run.dispatch_live_run_dedup
+  local original_context_fetch_from_bundle = context_bundle.context_fetch_from_bundle
+  local original_codex_dispatch = workflow_codex.dispatch
+  local original_implementing_comment = requests_lifecycle.build_implementing_state_comment_request
+  local original_implementing_label = requests_labels.build_implementing_label_request
 
   dispatch_live_run.dispatch_live_run_dedup = function()
     return false
+  end
+  if opts.stop_after_activation then
+    context_bundle.context_fetch_from_bundle = function()
+      return { kind = "external", ref = "owner/repo#issue/42" }
+    end
+    workflow_codex.dispatch = function()
+      return { deferred = true, reason = "trace-stop-after-implementation-activation" }
+    end
+  end
+  requests_lifecycle.build_implementing_state_comment_request = function(
+      builder_core, repo, issue_number, ready, worktree, branch, base_branch,
+      base_sha, attempt, started_at, exec_ref)
+    table.insert(serializer_calls.comment, {
+      core = builder_core,
+      issue = { repo = repo, number = issue_number },
+      ready = ready,
+      worktree = worktree,
+      branch = branch,
+      base_branch = base_branch,
+      base_sha = base_sha,
+      attempt = attempt,
+      started_at = started_at,
+      exec_ref = exec_ref,
+    })
+    return original_implementing_comment(
+      builder_core, repo, issue_number, ready, worktree, branch, base_branch,
+      base_sha, attempt, started_at, exec_ref
+    )
+  end
+  requests_labels.build_implementing_label_request = function(repo, issue_number, ready)
+    table.insert(serializer_calls.label, {
+      issue = { repo = repo, number = issue_number },
+      ready = ready,
+    })
+    return original_implementing_label(repo, issue_number, ready)
   end
   transitions.implementation_transition_status = function(state, expected_states, marker_version)
     sequence = sequence + 1
@@ -171,6 +224,10 @@ local function observe_department(run)
   end
 
   local ok, result = pcall(run)
+  requests_labels.build_implementing_label_request = original_implementing_label
+  requests_lifecycle.build_implementing_state_comment_request = original_implementing_comment
+  workflow_codex.dispatch = original_codex_dispatch
+  context_bundle.context_fetch_from_bundle = original_context_fetch_from_bundle
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup
   m_mq.wip_capacity_allows_start = original_wip_capacity_allows_start
   payloads_predicates.verified_hand_off_state = original_verified_hand_off_state
@@ -181,7 +238,7 @@ local function observe_department(run)
   if not ok then
     error(result, 0)
   end
-  return result, named_calls, probes, decisions, handoff_checks, boundary_calls
+  return result, named_calls, probes, decisions, handoff_checks, boundary_calls, serializer_calls
 end
 
 local function evidence_from_probe(probe, handoff_checks)
@@ -306,6 +363,21 @@ local function mock_wip_stop()
   })
 end
 
+local function mock_wip_allow()
+  t.mock_command('printf %s "$FKST_DEVLOOP_MAX_INFLIGHT"', {
+    stdout = "1", stderr = "", exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev", stderr = "", exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = INTEGRATION_BRANCH, stderr = "", exit_code = 0,
+  })
+  t.mock_command(core.gh_issue_list_wip_cmd(REPO), {
+    stdout = "[]\n", stderr = "", exit_code = 0,
+  })
+end
+
 local function make_event(fixture)
   local event = h.ready({ dedup_key = fixture.event_version or V_EQUAL })
   if fixture.impl_retry_attempt ~= nil then
@@ -367,7 +439,16 @@ local function mock_case(fixture, event)
     { "fkst-dev:" .. tostring(fixture.current_state or "ready") },
     fixture_comments(fixture, event)
   )
-  mock_wip_stop()
+  if fixture.capture_activation then
+    h.mock_issue_implement_raw(
+      { "fkst-dev:" .. tostring(fixture.current_state or "ready") },
+      fixture_comments(fixture, event)
+    )
+    mock_wip_allow()
+    h.mock_fresh_implement_worktree()
+  elseif not fixture.trace_capture then
+    mock_wip_stop()
+  end
   if fixture.handoff_visible_version ~= nil then
     local visible_marker = core.state_marker(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_implement_cas_handoff'", {
@@ -524,6 +605,126 @@ local function assert_malformed_fail_closed()
   t.eq(resolved.cas_outcome, "illegal(invalid-evidence)", "catalog malformed fail-closed outcome")
 end
 
+local TRACE_EDGE_ID = OWNER .. "/ready/entry/implementation_kicked_off"
+local TRACE_FIXTURES = {
+  { fixture_id = "newer-source-marker-missing-pending", current_state = nil,
+    current_version = nil, event_version = V_NEWER, expected_exit_code = 1 },
+  { fixture_id = "source-equal-apply", current_state = "ready",
+    current_version = V_EQUAL, event_version = V_EQUAL, boundary_reached = true,
+    capture_activation = true },
+  { fixture_id = "source-older-stale", current_state = "ready",
+    current_version = V_EQUAL, event_version = V_OLDER },
+  { fixture_id = "target-idempotent", current_state = "impl-failed",
+    current_version = V_EQUAL, event_version = V_EQUAL },
+}
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-implement-activation-trace.v1", OWNER, "implement-activation", corpus_hash, fixtures
+  )
+end
+
+local function capture_trace_production(fixture)
+  fixture.trace_capture = true
+  local event = make_event(fixture)
+  mock_case(fixture, event)
+  local result, _, probes, decisions, handoffs, boundaries, serializers = observe_department(
+    function() return run_real_department(event) end,
+    { stop_after_activation = fixture.capture_activation }
+  )
+  local captured
+  if #probes == 0 then
+    local decision = decisions[1]
+    t.eq(decision.outcome, "skip-idempotent(already at to_state)",
+      fixture.fixture_id .. ": OLD pre-CAS idempotent")
+    captured = {
+      current = decision.current, incoming_version = event.dedup_key, phase = "initial", retry = false,
+      status = "idempotent", reason_code = "already-at-target", cas_outcome = decision.outcome,
+    }
+  else
+    local probe = probes[1]
+    local decision = decision_after_probe(decisions, probe, boundaries)
+    t.is_true(decision ~= nil, fixture.fixture_id .. ": OLD CAS decision")
+    local evidence = evidence_from_probe(probe, handoffs)
+    local observed = observed_admission(probe, decision, handoffs, fixture.boundary_reached == true)
+    captured = {
+      current = probe.current, incoming_version = probe.incoming_version,
+      target_version = probe.target_version, phase = evidence.phase, retry = evidence.retry,
+      handoff = evidence.handoff, status = observed.status, reason_code = observed.reason_code,
+      cas_outcome = decision.outcome,
+    }
+  end
+  t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.fixture_id .. ": OLD exit code")
+  local write_count = #serializers.comment + #serializers.label
+  t.eq(#result.raises, write_count, fixture.fixture_id .. ": OLD writes use observed serializers")
+  local expected_serializer_calls = captured.status == "apply" and 1 or 0
+  t.eq(#serializers.comment, expected_serializer_calls,
+    fixture.fixture_id .. ": OLD comment serializer calls")
+  t.eq(#serializers.label, expected_serializer_calls,
+    fixture.fixture_id .. ": OLD label serializer calls")
+  captured.result = result
+  captured.serializers = serializers
+  return captured
+end
+
+local function decide_new_trace(fixture, old)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER, entity = { kind = "issue", repo = REPO, number = ISSUE_NUMBER },
+    proposal_id = PROPOSAL_ID, current = old.current,
+    snapshot_fingerprint = "r9-implement-activation:" .. fixture.fixture_id,
+    lock_epoch = "r9-implement-activation:lock", generation = "r9-implement-activation:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "implementation_kicked_off", target = "implementing",
+    incoming_version = old.incoming_version, target_version = old.target_version,
+    phase = old.phase, retry = old.retry, handoff = old.handoff,
+  })
+  local writes = json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:implementation-start")
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    local facade = restart_effect_facade.make({ family = "implement-activation",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory") })
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, old.serializers.comment[1])
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
+    end
+  end
+  return decided, writes
+end
+
+local function assert_implement_activation_trace_equality()
+  local corpus = json.decode(file.read(IMPLEMENT_ACTIVATION_CORPUS_PATH))
+  local old_fixtures, new_fixtures = json_array(), json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local old = capture_trace_production(fixture)
+    local decided, new_writes = decide_new_trace(fixture, old)
+    local old_writes = old.status == "apply"
+      and observation_support.admission_trace_writes(old.result.raises) or json_array()
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(fixture, TRACE_EDGE_ID,
+      old.status, old.reason_code, old.cas_outcome, decided.effect_entitlement_id,
+      decided.granted_effect_ids, old_writes))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(fixture, TRACE_EDGE_ID,
+      decided.status, decided.reason_code, decided.cas_outcome, decided.effect_entitlement_id,
+      decided.granted_effect_ids, new_writes))
+  end
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 implement-activation OLD and NEW semantic trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 implement-activation trace could not create its artifact directory", 0)
+  end
+  file.write(IMPLEMENT_ACTIVATION_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 implement-activation OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus),
+    "R9 implement-activation NEW semantic trace")
+end
+
 return {
   test_ready_source_equal_reaches_admission_boundary = function()
     assert_case({
@@ -666,5 +867,9 @@ return {
 
   test_malformed_version_fails_closed_before_cas_and_in_catalog = function()
     assert_malformed_fail_closed()
+  end,
+
+  test_r9_implement_activation_old_equals_new_normalized_trace = function()
+    assert_implement_activation_trace_equality()
   end,
 }

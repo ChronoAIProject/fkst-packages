@@ -94,6 +94,22 @@ def loop_plain_trace() -> dict[str, object]:
     return artifact
 
 
+def implement_activation_trace() -> dict[str, object]:
+    artifact = thinking_trace()
+    artifact["schema"] = "restart-implement-activation-trace.v1"
+    artifact["family"] = "implement-activation"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    fixture["edge_id"] = "github-devloop/ready/entry/implementation_kicked_off"
+    fixture["effect_entitlement_id"] = (
+        "github-devloop/ready/entry/implementation_kicked_off/apply"
+    )
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def idempotent_thinking_trace() -> dict[str, object]:
     artifact = thinking_trace()
     fixtures = artifact["fixtures"]
@@ -176,6 +192,11 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         write_json(self.root, checker.THINKING_OLD_CORPUS, thinking_trace())
         write_json(self.root, checker.ISSUE_RECONCILE_OLD_CORPUS, issue_reconcile_trace())
         write_json(self.root, checker.LOOP_PLAIN_OLD_CORPUS, loop_plain_trace())
+        write_json(
+            self.root,
+            checker.IMPLEMENT_ACTIVATION_OLD_CORPUS,
+            implement_activation_trace(),
+        )
 
     def allow(self, relative_path: str) -> None:
         write(self.root, checker.ALLOWLIST, HEADER + relative_path + "\n")
@@ -238,6 +259,35 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
         messages = checker.repository_messages(self.root)
 
         self.assertTrue(any("loop-plain trace canonical hash mismatch" in message for message in messages))
+
+    def test_implement_activation_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(
+            self.root,
+            checker.IMPLEMENT_ACTIVATION_NEW_TRACE,
+            implement_activation_trace(),
+        )
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_implement_activation_trace_output_mismatch_fails_closed(self) -> None:
+        changed = implement_activation_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(
+            self.root,
+            checker.IMPLEMENT_ACTIVATION_NEW_TRACE,
+            changed,
+        )
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(
+            any("implement-activation trace canonical hash mismatch" in message for message in messages)
+        )
 
     def test_idempotent_admission_entitlement_has_no_admission_write(self) -> None:
         write_json(self.root, checker.THINKING_OLD_CORPUS, idempotent_thinking_trace())
