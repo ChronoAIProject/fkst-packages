@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "a956662708452a2b6dfa9ca2b8ef9bd4fcbfac9fb6f4aa72e530dd0858beb1f3",
+  "artifact_sha256": "71744c4d183e335ee2eb9fb058984b0f13df3018c1857ff669bde3a800e66280",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -34518,13 +34518,6 @@
           {
             "authority_class": "lifecycle-authoritative",
             "department": "implement",
-            "effect_id": "comment:issue:awaiting-pr-state",
-            "family": "state:v1/awaiting-pr+pr-delegation:v1;dedup=awaiting-pr",
-            "sink_kind": "comment"
-          },
-          {
-            "authority_class": "lifecycle-authoritative",
-            "department": "implement",
             "effect_id": "comment:issue:dependency-canonicalization",
             "family": "state:v1/dependency_wait+ready-split-canonicalized:v1",
             "sink_kind": "comment"
@@ -34584,13 +34577,6 @@
             "effect_id": "git.push:implementation-branch",
             "family": "git-push/implementation-branch/proposal+version",
             "sink_kind": "git"
-          },
-          {
-            "authority_class": "lifecycle-authoritative",
-            "department": "implement",
-            "effect_id": "label:issue:awaiting-pr-state",
-            "family": "state-label:awaiting-pr;dedup=awaiting-pr/label",
-            "sink_kind": "label"
           },
           {
             "authority_class": "lifecycle-authoritative",
@@ -34672,6 +34658,13 @@
           {
             "authority_class": "lifecycle-authoritative",
             "department": "observe_issue",
+            "effect_id": "comment:issue:awaiting-pr-state",
+            "family": "state:v1/awaiting-pr+pr-delegation:v1;dedup=awaiting-pr",
+            "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
             "effect_id": "comment:issue:dependency-waiver",
             "family": "dependency-waiver:v1+operator-command:v1;dedup=dependency-waiver",
             "sink_kind": "comment"
@@ -34710,6 +34703,13 @@
             "effect_id": "comment:pr:row-replay",
             "family": "restart-row-replay/pr-comment-marker-families",
             "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "department": "observe_issue",
+            "effect_id": "label:issue:awaiting-pr-state",
+            "family": "state-label:awaiting-pr;dedup=awaiting-pr/label",
+            "sink_kind": "label"
           },
           {
             "authority_class": "lifecycle-authoritative",
