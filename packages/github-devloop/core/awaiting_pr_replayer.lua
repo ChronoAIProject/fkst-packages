@@ -21,8 +21,6 @@ local autonomy_ledger = require("devloop.autonomy_ledger")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
-local restart_effect_facade = require("core.restart_effect_facade")
-local restart_effects = require("core.restart_effects")
 
 function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_contains_child)
   local receipt_heads = {}
@@ -234,6 +232,7 @@ end
 S.build_awaiting_pr_canonicalization_comment_request = build_awaiting_pr_canonicalization_comment_request
 
 function M.implementing_to_awaiting_pr_transition_status(issue, proposal_id, state)
+  local restart_effects = require("core.restart_effects")
   local lock_key = entity_lib.transition_lock_key(proposal_id)
   local snapshot = restart_effects.seal_snapshot({
     owner = M.restart_package_name,
@@ -259,6 +258,8 @@ function M.implementing_to_awaiting_pr_transition_status(issue, proposal_id, sta
 end
 
 function M.canonicalize_implementing_merged_delegated_pr(dept, issue, state, facts)
+  local restart_effect_facade = require("core.restart_effect_facade")
+  local restart_effects = require("core.restart_effects")
   local proposal_id = facts.proposal_id
   local transition, snapshot, decision = M.implementing_to_awaiting_pr_transition_status(issue, proposal_id, state)
   if transition == "pending" or transition == "stale" then
