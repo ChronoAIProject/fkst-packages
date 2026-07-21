@@ -14,6 +14,9 @@ local inventories = {
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local fix_rounds = require("core.fix_rounds")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
@@ -25,6 +28,10 @@ local POLICY_ID = "cas.legacy_pr_fix_reconcile_v1"
 local REVIEW_REJECT_VARIANT = "review_reject_to_blocked"
 local BOUNDED_FIX_VARIANT = "bounded_fix_to_blocked"
 local OWNER = core.restart_package_name
+local FIX_RECONCILE_CORPUS_PATH =
+  "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json"
+local FIX_RECONCILE_NEW_TRACE_PATH =
+  ".fkst/run/r9-pr-fix-reconcile-new-trace.json"
 
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z/fix/1/fix/2/fix/3"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
@@ -43,7 +50,9 @@ local variant_source_states = {
 -- transparent wrapper only while loading the real department, then restore the
 -- exported core function. The captured wrapper is inert outside an observation.
 local active_boundary_calls = nil
+local active_label_boundary_calls = nil
 local original_boundary = core.build_fix_reconcile_comment_request
+local original_label_boundary = core.build_fix_reconcile_label_request
 core.build_fix_reconcile_comment_request = function(
   repo,
   issue_number,
@@ -51,6 +60,7 @@ core.build_fix_reconcile_comment_request = function(
   action,
   reason
 )
+  local request = original_boundary(repo, issue_number, reconcile, action, reason)
   if active_boundary_calls ~= nil then
     table.insert(active_boundary_calls, {
       repo = repo,
@@ -58,12 +68,26 @@ core.build_fix_reconcile_comment_request = function(
       reconcile = reconcile,
       action = action,
       reason = reason,
+      request = request,
     })
   end
-  return original_boundary(repo, issue_number, reconcile, action, reason)
+  return request
+end
+core.build_fix_reconcile_label_request = function(repo, issue_number, reconcile)
+  local request = original_label_boundary(repo, issue_number, reconcile)
+  if active_label_boundary_calls ~= nil then
+    table.insert(active_label_boundary_calls, {
+      repo = repo,
+      issue_number = issue_number,
+      reconcile = reconcile,
+      request = request,
+    })
+  end
+  return request
 end
 local reconcile_department = require("departments.reconcile.main")
 core.build_fix_reconcile_comment_request = original_boundary
+core.build_fix_reconcile_label_request = original_label_boundary
 
 local function copy_array(values)
   local out = {}
@@ -96,6 +120,7 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local boundary_calls = {}
+  local label_boundary_calls = {}
   local original_versioned = devloop_state.versioned_transition_status
   local original_log_cas = devloop_logging.log_cas_decision
 
@@ -152,14 +177,16 @@ local function observe_department(run)
     )
   end
   active_boundary_calls = boundary_calls
+  active_label_boundary_calls = label_boundary_calls
   local ok, result = pcall(run)
   active_boundary_calls = nil
+  active_label_boundary_calls = nil
   devloop_logging.log_cas_decision = original_log_cas
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, boundary_calls
+  return result, probes, decisions, boundary_calls, label_boundary_calls
 end
 
 local function evidence_from_probe(probe, variant)
@@ -283,7 +310,7 @@ local function assert_catalog_matches_observed_admission(fixture)
   local event = fix_reconcile_event(fixture.incoming_version, variant)
   mock_current_pr(event, fixture)
 
-  local result, probes, decisions, boundary_calls = observe_department(function()
+  local result, probes, decisions, boundary_calls, label_boundary_calls = observe_department(function()
     return run_real_department(event)
   end)
 
@@ -305,6 +332,9 @@ local function assert_catalog_matches_observed_admission(fixture)
     t.eq(boundary.issue_number, "42", fixture.name .. ": boundary issue")
     t.eq(boundary.reconcile, event, fixture.name .. ": boundary event")
     t.eq(boundary.action, "drop", fixture.name .. ": boundary action")
+    t.eq(#label_boundary_calls, 1, fixture.name .. ": label builder reach")
+  else
+    t.eq(#label_boundary_calls, 0, fixture.name .. ": label builder not reached")
   end
 
   local probe = probes[1]
@@ -347,7 +377,181 @@ local function assert_catalog_matches_observed_admission(fixture)
   return probe and {
     evidence = evidence_from_probe(probe, variant),
     observed = observed_admission(probe, decision, boundary_reached),
+    result = result,
+    event = event,
+    decision = decision,
+    boundary_calls = boundary_calls,
+    label_boundary_calls = label_boundary_calls,
   } or nil
+end
+
+local TRACE_FIXTURES = {
+  {
+    fixture_id = "bounded-fix-fixing-apply",
+    name = "r9-pr-fix-reconcile-bounded-fix-apply",
+    variant = BOUNDED_FIX_VARIANT,
+    current_state = "fixing",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    boundary_reached = true,
+    admission_status = "apply",
+    effect_count = 2,
+    post_admission_disposition = "effect-emitted(blocked)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "review-reject-reviewing-apply",
+    name = "r9-pr-fix-reconcile-review-reject-apply",
+    current_state = "reviewing",
+    current_version = V_EQUAL,
+    incoming_version = V_EQUAL,
+    boundary_reached = true,
+    admission_status = "apply",
+    effect_count = 2,
+    post_admission_disposition = "effect-emitted(blocked)",
+    legacy_log_outcome = "applied",
+  },
+  {
+    fixture_id = "review-reject-version-mismatch-stale",
+    name = "r9-pr-fix-reconcile-stale",
+    current_state = "reviewing",
+    current_version = V_ORDERING_EQUAL_CURRENT,
+    incoming_version = V_ORDERING_EQUAL_INCOMING,
+    probe_outcome = "apply",
+    admission_status = "stale",
+    admission_reason_code = "version-mismatch",
+    legacy_log_outcome = "skip-stale(version-mismatch)",
+  },
+}
+
+local function trace_edge_id(fixture)
+  return OWNER .. "/" .. fixture.current_state .. "/entry/"
+    .. (fixture.variant or REVIEW_REJECT_VARIANT)
+end
+
+local function trace_artifact(corpus_hash, fixtures)
+  return observation_support.admission_trace_artifact(
+    "restart-pr-fix-reconcile-trace.v1",
+    OWNER,
+    "pr-fix-reconcile",
+    corpus_hash,
+    fixtures
+  )
+end
+
+local function new_trace_fixture(fixture, production)
+  local variant = fixture.variant or REVIEW_REJECT_VARIANT
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "pr", repo = "owner/repo", number = 7 },
+    proposal_id = production.event.proposal_id,
+    current = { state = fixture.current_state, version = fixture.current_version },
+    snapshot_fingerprint = "r9-pr-fix-reconcile:" .. fixture.fixture_id,
+    lock_epoch = "r9-pr-fix-reconcile:lock",
+    generation = "r9-pr-fix-reconcile:generation",
+  })
+  local decided = restart_effects.decide_transition(snapshot, {
+    semantic_variant = variant,
+    source_boundary = "devloop_fix_reconcile",
+    target = "blocked",
+    incoming_version = production.evidence.incoming_version,
+    target_version = production.evidence.target_version,
+    overlay_version = production.evidence.overlay_version,
+  })
+  t.eq(decided.edge_id, trace_edge_id(fixture), fixture.fixture_id .. ": selected edge")
+
+  local writes = observation_support.json_array()
+  if decided.status == "apply" then
+    local grant = restart_effects.mint_grant(
+      snapshot, decided, "comment:pr:reconcile-blocked"
+    )
+    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
+    t.eq(#production.boundary_calls, 1, fixture.fixture_id .. ": OLD comment builder observed")
+    t.eq(#production.label_boundary_calls, 1, fixture.fixture_id .. ": OLD label builder observed")
+    local facade = restart_effect_facade.make({
+      family = "pr-fix-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local boundary = production.boundary_calls[1]
+    local args = {
+      core = core,
+      repo = boundary.repo,
+      issue_number = boundary.issue_number,
+      reconcile = boundary.reconcile,
+      action = boundary.action,
+      reason = boundary.reason,
+    }
+    local old_requests = {
+      ["github-proxy.github_pr_comment_request"] = boundary.request,
+      ["github-proxy.github_issue_label_request"] =
+        production.label_boundary_calls[1].request,
+    }
+    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+      local emitted = facade.emit(grant, effect_id, snapshot, args)
+      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+      t.eq(
+        observation_support.canonical_json(emitted),
+        observation_support.canonical_json(old_requests[effect_id]),
+        fixture.fixture_id .. ": NEW facade reused the OLD shared builder for " .. effect_id
+      )
+      table.insert(writes,
+        observation_support.admission_trace_write(ordinal, effect_id, emitted))
+    end
+  end
+  return decided, writes
+end
+
+local function assert_fix_reconcile_trace_equality()
+  local corpus = json.decode(file.read(FIX_RECONCILE_CORPUS_PATH))
+  local old_fixtures = observation_support.json_array()
+  local new_fixtures = observation_support.json_array()
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    local production = assert_catalog_matches_observed_admission(fixture)
+    local decided, new_writes = new_trace_fixture(fixture, production)
+    local old_writes = production.observed.status == "apply"
+      and observation_support.admission_trace_writes(
+        production.result.raises,
+        "R9 PR fix-reconcile trace"
+      )
+      or observation_support.json_array()
+    local edge_id = trace_edge_id(fixture)
+    table.insert(old_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      edge_id,
+      production.observed.status,
+      production.observed.reason_code,
+      production.decision.outcome,
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      old_writes
+    ))
+    table.insert(new_fixtures, observation_support.admission_trace_fixture(
+      fixture,
+      edge_id,
+      decided.status,
+      decided.reason_code,
+      decided.cas_outcome,
+      decided.effect_entitlement_id,
+      decided.granted_effect_ids,
+      new_writes
+    ))
+  end
+
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local canonical_json = observation_support.canonical_json
+  t.eq(canonical_json(old_trace), canonical_json(new_trace),
+    "R9 PR fix-reconcile OLD and NEW admission trace")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then
+    error("R9 PR fix-reconcile trace could not create its artifact directory", 0)
+  end
+  file.write(FIX_RECONCILE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 PR fix-reconcile OLD observation corpus")
+  t.eq(canonical_json(new_trace), canonical_json(corpus),
+    "R9 PR fix-reconcile NEW semantic trace")
 end
 
 local function assert_bidirectional(actual, expected, field, context)
@@ -536,5 +740,9 @@ return {
     local payload = fix_reconcile_event(V_EQUAL, REVIEW_REJECT_VARIANT)
     payload.issue_version = 42
     assert_malformed_fails_closed(payload)
+  end,
+
+  test_r9_pr_fix_reconcile_old_equals_new_equals_corpus = function()
+    assert_fix_reconcile_trace_equality()
   end,
 }

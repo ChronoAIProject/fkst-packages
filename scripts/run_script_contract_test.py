@@ -144,6 +144,10 @@ class RunScriptContractTest(unittest.TestCase):
                 thinking_corpus / "pr-review-loop.json",
             )
             shutil.copy2(
+                root / "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json",
+                thinking_corpus / "pr-fix-reconcile.json",
+            )
+            shutil.copy2(
                 root / "migration/intent_bounded_replay/corpus/pr-merge.json",
                 thinking_corpus / "pr-merge.json",
             )

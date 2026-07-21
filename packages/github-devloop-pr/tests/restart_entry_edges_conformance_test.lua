@@ -118,6 +118,19 @@ local expected_entries = {
     semantic_variant = "review_reject_to_blocked",
     cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
     cas_variant = "review_reject_to_blocked",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/fixing/entry/review_reject_to_blocked"] = {
     row_id = "fixing",
@@ -129,6 +142,19 @@ local expected_entries = {
     semantic_variant = "review_reject_to_blocked",
     cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
     cas_variant = "review_reject_to_blocked",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/fixing/entry/review_reject_to_blocked/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop-pr/fixing/entry/review_reject_to_blocked/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/fixing/entry/bounded_fix_to_blocked"] = {
     row_id = "fixing",
@@ -140,6 +166,19 @@ local expected_entries = {
     semantic_variant = "bounded_fix_to_blocked",
     cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
     cas_variant = "bounded_fix_to_blocked",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/fixing/entry/bounded_fix_to_blocked/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop-pr/fixing/entry/bounded_fix_to_blocked/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/merge-ready/entry/review_reject_to_blocked"] = {
     row_id = "merge-ready",
@@ -151,6 +190,19 @@ local expected_entries = {
     semantic_variant = "review_reject_to_blocked",
     cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
     cas_variant = "review_reject_to_blocked",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/merge-ready/entry/review_reject_to_blocked/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop-pr/merge-ready/entry/review_reject_to_blocked/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked"] = {
     row_id = "merge-ready",
@@ -162,6 +214,19 @@ local expected_entries = {
     semantic_variant = "bounded_fix_to_blocked",
     cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
     cas_variant = "bounded_fix_to_blocked",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/merging/entry/review_reject_to_blocked"] = {
     row_id = "merging",
@@ -173,6 +238,19 @@ local expected_entries = {
     semantic_variant = "review_reject_to_blocked",
     cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
     cas_variant = "review_reject_to_blocked",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/merging/entry/review_reject_to_blocked/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop-pr/merging/entry/review_reject_to_blocked/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/merging/entry/bounded_fix_to_blocked"] = {
     row_id = "merging",
@@ -184,6 +262,19 @@ local expected_entries = {
     semantic_variant = "bounded_fix_to_blocked",
     cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
     cas_variant = "bounded_fix_to_blocked",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/merging/entry/bounded_fix_to_blocked/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop-pr/merging/entry/bounded_fix_to_blocked/idempotent",
+        effect_ids = {},
+      },
+    },
   },
 }
 

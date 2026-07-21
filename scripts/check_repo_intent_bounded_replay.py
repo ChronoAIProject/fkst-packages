@@ -47,6 +47,8 @@ PR_REVIEW_ACTIVATION_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-rev
 PR_REVIEW_ACTIVATION_NEW_TRACE = ".fkst/run/r9-pr-review-activation-new-trace.json"
 PR_REVIEW_LOOP_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-review-loop.json"
 PR_REVIEW_LOOP_NEW_TRACE = ".fkst/run/r9-pr-review-loop-new-trace.json"
+PR_FIX_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json"
+PR_FIX_RECONCILE_NEW_TRACE = ".fkst/run/r9-pr-fix-reconcile-new-trace.json"
 PR_MERGE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-merge.json"
 PR_MERGE_NEW_TRACE = ".fkst/run/r9-pr-merge-new-trace.json"
 PROTECTED_MODULES = (
@@ -381,6 +383,16 @@ def _admission_trace_messages(root: Path) -> list[str]:
     messages.extend(
         _trace_pair_messages(
             root,
+            PR_FIX_RECONCILE_OLD_CORPUS,
+            PR_FIX_RECONCILE_NEW_TRACE,
+            "restart-pr-fix-reconcile-trace.v1",
+            "pr-fix-reconcile",
+            owner="github-devloop-pr",
+        )
+    )
+    messages.extend(
+        _trace_pair_messages(
+            root,
             PR_MERGE_OLD_CORPUS,
             PR_MERGE_NEW_TRACE,
             "restart-pr-merge-trace.v1",
@@ -407,6 +419,7 @@ def admission_trace_status(root: Path) -> str:
             PR_FIX_NEW_TRACE,
             PR_REVIEW_ACTIVATION_NEW_TRACE,
             PR_REVIEW_LOOP_NEW_TRACE,
+            PR_FIX_RECONCILE_NEW_TRACE,
             PR_MERGE_NEW_TRACE,
         )
         if (Path(root) / relative).is_file()

@@ -235,6 +235,21 @@ def pr_review_loop_trace() -> dict[str, object]:
     return artifact
 
 
+def pr_fix_reconcile_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-pr-fix-reconcile-trace.v1"
+    artifact["family"] = "pr-fix-reconcile"
+    fixtures = artifact["fixtures"]
+    assert isinstance(fixtures, list)
+    fixture = fixtures[0]
+    assert isinstance(fixture, dict)
+    edge_id = "github-devloop-pr/reviewing/entry/review_reject_to_blocked"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
+
 def pr_merge_trace() -> dict[str, object]:
     artifact = pr_review_result_trace()
     artifact["schema"] = "restart-pr-merge-trace.v1"
@@ -371,6 +386,11 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             self.root,
             checker.PR_REVIEW_LOOP_OLD_CORPUS,
             pr_review_loop_trace(),
+        )
+        write_json(
+            self.root,
+            checker.PR_FIX_RECONCILE_OLD_CORPUS,
+            pr_fix_reconcile_trace(),
         )
         write_json(
             self.root,
@@ -663,6 +683,32 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
 
         self.assertTrue(any(
             "pr-review-loop trace canonical hash mismatch" in message
+            for message in messages
+        ))
+
+    def test_pr_fix_reconcile_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(
+            self.root,
+            checker.PR_FIX_RECONCILE_NEW_TRACE,
+            pr_fix_reconcile_trace(),
+        )
+
+        self.assertEqual(checker.repository_messages(self.root), [])
+
+    def test_pr_fix_reconcile_trace_output_mismatch_fails_closed(self) -> None:
+        changed = pr_fix_reconcile_trace()
+        fixtures = changed["fixtures"]
+        assert isinstance(fixtures, list)
+        fixture = fixtures[0]
+        assert isinstance(fixture, dict)
+        fixture["cas_outcome"] = "skip-advanced-or-diverged"
+        changed["artifact_sha256"] = canonical_artifact_hash_v1(changed)
+        write_json(self.root, checker.PR_FIX_RECONCILE_NEW_TRACE, changed)
+
+        messages = checker.repository_messages(self.root)
+
+        self.assertTrue(any(
+            "pr-fix-reconcile trace canonical hash mismatch" in message
             for message in messages
         ))
 
