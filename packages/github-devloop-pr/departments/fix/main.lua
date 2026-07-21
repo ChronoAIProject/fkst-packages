@@ -19,8 +19,7 @@ local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local ci_verdict = require("core.ci_verdict")
 local fix_write_gate = require("departments.fix.write_gate")
-local restart_effect_facade = require("core.restart_effect_facade")
-local restart_effects = require("core.restart_effects")
+local fix_caps = require("fix_department_caps")
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 local review_meta_caps = {
@@ -580,8 +579,8 @@ local function act_fix(event)
       return
     end
     local state = require("devloop.entity").current_entity_state(current_pr.comments, fix.proposal_id)
-    local snapshot = restart_effects.seal_snapshot({
-      owner = core.restart_package_name,
+    local snapshot = fix_caps.restart_effects.seal_snapshot({
+      owner = fix_caps.restart_package_name,
       entity = { kind = "pr", repo = repo, number = fix.pr_number },
       proposal_id = fix.proposal_id,
       current = state,
@@ -591,7 +590,7 @@ local function act_fix(event)
       lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
       generation = state.version or "missing",
     })
-    local decision = restart_effects.decide_transition(snapshot, {
+    local decision = fix_caps.restart_effects.decide_transition(snapshot, {
       semantic_variant = "revision_published",
       target = "reviewing",
       incoming_version = fix.version,
@@ -618,14 +617,14 @@ local function act_fix(event)
       error("github-devloop: restart-effect-decision-illegal: PR fix decision rejected: "
         .. tostring(decision.reason_code))
     end
-    local grant = restart_effects.mint_grant(snapshot, decision, "comment:pr:fix-reviewing")
+    local grant = fix_caps.restart_effects.mint_grant(snapshot, decision, "comment:pr:fix-reviewing")
     if grant == nil then
       error("github-devloop: restart-effect-grant-mint-failed: PR fix grant was not minted")
     end
-    local facade = restart_effect_facade.make({
+    local facade = fix_caps.restart_effect_facade.make({
       family = "pr-fix",
-      verify_grant = restart_effects.verify_grant,
-      sink_inventory = require("core.restart.sink_inventory"),
+      verify_grant = fix_caps.restart_effects.verify_grant,
+      sink_inventory = fix_caps.sink_inventory,
     })
     if type(facade.emit) ~= "function" then
       error("github-devloop: restart-effect-facade-invalid: PR fix facade emit is unavailable")
