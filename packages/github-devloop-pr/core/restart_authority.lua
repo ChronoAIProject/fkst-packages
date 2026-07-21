@@ -81,28 +81,43 @@ local function normalize_intent(intent)
 end
 
 local function select_edge(semantic_variant, current_state)
-  local selected = nil
-  local matches = 0
+  local candidates = {}
   for _, candidate in ipairs(edges) do
     if candidate.semantic_variant == semantic_variant then
-      selected = candidate
-      matches = matches + 1
+      table.insert(candidates, candidate)
     end
   end
-  if matches <= 1 then
-    return selected, matches
+  if #candidates <= 1 then
+    return candidates[1], #candidates
   end
 
   local exact = nil
   local exact_matches = 0
-  for _, candidate in ipairs(edges) do
-    if candidate.semantic_variant == semantic_variant
-      and candidate.source.state == current_state then
+  for _, candidate in ipairs(candidates) do
+    if candidate.source.state == current_state then
       exact = candidate
       exact_matches = exact_matches + 1
     end
   end
-  return exact, exact_matches == 1 and 1 or matches
+  if exact_matches == 1 then
+    return exact, 1
+  end
+  if exact_matches > 1 then
+    return nil, #candidates
+  end
+
+  local representative = candidates[1]
+  for index = 2, #candidates do
+    local candidate = candidates[index]
+    if candidate.kind ~= representative.kind
+      or candidate.source.boundary ~= representative.source.boundary
+      or candidate.target ~= representative.target
+      or candidate.cas_policy_id ~= representative.cas_policy_id
+      or candidate.cas_variant ~= representative.cas_variant then
+      return nil, #candidates
+    end
+  end
+  return representative, 1
 end
 
 function M.seal_snapshot(fields)
