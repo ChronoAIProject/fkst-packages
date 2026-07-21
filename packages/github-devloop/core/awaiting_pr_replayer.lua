@@ -21,6 +21,8 @@ local autonomy_ledger = require("devloop.autonomy_ledger")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 
 function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_contains_child)
   local receipt_heads = {}
@@ -231,15 +233,40 @@ local function build_awaiting_pr_canonicalization_comment_request(issue, state, 
 end
 S.build_awaiting_pr_canonicalization_comment_request = build_awaiting_pr_canonicalization_comment_request
 
-function M.implementing_to_awaiting_pr_transition_status(state)
-  return devloop_state.versioned_transition_status(state, { "implementing" }, "awaiting-pr", state and state.version)
+function M.implementing_to_awaiting_pr_transition_status(issue, proposal_id, state)
+  local lock_key = entity_lib.transition_lock_key(proposal_id)
+  local snapshot = restart_effects.seal_snapshot({
+    owner = M.restart_package_name,
+    entity = { kind = "issue", repo = issue.repo, number = issue.number },
+    proposal_id = proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "awaiting-pr-canonicalization",
+      tostring(proposal_id),
+      tostring(state and state.state or ""),
+      tostring(state and state.version or ""),
+    }, "|"),
+    lock_epoch = tostring(lock_key or "") .. "@" .. tostring(state and state.version or ""),
+    generation = state and state.version,
+  })
+  local decision = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "implementing_merged_delegated_pr",
+    source_boundary = nil,
+    target = "awaiting-pr",
+    incoming_version = state and state.version,
+  })
+  return decision.status, snapshot, decision
 end
 
 function M.canonicalize_implementing_merged_delegated_pr(dept, issue, state, facts)
   local proposal_id = facts.proposal_id
-  local transition = M.implementing_to_awaiting_pr_transition_status(state)
-  if transition ~= "apply" and transition ~= "idempotent" then
-    return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", devloop_state.cas_outcome(state, transition, state and state.version), "merged delegated PR canonicalization requires implementing state")
+  local transition, snapshot, decision = M.implementing_to_awaiting_pr_transition_status(issue, proposal_id, state)
+  if transition == "pending" or transition == "stale" then
+    return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", decision.cas_outcome, "merged delegated PR canonicalization requires implementing state")
+  end
+  if decision.status ~= "apply" and decision.status ~= "idempotent" then
+    error("github-devloop: restart-effect-decision-illegal: awaiting-pr canonicalization decision rejected: "
+      .. tostring(decision.reason_code))
   end
   local delegation = facts["pr-delegation"] or facts.pr_delegation
   if delegation == nil then
@@ -261,35 +288,32 @@ function M.canonicalize_implementing_merged_delegated_pr(dept, issue, state, fac
   if canonical_merged_state == nil then
     return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", "skip-pending(canonical-child-pr-merged-missing)", "delegated child PR is not canonically merged by GitHub")
   end
-  if transition == "idempotent" then
+  if decision.status == "idempotent" then
     return log_skip(dept, proposal_id, state, "implementing", "awaiting-pr", "skip-idempotent(already at to_state)", "parent issue already has awaiting-pr marker")
   end
+  local grant = restart_effects.mint_grant(snapshot, decision, "comment:issue:awaiting-pr-state")
+  if grant == nil then
+    error("github-devloop: restart-effect-grant-mint-failed: awaiting-pr canonicalization grant was not minted")
+  end
+  local facade = restart_effect_facade.make({
+    family = "awaiting-pr",
+    verify_grant = restart_effects.verify_grant,
+    sink_inventory = require("core.restart.sink_inventory"),
+  })
+  local args = { issue = issue, state = state, delegation = delegation }
+  local effects = {}
+  for _, effect_id in ipairs(decision.granted_effect_ids) do
+    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: awaiting-pr canonicalization effect "
+        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    end
+    table.insert(effects, { queue = effect_id, payload = payload })
+  end
 
-  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  local comment_request = build_awaiting_pr_canonicalization_comment_request(issue, state, delegation)
-  local label_request = requests_labels.build_state_label_request(issue.repo,
-    issue.number,
-    "awaiting-pr",
-    proposal_id,
-    state.version,
-    base_ids.dedup_key({
-      "awaiting-pr",
-      "canonicalize",
-      "implementing",
-      "label",
-      tostring(proposal_id),
-      tostring(state.version),
-      tostring(delegation.pr_number),
-      tostring(delegation.delegation),
-    }),
-    source_ref
-  )
   local add_labels, remove_labels = devloop_state.state_label_changes("awaiting-pr")
   devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", "awaiting-pr", "applied(merged-delegated-pr-canonicalized)", "canonical merged PR child made missing parent handoff visible")
-  return raise_effects(dept, proposal_id, "awaiting-pr", state.version, { add = add_labels, remove = remove_labels }, {
-    { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
-    { queue = "github-proxy.github_issue_label_request", payload = label_request },
-  })
+  return raise_effects(dept, proposal_id, "awaiting-pr", state.version, { add = add_labels, remove = remove_labels }, effects)
 end
 
 function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)

@@ -29,6 +29,8 @@ local observe_issue_department = require("departments.observe_issue.main")
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 local AWAITING_PR_CORPUS_PATH = "migration/intent_bounded_replay/corpus/awaiting-pr.json"
+local RESTART_INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
+local OLD_APPLY_OBSERVATION_ID = "writer:github-devloop:awaiting-pr-enter/merged-delegated-pr-canonicalized/awaiting-pr/apply/applied(merged-delegated-pr-canonicalized)/awaiting-pr"
 local AWAITING_PR_NEW_TRACE_PATH = ".fkst/run/r9-awaiting-pr-new-trace.json"
 local OWNER = core.restart_package_name
 local IMPLEMENTING_SHADOW_VARIANT = "implementing_merged_delegated_pr"
@@ -70,6 +72,7 @@ local function observe_department(run)
   local boundary_calls = {}
   local boundary_seen = {}
   local original_versioned = devloop_state.versioned_transition_status
+  local original_decide = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_parse_pr_proposal_id = entity_lib.parse_pr_proposal_id
   local original_has_state_marker = devloop_state.has_state_marker
@@ -81,8 +84,11 @@ local function observe_department(run)
     incoming_version,
     target_version
   )
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
     local variant = probe_variant(from_states, to_state)
+    if variant == "implementing_to_awaiting_pr" then
+      error("awaiting-pr production used retired direct CAS", 0)
+    end
+    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
     if variant ~= nil then
       table.insert(probes, {
         current = current,
@@ -95,6 +101,21 @@ local function observe_department(run)
       })
     end
     return outcome
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide(snapshot, intent)
+    if intent.semantic_variant == IMPLEMENTING_SHADOW_VARIANT then
+      table.insert(probes, {
+        current = snapshot.current,
+        from_states = { "implementing" },
+        to_state = intent.target,
+        incoming_version = intent.incoming_version,
+        target_version = intent.target_version,
+        outcome = decision.status,
+        variant = "implementing_to_awaiting_pr",
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -143,6 +164,7 @@ local function observe_department(run)
   devloop_state.has_state_marker = original_has_state_marker
   entity_lib.parse_pr_proposal_id = original_parse_pr_proposal_id
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
@@ -494,7 +516,7 @@ local function trace_artifact(corpus_hash, fixtures)
   )
 end
 
-local function run_old_trace_fixture(fixture)
+local function run_production_trace_fixture(fixture)
   local state = { state = fixture.current_state, version = fixture.current_version }
   local issue = {
     repo = REPO,
@@ -541,8 +563,8 @@ local function run_old_trace_fixture(fixture)
     }
   end)
   raise = original_raise
-  t.eq(result.exit_code, 0, fixture.fixture_id .. ": OLD writer exit code error=" .. tostring(result.error))
-  t.eq(#probes, 1, fixture.fixture_id .. ": OLD writer CAS probe count")
+  t.eq(result.exit_code, 0, fixture.fixture_id .. ": production writer exit code error=" .. tostring(result.error))
+  t.eq(#probes, 1, fixture.fixture_id .. ": production writer decision count")
   local probe = probes[1]
   local admission = observed_admission(
     probe,
@@ -618,61 +640,71 @@ local function new_trace_fixture(fixture, probe, admission)
   return trace_fixture(fixture, admission, decided, writes), decided, json_array()
 end
 
+local function frozen_old_apply_writes()
+  local inventory = json.decode(file.read(RESTART_INVENTORY_PATH))
+  for _, record in ipairs(inventory.old_behavior_observations or {}) do
+    if record.observation_id == OLD_APPLY_OBSERVATION_ID then
+      local writes = json_array()
+      for _, write in ipairs(record.old_outcome.observable_writes or {}) do
+        table.insert(writes, { queue = write.queue, payload = write.payload })
+      end
+      return writes
+    end
+  end
+  error("R9 awaiting-pr frozen OLD apply observation is missing", 0)
+end
+
 local function assert_awaiting_pr_trace_equality()
   local corpus = json.decode(file.read(AWAITING_PR_CORPUS_PATH))
-  local old_fixtures = json_array()
-  local new_fixtures = json_array()
+  local production_fixtures = json_array()
+  local normalized_fixtures = json_array()
   for _, fixture in ipairs(TRACE_FIXTURES) do
-    local result, probe, admission = run_old_trace_fixture(fixture)
-    local new_fixture, decision = new_trace_fixture(fixture, probe, admission)
-    local old_writes = admission.status == "apply"
+    local result, probe, admission = run_production_trace_fixture(fixture)
+    local normalized_fixture, decision = new_trace_fixture(fixture, probe, admission)
+    local production_writes = admission.status == "apply"
       and trace_writes(result.raises)
       or json_array()
-    table.insert(old_fixtures, trace_fixture(fixture, admission, decision, old_writes))
-    table.insert(new_fixtures, new_fixture)
+    table.insert(production_fixtures, trace_fixture(fixture, admission, decision, production_writes))
+    table.insert(normalized_fixtures, normalized_fixture)
     if admission.status == "idempotent" then
       t.eq(#result.raises, 0, "awaiting-pr idempotent post-admission path emits no repair writes")
     end
   end
 
-  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local production_trace = trace_artifact(corpus.artifact_sha256, production_fixtures)
+  local normalized_trace = trace_artifact(corpus.artifact_sha256, normalized_fixtures)
   local mkdir_ok = os.execute("mkdir -p .fkst/run")
   if mkdir_ok ~= true and mkdir_ok ~= 0 then
     error("R9 awaiting-pr trace could not create its artifact directory", 0)
   end
-  file.write(AWAITING_PR_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
-  t.eq(canonical_json(old_trace), canonical_json(new_trace), "R9 awaiting-pr OLD and NEW semantic trace")
-  t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 awaiting-pr OLD observation corpus")
-  t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 awaiting-pr NEW semantic trace")
+  file.write(AWAITING_PR_NEW_TRACE_PATH, canonical_json(production_trace) .. "\n")
+  t.eq(canonical_json(production_trace), canonical_json(normalized_trace), "R9 awaiting-pr production and normalized semantic trace")
+  t.eq(canonical_json(production_trace), canonical_json(corpus), "R9 awaiting-pr production trace equals committed corpus")
+  t.eq(canonical_json(normalized_trace), canonical_json(corpus), "R9 awaiting-pr normalized trace equals committed corpus")
 end
 
 return {
-  test_awaiting_pr_canonicalization_shadow_facade_is_full_payload_exact = function()
+  test_awaiting_pr_canonicalization_production_facade_is_full_payload_exact = function()
     local fixture = TRACE_FIXTURES[1]
-    local result, probe, admission = run_old_trace_fixture(fixture)
-    local _, decision, facade_writes = new_trace_fixture(fixture, probe, admission)
+    local result, probe, admission = run_production_trace_fixture(fixture)
+    local _, decision, normalized_writes = new_trace_fixture(fixture, probe, admission)
 
-    t.eq(admission.status, "apply", "OLD canonicalization applies")
-    t.eq(decision.status, "apply", "shadow canonicalization applies")
-    t.eq(#result.raises, 2, "OLD canonicalization emits comment then label")
-    t.eq(#facade_writes, 2, "shadow canonicalization emits comment then label")
-    t.eq(
-      canonical_json(facade_writes),
-      canonical_json(result.raises),
-      "R9 awaiting-pr canonicalization ordered full payload is byte-exact versus OLD"
-    )
+    t.eq(admission.status, "apply", "production canonicalization applies")
+    t.eq(decision.status, "apply", "normalized canonicalization applies")
+    t.eq(#result.raises, 2, "production canonicalization emits comment then label")
+    t.eq(#normalized_writes, 2, "normalized canonicalization emits comment then label")
+    t.eq(canonical_json(result.raises), canonical_json(frozen_old_apply_writes()),
+      "R9 production ordered full payload is byte-exact versus frozen OLD")
+    t.eq(canonical_json(normalized_writes), canonical_json(result.raises),
+      "R9 normalized ordered full payload is byte-exact versus production")
   end,
 
-  test_r9_awaiting_pr_old_equals_new_normalized_trace = function()
+  test_r9_awaiting_pr_production_equals_normalized_trace = function()
     assert_awaiting_pr_trace_equality()
   end,
 
-  -- implementing_to_awaiting_pr is apply-only parity: observe_issue/main.lua:601
-  -- gates this canonicalization behind state ~= "awaiting-pr", so an issue already
-  -- in awaiting-pr never reaches this edge's idempotent branch via the real
-  -- department. Idempotent shadow coverage stays with policies whose department
-  -- genuinely probes an already-at-target case.
+  -- The real department admits this canonicalization only from implementing;
+  -- direct writer fixtures retain pending and idempotent parity coverage.
   test_shadow_implementing_to_awaiting_pr_apply_parity = function()
     assert_shadow_case({
       name = "shadow-implementing-to-awaiting-pr-apply",

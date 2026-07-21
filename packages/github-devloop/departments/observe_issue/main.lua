@@ -621,7 +621,7 @@ local function process_issue_event(event)
             return
           end
         end
-        local handoff_transition = awaiting_pr_replay.implementing_to_awaiting_pr_transition_status(issue_state)
+        local handoff_transition = awaiting_pr_replay.implementing_to_awaiting_pr_transition_status(issue, proposal_id, issue_state)
         if handoff_transition == "apply" or handoff_transition == "idempotent" then
           if not claim_verified and not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
             return
