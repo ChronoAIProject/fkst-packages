@@ -75,6 +75,16 @@ class HostProfileScaffoldTest(unittest.TestCase):
         self.assertIn("FKST_DEVLOOP_LOCAL_TEST_COMMAND", scaffold)
         self.assertIn("make preflight", scaffold)
 
+    def test_worktree_local_files_are_explicit_gitignored_host_input(self) -> None:
+        doc = self.read("docs/user/global-host-profiles.md")
+        scaffold = self.read("docs/user/host-profile.env.example")
+
+        self.assertIn("`FKST_WORKTREE_LOCAL_FILES`", doc)
+        self.assertIn("hydrate_worktree_local_files.py", doc)
+        self.assertIn("destination must be ignored by Git", doc)
+        self.assertIn("File contents are never printed", doc)
+        self.assertIn("FKST_WORKTREE_LOCAL_FILES", scaffold)
+
 
 if __name__ == "__main__":
     unittest.main()

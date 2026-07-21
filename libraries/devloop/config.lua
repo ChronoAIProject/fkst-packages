@@ -31,6 +31,9 @@ local allowed_env = {
   FKST_DEVLOOP_BOARD_CMD = true,
   FKST_DEVLOOP_TEST_COMMAND = true,
   FKST_DEVLOOP_LOCAL_TEST_COMMAND = true,
+  FKST_HOST_ROOT = true,
+  FKST_PLATFORM_ROOT = true,
+  FKST_WORKTREE_LOCAL_FILES = true,
   FKST_OUTPUT_LANG = true,
   FKST_DEBUG_STAMP = true,
 }

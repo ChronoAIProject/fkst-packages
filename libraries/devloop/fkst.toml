@@ -138,6 +138,7 @@ public = [
   "devloop.validators.reviewing",
   "devloop.validators.unresolved",
   "devloop.validators.validate_proposal",
+  "devloop.worktree_local_files",
 ]
 exact = true
 

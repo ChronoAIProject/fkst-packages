@@ -274,7 +274,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/host_entry_test.py"'
     'python3 -B "$ROOT/scripts/host_run_test.py"'
     'python3 -B "$ROOT/scripts/host_run_local_iteration_test.py"'
-    'python3 -B "$ROOT/scripts/host_profile_scaffold_test.py"'
+    'python3 -B -m unittest "$ROOT/scripts/host_profile_scaffold_test.py" "$ROOT/scripts/worktree_local_files_test.py"'
     'python3 -B "$ROOT/scripts/host_run_equivalence_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_coverage_test.py"'
     'python3 -B "$ROOT/scripts/run_sh_test_affected_test.py"'

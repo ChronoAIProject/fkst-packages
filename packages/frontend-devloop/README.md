@@ -20,6 +20,10 @@ The necessity proof is part of `frontend-devloop.profile.v1`, not an implied con
   generic host layer to frontend workflow semantics. They intentionally exclude package roots and
   frontend workflow semantics.
 
+Machine-local frontend files that Git omits from isolated worktrees remain a global-host concern.
+Hosts can declare gitignored paths with `FKST_WORKTREE_LOCAL_FILES`; the shared worktree hydration
+contract is documented in [`docs/user/global-host-profiles.md`](../../docs/user/global-host-profiles.md).
+
 Therefore `frontend-devloop` owns only the UI workflow profile contract that composes those existing surfaces.
 
 Host package composition is explicit. A frontend host includes these platform package roots in `.fkst/compose/package-roots`:

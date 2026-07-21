@@ -3,6 +3,7 @@ local forge_git = require("forge.git").new(function(...) return exec_argv(...) e
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local pr_safety = require("devloop.pr_safety")
+local worktree_local_files = require("devloop.worktree_local_files")
 local exec_sync = exec_sync
 
 local M = {}
@@ -164,6 +165,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     end
   end
   M.reconcile_worktree_to_branch(worktree, branch)
+  worktree_local_files.hydrate(worktree)
   return worktree
 end
 
@@ -194,6 +196,7 @@ function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_he
   if worktree_result.exit_code ~= 0 then
     error("github-devloop: git-worktree-add-failed: git worktree reset add failed: " .. tostring(worktree_result.stderr))
   end
+  worktree_local_files.hydrate(worktree)
   return worktree
 end
 

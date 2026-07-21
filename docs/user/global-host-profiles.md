@@ -61,8 +61,34 @@ The profile schema is the existing host-run environment surface:
 | `FKST_DEVLOOP_INTEGRATION_BRANCH` | `github-devloop` | Per-device integration branch. |
 | `FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS` | optional | Comma-separated GitHub milestone numbers eligible for an initial issue claim. |
 | `FKST_DEVLOOP_LOCAL_TEST_COMMAND` | `github-devloop` | Repository-root local verification gate run by implement/fix workers before handoff. |
+| `FKST_WORKTREE_LOCAL_FILES` | optional | Newline-separated host-root-relative files to copy into isolated worktrees after creation. |
 
 `FKST_GITHUB_WRITE=1` is intentionally commented in the scaffold. Unset means dry-run.
+
+## Worktree-local files
+
+Git does not carry ignored machine-local files such as development environment files into a new
+worktree. A host that requires those files can declare them explicitly in the global profile:
+
+```sh
+export FKST_WORKTREE_LOCAL_FILES='apps/console/.env.local
+apps/console/config/development.local'
+```
+
+`github-devloop` hydrates the declared files from `FKST_HOST_ROOT` after it creates or reconciles an
+implementation worktree and before it starts Codex. The shared hydration tool is also available to
+host-owned worktree wrappers:
+
+```sh
+python3 "$FKST_PLATFORM_ROOT/scripts/hydrate_worktree_local_files.py" \
+  --source-root "$FKST_HOST_ROOT" \
+  --worktree /absolute/path/to/worktree
+```
+
+The declaration is fail-closed. Every entry must be a unique relative path, the source must be a
+regular file inside `FKST_HOST_ROOT`, and the destination must be ignored by Git in the target
+worktree. All entries are preflighted before any file is copied. File contents are never printed or
+placed in an FKST event payload. An unset declaration preserves the normal Git worktree behavior.
 
 ## Local iteration gate
 

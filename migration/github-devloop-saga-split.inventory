@@ -6,6 +6,7 @@
 {"path":"libraries/devloop/commands.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/comment_handoff.lua","owner":"shared","reason":"comment handoff accept/log helpers are shared by issue and PR handoff departments."}
 {"path":"libraries/devloop/config.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
+{"path":"libraries/devloop/worktree_local_files.lua","owner":"issue","reason":"issue implementation worktree setup hydrates explicitly declared host-local files before Codex runs."}
 {"path":"libraries/devloop/conflict_telemetry.lua","owner":"shared","reason":"conflict telemetry parsing and logging are used by PR fix and issue-side hotspot patrol."}
 {"path":"libraries/devloop/context_bundle.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/convergence.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
