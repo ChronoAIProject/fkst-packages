@@ -520,6 +520,9 @@ local policies = {
     production = { function_name = "versioned_transition_status", overlay = "fresh-instance due attempt and lineage checks", source = "packages/github-devloop/departments/reconcile/main.lua:254" },
     base = "versioned",
     variants = {
+      awaiting_pr_to_blocked = variant({ "awaiting-pr" }, "blocked"),
+      dependency_wait_to_blocked = variant({ "dependency_wait" }, "blocked"),
+      impl_failed_to_blocked = variant({ "impl-failed" }, "blocked"),
       thinking_to_blocked = variant({ "thinking" }, "blocked"),
       ready_to_blocked = variant({ "ready" }, "blocked"),
       implementing_to_blocked = variant({ "implementing" }, "blocked"),
