@@ -9,6 +9,7 @@ local observation_support = require("testkit_internal.old_behavior_observation_s
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local restart_effect_facade = require("core.restart_effect_facade")
 local restart_effects = require("core.restart_effects")
+local requests_labels = require("devloop.requests.labels")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
   entry = require("core.restart.entry_inventory"),
@@ -78,26 +79,24 @@ local function observe_department(run)
   local decisions = {}
   local boundary_calls = {}
   local original_versioned = devloop_state.versioned_transition_status
+  local original_decide = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_build_timeout = conv_reconcile.build_timeout_reconcile_comment_request
 
-  devloop_state.versioned_transition_status = function(
-    current,
-    from_states,
-    to_state,
-    incoming_version,
-    target_version
-  )
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
+  devloop_state.versioned_transition_status = function()
+    error("timeout-reconcile production used retired direct CAS", 0)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide(snapshot, intent)
     table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
+      current = snapshot.current,
+      from_states = { snapshot.current.state },
+      to_state = intent.target,
+      incoming_version = intent.incoming_version,
+      target_version = intent.target_version,
+      outcome = decision.status,
     })
-    return outcome
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -135,6 +134,7 @@ local function observe_department(run)
   local ok, result = pcall(run)
   conv_reconcile.build_timeout_reconcile_comment_request = original_build_timeout
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
@@ -264,6 +264,35 @@ local function fixture_comments(event, fixture)
   return comments
 end
 
+local function frozen_old_apply_writes(boundary)
+  local comment_request = conv_reconcile.build_timeout_reconcile_comment_request(
+    boundary.repo,
+    boundary.issue_number,
+    boundary.reconcile,
+    boundary.action,
+    boundary.reason,
+    boundary.version,
+    boundary.fields
+  )
+  local label_request = requests_labels.build_state_label_request(
+    boundary.repo,
+    boundary.issue_number,
+    "blocked",
+    boundary.reconcile.proposal_id,
+    boundary.version,
+    require("devloop.base_ids").dedup_key({
+      "timeout-reconcile",
+      "label",
+      tostring(boundary.reconcile.dedup_key),
+    }),
+    boundary.reconcile.source_ref
+  )
+  return {
+    { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
+    { queue = "github-proxy.github_issue_label_request", payload = label_request },
+  }
+end
+
 local function assert_bidirectional(actual, expected, field, context)
   t.eq(actual[field], expected[field], context .. ": shadow-to-production " .. field)
   t.eq(expected[field], actual[field], context .. ": production-to-shadow " .. field)
@@ -379,6 +408,13 @@ local function assert_case(fixture)
 
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
   t.eq(#result.raises, fixture.effect_count or 0, fixture.name .. ": captured effect count")
+  if boundary_reached then
+    t.eq(
+      canonical_json(result.raises),
+      canonical_json(frozen_old_apply_writes(boundary_calls[1])),
+      fixture.name .. ": NEW full payload is byte-exact versus frozen OLD"
+    )
+  end
   t.eq(
     post_admission_disposition(result, boundary_reached),
     fixture.post_admission_disposition or "not-admitted",
