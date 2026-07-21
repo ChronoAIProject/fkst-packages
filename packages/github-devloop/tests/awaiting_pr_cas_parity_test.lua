@@ -51,6 +51,18 @@ local BRANCH = devloop_base.implement_branch(REPO, ISSUE_NUMBER, V_EQUAL)
 local BASE_BRANCH = "integration/dev"
 local HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 local MERGE_COMMIT_SHA = "1111111111111111111111111111111111111111"
+local FROZEN_OLD_APPLY = {
+  proposal_id = PROPOSAL_ID,
+  pr_number = 9708,
+  pr_proposal_id = "github-devloop/pr/owner/repo/9708",
+  version = V_EQUAL,
+  delegation = DELEGATION,
+  branch = "devloop-owner-repo-42-01HY",
+  base_branch = "dev",
+  head_sha = HEAD_SHA,
+  merge_commit_sha = MERGE_COMMIT_SHA,
+  merged_at = "2026-06-03T02:05:04Z",
+}
 
 local variants = {
   ["implementing\0awaiting-pr"] = "implementing_to_awaiting_pr",
@@ -524,20 +536,28 @@ local function run_production_trace_fixture(fixture)
     source_ref = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER),
   }
   local delegation = {
-    proposal_id = PROPOSAL_ID,
-    pr_proposal_id = PR_PROPOSAL_ID,
-    pr_number = PR_NUMBER,
-    version = V_EQUAL,
-    delegation = DELEGATION,
+    proposal_id = FROZEN_OLD_APPLY.proposal_id,
+    pr_proposal_id = FROZEN_OLD_APPLY.pr_proposal_id,
+    pr_number = FROZEN_OLD_APPLY.pr_number,
+    version = FROZEN_OLD_APPLY.version,
+    delegation = FROZEN_OLD_APPLY.delegation,
   }
   local current_pr = {
     force_fresh = true,
+    number = FROZEN_OLD_APPLY.pr_number,
     state = "MERGED",
-    comments = child_comments({ current_version = V_EQUAL, child_state = "merged" }),
-    head_ref_name = BRANCH,
-    base_ref_name = BASE_BRANCH,
-    head_sha = HEAD_SHA,
-    merge_commit_sha = MERGE_COMMIT_SHA,
+    merged_at = FROZEN_OLD_APPLY.merged_at,
+    comments = { comment(m_builders.pr_origin_marker(
+      FROZEN_OLD_APPLY.proposal_id,
+      ISSUE_NUMBER,
+      FROZEN_OLD_APPLY.branch,
+      FROZEN_OLD_APPLY.version,
+      FROZEN_OLD_APPLY.base_branch
+    ), "2026-06-03T01:02:00Z") },
+    head_ref_name = FROZEN_OLD_APPLY.branch,
+    base_ref_name = FROZEN_OLD_APPLY.base_branch,
+    head_sha = FROZEN_OLD_APPLY.head_sha,
+    merge_commit_sha = FROZEN_OLD_APPLY.merge_commit_sha,
   }
   local raises = {}
   local original_raise = raise
@@ -621,11 +641,11 @@ local function new_trace_fixture(fixture, probe, admission)
         version = V_EQUAL,
       },
       delegation = {
-        proposal_id = PROPOSAL_ID,
-        pr_proposal_id = PR_PROPOSAL_ID,
-        pr_number = PR_NUMBER,
-        version = V_EQUAL,
-        delegation = DELEGATION,
+        proposal_id = FROZEN_OLD_APPLY.proposal_id,
+        pr_proposal_id = FROZEN_OLD_APPLY.pr_proposal_id,
+        pr_number = FROZEN_OLD_APPLY.pr_number,
+        version = FROZEN_OLD_APPLY.version,
+        delegation = FROZEN_OLD_APPLY.delegation,
       },
     }
     local full_writes = json_array()
