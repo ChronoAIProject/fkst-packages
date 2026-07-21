@@ -97,7 +97,6 @@ local function valid_fix_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
     and type(args.repo) == "string"
-    and args.issue_number ~= nil
     and type(args.fix) == "table"
     and type(args.old_head_sha) == "string"
     and type(args.new_head_sha) == "string"
@@ -120,7 +119,7 @@ local function serialize_fix_reviewing_comment(args)
 end
 
 local function serialize_fix_reviewing_label(args)
-  if not valid_fix_args(args) then
+  if not valid_fix_args(args) or args.issue_number == nil then
     return nil, "invalid-serializer-arguments"
   end
   return requests_labels.build_fix_reviewing_label_request(

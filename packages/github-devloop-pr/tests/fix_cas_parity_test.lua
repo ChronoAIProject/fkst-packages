@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real fix
--- department's CAS probe and the review-reject fact admission boundary. Effects
--- and legacy CAS logs are recorded as separate post-admission observations. This
--- test never computes the expected result with a devloop.state transition helper.
+-- department's owner decision and the review-reject fact admission boundary.
+-- Frozen OLD payload truth remains the committed R9 corpus, and direct legacy CAS
+-- use is rejected after the production swap.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -59,6 +59,7 @@ local function observe_department(run)
   local decisions = {}
   local boundary_calls = {}
   local original_cyclic = devloop_state.cyclic_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_review_reject_fact = m_facts.review_reject_fact
   -- A fresh fixture has no live codex run. Force that ground truth so a future
@@ -68,17 +69,20 @@ local function observe_department(run)
     return false
   end
 
-  devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_cyclic(current, from_states, to_state, incoming_version, target_version)
+  devloop_state.cyclic_transition_status = function()
+    error("PR fix production used retired direct CAS", 0)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
     table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
+      current = snapshot.current,
+      from_states = { "fixing" },
+      to_state = intent.target,
+      incoming_version = intent.incoming_version,
+      target_version = intent.target_version,
+      outcome = decision.status,
     })
-    return outcome
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -105,6 +109,7 @@ local function observe_department(run)
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup
   m_facts.review_reject_fact = original_review_reject_fact
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.cyclic_transition_status = original_cyclic
   if not ok then
     error(result, 0)
@@ -438,14 +443,14 @@ local function assert_fix_trace_equality()
   local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
   local canonical_json = observation_support.canonical_json
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
-    "R9 PR fix OLD and NEW semantic trace")
+    "R9 PR fix production and independent facade admission trace")
   local mkdir_ok = os.execute("mkdir -p .fkst/run")
   if mkdir_ok ~= true and mkdir_ok ~= 0 then
     error("R9 PR fix trace could not create its artifact directory", 0)
   end
   file.write(FIX_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
   t.eq(canonical_json(old_trace), canonical_json(corpus),
-    "R9 PR fix OLD observation corpus")
+    "R9 PR fix production trace equals frozen OLD corpus")
   t.eq(canonical_json(new_trace), canonical_json(corpus),
     "R9 PR fix NEW semantic trace")
 end

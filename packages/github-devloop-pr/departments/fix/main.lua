@@ -19,6 +19,8 @@ local ci_repair_attempts = require("core.ci_repair_attempts")
 local ci_repair_retry = require("core.ci_repair_retry")
 local ci_verdict = require("core.ci_verdict")
 local fix_write_gate = require("departments.fix.write_gate")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 local review_meta_caps = {
@@ -75,18 +77,48 @@ local function raise_review_meta(...)
   return requests_review.raise_fix_review_meta(review_meta_caps, ...)
 end
 
-local function raise_reviewing(repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
-  requests_review.raise_fix_reviewing(core, {
-    dept = "fix",
+local function emit_reviewing(restart_effect, repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
+  fix.fix_summary = bounded_fix_summary(summary)
+  local new_version = devloop_state.next_fix_version(fix.version)
+  local args = {
+    core = core,
     repo = repo,
     issue_number = issue_number,
     fix = fix,
     old_head_sha = old_head_sha,
     new_head_sha = new_head_sha,
-    reason = reason,
-    fix_summary = bounded_fix_summary(summary),
-    clear_fix_summary = true,
-  })
+    new_version = new_version,
+  }
+  local effects = {}
+  local emitted_effect_ids = {}
+  for _, effect_id in ipairs(restart_effect.decision.granted_effect_ids) do
+    if effect_id ~= "github-proxy.github_issue_label_request" or issue_number ~= nil then
+      local payload, rejection = restart_effect.facade.emit(
+        restart_effect.grant,
+        effect_id,
+        restart_effect.snapshot,
+        args
+      )
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: PR fix effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+      table.insert(emitted_effect_ids, effect_id)
+    end
+  end
+
+  local add_labels, remove_labels = devloop_state.state_label_changes("reviewing")
+  devloop_logging.log_cas_decision("fix", fix.proposal_id,
+    { state = "fixing", version = fix.version }, "fixing", "reviewing",
+    restart_effect.decision.cas_outcome, reason)
+  devloop_logging.log_apply("fix", fix.proposal_id, "reviewing", new_version, {
+    add = add_labels,
+    remove = remove_labels,
+  }, emitted_effect_ids)
+  for _, effect in ipairs(effects) do
+    devloop_logging.log_raise("fix", fix.proposal_id, effect.queue, effect.payload)
+  end
 end
 
 local function fix_at_next_attempt_version(fix)
@@ -416,7 +448,7 @@ local function pre_spawn_fix_attempt(repo, fix, attempt_plan)
   return true
 end
 
-local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
+local function apply_fix_outcome(repo, issue_number, fix, branch, outcome, restart_effect)
   if outcome == nil then
     return
   end
@@ -425,7 +457,8 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     return
   end
   if outcome.kind == "reviewing-current" then
-    raise_reviewing(
+    emit_reviewing(
+      restart_effect,
       repo,
       issue_number,
       fix,
@@ -500,7 +533,8 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome)
     error("github-devloop: pushed-pr-head-mismatch: pushed PR head verification failed")
   end
 
-  raise_reviewing(repo, issue_number, fix, outcome.old_head_sha, outcome.new_head_sha, outcome.reason, outcome.summary)
+  emit_reviewing(restart_effect, repo, issue_number, fix,
+    outcome.old_head_sha, outcome.new_head_sha, outcome.reason, outcome.summary)
 end
 
 local function act_fix(event)
@@ -546,23 +580,62 @@ local function act_fix(event)
       return
     end
     local state = require("devloop.entity").current_entity_state(current_pr.comments, fix.proposal_id)
-    local transition = devloop_state.cyclic_transition_status(state, { "fixing" }, "reviewing", fix.version, reviewing_version)
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "fixing state marker not yet visible")
+    local snapshot = restart_effects.seal_snapshot({
+      owner = core.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = fix.pr_number },
+      proposal_id = fix.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "pr-fix", fix.proposal_id, state.state or "missing", state.version or "missing",
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
+      generation = state.version or "missing",
+    })
+    local decision = restart_effects.decide_transition(snapshot, {
+      semantic_variant = "revision_published",
+      target = "reviewing",
+      incoming_version = fix.version,
+      target_version = reviewing_version,
+      overlay_version = fix.version,
+    })
+    if decision.status == "pending" then
+      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, "fixing state marker not yet visible")
       error("github-devloop: fixing-marker-missing: fixing state marker not yet visible for fix; retrying")
     end
-    if transition == "idempotent" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "reviewing state marker for fix already visible")
+    if decision.status == "idempotent" then
+      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, "reviewing state marker for fix already visible")
       return
     end
-    if state.state ~= "fixing" or transition == "stale" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "issue is not currently fixing")
+    if state.state ~= "fixing" or decision.status == "stale" then
+      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, "issue is not currently fixing")
       return
     end
     if tostring(state.version or "") ~= tostring(fix.version) then
       devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(version-mismatch)", "fix event version does not match canonical issue marker")
       return
     end
+    if decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: PR fix decision rejected: "
+        .. tostring(decision.reason_code))
+    end
+    local grant = restart_effects.mint_grant(snapshot, decision, "comment:pr:fix-reviewing")
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: PR fix grant was not minted")
+    end
+    local facade = restart_effect_facade.make({
+      family = "pr-fix",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    if type(facade.emit) ~= "function" then
+      error("github-devloop: restart-effect-facade-invalid: PR fix facade emit is unavailable")
+    end
+    local reviewing_effect = {
+      snapshot = snapshot,
+      decision = decision,
+      grant = grant,
+      facade = facade,
+    }
     local reject_fact = m_facts.review_reject_fact(current_pr.comments, fix.proposal_id, fix.version)
     local meta_fix_fact = nil
     if reject_fact == nil then
@@ -663,7 +736,9 @@ local function act_fix(event)
       end
       if tostring(current_pr.head_sha or "") == intended_head_sha
         and tostring(current_pr.head_sha or "") ~= tostring(fix.reviewed_head_sha) then
-        raise_reviewing(repo, issue_number, fix, fix.reviewed_head_sha, intended_head_sha, "push already visible; self-healing missing reviewing marker")
+        emit_reviewing(reviewing_effect, repo, issue_number, fix,
+          fix.reviewed_head_sha, intended_head_sha,
+          "push already visible; self-healing missing reviewing marker")
         return
       end
       devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(head-advanced)", "PR head changed since rejected review")
@@ -724,6 +799,7 @@ local function act_fix(event)
       event_queue = event.queue,
       speculative_predecessors = speculative_predecessors,
       speculative_current_set = speculative_current_set,
+      reviewing_effect = reviewing_effect,
     }
   end)
   if attempt_plan == nil then
@@ -741,7 +817,8 @@ local function act_fix(event)
     return
   end
   with_lock(lock_key, function()
-    apply_fix_outcome(repo, issue_number, fix, attempt_plan.branch, outcome)
+    apply_fix_outcome(repo, issue_number, fix, attempt_plan.branch, outcome,
+      attempt_plan.reviewing_effect)
   end)
 end
 
