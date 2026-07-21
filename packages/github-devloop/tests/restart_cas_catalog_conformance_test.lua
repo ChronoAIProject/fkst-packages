@@ -26,6 +26,7 @@ local complete_policy_ids = {
   "cas.legacy_observe_issue_entry_v1",
   "cas.legacy_awaiting_pr_v1",
   "cas.legacy_observe_pr_v1",
+  "cas.legacy_observe_pr_fix_v1",
   "cas.legacy_review_result_v1",
   "cas.legacy_fix_v1",
   "cas.legacy_review_meta_v1",
