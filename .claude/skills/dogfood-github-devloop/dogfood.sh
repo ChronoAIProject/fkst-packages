@@ -125,7 +125,15 @@ supervise_ready_log() {
     && grep -qa 'MSG=event runtime running' "$log" 2>/dev/null
 }
 wait_supervise_ready() { # $1 pid, $2 log
-  local pid="$1" log="$2" attempts=0 ready_seen=0 stable_attempts=30 timeout_attempts=100
+  # timeout_attempts is a GENEROUS backstop for a slow-but-healthy cold start, NOT a health SLA:
+  # a supervise loading ~16 package roots + engine init emits its readiness markers
+  # (code_provenance + `event runtime running`) ~14-16s after spawn (measured), so the old 10s
+  # (100 * 0.1s) cap was chronically SHORTER than a normal cold start and cried wolf
+  # ("FAILED to become ready" on a supervise that was in fact starting fine). 60s (600 * 0.1s)
+  # clears the measured cold start with 3-4x headroom for backlog/disk pressure. This does NOT
+  # slow real-failure detection: a dead start returns 1 the instant the pid dies (below), regardless
+  # of the cap; the cap only bounds how long we wait for an ALIVE-but-not-yet-ready process.
+  local pid="$1" log="$2" attempts=0 ready_seen=0 stable_attempts=30 timeout_attempts=600
   while [ "$attempts" -lt "$timeout_attempts" ]; do
     if ! pid_alive_non_zombie "$pid"; then
       return 1
