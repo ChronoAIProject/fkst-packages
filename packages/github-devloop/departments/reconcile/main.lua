@@ -12,6 +12,8 @@ local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
 
 local spec = {
   consumes = { "devloop_reconcile", "devloop_timeout_reconcile" },
@@ -135,22 +137,83 @@ local function pipeline_thinking(event)
     end
 
     local version = conv_reconcile.reconcile_terminal_state_version(state.version, reconcile.round)
-    local transition = devloop_state.versioned_transition_status(state, { "thinking" }, "blocked", version)
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", devloop_state.cas_outcome(state, transition, version), "thinking state marker not yet visible")
+    local snapshot = restart_effects.seal_snapshot({
+      owner = core.restart_package_name,
+      entity = { kind = "issue", repo = repo, number = issue_number },
+      proposal_id = reconcile.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "issue-reconcile",
+        reconcile.proposal_id,
+        state.state,
+        state.version,
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. state.version,
+      generation = state.version,
+    })
+    local decision = restart_effects.decide_transition(snapshot, {
+      semantic_variant = "issue_reconcile_true_stall",
+      source_boundary = "devloop_reconcile",
+      target = "blocked",
+      incoming_version = version,
+    })
+    if decision.status == "pending" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", decision.cas_outcome, "thinking state marker not yet visible")
       error("github-devloop: state-marker-pending: thinking state marker not yet visible for reconcile; retrying")
     end
-    if transition == "idempotent" or transition == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", devloop_state.cas_outcome(state, transition, version), "current marker cannot be reconciled from thinking")
+    if decision.status == "idempotent" or decision.status == "stale" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", decision.cas_outcome, "current marker cannot be reconciled from thinking")
       return
     end
+    if decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: issue reconcile decision rejected: "
+        .. tostring(decision.reason_code))
+    end
+
+    local grant = restart_effects.mint_grant(
+      snapshot,
+      decision,
+      "comment:issue:reconcile-blocked"
+    )
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: issue reconcile grant was not minted")
+    end
+    local facade = restart_effect_facade.make({
+      family = "issue-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
 
     -- re-design/re-cluster require a trusted directive fact; current deterministic reconcile drops.
     local action = "drop"
     local reason = tostring(reconcile.terminal_cause) .. "-after-" .. tostring(reconcile.round) .. "-rounds"
-    local comment_request = core.build_reconcile_comment_request(repo, issue_number, reconcile, action, reason, version)
-    local label_request = core.build_reconcile_label_request(repo, issue_number, reconcile)
-    emit_blocked_reconcile(reconcile.proposal_id, state, version, action, reason, comment_request, label_request)
+    local args = {
+      core = core,
+      issue = { repo = repo, number = issue_number },
+      reconcile = reconcile,
+      action = action,
+      reason = reason,
+      state_version = version,
+    }
+    local effects = {}
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: issue reconcile effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+    end
+
+    local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", decision.cas_outcome, reason)
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+      add = add_labels,
+      remove = remove_labels,
+    }, decision.granted_effect_ids)
+    for _, effect in ipairs(effects) do
+      devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
+    end
   end)
 end
 
