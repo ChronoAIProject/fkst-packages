@@ -195,9 +195,15 @@ def _tracked_attestation_messages(root: Path, head_ref: str, paths: Iterable[str
     return messages
 
 
-def _exposure_messages(root: Path, base: str, head_ref: str, changed: set[str]) -> list[str]:
+def _exposure_messages(
+    root: Path,
+    base: str,
+    head_ref: str,
+    changed: set[str],
+    watched: set[str],
+) -> list[str]:
     messages: list[str] = []
-    for path in sorted(changed):
+    for path in sorted(changed - watched):
         if not _production_semantic(path):
             continue
         old = _text(root, base, path)
@@ -312,7 +318,7 @@ def repository_messages(
             f"(checkers={','.join(changed_checkers)}; semantics={','.join(changed_semantics)})"
         )
 
-    messages.extend(_exposure_messages(root, base, head_ref, changed))
+    messages.extend(_exposure_messages(root, base, head_ref, changed, watched))
     if writer_tokens:
         messages.extend(
             _unlisted_caller_messages(root, base, head_ref, changed, watched, writer_tokens)

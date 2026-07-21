@@ -97,6 +97,30 @@ class RestartPreflightTest(unittest.TestCase):
         self.commit()
         self.assertTrue(any("grant-factory-exposure" in message for message in self.messages()))
 
+    def test_watched_authority_caller_consumption_is_not_exposure(self) -> None:
+        self.write(
+            "packages/github-devloop/departments/loop/main.lua",
+            "local grant = restart_effects.mint_grant(snapshot)\\n"
+            "restart_effects.verify_grant(grant)\\n"
+            "restart_effects.seal_snapshot(snapshot)\\n",
+        )
+        self.commit()
+        messages = self.messages()
+        self.assertFalse(any("grant-factory-exposure" in message for message in messages))
+        self.assertFalse(any("owner-seal-exposure" in message for message in messages))
+
+    def test_nonwatched_authority_caller_consumption_is_exposure(self) -> None:
+        self.write(
+            "packages/github-devloop/departments/new_caller/main.lua",
+            "local grant = restart_effects.mint_grant(snapshot)\\n"
+            "restart_effects.verify_grant(grant)\\n"
+            "restart_effects.seal_snapshot(snapshot)\\n",
+        )
+        self.commit()
+        messages = self.messages()
+        self.assertTrue(any("grant-factory-exposure" in message for message in messages))
+        self.assertTrue(any("owner-seal-exposure" in message for message in messages))
+
     def test_owner_seal_di_exposure_fails(self) -> None:
         self.write("libraries/devloop/di/providers.lua", "caps.owner_seal = owner_seal\\n")
         self.commit()
