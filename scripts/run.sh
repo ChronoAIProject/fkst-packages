@@ -269,6 +269,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_namespaced_queue_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_fkst_layout_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_restart_lifecycle_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_restart_preflight_test.py"'
     'python3 -B "$ROOT/scripts/bin_cache_test.py"'
     'python3 -B "$ROOT/scripts/bin_bootstrap_test.py"'
     'python3 -B "$ROOT/scripts/host_entry_test.py"'

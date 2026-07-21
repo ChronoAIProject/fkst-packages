@@ -26,6 +26,7 @@ import check_repo_monotone_gate
 import check_repo_namespaced_queue
 import check_repo_producer_liveness
 import check_repo_restart_lifecycle
+import check_repo_restart_preflight
 import check_repo_saga_head
 import check_repo_saga_split
 import check_repo_version_suffix
@@ -164,6 +165,8 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
 
 def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
     root = config.project_root
+    for message in check_repo_restart_preflight.repository_messages(root):
+        c.add(violations, "G-RESTART-PREFLIGHT", message)
     for message in check_repo_intent_bounded_replay.repository_messages(root, enforce_base=True):
         c.add(violations, "G-INTENT-BOUNDED-REPLAY", message)
     c.check_github_content_ingress(root, violations)
