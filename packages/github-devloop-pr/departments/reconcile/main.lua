@@ -11,6 +11,8 @@ local m_mgw = require("devloop.merge_gate_wait")
 local core, replay_fields = require("core"), require("devloop.replay_fields")
 local check_runs = require("forge.github.check_runs")
 local transition_version = require("contract.transition_version")
+local restart_effects = require("core.restart_effects")
+local restart_effect_facade = require("core.restart_effect_facade")
 
 local saga = require("workflow.saga")
 local forge_validators = require("devloop.forge_validators")
@@ -23,10 +25,7 @@ local ci_verdict = require("core.ci_verdict")
 local fix_rounds = require("core.fix_rounds")
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
-local build_fix_reconcile_comment_request = assert(rawget(core, "build_fix_reconcile_comment_request"))
-local build_fix_reconcile_label_request = assert(rawget(core, "build_fix_reconcile_label_request"))
 
-local bounded_fix_from_states = { "fixing", "merge-ready", "merging" }
 local bounded_fix_from_state = {
   fixing = true,
   ["merge-ready"] = true,
@@ -43,14 +42,13 @@ local spec = {
   stall_window = "2m",
 }
 
-local fix_reconcile_from_states = { "reviewing", "fixing", "merge-ready", "merging" }
 local fix_reconcile_from_state_set = {
   reviewing = true,
   fixing = true,
   ["merge-ready"] = true,
   merging = true,
 }
-local fix_reconcile_from_label = table.concat(fix_reconcile_from_states, "|")
+local fix_reconcile_from_label = "reviewing|fixing|merge-ready|merging"
 
 local function emit_blocked_reconcile(kind, proposal_id, state, version, action, reason, comment_request, label_request, comment_queue)
   local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
@@ -273,7 +271,6 @@ local function pipeline_fix(event)
       devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
       local state = require("devloop.entity").current_entity_state(current.comments, reconcile.proposal_id)
       local version = conv_reconcile.fix_reconcile_state_version(reconcile.issue_version)
-      local from_states = review_reject and fix_reconcile_from_states or bounded_fix_from_states
       local from_state_set = review_reject and fix_reconcile_from_state_set or bounded_fix_from_state
       local from_text = review_reject and fix_reconcile_from_label or "fixing|merge-ready|merging"
       if conv_reconcile.has_fix_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.issue_version) then
@@ -290,9 +287,28 @@ local function pipeline_fix(event)
       return
     end
 
-    local transition = devloop_state.versioned_transition_status(state, from_states, "blocked", version)
-    if state.state == nil or transition == "pending" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", devloop_state.cas_outcome(state, transition, version), "fix reconcile source state marker not yet visible")
+    local variant = review_reject and "review_reject_to_blocked" or "bounded_fix_to_blocked"
+    local snapshot = restart_effects.seal_snapshot({
+      owner = core.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = pr_number },
+      proposal_id = reconcile.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "pr-fix-reconcile", reconcile.proposal_id, state.state or "missing", state.version or "missing",
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
+      generation = state.version or "missing",
+    })
+    local decision = restart_effects.decide_transition(snapshot, {
+      semantic_variant = variant,
+      source_boundary = "devloop_fix_reconcile",
+      target = "blocked",
+      incoming_version = version,
+      target_version = nil,
+      overlay_version = version,
+    })
+    if state.state == nil or decision.status == "pending" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", decision.cas_outcome, "fix reconcile source state marker not yet visible")
       error("github-devloop: fix-reconcile-marker-missing: source state marker not yet visible for fix reconcile; retrying")
     end
     local version_matches = transition_version.safe_version_segment(tostring(state.version or ""))
@@ -301,9 +317,13 @@ local function pipeline_fix(event)
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", "skip-stale(version-mismatch)", "fix reconcile event does not match a canonical source marker")
       return
     end
-    if transition == "idempotent" or transition == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", devloop_state.cas_outcome(state, transition, version), "current marker cannot be reconciled from its source state")
+    if decision.status == "idempotent" or decision.status == "stale" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", decision.cas_outcome, "current marker cannot be reconciled from its source state")
       return
+    end
+    if decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: PR fix reconcile decision rejected: "
+        .. tostring(decision.reason_code))
     end
 
     if own_ci_terminal then
@@ -325,9 +345,44 @@ local function pipeline_fix(event)
     local reason = reconcile.reason_class == fix_rounds.CI_REPAIR_RETRY_POLICY_INVALID
       and fix_rounds.CI_REPAIR_RETRY_POLICY_INVALID
       or "fix-loop-max-rounds-after-" .. tostring(reconcile.round) .. "-rounds"
-    local comment_request = build_fix_reconcile_comment_request(repo, issue_number, reconcile, action, reason)
-    local label_request = issue_number ~= nil and build_fix_reconcile_label_request(repo, issue_number, reconcile) or nil
-    emit_blocked_reconcile(state.state, reconcile.proposal_id, state, version, action, reason, comment_request, label_request, "github-proxy.github_pr_comment_request")
+    local grant = restart_effects.mint_grant(snapshot, decision, "comment:pr:reconcile-blocked")
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: PR fix reconcile grant was not minted")
+    end
+    local facade = restart_effect_facade.make({
+      family = "pr-fix-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local args = {
+      core = core,
+      repo = repo,
+      issue_number = issue_number,
+      reconcile = reconcile,
+      action = action,
+      reason = reason,
+    }
+    local effects = {}
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      if effect_id ~= "github-proxy.github_issue_label_request" or issue_number ~= nil then
+        local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+        if payload == nil then
+          error("github-devloop: restart-effect-facade-rejected: PR fix reconcile effect "
+            .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+        end
+        table.insert(effects, { queue = effect_id, payload = payload })
+      end
+    end
+
+    local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", decision.cas_outcome, reason)
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+      add = add_labels,
+      remove = remove_labels,
+    }, decision.granted_effect_ids)
+    for _, effect in ipairs(effects) do
+      devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
+    end
     end
 
     if own_ci_terminal then

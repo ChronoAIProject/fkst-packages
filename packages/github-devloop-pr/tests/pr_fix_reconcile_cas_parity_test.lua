@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real reconcile
--- department's named CAS probe and first post-admission effect builder. Catalog
--- evidence is copied from observed probe arguments, never reconstructed from the
--- fixture. Effects and legacy CAS logs are recorded as separate axes.
+-- department's owner decision and emitted effects. The retired CAS is reconstructed
+-- only from captured production snapshot and intent fields; frozen OLD payload truth
+-- remains the committed R9 corpus.
 
 local base_ids = require("devloop.base_ids")
 local catalog = require("devloop.restart_cas_catalog")
@@ -46,9 +46,8 @@ local variant_source_states = {
   [BOUNDED_FIX_VARIANT] = { "fixing", "merge-ready", "merging" },
 }
 
--- reconcile captures this boundary in a local at module load. Install the
--- transparent wrapper only while loading the real department, then restore the
--- exported core function. The captured wrapper is inert outside an observation.
+-- The facade resolves shared builders at emit time. These transparent wrappers
+-- record calls only while an observation is active and delegate unchanged otherwise.
 local active_boundary_calls = nil
 local active_label_boundary_calls = nil
 local original_boundary = core.build_fix_reconcile_comment_request
@@ -86,8 +85,6 @@ core.build_fix_reconcile_label_request = function(repo, issue_number, reconcile)
   return request
 end
 local reconcile_department = require("departments.reconcile.main")
-core.build_fix_reconcile_comment_request = original_boundary
-core.build_fix_reconcile_label_request = original_label_boundary
 
 local function copy_array(values)
   local out = {}
@@ -122,31 +119,30 @@ local function observe_department(run)
   local boundary_calls = {}
   local label_boundary_calls = {}
   local original_versioned = devloop_state.versioned_transition_status
+  local original_decide = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
 
-  devloop_state.versioned_transition_status = function(
-    current,
-    from_states,
-    to_state,
-    incoming_version,
-    target_version
-  )
+  devloop_state.versioned_transition_status = function()
+    error("PR fix reconcile production used retired direct CAS", 0)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local from_states = variant_source_states[intent.semantic_variant]
     local outcome = original_versioned(
-      current,
+      snapshot.current,
       from_states,
-      to_state,
-      incoming_version,
-      target_version
+      intent.target,
+      intent.incoming_version,
+      intent.target_version
     )
     table.insert(probes, {
-      current = current,
+      current = snapshot.current,
       from_states = copy_array(from_states),
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
+      to_state = intent.target,
+      incoming_version = intent.incoming_version,
+      target_version = intent.target_version,
       outcome = outcome,
     })
-    return outcome
+    return original_decide(snapshot, intent)
   end
   devloop_logging.log_cas_decision = function(
     dept,
@@ -182,6 +178,7 @@ local function observe_department(run)
   active_boundary_calls = nil
   active_label_boundary_calls = nil
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
@@ -542,14 +539,14 @@ local function assert_fix_reconcile_trace_equality()
   local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
   local canonical_json = observation_support.canonical_json
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
-    "R9 PR fix-reconcile OLD and NEW admission trace")
+    "R9 PR fix-reconcile production and independent facade admission trace")
   local mkdir_ok = os.execute("mkdir -p .fkst/run")
   if mkdir_ok ~= true and mkdir_ok ~= 0 then
     error("R9 PR fix-reconcile trace could not create its artifact directory", 0)
   end
   file.write(FIX_RECONCILE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
   t.eq(canonical_json(old_trace), canonical_json(corpus),
-    "R9 PR fix-reconcile OLD observation corpus")
+    "R9 PR fix-reconcile production trace equals frozen OLD corpus")
   t.eq(canonical_json(new_trace), canonical_json(corpus),
     "R9 PR fix-reconcile NEW semantic trace")
 end
