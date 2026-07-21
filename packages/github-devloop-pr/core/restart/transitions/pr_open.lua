@@ -57,7 +57,22 @@ return function(M, h)
         {
           state = "fixing",
           output_variant = "not_mergeable_repair",
+          cas_policy_id = "cas.legacy_observe_pr_fix_v1",
+          cas_variant = "pr_open_to_fixing",
           kind = "autonomous",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/apply",
+              effect_ids = {
+                "github-proxy.github_pr_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/idempotent",
+              effect_ids = {},
+            },
+          },
           pending_order = { participates = false },
           postcondition_family = "pr_viability_routed",
           decision_type = "PrViability",

@@ -39,6 +39,8 @@ local expected_successor_kinds = {
 }
 
 local expected_real_cas_by_id = {
+  ["github-devloop-pr/pr-open/autonomous/not_mergeable_repair"] =
+    { cas_policy_id = "cas.legacy_observe_pr_fix_v1", cas_variant = "pr_open_to_fixing" },
   ["github-devloop-pr/reviewing/timeout/watchdog_reconcile_terminal"] = {
     cas_policy_id = "cas.legacy_timeout_reconcile_v1",
     cas_variant = "reviewing_to_blocked",

@@ -220,6 +220,18 @@ def pr_review_activation_trace() -> dict[str, object]:
     artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
     return artifact
 
+
+def observe_pr_fix_trace() -> dict[str, object]:
+    artifact = pr_review_result_trace()
+    artifact["schema"] = "restart-observe-pr-fix-trace.v1"
+    artifact["family"] = "observe-pr-fix"
+    fixture = artifact["fixtures"][0]
+    edge_id = "github-devloop-pr/pr-open/autonomous/not_mergeable_repair"
+    fixture["edge_id"] = edge_id
+    fixture["effect_entitlement_id"] = f"{edge_id}/apply"
+    artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+    return artifact
+
 def pr_review_loop_trace() -> dict[str, object]:
     artifact = pr_review_activation_trace()
     artifact["schema"] = "restart-pr-review-loop-trace.v1"
@@ -381,6 +393,11 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             self.root,
             checker.PR_REVIEW_ACTIVATION_OLD_CORPUS,
             pr_review_activation_trace(),
+        )
+        write_json(
+            self.root,
+            checker.OBSERVE_PR_FIX_OLD_CORPUS,
+            observe_pr_fix_trace(),
         )
         write_json(
             self.root,
@@ -659,6 +676,14 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
             "pr-review-activation trace canonical hash mismatch" in message
             for message in messages
         ))
+
+    def test_observe_pr_fix_trace_output_with_equal_canonical_hash_passes(self) -> None:
+        write_json(
+            self.root,
+            checker.OBSERVE_PR_FIX_NEW_TRACE,
+            observe_pr_fix_trace(),
+        )
+        self.assertEqual(checker.repository_messages(self.root), [])
 
     def test_pr_review_loop_trace_output_with_equal_canonical_hash_passes(self) -> None:
         write_json(

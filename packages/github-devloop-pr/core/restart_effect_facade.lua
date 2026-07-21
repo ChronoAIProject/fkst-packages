@@ -132,6 +132,35 @@ local function serialize_fix_reviewing_label(args)
   )
 end
 
+local function valid_observe_pr_fix_args(args)
+  return type(args) == "table" and type(args.core) == "table"
+    and type(args.repo) == "string" and args.issue_number ~= nil
+    and args.pr_number ~= nil and type(args.comment_origin) == "table"
+    and type(args.fix_version) == "string" and type(args.reason) == "string"
+    and type(args.source_ref) == "table" and type(args.issue_source_ref) == "table"
+end
+
+local function serialize_observe_pr_fix_comment(args)
+  if not valid_observe_pr_fix_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_review.build_merge_gate_fix_comment_request(
+    args.core, args.repo, args.issue_number, args.comment_origin,
+    args.fix_version, args.reason, nil, args.source_ref, nil,
+    { gate_failure_excerpt = args.reason })
+end
+
+local function serialize_observe_pr_fix_label(args)
+  if not valid_observe_pr_fix_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_labels.build_state_label_request(
+    args.repo, args.issue_number, "fixing", args.comment_origin.proposal_id,
+    args.fix_version, tostring(args.comment_origin.version)
+      .. "/observe-pr-conflict/label/fixing",
+    args.issue_source_ref, nil, { kind = "pr", number = args.pr_number })
+end
+
 local function valid_review_meta_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
@@ -253,6 +282,17 @@ local FIX_SERIALIZERS = {
   },
 }
 
+local OBSERVE_PR_FIX_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:observe-merge-gate-fix",
+    serialize = serialize_observe_pr_fix_comment,
+  },
+  [LABEL_EFFECT_ID] = {
+    sink_id = "label:issue:observe-merge-gate-fix",
+    serialize = serialize_observe_pr_fix_label,
+  },
+}
+
 local REVIEW_META_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:review-meta-result",
@@ -288,6 +328,7 @@ local SERIALIZERS_BY_FAMILY = {
   ["pr-review-result"] = REVIEW_RESULT_SERIALIZERS,
   ["pr-review-meta"] = REVIEW_META_SERIALIZERS,
   ["pr-fix"] = FIX_SERIALIZERS,
+  ["observe-pr-fix"] = OBSERVE_PR_FIX_SERIALIZERS,
   ["pr-fix-reconcile"] = FIX_RECONCILE_SERIALIZERS,
   ["pr-merge"] = MERGE_SERIALIZERS,
 }

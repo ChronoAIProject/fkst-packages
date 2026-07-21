@@ -453,6 +453,7 @@ local policy_order = {
   "cas.legacy_observe_issue_entry_v1",
   "cas.legacy_awaiting_pr_v1",
   "cas.legacy_observe_pr_v1",
+  "cas.legacy_observe_pr_fix_v1",
   "cas.legacy_review_result_v1",
   "cas.legacy_fix_v1",
   "cas.legacy_review_meta_v1",
@@ -554,6 +555,13 @@ local policies = {
     base = "versioned",
     variants = { pr_open_to_reviewing = variant({ "pr-open", "unmanaged" }, "reviewing") },
     overlay = { kind = "version", version_form = "raw", statuses = { apply = true }, only_states = { "pr-open" } },
+  },
+  ["cas.legacy_observe_pr_fix_v1"] = {
+    evidence_type = "observe_pr_fix_cas_evidence_v1",
+    production = { function_name = "maybe_redrive_not_mergeable_pr", overlay = "state-only admission after not-mergeable guards", source = "packages/github-devloop-pr/departments/observe_pr/main.lua:316" },
+    base = "plain",
+    variants = { pr_open_to_fixing = variant({ "pr-open" }, "fixing") },
+    overlay = { kind = "none", statuses = {} },
   },
   ["cas.legacy_review_result_v1"] = {
     evidence_type = "review_result_cas_evidence_v1",

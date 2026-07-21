@@ -114,6 +114,19 @@ local function fix_args()
   }
 end
 
+local function observe_fix_args()
+  return {
+    core = core, repo = "owner/repo", issue_number = 42, pr_number = 7,
+    source_ref = entity_lib.pr_source_ref("owner/repo", 7),
+    issue_source_ref = entity_lib.issue_source_ref("owner/repo", 42),
+    fix_version = VERSION .. "/fix/1", reason = "mergeable-conflicting",
+    comment_origin = { proposal_id = ISSUE_PROPOSAL_ID, pr_number = 7,
+      version = VERSION, review_proposal_id = REVIEW_PROPOSAL_ID,
+      review_dedup_key = "observe-pr-conflict/review", reviewed_head_sha = "def456",
+      dedup_key = VERSION .. "/observe-pr-conflict" },
+  }
+end
+
 return {
   test_emit_without_grant_rejects_before_serialization = function()
     local effect, reason = facade().emit(nil, COMMENT_EFFECT_ID, {}, nil)
@@ -173,6 +186,33 @@ return {
       args.repo, args.issue_number, args.fix, args.new_head_sha, args.new_version
     )
 
+    t.eq(canonical_json(comment), canonical_json(old_comment))
+    t.eq(canonical_json(label), canonical_json(old_label))
+  end,
+
+  test_observe_pr_fix_serialization_equals_old_builders = function()
+    local args = observe_fix_args()
+    local snapshot = restart_effects.seal_snapshot({ owner = OWNER,
+      entity = { kind = "pr", repo = "owner/repo", number = 7 },
+      proposal_id = ISSUE_PROPOSAL_ID, current = { state = "pr-open", version = VERSION },
+      snapshot_fingerprint = "snapshot:observe-pr-fix", lock_epoch = "lock:observe-pr-fix",
+      generation = "generation:observe-pr-fix" })
+    local decided = restart_effects.decide_transition(snapshot,
+      { semantic_variant = "not_mergeable_repair", target = "fixing" })
+    local grant = restart_effects.mint_grant(snapshot, decided,
+      "comment:pr:observe-merge-gate-fix")
+
+    local shadow = facade("observe-pr-fix")
+    local comment = shadow.emit(grant, COMMENT_EFFECT_ID, snapshot, args)
+    local label = shadow.emit(grant, LABEL_EFFECT_ID, snapshot, args)
+    local old_comment = requests_review.build_merge_gate_fix_comment_request(
+      core, args.repo, args.issue_number, args.comment_origin, args.fix_version,
+      args.reason, nil, args.source_ref, nil, { gate_failure_excerpt = args.reason })
+
+    local old_label = requests_labels.build_state_label_request(
+      args.repo, args.issue_number, "fixing", ISSUE_PROPOSAL_ID, args.fix_version,
+      VERSION .. "/observe-pr-conflict/label/fixing", args.issue_source_ref,
+      nil, { kind = "pr", number = 7 })
     t.eq(canonical_json(comment), canonical_json(old_comment))
     t.eq(canonical_json(label), canonical_json(old_label))
   end,
