@@ -589,26 +589,33 @@ local function new_trace_fixture(fixture, probe, admission)
       sink_inventory = require("core.restart.sink_inventory"),
     })
     local args = {
-      core = core,
-      issue = { repo = REPO, number = ISSUE_NUMBER },
-      ready = {
-        proposal_id = PROPOSAL_ID,
-        dedup_key = V_EQUAL,
+      issue = {
+        repo = REPO,
+        number = ISSUE_NUMBER,
         source_ref = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER),
       },
-      child = {
+      state = {
+        state = "implementing",
+        version = V_EQUAL,
+      },
+      delegation = {
+        proposal_id = PROPOSAL_ID,
         pr_proposal_id = PR_PROPOSAL_ID,
         pr_number = PR_NUMBER,
-        delegation_generation = DELEGATION,
+        version = V_EQUAL,
+        delegation = DELEGATION,
       },
     }
+    local full_writes = json_array()
     for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
       local emitted = facade.emit(grant, effect_id, snapshot, args)
       t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
       table.insert(writes, trace_write(ordinal, effect_id, emitted))
+      table.insert(full_writes, { queue = effect_id, payload = emitted })
     end
+    return trace_fixture(fixture, admission, decided, writes), decided, full_writes
   end
-  return trace_fixture(fixture, admission, decided, writes), decided
+  return trace_fixture(fixture, admission, decided, writes), decided, json_array()
 end
 
 local function assert_awaiting_pr_trace_equality()
@@ -641,6 +648,22 @@ local function assert_awaiting_pr_trace_equality()
 end
 
 return {
+  test_awaiting_pr_canonicalization_shadow_facade_is_full_payload_exact = function()
+    local fixture = TRACE_FIXTURES[1]
+    local result, probe, admission = run_old_trace_fixture(fixture)
+    local _, decision, facade_writes = new_trace_fixture(fixture, probe, admission)
+
+    t.eq(admission.status, "apply", "OLD canonicalization applies")
+    t.eq(decision.status, "apply", "shadow canonicalization applies")
+    t.eq(#result.raises, 2, "OLD canonicalization emits comment then label")
+    t.eq(#facade_writes, 2, "shadow canonicalization emits comment then label")
+    t.eq(
+      canonical_json(facade_writes),
+      canonical_json(result.raises),
+      "R9 awaiting-pr canonicalization ordered full payload is byte-exact versus OLD"
+    )
+  end,
+
   test_r9_awaiting_pr_old_equals_new_normalized_trace = function()
     assert_awaiting_pr_trace_equality()
   end,

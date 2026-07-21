@@ -1,5 +1,7 @@
 local base_ids = require("devloop.base_ids")
+local awaiting_pr_replayer = require("core.awaiting_pr_replayer")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local entity_lib = require("devloop.entity")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local restart_effect_facade = require("devloop.restart_effect_facade")
@@ -67,33 +69,44 @@ end
 
 local function serialize_awaiting_pr_comment(args)
   if type(args) ~= "table"
-    or type(args.core) ~= "table"
     or type(args.issue) ~= "table"
-    or type(args.ready) ~= "table"
-    or type(args.child) ~= "table" then
+    or type(args.state) ~= "table"
+    or type(args.delegation) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
-  return args.core.build_parent_awaiting_pr_comment_request(
-    args.issue.repo,
-    args.issue.number,
-    args.ready,
-    args.child
+  return awaiting_pr_replayer.build_awaiting_pr_canonicalization_comment_request(
+    args.issue,
+    args.state,
+    args.delegation
   )
 end
 
 local function serialize_awaiting_pr_label(args)
   if type(args) ~= "table"
-    or type(args.core) ~= "table"
     or type(args.issue) ~= "table"
-    or type(args.ready) ~= "table"
-    or type(args.child) ~= "table" then
+    or type(args.state) ~= "table"
+    or type(args.delegation) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
-  return args.core.build_parent_awaiting_pr_label_request(
+  local source_ref = args.issue.source_ref
+    or entity_lib.issue_source_ref(args.issue.repo, args.issue.number)
+  return requests_labels.build_state_label_request(
     args.issue.repo,
     args.issue.number,
-    args.ready,
-    args.child
+    "awaiting-pr",
+    args.delegation.proposal_id,
+    args.state.version,
+    base_ids.dedup_key({
+      "awaiting-pr",
+      "canonicalize",
+      "implementing",
+      "label",
+      tostring(args.delegation.proposal_id),
+      tostring(args.state.version),
+      tostring(args.delegation.pr_number),
+      tostring(args.delegation.delegation),
+    }),
+    source_ref
   )
 end
 

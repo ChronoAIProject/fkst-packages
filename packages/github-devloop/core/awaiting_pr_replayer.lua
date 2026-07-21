@@ -229,6 +229,7 @@ local function build_awaiting_pr_canonicalization_comment_request(issue, state, 
     tostring(delegation.delegation),
   }), source_ref)
 end
+S.build_awaiting_pr_canonicalization_comment_request = build_awaiting_pr_canonicalization_comment_request
 
 function M.implementing_to_awaiting_pr_transition_status(state)
   return devloop_state.versioned_transition_status(state, { "implementing" }, "awaiting-pr", state and state.version)
