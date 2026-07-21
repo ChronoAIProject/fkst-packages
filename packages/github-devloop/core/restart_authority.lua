@@ -210,7 +210,7 @@ local function select_edge(semantic_variant, current_state)
   for index = 2, #candidates do
     local candidate = candidates[index]
     if not same_transition_shape(candidate, representative) then
-      return nil, #candidates
+      return representative, #candidates
     end
   end
   return representative, 1
@@ -251,9 +251,6 @@ function M.decide_transition(sealed_snapshot, intent)
   local edge, matches = select_edge(normalized.semantic_variant, current.state)
   if matches == 0 then
     return illegal("unknown-variant")
-  end
-  if matches > 1 then
-    return illegal("ambiguous-variant")
   end
   if edge.cas_policy_id ~= "cas.legacy_loop_plain_v1"
     and not (edge.cas_policy_id == "cas.legacy_consensus_result_v1"
@@ -347,6 +344,9 @@ function M.decide_transition(sealed_snapshot, intent)
     evidence.accepted_handoff = normalized.accepted_handoff
   end
   local resolved = catalog.resolve(edge.cas_policy_id, evidence, projection)
+  if matches > 1 and resolved.status ~= "pending" then
+    return illegal("ambiguous-variant")
+  end
   local disposition = ({
     apply = "apply",
     idempotent = "idempotent",
