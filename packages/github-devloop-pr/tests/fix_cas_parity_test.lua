@@ -371,6 +371,7 @@ local function new_trace_fixture(fixture, production)
     overlay_version = fixture.incoming_version,
   })
   local writes = observation_support.json_array()
+  local full_writes = observation_support.json_array()
   if decided.status == "apply" then
     local grant = restart_effects.mint_grant(snapshot, decided, "comment:pr:fix-reviewing")
     t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
@@ -392,9 +393,10 @@ local function new_trace_fixture(fixture, production)
       local emitted = facade.emit(grant, effect_id, snapshot, args)
       t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
       table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
+      table.insert(full_writes, { queue = effect_id, payload = emitted })
     end
   end
-  return decided, writes
+  return decided, writes, full_writes
 end
 
 local function assert_fix_trace_equality()
@@ -514,6 +516,20 @@ local function assert_rejected_before_cas(name, payload, expected_reason_code)
 end
 
 return {
+  test_pr_fix_production_facade_is_full_payload_exact = function()
+    local fixture = TRACE_FIXTURES[2]
+    local production = assert_catalog_matches_observed_decision(fixture)
+    local decided, _, facade_writes = new_trace_fixture(fixture, production)
+
+    t.eq(production.observed.status, "apply", "production fixing-to-reviewing applies")
+    t.eq(decided.status, "apply", "shadow fixing-to-reviewing applies")
+    t.eq(#production.result.raises, 2, "production emits comment then label")
+    t.eq(#facade_writes, 2, "shadow facade emits comment then label")
+    t.eq(observation_support.canonical_json(facade_writes),
+      observation_support.canonical_json(production.result.raises),
+      "R9 shadow ordered full payload is byte-exact versus OLD production writer")
+  end,
+
   test_shadow_fixing_to_reviewing_apply = function()
     assert_fix_shadow_case({
       name = "shadow-fix-apply",
