@@ -3,6 +3,7 @@ local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local restart_effects = require("core.restart_effects")
 local h = require("tests.devloop_helpers")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
 local testing = require("testkit_internal.testing")
@@ -92,7 +93,19 @@ end
 
 local function observe_real_department(event, fixture)
   prepare_fixture(event, fixture)
-  return observation_support.observe_department({
+  local original_decide_transition = restart_effects.decide_transition
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == "consensus-stalled" then
+      local old_outcome = devloop_state.transition_status(snapshot.current, { "thinking" }, "blocked")
+      t.eq(decision.status, old_outcome, fixture.name .. ": owner decider preserves OLD admission")
+      t.eq(decision.cas_outcome,
+        devloop_state.cas_outcome(snapshot.current, old_outcome, event.payload.dedup_key),
+        fixture.name .. ": owner decider preserves OLD CAS outcome")
+    end
+    return decision
+  end
+  local ok, result, captured = pcall(observation_support.observe_department, {
     config = config,
     devloop_logging = devloop_logging,
     devloop_state = devloop_state,
@@ -105,6 +118,11 @@ local function observe_real_department(event, fixture)
     codex_runs_for_read = json_array(),
     write_mode = "real",
   })
+  restart_effects.decide_transition = original_decide_transition
+  if not ok then
+    error(result, 0)
+  end
+  return result, captured
 end
 
 local function effects_from_raises(raises)

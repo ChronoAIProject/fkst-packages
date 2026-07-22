@@ -1,8 +1,8 @@
 -- Non-circularity contract: production truth comes from the real loop
--- department's transition_status probe and first post-CAS round-marker guard.
--- Catalog admission evidence is copied from observed probe arguments. The
--- outcome version comes from the event dedup key, matching the production log.
--- Effects and legacy CAS logs are separate axes.
+-- department's owner-decider admission and first post-CAS round-marker guard.
+-- The test reconstructs the frozen OLD transition_status probe only from the
+-- production decider inputs, while production effects must pass through the
+-- grant facade. Proposal replay remains a separate declared row effect.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -48,33 +48,52 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local boundary_calls = {}
+  local grant_mints = 0
+  local facade_emits = {}
   local original_transition = devloop_state.transition_status
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
+  local original_facade_make = restart_effect_facade.make
   local original_log_cas = devloop_logging.log_cas_decision
   local original_converge_round_facts = conv_rounds.converge_round_facts_for_proposal
 
-  devloop_state.transition_status = function(
-    current,
-    from_states,
-    to_state,
-    incoming_version,
-    target_version
-  )
-    local outcome = original_transition(
-      current,
-      from_states,
-      to_state,
-      incoming_version,
-      target_version
-    )
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
+  devloop_state.transition_status = function()
+    error("loop production used retired direct transition_status", 0)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decided = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == "consensus-stalled" then
+      local legacy_current = snapshot.current
+      table.insert(probes, {
+        current = legacy_current,
+        from_states = { "thinking" },
+        to_state = "blocked",
+        incoming_version = nil,
+        target_version = nil,
+        outcome = original_transition(legacy_current, { "thinking" }, "blocked"),
+      })
+    end
+    return decided
+  end
+  restart_effects.mint_grant = function(snapshot, decision, sink_id)
+    grant_mints = grant_mints + 1
+    return original_mint_grant(snapshot, decision, sink_id)
+  end
+  restart_effect_facade.make = function(config)
+    local facade = original_facade_make(config)
+    if config.family == "loop-plain" then
+      local original_emit = facade.emit
+      facade.emit = function(grant, effect_id, snapshot, args)
+        local payload, rejection = original_emit(grant, effect_id, snapshot, args)
+        table.insert(facade_emits, {
+          effect_id = effect_id,
+          payload = payload,
+          rejection = rejection,
+        })
+        return payload, rejection
+      end
+    end
+    return facade
   end
   devloop_logging.log_cas_decision = function(
     dept,
@@ -115,11 +134,14 @@ local function observe_department(run)
   local ok, result = pcall(run)
   conv_rounds.converge_round_facts_for_proposal = original_converge_round_facts
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effect_facade.make = original_facade_make
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.transition_status = original_transition
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, boundary_calls
+  return result, probes, decisions, boundary_calls, grant_mints, facade_emits
 end
 
 local function observe_shadow(run)
@@ -259,7 +281,7 @@ local function assert_case(fixture)
     h.mock_context_bundle(event)
   end
 
-  local result, probes, decisions, boundary_calls = observe_department(function()
+  local result, probes, decisions, boundary_calls, grant_mints, facade_emits = observe_department(function()
     return run_real_department(event)
   end)
 
@@ -340,6 +362,21 @@ local function assert_case(fixture)
 
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
   t.eq(#result.raises, fixture.effect_count or 0, fixture.name .. ": captured effect count")
+  local comment_raises = {}
+  for _, raised in ipairs(result.raises) do
+    if raised.queue == "github-proxy.github_issue_comment_request" then
+      table.insert(comment_raises, raised)
+    end
+  end
+  t.eq(grant_mints, #comment_raises, fixture.name .. ": comment effect mints exactly one grant")
+  t.eq(#facade_emits, #comment_raises, fixture.name .. ": every comment effect traverses the facade")
+  for index, emitted in ipairs(facade_emits) do
+    t.eq(emitted.effect_id, "github-proxy.github_issue_comment_request",
+      fixture.name .. ": facade effect id")
+    t.eq(emitted.rejection, nil, fixture.name .. ": facade accepts the granted comment")
+    t.eq(canonical_json(emitted.payload), canonical_json(comment_raises[index].payload),
+      fixture.name .. ": facade payload is the production raise payload byte-for-byte")
+  end
   t.eq(
     post_admission_disposition(result, decision, boundary_reached),
     fixture.post_admission_disposition or "not-admitted",

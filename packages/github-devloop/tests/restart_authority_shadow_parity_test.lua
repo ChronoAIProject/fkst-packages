@@ -1,6 +1,6 @@
--- Non-circularity contract: legacy truth comes from the real loop department's
--- transition_status probe and structured CAS log. The shadow decision receives
--- only a separately sealed snapshot and never observes the legacy probe.
+-- Non-circularity contract: production truth comes from the real loop department's
+-- owner-decider inputs and structured CAS log. The test reconstructs the frozen OLD
+-- transition_status probe without allowing production to call the retired writer.
 
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -176,32 +176,27 @@ local function observe_department(run)
   local decisions = {}
   local apply_plans = {}
   local original_transition = devloop_state.transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_log_apply = devloop_logging.log_apply
 
-  devloop_state.transition_status = function(
-    current,
-    from_states,
-    to_state,
-    incoming_version,
-    target_version
-  )
-    local outcome = original_transition(
-      current,
-      from_states,
-      to_state,
-      incoming_version,
-      target_version
-    )
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
+  devloop_state.transition_status = function()
+    error("loop production used retired direct transition_status", 0)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decided = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == SEMANTIC_VARIANT then
+      local legacy_current = snapshot.current
+      table.insert(probes, {
+        current = legacy_current,
+        from_states = { "thinking" },
+        to_state = "blocked",
+        incoming_version = nil,
+        target_version = nil,
+        outcome = original_transition(legacy_current, { "thinking" }, "blocked"),
+      })
+    end
+    return decided
   end
   devloop_logging.log_cas_decision = function(
     dept,
@@ -264,6 +259,7 @@ local function observe_department(run)
   local ok, result = pcall(run)
   devloop_logging.log_apply = original_log_apply
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.transition_status = original_transition
   if not ok then
     error(result, 0)

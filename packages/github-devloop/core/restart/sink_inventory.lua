@@ -76,7 +76,7 @@ add("adapter:github.issue-close-duplicate-slice", "implement", "slice_gate.close
 add("comment:issue:duplicate-fork", "implement", "fork_gate.duplicate_comment", "comment", "grantless-non-lifecycle", "duplicate-fork:v1;dedup=implement/duplicate-fork")
 add("label:issue:duplicate-fork", "implement", "fork_gate.duplicate_label", "label", "grantless-non-lifecycle", "label:fkst:duplicate-fork;dedup=implement/duplicate-fork/label")
 add("adapter:github.issue-close-duplicate-fork", "implement", "fork_gate.close_duplicate", "adapter", "grantless-non-lifecycle", "issue-close/duplicate-fork")
-add("comment:issue:converge-round", "loop", "act.converge_round_comment", "comment", "lifecycle-authoritative", "converge-round:v1;dedup=converge-round/comment")
+add("comment:issue:converge-round", "loop", "act.grant_facade_comment", "comment", "lifecycle-authoritative", "converge-round:v1;dedup=converge-round/comment")
 add("comment:issue:operator-refusal", "observe_issue", "operator_commands.refusal_comments", "comment", "grantless-non-lifecycle", "operator-command:v1/refused;dedup=operator-command/refusal")
 add("comment:issue:operator-rereview", "observe_issue", "maybe_apply_issue_rereview_command.applied_comment", "comment", "lifecycle-authoritative", "state:v1/thinking+operator-command:v1/rereview")
 add("comment:issue:operator-reimplement", "observe_issue", "maybe_apply_issue_reimplement_command.applied_comment", "comment", "lifecycle-authoritative", "operator-command:v1/reimplement;dedup=operator-command/reimplement")

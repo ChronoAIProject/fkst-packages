@@ -1,9 +1,9 @@
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
-local requests_lifecycle = require("devloop.requests.lifecycle")
 local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
 local core, saga = require("core"), require("workflow.saga")
+local loop_caps = require("loop_department_caps")
 local context_bundle = require("devloop.context_bundle")
 
 
@@ -78,20 +78,73 @@ return saga.department(spec, { done = function() return false end, act = functio
       devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", "skip-non-whitelisted-author", "issue author is not authorized for GitHub content")
       return
     end
-    local transition = devloop_state.transition_status(state, { "thinking" }, "blocked")
-    if transition == "idempotent" or transition == "stale" then
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", devloop_state.cas_outcome(state, transition, unresolved.dedup_key), "unresolved event cannot advance current marker")
+    local snapshot = loop_caps.restart_effects.seal_snapshot({
+      owner = loop_caps.restart_package_name,
+      entity = { kind = "issue", repo = repo, number = issue_number },
+      proposal_id = unresolved.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "loop-plain",
+        unresolved.proposal_id,
+        state.state or "unmanaged",
+        state.version or "unversioned",
+        unresolved.dedup_key,
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or unresolved.dedup_key),
+      generation = state.version or unresolved.dedup_key,
+    })
+    local transition = loop_caps.restart_effects.decide_transition(snapshot, {
+      semantic_variant = "consensus-stalled",
+      target = "blocked",
+      incoming_version = unresolved.dedup_key,
+    })
+    if transition.status == "illegal" then
+      error("github-devloop: restart-effect-decision-illegal: loop admission rejected: "
+        .. tostring(transition.reason_code))
+    end
+    if transition.status == "idempotent" or transition.status == "stale" then
+      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "unresolved event cannot advance current marker")
       return
     end
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", devloop_state.cas_outcome(state, transition, unresolved.dedup_key), "thinking state marker not yet visible")
+    if transition.status == "pending" then
+      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "thinking state marker not yet visible")
       error("github-devloop: state-marker-pending: thinking state marker not yet visible for unresolved; retrying")
+    end
+    if transition.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: unsupported loop admission status: "
+        .. tostring(transition.status))
     end
 
     local base_version = conv_rounds.converge_base_version(unresolved.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(unresolved.source_ref)
+    local facade = loop_caps.restart_effect_facade.make({
+      family = "loop-plain",
+      verify_grant = loop_caps.restart_effects.verify_grant,
+      sink_inventory = loop_caps.sink_inventory,
+    })
     local function build_comment_request(unresolved_for_comment, round_for_comment, marker_body_for_comment, handoff_for_comment)
-      return requests_lifecycle.build_converge_round_comment_request(core, repo, issue_number, unresolved_for_comment, round_for_comment, marker_body_for_comment, handoff_for_comment)
+      local grant = loop_caps.restart_effects.mint_grant(snapshot, transition, "comment:issue:converge-round")
+      if grant == nil then
+        error("github-devloop: restart-effect-grant-mint-failed: loop comment grant was not minted")
+      end
+      local payload, rejection = facade.emit(
+        grant,
+        "github-proxy.github_issue_comment_request",
+        snapshot,
+        {
+          core = core,
+          issue = { repo = repo, number = issue_number },
+          unresolved = unresolved_for_comment,
+          round = round_for_comment,
+          marker_body = marker_body_for_comment,
+          handoff = handoff_for_comment,
+        }
+      )
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: loop comment effect rejected: "
+          .. tostring(rejection))
+      end
+      return payload
     end
     local lineage = conv_rounds.converge_round_facts_for_proposal(current.comments, unresolved.proposal_id)
     local has_lineage = #lineage > 0
@@ -115,7 +168,7 @@ return saga.department(spec, { done = function() return false end, act = functio
         terminal_cause = lineage_terminal_cause,
         source_ref = base_ids.normalize_source_ref(unresolved.source_ref),
       })
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", devloop_state.cas_outcome(state, transition, unresolved.dedup_key), "convergence lineage terminal at round " .. tostring(latest_round))
+      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "convergence lineage terminal at round " .. tostring(latest_round))
       devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
         "github-proxy.github_issue_comment_request",
       })
@@ -157,7 +210,7 @@ return saga.department(spec, { done = function() return false end, act = functio
         source_ref = base_ids.normalize_source_ref(unresolved.source_ref),
       })
       local reason = "convergence terminal cause=" .. terminal_cause .. " at round " .. tostring(round)
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", devloop_state.cas_outcome(state, transition, unresolved.dedup_key), reason)
+      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, reason)
       devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
         "github-proxy.github_issue_comment_request",
       })
@@ -186,7 +239,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local comment_request = build_comment_request(unresolved, round, marker_body)
 
-    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", devloop_state.cas_outcome(state, transition, unresolved.dedup_key), "raising loop proposal round " .. tostring(next_n))
+    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "raising loop proposal round " .. tostring(next_n))
     devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
       "consensus.proposal",
       "github-proxy.github_issue_comment_request",
