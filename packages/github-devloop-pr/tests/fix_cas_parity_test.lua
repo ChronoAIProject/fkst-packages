@@ -80,7 +80,13 @@ local function observe_department(run)
       to_state = intent.target,
       incoming_version = intent.incoming_version,
       target_version = intent.target_version,
-      outcome = decision.status,
+      outcome = original_cyclic(
+        snapshot.current,
+        { "fixing" },
+        intent.target,
+        intent.incoming_version,
+        intent.target_version
+      ),
     })
     return decision
   end
@@ -165,11 +171,11 @@ local function observed_admission(probe, decision, boundary_reached)
 
   local legacy_outcome = tostring(decision and decision.outcome or "")
   local legacy_reason = tostring(decision and decision.reason or "")
-  if not boundary_reached and legacy_reason:find("not currently fixing", 1, true) ~= nil then
-    return { status = "stale", reason_code = "from-state-mismatch", cas_outcome = legacy_outcome }
-  end
   if not boundary_reached and legacy_outcome:find("version-mismatch", 1, true) ~= nil then
     return { status = "stale", reason_code = "version-mismatch", cas_outcome = legacy_outcome }
+  end
+  if not boundary_reached and legacy_reason:find("not currently fixing", 1, true) ~= nil then
+    return { status = "stale", reason_code = "from-state-mismatch", cas_outcome = legacy_outcome }
   end
   if boundary_reached then
     return { status = "apply", reason_code = "apply", cas_outcome = "applied" }

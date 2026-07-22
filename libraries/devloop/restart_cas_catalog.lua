@@ -251,7 +251,7 @@ local function apply_overlay(definition, variant, evidence, resolved)
   if overlay.enforce_source_states ~= false then
     local source_states = overlay.source_states or variant.source_states
     if not state_is_one_of(current.state, source_states) then
-      return result("stale", "from-state-mismatch", "skip-stale(from-state-mismatch)")
+      return result("stale", "from-state-mismatch", resolved.cas_outcome)
     end
   end
   local compared_version = evidence.overlay_version

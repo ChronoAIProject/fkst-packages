@@ -606,11 +606,11 @@ local function act_fix(event)
       return
     end
     if state.state ~= "fixing" or decision.status == "stale" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, "issue is not currently fixing")
-      return
-    end
-    if tostring(state.version or "") ~= tostring(fix.version) then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", "skip-stale(version-mismatch)", "fix event version does not match canonical issue marker")
+      local stale_reason = "issue is not currently fixing"
+      if decision.reason_code == "version-mismatch" then
+        stale_reason = "fix event version does not match canonical issue marker"
+      end
+      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, stale_reason)
       return
     end
     if decision.status ~= "apply" then
