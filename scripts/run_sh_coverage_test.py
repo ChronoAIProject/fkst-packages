@@ -155,6 +155,7 @@ class RunShComposedConformanceHarness:
             "test_affected.sh",
             "test_parallel.sh",
             "test_deadline.sh",
+            "run_department.sh",
         ):
             shutil.copy2(REPO_ROOT / "scripts" / name, self.scripts / name)
         for package, kind in (("composed", "package.composed"), ("dep", "package")):
