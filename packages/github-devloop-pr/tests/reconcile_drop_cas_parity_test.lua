@@ -1,17 +1,14 @@
-local catalog = require("devloop.restart_cas_catalog")
-local config = require("devloop.config")
 local conv_attempts = require("devloop.convergence.attempts")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
-local entity_lib = require("devloop.entity")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
 local m_rae = require("devloop.restart_actionable_epoch")
+local m_mgw = require("devloop.merge_gate_wait")
 local observation = require("testkit_internal.old_behavior_observation_support")
-local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local requests_labels = require("devloop.requests.labels")
 local replay_fields = require("devloop.replay_fields")
-local restart_authority = require("core.restart_authority")
 local restart_effect_facade = require("core.restart_effect_facade")
 local restart_effects = require("core.restart_effects")
 local testing = require("testkit_internal.testing")
@@ -34,13 +31,12 @@ local REVIEW_SITE = {
   symbol = "pipeline_review",
   ordinal = "versioned_transition_status:reviewing->blocked",
 }
-
-local inventories = {
-  canonicalization = require("core.restart.canonicalization_inventory"),
-  entry = require("core.restart.entry_inventory"),
-  operator_reentry = require("core.restart.operator_reentry_inventory"),
+local TIMEOUT_SITE = {
+  path = "packages/github-devloop-pr/departments/reconcile/main.lua",
+  symbol = "pipeline_timeout",
+  ordinal = "versioned_transition_status:reconcile.state->blocked",
 }
-local projection = owner_pending_projection.derive(OWNER, core.restart_transition_table(), inventories)
+local RECENT_CREATED_AT = "2026-07-14T16:59:00Z"
 
 local TIMEOUT_SOURCES = {
   fixing = { variant = "fixing_to_blocked", edge = "fixing/entry/watchdog_reconcile_terminal" },
@@ -55,22 +51,8 @@ local function restart_row(state_name)
   return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
 end
 
-local function assert_owner_apply(probe, proposal_id, intent, edge_id, policy_id)
-  local sealed = restart_authority.seal_snapshot({
-    owner = OWNER,
-    proposal_id = proposal_id,
-    current = probe.current,
-  })
-  local decision = restart_authority.decide_transition(sealed, intent)
-  t.eq(decision.status, "apply", edge_id .. ": owner apply")
-  t.eq(decision.cas_outcome, "applied", edge_id .. ": owner CAS outcome")
-  t.eq(decision.edge_id, edge_id, edge_id .. ": selected edge")
-  t.eq(decision.cas_policy_id, policy_id, edge_id .. ": selected policy")
-  t.eq(decision.grant, nil, edge_id .. ": authority does not mint grants")
-end
-
-local function trusted_comment(body)
-  return { body = body, author_login = "fkst-test-bot", created_at = OLD_CREATED_AT }
+local function trusted_comment(body, created_at)
+  return { body = body, author_login = "fkst-test-bot", created_at = created_at or OLD_CREATED_AT }
 end
 
 local function prepare_pr(comments)
@@ -86,28 +68,6 @@ local function prepare_pr(comments)
     base_branch = "dev",
     labels = {},
   }, entity_read_mocks.pr_origin_selector, 1)
-end
-
-local function observe_timeout_department(event, comments, from_state)
-  prepare_pr(comments)
-  return observation.observe_department({
-    config = config,
-    devloop_logging = devloop_logging,
-    devloop_state = devloop_state,
-    dept = "reconcile",
-    from_state = from_state,
-    transition_kind = "versioned_transition_status",
-    run = function()
-      local original_now = now
-      now = function() return NOW_SECONDS end
-      local ok, result = pcall(testing.run_fake, reconcile_department, event)
-      now = original_now
-      if not ok then error(result, 0) end
-      return result
-    end,
-    codex_runs_for_read = json_array(),
-    write_mode = "real",
-  })
 end
 
 local function with_no_codex_runs(fn)
@@ -150,67 +110,6 @@ local function add_fixing_attempts(event, comments)
       round,
       event.payload.source_ref
     )))
-  end
-end
-
-local function timeout_probe(source_state)
-  local seed = h.fix_reconcile()
-  local state_version = seed.issue_version .. "/timeout/" .. source_state .. "/3"
-  local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(
-    restart_row(source_state),
-    { state = source_state, version = state_version },
-    seed.proposal_id,
-    entity_lib.pr_source_ref(REPO, PR_NUMBER),
-    3
-  )
-  local event = { queue = "devloop_timeout_reconcile", payload = payload, now_seconds = NOW_SECONDS }
-  local comments = json_array({
-    trusted_comment(core.state_marker(payload.proposal_id, source_state, state_version)),
-  })
-  if source_state == "fixing" then add_fixing_attempts(event, comments) end
-  local _, captured = observe_timeout_department(event, comments, source_state)
-  t.eq(#captured.probes, 1, source_state .. ": real timeout reconcile CAS probe")
-  local probe = captured.probes[1]
-  t.eq(probe.outcome, "apply", source_state .. ": real timeout reconcile apply")
-  t.eq(
-    probe.incoming_version,
-    conv_reconcile.timeout_reconcile_state_version(state_version, source_state, 3),
-    source_state .. ": real timeout reconcile version form"
-  )
-  return probe, payload.proposal_id
-end
-
-local function assert_bidirectional(actual, expected, context)
-  t.eq(actual, expected, context .. ": shadow-to-old")
-  t.eq(expected, actual, context .. ": old-to-shadow")
-end
-
-local function assert_timeout_matrix(probe, policy_id, variant, context)
-  t.eq(#probe.from_states, 1, context .. ": singleton real source set")
-  t.eq(probe.to_state, "blocked", context .. ": real target")
-  t.eq(probe.target_version, nil, context .. ": versioned base has no target version")
-  local cases = {
-    { name = "apply", current = probe.current, reason = "apply" },
-    { name = "idempotent", current = { state = "blocked", version = probe.incoming_version }, reason = "already-at-target" },
-    { name = "stale", current = { state = "merged", version = probe.incoming_version }, reason = "advanced-or-diverged" },
-  }
-  for _, fixture in ipairs(cases) do
-    local old_status = devloop_state.versioned_transition_status(
-      fixture.current,
-      probe.from_states,
-      probe.to_state,
-      probe.incoming_version
-    )
-    local old_cas_outcome = devloop_state.cas_outcome(fixture.current, old_status, probe.incoming_version)
-    local shadow = catalog.resolve(policy_id, {
-      current = fixture.current,
-      variant = variant,
-      incoming_version = probe.incoming_version,
-    }, projection)
-    local case_context = context .. "/" .. fixture.name
-    assert_bidirectional(shadow.status, old_status, case_context .. ": status")
-    assert_bidirectional(shadow.cas_outcome, old_cas_outcome, case_context .. ": CAS outcome")
-    t.eq(shadow.reason_code, fixture.reason, case_context .. ": reason code")
   end
 end
 
@@ -467,25 +366,314 @@ local function assert_review_production_equals_frozen_old()
   end
 end
 
+local function is_timeout_record(record)
+  local site = type(record) == "table" and record.site or nil
+  return type(site) == "table"
+    and site.path == TIMEOUT_SITE.path
+    and site.symbol == TIMEOUT_SITE.symbol
+    and site.ordinal == TIMEOUT_SITE.ordinal
+end
+
+local function frozen_timeout_records()
+  local inventory = json.decode(file.read(INVENTORY_PATH))
+  local records = json_array()
+  for _, record in ipairs(inventory.old_behavior_observations or {}) do
+    if is_timeout_record(record) then table.insert(records, record) end
+  end
+  table.sort(records, function(left, right)
+    return tostring(left.observation_id) < tostring(right.observation_id)
+  end)
+  t.eq(#records, 44, "timeout reconcile frozen OLD observation count")
+  return records
+end
+
+local function timeout_source_state(record)
+  return record.old_inputs.caller_from_states[1]
+end
+
+local function timeout_event_for_record(record)
+  local lineage = record.typed_intent.lineage
+  local source_state = timeout_source_state(record)
+  local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(
+    restart_row(source_state),
+    { state = source_state, version = lineage.issue_version },
+    lineage.proposal_id,
+    lineage.source_ref,
+    lineage.round
+  )
+  return {
+    queue = "devloop_timeout_reconcile",
+    payload = payload,
+    now_seconds = NOW_SECONDS,
+  }
+end
+
+local function timeout_comments_for_record(record, event)
+  local source_state = timeout_source_state(record)
+  local current = record.old_inputs.current_fact
+  local reason_code = record.old_outcome.reason_code
+  if reason_code == "apply"
+    or reason_code == "pr-surface-gone-fallback"
+    or reason_code == "external-ci-wait-expired" then
+    local comments = json_array({
+      trusted_comment(core.state_marker(event.payload.proposal_id, source_state, event.payload.issue_version)),
+    })
+    if source_state == "fixing" then add_fixing_attempts(event, comments) end
+    if reason_code == "external-ci-wait-expired" then
+      table.insert(comments, trusted_comment(m_mgw.merge_gate_wait_marker(
+        event.payload.proposal_id,
+        PR_NUMBER,
+        m_mgw.merge_gate_wait_version_lineage(event.payload.issue_version),
+        HEAD_SHA,
+        "ci-wait",
+        "CI_WAIT"
+      )))
+    end
+    return comments
+  end
+  if reason_code == "timeout-reconcile-marker-visible" then
+    local terminal_version = record.old_inputs.incoming_version
+    return json_array({
+      trusted_comment(core.state_marker(event.payload.proposal_id, source_state, event.payload.issue_version)),
+      trusted_comment(conv_reconcile.timeout_reconcile_marker(
+        event.payload.proposal_id,
+        event.payload.issue_version,
+        source_state,
+        event.payload.round,
+        "drop",
+        { terminal_version = terminal_version }
+      )),
+    })
+  end
+  local created_at = reason_code == "no-longer-over-budget" and RECENT_CREATED_AT or OLD_CREATED_AT
+  return json_array({
+    trusted_comment(core.state_marker(
+      event.payload.proposal_id,
+      current.state,
+      current.version
+    ), created_at),
+  })
+end
+
+local function timeout_is_issue_fallback(record)
+  return tostring(record.observation_id):find("-issue-fallback-apply/", 1, true) ~= nil
+end
+
+local function prepare_timeout_record(record, comments)
+  if not timeout_is_issue_fallback(record) then
+    prepare_pr(comments)
+    return
+  end
+  h.mock_bot_env()
+  h.mock_default_issue_claim(REPO, ISSUE_NUMBER)
+  entity_read_mocks.mock_pr_view_raw_selector(t, {
+    repo = REPO,
+    number = PR_NUMBER,
+  }, entity_read_mocks.pr_origin_selector, {
+    stdout = "",
+    stderr = "HTTP 404: Not Found",
+    exit_code = 1,
+  }, 1)
+  entity_read_mocks.mock_issue_read_forms(t, {
+    repo = REPO,
+    number = ISSUE_NUMBER,
+    comments = comments,
+    labels = {},
+    assignees = { "fkst-test-bot" },
+    author_login = "fkst-test-bot",
+    register_all_views = true,
+    times = 1,
+  })
+end
+
+local function run_timeout_production(record)
+  local event = timeout_event_for_record(record)
+  prepare_timeout_record(record, timeout_comments_for_record(record, event))
+  local captured = {
+    cas_decisions = {},
+    facade_args = {},
+    facade_emits = {},
+    facade_families = {},
+    issue_builders = {},
+    label_builders = {},
+    owner_decisions = {},
+  }
+  local original_versioned = devloop_state.versioned_transition_status
+  local original_log_cas = devloop_logging.log_cas_decision
+  local original_make = restart_effect_facade.make
+  local original_decide = restart_effects.decide_transition
+  local original_issue_builder = conv_reconcile.build_timeout_reconcile_comment_request
+  local original_label_builder = requests_labels.build_state_label_request
+
+  devloop_state.versioned_transition_status = function()
+    error("timeout reconcile production used retired direct CAS", 0)
+  end
+  devloop_logging.log_cas_decision = function(...)
+    local args = { ... }
+    table.insert(captured.cas_decisions, {
+      current = args[3], from_state = args[4], to_state = args[5],
+      outcome = args[6], reason = args[7],
+    })
+    return original_log_cas(...)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decided = original_decide(snapshot, intent)
+    table.insert(captured.owner_decisions, { intent = intent, decision = decided })
+    return decided
+  end
+  restart_effect_facade.make = function(options)
+    table.insert(captured.facade_families, options.family)
+    local facade = original_make(options)
+    local original_emit = facade.emit
+    facade.emit = function(grant, effect_id, snapshot, args)
+      local emitted, rejection = original_emit(grant, effect_id, snapshot, args)
+      table.insert(captured.facade_args, args)
+      table.insert(captured.facade_emits, {
+        effect_id = effect_id, payload = emitted, rejection = rejection,
+      })
+      return emitted, rejection
+    end
+    return facade
+  end
+  conv_reconcile.build_timeout_reconcile_comment_request = function(...)
+    local request = original_issue_builder(...)
+    table.insert(captured.issue_builders, request)
+    return request
+  end
+  requests_labels.build_state_label_request = function(...)
+    local request = original_label_builder(...)
+    table.insert(captured.label_builders, request)
+    return request
+  end
+
+  local original_now = now
+  now = function() return NOW_SECONDS end
+  local ok, result = pcall(testing.run_fake, reconcile_department, event)
+  now = original_now
+  requests_labels.build_state_label_request = original_label_builder
+  conv_reconcile.build_timeout_reconcile_comment_request = original_issue_builder
+  restart_effect_facade.make = original_make
+  restart_effects.decide_transition = original_decide
+  devloop_logging.log_cas_decision = original_log_cas
+  devloop_state.versioned_transition_status = original_versioned
+  if not ok then error(result, 0) end
+  return result, captured
+end
+
+local function assert_timeout_owner_matrix(records)
+  local apply_by_source = {}
+  for _, record in ipairs(records) do
+    if record.old_outcome.reason_code == "apply" then
+      apply_by_source[timeout_source_state(record)] = record
+    end
+  end
+  for source_state, expected in pairs(TIMEOUT_SOURCES) do
+    local record = apply_by_source[source_state]
+    t.is_true(record ~= nil, source_state .. ": frozen apply record")
+    local incoming_version = record.old_inputs.incoming_version
+    local cases = {
+      { name = "apply", current = record.old_inputs.current_fact },
+      { name = "idempotent", current = { state = "blocked", version = incoming_version } },
+      { name = "stale", current = { state = "merged", version = incoming_version } },
+    }
+    for _, fixture in ipairs(cases) do
+      local snapshot = restart_effects.seal_snapshot({
+        owner = OWNER,
+        entity = { kind = "pr", repo = REPO, number = PR_NUMBER },
+        proposal_id = record.typed_intent.lineage.proposal_id,
+        current = fixture.current,
+        snapshot_fingerprint = "r9-pr-timeout-reconcile|" .. source_state .. "|" .. fixture.name,
+        lock_epoch = "r9-pr-timeout-reconcile@" .. incoming_version,
+        generation = incoming_version,
+      })
+      local decision = restart_effects.decide_transition(snapshot, {
+        semantic_variant = "watchdog_reconcile_terminal",
+        source_boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        incoming_version = incoming_version,
+        target_version = nil,
+        overlay_version = incoming_version,
+      })
+      local old_status = devloop_state.versioned_transition_status(
+        fixture.current, { source_state }, "blocked", incoming_version
+      )
+      local context = source_state .. "/" .. fixture.name
+      t.eq(decision.status, old_status, context .. ": owner status equals OLD CAS")
+      t.eq(
+        decision.cas_outcome,
+        devloop_state.cas_outcome(fixture.current, old_status, incoming_version),
+        context .. ": owner outcome equals OLD CAS"
+      )
+      t.eq(decision.cas_policy_id, "cas.legacy_timeout_reconcile_v1", context .. ": owner policy")
+      if fixture.name == "apply" then
+        t.eq(decision.edge_id, OWNER .. "/" .. expected.edge, context .. ": exact source edge")
+        t.eq(#decision.granted_effect_ids, 2, context .. ": comment and label grants")
+      else
+        t.eq(#(decision.granted_effect_ids or {}), 0, context .. ": terminal CAS grants no effects")
+      end
+    end
+  end
+end
+
+local function assert_timeout_production_equals_frozen_old()
+  local records = frozen_timeout_records()
+  assert_timeout_owner_matrix(records)
+  local apply_count = 0
+  local pr_apply_count = 0
+  local issue_apply_count = 0
+  for _, record in ipairs(records) do
+    local result, captured = run_timeout_production(record)
+    local old = record.old_outcome
+    local last_decision = captured.cas_decisions[#captured.cas_decisions]
+    t.eq(last_decision.outcome, old.cas_outcome, record.observation_id .. ": production disposition")
+    t.eq(
+      canonical_json(normalized_raises(result.raises)),
+      canonical_json(expected_raises(record)),
+      record.observation_id .. ": full payloads are byte-exact with frozen OLD"
+    )
+    if old.status == "apply" then
+      apply_count = apply_count + 1
+      t.eq(record.evidence_refs[1].ref, "devloop.state.versioned_transition_status:apply",
+        record.observation_id .. ": frozen OLD came from the retired real CAS")
+      t.eq(#captured.owner_decisions, 1, record.observation_id .. ": one owner decision")
+      t.eq(captured.owner_decisions[1].decision.status, "apply", record.observation_id .. ": owner apply")
+      t.eq(captured.owner_decisions[1].intent.source_boundary, "devloop_timeout_reconcile",
+        record.observation_id .. ": canonical timeout boundary")
+      t.eq(#captured.facade_families, 1, record.observation_id .. ": one facade")
+      t.eq(captured.facade_families[1], "pr-timeout-reconcile", record.observation_id .. ": facade family")
+      t.eq(#captured.facade_emits, 2, record.observation_id .. ": comment and label facade emits")
+      t.eq(#captured.label_builders, 1, record.observation_id .. ": OLD label builder reused")
+      if timeout_is_issue_fallback(record) then
+        issue_apply_count = issue_apply_count + 1
+        t.eq(#captured.issue_builders, 1, record.observation_id .. ": OLD issue comment builder reused")
+        t.eq(captured.facade_args[1].target_pr_number, nil, record.observation_id .. ": issue surface selected")
+        t.eq(result.raises[1].queue, "github-proxy.github_issue_comment_request",
+          record.observation_id .. ": issue comment queue preserved")
+      else
+        pr_apply_count = pr_apply_count + 1
+        t.eq(#captured.issue_builders, 0, record.observation_id .. ": issue builder not used")
+        t.eq(tostring(captured.facade_args[1].target_pr_number), tostring(PR_NUMBER),
+          record.observation_id .. ": PR surface selected")
+        t.eq(result.raises[1].queue, "github-proxy.github_pr_comment_request",
+          record.observation_id .. ": PR comment queue preserved")
+      end
+    else
+      t.eq(#captured.owner_decisions, 0, record.observation_id .. ": unchanged pre-CAS guard")
+      t.eq(#captured.facade_families, 0, record.observation_id .. ": guard does not construct facade")
+      t.eq(#captured.facade_emits, 0, record.observation_id .. ": guard emits no effect")
+    end
+  end
+  t.eq(apply_count, 14, "all frozen timeout apply observations replayed")
+  t.eq(pr_apply_count, 8, "PR-surface apply observations replayed")
+  t.eq(issue_apply_count, 6, "issue-surface apply observations replayed")
+end
+
 return {
   test_review_reconcile_production_grant_facade_equals_frozen_old = function()
     assert_review_production_equals_frozen_old()
   end,
 
-  test_pr_timeout_reconcile_drop_reuses_real_old_versioned_policy = function()
-    for source_state, expected in pairs(TIMEOUT_SOURCES) do
-      local probe, proposal_id = timeout_probe(source_state)
-      assert_timeout_matrix(
-        probe,
-        "cas.legacy_timeout_reconcile_v1",
-        expected.variant,
-        "pr-timeout-reconcile/" .. source_state
-      )
-      assert_owner_apply(probe, proposal_id, {
-        semantic_variant = "watchdog_reconcile_terminal",
-        target = "blocked",
-        incoming_version = probe.incoming_version,
-      }, OWNER .. "/" .. expected.edge, "cas.legacy_timeout_reconcile_v1")
-    end
+  test_pr_timeout_reconcile_production_grant_facade_equals_frozen_old = function()
+    assert_timeout_production_equals_frozen_old()
   end,
 }

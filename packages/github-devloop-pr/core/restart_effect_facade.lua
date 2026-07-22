@@ -1,3 +1,5 @@
+local base_ids = require("devloop.base_ids")
+local conv_reconcile = require("devloop.convergence.reconcile")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local requests_review = require("devloop.requests.review")
@@ -267,6 +269,68 @@ local function serialize_fix_reconcile_label(args)
   )
 end
 
+local function valid_timeout_reconcile_args(args)
+  return type(args) == "table"
+    and type(args.core) == "table"
+    and type(args.repo) == "string"
+    and args.issue_number ~= nil
+    and type(args.reconcile) == "table"
+    and type(args.action) == "string"
+    and type(args.reason) == "string"
+    and type(args.version) == "string"
+    and type(args.why_fields) == "table"
+    and type(args.build_timeout_reconcile_pr_comment_request) == "function"
+end
+
+local function serialize_timeout_reconcile_comment(args)
+  if not valid_timeout_reconcile_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  if args.target_pr_number ~= nil then
+    return args.build_timeout_reconcile_pr_comment_request(
+      args.repo,
+      args.target_pr_number,
+      args.reconcile,
+      args.action,
+      args.reason,
+      args.version,
+      args.why_fields
+    )
+  end
+  return conv_reconcile.build_timeout_reconcile_comment_request(
+    args.repo,
+    args.issue_number,
+    args.reconcile,
+    args.action,
+    args.reason,
+    args.version,
+    args.why_fields
+  )
+end
+
+local function serialize_timeout_reconcile_label(args)
+  if not valid_timeout_reconcile_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_labels.build_state_label_request(
+    args.repo,
+    args.issue_number,
+    "blocked",
+    args.reconcile.proposal_id,
+    args.version,
+    base_ids.dedup_key({
+      "timeout-reconcile",
+      "label",
+      tostring(args.reconcile.dedup_key),
+    }),
+    args.reconcile.source_ref,
+    nil,
+    args.target_pr_number ~= nil
+      and { kind = "pr", number = args.target_pr_number }
+      or nil
+  )
+end
+
 local function serialize_merge_comment(args)
   if type(args) ~= "table"
     or type(args.core) ~= "table"
@@ -360,6 +424,17 @@ local FIX_RECONCILE_SERIALIZERS = {
   },
 }
 
+local TIMEOUT_RECONCILE_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:reconcile-blocked",
+    serialize = serialize_timeout_reconcile_comment,
+  },
+  [LABEL_EFFECT_ID] = {
+    sink_id = "label:issue:reconcile-blocked",
+    serialize = serialize_timeout_reconcile_label,
+  },
+}
+
 local MERGE_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:merging-state",
@@ -376,6 +451,7 @@ local SERIALIZERS_BY_FAMILY = {
   ["observe-pr-fix"] = OBSERVE_PR_FIX_SERIALIZERS,
   ["pr-review-reconcile"] = REVIEW_RECONCILE_SERIALIZERS,
   ["pr-fix-reconcile"] = FIX_RECONCILE_SERIALIZERS,
+  ["pr-timeout-reconcile"] = TIMEOUT_RECONCILE_SERIALIZERS,
   ["pr-merge"] = MERGE_SERIALIZERS,
 }
 

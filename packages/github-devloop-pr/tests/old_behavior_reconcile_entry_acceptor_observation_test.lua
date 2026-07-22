@@ -34,9 +34,6 @@ local SITE = {
 
 local BLOCK_COMMENT = "comment:pr:reconcile-blocked"
 local BLOCK_LABEL = "label:issue:reconcile-blocked"
-local TIMEOUT_PR = "comment:pr:timeout-reconcile"
-local TIMEOUT_ISSUE = "comment:issue:timeout-reconcile"
-local TIMEOUT_LABEL = "label:issue:timeout-reconcile"
 local DECOMPOSE_PR = "comment:pr:decompose-exhausted"
 local DECOMPOSE_ISSUE = "comment:issue:decompose-exhausted"
 
@@ -105,7 +102,7 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ BLOCK_COMMENT, BLOCK_LABEL }) },
   { disposition = "timeout-pr-surface-fallback-issue-apply", status = "admitted", reason = "pr-surface-gone-fallback",
     cas = "applied", target = "blocked", source_line = 512, queue = "devloop_timeout_reconcile",
-    pr_not_found = true, effects = ra.json_array({ TIMEOUT_ISSUE, TIMEOUT_LABEL }) },
+    pr_not_found = true, effects = ra.json_array({ BLOCK_COMMENT, BLOCK_LABEL }) },
   { disposition = "timeout-skip-result-marker-visible", status = "rejected", reason = "timeout-marker-visible",
     cas = "skip-idempotent(timeout reconcile marker already visible)", target = "reject", source_line = 405,
     queue = "devloop_timeout_reconcile", marker_visible = true },
@@ -138,10 +135,10 @@ local FIXTURES = ra.json_array({
     issue_surface = true, effects = ra.json_array({ DECOMPOSE_ISSUE }) },
   { disposition = "timeout-admitted-pr-drop-blocked", status = "admitted", reason = "timeout-pr-drop",
     cas = "applied", target = "blocked", source_line = 512, queue = "devloop_timeout_reconcile",
-    effects = ra.json_array({ TIMEOUT_PR, TIMEOUT_LABEL }) },
+    effects = ra.json_array({ BLOCK_COMMENT, BLOCK_LABEL }) },
   { disposition = "timeout-admitted-issue-drop-blocked", status = "admitted", reason = "timeout-issue-drop",
     cas = "applied", target = "blocked", source_line = 512, queue = "devloop_timeout_reconcile",
-    issue_surface = true, effects = ra.json_array({ TIMEOUT_ISSUE, TIMEOUT_LABEL }) },
+    issue_surface = true, effects = ra.json_array({ BLOCK_COMMENT, BLOCK_LABEL }) },
 })
 
 local function timeout_payload(fixture)

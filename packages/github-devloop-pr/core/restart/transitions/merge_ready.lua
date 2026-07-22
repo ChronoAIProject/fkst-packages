@@ -158,6 +158,19 @@ return function(M, h)
             kind = "timeout",
             cas_policy_id = "cas.legacy_timeout_reconcile_v1",
             cas_variant = "merge_ready_to_blocked",
+            transition_effect_entitlements = {
+              apply = {
+                id = "github-devloop-pr/merge-ready/timeout/merge_gate/watchdog_reconcile_terminal/apply",
+                effect_ids = {
+                  "github-proxy.github_pr_comment_request",
+                  "github-proxy.github_issue_label_request",
+                },
+              },
+              idempotent = {
+                id = "github-devloop-pr/merge-ready/timeout/merge_gate/watchdog_reconcile_terminal/idempotent",
+                effect_ids = {},
+              },
+            },
             pending_order = { participates = false },
             failure = true,
             terminal = true,
