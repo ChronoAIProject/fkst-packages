@@ -53,21 +53,47 @@ local function observe_department(run)
   local closed_guard_calls = {}
   local post_probe_row_calls = {}
   local original_versioned = devloop_state.versioned_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_restart_transition_row = replay_fields.restart_transition_row
   local original_replay_from_table = replayer.replay_from_table
 
   devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
+    if type(from_states) == "table"
+      and #from_states == 2
+      and from_states[1] == "pr-open"
+      and from_states[2] == "unmanaged"
+      and to_state == "reviewing" then
+      error("observe_pr production used retired direct reviewing CAS", 0)
+    end
+    return original_versioned(current, from_states, to_state, incoming_version, target_version)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == SEMANTIC_VARIANT then
+      local legacy_current = {
+        state = snapshot.current.state,
+        version = snapshot.current.version,
+      }
+      if legacy_current.state == nil then
+        legacy_current.version = nil
+      end
+      table.insert(probes, {
+        current = legacy_current,
+        from_states = { "pr-open", "unmanaged" },
+        to_state = intent.target,
+        incoming_version = intent.incoming_version,
+        target_version = intent.target_version,
+        outcome = original_versioned(
+          legacy_current,
+          { "pr-open", "unmanaged" },
+          intent.target,
+          intent.incoming_version,
+          intent.target_version
+        ),
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -128,6 +154,7 @@ local function observe_department(run)
   replayer.replay_from_table = original_replay_from_table
   replay_fields.restart_transition_row = original_restart_transition_row
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)

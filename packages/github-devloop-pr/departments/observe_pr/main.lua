@@ -22,6 +22,7 @@ local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local observe_pr_caps = require("observe_pr_department_caps")
 
 local M = {}
 
@@ -587,9 +588,32 @@ local function process_pr_event(event)
       return
     end
 
-    local transition = devloop_state.versioned_transition_status(state, { "pr-open", "unmanaged" }, "reviewing", origin.impl_version)
+    local grant_version = state.version or origin.impl_version
+    local snapshot = observe_pr_caps.restart_effects.seal_snapshot({
+      owner = observe_pr_caps.restart_package_name,
+      entity = { kind = "pr", repo = origin.repo, number = pr.number },
+      proposal_id = origin.proposal_id,
+      current = { state = state.state, version = grant_version },
+      snapshot_fingerprint = table.concat({
+        "observe-pr-reviewing", origin.proposal_id, state.state or "unmanaged", grant_version,
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. grant_version,
+      generation = grant_version,
+    })
+    local decision = observe_pr_caps.restart_effects.decide_transition(snapshot, {
+      semantic_variant = "first_seen_pr",
+      source_boundary = "github-proxy.github_entity_changed",
+      target = "reviewing",
+      incoming_version = origin.impl_version,
+      overlay_version = origin.impl_version,
+    })
+    if decision.status == "illegal" then
+      error("github-devloop: restart-effect-decision-illegal: observe PR reviewing decision rejected: "
+        .. tostring(decision.reason_code))
+    end
+    local transition = decision.status
     if has_issue_origin and transition == "pending" then
-      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", devloop_state.cas_outcome(state, transition, origin.impl_version), "reviewing PR marker not yet visible")
+      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", decision.cas_outcome, "reviewing PR marker not yet visible")
       return
     end
     if state.state == "pr-open" and tostring(state.version or "") ~= tostring(origin.impl_version or "") then
@@ -601,7 +625,7 @@ local function process_pr_event(event)
       return
     end
     if transition ~= "apply" and transition ~= "idempotent" then
-      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", devloop_state.cas_outcome(state, transition, origin.impl_version), "current PR state cannot advance to reviewing")
+      devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", decision.cas_outcome, "current PR state cannot advance to reviewing")
       return
     end
     if tostring(current_pr.state or ""):lower() ~= "open" then
@@ -612,12 +636,44 @@ local function process_pr_event(event)
       return
     end
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", "applied", "writing PR-local reviewing marker")
-    local comment_request = build_reviewing_comment_request(origin, pr.number, source_ref)
-    local raised = {
-      "github-proxy.github_pr_comment_request",
+    local grant = observe_pr_caps.restart_effects.mint_grant(
+      snapshot, decision, "comment:pr:observe-reviewing")
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: observe PR reviewing grant was not minted")
+    end
+    local facade = observe_pr_caps.restart_effect_facade.make({
+      family = "pr-review-activation",
+      verify_grant = observe_pr_caps.restart_effects.verify_grant,
+      sink_inventory = observe_pr_caps.sink_inventory,
+    })
+    if type(facade.emit) ~= "function" then
+      error("github-devloop: restart-effect-facade-invalid: observe PR reviewing facade emit is unavailable")
+    end
+    local effects = {}
+    local args = {
+      core = core,
+      repo = origin.repo,
+      issue_number = origin.issue_number,
+      origin = origin,
+      pr_number = pr.number,
+      source_ref = source_ref,
     }
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: observe PR reviewing effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+    end
+    local raised = {}
+    for _, effect in ipairs(effects) do
+      table.insert(raised, effect.queue)
+    end
     devloop_logging.log_apply("observe_pr", origin.proposal_id, "reviewing", origin.impl_version, { add = {}, remove = {} }, raised)
-    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+    for _, effect in ipairs(effects) do
+      devloop_logging.log_raise("observe_pr", origin.proposal_id, effect.queue, effect.payload)
+    end
   end)
 end
 
