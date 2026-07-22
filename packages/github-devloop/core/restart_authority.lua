@@ -255,7 +255,8 @@ function M.decide_transition(sealed_snapshot, intent)
   if edge.cas_policy_id ~= "cas.legacy_loop_plain_v1"
     and not (edge.cas_policy_id == "cas.legacy_consensus_result_v1"
       and (edge.cas_variant == "thinking_to_ready"
-        or edge.cas_variant == "thinking_to_dependency_wait"))
+        or edge.cas_variant == "thinking_to_dependency_wait"
+        or edge.cas_variant == "thinking_to_declined"))
     and not (edge.cas_policy_id == "cas.legacy_awaiting_pr_v1"
       and (edge.cas_variant == "implementing_to_awaiting_pr"
         or edge.cas_variant == "awaiting_pr_to_ready"

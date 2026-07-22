@@ -40,6 +40,10 @@ local expected_real_cas_by_id = {
     cas_policy_id = "cas.legacy_consensus_result_v1",
     cas_variant = "thinking_to_ready",
   },
+  ["github-devloop/thinking/autonomous/premise-refuted"] = {
+    cas_policy_id = "cas.legacy_consensus_result_v1",
+    cas_variant = "thinking_to_declined",
+  },
   ["github-devloop/thinking/autonomous/consensus-stalled"] = {
     cas_policy_id = "cas.legacy_loop_plain_v1",
     cas_variant = "thinking_to_blocked",

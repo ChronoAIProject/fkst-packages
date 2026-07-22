@@ -35,6 +35,29 @@ local V_NEWER = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-0
 local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
 
+local TARGET_SHADOW = {
+  ready = {
+    semantic_variant = "consensus-reached",
+    cas_variant = "thinking_to_ready",
+  },
+  dependency_wait = {
+    semantic_variant = "consensus-reached-dependency-held",
+    cas_variant = "thinking_to_dependency_wait",
+  },
+  declined = {
+    semantic_variant = "premise-refuted",
+    cas_variant = "thinking_to_declined",
+  },
+}
+
+local function shadow_for_target(target_state)
+  local shadow = TARGET_SHADOW[target_state]
+  if shadow == nil then
+    error("consensus-result parity has no shadow variant for target: " .. tostring(target_state))
+  end
+  return shadow
+end
+
 local function observe_department(run)
   local probes = {}
   local decisions = {}
@@ -66,14 +89,15 @@ local function observe_department(run)
     })
     return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
   end
-  devloop_state.has_result_marker = function(comments, proposal_id, decision, dedup_key)
+  devloop_state.has_result_marker = function(comments, proposal_id, decision, dedup_key, decision_reason)
     table.insert(result_marker_checks, {
       comments = comments,
       proposal_id = proposal_id,
       decision = decision,
       dedup_key = dedup_key,
+      decision_reason = decision_reason,
     })
-    return original_has_result_marker(comments, proposal_id, decision, dedup_key)
+    return original_has_result_marker(comments, proposal_id, decision, dedup_key, decision_reason)
   end
 
   local ok, result = pcall(run)
@@ -94,9 +118,7 @@ end
 local function evidence_from_source(source)
   return {
     current = devloop_state.current_state(source.comments, source.event.proposal_id),
-    variant = source.target_state == "ready"
-      and "thinking_to_ready"
-      or "thinking_to_dependency_wait",
+    variant = shadow_for_target(source.target_state).cas_variant,
     incoming_version = source.event.effect_version or source.event.dedup_key,
   }
 end
@@ -134,19 +156,31 @@ local function labels_for_state(state)
 end
 
 local function source_for_fixture(fixture)
-  local event = h.reached({ effect_version = fixture.incoming_version })
+  local event = h.reached({
+    effect_version = fixture.incoming_version,
+    decision = fixture.decision,
+    decision_reason = fixture.decision_reason,
+  })
   local comments = {}
   if fixture.current_state ~= nil then
     table.insert(comments, core.state_marker(event.proposal_id, fixture.current_state, fixture.current_version))
   end
   if fixture.result_marker_visible then
-    table.insert(comments, m_builders.result_marker(event.proposal_id, event.decision, event.dedup_key))
+    table.insert(comments, m_builders.result_marker(
+      event.proposal_id,
+      event.decision,
+      event.dedup_key,
+      event.decision_reason
+    ))
   end
   return {
     event = event,
     comments = comments,
     labels = fixture.labels or labels_for_state(fixture.current_state),
-    target_state = fixture.dependency_gate == "unresolvable" and "dependency_wait" or "ready",
+    target_state = event.decision == "reject"
+      and "declined"
+      or fixture.dependency_gate == "unresolvable" and "dependency_wait"
+      or "ready",
   }
 end
 
@@ -284,6 +318,7 @@ local function assert_catalog_matches_observed_admission(fixture)
     t.eq(marker_check.proposal_id, source.event.proposal_id, fixture.name .. ": boundary proposal")
     t.eq(marker_check.decision, source.event.decision, fixture.name .. ": boundary decision")
     t.eq(marker_check.dedup_key, source.event.dedup_key, fixture.name .. ": boundary dedup")
+    t.eq(marker_check.decision_reason, source.event.decision_reason, fixture.name .. ": boundary decision reason")
   end
 
   local observed = observed_admission(probe, decisions, boundary_reached)
@@ -319,14 +354,10 @@ end
 
 local function assert_consensus_shadow_case(fixture)
   local production = assert_catalog_matches_observed_admission(fixture)
-  local dependency_held = fixture.dependency_gate == "unresolvable"
-  local target = dependency_held and "dependency_wait" or "ready"
-  local semantic_variant = dependency_held
-    and "consensus-reached-dependency-held"
-    or "consensus-reached"
-  local cas_variant = dependency_held
-    and "thinking_to_dependency_wait"
-    or "thinking_to_ready"
+  local target = production.source.target_state
+  local target_shadow = shadow_for_target(target)
+  local semantic_variant = target_shadow.semantic_variant
+  local cas_variant = target_shadow.cas_variant
   local edge_id = OWNER .. "/thinking/autonomous/" .. semantic_variant
   local sealed_snapshot = restart_authority.seal_snapshot({
     owner = OWNER,
@@ -348,7 +379,11 @@ local function assert_consensus_shadow_case(fixture)
   local observed = {
     status = production.observed.status,
     reason_code = production.observed.reason_code,
-    cas_outcome = production.decision.outcome,
+    cas_outcome = devloop_state.cas_outcome(
+      production.probe.current,
+      production.probe.outcome,
+      fixture.incoming_version
+    ),
   }
 
   assert_bidirectional(shadow, observed, "status", fixture.name)
@@ -609,6 +644,79 @@ return {
       post_admission_disposition = "effect-emitted(dependency_wait)",
       legacy_log_outcome = "applied | hold-dependency",
       effect_state = "dependency_wait",
+    })
+  end,
+
+  test_consensus_result_declined_source_equal_applies = function()
+    assert_consensus_shadow_case({
+      name = "consensus-result-declined-source-equal",
+      current_state = "thinking",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      decision = "reject",
+      decision_reason = "premise-refuted",
+      probe_outcome = "apply",
+      admission_status = "apply",
+      admission_reason_code = "apply",
+      boundary_call_count = 2,
+      post_admission_disposition = "effect-emitted(declined)",
+      legacy_log_outcome = "applied | applied",
+      effect_state = "declined",
+    })
+  end,
+
+  test_consensus_result_declined_target_incomplete_repairs_after_idempotent_admission = function()
+    assert_consensus_shadow_case({
+      name = "consensus-result-declined-target-incomplete",
+      current_state = "declined",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      decision = "reject",
+      decision_reason = "premise-refuted",
+      probe_outcome = "idempotent",
+      admission_status = "idempotent",
+      admission_reason_code = "already-at-target",
+      boundary_call_count = 2,
+      post_admission_disposition = "effect-repair(declined)",
+      legacy_log_outcome = "applied(result effects incomplete)",
+      effect_state = "declined",
+      expected_raise_count = 1,
+    })
+  end,
+
+  test_consensus_result_declined_source_older_is_stale = function()
+    assert_consensus_shadow_case({
+      name = "consensus-result-declined-source-older",
+      current_state = "thinking",
+      current_version = V_EQUAL,
+      incoming_version = V_OLDER,
+      decision = "reject",
+      decision_reason = "premise-refuted",
+      probe_outcome = "stale",
+      admission_status = "stale",
+      admission_reason_code = "incoming-version-older",
+      boundary_call_count = 0,
+      post_admission_disposition = "not-admitted",
+      legacy_log_outcome = "skip-stale(incoming version < current marker version)",
+      effect_state = nil,
+    })
+  end,
+
+  test_consensus_result_declined_managed_successor_is_stale = function()
+    assert_consensus_shadow_case({
+      name = "consensus-result-declined-managed-successor",
+      current_state = "ready",
+      current_version = V_EQUAL,
+      incoming_version = V_EQUAL,
+      decision = "reject",
+      decision_reason = "premise-refuted",
+      probe_outcome = "stale",
+      admission_status = "stale",
+      admission_reason_code = "advanced-or-diverged",
+      boundary_call_count = 0,
+      post_admission_disposition = "not-admitted",
+      legacy_log_outcome = "skip-advanced-or-diverged",
+      effect_state = nil,
     })
   end,
 

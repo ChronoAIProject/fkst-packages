@@ -127,6 +127,8 @@ return function(M, h)
         {
           state = "declined",
           output_variant = "premise-refuted",
+          cas_policy_id = "cas.legacy_consensus_result_v1",
+          cas_variant = "thinking_to_declined",
           kind = "autonomous",
           pending_order = { participates = false },
           postcondition_family = "issue-consensus",

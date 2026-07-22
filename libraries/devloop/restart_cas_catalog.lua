@@ -502,6 +502,7 @@ local policies = {
     variants = {
       thinking_to_ready = variant({ "thinking" }, "ready"),
       thinking_to_dependency_wait = variant({ "thinking" }, "dependency_wait"),
+      thinking_to_declined = variant({ "thinking" }, "declined"),
     },
     overlay = { kind = "none", statuses = {} },
   },
