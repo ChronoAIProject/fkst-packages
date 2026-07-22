@@ -400,6 +400,7 @@ function M.extract_operator_reentry_edges(owner, inventory)
       },
     }
     attach_cas_metadata(edge, authored, "operator_reentry edge")
+    attach_effect_entitlements(edge, authored, "operator_reentry edge")
     attach_pending_order(edge, authored, "operator_reentry edge")
     table.insert(edges, edge)
   end

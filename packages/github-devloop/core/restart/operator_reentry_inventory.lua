@@ -34,6 +34,19 @@ return {
     pending_order = { participates = false },
     cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
     cas_variant = "blocked_to_implementing",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr/idempotent",
+        effect_ids = {},
+      },
+    },
     cause_evidence = {
       command = "reimplement",
       requires_applied_certificate = true,
@@ -58,6 +71,19 @@ return {
     pending_order = { participates = false },
     cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
     cas_variant = "blocked_to_implementing",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr/idempotent",
+        effect_ids = {},
+      },
+    },
     cause_evidence = {
       command = "reimplement",
       requires_applied_certificate = true,

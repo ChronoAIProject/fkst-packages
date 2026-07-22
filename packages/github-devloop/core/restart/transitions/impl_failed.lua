@@ -37,6 +37,19 @@ return function(M, h)
         output_variant = "retry-implementation",
         cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
         cas_variant = "impl_failed_to_implementing",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop/impl-failed/entry/retry-implementation/apply",
+            effect_ids = {
+              "github-proxy.github_issue_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop/impl-failed/entry/retry-implementation/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = true, predecessor_state = "impl-failed" },
       },
     },

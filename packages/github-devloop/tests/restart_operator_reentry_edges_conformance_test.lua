@@ -48,6 +48,14 @@ local pending_order_goldens = {
   [blocked_timeout_without_pr_id] = { participates = false },
 }
 
+local function implement_activation_entitlements(edge_id)
+  return {
+    apply = { id = edge_id .. "/apply", effect_ids = {
+      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request" } },
+    idempotent = { id = edge_id .. "/idempotent", effect_ids = {} },
+  }
+end
+
 local function key_set(keys)
   local out = {}
   for _, key in ipairs(keys) do
@@ -386,6 +394,7 @@ local function assert_operator_reentry_shape(edges)
     if expected_cas ~= nil then
       edge_keys.cas_policy_id = true
       edge_keys.cas_variant = true
+      edge_keys.transition_effect_entitlements = true
     end
     edge_keys.pending_order = true
     assert_exact_keys(edge, edge_keys)
@@ -415,6 +424,8 @@ local function assert_operator_reentry_shape(edges)
     t.eq(edge.provenance.row, "implementing")
     t.eq(edge.cas_policy_id, expected_cas and expected_cas.cas_policy_id or nil)
     t.eq(edge.cas_variant, expected_cas and expected_cas.cas_variant or nil)
+    assert_same_value(edge.transition_effect_entitlements,
+      expected_cas and implement_activation_entitlements(edge.id) or nil)
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
     t.eq(seen_ids[edge.id], nil)
     seen_ids[edge.id] = true

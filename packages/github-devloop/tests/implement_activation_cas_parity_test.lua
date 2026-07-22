@@ -1,8 +1,8 @@
 -- Non-circularity contract: production truth comes from the real implement
--- department's named CAS wrapper, the exact inner probe arguments it produces,
--- and the first post-admission WIP guard. Catalog evidence is copied from those
--- observed arguments, never reconstructed from fixture versions. Handoff
--- verification, effects, liveness dedup, and legacy logs remain separate axes.
+-- department's owner decision, the independently replayed legacy CAS probe, and
+-- the first post-admission WIP guard. Catalog evidence is copied from observed
+-- owner intent, never reconstructed from fixture versions. Handoff verification,
+-- effects, liveness dedup, and legacy logs remain separate axes.
 
 local catalog = require("devloop.restart_cas_catalog")
 local context_bundle = require("devloop.context_bundle")
@@ -19,7 +19,6 @@ local dispatch_live_run = require("devloop.dispatch_live_run")
 local m_builders = require("devloop.markers.builders")
 local m_mq = require("devloop.merge_queue")
 local payloads_predicates = require("devloop.payloads.predicates")
-local transitions = require("departments.implement.transitions")
 local restart_authority = require("core.restart_authority")
 local restart_effect_facade = require("core.restart_effect_facade")
 local restart_effects = require("core.restart_effects")
@@ -56,6 +55,13 @@ local variants = {
   ["blocked\0implementing"] = "blocked_to_implementing",
 }
 
+local decision_sources = {
+  implementation_kicked_off = { state = "ready", kind = "versioned" },
+  ["retry-implementation"] = { state = "impl-failed", kind = "versioned" },
+  reimplement_blocked_open_pr = { state = "blocked", kind = "cyclic" },
+  reimplement_blocked_implementing_timeout_without_pr = { state = "blocked", kind = "cyclic" },
+}
+
 local function source_state_names(expected_states)
   local names = {}
   for _, expected in ipairs(expected_states or {}) do
@@ -80,10 +86,9 @@ local function observe_department(run, opts)
   local boundary_calls = {}
   local serializer_calls = { comment = {}, label = {} }
   local sequence = 0
-  local active_named_call = nil
-  local original_implementation = transitions.implementation_transition_status
   local original_versioned = devloop_state.versioned_transition_status
   local original_cyclic = devloop_state.cyclic_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_verified_hand_off_state = payloads_predicates.verified_hand_off_state
   local original_wip_capacity_allows_start = m_mq.wip_capacity_allows_start
@@ -131,55 +136,54 @@ local function observe_department(run, opts)
     })
     return original_implementing_label(repo, issue_number, ready)
   end
-  transitions.implementation_transition_status = function(state, expected_states, marker_version)
-    sequence = sequence + 1
-    local named_call = {
-      sequence = sequence,
-      current = state,
-      expected_states = expected_states,
-      marker_version = marker_version,
-      index = #named_calls + 1,
-    }
-    table.insert(named_calls, named_call)
-    active_named_call = named_call
-    local outcome = original_implementation(state, expected_states, marker_version)
-    named_call.outcome = outcome
-    active_named_call = nil
-    return outcome
-  end
   devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
-    sequence = sequence + 1
-    table.insert(probes, {
-      sequence = sequence,
-      named_call = active_named_call,
-      kind = "versioned",
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-      variant = probe_variant(from_states, to_state),
-    })
-    return outcome
+    if to_state == "implementing" and probe_variant(from_states, to_state) ~= nil then
+      error("implement production used retired direct versioned activation CAS", 0)
+    end
+    return original_versioned(current, from_states, to_state, incoming_version, target_version)
   end
   devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_cyclic(current, from_states, to_state, incoming_version, target_version)
-    sequence = sequence + 1
-    table.insert(probes, {
-      sequence = sequence,
-      named_call = active_named_call,
-      kind = "cyclic",
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-      variant = probe_variant(from_states, to_state),
-    })
-    return outcome
+    if to_state == "implementing" and probe_variant(from_states, to_state) ~= nil then
+      error("implement production used retired direct cyclic activation CAS", 0)
+    end
+    return original_cyclic(current, from_states, to_state, incoming_version, target_version)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    local source = decision_sources[intent.semantic_variant]
+    if source ~= nil then
+      local from_states = { source.state }
+      local current = { state = snapshot.current.state, version = snapshot.current.version }
+      local outcome = source.kind == "cyclic"
+        and original_cyclic(current, from_states, "implementing", intent.incoming_version, intent.target_version)
+        or original_versioned(current, from_states, "implementing", intent.incoming_version, intent.target_version)
+      sequence = sequence + 1
+      local named_call = {
+        sequence = sequence,
+        current = current,
+        expected_states = from_states,
+        marker_version = intent.incoming_version,
+        outcome = outcome,
+        index = #named_calls + 1,
+      }
+      table.insert(named_calls, named_call)
+      sequence = sequence + 1
+      table.insert(probes, {
+        sequence = sequence,
+        named_call = named_call,
+        kind = source.kind,
+        current = current,
+        from_states = from_states,
+        to_state = "implementing",
+        incoming_version = intent.incoming_version,
+        target_version = intent.target_version,
+        phase = intent.phase,
+        retry = intent.retry,
+        outcome = outcome,
+        variant = probe_variant(from_states, "implementing"),
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     sequence = sequence + 1
@@ -232,9 +236,9 @@ local function observe_department(run, opts)
   m_mq.wip_capacity_allows_start = original_wip_capacity_allows_start
   payloads_predicates.verified_hand_off_state = original_verified_hand_off_state
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.cyclic_transition_status = original_cyclic
   devloop_state.versioned_transition_status = original_versioned
-  transitions.implementation_transition_status = original_implementation
   if not ok then
     error(result, 0)
   end
@@ -260,8 +264,8 @@ local function evidence_from_probe(probe, handoff_checks)
     variant = probe.variant,
     incoming_version = probe.incoming_version,
     target_version = probe.target_version,
-    phase = probe.named_call and probe.named_call.index == 1 and "initial" or "recheck",
-    retry = probe.variant ~= "ready_to_implementing",
+    phase = probe.phase,
+    retry = probe.retry,
     handoff = handoff,
   }
 end
