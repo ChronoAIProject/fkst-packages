@@ -265,6 +265,7 @@ local function expected_timeout_edges(owner, rows)
           timeout_evidence_policy_id = policy_id,
           cas_policy_id = expected_cas and expected_cas.cas_policy_id or nil,
           cas_variant = expected_cas and expected_cas.cas_variant or nil,
+          transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
           provenance = {
             owner = owner,
             row = row.from_state,
@@ -290,6 +291,7 @@ local function expected_timeout_edges(owner, rows)
             timeout_evidence_policy_id = policy_id,
             cas_policy_id = expected_cas and expected_cas.cas_policy_id or nil,
             cas_variant = expected_cas and expected_cas.cas_variant or nil,
+            transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
             provenance = {
               owner = owner,
               row = row.from_state,
@@ -417,6 +419,9 @@ local function assert_timeout_edges(actual, expected)
     if expected_edge.pending_order ~= nil then edge_keys.pending_order = true end
     if expected_edge.cas_policy_id ~= nil then edge_keys.cas_policy_id = true end
     if expected_edge.cas_variant ~= nil then edge_keys.cas_variant = true end
+    if expected_edge.transition_effect_entitlements ~= nil then
+      edge_keys.transition_effect_entitlements = true
+    end
     assert_exact_keys(edge, edge_keys)
     if expected_edge.source.boundary == nil then
       assert_exact_keys(edge.source, { state = true })
@@ -436,6 +441,7 @@ local function assert_timeout_edges(actual, expected)
     t.eq(edge.timeout_evidence_policy_id, expected_edge.timeout_evidence_policy_id)
     t.eq(edge.cas_policy_id, expected_edge.cas_policy_id)
     t.eq(edge.cas_variant, expected_edge.cas_variant)
+    assert_same_value(edge.transition_effect_entitlements, expected_edge.transition_effect_entitlements)
     assert_same_value(edge.pending_order, expected_edge.pending_order)
     assert_valid_cas(edge)
     t.eq(edge.provenance.owner, expected_edge.provenance.owner)

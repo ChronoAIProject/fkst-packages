@@ -88,6 +88,19 @@ return function(M, h)
         output_variant = "watchdog_reconcile_terminal",
         cas_policy_id = "cas.legacy_timeout_reconcile_v1",
         cas_variant = "merging_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merging/entry/watchdog_reconcile_terminal/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merging/entry/watchdog_reconcile_terminal/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
     },

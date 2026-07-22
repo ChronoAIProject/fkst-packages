@@ -80,6 +80,42 @@ local function normalize_intent(intent)
   }
 end
 
+local function timeout_reconcile_candidates_are_equivalent(candidates)
+  local definition = catalog.definition("cas.legacy_timeout_reconcile_v1")
+  if type(definition) ~= "table" or type(definition.variants) ~= "table" then
+    return false
+  end
+  for _, candidate in ipairs(candidates) do
+    local variant = definition.variants[candidate.cas_variant]
+    local sources = variant
+      and restart_source_admission.dense_unique_state_set(variant.source_states)
+      or nil
+    local entitlements = candidate.transition_effect_entitlements
+    local apply = type(entitlements) == "table" and entitlements.apply or nil
+    local idempotent = type(entitlements) == "table" and entitlements.idempotent or nil
+    if candidate.semantic_variant ~= "watchdog_reconcile_terminal"
+      or candidate.cas_policy_id ~= "cas.legacy_timeout_reconcile_v1"
+      or candidate.target ~= "blocked"
+      or type(candidate.source) ~= "table"
+      or candidate.source.state == nil
+      or variant == nil
+      or variant.target_state ~= "blocked"
+      or sources == nil
+      or sources[candidate.source.state] ~= true
+      or type(apply) ~= "table"
+      or type(apply.effect_ids) ~= "table"
+      or #apply.effect_ids ~= 2
+      or apply.effect_ids[1] ~= "github-proxy.github_pr_comment_request"
+      or apply.effect_ids[2] ~= "github-proxy.github_issue_label_request"
+      or type(idempotent) ~= "table"
+      or type(idempotent.effect_ids) ~= "table"
+      or #idempotent.effect_ids ~= 0 then
+      return false
+    end
+  end
+  return #candidates > 1
+end
+
 local function select_edge(semantic_variant, current_state)
   local candidates = {}
   for _, candidate in ipairs(edges) do
@@ -107,6 +143,9 @@ local function select_edge(semantic_variant, current_state)
   end
 
   local representative = candidates[1]
+  if timeout_reconcile_candidates_are_equivalent(candidates) then
+    return representative, 1
+  end
   for index = 2, #candidates do
     local candidate = candidates[index]
     if candidate.kind ~= representative.kind
@@ -213,7 +252,11 @@ function M.decide_transition(sealed_snapshot, intent)
       return illegal("target-mismatch")
     end
   else
-    if normalized.source_boundary ~= nil and normalized.source_boundary ~= edge.source.boundary then
+    local canonical_timeout_boundary = supported_timeout_reconcile
+      and normalized.source_boundary == "devloop_timeout_reconcile"
+    if normalized.source_boundary ~= nil
+      and normalized.source_boundary ~= edge.source.boundary
+      and not canonical_timeout_boundary then
       return illegal("source-boundary-mismatch")
     end
     if normalized.target ~= nil and normalized.target ~= edge.target then
