@@ -59,6 +59,7 @@ class BoundedTestExecWatchdog(unittest.TestCase):
             "FKST_TEST_DEADLINE_SECONDS=2 arm_test_deadline\n"
             "sleep 60\n"
         )
+        started = time.time()
         proc = subprocess.Popen(
             ["/bin/bash", "-c", script],
             cwd=str(REPO_ROOT),
@@ -77,10 +78,24 @@ class BoundedTestExecWatchdog(unittest.TestCase):
                 if proc.poll() is not None:
                     break
                 time.sleep(0.25)
+            elapsed = time.time() - started
             self.assertIsNotNone(
                 proc.poll(),
                 "runaway run survived past the deadline — watchdog did not group-kill it",
             )
+            # Prove the WATCHDOG killed it, not an unrelated early exit: SIGKILL, and at (not before) the
+            # 2s deadline. An early crash would exit ~instantly with a different code.
+            self.assertEqual(
+                proc.returncode, -signal.SIGKILL, f"leader exited by {proc.returncode}, not the watchdog's SIGKILL"
+            )
+            self.assertGreaterEqual(
+                elapsed, 1.5, f"exited in {elapsed:.1f}s — before the 2s deadline, so not the watchdog"
+            )
+            # The whole group must be gone: proc.poll() reaped the leader; any survivor keeps the group alive.
+            gone_by = time.time() + 5
+            while time.time() < gone_by and _pgid_alive(pgid):
+                time.sleep(0.1)
+            self.assertFalse(_pgid_alive(pgid), "group members survived the watchdog group-kill")
         finally:
             _reap(pgid)
             try:
@@ -126,10 +141,13 @@ class BoundedTestExecWatchdog(unittest.TestCase):
             "source scripts/run.sh\n"
             "FKST_TEST_DEADLINE_SECONDS=600 arm_test_deadline\n"
             'WD="$TEST_DEADLINE_WATCHDOG"\n'  # capture before disarm clears it (run.sh runs under set -u)
-            'echo "WD=$WD"\n'
+            'SLEEP="$(pgrep -P "$WD" 2>/dev/null || true)"\n'  # the watchdog subshell's sleep child
+            'echo "WD=$WD SLEEP=$SLEEP"\n'
             "disarm_test_deadline\n"
             "sleep 0.5\n"
-            'if kill -0 "$WD" 2>/dev/null; then echo WATCHDOG_STILL_ALIVE; else echo WATCHDOG_GONE; fi\n'
+            'wd=GONE; kill -0 "$WD" 2>/dev/null && wd=ALIVE\n'
+            'sl=GONE; [ -n "$SLEEP" ] && kill -0 "$SLEEP" 2>/dev/null && sl=ALIVE\n'
+            'echo "WATCHDOG=$wd SLEEP_CHILD=$sl"\n'
         )
         result = subprocess.run(
             ["/bin/bash", "-c", script],
@@ -141,9 +159,16 @@ class BoundedTestExecWatchdog(unittest.TestCase):
         )
         self.assertIn("WD=", result.stdout)
         self.assertIn(
-            "WATCHDOG_GONE",
+            "WATCHDOG=GONE",
             result.stdout,
             f"disarm did not stop the watchdog: {result.stdout!r} / {result.stderr!r}",
+        )
+        # The sleep child must die too — else a normal finish leaves an orphaned timer that fires a stale
+        # kill -9 -pgid up to the deadline later on a possibly-reused pgid (the disarm-subtree fix).
+        self.assertIn(
+            "SLEEP_CHILD=GONE",
+            result.stdout,
+            f"disarm left the watchdog's sleep child orphaned: {result.stdout!r} / {result.stderr!r}",
         )
 
 

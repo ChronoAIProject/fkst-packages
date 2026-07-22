@@ -857,6 +857,8 @@ cmd_board() {
   echo "(label/marker-based fast view; for authoritative state cross-check the issue's state:v1 marker / workflow marker / linked PR)"
 }
 
+# When sourced (e.g. by scripts/dogfood_reaper_test.py) define functions only — skip the CLI dispatch.
+[ "${BASH_SOURCE[0]}" = "${0}" ] || return 0 2>/dev/null || true
 cmd="${1:-status}"; arg2="${2:-}"; arg3="${3:-}"
 case "$cmd" in
   bin)     bin_ensure_fresh ;;

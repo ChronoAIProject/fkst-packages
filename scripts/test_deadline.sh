@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bounded-execution watchdog for `scripts/run.sh test` (sourced by run.sh; armed in cmd_test).
 #
-# Rationale (CLAUDE.md「出错即建兜底清理制度 + harness」, prevention half): a test run whose launching
+# Rationale (CLAUDE.md error-cleanup-patrol + harness doctrine, prevention half): a test run whose launching
 # parent (a codex implement/fix worker, or the operator shell) is SIGKILLed does NOT die with it —
 # SIGKILL neither propagates to children nor fires run.sh's EXIT trap — so the run orphans to init and
 # hangs UNBOUNDED (observed 2026-07-22: 6 orphaned trees 44min–1h15min old, a real load driver). Make
@@ -19,8 +19,13 @@ arm_test_deadline() {
   local secs="${FKST_TEST_DEADLINE_SECONDS:-1800}" pgid
   case "$secs" in ''|*[!0-9]*) return 0 ;; esac
   [ "$secs" -gt 0 ] || return 0
-  pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
-  [ -n "$pgid" ] && [ "$pgid" = "$$" ] || return 0   # only when we lead our own group; skip interactive/shared
+  # Read our pgid failure-safely: under `set -euo pipefail` a denied/failed ps must degrade to "don't arm"
+  # (empty pgid), never abort the whole test run. Arm ONLY when this shell IS its own group leader
+  # (pgid==$$) — the codex/dogfood launch path new-sessions run.sh into its own group (observed: the leaked
+  # zsh harness had pgid==pid), so kill -9 -$pgid can only ever target this run's tree; an interactive/shared
+  # group is skipped (Ctrl-C's job) so the watchdog never kills a bystander.
+  pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ') || pgid=""
+  [ -n "$pgid" ] && [ "$pgid" = "$$" ] || return 0
   (
     sleep "$secs"
     echo "run.sh test: FKST_TEST_DEADLINE_SECONDS=${secs}s exceeded — group-killing runaway test tree (pgid $pgid)" >&2
