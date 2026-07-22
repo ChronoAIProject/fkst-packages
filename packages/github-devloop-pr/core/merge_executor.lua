@@ -28,6 +28,15 @@ local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local merge_queue_tick_factory = require("core.merge_queue_tick")
 local with_current_classification = ci_verdict.with_current_classification
+
+-- merge_executor is loaded while core is still assembling, so owner capabilities
+-- are resolved only after the department pipeline is running.
+local function restart_capabilities()
+  return {
+    restart_effects = require("core.restart_effects"),
+    restart_package_name = assert(rawget(core, "restart_package_name")),
+  }
+end
 local function log_gate(merge_ready, outcome, reason)
   local pass = merge_ready and merge_ready._merge_pass
   local fields = {
@@ -281,7 +290,7 @@ end
 local function build_merging_body(merge_ready)
   return requests_bodies.build_merging_comment_body(core, merge_ready)
 end
-local function write_merging_marker(repo, merge_ready, comments)
+local function write_merging_marker(repo, merge_ready, comments, grant, snapshot, restart_effects)
   if m_facts.merging_fact(comments, merge_ready.proposal_id, merge_ready.pr_number, merge_ready.version, merge_ready.reviewed_head_sha) ~= nil then
     return
   end
@@ -293,6 +302,9 @@ local function write_merging_marker(repo, merge_ready, comments)
     context = merge_ready.reviewed_head_sha,
   })
   file.write(path, body)
+  if not restart_effects.verify_grant(grant, "github-proxy.github_pr_comment_request", snapshot) then
+    error("github-devloop: restart-effect-grant-invalid: merging marker comment grant was rejected")
+  end
   local result = core.gh_pr_comment(repo, merge_ready.pr_number, path, 30)
   if result.exit_code ~= 0 then
     error("github-devloop: pr-merging-marker-comment-failed: PR merging marker comment failed: " .. tostring(result.stderr))
@@ -352,21 +364,45 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merged", "skip-idempotent(already at to_state)", "merged marker already visible")
     return
   end
-  local transition = devloop_state.cyclic_transition_status(state, { "merge-ready", "merging" }, "merging", merge_ready.version)
+  local restart_caps = restart_capabilities()
+  local lock_key = entity_lib.merge_lane_lock_key(repo)
+  local snapshot = restart_caps.restart_effects.seal_snapshot({
+    owner = restart_caps.restart_package_name,
+    entity = { kind = "pr", repo = repo, number = merge_ready.pr_number },
+    proposal_id = merge_ready.proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "pr-merge", merge_ready.proposal_id, state.state or "missing",
+      state.version or "missing", merge_ready.pr_number, merge_ready.reviewed_head_sha,
+    }, "|"),
+    lock_epoch = tostring(lock_key or "") .. "@" .. tostring(state.version or "missing"),
+    generation = state.version or "missing",
+  })
+  local decision = restart_caps.restart_effects.decide_transition(snapshot, {
+    semantic_variant = "handoff_to_merge_gate",
+    target = "merging",
+    incoming_version = merge_ready.version,
+    overlay_version = merge_ready.version,
+  })
+  if decision.status == "illegal" then
+    error("github-devloop: restart-effect-decision-illegal: merge admission rejected: "
+      .. tostring(decision.reason_code))
+  end
+  local transition = decision.status
   if state.state ~= "merge-ready" and state.state ~= "merging" and state.state ~= "merged" then
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(from-state-mismatch)", "issue is not currently merge-ready or merging")
     return
   end
   if transition == "pending" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "merge-ready state marker not yet visible")
+    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "merge-ready state marker not yet visible")
     error("github-devloop: merge-ready-marker-missing: merge-ready state marker not yet visible for merge; retrying")
   end
   if transition == "stale" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "issue is not currently merge-ready")
+    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready")
     return
   end
   if transition == "idempotent" and state.state ~= "merging" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "issue is not currently merge-ready or merging")
+    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready or merging")
     return
   end
   if transition == "apply" and state.state ~= "merge-ready" then
@@ -374,7 +410,7 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if transition ~= "apply" and transition ~= "idempotent" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", devloop_state.cas_outcome(state, transition, merge_ready.version), "issue is not currently merge-ready or merging")
+    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready or merging")
     return
   end
   if tostring(state.version or "") ~= tostring(merge_ready.version) then
@@ -651,7 +687,16 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       return true, "pr-origin-ok"
     end,
     before_merge = function()
-      write_merging_marker(repo, merge_ready, rechecked_pr_for_gate.comments)
+      local grant = restart_caps.restart_effects.mint_grant(
+        snapshot, decision, "comment:pr:merging-state"
+      )
+      if grant == nil then
+        error("github-devloop: restart-effect-grant-mint-failed: merging marker comment grant was not minted")
+      end
+      write_merging_marker(
+        repo, merge_ready, rechecked_pr_for_gate.comments,
+        grant, snapshot, restart_caps.restart_effects
+      )
     end,
   })
   if not merge_ok and merge_reason == "merge-confirmation-pending" then

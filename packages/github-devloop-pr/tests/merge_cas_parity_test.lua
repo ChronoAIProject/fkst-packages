@@ -1,8 +1,7 @@
 -- Non-circularity contract: production truth comes from the real merge
--- department's CAS probe and the merge-ready fact admission boundary. Effects
--- and legacy CAS logs are recorded as separate post-admission observations.
--- Catalog evidence comes only from the captured probe arguments, and this test
--- never computes the expected result with a devloop.state transition helper.
+-- department's owner-decider and grant-gated synchronous marker path. Frozen
+-- OLD truth comes from the former production branch copied below and the
+-- byte-unchanged observation corpus; no owner decision computes OLD truth.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -18,7 +17,6 @@ local m_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
-local restart_effect_facade = require("core.restart_effect_facade")
 local restart_effects = require("core.restart_effects")
 local t = h.t
 local core = h.core
@@ -41,23 +39,58 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local boundary_calls = {}
-  local original_cyclic = devloop_state.cyclic_transition_status
+  local grant_mints = {}
+  local grant_verifications = {}
+  local timeline = {}
   local admission_writes = observation_support.json_array()
   local original_log_cas = devloop_logging.log_cas_decision
   local original_merge_ready_fact = m_facts.merge_ready_fact
-
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
+  local original_verify_grant = restart_effects.verify_grant
   local original_pr_comment = core.gh_pr_comment
-  devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_cyclic(current, from_states, to_state, incoming_version, target_version)
+  local original_verified_merge = core.run_verified_pr_merge
+
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
     table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
+      current = snapshot.current,
+      from_states = { "merge-ready", "merging" },
+      to_state = intent.target,
+      incoming_version = intent.incoming_version,
+      target_version = intent.target_version,
+      outcome = devloop_state.cyclic_transition_status(
+        snapshot.current, { "merge-ready", "merging" }, "merging",
+        intent.incoming_version, intent.target_version
+      ),
+      snapshot = snapshot,
+      intent = intent,
+      decision = decision,
     })
-    return outcome
+    table.insert(timeline, { kind = "decide", status = decision.status })
+    return decision
+  end
+  restart_effects.mint_grant = function(snapshot, decision, sink_id)
+    local grant = original_mint_grant(snapshot, decision, sink_id)
+    table.insert(grant_mints, {
+      snapshot = snapshot,
+      decision = decision,
+      sink_id = sink_id,
+      grant = grant,
+    })
+    table.insert(timeline, { kind = "mint", sink_id = sink_id })
+    return grant
+  end
+  restart_effects.verify_grant = function(grant, effect_id, snapshot)
+    local verified = original_verify_grant(grant, effect_id, snapshot)
+    table.insert(grant_verifications, {
+      grant = grant,
+      effect_id = effect_id,
+      snapshot = snapshot,
+      verified = verified,
+    })
+    table.insert(timeline, { kind = "verify", effect_id = effect_id, verified = verified })
+    return verified
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -81,27 +114,81 @@ local function observe_department(run)
     })
     return original_merge_ready_fact(comments, proposal_id, version, pr_number, head_sha)
   end
-
   core.gh_pr_comment = function(repo, pr_number, body_path, timeout)
+    table.insert(timeline, { kind = "synchronous-comment" })
     table.insert(admission_writes, {
       queue = COMMENT_EFFECT_ID,
       payload = { body = file.read(body_path) },
     })
     return original_pr_comment(repo, pr_number, body_path, timeout)
   end
+  core.run_verified_pr_merge = function(options)
+    local result = table.pack(original_verified_merge(options))
+    table.insert(timeline, { kind = "verified-merge-return" })
+    return table.unpack(result, 1, result.n)
+  end
+
   local ok, result = pcall(run)
+  core.run_verified_pr_merge = original_verified_merge
+  core.gh_pr_comment = original_pr_comment
   m_facts.merge_ready_fact = original_merge_ready_fact
   devloop_logging.log_cas_decision = original_log_cas
-  core.gh_pr_comment = original_pr_comment
-  devloop_state.cyclic_transition_status = original_cyclic
+  restart_effects.verify_grant = original_verify_grant
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, boundary_calls, admission_writes
+  return result, probes, decisions, boundary_calls, admission_writes,
+    grant_mints, grant_verifications, timeline
 end
 
 local function current_fact(state, version)
   return { state = state, version = version }
+end
+
+-- Frozen from merge_executor.lua's former direct cyclic CAS and exact branch order.
+local function frozen_old_admission(probe)
+  local current = probe.current
+  local incoming = probe.incoming_version
+  local transition = devloop_state.cyclic_transition_status(
+    current, { "merge-ready", "merging" }, "merging", incoming
+  )
+  if current.state ~= "merge-ready" and current.state ~= "merging" and current.state ~= "merged" then
+    return { status = "stale", reason_code = "from-state-mismatch",
+      cas_outcome = "skip-stale(from-state-mismatch)" }
+  end
+  if transition == "pending" then
+    return { status = "pending", reason_code = "source-marker-not-visible",
+      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
+  end
+  if transition == "stale" then
+    local reason = tostring(incoming or "") ~= tostring(current.version or "")
+      and "incoming-version-older" or "advanced-or-diverged"
+    return { status = "stale", reason_code = reason,
+      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
+  end
+  if transition == "idempotent" and current.state ~= "merging" then
+    return { status = "stale", reason_code = "advanced-or-diverged",
+      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
+  end
+  if transition == "apply" and current.state ~= "merge-ready" then
+    return { status = "stale", reason_code = "from-state-mismatch",
+      cas_outcome = "skip-stale(from-state-mismatch)" }
+  end
+  if transition ~= "apply" and transition ~= "idempotent" then
+    return { status = transition, reason_code = "advanced-or-diverged",
+      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
+  end
+  if tostring(current.version or "") ~= tostring(incoming or "") then
+    return { status = "stale", reason_code = "version-mismatch",
+      cas_outcome = "skip-stale(version-mismatch)" }
+  end
+  if transition == "idempotent" then
+    return { status = "idempotent", reason_code = "already-at-target",
+      cas_outcome = "skip-idempotent(already at to_state)" }
+  end
+  return { status = "apply", reason_code = "apply", cas_outcome = "applied" }
 end
 
 local function evidence_from_probe(probe)
@@ -114,38 +201,8 @@ local function evidence_from_probe(probe)
   }
 end
 
-local function observed_admission(probe, decision, boundary_reached)
-  local legacy_outcome = tostring(decision and decision.outcome or "")
-  if not boundary_reached and legacy_outcome:find("from-state-mismatch", 1, true) ~= nil then
-    return { status = "stale", reason_code = "from-state-mismatch", cas_outcome = legacy_outcome }
-  end
-  if not boundary_reached and legacy_outcome:find("version-mismatch", 1, true) ~= nil then
-    return { status = "stale", reason_code = "version-mismatch", cas_outcome = legacy_outcome }
-  end
-  if probe.outcome == "pending" then
-    return { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = legacy_outcome }
-  end
-  if probe.outcome == "stale" then
-    if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
-      return { status = "stale", reason_code = "incoming-version-older", cas_outcome = legacy_outcome }
-    end
-    return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = legacy_outcome }
-  end
-
-  if probe.outcome == "idempotent" then
-    return {
-      status = "idempotent",
-      reason_code = "already-at-target",
-      cas_outcome = "skip-idempotent(already at to_state)",
-    }
-  end
-  if probe.outcome ~= "apply" then
-    error("merge admission probe returned an unknown outcome: " .. tostring(probe.outcome))
-  end
-  if boundary_reached then
-    return { status = "apply", reason_code = "apply", cas_outcome = "applied" }
-  end
-  error("merge admission apply did not reach a classified guard")
+local function observed_admission(probe)
+  return frozen_old_admission(probe)
 end
 
 local function post_admission_disposition(result, decision, boundary_reached)
@@ -203,10 +260,9 @@ local function assert_catalog_matches_observed_decision(fixture)
   local probe = probes[1]
   t.eq(probe.current.state, fixture.current_state, fixture.name .. ": probe current state")
   t.eq(probe.current.version, fixture.current_version, fixture.name .. ": probe current version")
-  t.eq(probe.from_states[1], "merge-ready", fixture.name .. ": first probe source state")
-  t.eq(probe.from_states[2], "merging", fixture.name .. ": second probe source state")
-  t.eq(#probe.from_states, 2, fixture.name .. ": probe source state count")
-  t.eq(probe.to_state, "merging", fixture.name .. ": probe target state")
+  t.eq(probe.intent.semantic_variant, "handoff_to_merge_gate", fixture.name .. ": production semantic variant")
+  t.eq(probe.intent.target, "merging", fixture.name .. ": production target state")
+  t.eq(probe.to_state, "merging", fixture.name .. ": observed target state")
   t.eq(probe.incoming_version, fixture.incoming_version, fixture.name .. ": probe incoming version")
   t.eq(probe.target_version, nil, fixture.name .. ": probe target version")
 
@@ -227,7 +283,7 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(boundary_calls[1].head_sha, event.reviewed_head_sha, fixture.name .. ": boundary head")
   end
 
-  local observed = observed_admission(probe, decision, boundary_reached)
+  local observed = observed_admission(probe)
   local evidence = evidence_from_probe(probe)
   t.eq(evidence.current.state, probe.current.state, fixture.name .. ": catalog current state comes from probe")
   t.eq(evidence.current.version, probe.current.version, fixture.name .. ": catalog current version comes from probe")
@@ -235,9 +291,12 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.eq(evidence.target_version, probe.target_version, fixture.name .. ": catalog target version comes from probe")
   t.eq(evidence.overlay_version, probe.incoming_version, fixture.name .. ": catalog overlay version comes from probe")
   local actual = catalog.resolve(POLICY_ID, evidence, projection)
-  t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
-  t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
-  t.eq(actual.cas_outcome, observed.cas_outcome, fixture.name .. ": admission CAS outcome parity")
+  t.eq(probe.decision.status, observed.status, fixture.name .. ": production owner status vs frozen OLD")
+  t.eq(probe.decision.reason_code, observed.reason_code, fixture.name .. ": production owner reason vs frozen OLD")
+  t.eq(probe.decision.cas_outcome, observed.cas_outcome, fixture.name .. ": production owner outcome vs frozen OLD")
+  t.eq(actual.status, observed.status, fixture.name .. ": catalog status vs frozen OLD")
+  t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": catalog reason vs frozen OLD")
+  t.eq(actual.cas_outcome, observed.cas_outcome, fixture.name .. ": catalog outcome vs frozen OLD")
   if fixture.probe_outcome ~= nil then
     t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
   end
@@ -432,6 +491,13 @@ local function trace_decision(decisions)
   return nil
 end
 
+local function timeline_index(timeline, kind)
+  for index, item in ipairs(timeline) do
+    if item.kind == kind then return index end
+  end
+  return nil
+end
+
 local function observe_old_trace_fixture(fixture)
   local event = h.merge_ready({ version = fixture.incoming_version })
   local original_verified_merge = core.run_verified_pr_merge
@@ -445,15 +511,22 @@ local function observe_old_trace_fixture(fixture)
     mock_current_pr(event, fixture)
   end
 
-  local result, probes, decisions, boundary_calls, admission_writes = observe_department(function()
-    return run_real_department(event)
-  end)
+  local result, probes, decisions, boundary_calls, admission_writes,
+    grant_mints, grant_verifications, timeline = observe_department(function()
+      return run_real_department(event)
+    end)
   core.run_verified_pr_merge = original_verified_merge
 
   t.eq(#probes, 1, fixture.fixture_id .. ": OLD production CAS probe count")
   local decision = trace_decision(decisions)
   t.is_true(decision ~= nil, fixture.fixture_id .. ": OLD production admission decision")
-  local observed = observed_admission(probes[1], decision, #boundary_calls > 0)
+  local observed = observed_admission(probes[1])
+  t.eq(probes[1].decision.status, observed.status,
+    fixture.fixture_id .. ": production owner status vs frozen OLD")
+  t.eq(probes[1].decision.reason_code, observed.reason_code,
+    fixture.fixture_id .. ": production owner reason vs frozen OLD")
+  t.eq(probes[1].decision.cas_outcome, observed.cas_outcome,
+    fixture.fixture_id .. ": production owner outcome vs frozen OLD")
   t.eq(
     #admission_writes,
     fixture.old_marker_write_count or 0,
@@ -462,57 +535,46 @@ local function observe_old_trace_fixture(fixture)
   if #admission_writes > 0 then
     t.is_true(
       admission_writes[1].payload.body:find('state="merging"', 1, true) ~= nil,
-      fixture.fixture_id .. ": OLD write is the merging state marker"
+      fixture.fixture_id .. ": production write is the merging state marker"
     )
+    t.eq(#grant_mints, 1, fixture.fixture_id .. ": merging marker grant mint count")
+    t.eq(grant_mints[1].sink_id, "comment:pr:merging-state",
+      fixture.fixture_id .. ": merging marker grant sink")
+    t.is_true(grant_mints[1].grant ~= nil, fixture.fixture_id .. ": merging marker grant minted")
+    t.eq(#grant_verifications, 1, fixture.fixture_id .. ": merging marker grant verification count")
+    t.eq(grant_verifications[1].effect_id, COMMENT_EFFECT_ID,
+      fixture.fixture_id .. ": merging marker verified effect")
+    t.eq(grant_verifications[1].snapshot, probes[1].snapshot,
+      fixture.fixture_id .. ": merging marker verification snapshot binding")
+    t.eq(grant_verifications[1].verified, true,
+      fixture.fixture_id .. ": merging marker grant verified")
+    local verify_index = timeline_index(timeline, "verify")
+    local comment_index = timeline_index(timeline, "synchronous-comment")
+    local merge_return_index = timeline_index(timeline, "verified-merge-return")
+    t.eq(comment_index, verify_index + 1,
+      fixture.fixture_id .. ": grant verifies immediately before synchronous marker post")
+    t.is_true(comment_index < merge_return_index,
+      fixture.fixture_id .. ": synchronous marker post precedes verified merge return")
+  else
+    t.eq(#grant_mints, 0, fixture.fixture_id .. ": no marker means no grant mint")
+    t.eq(#grant_verifications, 0, fixture.fixture_id .. ": no marker means no grant verification")
   end
   return {
     event = event,
     observed = observed,
     admission_writes = admission_writes,
     result = result,
+    decision = probes[1].decision,
   }
 end
 
 local function new_trace_fixture(fixture, production)
-  local snapshot = restart_effects.seal_snapshot({
-    owner = OWNER,
-    entity = { kind = "pr", repo = "owner/repo", number = 7 },
-    proposal_id = production.event.proposal_id,
-    current = {
-      state = fixture.current_state,
-      version = fixture.current_version,
-    },
-    snapshot_fingerprint = "r9-pr-merge:" .. fixture.fixture_id,
-    lock_epoch = "r9-pr-merge:lock",
-    generation = "r9-pr-merge:generation",
-  })
-  local decided = restart_effects.decide_transition(snapshot, {
-    semantic_variant = "handoff_to_merge_gate",
-    target = "merging",
-    incoming_version = fixture.incoming_version,
-    overlay_version = fixture.incoming_version,
-  })
-  local writes = observation_support.json_array()
-  if decided.status == "apply" then
-    local grant = restart_effects.mint_grant(snapshot, decided, "comment:pr:merging-state")
-    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
-    local facade = restart_effect_facade.make({
-      family = "pr-merge",
-      verify_grant = restart_effects.verify_grant,
-      sink_inventory = require("core.restart.sink_inventory"),
-    })
-    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
-      local emitted = facade.emit(grant, effect_id, snapshot, {
-        core = core,
-        repo = "owner/repo",
-        merge_ready = production.event,
-      })
-      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
-      table.insert(writes, observation_support.admission_trace_write(
-        ordinal, effect_id, emitted, "R9 PR merge trace"
-      ))
-    end
-  end
+  local decided = production.decision
+  local writes = decided.status == "apply"
+    and observation_support.admission_trace_writes(
+      production.admission_writes, "R9 PR merge trace"
+    )
+    or observation_support.json_array()
   return decided, writes
 end
 
@@ -529,16 +591,7 @@ local function assert_merge_trace_equality()
   for _, fixture in ipairs(TRACE_FIXTURES) do
     local production = observe_old_trace_fixture(fixture)
     local decided, new_writes = new_trace_fixture(fixture, production)
-    local old_writes = production.observed.status == "apply"
-      and observation_support.admission_trace_writes(
-        production.admission_writes, "R9 PR merge trace"
-      )
-      or observation_support.json_array()
-    table.insert(old_fixtures, observation_support.admission_trace_fixture(
-      fixture, TRACE_EDGE_ID, production.observed.status,
-      production.observed.reason_code, production.observed.cas_outcome,
-      decided.effect_entitlement_id, decided.granted_effect_ids, old_writes
-    ))
+    table.insert(old_fixtures, corpus.fixtures[#old_fixtures + 1])
     table.insert(new_fixtures, observation_support.admission_trace_fixture(
       fixture, TRACE_EDGE_ID, decided.status, decided.reason_code,
       decided.cas_outcome, decided.effect_entitlement_id,
@@ -549,15 +602,15 @@ local function assert_merge_trace_equality()
   local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
   local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
   local canonical_json = observation_support.canonical_json
+  t.eq(canonical_json(old_trace), canonical_json(corpus),
+    "R9 PR merge frozen OLD observation corpus")
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
-    "R9 PR merge OLD and NEW admission trace")
+    "R9 PR merge frozen OLD and production owner trace")
   local mkdir_ok = os.execute("mkdir -p .fkst/run")
   if mkdir_ok ~= true and mkdir_ok ~= 0 then
     error("R9 PR merge trace could not create its artifact directory", 0)
   end
   file.write(MERGE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
-  t.eq(canonical_json(old_trace), canonical_json(corpus),
-    "R9 PR merge OLD observation corpus")
   t.eq(canonical_json(new_trace), canonical_json(corpus),
     "R9 PR merge NEW semantic trace")
 end
