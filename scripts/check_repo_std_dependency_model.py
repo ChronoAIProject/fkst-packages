@@ -41,6 +41,7 @@ DEVLOOP_FAMILY = {
     "github-devloop-ops",
     "github-devloop-pr",
     "github-proxy",
+    "github-devloop-worktree-gc",
 }
 HOST_LIBRARY_SURFACES = {
     "workflow": {

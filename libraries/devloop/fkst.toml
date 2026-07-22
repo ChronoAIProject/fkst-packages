@@ -154,4 +154,5 @@ allow = [
   "github-devloop-workflow",
   "fkst-substrate-ref-maintainer",
   "github-proxy",
+  "github-devloop-worktree-gc",
 ]
