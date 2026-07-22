@@ -12,14 +12,13 @@ local contract_time = require("contract.time")
 local operator_commands = require("devloop.operator_commands")
 local queue = require("devloop.queue")
 local transition_version = require("contract.transition_version")
-local context_bundle = require("devloop.context_bundle")
+local observe_issue_entry = require("departments.observe_issue.entry_writer")
 local replayer = require("devloop.replayer")
 local awaiting_pr_replay = require("awaiting_pr_replay")
 
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local v_issue = require("devloop.validators.issue")
-local v_validate_proposal = require("devloop.validators.validate_proposal")
 local v_pr = require("devloop.validators.pr")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
@@ -782,45 +781,17 @@ local function process_issue_event(event)
         return
       end
     end
-    local transition = devloop_state.versioned_transition_status(state, { "unmanaged" }, "thinking", issue.dedup_key)
-    if transition == "stale" then
-      devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "unmanaged", "thinking", devloop_state.cas_outcome(state, transition, issue.dedup_key), "current marker is not an unmanaged start")
-      return
-    end
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "unmanaged", "thinking", devloop_state.cas_outcome(state, transition, issue.dedup_key), "unmanaged state marker pending for observe")
-      error("github-devloop: state-marker-pending: unmanaged state marker pending for observe; retrying")
-    end
-    if not m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id) then
-      return
-    end
-    devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "unmanaged", "thinking", devloop_state.cas_outcome(state, transition, issue.dedup_key), "starting consensus for opted-in issue")
-
-    issue.content_fetch = context_bundle.context_fetch_ref_from_bundle(core, {
-      dept = "observe_issue",
-      repo = issue.repo,
-      issue_number = issue.number,
+    observe_issue_entry.process({
+      core = core,
+      current = current,
+      event = event,
+      issue = issue,
+      lock_key = lock_key,
       proposal_id = proposal_id,
-      version = issue.dedup_key,
-      tick = event.ts,
+      state = state,
     })
-    local proposal = payloads_builders.build_board_proposal(core, issue, event.ts)
-    if not v_validate_proposal.validate_proposal(proposal) then
-      log.warn("github-devloop dept=observe_issue proposal_id=" .. tostring(proposal_id) .. " tag=SKIP reason=cannot-build-valid-proposal")
-      return
-    end
 
-    local comment_request = requests_lifecycle.build_observe_comment_request(core, issue, proposal)
-    local label_request = requests_labels.build_thinking_label_request(issue, proposal)
-    local add_labels, remove_labels = devloop_state.state_label_changes("thinking")
-    devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, { add = add_labels, remove = remove_labels }, {
-      "consensus.proposal",
-      "github-proxy.github_issue_comment_request",
-      "github-proxy.github_issue_label_request",
-    })
-    devloop_logging.log_raise("observe_issue", proposal_id, "consensus.proposal", proposal)
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-    devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_label_request", label_request)
+
   end)
 end
 

@@ -308,15 +308,14 @@ function M.decide_transition(sealed_snapshot, intent)
     and not restart_source_admission.exact_source_state(variant.source_states, edge.source.state) then
     return illegal("policy-variant-shape-mismatch")
   end
+  local admitted_sources = nil
+  local current_state = nil
   if ingress_mode then
-    local admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
+    admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
     if admitted_sources == nil then
       return illegal("policy-variant-shape-mismatch")
     end
-    local current_state = current.state == nil and "unmanaged" or current.state
-    if admitted_sources[current_state] ~= true then
-      return illegal("source-state-not-admitted")
-    end
+    current_state = current.state == nil and "unmanaged" or current.state
   end
   local cas_base = variant.base or definition.base
   if edge.cas_policy_id == "cas.legacy_implement_activation_handoff_v1" and cas_base == nil then
@@ -344,6 +343,9 @@ function M.decide_transition(sealed_snapshot, intent)
     evidence.accepted_handoff = normalized.accepted_handoff
   end
   local resolved = catalog.resolve(edge.cas_policy_id, evidence, projection)
+  if ingress_mode and resolved.status == "apply" and admitted_sources[current_state] ~= true then
+    return illegal("source-state-not-admitted")
+  end
   if matches > 1 and resolved.status ~= "pending" then
     return illegal("ambiguous-variant")
   end

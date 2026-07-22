@@ -8,8 +8,16 @@ local restart_effect_facade = require("devloop.restart_effect_facade")
 
 local M = {}
 
+local PROPOSAL_EFFECT_ID = "consensus.proposal"
 local COMMENT_EFFECT_ID = "github-proxy.github_issue_comment_request"
 local LABEL_EFFECT_ID = "github-proxy.github_issue_label_request"
+
+local function serialize_thinking_proposal(args)
+  if type(args) ~= "table" or type(args.proposal) ~= "table" then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.proposal
+end
 
 local function serialize_thinking_comment(args)
   if type(args) ~= "table"
@@ -226,6 +234,10 @@ local SERIALIZERS_BY_FAMILY = {
     },
   },
   ["observe-issue-entry"] = {
+    [PROPOSAL_EFFECT_ID] = {
+      sink_id = "queue:consensus.proposal",
+      serialize = serialize_thinking_proposal,
+    },
     [COMMENT_EFFECT_ID] = {
       sink_id = "comment:issue:thinking-state",
       serialize = serialize_thinking_comment,

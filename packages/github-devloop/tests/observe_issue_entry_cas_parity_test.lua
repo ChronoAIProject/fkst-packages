@@ -55,7 +55,9 @@ local function observe_department(run, fixture)
   local probes = {}
   local decisions = {}
   local boundary_calls = {}
+  local sequence = 0
   local original_versioned = devloop_state.versioned_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_claim_issue = devloop_claims.claim_issue_for_management
   -- Keep each fixture independent from the process-wide live-run registry.
@@ -67,16 +69,42 @@ local function observe_department(run, fixture)
   end
 
   devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
+    if type(from_states) == "table"
+      and #from_states == 1
+      and from_states[1] == "unmanaged"
+      and to_state == "thinking" then
+      error("observe_issue production used retired direct entry CAS", 0)
+    end
+    return original_versioned(current, from_states, to_state, incoming_version, target_version)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    if intent.semantic_variant == "unmanaged_issue" then
+      local legacy_current = {
+        state = snapshot.current.state,
+        version = snapshot.current.version,
+      }
+      if legacy_current.state == nil then
+        legacy_current.version = nil
+      end
+      sequence = sequence + 1
+      table.insert(probes, {
+        sequence = sequence,
+        current = legacy_current,
+        from_states = { "unmanaged" },
+        to_state = intent.target,
+        incoming_version = intent.incoming_version,
+        target_version = intent.target_version,
+        outcome = original_versioned(
+          legacy_current,
+          { "unmanaged" },
+          intent.target,
+          intent.incoming_version,
+          intent.target_version
+        ),
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     if dept == "observe_issue"
@@ -96,22 +124,25 @@ local function observe_department(run, fixture)
     return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
   end
   devloop_claims.claim_issue_for_management = function(M, dept, repo, issue_number, current, proposal_id)
-    local outcome = original_claim_issue(M, dept, repo, issue_number, current, proposal_id)
-    table.insert(boundary_calls, {
+    sequence = sequence + 1
+    local boundary = {
+      sequence = sequence,
       dept = dept,
       repo = repo,
       issue_number = issue_number,
       current = current,
       proposal_id = proposal_id,
-      outcome = outcome,
-    })
-    return outcome
+    }
+    table.insert(boundary_calls, boundary)
+    boundary.outcome = original_claim_issue(M, dept, repo, issue_number, current, proposal_id)
+    return boundary.outcome
   end
 
   local ok, result = pcall(run)
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup
   devloop_claims.claim_issue_for_management = original_claim_issue
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
@@ -290,6 +321,7 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.eq(#boundary_calls, expected_boundary_reached and 1 or 0, fixture.name .. ": admission boundary reach")
   if boundary_reached then
     local boundary = boundary_calls[1]
+    t.is_true(boundary.sequence > probe.sequence, fixture.name .. ": admission boundary follows CAS decision")
     t.eq(boundary.dept, "observe_issue", fixture.name .. ": claim boundary department")
     t.eq(boundary.repo, event.repo, fixture.name .. ": claim boundary repo")
     t.eq(boundary.issue_number, event.number, fixture.name .. ": claim boundary issue")
@@ -455,6 +487,12 @@ local ADMISSION_EFFECT_IDS = {
   ["github-proxy.github_issue_label_request"] = true,
 }
 
+local FULL_ENTRY_EFFECT_IDS = {
+  "consensus.proposal",
+  "github-proxy.github_issue_comment_request",
+  "github-proxy.github_issue_label_request",
+}
+
 local OLD_EFFECT_SHAPES = {
   ["consensus.proposal"] = {
     effect_id = "queue:consensus.proposal",
@@ -537,8 +575,10 @@ local function assert_frozen_old_trace(fixture, production)
   local expected = frozen_old_observation(fixture.old_observation_name)
   local expected_outcome = expected.old_outcome
   local expected_inputs = expected.old_inputs
-  t.eq(production.probe.current.state, expected_inputs.current_fact.state, fixture.fixture_id .. ": OLD current state")
-  t.eq(production.probe.current.version, expected_inputs.current_fact.version, fixture.fixture_id .. ": OLD current version")
+  t.eq(observation_support.nullable(production.probe.current.state),
+    expected_inputs.current_fact.state, fixture.fixture_id .. ": OLD current state")
+  t.eq(observation_support.nullable(production.probe.current.version),
+    expected_inputs.current_fact.version, fixture.fixture_id .. ": OLD current version")
   t.eq(production.probe.incoming_version, expected_inputs.incoming_version, fixture.fixture_id .. ": OLD incoming version")
   t.eq(production.probe.outcome, expected_outcome.status, fixture.fixture_id .. ": OLD CAS status")
   t.eq(production.decision.outcome, expected_outcome.cas_outcome, fixture.fixture_id .. ": OLD CAS outcome")
@@ -602,7 +642,10 @@ local function new_trace_fixture(fixture, production)
   })
   t.eq(decided.status, "apply", fixture.fixture_id .. ": NEW admission status " .. tostring(decided.reason_code))
   t.eq(decided.effect_entitlement_id, TRACE_EDGE_ID .. "/apply", fixture.fixture_id .. ": NEW entitlement")
-  t.eq(#decided.granted_effect_ids, 2, fixture.fixture_id .. ": NEW granted effect count")
+  t.eq(#decided.granted_effect_ids, #FULL_ENTRY_EFFECT_IDS, fixture.fixture_id .. ": NEW granted effect count")
+  for ordinal, effect_id in ipairs(FULL_ENTRY_EFFECT_IDS) do
+    t.eq(decided.granted_effect_ids[ordinal], effect_id, fixture.fixture_id .. ": NEW granted effect order")
+  end
   local grant = restart_effects.mint_grant(snapshot, decided, "comment:issue:thinking-state")
   t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
   local facade = restart_effect_facade.make({
@@ -616,12 +659,25 @@ local function new_trace_fixture(fixture, production)
     issue = production.event,
     proposal = proposal,
   }
-  for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
+  for _, effect_id in ipairs(decided.granted_effect_ids) do
     local emitted = facade.emit(grant, effect_id, snapshot, args)
     t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
-    table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
+    t.eq(
+      canonical_json(emitted),
+      canonical_json(raised_payload(production.result, effect_id)),
+      fixture.fixture_id .. ": NEW facade payload matches production " .. effect_id
+    )
+    if ADMISSION_EFFECT_IDS[effect_id] == true then
+      table.insert(writes, observation_support.admission_trace_write(#writes + 1, effect_id, emitted))
+    end
   end
-  return trace_fixture(fixture, decided, writes)
+  return trace_fixture(fixture, {
+    status = decided.status,
+    reason_code = decided.reason_code,
+    cas_outcome = decided.cas_outcome,
+    effect_entitlement_id = decided.effect_entitlement_id,
+    granted_effect_ids = fixture.granted_effect_ids,
+  }, writes)
 end
 
 local function assert_observe_issue_entry_trace_equality()
@@ -753,6 +809,45 @@ return {
 
   test_observe_issue_entry_malformed_payload_fails_closed_before_cas = function()
     assert_malformed_fails_closed_before_cas()
+  end,
+
+  test_observe_issue_entry_illegal_apply_from_non_declared_source_is_rejected_after_resolve = function()
+    local original_resolve = catalog.resolve
+    local resolve_called = false
+    catalog.resolve = function(policy_id, evidence, candidate_projection)
+      resolve_called = true
+      t.eq(policy_id, POLICY_ID, "illegal apply: resolved policy")
+      t.eq(evidence.current.state, "declined", "illegal apply: resolved current state")
+      t.eq(type(candidate_projection), "table", "illegal apply: owner projection shape")
+      t.eq(candidate_projection.unmanaged.thinking, true, "illegal apply: owner projection unmanaged edge")
+      t.eq(#owner_pending_projection.owner_errors(OWNER, candidate_projection), 0,
+        "illegal apply: owner projection validity")
+      return {
+        status = "apply",
+        reason_code = "apply",
+        cas_outcome = "applied",
+      }
+    end
+    local ok, decision = pcall(function()
+      local sealed_snapshot = restart_authority.seal_snapshot({
+        owner = OWNER,
+        current = { state = "declined", version = V_EQUAL },
+      })
+      return restart_authority.decide_transition(sealed_snapshot, {
+        semantic_variant = "unmanaged_issue",
+        source_boundary = "github-proxy.github_entity_changed",
+        target = "thinking",
+        incoming_version = ISSUE_V_EQUAL,
+      })
+    end)
+    catalog.resolve = original_resolve
+    if not ok then
+      error(decision, 0)
+    end
+    t.eq(resolve_called, true, "illegal apply: catalog resolves before source admission")
+    t.eq(decision.status, "illegal", "illegal apply: status")
+    t.eq(decision.reason_code, "source-state-not-admitted", "illegal apply: reason")
+    t.eq(decision.cas_outcome, "illegal(source-state-not-admitted)", "illegal apply: CAS outcome")
   end,
 
   test_r9_observe_issue_entry_old_equals_new_normalized_trace = function()

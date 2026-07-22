@@ -16,13 +16,18 @@ return {
       apply = {
         id = "github-devloop/thinking/entry/unmanaged_issue/apply",
         effect_ids = {
+          "consensus.proposal",
           "github-proxy.github_issue_comment_request",
           "github-proxy.github_issue_label_request",
         },
       },
       idempotent = {
         id = "github-devloop/thinking/entry/unmanaged_issue/idempotent",
-        effect_ids = {},
+        effect_ids = {
+          "consensus.proposal",
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
       },
     },
     provenance = {
