@@ -65,6 +65,8 @@ add("comment:pr:pr-child-open", "implement", "pr_child_handoff.child_start_comme
 add("comment:issue:pr-delegation", "implement", "pr_child_handoff.issue_delegation_comment", "comment", "lifecycle-authoritative", "pr-delegation:v1;dedup=pr-delegation/issue")
 add("comment:issue:awaiting-pr-state", "observe_issue", "awaiting_pr_replayer.grant_facade_comment", "comment", "lifecycle-authoritative", "state:v1/awaiting-pr+pr-delegation:v1;dedup=awaiting-pr")
 add("label:issue:awaiting-pr-state", "observe_issue", "awaiting_pr_replayer.grant_facade_label", "label", "lifecycle-authoritative", "state-label:awaiting-pr;dedup=awaiting-pr/label")
+add("comment:issue:awaiting-pr-terminal", "observe_issue", "awaiting_pr_replayer.grant_facade_exit_comment", "comment", "lifecycle-authoritative", "state:v1/merged|ready|blocked;dedup=awaiting-pr/resume")
+add("label:issue:awaiting-pr-terminal", "observe_issue", "awaiting_pr_replayer.grant_facade_exit_label", "label", "lifecycle-authoritative", "state-label:merged|ready|blocked;dedup=awaiting-pr/label")
 add("codex.dispatch:implement", "implement", "run_attempt.codex_dispatch", "codex", "lifecycle-authoritative", "codex-run:implement/proposal+dedup+worker")
 add("git.push:implementation-branch", "implement", "publish_implementation_branch.push", effect_kinds.git, "lifecycle-authoritative", "git-push/implementation-branch/proposal+version")
 add("adapter:github.pr-create", "implement", "pr_child_handoff.create_pr", "adapter", "grantless-non-lifecycle", "pr-create/head+base+issue")

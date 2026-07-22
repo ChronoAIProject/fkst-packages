@@ -321,7 +321,7 @@ local function committed_records()
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
-      record.old_inputs.current_fact.record_count = 80
+      record.old_inputs.current_fact.record_count = 82
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
       table.sort(record.old_outcome.observable_writes, function(left, right)
         return canonical_json(left) < canonical_json(right)

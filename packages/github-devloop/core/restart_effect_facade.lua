@@ -159,6 +159,56 @@ local function serialize_awaiting_pr_label(args)
   )
 end
 
+local function valid_awaiting_pr_exit_args(args)
+  return type(args) == "table"
+    and type(args.issue) == "table"
+    and type(args.state) == "table"
+    and type(args.next_state) == "table"
+    and type(args.child_state) == "table"
+    and type(args.delegation) == "table"
+    and type(args.current_pr) == "table"
+    and type(args.proposal_id) == "string"
+end
+
+local function serialize_awaiting_pr_exit_comment(args)
+  if not valid_awaiting_pr_exit_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return awaiting_pr_replayer.build_resume_comment_request(
+    args.issue,
+    args.state,
+    args.next_state,
+    args.child_state,
+    args.delegation,
+    args.current_pr
+  )
+end
+
+local function serialize_awaiting_pr_exit_label(args)
+  if not valid_awaiting_pr_exit_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  local source_ref = args.issue.source_ref
+    or entity_lib.issue_source_ref(args.issue.repo, args.issue.number)
+  return requests_labels.build_state_label_request(
+    args.issue.repo,
+    args.issue.number,
+    args.next_state.to_state,
+    args.proposal_id,
+    args.next_state.version,
+    base_ids.dedup_key({
+      "awaiting-pr",
+      "label",
+      tostring(args.proposal_id),
+      tostring(args.delegation.pr_number),
+      tostring(args.delegation.delegation),
+      tostring(args.next_state.to_state),
+      tostring(args.next_state.version),
+    }),
+    source_ref
+  )
+end
+
 local function serialize_loop_plain_comment(args)
   if type(args) ~= "table"
     or type(args.core) ~= "table"
@@ -256,6 +306,16 @@ local SERIALIZERS_BY_FAMILY = {
     [LABEL_EFFECT_ID] = {
       sink_id = "label:issue:awaiting-pr-state",
       serialize = serialize_awaiting_pr_label,
+    },
+  },
+  ["awaiting-pr-exit"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:awaiting-pr-terminal",
+      serialize = serialize_awaiting_pr_exit_comment,
+    },
+    [LABEL_EFFECT_ID] = {
+      sink_id = "label:issue:awaiting-pr-terminal",
+      serialize = serialize_awaiting_pr_exit_label,
     },
   },
   ["implement-activation"] = {

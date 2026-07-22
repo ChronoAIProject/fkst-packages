@@ -34,9 +34,6 @@ local OLD_APPLY_OBSERVATION_ID = "writer:github-devloop:awaiting-pr-enter/merged
 local AWAITING_PR_NEW_TRACE_PATH = ".fkst/run/r9-awaiting-pr-new-trace.json"
 local OWNER = core.restart_package_name
 local IMPLEMENTING_SHADOW_VARIANT = "implementing_merged_delegated_pr"
-local AWAITING_PR_MERGED_SHADOW_VARIANT = "child_pr_merged"
-local AWAITING_PR_READY_SHADOW_VARIANT = "child_pr_closed_unmerged_replaced"
-local AWAITING_PR_BLOCKED_SHADOW_VARIANT = "child_pr_not_merged"
 
 local POLICY_ID = "cas.legacy_awaiting_pr_v1"
 local REPO = "owner/repo"
@@ -66,9 +63,6 @@ local FROZEN_OLD_APPLY = {
 
 local variants = {
   ["implementing\0awaiting-pr"] = "implementing_to_awaiting_pr",
-  ["awaiting-pr\0merged"] = "awaiting_pr_to_merged",
-  ["awaiting-pr\0ready"] = "awaiting_pr_to_ready",
-  ["awaiting-pr\0blocked"] = "awaiting_pr_to_blocked",
 }
 
 local function probe_variant(from_states, to_state)
@@ -87,7 +81,6 @@ local function observe_department(run)
   local original_decide = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_parse_pr_proposal_id = entity_lib.parse_pr_proposal_id
-  local original_has_state_marker = devloop_state.has_state_marker
 
   devloop_state.versioned_transition_status = function(
     current,
@@ -155,25 +148,7 @@ local function observe_department(run)
     end
     return original_parse_pr_proposal_id(value)
   end
-  devloop_state.has_state_marker = function(comments, proposal_id, state, version)
-    local probe = probes[#probes]
-    if probe ~= nil
-      and probe.variant ~= "implementing_to_awaiting_pr"
-      and not boundary_seen[#probes] then
-      boundary_seen[#probes] = true
-      table.insert(boundary_calls, {
-        kind = "exact-target-marker",
-        probe = probe,
-        proposal_id = proposal_id,
-        state = state,
-        version = version,
-      })
-    end
-    return original_has_state_marker(comments, proposal_id, state, version)
-  end
-
   local ok, result = pcall(run)
-  devloop_state.has_state_marker = original_has_state_marker
   entity_lib.parse_pr_proposal_id = original_parse_pr_proposal_id
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide
@@ -741,54 +716,6 @@ return {
     })
   end,
 
-  -- awaiting_pr_to_ready is apply-only parity. The child-outcome observer routes
-  -- into replay only after the parent has been re-read as awaiting-pr, and replay
-  -- then feeds that same marker version into versioned_transition_status. An
-  -- already ready parent is rejected before this CAS probe, and stale/pending
-  -- versions cannot be constructed by this route.
-  test_shadow_awaiting_pr_to_ready_apply_parity = function()
-    assert_shadow_case({
-      name = "shadow-awaiting-pr-to-ready-apply",
-      current_state = "awaiting-pr",
-      current_version = V_EQUAL,
-      child_state = "closed-unmerged",
-      cas_variant = "awaiting_pr_to_ready",
-      semantic_variant = AWAITING_PR_READY_SHADOW_VARIANT,
-      target = "ready",
-      legacy_log_outcome = "applied(child-pr-closed-unmerged)",
-      expected_exit_code = 0,
-    })
-  end,
-
-  test_shadow_awaiting_pr_to_merged_apply_parity = function()
-    assert_shadow_case({
-      name = "shadow-awaiting-pr-to-merged-apply",
-      current_state = "awaiting-pr",
-      current_version = V_EQUAL,
-      child_state = "merged",
-      pr_state = "MERGED",
-      cas_variant = "awaiting_pr_to_merged",
-      semantic_variant = AWAITING_PR_MERGED_SHADOW_VARIANT,
-      target = "merged",
-      legacy_log_outcome = "applied(child-pr-merged)",
-      expected_exit_code = 0,
-    })
-  end,
-
-  test_shadow_awaiting_pr_to_blocked_apply_parity = function()
-    assert_shadow_case({
-      name = "shadow-awaiting-pr-to-blocked-apply",
-      current_state = "awaiting-pr",
-      current_version = V_EQUAL,
-      child_state = "blocked",
-      cas_variant = "awaiting_pr_to_blocked",
-      semantic_variant = AWAITING_PR_BLOCKED_SHADOW_VARIANT,
-      target = "blocked",
-      legacy_log_outcome = "applied(child-pr-blocked)",
-      expected_exit_code = 0,
-    })
-  end,
-
   test_implementing_canonicalization_uses_spied_current_version_not_raw_fixture_version = function()
     assert_case({
       name = "implementing-canonicalization-derived-version",
@@ -802,49 +729,6 @@ return {
       effect_count = 2,
       post_admission_disposition = "effect-emitted(awaiting-pr)",
       legacy_log_outcome = "applied(merged-delegated-pr-canonicalized)",
-    })
-  end,
-
-  test_awaiting_pr_merged_uses_spied_probe_evidence = function()
-    assert_case({
-      name = "awaiting-pr-to-merged",
-      current_state = "awaiting-pr",
-      current_version = V_EQUAL,
-      child_state = "merged",
-      pr_state = "MERGED",
-      boundary_reached = true,
-      admission_status = "apply",
-      effect_count = 2,
-      post_admission_disposition = "effect-emitted(merged)",
-      legacy_log_outcome = "applied(child-pr-merged)",
-    })
-  end,
-
-  test_awaiting_pr_closed_child_uses_spied_probe_evidence = function()
-    assert_case({
-      name = "awaiting-pr-to-ready",
-      current_state = "awaiting-pr",
-      current_version = V_EQUAL,
-      child_state = "closed-unmerged",
-      boundary_reached = true,
-      admission_status = "apply",
-      effect_count = 2,
-      post_admission_disposition = "effect-emitted(ready)",
-      legacy_log_outcome = "applied(child-pr-closed-unmerged)",
-    })
-  end,
-
-  test_awaiting_pr_blocked_child_uses_spied_probe_evidence = function()
-    assert_case({
-      name = "awaiting-pr-to-blocked",
-      current_state = "awaiting-pr",
-      current_version = V_EQUAL,
-      child_state = "blocked",
-      boundary_reached = true,
-      admission_status = "apply",
-      effect_count = 2,
-      post_admission_disposition = "effect-emitted(blocked)",
-      legacy_log_outcome = "applied(child-pr-blocked)",
     })
   end,
 

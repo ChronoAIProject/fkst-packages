@@ -596,6 +596,7 @@ function M.extract_guard_boundary_edges(owner, rows)
           },
         }
         attach_cas_metadata(edge, successor, "guard_boundary edge")
+        attach_effect_entitlements(edge, successor, "guard_boundary edge")
         attach_pending_order(edge, successor, "guard_boundary edge")
         table.insert(edges, edge)
       end

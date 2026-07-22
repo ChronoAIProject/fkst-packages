@@ -19,9 +19,9 @@ local structural_fields = {
 local deferred_kinds = {}
 
 local expected_successor_kinds = {
-  ["awaiting-pr/child_pr_merged"] = "guard_boundary",
-  ["awaiting-pr/child_pr_closed_unmerged_replaced"] = "guard_boundary",
-  ["awaiting-pr/child_pr_not_merged"] = "guard_boundary",
+  ["awaiting-pr/awaiting_pr_to_merged"] = "guard_boundary",
+  ["awaiting-pr/awaiting_pr_to_ready"] = "guard_boundary",
+  ["awaiting-pr/awaiting_pr_to_blocked"] = "guard_boundary",
   ["dependency_wait/blockers_still_open"] = "guard_boundary",
   ["dependency_wait/blockers_released"] = "guard_boundary",
   ["dependency_wait/dependency_resolver_stale"] = "guard_boundary",
@@ -52,11 +52,11 @@ local expected_real_cas_by_id = {
 }
 
 local expected_guard_boundary_cas_by_id = {
-  ["github-devloop/awaiting-pr/guard_boundary/child_pr_merged"] =
+  ["github-devloop/awaiting-pr/guard_boundary/awaiting_pr_to_merged"] =
     { cas_policy_id = "cas.legacy_awaiting_pr_v1", cas_variant = "awaiting_pr_to_merged" },
-  ["github-devloop/awaiting-pr/guard_boundary/child_pr_closed_unmerged_replaced"] =
+  ["github-devloop/awaiting-pr/guard_boundary/awaiting_pr_to_ready"] =
     { cas_policy_id = "cas.legacy_awaiting_pr_v1", cas_variant = "awaiting_pr_to_ready" },
-  ["github-devloop/awaiting-pr/guard_boundary/child_pr_not_merged"] =
+  ["github-devloop/awaiting-pr/guard_boundary/awaiting_pr_to_blocked"] =
     { cas_policy_id = "cas.legacy_awaiting_pr_v1", cas_variant = "awaiting_pr_to_blocked" },
 }
 
@@ -359,6 +359,9 @@ local function assert_guard_boundary_edges(actual, expected, rows_without_bounda
     edge_keys.semantic_variant = true
     if expected_edge.cas_policy_id ~= nil then edge_keys.cas_policy_id = true end; if expected_edge.cas_variant ~= nil then edge_keys.cas_variant = true end
     if expected_edge.pending_order ~= nil then edge_keys.pending_order = true end
+    if expected_edge.transition_effect_entitlements ~= nil then
+      edge_keys.transition_effect_entitlements = true
+    end
     assert_exact_keys(edge, edge_keys)
     if expected_edge.source.boundary == nil then
       assert_exact_keys(edge.source, { state = true })
@@ -377,6 +380,7 @@ local function assert_guard_boundary_edges(actual, expected, rows_without_bounda
     assert_semantic_variant(edge)
     t.eq(edge.cas_policy_id, expected_edge.cas_policy_id); t.eq(edge.cas_variant, expected_edge.cas_variant)
     assert_same_value(edge.pending_order, expected_edge.pending_order)
+    assert_same_value(edge.transition_effect_entitlements, expected_edge.transition_effect_entitlements)
     assert_valid_cas(edge)
     t.eq(edge.provenance.owner, expected_edge.provenance.owner)
     t.eq(edge.provenance.row, expected_edge.provenance.row)

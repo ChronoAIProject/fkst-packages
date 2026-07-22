@@ -1,4 +1,22 @@
 local devloop_state = require("devloop.state")
+
+local function transition_effect_entitlements(semantic_variant)
+  local id = "github-devloop/awaiting-pr/guard_boundary/" .. semantic_variant
+  return {
+    apply = {
+      id = id .. "/apply",
+      effect_ids = {
+        "github-proxy.github_issue_comment_request",
+        "github-proxy.github_issue_label_request",
+      },
+    },
+    idempotent = {
+      id = id .. "/idempotent",
+      effect_ids = {},
+    },
+  }
+end
+
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -69,22 +87,24 @@ return function(M, h)
       successors = {
         {
           state = "merged",
-          output_variant = "child_pr_merged",
+          output_variant = "awaiting_pr_to_merged",
           kind = "guard_boundary",
           pending_order = { participates = true, predecessor_state = "awaiting-pr" },
           cas_policy_id = "cas.legacy_awaiting_pr_v1",
           cas_variant = "awaiting_pr_to_merged",
+          transition_effect_entitlements = transition_effect_entitlements("awaiting_pr_to_merged"),
           postcondition_family = "parent_resume_from_child_state_terminal",
           decision_type = "child_state_terminal_gate",
           monotonic = true,
         },
         {
           state = "ready",
-          output_variant = "child_pr_closed_unmerged_replaced",
+          output_variant = "awaiting_pr_to_ready",
           kind = "guard_boundary",
           pending_order = { participates = true, predecessor_state = "awaiting-pr" },
           cas_policy_id = "cas.legacy_awaiting_pr_v1",
           cas_variant = "awaiting_pr_to_ready",
+          transition_effect_entitlements = transition_effect_entitlements("awaiting_pr_to_ready"),
           postcondition_family = "parent_resume_from_child_state_terminal",
           decision_type = "child_state_terminal_gate",
           failure = true,
@@ -93,11 +113,12 @@ return function(M, h)
         },
         {
           state = "blocked",
-          output_variant = "child_pr_not_merged",
+          output_variant = "awaiting_pr_to_blocked",
           kind = "guard_boundary",
           pending_order = { participates = true, predecessor_state = "awaiting-pr" },
           cas_policy_id = "cas.legacy_awaiting_pr_v1",
           cas_variant = "awaiting_pr_to_blocked",
+          transition_effect_entitlements = transition_effect_entitlements("awaiting_pr_to_blocked"),
           postcondition_family = "parent_resume_from_child_state_terminal",
           decision_type = "child_state_terminal_gate",
           terminal = true,
