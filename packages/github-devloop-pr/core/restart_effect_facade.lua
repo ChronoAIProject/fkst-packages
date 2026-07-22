@@ -198,6 +198,41 @@ local function serialize_review_meta_label(args)
     args.version
   )
 end
+local function valid_review_reconcile_args(args)
+  return type(args) == "table"
+    and type(args.core) == "table"
+    and type(args.repo) == "string"
+    and type(args.reconcile) == "table"
+    and type(args.action) == "string"
+    and type(args.reason) == "string"
+    and type(args.version) == "string"
+end
+
+local function serialize_review_reconcile_comment(args)
+  if not valid_review_reconcile_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_review_reconcile_comment_request(
+    args.repo,
+    args.issue_number,
+    args.reconcile,
+    args.action,
+    args.reason,
+    args.version
+  )
+end
+
+local function serialize_review_reconcile_label(args)
+  if not valid_review_reconcile_args(args) or args.issue_number == nil then
+    return nil, "invalid-serializer-arguments"
+  end
+  return args.core.build_review_reconcile_label_request(
+    args.repo,
+    args.issue_number,
+    args.reconcile
+  )
+end
+
 local function valid_fix_reconcile_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
@@ -303,6 +338,17 @@ local REVIEW_META_SERIALIZERS = {
   },
 }
 
+local REVIEW_RECONCILE_SERIALIZERS = {
+  [COMMENT_EFFECT_ID] = {
+    sink_id = "comment:pr:reconcile-blocked",
+    serialize = serialize_review_reconcile_comment,
+  },
+  [LABEL_EFFECT_ID] = {
+    sink_id = "label:issue:reconcile-blocked",
+    serialize = serialize_review_reconcile_label,
+  },
+}
+
 local FIX_RECONCILE_SERIALIZERS = {
   [COMMENT_EFFECT_ID] = {
     sink_id = "comment:pr:reconcile-blocked",
@@ -328,6 +374,7 @@ local SERIALIZERS_BY_FAMILY = {
   ["pr-review-meta"] = REVIEW_META_SERIALIZERS,
   ["pr-fix"] = FIX_SERIALIZERS,
   ["observe-pr-fix"] = OBSERVE_PR_FIX_SERIALIZERS,
+  ["pr-review-reconcile"] = REVIEW_RECONCILE_SERIALIZERS,
   ["pr-fix-reconcile"] = FIX_RECONCILE_SERIALIZERS,
   ["pr-merge"] = MERGE_SERIALIZERS,
 }

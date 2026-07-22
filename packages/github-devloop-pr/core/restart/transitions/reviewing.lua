@@ -86,6 +86,19 @@ return function(M, h)
         output_variant = "review_reconcile_true_stall",
         cas_policy_id = "cas.legacy_issue_reconcile_v1",
         cas_variant = "reviewing_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/reviewing/entry/review_reconcile_true_stall/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/reviewing/entry/review_reconcile_true_stall/idempotent",
+            effect_ids = {},
+          },
+        },
         pending_order = { participates = false },
       },
       {

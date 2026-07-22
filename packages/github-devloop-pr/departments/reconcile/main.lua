@@ -210,21 +210,85 @@ local function pipeline_review(event)
       return
     end
     local version = conv_reconcile.review_reconcile_terminal_state_version(state.version, reconcile.round)
-    local transition = devloop_state.versioned_transition_status(state, { "reviewing" }, "blocked", version)
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", devloop_state.cas_outcome(state, transition, version), "reviewing state marker not yet visible")
+    local snapshot = restart_effects.seal_snapshot({
+      owner = core.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = pr_number },
+      proposal_id = reconcile.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "pr-review-reconcile", reconcile.proposal_id, state.state or "missing", state.version or "missing",
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
+      generation = state.version or "missing",
+    })
+    local decision = restart_effects.decide_transition(snapshot, {
+      semantic_variant = "review_reconcile_true_stall",
+      source_boundary = "devloop_review_reconcile",
+      target = "blocked",
+      incoming_version = version,
+      target_version = nil,
+      overlay_version = version,
+    })
+    if state.state == nil or decision.status == "pending" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", decision.cas_outcome, "reviewing state marker not yet visible")
       error("github-devloop: review-reconcile-marker-missing: reviewing state marker not yet visible for review reconcile; retrying")
     end
-    if transition == "idempotent" or transition == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", devloop_state.cas_outcome(state, transition, version), "current marker cannot be reconciled from reviewing")
+    local version_matches = transition_version.safe_version_segment(tostring(state.version or ""))
+      == transition_version.safe_version_segment(tostring(reconcile.issue_version))
+    if state.state ~= "reviewing" or not version_matches then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-stale(version-mismatch)", "review reconcile event does not match the canonical reviewing marker")
       return
+    end
+    if decision.status == "idempotent" or decision.status == "stale" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", decision.cas_outcome, "current marker cannot be reconciled from reviewing")
+      return
+    end
+    if decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: review reconcile decision rejected: "
+        .. tostring(decision.reason_code))
     end
 
     local action = "drop"
     local reason = tostring(reconcile.terminal_cause) .. "-after-" .. tostring(reconcile.round) .. "-review-rounds"
-    local comment_request = core.build_review_reconcile_comment_request(repo, issue_number, reconcile, action, reason, version)
-    local label_request = issue_number ~= nil and core.build_review_reconcile_label_request(repo, issue_number, reconcile) or nil
-    emit_blocked_reconcile("reviewing", reconcile.proposal_id, state, version, action, reason, comment_request, label_request, "github-proxy.github_pr_comment_request")
+    local grant = restart_effects.mint_grant(snapshot, decision, "comment:pr:reconcile-blocked")
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: review reconcile grant was not minted")
+    end
+    local facade = restart_effect_facade.make({
+      family = "pr-review-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local args = {
+      core = core,
+      repo = repo,
+      issue_number = issue_number,
+      reconcile = reconcile,
+      action = action,
+      reason = reason,
+      version = version,
+    }
+    local effects = {}
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      if effect_id ~= "github-proxy.github_issue_label_request" or issue_number ~= nil then
+        local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+        if payload == nil then
+          error("github-devloop: restart-effect-facade-rejected: review reconcile effect "
+            .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+        end
+        table.insert(effects, { queue = effect_id, payload = payload })
+      end
+    end
+
+    local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", decision.cas_outcome, reason)
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+      add = add_labels,
+      remove = remove_labels,
+    }, decision.granted_effect_ids)
+    for _, effect in ipairs(effects) do
+      devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
+    end
   end)
 end
 
