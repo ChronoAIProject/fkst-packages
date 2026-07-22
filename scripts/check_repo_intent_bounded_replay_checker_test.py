@@ -787,7 +787,11 @@ class IntentBoundedReplayCheckerTest(unittest.TestCase):
 
         messages = checker.repository_messages(self.root)
 
-        self.assertTrue(any("idempotent admission must not include observable writes" in message for message in messages))
+        # After the precursor relaxation, idempotent observable writes are allowed only when they
+        # exactly equal the edge's declared idempotent entitlement; an isolated post-admission
+        # repair write (a single comment that does not match the full entitlement) is rejected by
+        # the exact-match check rather than by a blanket no-writes rule.
+        self.assertTrue(any("granted_effect_ids must equal observable write order" in message for message in messages))
 
     def test_thinking_trace_output_mismatch_fails_closed(self) -> None:
         changed = thinking_trace()
