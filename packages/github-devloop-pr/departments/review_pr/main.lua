@@ -5,7 +5,6 @@ local m_claims = require("devloop.claims")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local core, saga, context_bundle = require("core"), require("workflow.saga"), require("devloop.context_bundle")
-local transition_version = require("contract.transition_version")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
@@ -13,9 +12,9 @@ local m_facts = require("devloop.markers.facts")
 local v_reviewing = require("devloop.validators.reviewing")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local devloop_logging = require("devloop.logging")
-local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local no_legitimate_diff = require("core.no_legitimate_diff")
+local review_pr_caps = require("review_pr_department_caps")
 -- Preserve existing body line coordinates for the coverage ratchet.
 
 local spec = {
@@ -27,30 +26,6 @@ local spec = {
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
-
-local function reviewing_transition_status(state, reviewing_version)
-  if state == nil or state.version == nil then
-    return "pending"
-  end
-
-  local state_base = transition_version.strip_suffixes(state.version)
-  local reviewing_base = transition_version.strip_suffixes(reviewing_version)
-  if state.state == "reviewing" then
-    if tostring(state_base) == tostring(reviewing_base) then
-      return "apply"
-    end
-    return "version-mismatch"
-  end
-
-  local canonical_order = devloop_state.compare_state_marker_order({
-    state = state.state,
-    version = state_base,
-  }, "reviewing", reviewing_base)
-  if canonical_order < 0 then
-    return "pending"
-  end
-  return "stale"
-end
 
 return saga.department(spec, { done = function() return false end, act = function(event)
   local reviewing = event.payload or {}
@@ -86,10 +61,43 @@ return saga.department(spec, { done = function() return false end, act = functio
     local origin = m_facts.pr_origin_fact(current_pr.comments)
     devloop_logging.log_forged_markers("review_pr", reviewing.proposal_id, current_pr.comments)
     local state = require("devloop.entity").current_entity_state(current_pr.comments, reviewing.proposal_id)
-    local transition = reviewing_transition_status(state, reviewing.version)
-    if transition == "pending" or transition == "version-mismatch" then
+    local current_state = state or {}
+    local snapshot = review_pr_caps.restart_effects.seal_snapshot({
+      owner = review_pr_caps.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = reviewing.pr_number },
+      proposal_id = reviewing.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "pr-review-activation",
+        reviewing.proposal_id,
+        current_state.state or "missing",
+        current_state.version or "missing",
+        reviewing.version,
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(current_state.version or reviewing.version),
+      generation = current_state.version or reviewing.version,
+    })
+    local function decide(handoff)
+      return review_pr_caps.restart_effects.decide_transition(snapshot, {
+        semantic_variant = "review_receiver",
+        source_boundary = "github-devloop-pr.devloop_reviewing",
+        target = "reviewing",
+        evidence_refs = handoff == nil
+          and { "devloop.entity.current_entity_state" }
+          or { "devloop.entity.current_entity_state", "payloads_predicates.verified_hand_off_state" },
+        reviewing_version = reviewing.version,
+        handoff = handoff,
+      })
+    end
+    local transition = decide(nil)
+    if transition.status == "illegal" then
+      error("github-devloop: restart-effect-decision-illegal: review activation admission rejected: "
+        .. tostring(transition.reason_code))
+    end
+    if transition.status == "pending" or transition.reason_code == "version-mismatch" then
       local verified_state = nil
       local hand_off_reason = "missing"
+      local handoff = nil
       if reviewing.reviewing_hand_off ~= nil then
         verified_state, hand_off_reason = payloads_predicates.verified_hand_off_state(core, repo, reviewing.reviewing_hand_off, {
           proposal_id = reviewing.proposal_id,
@@ -97,11 +105,16 @@ return saga.department(spec, { done = function() return false end, act = functio
           marker_version = reviewing.version,
           event_version = reviewing.version,
         })
+        handoff = { status = verified_state ~= nil and "valid" or "invalid" }
+        transition = decide(handoff)
+        if transition.status == "illegal" then
+          error("github-devloop: restart-effect-decision-illegal: review activation handoff admission rejected: "
+            .. tostring(transition.reason_code))
+        end
       end
       if verified_state ~= nil then
         state = verified_state
-        transition = "apply"
-        devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "apply(verified-own-reviewing-hand-off)", "reviewing marker comment verified by direct id lookup")
+        devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", transition.cas_outcome, "reviewing marker comment verified by direct id lookup")
       else
         if reviewing.reviewing_hand_off ~= nil then
           devloop_logging.log_line("info", "review_pr", reviewing.proposal_id, "HANDOFF", {
@@ -110,22 +123,22 @@ return saga.department(spec, { done = function() return false end, act = functio
             "reason=" .. tostring(hand_off_reason),
           })
         end
-        if transition == "version-mismatch" then
-          devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale(version-mismatch)", "reviewing event version does not match canonical issue marker")
+        if transition.reason_code == "version-mismatch" then
+          devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", transition.cas_outcome, "reviewing event version does not match canonical issue marker")
           return
         end
-        devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "retry-pending(reviewing marker not yet visible)", "reviewing state marker not yet visible")
+        devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", transition.cas_outcome, "reviewing state marker not yet visible")
         error("github-devloop: pr-review-marker-missing: reviewing state marker not yet visible for PR review; retrying")
       end
     end
-    if transition == "stale" then
-      devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale/diverged", "issue is not currently reviewing")
+    if transition.status == "stale" then
+      devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", transition.cas_outcome, "issue is not currently reviewing")
       return
     end
 
-    if transition == "version-mismatch" then
-      devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "skip-stale(version-mismatch)", "reviewing event version does not match canonical issue marker")
-      return
+    if transition.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: unsupported review activation admission status: "
+        .. tostring(transition.status))
     end
 
     if not require("devloop.pr_safety").is_safe_head_sha(current_pr.head_sha) then

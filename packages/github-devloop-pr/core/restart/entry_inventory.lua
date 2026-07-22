@@ -40,6 +40,16 @@ return {
     target = "reviewing",
     pending_order = { participates = false },
     cas_policy_id = "cas.legacy_review_activation_handoff_v1",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/reviewing/entry/review_receiver/apply",
+        effect_ids = {},
+      },
+      idempotent = {
+        id = "github-devloop-pr/reviewing/entry/review_receiver/idempotent",
+        effect_ids = {},
+      },
+    },
     provenance = {
       owner = "github-devloop-pr",
       row = "reviewing",

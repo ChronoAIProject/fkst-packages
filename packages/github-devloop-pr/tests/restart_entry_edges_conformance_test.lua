@@ -57,6 +57,16 @@ local expected_entries = {
     field = "entry_inventory.review_receiver",
     semantic_variant = "review_receiver",
     cas_policy_id = "cas.legacy_review_activation_handoff_v1",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/reviewing/entry/review_receiver/apply",
+        effect_ids = {},
+      },
+      idempotent = {
+        id = "github-devloop-pr/reviewing/entry/review_receiver/idempotent",
+        effect_ids = {},
+      },
+    },
   },
   ["github-devloop-pr/reviewing/entry/review_convergence_round"] = {
     row_id = "reviewing",
