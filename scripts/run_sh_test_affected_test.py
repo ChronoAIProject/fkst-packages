@@ -64,6 +64,7 @@ class TestAffectedHarness:
                 "composed_manifest.sh",
                 "composed_conformance.sh",
                 "test_parallel.sh",
+                "test_deadline.sh",
                 "check_repo_intake_routing.py",
                 "intake_policy_slots.json",
             ):

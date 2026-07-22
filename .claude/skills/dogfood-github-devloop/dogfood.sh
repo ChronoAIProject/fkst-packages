@@ -633,7 +633,8 @@ stray_supervise_report() {
 # DOGFOOD_REAP_DRYRUN=1 identifies + reports without killing (safe operator verify before enabling kill);
 # DOGFOOD_TEST_REAP_MINUTES overrides the 45min threshold.
 reap_leaked_test_procs() {
-  local reap_min="${DOGFOOD_TEST_REAP_MINUTES:-45}" self_pgid pat pid pgid ppid comm etime secs reaped=0
+  local reap_min="${DOGFOOD_TEST_REAP_MINUTES:-45}" self_pgid pat pid pgid comm etime secs reaped=0
+  local leader_comm leader_ppid
   self_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
   # Observed test-runner leak shapes (all the SAME unbounded-execution class): a test-suite process left
   # running past DOGFOOD_TEST_REAP_MINUTES (healthy suite ~230-440s ⇒ ~6-12x margin) AND orphaned to init.
@@ -654,13 +655,22 @@ reap_leaked_test_procs() {
       # etime = [[DD-]HH:]MM:SS -> seconds
       secs=$(printf '%s\n' "$etime" | awk -F'[:-]' '{n=NF;s=$n;m=$(n-1);h=(n>=3?$(n-2):0);d=(n>=4?$(n-3):0);print ((d*24+h)*60+m)*60+s}')
       [ "${secs:-0}" -gt "$((reap_min*60))" ] 2>/dev/null || continue
-      # Leak signature = over-budget AND orphaned (ppid=1). A LIVE test run still has its launching parent
-      # (run.sh / codex worker); an orphan will never be cleaned. Requiring the orphan spares a legitimately
-      # slow live run and keeps the kill decision to definite leaks only.
-      ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-      [ "$ppid" = "1" ] || { printf '  · %s pid %s age %ss has live parent %s — live, skip\n' "$pat" "$pid" "$secs" "$ppid"; continue; }
+      # Leak signature = over-budget AND the process GROUP LEADER is orphaned to init. The leak tree is
+      # init(1) -> orphaned run.sh/zsh test-harness (the group LEADER, pid==pgid, ppid=1) -> fkst-framework
+      # test (leaf, ppid=harness). Checking the LEAF's ppid misses this entirely — the leaf's parent is the
+      # harness (ppid!=1), while the harness IS the ppid=1 orphan (observed 2026-07-22: 6 trees uncaught by
+      # the old leaf-ppid check while the reaper reported "1 reaped"). A LIVE codex-owned run keeps the
+      # harness's parent (the codex worker) alive, so the group leader's ppid!=1 and it is correctly spared;
+      # a killed codex orphans the harness to init. So judge orphan-ness at the group leader.
       pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
-      if [ -z "$pgid" ] || [ "$pgid" = "$self_pgid" ] || pgrep -g "$pgid" -f -- 'supervise --project-root' >/dev/null 2>&1; then
+      [ -n "$pgid" ] || continue
+      # Exclude a leader that is itself codex/node: a detached codex is its own ppid=1 group leader and can
+      # match a test pattern via its embedded prompt — the leaf comm guard above only spares codex LEAVES.
+      leader_comm=$(ps -o comm= -p "$pgid" 2>/dev/null)
+      case "$leader_comm" in *node*|*codex*|*Code*) continue;; esac
+      leader_ppid=$(ps -o ppid= -p "$pgid" 2>/dev/null | tr -d ' ')
+      [ "$leader_ppid" = "1" ] || { printf '  · %s pid %s (group %s) age %ss — group leader has live parent %s, skip\n' "$pat" "$pid" "$pgid" "$secs" "$leader_ppid"; continue; }
+      if [ "$pgid" = "$self_pgid" ] || pgrep -g "$pgid" -f -- 'supervise --project-root' >/dev/null 2>&1; then
         printf '  ⚠ leaked %s pid %s age %ss — SKIPPED (guard: own/supervise group)\n' "$pat" "$pid" "$secs"; continue
       fi
       if [ "${DOGFOOD_REAP_DRYRUN:-0}" = "1" ]; then

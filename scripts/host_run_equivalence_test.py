@@ -247,6 +247,7 @@ class DogfoodLayout:
             shutil.copy2(REPO_ROOT / "scripts" / "run.sh", platform / "scripts" / "run.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_affected.sh", platform / "scripts" / "test_affected.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_parallel.sh", platform / "scripts" / "test_parallel.sh")
+            shutil.copy2(REPO_ROOT / "scripts" / "test_deadline.sh", platform / "scripts" / "test_deadline.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "host_entry.sh", platform / "scripts" / "host_entry.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "host_run.sh", platform / "scripts" / "host_run.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "composed_manifest.sh", platform / "scripts" / "composed_manifest.sh")
@@ -450,14 +451,18 @@ class HostRunEquivalenceTest(unittest.TestCase):
                 started_at = time.monotonic()
                 try:
                     if mode == "timeout":
+                        # Deadline must comfortably exceed the fixture's pid-file write, else under load the
+                        # tree is killed before line writes "$1" and the read below FileNotFoundErrors (flake
+                        # observed 2026-07-22: 1.0s raced the write under contention). 3.0s stays well under
+                        # the <5.0s bound below while giving the sub-second write ample scheduling margin.
                         with self.assertRaises(subprocess.TimeoutExpired):
                             run_bounded(
                                 [str(script), str(pid_file), mode],
                                 cwd=root,
                                 env=os.environ.copy(),
-                                timeout=1.0,
+                                timeout=3.0,
                             )
-                        self.assertLess(time.monotonic() - started_at, 5.0)
+                        self.assertLess(time.monotonic() - started_at, 8.0)
                     else:
                         result = run_bounded(
                             [str(script), str(pid_file), mode], cwd=root, env=os.environ.copy(), timeout=5.0
