@@ -37,7 +37,6 @@ local expected_successor_kinds = {
   ["reviewing/needs_review_meta"] = "autonomous",
   ["reviewing/watchdog_reconcile_terminal"] = "timeout",
 }
-
 local expected_real_cas_by_id = {
   ["github-devloop-pr/pr-open/autonomous/not_mergeable_repair"] =
     { cas_policy_id = "cas.legacy_observe_pr_fix_v1", cas_variant = "pr_open_to_fixing" },
@@ -246,7 +245,6 @@ local timeout_policy_by_source = {
   ["live_defer_epoch:v1"] = "timeout.durable_clear_legacy_v1",
   ["child_workflow_wait:v1"] = "timeout.child_workflow_legacy_v1",
 }
-
 local function expected_timeout_edges(owner, rows)
   local expected = {}
   for _, row in ipairs(rows) do
@@ -702,11 +700,13 @@ return {
       entry_ids[edge.id] = true
       entry_counts[edge.row_id] = (entry_counts[edge.row_id] or 0) + 1
     end
-    t.eq(#entries, 12)
-    t.eq(entry_counts.reviewing, 4)
-    t.eq(entry_counts.fixing, 2)
+    t.eq(#entries, 17)
+    t.eq(entry_counts.reviewing, 5)
+    t.eq(entry_counts.fixing, 3)
     t.eq(entry_counts["merge-ready"], 3)
-    t.eq(entry_counts.merging, 2)
+    t.eq(entry_counts.merging, 3)
+    t.eq(entry_counts["pr-open"], 2)
+    t.eq(entry_counts["review-meta"], 1)
     t.eq(entry_ids[owner .. "/merge-ready/entry/handoff_to_merge_gate"], true)
     for _, state in ipairs({ "fixing", "merge-ready", "merging" }) do
       t.eq(entry_ids[owner .. "/" .. state .. "/entry/review_reject_to_blocked"], true)
@@ -714,7 +714,7 @@ return {
     end
     t.eq(entry_ids[owner .. "/reviewing/entry/review_convergence_round"], true)
     t.eq(entry_ids[owner .. "/reviewing/entry/review_reject_to_blocked"], true)
-
+    t.eq(entry_ids[owner .. "/reviewing/entry/review_reconcile_true_stall"], true)
     local before = legacy_union_bytes(owner, rows, entry_inventory)
     local after = extracted_union_bytes(owner, rows, entry_inventory)
     t.eq(after, before)

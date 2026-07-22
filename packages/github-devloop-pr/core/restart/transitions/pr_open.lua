@@ -34,6 +34,17 @@ return function(M, h)
       receiver_bound_minutes = 0,
     }),
     on_timeout = timeout("devloop_reviewing"),
+    receiver_activations = {
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "pr_open_to_blocked",
+        pending_order = { participates = false },
+      },
+    },
     responsibility_signature = responsibility_signature({
       receiver_kind = "pr-viability-router",
       driving_queue = "devloop_reviewing",

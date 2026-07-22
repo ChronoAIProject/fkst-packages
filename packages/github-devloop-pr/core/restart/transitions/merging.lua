@@ -81,6 +81,15 @@ return function(M, h)
         },
         pending_order = { participates = false },
       },
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "merging_to_blocked",
+        pending_order = { participates = false },
+      },
     },
     responsibility_signature = responsibility_signature({
       receiver_kind = "merge-executor",

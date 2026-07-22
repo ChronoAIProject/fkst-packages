@@ -63,6 +63,17 @@ return function(M, h)
       },
     }),
     on_timeout = timeout("devloop_review_meta"),
+    receiver_activations = {
+      {
+        kind = "entry",
+        boundary = "devloop_timeout_reconcile",
+        target = "blocked",
+        output_variant = "watchdog_reconcile_terminal",
+        cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+        cas_variant = "review_meta_to_blocked",
+        pending_order = { participates = false },
+      },
+    },
     responsibility_signature = responsibility_signature({
       receiver_kind = "review-meta-judge",
       driving_queue = "devloop_review_meta",

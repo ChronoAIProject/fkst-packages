@@ -105,10 +105,10 @@ return {
   test_fix_reconcile_entries_coexist_with_blocked_successors_and_merge_handoff = function()
     local rows = rows_by_state(core.restart_transition_table())
     local expected = {
-      reviewing = { "review_reject_to_blocked" },
-      fixing = { "review_reject_to_blocked", "bounded_fix_to_blocked" },
+      reviewing = { "review_reconcile_true_stall", "review_reject_to_blocked" },
+      fixing = { "review_reject_to_blocked", "bounded_fix_to_blocked", "watchdog_reconcile_terminal" },
       ["merge-ready"] = { "handoff_to_merge_gate", "review_reject_to_blocked", "bounded_fix_to_blocked" },
-      merging = { "review_reject_to_blocked", "bounded_fix_to_blocked" },
+      merging = { "review_reject_to_blocked", "bounded_fix_to_blocked", "watchdog_reconcile_terminal" },
     }
 
     for state, variants in pairs(expected) do
@@ -121,6 +121,12 @@ return {
         if variant == "handoff_to_merge_gate" then
           t.eq(activation.boundary, nil)
           t.eq(activation.target, "merging")
+        elseif variant == "review_reconcile_true_stall" then
+          t.eq(activation.boundary, "devloop_review_reconcile")
+          t.eq(activation.target, "blocked")
+        elseif variant == "watchdog_reconcile_terminal" then
+          t.eq(activation.boundary, "devloop_timeout_reconcile")
+          t.eq(activation.target, "blocked")
         else
           t.eq(activation.boundary, "devloop_fix_reconcile")
           t.eq(activation.target, "blocked")

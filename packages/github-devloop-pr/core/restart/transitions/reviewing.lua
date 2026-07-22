@@ -81,6 +81,15 @@ return function(M, h)
     receiver_activations = {
       {
         kind = "entry",
+        boundary = "devloop_review_reconcile",
+        target = "blocked",
+        output_variant = "review_reconcile_true_stall",
+        cas_policy_id = "cas.legacy_issue_reconcile_v1",
+        cas_variant = "reviewing_to_blocked",
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
         boundary = "devloop_fix_reconcile",
         target = "blocked",
         output_variant = "review_reject_to_blocked",

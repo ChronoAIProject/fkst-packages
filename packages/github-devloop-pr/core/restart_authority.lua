@@ -169,9 +169,13 @@ function M.decide_transition(sealed_snapshot, intent)
     and edge.cas_variant == "pr_open_to_reviewing"
   local supported_observe_pr_fix = edge.cas_policy_id == "cas.legacy_observe_pr_fix_v1"
     and edge.cas_variant == "pr_open_to_fixing"
+  local supported_review_reconcile = edge.cas_policy_id == "cas.legacy_issue_reconcile_v1"
+    and edge.cas_variant == "reviewing_to_blocked"
+    and edge.semantic_variant == "review_reconcile_true_stall"
   local supported_timeout_reconcile = edge.cas_policy_id == "cas.legacy_timeout_reconcile_v1"
-    and (edge.cas_variant == "reviewing_to_blocked"
-      or edge.cas_variant == "merge_ready_to_blocked")
+    and edge.target == "blocked"
+    and (edge.kind == "timeout"
+      or (edge.kind == "entry" and edge.source.boundary == "devloop_timeout_reconcile"))
   local supported_merge = edge.cas_policy_id == "cas.legacy_merge_v1"
     and edge.cas_variant == "merge_ready_or_merging_to_merging"
   local supported_pr_fix_reconcile = edge.cas_policy_id == "cas.legacy_pr_fix_reconcile_v1"
@@ -186,6 +190,7 @@ function M.decide_transition(sealed_snapshot, intent)
     and not supported_review_meta
     and not supported_observe_pr
     and not supported_observe_pr_fix
+    and not supported_review_reconcile
     and not supported_timeout_reconcile
     and not supported_merge
     and not supported_pr_fix_reconcile

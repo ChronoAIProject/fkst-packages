@@ -276,6 +276,17 @@ local expected_entries = {
       },
     },
   },
+  ["github-devloop-pr/reviewing/entry/review_reconcile_true_stall"] = {
+    row_id = "reviewing", output_variant = "review_reconcile_true_stall",
+    source_state = "reviewing", source_boundary = "devloop_review_reconcile",
+    target = "blocked", field = "receiver_activations",
+    semantic_variant = "review_reconcile_true_stall",
+    cas_policy_id = "cas.legacy_issue_reconcile_v1", cas_variant = "reviewing_to_blocked",
+  },
+  ["github-devloop-pr/fixing/entry/watchdog_reconcile_terminal"] = { row_id = "fixing", output_variant = "watchdog_reconcile_terminal", source_state = "fixing", source_boundary = "devloop_timeout_reconcile", target = "blocked", field = "receiver_activations", semantic_variant = "watchdog_reconcile_terminal", cas_policy_id = "cas.legacy_timeout_reconcile_v1", cas_variant = "fixing_to_blocked" },
+  ["github-devloop-pr/merging/entry/watchdog_reconcile_terminal"] = { row_id = "merging", output_variant = "watchdog_reconcile_terminal", source_state = "merging", source_boundary = "devloop_timeout_reconcile", target = "blocked", field = "receiver_activations", semantic_variant = "watchdog_reconcile_terminal", cas_policy_id = "cas.legacy_timeout_reconcile_v1", cas_variant = "merging_to_blocked" },
+  ["github-devloop-pr/pr-open/entry/watchdog_reconcile_terminal"] = { row_id = "pr-open", output_variant = "watchdog_reconcile_terminal", source_state = "pr-open", source_boundary = "devloop_timeout_reconcile", target = "blocked", field = "receiver_activations", semantic_variant = "watchdog_reconcile_terminal", cas_policy_id = "cas.legacy_timeout_reconcile_v1", cas_variant = "pr_open_to_blocked" },
+  ["github-devloop-pr/review-meta/entry/watchdog_reconcile_terminal"] = { row_id = "review-meta", output_variant = "watchdog_reconcile_terminal", source_state = "review-meta", source_boundary = "devloop_timeout_reconcile", target = "blocked", field = "receiver_activations", semantic_variant = "watchdog_reconcile_terminal", cas_policy_id = "cas.legacy_timeout_reconcile_v1", cas_variant = "review_meta_to_blocked" },
 }
 
 local pending_order_goldens = {
@@ -291,6 +302,11 @@ local pending_order_goldens = {
   ["github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked"] = { participates = false },
   ["github-devloop-pr/merging/entry/review_reject_to_blocked"] = { participates = false },
   ["github-devloop-pr/merging/entry/bounded_fix_to_blocked"] = { participates = false },
+  ["github-devloop-pr/reviewing/entry/review_reconcile_true_stall"] = { participates = false },
+  ["github-devloop-pr/fixing/entry/watchdog_reconcile_terminal"] = { participates = false },
+  ["github-devloop-pr/merging/entry/watchdog_reconcile_terminal"] = { participates = false },
+  ["github-devloop-pr/pr-open/entry/watchdog_reconcile_terminal"] = { participates = false },
+  ["github-devloop-pr/review-meta/entry/watchdog_reconcile_terminal"] = { participates = false },
 }
 
 local function key_set(keys)
@@ -759,12 +775,17 @@ return {
     t.eq(authored[4].id, "github-devloop-pr/pr-open/entry/pr_open_handoff")
     t.eq(authored[5].id, "github-devloop-pr/fixing/entry/review_reject_to_blocked")
     t.eq(authored[6].id, "github-devloop-pr/fixing/entry/bounded_fix_to_blocked")
-    t.eq(authored[7].id, "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate")
-    t.eq(authored[8].id, "github-devloop-pr/merge-ready/entry/review_reject_to_blocked")
-    t.eq(authored[9].id, "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked")
-    t.eq(authored[10].id, "github-devloop-pr/merging/entry/review_reject_to_blocked")
-    t.eq(authored[11].id, "github-devloop-pr/merging/entry/bounded_fix_to_blocked")
-    t.eq(authored[12].id, "github-devloop-pr/reviewing/entry/review_reject_to_blocked")
+    t.eq(authored[7].id, "github-devloop-pr/fixing/entry/watchdog_reconcile_terminal")
+    t.eq(authored[8].id, "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate")
+    t.eq(authored[9].id, "github-devloop-pr/merge-ready/entry/review_reject_to_blocked")
+    t.eq(authored[10].id, "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked")
+    t.eq(authored[11].id, "github-devloop-pr/merging/entry/review_reject_to_blocked")
+    t.eq(authored[12].id, "github-devloop-pr/merging/entry/bounded_fix_to_blocked")
+    t.eq(authored[13].id, "github-devloop-pr/merging/entry/watchdog_reconcile_terminal")
+    t.eq(authored[14].id, "github-devloop-pr/pr-open/entry/watchdog_reconcile_terminal")
+    t.eq(authored[15].id, "github-devloop-pr/review-meta/entry/watchdog_reconcile_terminal")
+    t.eq(authored[16].id, "github-devloop-pr/reviewing/entry/review_reconcile_true_stall")
+    t.eq(authored[17].id, "github-devloop-pr/reviewing/entry/review_reject_to_blocked")
 
     local repeated = restart_edges.extract_entry_edges(owner, entry_inventory, rows)
     assert_entry_shape(repeated)
