@@ -26,6 +26,14 @@ local function stale_attempt_started_at()
   return tostring(now() - 7201)
 end
 
+local function recent_comment(body, seconds_ago)
+  return {
+    body = body,
+    author_login = "fkst-test-bot",
+    created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60)),
+  }
+end
+
 local function implement_attempt_marker(event, attempt, started_at, exec_ref)
   return core.implement_attempt_marker(event.proposal_id, event.dedup_key, attempt, started_at, exec_ref)
 end
@@ -272,7 +280,7 @@ return {
     local current = ready()
     local run_opts = opts("observe-implement-live-attempt-budget-owner")
     local comments = {
-      core.state_marker(current.proposal_id, "implementing", current.dedup_key),
+      recent_comment(core.state_marker(current.proposal_id, "implementing", current.dedup_key)),
       live_implement_attempt_marker(current, run_opts, 1),
     }
 
@@ -379,7 +387,7 @@ return {
     local event = ready()
     local run_opts = opts("observe-implement-live")
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      recent_comment(core.state_marker(event.proposal_id, "implementing", event.dedup_key)),
       live_implement_attempt_marker(event, run_opts, 1),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", comments)

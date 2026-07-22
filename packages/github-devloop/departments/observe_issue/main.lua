@@ -148,6 +148,9 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
     event_ts = event_ts,
     fresh_current_state = state,
   }
+  local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, state.version)
+  facts.pr_delegation = delegation
+  facts["pr-delegation"] = delegation
   local epoch = row and row.actionable_epoch
   if issue.source == "liveness-scan"
     and type(epoch) == "table"

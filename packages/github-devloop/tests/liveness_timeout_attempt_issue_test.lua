@@ -1,7 +1,11 @@
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
+local contract_time = require("contract.time")
 local conv_attempts = require("devloop.convergence.attempts")
+local m_rae = require("devloop.restart_actionable_epoch")
+local replay_fields = require("devloop.replay_fields")
+local devloop_logging = require("devloop.logging")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -91,12 +95,55 @@ local function count_raises(result, queue)
   return count
 end
 
+local function restart_transition_row(state_name)
+  return replay_fields.restart_transition_row(core.restart_transition_table(), state_name)
+end
+
+local function capture_raises(fn)
+  local raised = {}
+  local original = devloop_logging.log_raise
+  devloop_logging.log_raise = function(_, _, queue, payload)
+    table.insert(raised, { queue = queue, payload = payload })
+  end
+  local ok, err = pcall(fn)
+  devloop_logging.log_raise = original
+  if not ok then
+    error(err)
+  end
+  return raised
+end
+
+local function captured_raise(raised, queue)
+  for _, item in ipairs(raised or {}) do
+    if item.queue == queue then
+      return item
+    end
+  end
+  return nil
+end
+
+local function with_codex_runs(running, fn)
+  local original = fkst.codex_runs
+  fkst.codex_runs = function()
+    return { running = running or {}, recent = {} }
+  end
+  local ok, err = pcall(fn)
+  fkst.codex_runs = original
+  if not ok then
+    error(err)
+  end
+end
+
 local function state_comment(state_name, state_version, created_at)
   return {
     body = core.state_marker(proposal_id, state_name, state_version),
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
+end
+
+local function recent_state_comment(state_name, state_version, seconds_ago)
+  return state_comment(state_name, state_version, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60)))
 end
 
 local function issue_comment(body, created_at)
@@ -121,7 +168,7 @@ return {
     local live_exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
     codex_status.seed_implement_codex_run(live_opts, event.proposal_id, event.dedup_key)
     local comments = {
-      state_comment("implementing", event.dedup_key, "2026-06-03T00:00:00Z"),
+      recent_state_comment("implementing", event.dedup_key),
       issue_comment(core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 7201), live_exec_ref)),
     }
     mock_repo()
@@ -163,7 +210,7 @@ return {
     local pr_proposal = entity_lib.pr_proposal_id(repo, 7)
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
     local comments = {
-      state_comment("implementing", event.dedup_key, "2026-06-03T00:00:00Z"),
+      recent_state_comment("implementing", event.dedup_key),
       issue_comment(core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 60), exec_ref)),
       issue_comment(m_builders.pr_delegation_marker(event.proposal_id, pr_proposal, 7, event.dedup_key, "g1")),
     }
@@ -175,6 +222,95 @@ return {
     local scanned = run_liveness_scan("liveness-delegated-implement-codex-run-no-timeout-count", run_opts)
     t.eq(scanned.exit_code, 0)
     assert_no_timeout_progress(scanned)
+  end,
+
+  test_stale_pr_delegation_does_not_suppress_implementing_row_budget_cap = function()
+    local event = h.ready()
+    local row = restart_transition_row("implementing")
+    local state = {
+      state = "implementing",
+      version = event.dedup_key .. "/timeout/implementing/2",
+      proposal_id = event.proposal_id,
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z")
+    local pr_proposal = entity_lib.pr_proposal_id(repo, 7)
+    local invalid_cases = {
+      {
+        name = "wrong-proposal",
+        comment = m_builders.pr_delegation_marker(event.proposal_id .. "/stale", pr_proposal, 7, state.version, "g1"),
+      },
+      {
+        name = "wrong-version",
+        comment = m_builders.pr_delegation_marker(event.proposal_id, pr_proposal, 7, event.dedup_key .. "/stale", "g1"),
+      },
+      {
+        name = "missing-pr-number",
+        direct = { proposal_id = event.proposal_id, version = state.version, pr_proposal_id = pr_proposal },
+      },
+      {
+        name = "missing-pr-proposal",
+        direct = { proposal_id = event.proposal_id, version = state.version, pr_number = 7 },
+      },
+    }
+
+    for _, case in ipairs(invalid_cases) do
+      local comments = {
+        state_comment("implementing", state.version, state.marker_created_at),
+      }
+      if case.comment ~= nil then
+        table.insert(comments, issue_comment(case.comment))
+      end
+      local facts = {
+        proposal_id = event.proposal_id,
+        source_ref = entity_lib.issue_source_ref(repo, 42),
+        current = { comments = comments, labels = { "fkst-dev:enabled", "fkst-dev:implementing" } },
+        fresh_current_state = state,
+        now_seconds = now_seconds,
+        pr_delegation = case.direct,
+      }
+      with_codex_runs({
+        {
+          run_id = "stale-delegation-live-" .. case.name,
+          role = "implement",
+          proposal_id = event.proposal_id,
+          dedup_key = event.dedup_key,
+          status = "running",
+          started_at = "2026-06-03T02:30:00Z",
+          timeout_seconds = 3600,
+        },
+      }, function()
+        local receiver = core.restart_row_receiver_liveness(row, state, facts, now_seconds)
+        t.eq(receiver.action, "stuck", case.name)
+        t.eq(receiver.reason, "row-budget-absolute-cap", case.name)
+        t.eq(receiver.age_minutes, 180, case.name)
+        local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, now_seconds)
+        for round = 1, 2 do
+          table.insert(comments, issue_comment(conv_attempts.timeout_attempt_v2_marker(
+            event.proposal_id,
+            row.from_state,
+            row.liveness_class_id,
+            eval.generation_key,
+            round,
+            entity_lib.issue_source_ref(repo, 42)
+          )))
+        end
+        local raised = capture_raises(function()
+          local handled = core.maybe_timeout_redrive_from_table("liveness_scan", {
+            repo = repo,
+            number = 42,
+            source_ref = entity_lib.issue_source_ref(repo, 42),
+          }, state, row, facts)
+          t.eq(handled, true, case.name)
+        end)
+        t.eq(captured_raise(raised, "devloop_ready"), nil, case.name)
+        local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+        t.is_true(reconcile ~= nil, case.name)
+        t.eq(reconcile.payload.state, "implementing", case.name)
+        t.eq(reconcile.payload.issue_version, state.version, case.name)
+        t.eq(reconcile.payload.round, 3, case.name)
+      end)
+    end
   end,
 
   test_blocked_decompose_exhaustion_reaches_non_recycling_terminal_stop = function()

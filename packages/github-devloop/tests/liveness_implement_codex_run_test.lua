@@ -111,22 +111,44 @@ return {
     local comments = {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
     }
-    local facts = facts_for(event, comments)
+
+    local before_budget = facts_for(event, comments, contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:00:00Z"))
     with_codex_runs({
       {
-        run_id = "implement-live",
+        run_id = "implement-live-before-budget",
         role = "implement",
         proposal_id = event.proposal_id,
         dedup_key = event.dedup_key,
         status = "running",
-        started_at = "2026-06-03T02:30:00Z",
+        started_at = "2026-06-03T00:30:00Z",
         timeout_seconds = 3600,
       },
     }, function()
-      local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
+      local receiver = core.restart_row_receiver_liveness(row, state, before_budget, before_budget.now_seconds)
       t.eq(receiver.action, "defer")
       t.eq(receiver.signal.family, "codex_run:v1")
-      assert_no_timeout_effects(run_timeout(row, state, facts))
+      assert_no_timeout_effects(run_timeout(row, state, before_budget))
+    end)
+
+    local at_budget = facts_for(event, comments, contract_time.iso_timestamp_epoch_seconds("2026-06-03T02:00:00Z"))
+    with_codex_runs({
+      {
+        run_id = "implement-live-at-budget",
+        role = "implement",
+        proposal_id = event.proposal_id,
+        dedup_key = event.dedup_key,
+        status = "running",
+        started_at = "2026-06-03T01:30:00Z",
+        timeout_seconds = 3600,
+      },
+    }, function()
+      local receiver = core.restart_row_receiver_liveness(row, state, at_budget, at_budget.now_seconds)
+      t.eq(receiver.action, "stuck")
+      t.eq(receiver.reason, "row-budget-absolute-cap")
+      t.eq(receiver.signal.family, "codex_run:v1")
+      local due, age = core.liveness_timeout_due_with_facts(row, state, at_budget, at_budget.now_seconds)
+      t.eq(due, true)
+      t.eq(age, 120)
     end)
   end,
 

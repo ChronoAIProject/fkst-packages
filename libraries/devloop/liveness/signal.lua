@@ -579,6 +579,16 @@ function M.restart_row_receiver_liveness(row, state, facts, now_seconds)
         signal = signal,
       }
     end
+    if eval.row_budget_absolute_cap == true then
+      return {
+        action = "stuck",
+        reason = "row-budget-absolute-cap",
+        signal = eval.signal,
+        actionable_epoch = eval,
+        age_minutes = eval.age_minutes,
+        budget_minutes = eval.budget_minutes,
+      }
+    end
     return {
       action = "stuck",
       reason = eval.status == "contract_invalid" and "actionable-epoch-contract-invalid" or "actionable-epoch-actionable",

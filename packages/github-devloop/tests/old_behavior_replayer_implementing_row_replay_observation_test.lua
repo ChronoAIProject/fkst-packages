@@ -49,6 +49,8 @@ local FIXTURES = json_array({
     name = "matching-live-run-defer",
     implementing_fact = true,
     live_run = true,
+    marker_seconds_ago = 60,
+    run_started_seconds_ago = 60,
     expected_status = "deferred",
     expected_reason = "matching-implement-codex-run-live",
     expected_decision = "skip-pending(codex-run-live)",
@@ -59,7 +61,7 @@ local FIXTURES = json_array({
   {
     name = "fresh-progress-budget-noop",
     implementing_fact = true,
-    marker_created_at = "2099-01-01T00:00:00Z",
+    marker_seconds_ago = 60,
     expected_status = "no-op",
     expected_reason = "implementing-progress-within-row-budget",
     expected_decision = "skip-pending(liveness-budget)",
@@ -89,6 +91,10 @@ local function trusted_comment(body, created_at)
   }
 end
 
+local function seconds_ago_timestamp(seconds_ago)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", now() - tonumber(seconds_ago or 0))
+end
+
 local function event_payload()
   return h.issue({
     repo = REPO,
@@ -112,7 +118,9 @@ local function issue_event()
 end
 
 local function comments_for(fixture)
-  local created_at = fixture.marker_created_at or "2000-01-01T00:00:00Z"
+  local created_at = fixture.marker_created_at
+    or (fixture.marker_seconds_ago ~= nil and seconds_ago_timestamp(fixture.marker_seconds_ago))
+    or "2000-01-01T00:00:00Z"
   local comments = json_array({
     trusted_comment(core.state_marker(PROPOSAL_ID, "implementing", VERSION), created_at),
   })
@@ -146,7 +154,8 @@ local function controlled_codex_runs(fixture)
       proposal_id = PROPOSAL_ID,
       dedup_key = VERSION,
       status = "running",
-      started_at = "2099-01-01T00:00:00Z",
+      started_at = fixture.run_started_at
+        or seconds_ago_timestamp(fixture.run_started_seconds_ago or 60),
       timeout_seconds = 3600,
     },
   })

@@ -268,6 +268,9 @@ local function timeout_state_comment(state_name, state_version, created_at)
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
 end
+local function recent_state_comment(state_name, state_version, seconds_ago)
+  return timeout_state_comment(state_name, state_version, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60)))
+end
 local function ready_state_comment(comment_id, state_version, created_at)
   return { id = comment_id, body = core.state_marker(proposal_id, "ready", state_version, "result-marker,ready-label,devloop-ready"), author_login = "fkst-test-bot", created_at = created_at or "2026-06-03T00:00:00Z" }
 end
@@ -738,7 +741,7 @@ return {
     local run_opts = opts("liveness-scan-live-codex-run-drops-redrive")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
     local stale = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      recent_state_comment("implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 7201), exec_ref),
     }
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)

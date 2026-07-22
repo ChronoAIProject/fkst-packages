@@ -125,6 +125,13 @@ local function fresh_thinking_marker(proposal_id, version)
   }
 end
 
+local function fresh_state_marker(proposal_id, state, version)
+  return {
+    body = core.state_marker(proposal_id, state, version),
+    created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
+  }
+end
+
 return {
   test_observe_issue_reraises_thinking_proposal_for_poll_self_heal = function()
     local event = issue()
@@ -288,7 +295,7 @@ return {
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, ready_payload.dedup_key)
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", {
       core.state_marker(event.proposal_id, "ready", event.dedup_key),
-      core.state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
+      fresh_state_marker(event.proposal_id, "implementing", ready_payload.dedup_key),
       core.implement_attempt_marker(event.proposal_id, ready_payload.dedup_key, 1, tostring(now()), exec_ref),
     })
 

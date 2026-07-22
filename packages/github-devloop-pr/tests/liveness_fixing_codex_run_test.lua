@@ -124,6 +124,10 @@ local function trusted_comment(body, created_at)
   }
 end
 
+local function recent_comment(body)
+  return trusted_comment(body, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - 60))
+end
+
 local function fixing_state(event, version, created_at)
   return {
     state = "fixing",
@@ -196,7 +200,10 @@ local function timeout_facts(event, state, comments)
     current = { comments = {} },
     current_pr = {
       comments = comments,
+      head_ref_name = "devloop-owner-repo-42-01HY",
       head_sha = event.reviewed_head_sha,
+      base_ref_name = "dev",
+      state = "OPEN",
     },
     link = {
       proposal_id = event.proposal_id,
@@ -207,7 +214,13 @@ local function timeout_facts(event, state, comments)
     },
     snapshot = {
       comments = comments,
-      prs = { { number = event.pr_number, current = { comments = comments, head_sha = event.reviewed_head_sha } } },
+      prs = { { number = event.pr_number, current = {
+        comments = comments,
+        head_ref_name = "devloop-owner-repo-42-01HY",
+        head_sha = event.reviewed_head_sha,
+        base_ref_name = "dev",
+        state = "OPEN",
+      } } },
       state = state,
     },
     head_sha = event.reviewed_head_sha,
@@ -440,6 +453,26 @@ local function run_timeout_reconcile(payload, comments, name)
   }, opts(name or "fixing-timeout-reconcile"))
 end
 
+local function assert_live_run_over_row_budget_caps(event, row, state, facts, role, dedup_key)
+  with_codex_runs({
+    {
+      run_id = role .. "-live-over-row-budget",
+      role = role,
+      proposal_id = event.proposal_id,
+      dedup_key = dedup_key,
+      status = "running",
+      lease_expires_at_ms = (facts.now_seconds + 3600) * 1000,
+    },
+  }, function()
+    local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
+    t.eq(receiver.action, "stuck")
+    t.eq(receiver.reason, "row-budget-absolute-cap")
+    local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
+    t.eq(due, true)
+    t.eq(age, 180)
+  end)
+end
+
 return {
   test_fixing_backoff_hold_excludes_old_state_age_until_due_then_retries = function()
     local event = fixing({
@@ -558,7 +591,7 @@ return {
   test_fixing_live_codex_run_defers_without_redrive_or_timeout_attempt = function()
     local event = fixing()
     local row = restart_transition_row("fixing")
-    local state = fixing_state(event)
+    local state = fixing_state(event, nil, "2026-06-03T01:30:00Z")
     local comments = fixing_comments(event)
     local facts = timeout_facts(event, state, comments)
     with_codex_runs({
@@ -627,10 +660,36 @@ return {
     end)
   end,
 
+  test_fixing_live_codex_run_over_budget_force_terminates_at_row_cap = function()
+    local event = fixing()
+    local row = restart_transition_row("fixing")
+    local state = fixing_state(event, event.version .. "/timeout/fixing/2")
+    local comments = fixing_comments(event, state.version)
+    table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
+    table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
+    local facts = timeout_facts(event, state, comments)
+    assert_live_run_over_row_budget_caps(event, row, state, facts, "fix", event.work_unit_key)
+  end,
+
   test_liveness_scan_fixing_live_codex_run_drops_redrive = function()
     local event = fixing()
     local run_opts = opts("liveness-scan-fixing-live-codex")
-    local comments = fixing_comments(event)
+    local comments = {
+      recent_comment(m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")),
+      recent_comment(core.state_marker(event.proposal_id, "fixing", event.version)),
+      recent_comment(m_builders.review_result_marker(event.review_proposal_id, event.proposal_id, "reject", event.review_dedup_key, 1, "missing regression guard")),
+      recent_comment(m_builders.merge_gate_marker(event.proposal_id,
+        event.pr_number,
+        event.version,
+        event.review_proposal_id,
+        event.review_dedup_key,
+        event.reviewed_head_sha,
+        nil,
+        "missing regression guard",
+        nil,
+        event.ci_failure_key
+      )),
+    }
     seed_role_codex_run(run_opts, "fix", event.proposal_id, event.work_unit_key)
     mock_repo_and_empty_issue_list()
     mock_pr_list()
@@ -760,7 +819,7 @@ return {
       state = "review-meta",
       version = event.version,
       proposal_id = event.proposal_id,
-      marker_created_at = "2026-06-03T00:00:00Z",
+      marker_created_at = "2026-06-03T02:00:00Z",
     }
     local comments = review_meta_comments(event)
     local facts = timeout_facts(event, state, comments)
@@ -824,6 +883,22 @@ return {
       t.eq(reconcile.payload.issue_version, state.version)
       t.eq(reconcile.payload.round, 3)
     end)
+  end,
+
+  test_review_meta_live_codex_run_over_budget_force_terminates_at_row_cap = function()
+    local event = h.review_meta_event()
+    local row = restart_transition_row("review-meta")
+    local state = {
+      state = "review-meta",
+      version = event.version .. "/timeout/review-meta/2",
+      proposal_id = event.proposal_id,
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local comments = review_meta_comments(event, state.version)
+    table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
+    table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
+    local facts = timeout_facts(event, state, comments)
+    assert_live_run_over_row_budget_caps(event, row, state, facts, "review-meta", event.version)
   end,
 
   test_review_meta_dispatch_with_live_run_without_completion_markers_skips_redelivery = function()

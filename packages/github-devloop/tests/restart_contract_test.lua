@@ -551,7 +551,7 @@ return {
         state = "thinking",
         version = version,
         proposal_id = "github-devloop/issue/owner/repo/42",
-        marker_created_at = "2026-06-03T00:00:00Z",
+        marker_created_at = "2026-06-04T00:00:00Z",
       }, row, {
         proposal_id = "github-devloop/issue/owner/repo/42",
         source_ref = source_ref,
@@ -562,6 +562,54 @@ return {
       end)
     end)
     t.eq(#raised, 0)
+  end,
+
+  test_live_thinking_codex_run_over_budget_force_terminates_at_row_cap = function()
+    local row = table_by_state().thinking
+    local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    local state = {
+      state = "thinking",
+      version = version .. "/timeout/thinking/3",
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local facts = {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      source_ref = source_ref,
+      current = { comments = {} },
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"),
+    }
+    with_codex_runs({
+      {
+        status = "running",
+        role = "consensus",
+        proposal_id = "github-devloop/issue/owner/repo/42",
+        dedup_key = version,
+        started_at = "2026-06-03T02:30:00Z",
+        timeout_seconds = 7200,
+      },
+    }, function()
+      local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
+      t.eq(receiver.action, "stuck")
+      t.eq(receiver.reason, "row-budget-absolute-cap")
+      local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
+      t.eq(due, true)
+      t.eq(age, 180)
+      local raised = capture_raises(function()
+        local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
+          repo = "owner/repo",
+          number = 42,
+          source_ref = source_ref,
+        }, state, row, facts)
+        t.eq(applied, true)
+      end)
+      t.eq(#raised, 1)
+      t.eq(raised[1].queue, "devloop_timeout_reconcile")
+      t.eq(raised[1].payload.state, "thinking")
+      t.eq(raised[1].payload.issue_version, state.version)
+      t.eq(raised[1].payload.round, 3)
+    end)
   end,
 
   test_stale_thinking_converge_round_climbs_to_blocked_reconcile = function()
