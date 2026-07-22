@@ -13,6 +13,7 @@ local dispatch_live_run = require("devloop.dispatch_live_run")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local review_meta_caps = require("review_meta_department_caps").production()
 
 local dispatch_liveness = {
   restart_transition_table = function(...)
@@ -123,26 +124,46 @@ local function review_meta_codex_decision(plan)
   return parsed
 end
 
-local function apply_review_meta_decision(plan, parsed)
+local function apply_review_meta_decision(plan, parsed, restart_effect)
   local review_meta = plan.review_meta
   local to_state = (parsed.action == "fix" or parsed.action == "continue") and "fixing" or "blocked"
   local exit_version = devloop_state.next_review_meta_action_version(review_meta.version)
-  local comment_request = core.build_review_meta_comment_request(plan.repo, plan.issue_number, review_meta, parsed.action, parsed.reason, exit_version, parsed.blocking_gap)
-  local label_request = nil
-  if plan.issue_number ~= nil then
-    label_request = core.build_review_meta_label_request(plan.repo, plan.issue_number, review_meta, parsed.action, exit_version)
-  end
-  local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
-  local raised = {
-    "github-proxy.github_pr_comment_request",
+  local args = {
+    core = core,
+    repo = plan.repo,
+    issue_number = plan.issue_number,
+    review_meta = review_meta,
+    action = parsed.action,
+    reason = parsed.reason,
+    version = exit_version,
+    blocking_gap = parsed.blocking_gap,
   }
-  if label_request ~= nil then
-    table.insert(raised, "github-proxy.github_issue_label_request")
+  local effects = {}
+  local raised = {}
+  for _, effect_id in ipairs(restart_effect.decision.granted_effect_ids) do
+    if effect_id ~= "github-proxy.github_issue_label_request" or plan.issue_number ~= nil then
+      local payload, rejection = restart_effect.facade.emit(
+        restart_effect.grant,
+        effect_id,
+        restart_effect.snapshot,
+        args
+      )
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: PR review-meta effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+      table.insert(raised, effect_id)
+    end
   end
-  devloop_logging.log_apply("review_meta", review_meta.proposal_id, to_state, exit_version, { add = add_labels, remove = remove_labels }, raised)
-  devloop_logging.log_raise("review_meta", review_meta.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
-  if label_request ~= nil then
-    devloop_logging.log_raise("review_meta", review_meta.proposal_id, "github-proxy.github_issue_label_request", label_request)
+
+  local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
+  devloop_logging.log_apply("review_meta", review_meta.proposal_id, to_state, exit_version, {
+    add = add_labels,
+    remove = remove_labels,
+  }, raised)
+  for _, effect in ipairs(effects) do
+    devloop_logging.log_raise("review_meta", review_meta.proposal_id, effect.queue, effect.payload)
   end
 end
 
@@ -206,8 +227,24 @@ return saga.department(spec, { done = function() return false end, act = functio
       devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", "retry-pending(from-state marker not yet visible)", "review-meta state marker not yet visible")
       error("github-devloop: review-meta-marker-missing: review-meta state marker not yet visible; retrying")
     end
-    local transition = devloop_state.cyclic_transition_status(state, { "review-meta" }, "fixing", review_meta.version)
-    if transition == "pending" then
+    local snapshot = review_meta_caps.restart_effects.seal_snapshot({
+      owner = review_meta_caps.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = review_meta.pr_number },
+      proposal_id = review_meta.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "pr-review-meta", review_meta.proposal_id, state.state or "missing", state.version or "missing",
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
+      generation = state.version or "missing",
+    })
+    local admission = review_meta_caps.restart_effects.decide_transition(snapshot, {
+      semantic_variant = "fix",
+      target = "fixing",
+      incoming_version = review_meta.version,
+      overlay_version = review_meta.version,
+    })
+    if admission.status == "pending" then
       devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", "retry-pending(from-state marker not yet visible)", "review-meta state marker not yet visible")
       error("github-devloop: review-meta-marker-missing: review-meta state marker not yet visible; retrying")
     end
@@ -215,13 +252,17 @@ return saga.department(spec, { done = function() return false end, act = functio
       devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", "skip-idempotent(review-meta marker already visible)", "review-meta result marker for incoming version is already visible")
       return
     end
-    if state.state ~= "review-meta" or transition == "stale" then
-      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", devloop_state.cas_outcome(state, transition, review_meta.version), "current marker is no longer review-meta")
+    if state.state ~= "review-meta" or admission.status == "stale" then
+      local stale_reason = "current marker is no longer review-meta"
+      if admission.reason_code == "version-mismatch" then
+        stale_reason = "review-meta event version does not match canonical issue marker"
+      end
+      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", admission.cas_outcome, stale_reason)
       return
     end
-    if tostring(state.version or "") ~= tostring(review_meta.version) then
-      devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, state, "review-meta", "fixing|blocked", "skip-stale(version-mismatch)", "review-meta event version does not match canonical issue marker")
-      return
+    if admission.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: PR review-meta admission rejected: "
+        .. tostring(admission.reason_code))
     end
     local plan = load_review_meta_context(repo, issue_number, review_meta, event, current_pr, current_issue, state)
     if dispatch_live_run.dispatch_live_run_dedup(dispatch_liveness, "review-meta", review_meta.proposal_id, review_meta.version, {
@@ -246,6 +287,45 @@ return saga.department(spec, { done = function() return false end, act = functio
     if parsed == nil then
       return
     end
-    apply_review_meta_decision(plan, parsed)
+
+    -- The legacy gate probes fixing before the codex result exists. Reselect only
+    -- block outcomes so the minted grant is bound to the actual routed edge.
+    local selected_decision = admission
+    local selected_variant = "fix"
+    if parsed.action ~= "fix" and parsed.action ~= "continue" then
+      selected_variant = "block"
+      selected_decision = review_meta_caps.restart_effects.decide_transition(snapshot, {
+        semantic_variant = selected_variant,
+        target = "blocked",
+        incoming_version = review_meta.version,
+        overlay_version = review_meta.version,
+      })
+    end
+    if selected_decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: PR review-meta "
+        .. selected_variant .. " decision rejected: " .. tostring(selected_decision.reason_code))
+    end
+    local grant = review_meta_caps.restart_effects.mint_grant(
+      snapshot,
+      selected_decision,
+      "comment:pr:review-meta-result"
+    )
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: PR review-meta grant was not minted")
+    end
+    local facade = review_meta_caps.restart_effect_facade.make({
+      family = "pr-review-meta",
+      verify_grant = review_meta_caps.restart_effects.verify_grant,
+      sink_inventory = review_meta_caps.sink_inventory,
+    })
+    if type(facade.emit) ~= "function" then
+      error("github-devloop: restart-effect-facade-invalid: PR review-meta facade emit is unavailable")
+    end
+    apply_review_meta_decision(plan, parsed, {
+      snapshot = snapshot,
+      decision = selected_decision,
+      grant = grant,
+      facade = facade,
+    })
   end)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_meta" })

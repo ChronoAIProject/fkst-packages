@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real review_meta
--- department's CAS probe and the result-marker check admission boundary. Effects
--- and legacy CAS logs are recorded as separate post-admission observations. This
--- test never computes the expected result with a devloop.state transition helper.
+-- department's owner decision and the result-marker check admission boundary.
+-- Frozen OLD payload truth remains the committed R9 corpus, and direct legacy CAS
+-- use is rejected after the production swap.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -54,8 +54,12 @@ local function observe_department(run)
   local original_build_comment = core.build_review_meta_comment_request
   local original_build_label = core.build_review_meta_label_request
   local original_cyclic = devloop_state.cyclic_transition_status
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
   local original_log_cas = devloop_logging.log_cas_decision
   local original_has_review_meta_marker = m_facts.has_review_meta_marker
+  local owner_decisions = {}
+  local grant_mints = {}
   -- A fresh fixture has no live codex run; force the liveness dedup to its true
   -- no-live-run value so the post-admission effect path is deterministic. The
   -- live-run registry is keyed by (role, proposal_id, dedup_key) and is shared
@@ -66,17 +70,41 @@ local function observe_department(run)
     return false
   end
 
-  devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_cyclic(current, from_states, to_state, incoming_version, target_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
+  devloop_state.cyclic_transition_status = function()
+    error("PR review-meta production used retired direct CAS", 0)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    table.insert(owner_decisions, {
+      snapshot = snapshot,
+      intent = intent,
+      decision = decision,
     })
-    return outcome
+    if #probes == 0 then
+      table.insert(probes, {
+        current = snapshot.current,
+        from_states = { "review-meta" },
+        to_state = "fixing",
+        incoming_version = intent.incoming_version,
+        target_version = intent.target_version,
+        outcome = original_cyclic(
+          snapshot.current,
+          { "review-meta" },
+          "fixing",
+          intent.incoming_version,
+          intent.target_version
+        ),
+      })
+    end
+    return decision
+  end
+  restart_effects.mint_grant = function(snapshot, decision, sink_id)
+    table.insert(grant_mints, {
+      snapshot = snapshot,
+      decision = decision,
+      sink_id = sink_id,
+    })
+    return original_mint_grant(snapshot, decision, sink_id)
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -127,11 +155,13 @@ local function observe_department(run)
   dispatch_live_run.dispatch_live_run_dedup = original_dispatch_live_run_dedup
   m_facts.has_review_meta_marker = original_has_review_meta_marker
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.cyclic_transition_status = original_cyclic
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, marker_checks, effect_builders
+  return result, probes, decisions, marker_checks, effect_builders, owner_decisions, grant_mints
 end
 
 local function observe_shadow(run)
@@ -265,7 +295,7 @@ local function assert_catalog_matches_observed_decision(fixture)
   h.mock_default_issue_claim()
   h.mock_pr_origin(nil, "devloop-owner-repo-42-01HY", "def456", "OPEN", "dev")
 
-  local result, probes, decisions, marker_checks, effect_builders = observe_department(function()
+  local result, probes, decisions, marker_checks, effect_builders, owner_decisions, grant_mints = observe_department(function()
     return run_real_department(event)
   end)
 
@@ -278,6 +308,11 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.eq(probe.to_state, "fixing", fixture.name .. ": legacy shared probe target")
   t.eq(probe.incoming_version, fixture.incoming_version, fixture.name .. ": probe incoming version")
   t.eq(probe.target_version, nil, fixture.name .. ": probe target version")
+
+  local expected_owner_decisions = fixture.effect_state == "blocked" and 2 or 1
+  t.eq(#owner_decisions, expected_owner_decisions, fixture.name .. ": owner decision count")
+  t.eq(owner_decisions[1].intent.semantic_variant, "fix", fixture.name .. ": predecision gate variant")
+  t.eq(owner_decisions[1].intent.target, "fixing", fixture.name .. ": predecision gate target")
 
   t.eq(#decisions, 1, fixture.name .. ": structured CAS decision count")
   local decision = decisions[1]
@@ -313,16 +348,24 @@ local function assert_catalog_matches_observed_decision(fixture)
   local disposition = post_admission_disposition(result, decision, marker_check_reached)
   t.eq(disposition, fixture.post_admission_disposition or "not-admitted", fixture.name .. ": post-admission disposition")
   if fixture.legacy_log_outcome ~= nil then
-    -- The from-state skip currently logs "applied". That production logging bug
-    -- belongs in a separate R9 PR; Step 0 records and reconciles around it.
     t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
+  end
+  if fixture.legacy_log_reason ~= nil then
+    t.eq(decision.reason, fixture.legacy_log_reason, fixture.name .. ": legacy log reason")
   end
 
   if fixture.effect_state ~= nil then
     t.eq(probe.outcome, "apply", fixture.name .. ": decision reached only after the shared probe applied")
     t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
+    t.eq(#grant_mints, 1, fixture.name .. ": exactly one result grant minted")
+    t.eq(grant_mints[1].sink_id, "comment:pr:review-meta-result", fixture.name .. ": result grant sink")
+    local expected_variant = fixture.effect_state == "blocked" and "block" or "fix"
+    t.eq(grant_mints[1].decision.edge_id,
+      OWNER .. "/review-meta/autonomous/" .. expected_variant,
+      fixture.name .. ": action-selected grant edge")
   else
     t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
+    t.eq(#grant_mints, 0, fixture.name .. ": non-effect path minted no grant")
   end
   return {
     result = result,
@@ -331,6 +374,8 @@ local function assert_catalog_matches_observed_decision(fixture)
     decision = decision,
     observed = observed,
     effect_builders = effect_builders,
+    owner_decisions = owner_decisions,
+    grant_mints = grant_mints,
   }
 end
 
@@ -369,6 +414,8 @@ local TRACE_FIXTURES = {
     current_state = "review-meta",
     current_version = V_EQUAL,
     incoming_version = V_OLDER,
+    legacy_log_outcome = "skip-stale(incoming version < current marker version)",
+    legacy_log_reason = "current marker is no longer review-meta",
   },
   {
     fixture_id = "target-idempotent",
@@ -699,6 +746,8 @@ return {
       probe_outcome = "apply",
       admission_status = "stale",
       admission_reason_code = "version-mismatch",
+      legacy_log_outcome = "skip-stale(version-mismatch)",
+      legacy_log_reason = "review-meta event version does not match canonical issue marker",
     })
   end,
 
@@ -744,6 +793,8 @@ return {
       current_state = "blocked",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      legacy_log_outcome = "skip-advanced-or-diverged",
+      legacy_log_reason = "current marker is no longer review-meta",
     })
   end,
 
