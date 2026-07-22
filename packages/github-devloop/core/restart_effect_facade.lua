@@ -75,6 +75,47 @@ local function serialize_thinking_label(args)
   return requests_labels.build_thinking_label_request(args.issue, args.proposal)
 end
 
+local function valid_consensus_result_args(args)
+  return type(args) == "table"
+    and type(args.core) == "table"
+    and type(args.repo) == "string"
+    and args.issue_number ~= nil
+    and type(args.reached) == "table"
+    and type(args.to_state) == "string"
+end
+
+local function serialize_consensus_result_comment(args)
+  if not valid_consensus_result_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_lifecycle.build_result_comment_request(
+    args.core,
+    args.repo,
+    args.issue_number,
+    args.reached,
+    args.to_state
+  )
+end
+
+local function serialize_consensus_result_label(args)
+  if not valid_consensus_result_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  if args.to_state == "declined" then
+    return requests_labels.build_result_state_label_request(
+      args.repo,
+      args.issue_number,
+      args.reached,
+      "declined"
+    )
+  end
+  return requests_labels.build_result_label_request(
+    args.repo,
+    args.issue_number,
+    args.reached
+  )
+end
+
 local function serialize_awaiting_pr_comment(args)
   if type(args) ~= "table"
     or type(args.issue) ~= "table"
@@ -245,6 +286,16 @@ local SERIALIZERS_BY_FAMILY = {
     [LABEL_EFFECT_ID] = {
       sink_id = "label:issue:thinking-state",
       serialize = serialize_thinking_label,
+    },
+  },
+  ["consensus-result"] = {
+    [COMMENT_EFFECT_ID] = {
+      sink_id = "comment:issue:consensus-result",
+      serialize = serialize_consensus_result_comment,
+    },
+    [LABEL_EFFECT_ID] = {
+      sink_id = "label:issue:consensus-result",
+      serialize = serialize_consensus_result_label,
     },
   },
   thinking = {

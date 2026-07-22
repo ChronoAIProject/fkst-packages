@@ -6,6 +6,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
+local restart_effects = require("core.restart_effects")
 local t = h.t
 local core = h.core
 local loop_department = require("departments.loop.main")
@@ -274,18 +275,32 @@ local function observe_consensus_result_department(run)
   local probes = {}
   local decisions = {}
   local original_versioned = devloop_state.versioned_transition_status
+  local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
 
   devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      outcome = outcome,
-    })
-    return outcome
+    if type(from_states) == "table" and #from_states == 1 and from_states[1] == "thinking"
+      and (to_state == "ready" or to_state == "dependency_wait") then
+      error("consensus_result production used retired direct result CAS", 0)
+    end
+    return original_versioned(current, from_states, to_state, incoming_version)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    local target_state = intent.semantic_variant == CONSENSUS_REACHED_VARIANT and "ready"
+      or intent.semantic_variant == CONSENSUS_REACHED_DEPENDENCY_HELD_VARIANT and "dependency_wait"
+      or nil
+    if target_state ~= nil then
+      local current = { state = snapshot.current.state, version = snapshot.current.version }
+      table.insert(probes, {
+        current = current,
+        from_states = { "thinking" },
+        to_state = target_state,
+        incoming_version = intent.incoming_version,
+        outcome = original_versioned(current, { "thinking" }, target_state, intent.incoming_version),
+      })
+    end
+    return decision
   end
   devloop_logging.log_cas_decision = function(
     dept,
@@ -318,6 +333,7 @@ local function observe_consensus_result_department(run)
 
   local ok, result = pcall(run)
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)

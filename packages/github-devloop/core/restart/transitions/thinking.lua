@@ -119,6 +119,22 @@ return function(M, h)
           output_variant = "consensus-reached-dependency-held",
           cas_policy_id = "cas.legacy_consensus_result_v1",
           cas_variant = "thinking_to_dependency_wait",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/thinking/autonomous/consensus-reached-dependency-held/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/thinking/autonomous/consensus-reached-dependency-held/idempotent",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "thinking" },
           postcondition_family = "issue-consensus",
@@ -129,6 +145,22 @@ return function(M, h)
           output_variant = "premise-refuted",
           cas_policy_id = "cas.legacy_consensus_result_v1",
           cas_variant = "thinking_to_declined",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/thinking/autonomous/premise-refuted/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/thinking/autonomous/premise-refuted/idempotent",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+          },
           kind = "autonomous",
           pending_order = { participates = false },
           postcondition_family = "issue-consensus",

@@ -12,6 +12,7 @@ local devloop_state = require("devloop.state")
 local github_factory = require("devloop.github_factory")
 local github_author_policy = require("devloop.github_author_policy")
 local result_facts = require("devloop.markers.result_facts")
+local consensus_result_caps = require("consensus_result_department_caps")
 
 local spec = {
   consumes = { "consensus.consensus_reached" },
@@ -22,6 +23,14 @@ local spec = {
   fanout = { "consensus.consensus_reached" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
+}
+
+local COMMENT_EFFECT_ID = "github-proxy.github_issue_comment_request"
+local LABEL_EFFECT_ID = "github-proxy.github_issue_label_request"
+local RESULT_TRANSITION_VARIANT = {
+  declined = "premise-refuted",
+  ready = "consensus-reached",
+  dependency_wait = "consensus-reached-dependency-held",
 }
 
 local function result_version(reached)
@@ -38,14 +47,17 @@ local function dependency_hold_effects_complete(current, reached, version)
     and devloop_state.has_label(current.labels, devloop_base._blocked_on_dependency_label)
 end
 
-local function raise_result_effects(repo, issue_number, reached, current, state, gate, reason, version, to_state)
+local function raise_result_effects(repo, issue_number, reached, current, state, gate, reason, version, to_state,
+  granted_payloads)
   version = version or result_version(reached)
   local declined = reached.decision == "reject"
   to_state = to_state or (declined and "declined" or gate and gate.ok and "ready" or "dependency_wait")
-  local comment_request = requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
-  local label_request = declined
-    and requests_labels.build_result_state_label_request(repo, issue_number, reached, "declined")
-    or requests_labels.build_result_label_request(repo, issue_number, reached)
+  local comment_request = granted_payloads and granted_payloads[COMMENT_EFFECT_ID]
+    or requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
+  local label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
+    or (declined
+      and requests_labels.build_result_state_label_request(repo, issue_number, reached, "declined")
+      or requests_labels.build_result_label_request(repo, issue_number, reached))
   local dependency_comment_request = nil
   local dependency_label_request = nil
   local dependency_release_comment_request = nil
@@ -129,6 +141,66 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, reason, "result effects complete or recoverable")
 end
 
+local function decide_result_transition(repo, issue_number, proposal_id, lock_key, state, to_state, version)
+  local semantic_variant = RESULT_TRANSITION_VARIANT[to_state]
+  if semantic_variant == nil then
+    error("github-devloop: restart-effect-target-unsupported: consensus result target is not declared")
+  end
+  local snapshot = consensus_result_caps.restart_effects.seal_snapshot({
+    owner = consensus_result_caps.restart_package_name,
+    entity = { kind = "issue", repo = repo, number = issue_number },
+    proposal_id = proposal_id,
+    current = { state = state.state, version = state.version },
+    snapshot_fingerprint = table.concat({
+      "consensus-result", proposal_id, state.state or "unmanaged", state.version or "unversioned",
+      to_state, version,
+    }, "|"),
+    lock_epoch = lock_key .. "@" .. version,
+    generation = version,
+  })
+  local decision = consensus_result_caps.restart_effects.decide_transition(snapshot, {
+    semantic_variant = semantic_variant,
+    target = to_state,
+    incoming_version = version,
+    overlay_version = version,
+  })
+  if decision.status == "illegal" then
+    error("github-devloop: restart-effect-decision-illegal: consensus result decision rejected: "
+      .. tostring(decision.reason_code))
+  end
+  return snapshot, decision
+end
+
+local function granted_result_payloads(snapshot, decision, args)
+  local grant = consensus_result_caps.restart_effects.mint_grant(
+    snapshot,
+    decision,
+    "comment:issue:consensus-result"
+  )
+  if grant == nil then
+    error("github-devloop: restart-effect-grant-mint-failed: consensus result grant was not minted")
+  end
+  local facade = consensus_result_caps.restart_effect_facade.make({
+    family = "consensus-result",
+    verify_grant = consensus_result_caps.restart_effects.verify_grant,
+    sink_inventory = consensus_result_caps.sink_inventory,
+  })
+  if type(facade.emit) ~= "function" then
+    error("github-devloop: restart-effect-facade-invalid: consensus result facade emit is unavailable")
+  end
+
+  local payloads = {}
+  for _, effect_id in ipairs(decision.granted_effect_ids) do
+    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: consensus result effect "
+        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    end
+    payloads[effect_id] = payload
+  end
+  return payloads
+end
+
 local function make_department(ports)
   local function result_done(_event)
     return false
@@ -208,7 +280,9 @@ local function make_department(ports)
         comments = current.comments,
       })
       local to_state = declined and "declined" or gate.ok and "ready" or "dependency_wait"
-      local transition = devloop_state.versioned_transition_status(state, { "thinking" }, to_state, version)
+      local snapshot, decision = decide_result_transition(
+        repo, issue_number, reached.proposal_id, lock_key, state, to_state, version)
+      local transition = decision.status
       if transition == "idempotent" or transition == "stale" then
         if transition == "idempotent" and tostring(state.version or "") == tostring(version) then
           local complete = gate.ok
@@ -231,16 +305,24 @@ local function make_department(ports)
           )
           return
         end
-        devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, devloop_state.cas_outcome(state, transition, version), "consensus result cannot advance current marker")
+        devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, decision.cas_outcome, "consensus result cannot advance current marker")
         return
       end
       if transition == "pending" then
-        devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, devloop_state.cas_outcome(state, transition, version), "thinking state marker not yet visible")
+        devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, decision.cas_outcome, "thinking state marker not yet visible")
         error("github-devloop: state-marker-pending: thinking state marker not yet visible for consensus result; retrying")
       end
-      devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, devloop_state.cas_outcome(state, transition, version), "consensus decision=" .. tostring(reached.decision))
+      devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, decision.cas_outcome, "consensus decision=" .. tostring(reached.decision))
 
-      raise_result_effects(repo, issue_number, reached, current, state, gate, devloop_state.cas_outcome(state, transition, version), version, to_state)
+      local granted_payloads = granted_result_payloads(snapshot, decision, {
+        core = core,
+        repo = repo,
+        issue_number = issue_number,
+        reached = reached,
+        to_state = to_state,
+      })
+      raise_result_effects(repo, issue_number, reached, current, state, gate,
+        decision.cas_outcome, version, to_state, granted_payloads)
     end)
   end
 

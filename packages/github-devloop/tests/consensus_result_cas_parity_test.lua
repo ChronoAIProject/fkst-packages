@@ -58,24 +58,61 @@ local function shadow_for_target(target_state)
   return shadow
 end
 
+local function target_for_semantic_variant(semantic_variant)
+  for target_state, shadow in pairs(TARGET_SHADOW) do
+    if shadow.semantic_variant == semantic_variant then
+      return target_state
+    end
+  end
+  return nil
+end
+
 local function observe_department(run)
   local probes = {}
   local decisions = {}
   local result_marker_checks = {}
+  local grant_mints = 0
   local original_versioned = devloop_state.versioned_transition_status
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
   local original_log_cas = devloop_logging.log_cas_decision
   local original_has_result_marker = devloop_state.has_result_marker
 
   devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version)
-    local outcome = original_versioned(current, from_states, to_state, incoming_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      outcome = outcome,
-    })
-    return outcome
+    if type(from_states) == "table"
+      and #from_states == 1
+      and from_states[1] == "thinking"
+      and TARGET_SHADOW[to_state] ~= nil then
+      error("consensus_result production used retired direct result CAS", 0)
+    end
+    return original_versioned(current, from_states, to_state, incoming_version)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decided = original_decide_transition(snapshot, intent)
+    local target_state = target_for_semantic_variant(intent.semantic_variant)
+    if target_state ~= nil then
+      local legacy_current = {
+        state = snapshot.current.state,
+        version = snapshot.current.version,
+      }
+      table.insert(probes, {
+        current = legacy_current,
+        from_states = { "thinking" },
+        to_state = target_state,
+        incoming_version = intent.incoming_version,
+        outcome = original_versioned(
+          legacy_current,
+          { "thinking" },
+          target_state,
+          intent.incoming_version
+        ),
+      })
+    end
+    return decided
+  end
+  restart_effects.mint_grant = function(snapshot, decision, sink_id)
+    grant_mints = grant_mints + 1
+    return original_mint_grant(snapshot, decision, sink_id)
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -103,11 +140,13 @@ local function observe_department(run)
   local ok, result = pcall(run)
   devloop_state.has_result_marker = original_has_result_marker
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, result_marker_checks
+  return result, probes, decisions, result_marker_checks, grant_mints
 end
 
 -- Admission-only: the catalog's consensus_result policy is a plain versioned base (the
@@ -282,7 +321,7 @@ end
 local function assert_catalog_matches_observed_admission(fixture)
   local source = source_for_fixture(fixture)
   mock_dependency_gate(fixture)
-  local result, probes, decisions, result_marker_checks = observe_department(function()
+  local result, probes, decisions, result_marker_checks, grant_mints = observe_department(function()
     return run_real_department(source, fixture.expected_exit_code or 0)
   end)
 
@@ -290,6 +329,7 @@ local function assert_catalog_matches_observed_admission(fixture)
     t.eq(#probes, 0, fixture.name .. ": first-result gate precedes CAS")
     t.eq(#result.raises, 0, fixture.name .. ": admitted result is a no-op")
     t.eq(legacy_log_outcome(decisions), "skip-idempotent(first-result)", fixture.name .. ": first-result outcome")
+    t.eq(grant_mints, 0, fixture.name .. ": first-result gate mints no grant")
     return
   end
 
@@ -333,6 +373,8 @@ local function assert_catalog_matches_observed_admission(fixture)
   t.eq(disposition, fixture.post_admission_disposition, fixture.name .. ": post-admission disposition")
   t.eq(legacy_log_outcome(decisions), fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome axis")
   t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": captured effect state")
+  t.eq(grant_mints, observed.status == "apply" and 1 or 0,
+    fixture.name .. ": grant mint count follows apply admission only")
 
   local actual = catalog.resolve(POLICY_ID, evidence_from_source(source), projection)
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
@@ -408,7 +450,7 @@ local function assert_rejected_before_cas()
   })
   source.event.effect_version = 42
   h.mock_issue_result(source.labels, source.comments)
-  local result, probes, decisions, result_marker_checks = observe_department(function()
+  local result, probes, decisions, result_marker_checks, grant_mints = observe_department(function()
     return h.run_result_expecting_failure(source.event, h.opts("consensus-result-cas-parity-malformed"))
   end)
 
@@ -418,6 +460,7 @@ local function assert_rejected_before_cas()
   t.eq(#probes, 0, "consensus-result-malformed: production rejects before CAS")
   t.eq(#result_marker_checks, 0, "consensus-result-malformed: admission boundary not reached")
   t.eq(#decisions, 0, "consensus-result-malformed: failure precedes legacy rejection logging")
+  t.eq(grant_mints, 0, "consensus-result-malformed: rejected payload mints no grant")
 
   local evidence = evidence_from_source(source)
   t.eq(evidence.incoming_version, 42, "consensus-result-malformed: catalog sees the same rejected value")
