@@ -401,20 +401,8 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready")
     return
   end
-  if transition == "idempotent" and state.state ~= "merging" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready or merging")
-    return
-  end
-  if transition == "apply" and state.state ~= "merge-ready" then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(from-state-mismatch)", "issue is not currently merge-ready")
-    return
-  end
   if transition ~= "apply" and transition ~= "idempotent" then
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", decision.cas_outcome, "issue is not currently merge-ready or merging")
-    return
-  end
-  if tostring(state.version or "") ~= tostring(merge_ready.version) then
-    devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(version-mismatch)", "merge-ready event version does not match canonical issue marker")
     return
   end
   local fact = m_facts.merge_ready_fact(current_pr.comments, merge_ready.proposal_id, merge_ready.version, merge_ready.pr_number, merge_ready.reviewed_head_sha)
