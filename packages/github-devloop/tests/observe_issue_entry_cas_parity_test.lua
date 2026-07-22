@@ -34,23 +34,36 @@ local VARIANT = "unmanaged_to_thinking"
 local V_OLDER = "github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_EQUAL = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_NEWER = "github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
+local ISSUE_V_OLDER = "owner/repo#issue#42@2026-06-02T01:02:03Z"
+local ISSUE_V_EQUAL = "owner/repo#issue#42@2026-06-03T01:02:03Z"
 local V_ORDERING_EQUAL_CURRENT = V_EQUAL .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
 local OBSERVE_ISSUE_ENTRY_CORPUS_PATH = "migration/intent_bounded_replay/corpus/observe-issue-entry.json"
 local OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH = ".fkst/run/r9-observe-issue-entry-new-trace.json"
+local OLD_OBSERVATION_INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
+local INTAKE_DECISION_REASONS = {
+  ["unsupported event payload"] = true,
+  ["issue is not open"] = true,
+  ["fkst-dev:enabled label is absent"] = true,
+  ["fkst-dev:hold label is present"] = true,
+  ["current marker is not an unmanaged start"] = true,
+  ["unmanaged state marker pending for observe"] = true,
+  ["starting consensus for opted-in issue"] = true,
+}
 
-local function observe_department(run)
+local function observe_department(run, fixture)
   local probes = {}
   local decisions = {}
   local boundary_calls = {}
   local original_versioned = devloop_state.versioned_transition_status
   local original_log_cas = devloop_logging.log_cas_decision
   local original_claim_issue = devloop_claims.claim_issue_for_management
-  -- A fresh fixture has no live codex run. Force that ground truth so managed
-  -- pre-CAS replay checks cannot inherit a cross-case live-run registry entry.
+  -- Keep each fixture independent from the process-wide live-run registry.
+  -- Managed OLD-truth fixtures opt into the exact live consensus fact that lets
+  -- replay/timeout fall through to this shared CAS site.
   local original_dispatch_live_run_dedup = dispatch_live_run.dispatch_live_run_dedup
   dispatch_live_run.dispatch_live_run_dedup = function()
-    return false
+    return fixture ~= nil and fixture.live_thinking == true
   end
 
   devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
@@ -66,15 +79,20 @@ local function observe_department(run)
     return outcome
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
-    table.insert(decisions, {
-      dept = dept,
-      proposal_id = proposal_id,
-      current = current,
-      from_state = from_state,
-      to_state = to_state,
-      outcome = outcome,
-      reason = reason,
-    })
+    if dept == "observe_issue"
+      and from_state == "unmanaged"
+      and to_state == "thinking"
+      and INTAKE_DECISION_REASONS[reason] == true then
+      table.insert(decisions, {
+        dept = dept,
+        proposal_id = proposal_id,
+        current = current,
+        from_state = from_state,
+        to_state = to_state,
+        outcome = outcome,
+        reason = reason,
+      })
+    end
     return original_log_cas(dept, proposal_id, current, from_state, to_state, outcome, reason)
   end
   devloop_claims.claim_issue_for_management = function(M, dept, repo, issue_number, current, proposal_id)
@@ -136,7 +154,7 @@ local function emitted_state(result)
   return nil
 end
 
-local function observed_admission(probe, boundary_reached)
+local function observed_admission(probe, boundary_reached, decision)
   if probe.outcome == "pending" then
     return { status = "pending", reason_code = "source-marker-not-visible" }
   end
@@ -144,7 +162,8 @@ local function observed_admission(probe, boundary_reached)
     return { status = "idempotent", reason_code = "already-at-target" }
   end
   if probe.outcome == "stale" then
-    if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
+    if decision ~= nil
+      and decision.outcome == "skip-stale(incoming version < current marker version)" then
       return { status = "stale", reason_code = "incoming-version-older" }
     end
     return { status = "stale", reason_code = "advanced-or-diverged" }
@@ -159,12 +178,12 @@ local function observed_admission(probe, boundary_reached)
 end
 
 local function post_admission_disposition(result, decision, boundary_reached)
-  if not boundary_reached then
-    return "not-admitted"
-  end
   local state = emitted_state(result)
   if state ~= nil then
     return "effect-emitted(" .. state .. ")"
+  end
+  if not boundary_reached then
+    return "not-admitted"
   end
   local outcome = tostring(decision and decision.outcome or "")
   if outcome:find("claim", 1, true) ~= nil then
@@ -196,18 +215,22 @@ local function state_comment(proposal_id, state, version)
   return {
     body = core.state_marker(proposal_id, state, version),
     author_login = "fkst-test-bot",
-    created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
+    created_at = "2099-01-01T00:00:00Z",
   }
 end
 
 local function mock_current_issue(event, fixture)
   local proposal_id = "github-devloop/issue/owner/repo/42"
   local comments = {}
+  local labels = { "fkst-dev:enabled" }
   if fixture.current_state ~= nil then
     table.insert(comments, state_comment(proposal_id, fixture.current_state, fixture.current_version))
+    table.insert(labels, "fkst-dev:" .. fixture.current_state)
   end
-  h.mock_issue_state({ "fkst-dev:enabled" }, "OPEN", comments)
-  h.mock_context_bundle(event)
+  h.mock_issue_state(labels, "OPEN", comments)
+  for _ = 1, fixture.context_bundle_builds or 1 do
+    h.mock_context_bundle(event)
+  end
 end
 
 local function assert_catalog_matches_observed_decision(fixture)
@@ -216,7 +239,7 @@ local function assert_catalog_matches_observed_decision(fixture)
 
   local result, probes, decisions, boundary_calls = observe_department(function()
     return run_real_department(event)
-  end)
+  end, fixture)
 
   t.is_true(#probes <= 1, fixture.name .. ": real department CAS probe count must be at most one")
   local boundary_reached = #boundary_calls > 0
@@ -260,7 +283,11 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
   t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
 
-  t.eq(#boundary_calls, probe.outcome == "apply" and 1 or 0, fixture.name .. ": admission boundary reach")
+  local expected_boundary_reached = fixture.boundary_reached
+  if expected_boundary_reached == nil then
+    expected_boundary_reached = probe.outcome == "apply"
+  end
+  t.eq(#boundary_calls, expected_boundary_reached and 1 or 0, fixture.name .. ": admission boundary reach")
   if boundary_reached then
     local boundary = boundary_calls[1]
     t.eq(boundary.dept, "observe_issue", fixture.name .. ": claim boundary department")
@@ -270,7 +297,7 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(boundary.outcome, true, fixture.name .. ": claim boundary outcome")
   end
 
-  local observed = observed_admission(probe, boundary_reached)
+  local observed = observed_admission(probe, boundary_reached, decision)
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
   if fixture.effect_count ~= nil then
     t.eq(#result.raises, fixture.effect_count, fixture.name .. ": captured effect count")
@@ -344,20 +371,106 @@ end
 local TRACE_EDGE_ID = OWNER .. "/thinking/entry/unmanaged_issue"
 local TRACE_FIXTURES = {
   {
+    fixture_id = "advanced-source-stale",
+    name = "r9-observe-issue-entry-advanced-source-stale",
+    old_observation_name = "declined-state-advanced",
+    current_state = "declined",
+    current_version = V_EQUAL,
+    incoming_version = ISSUE_V_EQUAL,
+    legacy_log_outcome = "skip-advanced-or-diverged",
+    legacy_log_reason = "current marker is not an unmanaged start",
+    cas_status = "stale",
+    reason_code = "advanced-or-diverged",
+    effect_count = 0,
+    effect_entitlement_id = nil,
+    granted_effect_ids = {},
+    managed_old_trace = true,
+  },
+  {
+    fixture_id = "thinking-idempotent-reemit",
+    name = "r9-observe-issue-entry-thinking-idempotent-reemit",
+    old_observation_name = "thinking-live-idempotent-reemit",
+    current_state = "thinking",
+    current_version = V_EQUAL,
+    incoming_version = ISSUE_V_EQUAL,
+    live_thinking = true,
+    boundary_reached = true,
+    context_bundle_builds = 2,
+    effect_count = 3,
+    post_admission_disposition = "effect-emitted(thinking)",
+    legacy_log_outcome = "skip-idempotent(already at to_state)",
+    legacy_log_reason = "starting consensus for opted-in issue",
+    cas_status = "idempotent",
+    reason_code = "already-thinking-reemit",
+    effect_entitlement_id = TRACE_EDGE_ID .. "/idempotent",
+    granted_effect_ids = {
+      "consensus.proposal",
+      "github-proxy.github_issue_comment_request",
+      "github-proxy.github_issue_label_request",
+    },
+    include_consensus_effect = true,
+    managed_old_trace = true,
+  },
+  {
+    fixture_id = "thinking-older-version-stale",
+    name = "r9-observe-issue-entry-thinking-older-version-stale",
+    old_observation_name = "thinking-older-event",
+    current_state = "thinking",
+    current_version = V_EQUAL,
+    incoming_version = ISSUE_V_OLDER,
+    live_thinking = true,
+    legacy_log_outcome = "skip-stale(incoming version < current marker version)",
+    legacy_log_reason = "current marker is not an unmanaged start",
+    cas_status = "stale",
+    reason_code = "incoming-version-older",
+    effect_count = 0,
+    effect_entitlement_id = nil,
+    granted_effect_ids = {},
+    managed_old_trace = true,
+  },
+  {
     fixture_id = "unmanaged-source-apply",
     name = "r9-observe-issue-entry-unmanaged-source-apply",
+    old_observation_name = "unmanaged-ingress-apply",
     current_state = nil,
     current_version = nil,
     incoming_version = V_EQUAL,
     effect_count = 3,
     post_admission_disposition = "effect-emitted(thinking)",
     legacy_log_outcome = "applied",
+    legacy_log_reason = "starting consensus for opted-in issue",
+    cas_status = "apply",
+    reason_code = "apply",
+    effect_entitlement_id = TRACE_EDGE_ID .. "/apply",
+    granted_effect_ids = {
+      "github-proxy.github_issue_comment_request",
+      "github-proxy.github_issue_label_request",
+    },
+    verify_existing_new_facade = true,
   },
 }
 
 local ADMISSION_EFFECT_IDS = {
   ["github-proxy.github_issue_comment_request"] = true,
   ["github-proxy.github_issue_label_request"] = true,
+}
+
+local OLD_EFFECT_SHAPES = {
+  ["consensus.proposal"] = {
+    effect_id = "queue:consensus.proposal",
+    sink_kind = "queue",
+    authority_class = "lifecycle-authoritative",
+  },
+  ["github-proxy.github_issue_comment_request"] = {
+    effect_id = "comment:issue:thinking-state",
+    sink_kind = "comment",
+    authority_class = "lifecycle-authoritative",
+  },
+  ["github-proxy.github_issue_label_request"] = {
+    effect_id = "label:issue:thinking-state",
+    sink_kind = "label",
+    authority_class = "lifecycle-authoritative",
+  },
 }
 
 local function admission_trace_writes(raises)
@@ -400,6 +513,69 @@ local function trace_artifact(corpus_hash, fixtures)
     corpus_hash,
     fixtures
   )
+end
+
+local function frozen_old_observation(observation_name)
+  local inventory = json.decode(file.read(OLD_OBSERVATION_INVENTORY_PATH))
+  local selected = nil
+  local needle = "/" .. observation_name .. "/"
+  for _, record in ipairs(inventory.old_behavior_observations or {}) do
+    local site = record.site or {}
+    if site.path == "packages/github-devloop/departments/observe_issue/main.lua"
+      and site.symbol == "process_issue_event"
+      and site.ordinal == "versioned_transition_status:unmanaged->thinking"
+      and tostring(record.observation_id or ""):find(needle, 1, true) ~= nil then
+      t.eq(selected, nil, observation_name .. ": frozen OLD observation is unique")
+      selected = record
+    end
+  end
+  t.is_true(selected ~= nil, observation_name .. ": frozen OLD observation exists")
+  return selected
+end
+
+local function assert_frozen_old_trace(fixture, production)
+  local expected = frozen_old_observation(fixture.old_observation_name)
+  local expected_outcome = expected.old_outcome
+  local expected_inputs = expected.old_inputs
+  t.eq(production.probe.current.state, expected_inputs.current_fact.state, fixture.fixture_id .. ": OLD current state")
+  t.eq(production.probe.current.version, expected_inputs.current_fact.version, fixture.fixture_id .. ": OLD current version")
+  t.eq(production.probe.incoming_version, expected_inputs.incoming_version, fixture.fixture_id .. ": OLD incoming version")
+  t.eq(production.probe.outcome, expected_outcome.status, fixture.fixture_id .. ": OLD CAS status")
+  t.eq(production.decision.outcome, expected_outcome.cas_outcome, fixture.fixture_id .. ": OLD CAS outcome")
+  t.eq(production.decision.reason, fixture.legacy_log_reason, fixture.fixture_id .. ": OLD log reason")
+  t.eq(expected_outcome.reason_code, fixture.reason_code, fixture.fixture_id .. ": OLD reason code")
+  t.eq(#production.result.raises, #expected_outcome.observable_writes, fixture.fixture_id .. ": OLD write multiplicity")
+  t.eq(#production.result.raises, #expected_outcome.emitted_effects, fixture.fixture_id .. ": OLD effect multiplicity")
+  for ordinal, raised in ipairs(production.result.raises) do
+    local expected_write = expected_outcome.observable_writes[ordinal]
+    local expected_effect = expected_outcome.emitted_effects[ordinal]
+    local shape = OLD_EFFECT_SHAPES[raised.queue]
+    t.is_true(shape ~= nil, fixture.fixture_id .. ": OLD effect shape is classified at ordinal " .. tostring(ordinal))
+    t.eq(raised.queue, expected_write.queue, fixture.fixture_id .. ": OLD queue order at ordinal " .. tostring(ordinal))
+    t.eq(canonical_json(raised.payload), canonical_json(expected_write.payload), fixture.fixture_id .. ": OLD payload at ordinal " .. tostring(ordinal))
+    t.eq(expected_effect.ordinal, ordinal, fixture.fixture_id .. ": OLD effect ordinal")
+    t.eq(expected_effect.effect_id, shape.effect_id, fixture.fixture_id .. ": OLD effect id")
+    t.eq(expected_effect.sink_kind, shape.sink_kind, fixture.fixture_id .. ": OLD sink kind")
+    t.eq(expected_effect.authority_class, shape.authority_class, fixture.fixture_id .. ": OLD authority class")
+  end
+  local traced_writes = observation_support.admission_trace_writes(
+    production.result.raises,
+    fixture.fixture_id .. ": managed OLD trace"
+  )
+  t.eq(#traced_writes, #expected_outcome.observable_writes, fixture.fixture_id .. ": OLD traced write multiplicity")
+  for ordinal, write in ipairs(traced_writes) do
+    t.eq(write.ordinal, ordinal, fixture.fixture_id .. ": OLD traced ordinal")
+    t.eq(write.effect_id, expected_outcome.observable_writes[ordinal].queue, fixture.fixture_id .. ": OLD traced effect id")
+  end
+end
+
+local function frozen_trace_writes(fixture)
+  local expected = frozen_old_observation(fixture.old_observation_name)
+  local raises = json_array()
+  for _, write in ipairs(expected.old_outcome.observable_writes or {}) do
+    table.insert(raises, { queue = write.queue, payload = write.payload })
+  end
+  return observation_support.admission_trace_writes(raises, fixture.fixture_id .. ": frozen OLD trace")
 end
 
 local function new_trace_fixture(fixture, production)
@@ -445,38 +621,54 @@ local function new_trace_fixture(fixture, production)
     t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
     table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
   end
-  return trace_fixture(fixture, decided, writes), decided
+  return trace_fixture(fixture, decided, writes)
 end
 
 local function assert_observe_issue_entry_trace_equality()
+  os.remove(OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH)
   local corpus = json.decode(file.read(OBSERVE_ISSUE_ENTRY_CORPUS_PATH))
   local old_fixtures = json_array()
-  local new_fixtures = json_array()
   for _, fixture in ipairs(TRACE_FIXTURES) do
-    local production = assert_catalog_matches_observed_decision(fixture)
-    local new_fixture, decided = new_trace_fixture(fixture, production)
-    local old_writes = admission_trace_writes(production.result.raises)
-    t.eq(#old_writes, #decided.granted_effect_ids, fixture.fixture_id .. ": OLD admission write count")
-    table.insert(old_fixtures, trace_fixture(fixture, {
-      status = production.observed.status,
-      reason_code = production.observed.reason_code,
-      cas_outcome = production.decision.outcome,
-      effect_entitlement_id = decided.effect_entitlement_id,
-      granted_effect_ids = decided.granted_effect_ids,
-    }, old_writes))
-    table.insert(new_fixtures, new_fixture)
+    local production = nil
+    local old_writes = nil
+    if fixture.managed_old_trace then
+      old_writes = frozen_trace_writes(fixture)
+    else
+      production = assert_catalog_matches_observed_decision(fixture)
+      old_writes = admission_trace_writes(production.result.raises)
+    end
+    t.eq(#old_writes, #fixture.granted_effect_ids, fixture.fixture_id .. ": OLD admission write count")
+    local old_fixture = trace_fixture(fixture, {
+      status = fixture.cas_status,
+      reason_code = fixture.reason_code,
+      cas_outcome = fixture.legacy_log_outcome,
+      effect_entitlement_id = fixture.effect_entitlement_id,
+      granted_effect_ids = fixture.granted_effect_ids,
+    }, old_writes)
+    table.insert(old_fixtures, old_fixture)
+    if fixture.verify_existing_new_facade then
+      local new_fixture = new_trace_fixture(fixture, production)
+      t.eq(canonical_json(old_fixture), canonical_json(new_fixture), fixture.fixture_id .. ": existing OLD and NEW semantic trace")
+    end
   end
 
   local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
-  t.eq(canonical_json(old_trace), canonical_json(new_trace), "R9 observe-issue-entry OLD and NEW semantic trace")
-  local mkdir_ok = os.execute("mkdir -p .fkst/run")
-  if mkdir_ok ~= true and mkdir_ok ~= 0 then
-    error("R9 observe-issue-entry trace could not create its artifact directory", 0)
-  end
-  file.write(OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
   t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 observe-issue-entry OLD observation corpus")
-  t.eq(canonical_json(new_trace), canonical_json(corpus), "R9 observe-issue-entry NEW semantic trace")
+end
+
+local function trace_fixture_by_id(fixture_id)
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    if fixture.fixture_id == fixture_id then
+      return fixture
+    end
+  end
+  error("missing observe-issue-entry trace fixture: " .. tostring(fixture_id), 0)
+end
+
+local function assert_managed_old_trace_case(fixture_id)
+  local fixture = trace_fixture_by_id(fixture_id)
+  local production = assert_catalog_matches_observed_decision(fixture)
+  assert_frozen_old_trace(fixture, production)
 end
 
 local function assert_malformed_fails_closed_before_cas()
@@ -505,6 +697,18 @@ return {
       post_admission_disposition = "effect-emitted(thinking)",
       legacy_log_outcome = "applied",
     })
+  end,
+
+  test_observe_issue_entry_managed_thinking_idempotent_reemits_full_old_trace = function()
+    assert_managed_old_trace_case("thinking-idempotent-reemit")
+  end,
+
+  test_observe_issue_entry_managed_thinking_older_event_matches_full_old_trace = function()
+    assert_managed_old_trace_case("thinking-older-version-stale")
+  end,
+
+  test_observe_issue_entry_managed_advanced_state_matches_full_old_trace = function()
+    assert_managed_old_trace_case("advanced-source-stale")
   end,
 
   test_observe_issue_entry_target_state_is_pre_cas = function()

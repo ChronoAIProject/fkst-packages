@@ -209,12 +209,18 @@ def _admission_trace_shape_messages(
                 messages.append(f"{write_label} marker_write must be boolean")
             if _nonempty_string(write.get("effect_id")):
                 observed_ids.append(write["effect_id"])
-        if fixture.get("cas_status") == "apply":
+        status = fixture.get("cas_status")
+        if status == "apply":
+            if observed_ids != effect_ids:
+                messages.append(f"{label} granted_effect_ids must equal observable write order")
+        elif status == "idempotent" and observed_ids:
+            if entitlement is None:
+                messages.append(f"{label} idempotent observable writes require an effect entitlement")
             if observed_ids != effect_ids:
                 messages.append(f"{label} granted_effect_ids must equal observable write order")
         elif observed_ids:
             messages.append(
-                f"{label} {fixture.get('cas_status')} admission must not include observable writes"
+                f"{label} {status} admission must not include observable writes"
             )
 
     if fixture_ids != sorted(fixture_ids) or len(fixture_ids) != len(set(fixture_ids)):

@@ -367,7 +367,11 @@ end
 
 function M.admission_trace_write(ordinal, effect_id, payload, context)
   local write_kind = nil
-  if type(payload) == "table" and type(payload.body) == "string" then
+  if effect_id == "consensus.proposal"
+    and type(payload) == "table"
+    and payload.schema == "consensus.proposal.v1" then
+    write_kind = "queue"
+  elseif type(payload) == "table" and type(payload.body) == "string" then
     write_kind = "comment"
   elseif type(payload) == "table"
     and (type(payload.add_labels) == "table" or type(payload.remove_labels) == "table") then
