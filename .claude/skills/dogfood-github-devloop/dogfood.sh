@@ -691,12 +691,37 @@ reap_leaked_test_procs() {
   printf '  leaked-test-proc reaper: %s reaped (threshold %smin, orphaned-only; count rising ⇒ escalate to bounded-exec test watchdog)\n' "$reaped" "$reap_min"
 }
 
+# sweep_stale_tmp_receipts: the CHEAP SYMPTOM PATROL (CLAUDE.md「出错即建兜底清理制度」) for the github-proxy
+# /tmp receipt-file accumulation (#2616). github-proxy writes gh `--body-file` receipt files
+# (/tmp/fkst-github-proxy-*.md) and the ops dashboard writes /tmp/fkst-github-devloop-dashboard-*.json; both
+# are TRANSIENT (consumed by gh / the board within seconds of writing) but the package has no file.remove
+# primitive to clean them, so one file per distinct entity/request accumulates over time. The elegant
+# package root-fix (pass the body via gh stdin, no file at all) is disproportionate to this minor hygiene
+# value (its test-framework migration cost far exceeds it; WIP branch fix/github-proxy-body-stdin-no-tmp),
+# so this operator patrol bounds them by time: age-based reaping is safe because nothing reads a receipt
+# after its gh call completes. DOGFOOD_RECEIPT_SWEEP_HOURS overrides the 6h threshold;
+# DOGFOOD_RECEIPT_SWEEP_ROOT overrides /tmp (for tests); DOGFOOD_RECEIPT_SWEEP_DRYRUN=1 reports without deleting.
+sweep_stale_tmp_receipts() {
+  local hours="${DOGFOOD_RECEIPT_SWEEP_HOURS:-6}" root="${DOGFOOD_RECEIPT_SWEEP_ROOT:-/tmp}" swept=0 f mins
+  mins=$((hours*60))
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ "${DOGFOOD_RECEIPT_SWEEP_DRYRUN:-0}" = "1" ]; then
+      printf '  would-sweep %s\n' "$f"; swept=$((swept+1))
+    else
+      rm -f "$f" 2>/dev/null && swept=$((swept+1))
+    fi
+  done < <(find "$root" -maxdepth 1 -type f \( -name 'fkst-github-proxy-*' -o -name 'fkst-github-devloop-dashboard-*' \) -mmin "+$mins" 2>/dev/null)
+  printf '  stale-tmp-receipt sweep: %s reaped (>%sh; transient gh body-file/dashboard receipts, #2616)\n' "$swept" "$hours"
+}
+
 cmd_doctor() {
   echo "engine BIN:"; bin_freshness_report | sed 's/^/  /'
   echo "supervises:"
   for n in $(expand "${1:-all}"); do doctor_one "$n"; done
   echo "stray supervises (unmanaged — poison shared state):"; stray_supervise_report
   echo "leaked test-proc reaper (cheap symptom patrol):"; reap_leaked_test_procs
+  echo "stale /tmp receipt sweep (cheap symptom patrol):"; sweep_stale_tmp_receipts
   echo "upstream($UPSTREAM_BRANCH) CI:"; for n in $(expand "${1:-all}"); do upstream_ci_one "$n"; done
   echo "durable (redb delivery state):"; for n in $(expand "${1:-all}"); do durable_health_one "$n"; done
   echo "graphql: $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
