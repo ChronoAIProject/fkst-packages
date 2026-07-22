@@ -435,7 +435,10 @@ host_entry_cmd_test() {
   resolve_bin
   ensure_fresh_bin
 
-  trap 'rm -rf "${HOST_TEST_RUNTIME_ROOT:-}" "${HOST_TEST_DURABLE_ROOT:-}"' EXIT
+  # This EXIT trap overrides the disarm trap cmd_host set when it armed the watchdog, so it must also
+  # disarm — else on the host-test path the watchdog is left armed and its orphaned sleep fires a stale
+  # kill -9 -pgid later. disarm is idempotent; `|| true` no-ops when test_deadline.sh was not sourced.
+  trap 'rm -rf "${HOST_TEST_RUNTIME_ROOT:-}" "${HOST_TEST_DURABLE_ROOT:-}"; disarm_test_deadline 2>/dev/null || true' EXIT
   HOST_TEST_RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-host-test-rt.XXXXXX")"
   HOST_TEST_DURABLE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fkst-host-test-durable.XXXXXX")"
   export FKST_RUNTIME_ROOT="$HOST_TEST_RUNTIME_ROOT"
