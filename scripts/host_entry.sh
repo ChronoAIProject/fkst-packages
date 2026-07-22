@@ -600,6 +600,15 @@ host_entry_cmd_supervise() {
 cmd_host() {
   host_entry_parse "$@" || return $?
   local subcommand="${HOST_ENTRY_COMMAND[0]}"
+  # Bound host-delegated check/test like the top-level test family (see scripts/test_deadline.sh) so a
+  # SIGKILLed-parent orphan self-terminates; NOT supervise, which is long-running by design. Guarded by
+  # command -v so a host_entry.sh sourced without test_deadline.sh (isolated tests) is a no-op.
+  case "$subcommand" in
+    check|test)
+      if command -v arm_test_deadline >/dev/null 2>&1; then
+        arm_test_deadline; trap 'disarm_test_deadline' EXIT
+      fi ;;
+  esac
   case "$subcommand" in
     check)
       if [ "${#HOST_ENTRY_COMMAND[@]}" -ne 1 ]; then

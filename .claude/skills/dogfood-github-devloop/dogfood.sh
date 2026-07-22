@@ -667,7 +667,8 @@ reap_leaked_test_procs() {
       # Exclude a leader that is itself codex/node: a detached codex is its own ppid=1 group leader and can
       # match a test pattern via its embedded prompt — the leaf comm guard above only spares codex LEAVES.
       leader_comm=$(ps -o comm= -p "$pgid" 2>/dev/null)
-      case "$leader_comm" in *node*|*codex*|*Code*) continue;; esac
+      case "$leader_comm" in *node*|*codex*|*Code*)
+        printf '  · %s pid %s (group %s) age %ss — group leader comm=%s (codex/node), skip\n' "$pat" "$pid" "$pgid" "$secs" "$leader_comm"; continue;; esac
       leader_ppid=$(ps -o ppid= -p "$pgid" 2>/dev/null | tr -d ' ')
       [ "$leader_ppid" = "1" ] || { printf '  · %s pid %s (group %s) age %ss — group leader has live parent %s, skip\n' "$pat" "$pid" "$pgid" "$secs" "$leader_ppid"; continue; }
       if [ "$pgid" = "$self_pgid" ] || pgrep -g "$pgid" -f -- 'supervise --project-root' >/dev/null 2>&1; then

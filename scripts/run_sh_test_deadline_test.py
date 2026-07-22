@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Behavior tests for scripts/run.sh cmd_test bounded-execution watchdog.
 
-Reproduces the test-runner leak class (CLAUDE.md「出错即建兜底清理制度 + harness」): when the
+Reproduces the test-runner leak class (CLAUDE.md error-cleanup-patrol + harness doctrine): when the
 codex/operator parent that launched `scripts/run.sh test` is SIGKILLed, the run does NOT die with it
 (SIGKILL neither propagates to children nor fires the EXIT trap), so it orphans to init and hangs
 UNBOUNDED (observed 2026-07-22: 6 trees 44min–1h15min old, a real load driver). The prevention makes
@@ -17,6 +17,7 @@ the guard refuses to arm in a shared group.
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import time
@@ -157,7 +158,12 @@ class BoundedTestExecWatchdog(unittest.TestCase):
             timeout=30,
             preexec_fn=os.setsid,
         )
-        self.assertIn("WD=", result.stdout)
+        # Non-vacuous: the watchdog must have actually armed (a real subshell pid) and its sleep child must
+        # have been observed — else "GONE" below would pass trivially for a never-armed/never-found target.
+        m = re.search(r"WD=(\d+) SLEEP=(\d+)", result.stdout)
+        self.assertIsNotNone(
+            m, f"watchdog did not arm / sleep child not captured: {result.stdout!r} / {result.stderr!r}"
+        )
         self.assertIn(
             "WATCHDOG=GONE",
             result.stdout,
