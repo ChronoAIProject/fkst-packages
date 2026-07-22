@@ -1,12 +1,12 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local m_claims = require("devloop.claims")
-local requests_review = require("devloop.requests.review")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
 local transition_version = require("contract.transition_version")
 local core = require("core")
+local review_loop_caps = require("review_loop_department_caps")
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 
@@ -19,7 +19,6 @@ local v_pr_review_unresolved = require("devloop.validators.pr_review_unresolved"
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
-local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local spec = {
   consumes = { "consensus.consensus_converge" },
@@ -33,26 +32,37 @@ local spec = {
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
--- review_version is parse_pr_review_proposal_id's safe_version_segment form (truncated +
--- checksummed for long versions): it preserves version EQUALITY only, never ordering, so it
--- must NOT be fed to the ordering-based CAS. The PR head is already pinned to reviewed_head_sha
--- before the lock, so we only need: same reviewing version (segment equality) -> apply; issue
--- advanced past reviewing (stage_rank, which IS order-preserving) or reviewing at a different
--- version -> stale skip; not yet at reviewing -> pending retry.
-local function reviewing_segment_transition_status(comments, proposal_id, review_version)
-  local state = entity_lib.current_entity_state(comments, proposal_id)
-  if state.state == "reviewing"
-    and tostring(transition_version.safe_version_segment(state.version or "")) == tostring(review_version) then
-    return state, "apply"
-  end
-  if state.state ~= nil and devloop_state.stage_rank(state.state) > devloop_state.stage_rank("reviewing") then
-    return state, "stale"
-  end
-  if state.state == "reviewing" then
-    -- reviewing but a different version segment (head already pinned): treat as version-mismatch stale, do not retry
-    return state, "stale"
-  end
-  return state, "pending"  -- no marker yet, or a state earlier than reviewing -> reviewing marker not yet visible
+local function reviewing_segment_transition_status(comments, args)
+  local state = entity_lib.current_entity_state(comments, args.proposal_id)
+  local current_state = state or {}
+  local snapshot = review_loop_caps.restart_effects.seal_snapshot({
+    owner = review_loop_caps.restart_package_name,
+    entity = { kind = "pr", repo = args.repo, number = args.pr_number },
+    proposal_id = args.proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "pr-review-loop",
+      args.proposal_id,
+      current_state.state or "unmanaged",
+      current_state.version or "unversioned",
+      args.review_version,
+      args.reviewed_head_sha,
+      args.dedup_key,
+    }, "|"),
+    lock_epoch = args.lock_key .. "@" .. tostring(current_state.version or args.dedup_key),
+    generation = current_state.version or args.dedup_key,
+  })
+  local transition = review_loop_caps.restart_effects.decide_transition(snapshot, {
+    semantic_variant = "review_convergence_round",
+    source_boundary = "consensus.consensus_converge",
+    target = "reviewing",
+    evidence_refs = {
+      "devloop.entity.current_entity_state",
+      "contract.transition_version.safe_version_segment",
+    },
+    review_version = args.review_version,
+  })
+  return state, snapshot, transition
 end
 
 return saga.department(spec, { done = function() return false end, act = function(event)
@@ -112,14 +122,63 @@ return saga.department(spec, { done = function() return false end, act = functio
 
   with_lock(lock_key, function()
     devloop_logging.log_forged_markers("review_loop", origin.proposal_id, current_pr.comments)
-    local state, transition = reviewing_segment_transition_status(current_pr.comments, origin.proposal_id, review_version)
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing|blocked", devloop_state.cas_outcome(state, "pending", review_version), "reviewing state marker not yet visible")
+    local state, snapshot, transition = reviewing_segment_transition_status(current_pr.comments, {
+      repo = repo,
+      pr_number = pr_number,
+      proposal_id = origin.proposal_id,
+      review_version = review_version,
+      reviewed_head_sha = reviewed_head_sha,
+      dedup_key = unresolved.dedup_key,
+      lock_key = lock_key,
+    })
+    if transition.status == "illegal" then
+      error("github-devloop: restart-effect-decision-illegal: review loop admission rejected: "
+        .. tostring(transition.reason_code))
+    end
+    if transition.status == "pending" then
+      devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing|blocked", transition.cas_outcome, "reviewing state marker not yet visible")
       error("github-devloop: review-loop-marker-missing: reviewing marker not yet visible for review loop; retrying")
     end
-    if transition == "stale" then
-      devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing|blocked", "skip-stale(reviewing-version)", "issue is not currently reviewing at this version")
+    if transition.status == "stale" then
+      devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing|blocked", transition.cas_outcome, "issue is not currently reviewing at this version")
       return
+    end
+    if transition.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: unsupported review loop admission status: "
+        .. tostring(transition.status))
+    end
+    local facade = review_loop_caps.restart_effect_facade.make({
+      family = "pr-review-loop",
+      verify_grant = review_loop_caps.restart_effects.verify_grant,
+      sink_inventory = review_loop_caps.sink_inventory,
+    })
+    local function build_comment_request(round_for_comment, marker_body_for_comment)
+      local grant = review_loop_caps.restart_effects.mint_grant(
+        snapshot, transition, "comment:pr:review-converge-round"
+      )
+      if grant == nil then
+        error("github-devloop: restart-effect-grant-mint-failed: review loop comment grant was not minted")
+      end
+      local payload, rejection = facade.emit(
+        grant,
+        "github-proxy.github_pr_comment_request",
+        snapshot,
+        {
+          core = core,
+          repo = origin.repo,
+          issue_number = origin.issue_number,
+          unresolved = unresolved,
+          issue_proposal_id = origin.proposal_id,
+          round = round_for_comment,
+          marker_body = marker_body_for_comment,
+          source_ref = pr_source_ref,
+        }
+      )
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: review loop comment effect rejected: "
+          .. tostring(rejection))
+      end
+      return payload
     end
     local heartbeat_version = state.version
     local sr_digest = convergence_shared.source_ref_digest(unresolved.source_ref)
@@ -146,10 +205,10 @@ return saga.department(spec, { done = function() return false end, act = functio
     local facts_with_current = conv_rounds.append_converge_round_fact(facts, round, unresolved.narrowed_question, unresolved.angle_digests, unresolved.dedup_key, unresolved.findings_record, unresolved.essence_stall == true)
     local terminal_cause = conv_rounds.terminal_cause(facts_with_current, round)
     if terminal_cause ~= nil then
-      local comment_request = requests_review.build_review_converge_round_comment_request(core, origin.repo, origin.issue_number, unresolved, origin.proposal_id, round, marker_body, pr_source_ref)
+      local comment_request = build_comment_request(round, marker_body)
       local review_reconcile = conv_reconcile.build_devloop_review_reconcile_payload(unresolved, round, origin.proposal_id, review_version, reviewed_head_sha, terminal_cause)
       local reason = "PR review convergence terminal cause=" .. terminal_cause .. " at round " .. tostring(round)
-      devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing", devloop_state.cas_outcome(state, transition, review_version), reason)
+      devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing", transition.cas_outcome, reason)
       devloop_logging.log_apply("review_loop", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
         "github-proxy.github_pr_comment_request",
         "devloop_review_reconcile",
@@ -158,7 +217,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       devloop_logging.log_raise("review_loop", origin.proposal_id, "devloop_review_reconcile", review_reconcile)
       return
     end
-    local comment_request = requests_review.build_review_converge_round_comment_request(core, origin.repo, origin.issue_number, unresolved, origin.proposal_id, round, marker_body, pr_source_ref)
+    local comment_request = build_comment_request(round, marker_body)
 
     local current_issue = {
       title = "PR #" .. tostring(pr_number),

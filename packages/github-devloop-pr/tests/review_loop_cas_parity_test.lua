@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real review_loop
--- department's local safe-segment CAS probe and its first downstream effect-
--- idempotency guard. Catalog evidence is built only from the observed probe
--- arguments; no transition helper computes the expected admission result.
+-- department's owner-decider and grant-facade path. Frozen OLD truth is the
+-- former local reviewing_segment_transition_status body copied byte-for-byte
+-- before the swap; the frozen observation corpus remains unchanged.
 
 local catalog = require("devloop.restart_cas_catalog")
 local restart_authority = require("core.restart_authority")
@@ -18,6 +18,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 local m_builders = require("devloop.markers.builders")
 local requests_review = require("devloop.requests.review")
 local transition_version = require("contract.transition_version")
@@ -56,19 +57,25 @@ local function observe_department(run)
   local boundary_calls = {}
   local comment_builders = {}
   local parsed_review_versions = {}
+  local owner_decisions = {}
+  local grant_mints = {}
+  local facade_emissions = {}
   local original_parse_pr_review_proposal_id = devloop_base.parse_pr_review_proposal_id
   local original_current_entity_state = entity_lib.current_entity_state
   local original_log_cas = devloop_logging.log_cas_decision
   local original_has_review_converge_round_marker = conv_rounds.has_review_converge_round_marker
   local original_build_review_converge_round_comment_request =
     requests_review.build_review_converge_round_comment_request
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
+  local original_facade_make = restart_effect_facade.make
 
-  -- The production probe is local and the test runtime intentionally omits the
-  -- debug library. Observe its exact two inputs at their adjacent production
+  -- Observe the production snapshot and resolve evidence at their adjacent
   -- providers: parse_pr_review_proposal_id supplies review_version, then
-  -- current_entity_state supplies current immediately before the probe call.
+  -- current_entity_state supplies the comments and current state immediately
+  -- before the owner snapshot is sealed.
   -- INVARIANT (keep true or this pairing drifts): the probe's parse is the LAST
-  -- parse before its current_entity_state — validation parses the proposal id
+  -- parse before its current_entity_state -- validation parses the proposal id
   -- earlier, so parsed_review_versions[#...] at the current_entity_state call is
   -- the probe's review_version. If a future edit inserts another parse between the
   -- probe's parse and its current_entity_state, capture the probe's parse by
@@ -79,8 +86,11 @@ local function observe_department(run)
     return table.unpack(parsed)
   end
   entity_lib.current_entity_state = function(...)
+    local args = { ... }
     local current = original_current_entity_state(...)
     table.insert(probes, {
+      comments = args[1],
+      proposal_id = args[2],
       current = current,
       review_version = parsed_review_versions[#parsed_review_versions],
     })
@@ -130,8 +140,46 @@ local function observe_department(run)
     })
     return request
   end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    table.insert(owner_decisions, {
+      snapshot = snapshot,
+      intent = intent,
+      decision = decision,
+    })
+    return decision
+  end
+  restart_effects.mint_grant = function(snapshot, decision, sink_id)
+    local grant = original_mint_grant(snapshot, decision, sink_id)
+    table.insert(grant_mints, {
+      snapshot = snapshot,
+      decision = decision,
+      sink_id = sink_id,
+      grant = grant,
+    })
+    return grant
+  end
+  restart_effect_facade.make = function(config)
+    local facade = original_facade_make(config)
+    local original_emit = facade.emit
+    facade.emit = function(grant, effect_id, snapshot, args)
+      local payload, rejection = original_emit(grant, effect_id, snapshot, args)
+      table.insert(facade_emissions, {
+        effect_id = effect_id,
+        snapshot = snapshot,
+        args = args,
+        payload = payload,
+        rejection = rejection,
+      })
+      return payload, rejection
+    end
+    return facade
+  end
 
   local ok, result = pcall(run)
+  restart_effect_facade.make = original_facade_make
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
   requests_review.build_review_converge_round_comment_request =
     original_build_review_converge_round_comment_request
   conv_rounds.has_review_converge_round_marker = original_has_review_converge_round_marker
@@ -141,16 +189,56 @@ local function observe_department(run)
   if not ok then
     error(result, 0)
   end
-  if #probes == 1 then
-    if #boundary_calls > 0 then
-      probes[1].outcome = "apply"
-    elseif #decisions == 1 and tostring(decisions[1].outcome):find("skip-stale(reviewing-version)", 1, true) ~= nil then
-      probes[1].outcome = "stale"
-    elseif #decisions == 1 and tostring(decisions[1].reason):find("marker not yet visible", 1, true) ~= nil then
-      probes[1].outcome = "pending"
-    end
+  if #probes == 1 and #owner_decisions == 1 then
+    probes[1].outcome = owner_decisions[1].decision.status
   end
-  return result, probes, decisions, boundary_calls, comment_builders
+  return result, probes, decisions, boundary_calls, comment_builders,
+    owner_decisions, grant_mints, facade_emissions
+end
+
+-- review_version is parse_pr_review_proposal_id's safe_version_segment form (truncated +
+-- checksummed for long versions): it preserves version EQUALITY only, never ordering, so it
+-- must NOT be fed to the ordering-based CAS. The PR head is already pinned to reviewed_head_sha
+-- before the lock, so we only need: same reviewing version (segment equality) -> apply; issue
+-- advanced past reviewing (stage_rank, which IS order-preserving) or reviewing at a different
+-- version -> stale skip; not yet at reviewing -> pending retry.
+local function frozen_old_reviewing_segment_transition_status(comments, proposal_id, review_version)
+  local state = entity_lib.current_entity_state(comments, proposal_id)
+  if state.state == "reviewing"
+    and tostring(transition_version.safe_version_segment(state.version or "")) == tostring(review_version) then
+    return state, "apply"
+  end
+  if state.state ~= nil and devloop_state.stage_rank(state.state) > devloop_state.stage_rank("reviewing") then
+    return state, "stale"
+  end
+  if state.state == "reviewing" then
+    -- reviewing but a different version segment (head already pinned): treat as version-mismatch stale, do not retry
+    return state, "stale"
+  end
+  return state, "pending"  -- no marker yet, or a state earlier than reviewing -> reviewing marker not yet visible
+end
+
+local function frozen_old_admission(probe)
+  local _, status = frozen_old_reviewing_segment_transition_status(
+    probe.comments,
+    probe.proposal_id,
+    probe.review_version
+  )
+  if status == "apply" then
+    return { status = "apply", reason_code = "apply", cas_outcome = "applied" }
+  end
+  if status == "stale" then
+    return {
+      status = "stale",
+      reason_code = "reviewing-version",
+      cas_outcome = "skip-stale(reviewing-version)",
+    }
+  end
+  return {
+    status = "pending",
+    reason_code = "source-marker-not-visible",
+    cas_outcome = devloop_state.cas_outcome(probe.current, "pending", probe.review_version),
+  }
 end
 
 local function evidence_from_probe(probe)
@@ -231,19 +319,11 @@ local function observed_admission(probe, boundary_reached)
   if probe == nil then
     return { status = "pre-cas", reason_code = "cas-probe-not-reached" }
   end
-  if probe.outcome == "pending" then
-    return { status = "pending", reason_code = "source-marker-not-visible" }
+  local frozen = frozen_old_admission(probe)
+  if frozen.status == "apply" and not boundary_reached then
+    error("review-loop CAS apply did not reach the admission boundary")
   end
-  if probe.outcome == "stale" then
-    return { status = "stale", reason_code = "reviewing-version" }
-  end
-  if probe.outcome ~= "apply" then
-    error("review-loop CAS probe returned an unknown outcome: " .. tostring(probe.outcome))
-  end
-  if boundary_reached then
-    return { status = "apply", reason_code = "apply" }
-  end
-  error("review-loop CAS apply did not reach the admission boundary")
+  return frozen
 end
 
 local function post_admission_disposition(result, decision, boundary_reached)
@@ -282,9 +362,10 @@ local function assert_review_loop_admission_case(fixture)
     base_branch = BASE_BRANCH,
   })
 
-  local result, probes, decisions, boundary_calls, comment_builders = observe_department(function()
-    return run_real_department(event)
-  end)
+  local result, probes, decisions, boundary_calls, comment_builders,
+    owner_decisions, grant_mints, facade_emissions = observe_department(function()
+      return run_real_department(event)
+    end)
 
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
   t.eq(#probes, 1, fixture.name .. ": real department CAS probe count")
@@ -313,11 +394,36 @@ local function assert_review_loop_admission_case(fixture)
 
   local observed = observed_admission(probe, boundary_reached)
   local resolved = catalog.resolve(POLICY_ID, evidence_from_probe(probe), projection)
+  t.eq(#owner_decisions, 1, fixture.name .. ": production owner-decider call count")
+  local production_call = owner_decisions[1]
+  local production_decision = production_call.decision
+  t.eq(production_call.intent.semantic_variant, SEMANTIC_VARIANT, fixture.name .. ": decider semantic variant")
+  t.eq(production_call.intent.source_boundary, SOURCE_BOUNDARY, fixture.name .. ": decider source boundary")
+  t.eq(production_call.intent.target, "reviewing", fixture.name .. ": decider target")
+  t.eq(production_call.intent.review_version, probe.review_version, fixture.name .. ": resolve review version")
+  t.eq(production_call.snapshot.current.state, probe.current.state, fixture.name .. ": sealed current state")
+  t.eq(production_call.snapshot.current.version, probe.current.version, fixture.name .. ": sealed current version")
+  assert_bidirectional(production_decision, observed, "status", fixture.name .. ": production-vs-frozen-old")
+  assert_bidirectional(production_decision, observed, "reason_code", fixture.name .. ": production-vs-frozen-old")
+  assert_bidirectional(production_decision, observed, "cas_outcome", fixture.name .. ": production-vs-frozen-old")
   t.eq(resolved.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(resolved.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
   t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
   t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
   t.eq(resolved.status, fixture.admission_status, fixture.name .. ": catalog admission status")
+  local expected_grants = fixture.post_admission_disposition == "effect-emitted" and 1 or 0
+  t.eq(#grant_mints, expected_grants, fixture.name .. ": production grant count")
+  t.eq(#facade_emissions, expected_grants, fixture.name .. ": production facade emission count")
+  if expected_grants == 1 then
+    t.eq(grant_mints[1].sink_id, "comment:pr:review-converge-round",
+      fixture.name .. ": granted comment sink")
+    t.eq(facade_emissions[1].effect_id, "github-proxy.github_pr_comment_request",
+      fixture.name .. ": facade comment effect")
+    t.eq(facade_emissions[1].rejection, nil, fixture.name .. ": facade accepted grant")
+    t.eq(observation_support.canonical_json(facade_emissions[1].payload),
+      observation_support.canonical_json(comment_builders[1].request),
+      fixture.name .. ": facade payload is byte-exact OLD comment")
+  end
 
   local sealed = restart_authority.seal_snapshot({
     owner = core.restart_package_name,
@@ -376,18 +482,25 @@ local function assert_review_loop_admission_case(fixture)
     decision = decision,
     observed = observed,
     comment_builders = comment_builders,
+    production_decision = production_decision,
+    grant_mints = grant_mints,
+    facade_emissions = facade_emissions,
   }
 end
 
 local function assert_malformed_is_pre_cas_and_catalog_illegal()
   local malformed = review_event(V_EQUAL, { proposal_id = 42 })
-  local result, probes, decisions, boundary_calls = observe_department(function()
-    return run_real_department(malformed)
-  end)
+  local result, probes, decisions, boundary_calls, _, owner_decisions, grant_mints,
+    facade_emissions = observe_department(function()
+      return run_real_department(malformed)
+    end)
 
   t.eq(result.exit_code, 0, "review-loop-malformed: production rejects unsupported payload")
   t.eq(#probes, 0, "review-loop-malformed: production rejects before CAS")
   t.eq(#boundary_calls, 0, "review-loop-malformed: admission boundary is not reached")
+  t.eq(#owner_decisions, 0, "review-loop-malformed: owner decider is not reached")
+  t.eq(#grant_mints, 0, "review-loop-malformed: no grants")
+  t.eq(#facade_emissions, 0, "review-loop-malformed: no facade emissions")
   t.eq(#result.raises, 0, "review-loop-malformed: no effects")
   t.eq(#decisions, 1, "review-loop-malformed: rejection decision count")
   t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", "review-loop-malformed: rejection outcome")
@@ -457,46 +570,11 @@ local function trace_artifact(corpus_hash, fixtures)
 end
 
 local function new_trace_fixture(fixture, production)
-  local snapshot = restart_effects.seal_snapshot({
-    owner = OWNER,
-    entity = { kind = "pr", repo = REPO, number = PR_NUMBER },
-    proposal_id = PROPOSAL_ID,
-    current = { state = fixture.current_state, version = fixture.current_version },
-    snapshot_fingerprint = "r9-pr-review-loop:" .. fixture.fixture_id,
-    lock_epoch = "r9-pr-review-loop:lock",
-    generation = "r9-pr-review-loop:generation",
-  })
-  local decided = restart_effects.decide_transition(snapshot, {
-    semantic_variant = SEMANTIC_VARIANT,
-    source_boundary = SOURCE_BOUNDARY,
-    target = "reviewing",
-    review_version = production.probe.review_version,
-  })
+  local decided = production.production_decision
   local writes = observation_support.json_array()
-  if decided.status == "apply" then
-    local grant = restart_effects.mint_grant(
-      snapshot, decided, "comment:pr:review-converge-round"
-    )
-    t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
-    t.eq(#production.comment_builders, 1,
-      fixture.fixture_id .. ": OLD comment builder observed once")
-    local facade = restart_effect_facade.make({
-      family = "pr-review-loop",
-      verify_grant = restart_effects.verify_grant,
-      sink_inventory = require("core.restart.sink_inventory"),
-    })
-    local args = production.comment_builders[1]
-    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
-      local emitted = facade.emit(grant, effect_id, snapshot, args)
-      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
-      t.eq(
-        observation_support.canonical_json(emitted),
-        observation_support.canonical_json(args.request),
-        fixture.fixture_id .. ": NEW facade reused the OLD shared comment builder"
-      )
-      table.insert(writes,
-        observation_support.admission_trace_write(ordinal, effect_id, emitted))
-    end
+  for ordinal, emitted in ipairs(production.facade_emissions) do
+    table.insert(writes,
+      observation_support.admission_trace_write(ordinal, emitted.effect_id, emitted.payload))
   end
   return decided, writes
 end
