@@ -105,9 +105,9 @@ add("comment:pr:review-converge-round", "review_loop", "act.review_converge_roun
 add("codex.dispatch:review-meta", "review_meta", "review_meta_codex_decision.codex_dispatch", "codex", "lifecycle-authoritative", "codex-run:review-meta/proposal+version+worker")
 add("comment:pr:review-meta-result", "review_meta", "apply_review_meta_decision.grant_facade_comment", "comment", "lifecycle-authoritative", "state:v1/fixing|blocked+review-meta:v1")
 add("label:issue:review-meta-result", "review_meta", "apply_review_meta_decision.grant_facade_label", "label", "lifecycle-authoritative", "state-label:fixing|blocked;dedup=review-meta/label")
-add("comment:pr:review-result", "review_result", "apply_review_result.comment", "comment", "lifecycle-authoritative", "review-result:v1+state:v1;dedup=review-result/comment")
+add("comment:pr:review-result", "review_result", "apply_review_result.grant_facade_comment", "comment", "lifecycle-authoritative", "review-result:v1+state:v1;dedup=review-result/comment")
 add("comment:pr:review-result-divergence", "review_result", "first_result.divergence_audit", "comment", "grantless-non-lifecycle", "result-divergence:v1;dedup=review-result-divergence/logical-result")
 add("comment:pr:high-risk-review-evidence", "review_result", "apply_review_result.evidence_comment", "comment", "lifecycle-authoritative", "high-risk-review-evidence:v1;dedup=review-result/evidence")
-add("label:issue:review-result", "review_result", "apply_review_result.label", "label", "lifecycle-authoritative", "state-label:merge-ready|fixing|review-meta")
+add("label:issue:review-result", "review_result", "apply_review_result.grant_facade_label", "label", "lifecycle-authoritative", "state-label:merge-ready|fixing|review-meta")
 
 return records

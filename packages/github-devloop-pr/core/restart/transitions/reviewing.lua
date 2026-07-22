@@ -10,6 +10,22 @@ return function(M, h)
   local watchdog = h.watchdog
   local responsibility_signature = h.responsibility_signature
   local advancing_fact = h.advancing_fact
+  local function effect_entitlements(semantic_variant)
+    local edge_id = "github-devloop-pr/reviewing/autonomous/" .. semantic_variant
+    return {
+      apply = {
+        id = edge_id .. "/apply",
+        effect_ids = {
+          "github-proxy.github_pr_comment_request",
+          "github-proxy.github_issue_label_request",
+        },
+      },
+      idempotent = {
+        id = edge_id .. "/idempotent",
+        effect_ids = {},
+      },
+    }
+  end
   return {
     from_state = "reviewing",
     generation_entry = {
@@ -102,6 +118,7 @@ return function(M, h)
           output_variant = "approved",
           cas_policy_id = "cas.legacy_review_result_v1",
           cas_variant = "reviewing_to_merge_ready",
+          transition_effect_entitlements = effect_entitlements("approved"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "reviewing" },
           postcondition_family = "review_decision_recorded",
@@ -113,19 +130,7 @@ return function(M, h)
           output_variant = "changes_requested",
           cas_policy_id = "cas.legacy_review_result_v1",
           cas_variant = "reviewing_to_fixing",
-          transition_effect_entitlements = {
-            apply = {
-              id = "github-devloop-pr/reviewing/autonomous/changes_requested/apply",
-              effect_ids = {
-                "github-proxy.github_pr_comment_request",
-                "github-proxy.github_issue_label_request",
-              },
-            },
-            idempotent = {
-              id = "github-devloop-pr/reviewing/autonomous/changes_requested/idempotent",
-              effect_ids = {},
-            },
-          },
+          transition_effect_entitlements = effect_entitlements("changes_requested"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "reviewing" },
           postcondition_family = "review_decision_recorded",
@@ -137,6 +142,7 @@ return function(M, h)
           output_variant = "needs_review_meta",
           cas_policy_id = "cas.legacy_review_result_v1",
           cas_variant = "reviewing_to_review_meta",
+          transition_effect_entitlements = effect_entitlements("needs_review_meta"),
           kind = "autonomous",
           pending_order = { participates = true, predecessor_state = "reviewing" },
           postcondition_family = "review_decision_recorded",

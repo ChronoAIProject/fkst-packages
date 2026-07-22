@@ -39,7 +39,7 @@ local function sink(overrides)
     owner = "github-devloop-pr",
     callsite = {
       department = "review_result",
-      site = "apply_review_result.comment",
+      site = "apply_review_result.grant_facade_comment",
     },
     effect_kind = "comment",
     authority_class = "lifecycle-authoritative",
@@ -149,10 +149,10 @@ local semantic_specs = {
   { "codex.dispatch:review-meta", "review_meta", "review_meta_codex_decision.codex_dispatch", "codex", "lifecycle-authoritative", "codex-run:review-meta/proposal+version+worker", "packages/github-devloop-pr/departments/review_meta/main.lua", { "workflow_codex.dispatch", "from_parts(\"review-meta\"" } },
   { "comment:pr:review-meta-result", "review_meta", "apply_review_meta_decision.grant_facade_comment", "comment", "lifecycle-authoritative", "state:v1/fixing|blocked+review-meta:v1", "packages/github-devloop-pr/departments/review_meta/main.lua", { "restart_effect_facade.make", "\"comment:pr:review-meta-result\"" } },
   { "label:issue:review-meta-result", "review_meta", "apply_review_meta_decision.grant_facade_label", "label", "lifecycle-authoritative", "state-label:fixing|blocked;dedup=review-meta/label", "packages/github-devloop-pr/departments/review_meta/main.lua", { "facade.emit", "\"github-proxy.github_issue_label_request\"" } },
-  { "comment:pr:review-result", "review_result", "apply_review_result.comment", "comment", "lifecycle-authoritative", "review-result:v1+state:v1;dedup=review-result/comment", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_review_result_comment_request", "github-proxy.github_pr_comment_request" } },
+  { "comment:pr:review-result", "review_result", "apply_review_result.grant_facade_comment", "comment", "lifecycle-authoritative", "review-result:v1+state:v1;dedup=review-result/comment", "packages/github-devloop-pr/departments/review_result/main.lua", { "restart_effect_facade.make", "\"comment:pr:review-result\"" } },
   { "comment:pr:review-result-divergence", "review_result", "first_result.divergence_audit", "comment", "grantless-non-lifecycle", "result-divergence:v1;dedup=review-result-divergence/logical-result", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_review_result_divergence_comment_request", "suppress-divergent-result" } },
   { "comment:pr:high-risk-review-evidence", "review_result", "apply_review_result.evidence_comment", "comment", "lifecycle-authoritative", "high-risk-review-evidence:v1;dedup=review-result/evidence", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_high_risk_review_evidence_comment_request", "evidence_request" } },
-  { "label:issue:review-result", "review_result", "apply_review_result.label", "label", "lifecycle-authoritative", "state-label:merge-ready|fixing|review-meta", "packages/github-devloop-pr/departments/review_result/main.lua", { "build_review_result_label_request", "github-proxy.github_issue_label_request" } },
+  { "label:issue:review-result", "review_result", "apply_review_result.grant_facade_label", "label", "lifecycle-authoritative", "state-label:merge-ready|fixing|review-meta", "packages/github-devloop-pr/departments/review_result/main.lua", { "facade.emit", "\"github-proxy.github_issue_label_request\"" } },
 }
 
 local observation_deferrals = {

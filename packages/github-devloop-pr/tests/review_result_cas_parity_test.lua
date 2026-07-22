@@ -1,8 +1,7 @@
 -- Non-circularity contract: production truth comes from the real review_result
--- department's CAS probe and the exact safe-version guard applied to those spied
--- arguments. The comment builder, effects, and legacy CAS logs are separate
--- post-admission observations. This test never computes the expected result with
--- a devloop.state transition helper.
+-- department's owner decision and the exact legacy safe-version probe reconstructed
+-- from those arguments. Frozen OLD payload truth remains the committed R9 corpus,
+-- and direct legacy CAS use is rejected after the production swap.
 
 local catalog = require("devloop.restart_cas_catalog")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
@@ -20,6 +19,7 @@ local devloop_state = require("devloop.state")
 local transition_version = require("contract.transition_version")
 local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
+local restart_effects = require("core.restart_effects")
 local review_result_trace = require("tests.review_result_trace_helpers")
 local t = h.t
 local core = h.core
@@ -60,20 +60,46 @@ local function observe_department(run)
   local decisions = {}
   local comment_builders = {}
   local original_cyclic = devloop_state.cyclic_transition_status
+  local original_decide_transition = restart_effects.decide_transition
+  local original_mint_grant = restart_effects.mint_grant
   local original_log_cas = devloop_logging.log_cas_decision
   local original_build_review_result = requests_review.build_review_result_comment_request
+  local owner_decisions = {}
+  local grant_mints = {}
 
-  devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_cyclic(current, from_states, to_state, incoming_version, target_version)
-    table.insert(probes, {
-      current = current,
-      from_states = from_states,
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
+  devloop_state.cyclic_transition_status = function()
+    error("PR review-result production used retired direct CAS", 0)
+  end
+  restart_effects.decide_transition = function(snapshot, intent)
+    local decision = original_decide_transition(snapshot, intent)
+    table.insert(owner_decisions, {
+      snapshot = snapshot,
+      intent = intent,
+      decision = decision,
     })
-    return outcome
+    local legacy_current = {
+      state = snapshot.current.state,
+      version = transition_version.safe_version_segment(snapshot.current.version or ""),
+      stage_rank = snapshot.current.stage_rank,
+    }
+    table.insert(probes, {
+      current = legacy_current,
+      from_states = { "reviewing" },
+      to_state = intent.target,
+      incoming_version = intent.incoming_version,
+      target_version = intent.target_version,
+      outcome = original_cyclic(legacy_current, { "reviewing" }, intent.target,
+        intent.incoming_version, intent.target_version),
+    })
+    return decision
+  end
+  restart_effects.mint_grant = function(snapshot, decision, sink_id)
+    table.insert(grant_mints, {
+      snapshot = snapshot,
+      decision = decision,
+      sink_id = sink_id,
+    })
+    return original_mint_grant(snapshot, decision, sink_id)
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     table.insert(decisions, {
@@ -118,11 +144,13 @@ local function observe_department(run)
   local ok, result = pcall(run)
   requests_review.build_review_result_comment_request = original_build_review_result
   devloop_logging.log_cas_decision = original_log_cas
+  restart_effects.mint_grant = original_mint_grant
+  restart_effects.decide_transition = original_decide_transition
   devloop_state.cyclic_transition_status = original_cyclic
   if not ok then
     error(result, 0)
   end
-  return result, probes, decisions, comment_builders
+  return result, probes, decisions, comment_builders, owner_decisions, grant_mints
 end
 
 local PROBE_VARIANTS = {
@@ -286,7 +314,7 @@ local function assert_catalog_matches_observed_decision(fixture)
   local event = review_event(fixture)
   prepare_valid_fixture(fixture, event)
 
-  local result, probes, decisions, comment_builders = observe_department(function()
+  local result, probes, decisions, comment_builders, owner_decisions, grant_mints = observe_department(function()
     return run_real_department(event)
   end)
 
@@ -306,6 +334,16 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(probe.to_state, fixture.target_state, fixture.name .. ": probe target state")
   end
   t.eq(probe.target_version, nil, fixture.name .. ": probe target version")
+
+  t.eq(#owner_decisions, 1, fixture.name .. ": owner decision count")
+  t.eq(owner_decisions[1].intent.target, probe.to_state, fixture.name .. ": owner decision target")
+  local expected_variant = ({
+    ["merge-ready"] = "approved",
+    fixing = "changes_requested",
+    ["review-meta"] = "needs_review_meta",
+  })[probe.to_state]
+  t.eq(owner_decisions[1].intent.semantic_variant, expected_variant,
+    fixture.name .. ": owner decision variant")
 
   t.eq(#decisions, 1, fixture.name .. ": structured CAS decision count")
   local decision = decisions[1]
@@ -345,8 +383,14 @@ local function assert_catalog_matches_observed_decision(fixture)
   if fixture.effect_state ~= nil then
     t.eq(probe.outcome, "apply", fixture.name .. ": effect follows an applied shared probe")
     t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
+    t.eq(#grant_mints, 1, fixture.name .. ": exactly one review-result grant minted")
+    t.eq(grant_mints[1].sink_id, "comment:pr:review-result", fixture.name .. ": review-result grant sink")
+    t.eq(grant_mints[1].decision.edge_id,
+      OWNER .. "/reviewing/autonomous/" .. expected_variant,
+      fixture.name .. ": review-result grant edge")
   else
     t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
+    t.eq(#grant_mints, 0, fixture.name .. ": non-effect path minted no grant")
   end
 
   local evidence = evidence_from_probe(probe)
@@ -373,6 +417,9 @@ local function assert_catalog_matches_observed_decision(fixture)
   if fixture.legacy_log_outcome ~= nil then
     t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
   end
+  if fixture.legacy_log_reason ~= nil then
+    t.eq(decision.reason, fixture.legacy_log_reason, fixture.name .. ": legacy log reason")
+  end
   return {
     result = result,
     probe = probe,
@@ -380,6 +427,8 @@ local function assert_catalog_matches_observed_decision(fixture)
     observed = observed,
     actual = actual,
     comment_builders = comment_builders,
+    owner_decisions = owner_decisions,
+    grant_mints = grant_mints,
   }
 end
 
@@ -524,6 +573,7 @@ return {
         admission_status = "stale",
         admission_reason_code = "version-mismatch",
         legacy_log_outcome = "skip-stale(version-mismatch)",
+        legacy_log_reason = "PR origin implementation version does not match canonical issue marker",
       },
     }
     for _, fixture in ipairs(fixtures) do
@@ -609,6 +659,7 @@ return {
         admission_status = "stale",
         admission_reason_code = "version-mismatch",
         legacy_log_outcome = "skip-stale(version-mismatch)",
+        legacy_log_reason = "PR origin implementation version does not match canonical issue marker",
       },
     }
     for _, fixture in ipairs(fixtures) do
@@ -701,6 +752,7 @@ return {
       admission_status = "stale",
       admission_reason_code = "version-mismatch",
       legacy_log_outcome = "skip-stale(version-mismatch)",
+      legacy_log_reason = "PR origin implementation version does not match canonical issue marker",
     })
   end,
 

@@ -2,14 +2,12 @@ local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
 local strings = require("contract.strings")
 local m_claims = require("devloop.claims")
-local requests_labels = require("devloop.requests.labels")
 local requests_review = require("devloop.requests.review")
 local parsers_pr = require("devloop.parsers.pr")
 local m_facts = require("devloop.markers.facts")
 local result_facts = require("devloop.markers.result_facts")
 local convergence_shared, github_risk = require("devloop.convergence.shared"), require("devloop.github_risk")
 local core, saga = require("core"), require("workflow.saga")
-local transition_version = require("contract.transition_version")
 local config = require("devloop.config")
 
 local payloads_builders = require("devloop.payloads.builders")
@@ -19,6 +17,7 @@ local v_review_result = require("devloop.validators.review_result")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local review_result_caps = require("review_result_department_caps")
 -- Preserve existing body line coordinates for the coverage ratchet.
 
 local spec = {
@@ -195,24 +194,51 @@ return saga.department(spec, { done = function() return false end, act = functio
     local to_state = effective_decision == "approve" and "merge-ready"
       or reflection_checkpoint and "review-meta"
       or "fixing"
-    local current_review_version = transition_version.safe_version_segment(state.version or "")
-    local transition = devloop_state.cyclic_transition_status({
-      state = state.state,
-      version = current_review_version,
-      stage_rank = state.stage_rank,
-    }, { "reviewing" }, to_state, reviewed_issue_version)
-    if transition == "idempotent" or transition == "stale" then
-      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, devloop_state.cas_outcome(state, transition, canonical_review_dedup), "review decision cannot advance current marker")
+    local semantic_variant = ({
+      ["merge-ready"] = "approved",
+      fixing = "changes_requested",
+      ["review-meta"] = "needs_review_meta",
+    })[to_state]
+    local snapshot = review_result_caps.restart_effects.seal_snapshot({
+      owner = review_result_caps.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = pr_number },
+      proposal_id = origin.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "pr-review-result", origin.proposal_id, state.state or "missing", state.version or "missing",
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
+      generation = state.version or "missing",
+    })
+    local decision = review_result_caps.restart_effects.decide_transition(snapshot, {
+      semantic_variant = semantic_variant,
+      target = to_state,
+      incoming_version = reviewed_issue_version,
+      overlay_version = reviewed_issue_version,
+    })
+    if decision.status == "idempotent" then
+      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state,
+        "reviewing", to_state, decision.cas_outcome, "review decision cannot advance current marker")
       return
     end
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, devloop_state.cas_outcome(state, transition, canonical_review_dedup), "reviewing state marker not yet visible")
+    if decision.status == "pending" then
+      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state,
+        "reviewing", to_state, decision.cas_outcome, "reviewing state marker not yet visible")
       error("github-devloop: review-result-marker-missing: reviewing marker not yet visible for review result; retrying")
     end
 
-    if tostring(current_review_version) ~= tostring(reviewed_issue_version) then
-      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, "skip-stale(version-mismatch)", "PR origin implementation version does not match canonical issue marker")
+    if decision.status == "stale" then
+      local stale_reason = "review decision cannot advance current marker"
+      if decision.reason_code == "version-mismatch" then
+        stale_reason = "PR origin implementation version does not match canonical issue marker"
+      end
+      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state,
+        "reviewing", to_state, decision.cas_outcome, stale_reason)
       return
+    end
+    if decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: PR review-result decision rejected: "
+        .. tostring(decision.reason_code))
     end
 
     if effective_decision == "reject" then
@@ -236,9 +262,9 @@ return saga.department(spec, { done = function() return false end, act = functio
       end
     end
     if high_risk_angle_not_approved then
-      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, devloop_state.cas_outcome(state, transition, canonical_review_dedup) .. "(high-risk-angle-not-approved)", "high-risk PR approval lacks high-risk angle approval")
+      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, decision.cas_outcome .. "(high-risk-angle-not-approved)", "high-risk PR approval lacks high-risk angle approval")
     else
-      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, devloop_state.cas_outcome(state, transition, canonical_review_dedup), "review decision=" .. tostring(reached.decision))
+      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state, "reviewing", to_state, decision.cas_outcome, "review decision=" .. tostring(reached.decision))
     end
     if (gate_owned_reject or out_of_contract_reject) and not high_risk_angle_not_approved then
       comment_reached = copy_reached_with_review_dedup(reached, canonical_review_dedup)
@@ -264,35 +290,57 @@ return saga.department(spec, { done = function() return false end, act = functio
     if effective_decision == "approve" then
       comment_reached.current_head_sha = current_pr.head_sha
     end
-    local comment_request = requests_review.build_review_result_comment_request(core, origin.repo, origin.issue_number, origin.proposal_id, issue_version, comment_reached, pr_source_ref)
+    local grant = review_result_caps.restart_effects.mint_grant(snapshot, decision, "comment:pr:review-result")
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: PR review-result grant was not minted")
+    end
+    local facade = review_result_caps.restart_effect_facade.make({
+      family = "pr-review-result",
+      verify_grant = review_result_caps.restart_effects.verify_grant,
+      sink_inventory = review_result_caps.sink_inventory,
+    })
+    if type(facade.emit) ~= "function" then
+      error("github-devloop: restart-effect-facade-invalid: PR review-result facade emit is unavailable")
+    end
     local evidence_request = nil
     if effective_decision == "approve" and #high_risk_paths > 0 then
       evidence_request = requests_review.build_high_risk_review_evidence_comment_request(origin.repo, origin.proposal_id, issue_version, comment_reached, pr_number, reviewed_head_sha, paths_digest, angle_digest, pr_source_ref)
     end
-    local label_request = nil
-    if origin.issue_number ~= nil then
-      label_request = requests_labels.build_review_result_label_request(origin.repo, origin.issue_number, origin.proposal_id, issue_version, comment_reached, entity_lib.issue_source_ref(origin.repo, origin.issue_number), {
-        kind = "pr",
-        number = pr_number,
-      })
-    end
-    local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
-    local raised = {
-      "github-proxy.github_pr_comment_request",
+    local args = {
+      core = core,
+      repo = origin.repo,
+      issue_number = origin.issue_number,
+      issue_proposal_id = origin.proposal_id,
+      issue_version = issue_version,
+      reached = comment_reached,
+      pr_source_ref = pr_source_ref,
+      issue_source_ref = entity_lib.issue_source_ref(origin.repo, origin.issue_number),
+      marker_target = { kind = "pr", number = pr_number },
     }
-    if evidence_request ~= nil then
-      table.insert(raised, "github-proxy.github_pr_comment_request")
+    local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
+    local effects = {}
+    local raised = {}
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      if effect_id ~= "github-proxy.github_issue_label_request" or origin.issue_number ~= nil then
+        local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+        if payload == nil then
+          error("github-devloop: restart-effect-facade-rejected: PR review-result effect "
+            .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+        end
+        table.insert(effects, { queue = effect_id, payload = payload })
+        table.insert(raised, effect_id)
+        if effect_id == "github-proxy.github_pr_comment_request" and evidence_request ~= nil then
+          table.insert(effects, { queue = effect_id, payload = evidence_request })
+          table.insert(raised, effect_id)
+        end
+      end
     end
-    if label_request ~= nil then
-      table.insert(raised, "github-proxy.github_issue_label_request")
-    end
-    devloop_logging.log_apply("review_result", origin.proposal_id, to_state, issue_version, { add = add_labels, remove = remove_labels }, raised)
-    devloop_logging.log_raise("review_result", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
-    if evidence_request ~= nil then
-      devloop_logging.log_raise("review_result", origin.proposal_id, "github-proxy.github_pr_comment_request", evidence_request)
-    end
-    if origin.issue_number ~= nil then
-      devloop_logging.log_raise("review_result", origin.proposal_id, "github-proxy.github_issue_label_request", label_request)
+    devloop_logging.log_apply("review_result", origin.proposal_id, to_state, issue_version, {
+      add = add_labels,
+      remove = remove_labels,
+    }, raised)
+    for _, effect in ipairs(effects) do
+      devloop_logging.log_raise("review_result", origin.proposal_id, effect.queue, effect.payload)
     end
   end)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_result" })
