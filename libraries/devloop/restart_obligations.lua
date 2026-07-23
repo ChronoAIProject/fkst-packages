@@ -1,3 +1,5 @@
+local restart_cas_catalog = require("devloop.restart_cas_catalog")
+
 local M = {}
 
 local CASE_KINDS = {
@@ -78,6 +80,7 @@ local kinds = require("devloop.restart_obligation_derivations").new({
   define = M.define,
   require_nonempty_string = require_nonempty_string,
   require_dense_string_array = require_dense_string_array,
+  policy_definition = restart_cas_catalog.definition,
 })
 
 M.derive_edge = kinds.derive_edge
@@ -87,5 +90,7 @@ M.derive_edge_pair = kinds.derive_edge_pair
 M.derive_entitlement = kinds.derive_entitlement
 M.derive_family_variant = kinds.derive_family_variant
 M.derive_timeout = kinds.derive_timeout
+M.bounded_loop_representatives = kinds.bounded_loop_representatives
+M.derive_bounded_loop = kinds.derive_bounded_loop
 
 return M

@@ -93,6 +93,20 @@ local timeout_witness_sources = {
   ["github-devloop-pr"] = "packages/github-devloop-pr/tests/restart_edges_conformance_test.lua",
 }
 
+local bounded_loop_witness_sources = {
+  ["github-devloop"] = {
+    ["self-loop"] = "packages/github-devloop/tests/run_graph_no_consensus_smoke_test.lua#test_run_graph_no_consensus_handoffs_reconcile_to_blocked",
+    release = "packages/github-devloop/tests/dependency_ready_split_regression_test.lua#test_dependency_release_ready_handoff_accepts_direct_visible_marker",
+    timeout = "packages/github-devloop/tests/restart_timeout_trace_test.lua#test_timeout_restart_traces_match_actual_execution_and_frozen_corpus_byte_exact",
+    ["stale-lineage"] = "packages/github-devloop/tests/consensus_result_cas_parity_test.lua#test_r9_thinking_old_equals_new_normalized_trace",
+  },
+  ["github-devloop-pr"] = {
+    ["self-loop"] = "packages/github-devloop-pr/tests/integration_review_loop_round_cap_test.lua#test_review_loop_evidence_continuation_budget_reconciles_without_another_proposal",
+    timeout = "packages/github-devloop-pr/tests/liveness_timeout_clock_test.lua#test_merge_ready_fresh_merge_gate_wait_past_absolute_cap_escalates",
+    ["stale-lineage"] = "packages/github-devloop-pr/tests/fix_cas_parity_test.lua#test_r9_pr_fix_old_equals_new_normalized_trace",
+  },
+}
+
 local function append_all(target, values)
   for _, value in ipairs(values) do
     table.insert(target, value)
@@ -396,6 +410,60 @@ function M.frozen_timeout_witness_index(owner, rows, edges)
           witness_id = source_path .. "#timeout_evidence_policy_id:" .. edge.id,
         }
       end
+    end
+  end
+  return witnesses
+end
+
+function M.frozen_bounded_loop_witness_index(owner, representatives)
+  local sources = bounded_loop_witness_sources[owner]
+  if sources == nil then
+    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+  end
+  if type(representatives) ~= "table" then
+    error("devloop.restart_owner_pending_projection: representatives must be an array")
+  end
+
+  local witnesses = {}
+  local count = 0
+  for key, representative in pairs(representatives) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0
+        or type(representative) ~= "table" then
+      error("devloop.restart_owner_pending_projection: representatives must be an array of tables")
+    end
+    count = count + 1
+  end
+  if count ~= #representatives then
+    error("devloop.restart_owner_pending_projection: representatives must be a dense array")
+  end
+
+  for _, representative in ipairs(representatives) do
+    if representative.owner ~= owner
+        or type(representative.edge_id) ~= "string" or representative.edge_id == ""
+        or type(representative.loop_class) ~= "string" or representative.loop_class == ""
+        or type(representative.loop_signal_field) ~= "string"
+        or representative.loop_signal_field == ""
+        or type(representative.expected_decision) ~= "table" then
+      error("devloop.restart_owner_pending_projection: bounded-loop representative identity is invalid")
+    end
+    local source = sources[representative.loop_class]
+    if source ~= nil then
+      local witness_key = representative.loop_class .. "\n" .. representative.edge_id
+      if witnesses[witness_key] ~= nil then
+        error("devloop.restart_owner_pending_projection: duplicate bounded-loop witness " .. witness_key)
+      end
+      witnesses[witness_key] = {
+        owner = owner,
+        edge_id = representative.edge_id,
+        loop_class = representative.loop_class,
+        signal_field = representative.loop_signal_field,
+        input_fixture_id = representative.edge_id
+          .. "/bounded-loop/" .. representative.loop_class,
+        expected_decision = deep_copy(representative.expected_decision),
+        expected_effect_ids = {},
+        expected_payload_obligations = {},
+        witness_id = source,
+      }
     end
   end
   return witnesses

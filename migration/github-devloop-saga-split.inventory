@@ -65,6 +65,7 @@
 {"path":"libraries/devloop/restart_effect_facade.lua","owner":"shared","reason":"pure grant-verification and lifecycle-sink dispatch helper shared by owner-local effect facades; serializers and grants remain owner-authored."}
 {"path":"libraries/devloop/restart_effect_seal.lua","owner":"shared","reason":"pure factory that mints per-owner private seal state and holds no cross-owner authority."}
 {"path":"libraries/devloop/restart_metadata.lua","owner":"shared","reason":"pure lifecycle labels, ordering, stage ranks, and version metadata are shared by issue and PR policies without depending on lifecycle authority."}
+{"path":"libraries/devloop/restart_bounded_loop_derivation.lua","owner":"shared","reason":"pure R5 representative bounded-loop classification and witness joining are shared while owner rows, typed edges, and frozen witnesses remain owner-local."}
 {"path":"libraries/devloop/restart_obligations.lua","owner":"shared","reason":"pure R5 obligation schema validation is shared by lifecycle owners while declarations and witnesses remain owner-local."}
 {"path":"libraries/devloop/restart_obligation_derivations.lua","owner":"shared","reason":"pure R5 kind derivation is shared by lifecycle owners while canonical edges and frozen witnesses remain owner-local."}
 {"path":"libraries/devloop/restart_trace.lua","owner":"shared","reason":"pure R6 trace shape validation and non-secret fingerprinting are shared by lifecycle owners while expected traces remain owner-local."}

@@ -1,3 +1,5 @@
+local bounded_loop_derivation = require("devloop.restart_bounded_loop_derivation")
+
 local M = {}
 
 function M.new(primitives)
@@ -5,6 +7,9 @@ function M.new(primitives)
   local define = primitives.define
   local require_nonempty_string = primitives.require_nonempty_string
   local require_dense_string_array = primitives.require_dense_string_array
+  local bounded_loop = bounded_loop_derivation.new(primitives)
+  K.bounded_loop_representatives = bounded_loop.bounded_loop_representatives
+  K.derive_bounded_loop = bounded_loop.derive_bounded_loop
 
   function K.derive_edge(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then

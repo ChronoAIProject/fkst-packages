@@ -70,6 +70,98 @@ local function family_variant_witness_index_without(edges, excluded_edge_id)
   return result
 end
 
+local LOOP_CLASS_ORDER = {
+  "self-loop",
+  "release",
+  "timeout",
+  "stale-lineage",
+}
+
+local function row_index(rows)
+  local result = {}
+  for _, row in ipairs(rows) do
+    result[row.from_state] = row
+  end
+  return result
+end
+
+local function matching_successor(row, edge)
+  local signature = type(row) == "table" and row.responsibility_signature or nil
+  for _, successor in ipairs(type(signature) == "table" and signature.successors or {}) do
+    if successor.state == edge.target and successor.output_variant == edge.semantic_variant then
+      return successor
+    end
+  end
+  return nil
+end
+
+local function expected_bounded_loop_representatives(rows, edges)
+  local by_row = row_index(rows)
+  local representatives = {}
+  for _, edge in ipairs(edges) do
+    local row = by_row[edge.row_id]
+    local budget = type(row) == "table" and row.budget or nil
+    local successor = matching_successor(row, edge)
+    local defer = type(row) == "table" and row.defer or nil
+    local policy = edge.cas_policy_id and restart_cas_catalog.definition(edge.cas_policy_id) or nil
+    local has_row_budget = type(budget) == "table"
+      and type(budget.minutes) == "number" and budget.minutes > 0
+    local signals = {
+      ["self-loop"] = has_row_budget
+        and (
+          (type(edge.source) == "table"
+            and edge.source.state ~= nil
+            and edge.source.state == edge.target)
+          or (edge.kind == "entry"
+            and edge.row_id == edge.target
+            and type(policy) == "table"
+            and policy.evidence_type == "review_loop_safe_cas_evidence_v1")
+        ),
+      release = type(defer) == "table"
+        and defer.clear_opens_generation == true
+        and type(successor) == "table"
+        and successor.bump == true,
+      timeout = has_row_budget
+        and edge.kind == "timeout"
+        and type(edge.timeout_evidence_policy_id) == "string"
+        and edge.timeout_evidence_policy_id ~= "",
+      ["stale-lineage"] = type(policy) == "table"
+        and (policy.base == "plain" or policy.base == "versioned" or policy.base == "cyclic"),
+    }
+    for _, loop_class in ipairs(LOOP_CLASS_ORDER) do
+      if signals[loop_class] and representatives[loop_class] == nil then
+        representatives[loop_class] = edge
+      end
+    end
+  end
+  return representatives
+end
+
+local function bounded_loop_key(loop_class, edge_id)
+  return loop_class .. "\n" .. edge_id
+end
+
+local function bounded_loop_witness_index_without(rows, edges, excluded_loop_class)
+  local representatives = expected_bounded_loop_representatives(rows, edges)
+  local result = owner_projection.frozen_bounded_loop_witness_index(
+    OWNER,
+    restart_obligations.bounded_loop_representatives(rows, edges)
+  )
+  if excluded_loop_class ~= nil then
+    local edge = representatives[excluded_loop_class]
+    result[bounded_loop_key(excluded_loop_class, edge.id)] = nil
+  end
+  return result
+end
+
+local function index_by_loop_class(entries)
+  local result = {}
+  for _, entry in ipairs(entries) do
+    result[entry.loop_class] = entry
+  end
+  return result
+end
+
 local function family_variant_groups(edges)
   local groups = {}
   for _, edge in ipairs(edges) do
@@ -564,5 +656,65 @@ return {
     local unmapped = index_by_edge(result.unmapped)
     t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
     t.eq(derived[removed_edge_id], nil)
+  end,
+
+  test_issue_owner_derives_representative_bounded_loop_obligations = function()
+    local rows = h.core.restart_transition_table()
+    local edges = owner_projection.edges(OWNER, rows, inventories)
+    local representatives = expected_bounded_loop_representatives(rows, edges)
+    local witnesses = bounded_loop_witness_index_without(rows, edges, nil)
+    local result = restart_obligations.derive_bounded_loop(rows, edges, witnesses)
+    local derived = index_by_loop_class(result.obligations)
+    local unmapped = index_by_loop_class(result.unmapped)
+    local representative_count = 0
+
+    t.is_true(representatives["self-loop"] ~= nil)
+    t.is_true(representatives.release ~= nil)
+    t.is_true(representatives.timeout ~= nil)
+    t.is_true(representatives["stale-lineage"] ~= nil)
+    for _, loop_class in ipairs(LOOP_CLASS_ORDER) do
+      local edge = representatives[loop_class]
+      if edge ~= nil then
+        representative_count = representative_count + 1
+        local key = bounded_loop_key(loop_class, edge.id)
+        local witness = witnesses[key]
+        local obligation = derived[loop_class]
+        t.is_true(witness ~= nil)
+        t.is_true(obligation ~= nil)
+        t.eq(obligation.obligation_id, edge.id .. "/bounded-loop/" .. loop_class)
+        t.eq(obligation.owner, OWNER)
+        t.eq(obligation.edge_id, edge.id)
+        t.eq(obligation.loop_class, loop_class)
+        t.eq(obligation.case_kind, "bounded-loop")
+        t.eq(obligation.input_fixture_id, witness.input_fixture_id)
+        t.eq(obligation.witness_id, witness.witness_id)
+        t.eq(obligation.expected_decision.loop_class, loop_class)
+        t.eq(obligation.expected_decision.edge_id, edge.id)
+        t.eq(obligation.expected_decision.signal_field, witness.signal_field)
+        t.eq(obligation.expected_effect_ids, witness.expected_effect_ids)
+        t.eq(obligation.expected_payload_obligations, witness.expected_payload_obligations)
+        t.eq(unmapped[loop_class], nil)
+      end
+    end
+
+    t.eq(#result.obligations, representative_count)
+    t.eq(#result.unmapped, 0)
+    t.is_true(representative_count < #edges)
+  end,
+
+  test_issue_owner_reports_bounded_loop_class_without_frozen_witness_as_unmapped = function()
+    local rows = h.core.restart_transition_table()
+    local edges = owner_projection.edges(OWNER, rows, inventories)
+    local removed_loop_class = "release"
+    local result = restart_obligations.derive_bounded_loop(
+      rows,
+      edges,
+      bounded_loop_witness_index_without(rows, edges, removed_loop_class)
+    )
+    local derived = index_by_loop_class(result.obligations)
+    local unmapped = index_by_loop_class(result.unmapped)
+    t.eq(unmapped[removed_loop_class].reason, "missing-frozen-witness")
+    t.eq(derived[removed_loop_class], nil)
+    t.eq(#result.obligations + #result.unmapped, 4)
   end,
 }
