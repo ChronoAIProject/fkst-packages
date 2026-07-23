@@ -71,6 +71,17 @@ local owner_sources = {
   },
 }
 
+local entitlement_witness_sources = {
+  ["github-devloop"] = {
+    extraction = "packages/github-devloop/tests/restart_edges_conformance_test.lua",
+    grant = "packages/github-devloop/tests/restart_effects_grant_seal_test.lua",
+  },
+  ["github-devloop-pr"] = {
+    extraction = "packages/github-devloop-pr/tests/restart_edges_conformance_test.lua",
+    grant = "packages/github-devloop-pr/tests/restart_effects_grant_seal_test.lua",
+  },
+}
+
 local function append_all(target, values)
   for _, value in ipairs(values) do
     table.insert(target, value)
@@ -145,6 +156,63 @@ function M.frozen_pending_witness_index(owner, edges)
             .. owner .. "/" .. fixture_id,
         }
       end
+    end
+  end
+  return witnesses
+end
+
+local function entitlement_expected_effect_ids(entitlements)
+  local effect_ids = {}
+  local seen = {}
+  for _, status in ipairs({ "apply", "idempotent" }) do
+    for _, effect_id in ipairs(entitlements[status].effect_ids) do
+      if not seen[effect_id] then
+        seen[effect_id] = true
+        table.insert(effect_ids, effect_id)
+      end
+    end
+  end
+  return effect_ids
+end
+
+function M.frozen_entitlement_witness_index(owner, edges)
+  local sources = entitlement_witness_sources[owner]
+  if sources == nil then
+    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+  end
+  if type(edges) ~= "table" then
+    error("devloop.restart_owner_pending_projection: edges must be an array")
+  end
+
+  local witnesses = {}
+  for _, edge in ipairs(edges) do
+    local entitlements = type(edge) == "table" and edge.transition_effect_entitlements or nil
+    if type(entitlements) == "table" and next(entitlements) ~= nil then
+      if edge.owner ~= owner or type(edge.id) ~= "string" or edge.id == "" then
+        error("devloop.restart_owner_pending_projection: entitlement edge identity is invalid")
+      end
+      if witnesses[edge.id] ~= nil then
+        error("devloop.restart_owner_pending_projection: duplicate entitlement edge id " .. edge.id)
+      end
+      witnesses[edge.id] = {
+        owner = owner,
+        edge_id = edge.id,
+        input_fixture_id = edge.id .. "/apply-idempotent",
+        expected_decision = {
+          apply = {
+            effect_entitlement_id = entitlements.apply.id,
+            granted_effect_ids = deep_copy(entitlements.apply.effect_ids),
+          },
+          idempotent = {
+            effect_entitlement_id = entitlements.idempotent.id,
+            granted_effect_ids = deep_copy(entitlements.idempotent.effect_ids),
+          },
+        },
+        expected_effect_ids = entitlement_expected_effect_ids(entitlements),
+        expected_payload_obligations = {},
+        witness_id = sources.extraction .. "#transition_effect_entitlements:" .. edge.id
+          .. "|" .. sources.grant .. "#grant-seal",
+      }
     end
   end
   return witnesses
