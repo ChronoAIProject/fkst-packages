@@ -293,6 +293,79 @@ local function assert_same_set(actual, expected, actual_label, expected_label)
   end
 end
 
+local function entitlement_id_set()
+  local core = require("core")
+  local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+  local restart_inventories = {
+    canonicalization = require("core.restart.canonicalization_inventory"),
+    entry = require("core.restart.entry_inventory"),
+    operator_reentry = require("core.restart.operator_reentry_inventory"),
+  }
+  local ids = {}
+  local edges = owner_pending_projection.edges(
+    core.restart_package_name, core.restart_transition_table(), restart_inventories
+  )
+  for _, edge in ipairs(edges) do
+    for _, status in ipairs({ "apply", "idempotent" }) do
+      local entitlement = edge.transition_effect_entitlements
+        and edge.transition_effect_entitlements[status]
+      if entitlement ~= nil then ids[entitlement.id] = true end
+    end
+  end
+  return ids
+end
+
+local function source_line(path, wanted)
+  local index = 0
+  for line in (file.read(path) .. "\n"):gmatch("(.-)\n") do
+    index = index + 1
+    if index == wanted then return line end
+  end
+  return nil
+end
+
+local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
+  local corpus = json.decode(file.read(corpus_path))
+  local captures = corpus.captured_sink_effects or {}
+  local captured_ids = {}
+  local inventory_by_id = {}
+  local runtime_by_id = {}
+  local entitlement_ids = entitlement_id_set()
+  local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push", merge = "gh_pr_merge" }
+  for _, record in ipairs(sink_inventory) do inventory_by_id[record.id] = record end
+  for _, record in ipairs(runtime_records) do runtime_by_id[record.observation_id] = record end
+  for _, capture in ipairs(captures) do captured_ids[capture.effect_id] = true end
+
+  for ordinal, capture in ipairs(captures) do
+    t.eq(capture.ordinal, ordinal, corpus_path .. ": stable captured sink order")
+    local inventory = inventory_by_id[capture.effect_id]
+    t.is_true(inventory ~= nil, corpus_path .. ": captured sink has a stable inventory ID")
+    t.eq(inventory.effect_kind, capture.sink_kind, corpus_path .. ": captured sink kind")
+    t.eq(inventory.authority_class, "lifecycle-authoritative",
+      corpus_path .. ": captured sink remains lifecycle-authoritative")
+    for _, entitlement_id in ipairs(capture.owning_effect_entitlement_ids or {}) do
+      t.eq(entitlement_ids[entitlement_id], true, corpus_path .. ": owning entitlement exists")
+    end
+    local path, line_number = tostring(capture.old_callsite):match("^([^:]+):(%d+)$")
+    t.is_true(path ~= nil, corpus_path .. ": OLD callsite is file:line")
+    local line = source_line(path, tonumber(line_number))
+    t.is_true(line ~= nil and line:find(call_tokens[capture.sink_kind], 1, true) ~= nil,
+      corpus_path .. ": OLD callsite executes the captured sink kind")
+    for _, probe_id in ipairs(capture.old_probe_ids or {}) do
+      local runtime = runtime_by_id[probe_id]
+      t.is_true(runtime ~= nil, corpus_path .. ": OLD probe was executed")
+      local filtered = {}
+      for _, effect in ipairs(runtime.old_outcome.emitted_effects or {}) do
+        if captured_ids[effect.effect_id] then table.insert(filtered, effect) end
+      end
+      t.eq(filtered[ordinal].effect_id, capture.effect_id,
+        corpus_path .. ": OLD runtime sink ID and relative order")
+      t.eq(filtered[ordinal].sink_kind, capture.sink_kind,
+        corpus_path .. ": OLD runtime sink kind")
+    end
+  end
+end
+
 function M.assert_site(t, opts)
   local boundary_label = opts.boundary or "receiver_activation"
   local first = M.json_array()
@@ -334,6 +407,9 @@ function M.assert_site(t, opts)
   if inventory_difference or M.canonical_json(first) ~= M.canonical_json(committed) then
     error("runtime-bound OLD " .. opts.dept .. " differs at "
       .. tostring(inventory_difference or "canonical-json") .. "; runtime_records=" .. M.canonical_json(first), 0)
+  end
+  if opts.shadow_corpus_path ~= nil then
+    assert_shadow_sink_captures(t, first, opts.shadow_corpus_path)
   end
   t.eq(#first, #opts.fixtures, opts.dept .. ": complete " .. boundary_label .. " disposition count")
 end

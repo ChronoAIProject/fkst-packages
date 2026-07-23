@@ -723,9 +723,9 @@ local function assert_implement_activation_trace_equality()
     error("R9 implement-activation trace could not create its artifact directory", 0)
   end
   file.write(IMPLEMENT_ACTIVATION_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
-  t.eq(canonical_json(old_trace), canonical_json(corpus),
+  t.eq(canonical_json(old_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 implement-activation OLD observation corpus")
-  t.eq(canonical_json(new_trace), canonical_json(corpus),
+  t.eq(canonical_json(new_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 implement-activation NEW semantic trace")
 end
 

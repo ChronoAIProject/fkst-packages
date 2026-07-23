@@ -602,7 +602,7 @@ local function assert_merge_trace_equality()
   local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
   local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
   local canonical_json = observation_support.canonical_json
-  t.eq(canonical_json(old_trace), canonical_json(corpus),
+  t.eq(canonical_json(old_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 PR merge frozen OLD observation corpus")
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
     "R9 PR merge frozen OLD and production owner trace")
@@ -611,7 +611,7 @@ local function assert_merge_trace_equality()
     error("R9 PR merge trace could not create its artifact directory", 0)
   end
   file.write(MERGE_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
-  t.eq(canonical_json(new_trace), canonical_json(corpus),
+  t.eq(canonical_json(new_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 PR merge NEW semantic trace")
 end
 

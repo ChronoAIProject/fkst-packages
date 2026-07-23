@@ -455,9 +455,9 @@ local function assert_fix_trace_equality()
     error("R9 PR fix trace could not create its artifact directory", 0)
   end
   file.write(FIX_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
-  t.eq(canonical_json(old_trace), canonical_json(corpus),
+  t.eq(canonical_json(old_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 PR fix production trace equals frozen OLD corpus")
-  t.eq(canonical_json(new_trace), canonical_json(corpus),
+  t.eq(canonical_json(new_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 PR fix NEW semantic trace")
 end
 

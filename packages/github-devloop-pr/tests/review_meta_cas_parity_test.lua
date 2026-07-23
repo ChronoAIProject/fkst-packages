@@ -540,9 +540,9 @@ local function assert_review_meta_trace_equality()
     error("R9 PR review-meta trace could not create its artifact directory", 0)
   end
   file.write(REVIEW_META_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
-  t.eq(canonical_json(old_trace), canonical_json(corpus),
+  t.eq(canonical_json(old_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 PR review-meta OLD observation corpus")
-  t.eq(canonical_json(new_trace), canonical_json(corpus),
+  t.eq(canonical_json(new_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 PR review-meta NEW semantic trace")
 end
 

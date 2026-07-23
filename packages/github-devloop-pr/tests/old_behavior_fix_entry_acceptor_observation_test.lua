@@ -375,6 +375,7 @@ end
 return {
   test_fix_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()
     ra.assert_site(t, { dept = "fix", fixtures = FIXTURES, capture = capture,
-      prefix = PREFIX, site = SITE, boundary = "entry_acceptor" })
+      prefix = PREFIX, site = SITE, boundary = "entry_acceptor",
+      shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-fix.json" })
   end,
 }

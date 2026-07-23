@@ -426,6 +426,12 @@ function M.admission_trace_fixture(
   }
 end
 
+function M.admission_trace_active_projection(artifact)
+  local active = M.copy_value(artifact)
+  active.captured_sink_effects = nil
+  return active
+end
+
 function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures)
   return {
     schema = schema,

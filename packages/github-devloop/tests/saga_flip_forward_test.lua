@@ -17,6 +17,13 @@ local deterministic_branch_for = h.deterministic_branch_for
 local find_raise = h.find_raise
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local sink_inventory = require("core.restart.sink_inventory")
+local restart_inventories = {
+  canonicalization = require("core.restart.canonicalization_inventory"),
+  entry = require("core.restart.entry_inventory"),
+  operator_reentry = require("core.restart.operator_reentry_inventory"),
+}
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local pr_proposal_id = "github-devloop/pr/owner/repo/7"
@@ -162,6 +169,78 @@ return {
     t.is_true(push_index ~= nil)
     t.is_true(create_index ~= nil)
     t.is_true(push_index < create_index)
+  end,
+
+  test_r9_shadow_captures_implement_codex_then_git_push_from_real_old_path = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    })
+    mock_existing_empty_implement_worktree()
+    mock_implement_codex(0, "implemented")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit(head_sha, branch)
+    mock_git_push(branch)
+    t.mock_command(core.gh_pr_list_head_base_cmd("owner/repo", branch, "dev"), {
+      stdout = "[]\n", stderr = "", exit_code = 0,
+    })
+    t.mock_command("gh pr create", {
+      stdout = "https://github.example/owner/repo/pull/7\n", stderr = "", exit_code = 0,
+    })
+    mock_pr_child_adoptable(branch)
+    mock_bot_env()
+    mock_real_write_mode()
+
+    local result = run_implement(event, opts("r9-shadow-implement-success", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    local codex_index = command_index("codex exec")
+    local push_index = command_index("push origin HEAD:refs/heads/" .. branch)
+    t.is_true(codex_index ~= nil and push_index ~= nil and codex_index < push_index,
+      "protected OLD dispatches implement codex before implementation git push")
+
+    local corpus = json.decode(file.read(
+      "migration/intent_bounded_replay/corpus/implement-activation.json"
+    ))
+    local captures = corpus.captured_sink_effects
+    t.eq(#captures, 2)
+    local inventory_by_kind = {}
+    for _, sink in ipairs(sink_inventory) do
+      if sink.callsite.department == "implement"
+        and (sink.effect_kind == "codex" or sink.effect_kind == "git") then
+        inventory_by_kind[sink.effect_kind] = sink
+      end
+    end
+    local entitlement_ids = {}
+    for _, edge in ipairs(owner_pending_projection.edges(
+      core.restart_package_name, core.restart_transition_table(), restart_inventories
+    )) do
+      for _, status in ipairs({ "apply", "idempotent" }) do
+        local entitlement = edge.transition_effect_entitlements
+          and edge.transition_effect_entitlements[status]
+        if entitlement ~= nil then entitlement_ids[entitlement.id] = true end
+      end
+    end
+    local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push" }
+    for ordinal, capture in ipairs(captures) do
+      local inventory = inventory_by_kind[capture.sink_kind]
+      t.eq(capture.ordinal, ordinal)
+      t.eq(capture.effect_id, inventory.id)
+      t.eq(inventory.authority_class, "lifecycle-authoritative")
+      t.eq(capture.old_probe_ids[1], "r9-shadow-implement-success")
+      for _, entitlement_id in ipairs(capture.owning_effect_entitlement_ids) do
+        t.eq(entitlement_ids[entitlement_id], true)
+      end
+      local path, line_number = capture.old_callsite:match("^([^:]+):(%d+)$")
+      local selected_line = nil
+      local index = 0
+      for line in (file.read(path) .. "\n"):gmatch("(.-)\n") do
+        index = index + 1
+        if index == tonumber(line_number) then selected_line = line break end
+      end
+      t.is_true(selected_line ~= nil
+        and selected_line:find(call_tokens[capture.sink_kind], 1, true) ~= nil)
+    end
   end,
 
   test_implement_liveness_redrive_reaches_awaiting_pr = function()

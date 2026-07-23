@@ -179,6 +179,7 @@ return {
   test_review_meta_receiver_activation_old_behavior_is_real_dispatch_and_bidirectional = function()
     ra.assert_site(t, {
       dept = "review_meta", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE,
+      shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-review-meta.json",
     })
   end,
 }
