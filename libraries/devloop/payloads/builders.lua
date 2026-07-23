@@ -58,9 +58,9 @@ end
 
 function C.fixing_repair_input(review_fact)
   if review_fact ~= nil and review_fact.ci_failure_key ~= nil then
-    return "ci-failure"
+    return resolve_payload_token("typed:ci-failure")
   end
-  return "review-feedback"
+  return resolve_payload_token("typed:review-feedback")
 end
 
 function C.fixing_work_unit_key(fix)

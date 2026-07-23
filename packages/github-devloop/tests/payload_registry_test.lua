@@ -21,12 +21,15 @@ return {
     t.eq(payload_registry.validate("literal:consensus.proposal.v1"), true)
     t.eq(payload_registry.validate("source_ref:normalized"), true)
     t.eq(payload_registry.validate("marker:state.version"), true)
+    t.eq(payload_registry.validate("typed:review-feedback"), true)
+    t.eq(payload_registry.validate("typed:ci-failure"), true)
     assert_rejected("unknown:ready", "unknown prefix unknown")
     assert_rejected("dedup:unregistered", "unknown dedup strategy unregistered")
     assert_rejected("literal:github-devloop.unregistered.v1", "unknown literal value github-devloop.unregistered.v1")
     assert_rejected("source_ref:unregistered", "unknown source_ref derivation unregistered")
     assert_rejected("marker:unregistered.value", "unknown marker family unregistered")
     assert_rejected("marker:state.unregistered", "unknown marker attr state.unregistered")
+    assert_rejected("typed:unregistered", "unknown typed strategy unregistered")
   end,
 
   test_resolve_returns_missing_evidence_without_partial_value = function()
@@ -52,6 +55,20 @@ return {
     value, failure = payload_registry.resolve("marker:state.version", { state = {} })
     t.eq(value, nil)
     t.eq(failure, "missing-evidence")
+  end,
+
+  test_typed_fix_repair_inputs_are_byte_exact_with_previous_values = function()
+    local fixtures = {
+      { token = "typed:review-feedback", review_fact = nil, previous = "review-feedback" },
+      { token = "typed:ci-failure", review_fact = { ci_failure_key = "ci/key" }, previous = "ci-failure" },
+    }
+
+    for _, fixture in ipairs(fixtures) do
+      local resolved, failure = payload_registry.resolve(fixture.token, nil)
+      t.eq(failure, nil)
+      t.eq(resolved, fixture.previous)
+      t.eq(payloads_builders.fixing_repair_input(fixture.review_fact), fixture.previous)
+    end
   end,
 
   test_state_marker_version_builder_reads_are_byte_exact_with_previous_expression = function()

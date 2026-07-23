@@ -96,11 +96,17 @@ local literal_resolvers = {
   ["consensus.proposal.v1"] = literal("consensus.proposal.v1"),
 }
 
+local typed_resolvers = {
+  ["review-feedback"] = literal("review-feedback"),
+  ["ci-failure"] = literal("ci-failure"),
+}
+
 local registries = {
   marker = marker_resolvers,
   source_ref = source_ref_resolvers,
   literal = literal_resolvers,
   dedup = dedup_resolvers,
+  typed = typed_resolvers,
 }
 
 local function fail(message)
