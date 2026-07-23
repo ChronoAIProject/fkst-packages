@@ -180,7 +180,7 @@ local function pipeline_thinking(event)
       reconcile = reconcile,
       action = action,
       reason = reason,
-      state_version = version,
+      state_version = decision.incoming_version,
     }
     local effects = {}
     for _, effect_id in ipairs(decision.granted_effect_ids) do
@@ -194,7 +194,7 @@ local function pipeline_thinking(event)
 
     local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
     devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", decision.cas_outcome, reason)
-    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", decision.incoming_version, {
       add = add_labels,
       remove = remove_labels,
     }, decision.granted_effect_ids)
@@ -342,7 +342,7 @@ local function pipeline_timeout(event)
     local why_fields = {
       from_state = reconcile.state,
       from_version = state.version,
-      terminal_version = version,
+      terminal_version = transition_decision.incoming_version,
       age_minutes = age_minutes,
       budget_minutes = row and row.budget and tonumber(row.budget.minutes) or nil,
       attempt = decision.attempt,
@@ -369,7 +369,7 @@ local function pipeline_timeout(event)
       reconcile = reconcile,
       action = action,
       reason = reason,
-      state_version = version,
+      state_version = transition_decision.incoming_version,
       why_fields = why_fields,
     }
     local effects = {}
@@ -384,7 +384,7 @@ local function pipeline_timeout(event)
 
     local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
     devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", transition_decision.cas_outcome, reason)
-    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", transition_decision.incoming_version, {
       add = add_labels,
       remove = remove_labels,
     }, transition_decision.granted_effect_ids)

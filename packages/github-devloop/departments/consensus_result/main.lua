@@ -300,7 +300,7 @@ local function make_department(ports)
             state,
             gate,
             "applied(result effects incomplete)",
-            version,
+            decision.incoming_version,
             to_state
           )
           return
@@ -322,7 +322,7 @@ local function make_department(ports)
         to_state = to_state,
       })
       raise_result_effects(repo, issue_number, reached, current, state, gate,
-        decision.cas_outcome, version, to_state, granted_payloads)
+        decision.cas_outcome, decision.incoming_version, to_state, granted_payloads)
     end)
   end
 

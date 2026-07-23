@@ -252,7 +252,7 @@ local function pipeline_review(event)
       reconcile = reconcile,
       action = action,
       reason = reason,
-      version = version,
+      version = decision.incoming_version,
     }
     local effects = {}
     for _, effect_id in ipairs(decision.granted_effect_ids) do
@@ -268,7 +268,7 @@ local function pipeline_review(event)
 
     local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
     devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", decision.cas_outcome, reason)
-    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", decision.incoming_version, {
       add = add_labels,
       remove = remove_labels,
     }, decision.granted_effect_ids)
@@ -627,7 +627,7 @@ local function pipeline_timeout(event)
     local why_fields = {
       from_state = reconcile.state,
       from_version = state.version,
-      terminal_version = version,
+      terminal_version = restart_decision.incoming_version,
       age_minutes = age_minutes,
       budget_minutes = row and row.budget and tonumber(row.budget.minutes) or nil,
       attempt = decision.attempt,
@@ -657,7 +657,7 @@ local function pipeline_timeout(event)
       reconcile = reconcile,
       action = action,
       reason = reason,
-      version = version,
+      version = restart_decision.incoming_version,
       why_fields = why_fields,
       build_timeout_reconcile_pr_comment_request = build_timeout_reconcile_pr_comment_request,
     }
@@ -679,7 +679,7 @@ local function pipeline_timeout(event)
 
     local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
     devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", restart_decision.cas_outcome, reason)
-    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", restart_decision.incoming_version, {
       add = add_labels,
       remove = remove_labels,
     }, effect_queues)
