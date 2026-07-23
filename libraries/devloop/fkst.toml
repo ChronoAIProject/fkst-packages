@@ -121,6 +121,7 @@ public = [
   "devloop.restart_pending_projection",
   "devloop.restart_source_admission",
   "devloop.restart_temporal_obligations",
+  "devloop.restart_transition_anomaly",
   "devloop.restart_sinks",
   "devloop.restart_responsibility_contract",
   "devloop.restart_trace",

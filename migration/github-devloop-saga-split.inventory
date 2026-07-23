@@ -76,6 +76,7 @@
 {"path":"libraries/devloop/restart_pending_projection.lua","owner":"shared","reason":"pure pending-order relation shared by lifecycle edge owners and CAS conformance."}
 {"path":"libraries/devloop/restart_source_admission.lua","owner":"shared","reason":"pure closed source-shape and ingress route-admission checks shared by issue and PR shadow deciders."}
 {"path":"libraries/devloop/restart_temporal_obligations.lua","owner":"shared","reason":"pure R10 temporal-obligation schema, closed provider capability matrix, row-only index derivation, and fail-closed conformance helpers shared by lifecycle owners."}
+{"path":"libraries/devloop/restart_transition_anomaly.lua","owner":"shared","reason":"pure R7 anomaly schema and observed-history analyzer shared by lifecycle owners while canonical rows remain owner-local inputs."}
 {"path":"libraries/devloop/restart_sinks.lua","owner":"shared","reason":"pure lifecycle-sink inventory validator and coverage arbiter shared by issue and PR owners."}
 {"path":"libraries/devloop/restart_responsibility_contract.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/rounds.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
@@ -246,6 +247,7 @@
 {"path":"packages/github-devloop/core/restart/required_replay_payload_fields/fixing.lua","owner":"issue","reason":"required replay payload fields belong to the parent issue saga."}
 {"path":"packages/github-devloop/core/restart/required_replay_payload_fields/index.lua","owner":"issue","reason":"required replay payload fields belong to the parent issue saga."}
 {"path":"packages/github-devloop/core/restart_authority.lua","owner":"issue","reason":"owner-local grant-disabled shadow decider for issue-side restart transitions (Step 0.0.3); composes typed edges + owner pending projection + CAS catalog in shadow, grant=nil, constructs no lifecycle effect."}
+{"path":"packages/github-devloop/core/restart_analysis.lua","owner":"issue","reason":"owner-local R7 shadow binder analyzes only the parent issue saga rows and constructs no lifecycle effect or transport."}
 {"path":"packages/github-devloop/core/restart_effect_facade.lua","owner":"issue","reason":"owner-local shadow facade gates representative lifecycle-authoritative effect construction on exact grant verification without replacing OLD writers."}
 {"path":"packages/github-devloop/core/restart_effects.lua","owner":"issue","reason":"owner-local issue grant seal and grant-consuming verifier for lifecycle-authoritative restart effects in Step 0.3 shadow mode."}
 {"path":"packages/github-devloop/core/span_conformance.lua","owner":"cross-cutting","reason":"package-owned conformance for github-devloop span source-shape ratchet."}
