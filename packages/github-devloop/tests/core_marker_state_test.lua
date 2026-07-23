@@ -188,27 +188,6 @@ return {
       version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
     }
     t.eq(core.versioned_transition_status(ready_current, { "ready" }, "implementing", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "stale")
-    t.eq(core.cyclic_transition_status({ state = nil, version = nil }, { "fixing" }, "reviewing", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "pending")
-    t.eq(core.cyclic_transition_status({
-      state = "fixing",
-      version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-    }, { "reviewing" }, "merge-ready", "ready-consensus-github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z"), "stale")
-    t.eq(core.cyclic_transition_status({
-      state = "merge-ready",
-      version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-    }, { "reviewing" }, "fixing", "ready-consensus-github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z"), "apply")
-    t.eq(core.cyclic_transition_status({
-      state = "reviewing",
-      version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
-    }, { "fixing" }, "reviewing", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1"), "idempotent")
-    t.eq(core.cyclic_transition_status({
-      state = "reviewing",
-      version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-    }, { "fixing" }, "reviewing", core.fix_version_from_review_version("ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/2"), "pending")
-    t.eq(core.cyclic_transition_status({
-      state = "reviewing",
-      version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
-    }, { "review-meta" }, "fixing", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "stale")
     local review_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-05T01-02-03Z"
     t.eq(core.compare_state_marker_order({ state = "pr-open", version = review_version }, "reviewing", review_version), -1)
     t.eq(core.compare_state_marker_order({ state = "reviewing", version = review_version }, "reviewing", review_version), 0)
@@ -767,21 +746,6 @@ return {
     t.eq(core.version_review_meta_action_round(exit_version), core.version_review_meta_action_round(version) + 1)
     t.eq(current.state, "fixing")
     t.eq(current.version, exit_version)
-  end,
-  test_review_loop_round_version_orders_after_base_reviewing = function()
-    local proposal_id = "github-devloop/issue/owner/repo/42"
-    local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
-    local review_loop_version = version .. "/review-loop/3"
-
-    local current = core.current_state({
-      core.state_marker(proposal_id, "reviewing", version),
-      core.state_marker(proposal_id, "review-meta", review_loop_version),
-    }, proposal_id)
-
-    t.eq(core.version_review_loop_round(review_loop_version), 3)
-    t.eq(current.state, "review-meta")
-    t.eq(current.version, review_loop_version)
-    t.eq(core.cyclic_transition_status(current, { "reviewing" }, "review-meta", version), "stale")
   end,
   test_current_state_uses_loop_round_before_stage_rank_for_same_updated_at = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"

@@ -1,9 +1,12 @@
 local h = require("tests.devloop_core_helpers")
 local transition_version = require("contract.transition_version")
+local restart_cas_catalog = require("devloop.restart_cas_catalog")
+local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 
 local core = h.core
 local t = h.t
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
+local restart_projection = owner_pending_projection.frozen_projection()
 
 local function is_version_key(key)
   local text = tostring(key or "")
@@ -371,13 +374,13 @@ local function actual_versions_equivalent(left, right, versions)
   if probe == nil then
     error("observed version corpus has no non-equal ordering probe for " .. tostring(left), 0)
   end
-  local status = core.cyclic_transition_status(
-    { state = "ready", version = left },
-    { "thinking" },
-    "ready",
-    probe,
-    right
-  )
+  local status = restart_cas_catalog.resolve("cas.base_cyclic_legacy_v1", {
+    current = { state = "ready", version = left },
+    source_states = { "thinking" },
+    target_state = "ready",
+    incoming_version = probe,
+    target_version = right,
+  }, restart_projection).status
   return status == "idempotent", status
 end
 
