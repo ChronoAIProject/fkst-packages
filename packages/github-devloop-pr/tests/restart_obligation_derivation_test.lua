@@ -1,6 +1,7 @@
 local h = require("tests.devloop_core_helpers")
 local owner_projection = require("devloop.restart_owner_pending_projection")
 local restart_obligations = require("devloop.restart_obligations")
+local restart_cas_catalog = require("devloop.restart_cas_catalog")
 
 local OWNER = "github-devloop-pr"
 local inventories = {
@@ -53,6 +54,42 @@ local function timeout_witness_index_without(rows, edges, excluded_edge_id)
     result[excluded_edge_id] = nil
   end
   return result
+end
+
+local function family_variant_witness_index_without(edges, excluded_edge_id)
+  local result = owner_projection.frozen_family_variant_witness_index(OWNER, edges)
+  if excluded_edge_id ~= nil then
+    result[excluded_edge_id] = nil
+  end
+  return result
+end
+
+local function family_variant_groups(edges)
+  local groups = {}
+  for _, edge in ipairs(edges) do
+    if type(edge.cas_policy_id) == "string" and edge.cas_policy_id ~= ""
+        and type(edge.cas_variant) == "string" and edge.cas_variant ~= "" then
+      local variants = groups[edge.cas_policy_id]
+      if variants == nil then
+        variants = {}
+        groups[edge.cas_policy_id] = variants
+      end
+      variants[edge.cas_variant] = true
+    end
+  end
+  return groups
+end
+
+local function is_family_variant_edge(edge, groups)
+  local variants = groups[edge.cas_policy_id]
+  if variants == nil or variants[edge.cas_variant] ~= true then
+    return false
+  end
+  local count = 0
+  for _ in pairs(variants) do
+    count = count + 1
+  end
+  return count > 1
 end
 
 local function declared_effect_ids(entitlements)
@@ -346,5 +383,71 @@ return {
     )
     local unmapped = index_by_edge(result.unmapped)
     t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
+  end,
+
+  test_pr_owner_derives_family_variant_obligations_from_typed_groups = function()
+    local edges = canonical_edges()
+    local groups = family_variant_groups(edges)
+    local witnesses = family_variant_witness_index_without(edges, nil)
+    local result = restart_obligations.derive_family_variant(edges, witnesses)
+    local derived = index_by_edge(result.obligations)
+    local unmapped = index_by_edge(result.unmapped)
+    local applicable_count = 0
+
+    for _, edge in ipairs(edges) do
+      if is_family_variant_edge(edge, groups) then
+        applicable_count = applicable_count + 1
+        local definition = restart_cas_catalog.definition(edge.cas_policy_id)
+        local variant = definition and definition.variants
+          and definition.variants[edge.cas_variant] or nil
+        local witness = witnesses[edge.id]
+        local obligation = derived[edge.id]
+        t.is_true(variant ~= nil)
+        t.is_true(witness ~= nil)
+        t.is_true(obligation ~= nil)
+        t.eq(witness.family_id, edge.cas_policy_id)
+        t.eq(witness.variant, edge.cas_variant)
+        assert_array(witness.expected_decision.source_states, variant.source_states)
+        t.eq(witness.expected_decision.target_state, variant.target_state)
+        t.eq(obligation.obligation_id, edge.id .. "/family-variant")
+        t.eq(obligation.owner, edge.owner)
+        t.eq(obligation.edge_id, edge.id)
+        t.eq(obligation.case_kind, "family-variant")
+        t.eq(obligation.input_fixture_id, witness.input_fixture_id)
+        t.eq(obligation.witness_id, witness.witness_id)
+        t.eq(obligation.expected_decision, witness.expected_decision)
+        t.eq(obligation.expected_effect_ids, witness.expected_effect_ids)
+        t.eq(obligation.expected_payload_obligations, witness.expected_payload_obligations)
+        t.eq(unmapped[edge.id], nil)
+      else
+        t.eq(derived[edge.id], nil)
+        t.eq(unmapped[edge.id], nil)
+      end
+    end
+
+    t.is_true(applicable_count > 0)
+    t.eq(#result.obligations, applicable_count)
+    t.eq(#result.unmapped, 0)
+  end,
+
+  test_pr_owner_reports_removed_frozen_family_variant_witness_as_unmapped = function()
+    local edges = canonical_edges()
+    local groups = family_variant_groups(edges)
+    local removed_edge_id = nil
+    for _, edge in ipairs(edges) do
+      if is_family_variant_edge(edge, groups) then
+        removed_edge_id = edge.id
+        break
+      end
+    end
+    t.is_true(removed_edge_id ~= nil)
+    local result = restart_obligations.derive_family_variant(
+      edges,
+      family_variant_witness_index_without(edges, removed_edge_id)
+    )
+    local derived = index_by_edge(result.obligations)
+    local unmapped = index_by_edge(result.unmapped)
+    t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
+    t.eq(derived[removed_edge_id], nil)
   end,
 }

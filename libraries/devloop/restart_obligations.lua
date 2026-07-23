@@ -475,6 +475,123 @@ function M.derive_entitlement(owner_edges, witness_index)
   }
 end
 
+local function family_variant_groups(owner_edges)
+  local groups = {}
+  for _, edge in ipairs(owner_edges) do
+    if edge.cas_variant ~= nil and edge.cas_policy_id == nil then
+      error("devloop.restart_obligations: edge.cas_variant requires edge.cas_policy_id")
+    end
+    if edge.cas_policy_id ~= nil then
+      require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
+    end
+    if edge.cas_variant ~= nil then
+      require_nonempty_string(edge.cas_variant, "owner_edges edge.cas_variant")
+    end
+    if edge.cas_policy_id ~= nil and edge.cas_variant ~= nil then
+      local variants = groups[edge.cas_policy_id]
+      if variants == nil then
+        variants = {}
+        groups[edge.cas_policy_id] = variants
+      end
+      variants[edge.cas_variant] = true
+    end
+  end
+  return groups
+end
+
+local function has_multiple_variants(variants)
+  local count = 0
+  for _ in pairs(variants or {}) do
+    count = count + 1
+    if count > 1 then
+      return true
+    end
+  end
+  return false
+end
+
+function M.derive_family_variant(owner_edges, witness_index)
+  if type(owner_edges) ~= "table" then
+    error("devloop.restart_obligations: owner_edges must be an array")
+  end
+  if type(witness_index) ~= "table" then
+    error("devloop.restart_obligations: witness_index must be a table")
+  end
+
+  local edge_count = 0
+  for key, edge in pairs(owner_edges) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
+      error("devloop.restart_obligations: owner_edges must be an array of tables")
+    end
+    edge_count = edge_count + 1
+  end
+  if edge_count ~= #owner_edges then
+    error("devloop.restart_obligations: owner_edges must be a dense array")
+  end
+
+  local groups = family_variant_groups(owner_edges)
+  local obligations = {}
+  local unmapped = {}
+  local seen_edge_ids = {}
+  for _, edge in ipairs(owner_edges) do
+    if edge.cas_policy_id ~= nil and edge.cas_variant ~= nil
+        and has_multiple_variants(groups[edge.cas_policy_id]) then
+      require_nonempty_string(edge.id, "owner_edges edge.id")
+      require_nonempty_string(edge.owner, "owner_edges edge.owner")
+      require_nonempty_string(edge.target, "owner_edges edge.target")
+      if seen_edge_ids[edge.id] then
+        error("devloop.restart_obligations: duplicate family variant edge id " .. edge.id)
+      end
+      seen_edge_ids[edge.id] = true
+
+      local witness = witness_index[edge.id]
+      local unmapped_reason = nil
+      if witness == nil then
+        unmapped_reason = "missing-frozen-witness"
+      elseif type(witness) ~= "table"
+          or witness.owner ~= edge.owner
+          or witness.edge_id ~= edge.id
+          or witness.family_id ~= edge.cas_policy_id
+          or witness.variant ~= edge.cas_variant
+          or witness.target ~= edge.target
+          or type(witness.expected_decision) ~= "table"
+          or witness.expected_decision.family_id ~= edge.cas_policy_id
+          or witness.expected_decision.variant ~= edge.cas_variant
+          or witness.expected_decision.target_state ~= edge.target then
+        unmapped_reason = "frozen-witness-family-variant-mismatch"
+      end
+
+      if unmapped_reason ~= nil then
+        table.insert(unmapped, {
+          owner = edge.owner,
+          edge_id = edge.id,
+          family_id = edge.cas_policy_id,
+          variant = edge.cas_variant,
+          reason = unmapped_reason,
+        })
+      else
+        table.insert(obligations, {
+          obligation_id = edge.id .. "/family-variant",
+          owner = edge.owner,
+          edge_id = edge.id,
+          case_kind = "family-variant",
+          input_fixture_id = witness.input_fixture_id,
+          expected_decision = witness.expected_decision,
+          expected_effect_ids = witness.expected_effect_ids,
+          expected_payload_obligations = witness.expected_payload_obligations,
+          witness_id = witness.witness_id,
+        })
+      end
+    end
+  end
+
+  M.define(obligations)
+  return {
+    obligations = obligations,
+    unmapped = unmapped,
+  }
+end
+
 function M.derive_timeout(owner_edges, witness_index)
   if type(owner_edges) ~= "table" then
     error("devloop.restart_obligations: owner_edges must be an array")
