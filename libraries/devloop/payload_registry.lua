@@ -101,12 +101,21 @@ local typed_resolvers = {
   ["ci-failure"] = literal("ci-failure"),
 }
 
+local retained_builders = {
+  ["fix-feedback"] = {
+    id = "comment_body:fix-feedback",
+    reason = "Full body depends on feedback reason selection, sanitization, owner-local strings, state/version markers, and request composition.",
+    builder = "core.build_fix_review_meta_comment_request",
+  },
+}
+
 local registries = {
   marker = marker_resolvers,
   source_ref = source_ref_resolvers,
   literal = literal_resolvers,
   dedup = dedup_resolvers,
   typed = typed_resolvers,
+  comment_body = retained_builders,
 }
 
 local function fail(message)
@@ -138,6 +147,16 @@ local function parsed_token(token)
       fail("unknown marker attr " .. family .. "." .. attr)
     end
     return families[family][attr]
+  end
+
+  if prefix == "comment_body" then
+    local retained = registries.comment_body[name]
+    if retained == nil then
+      fail("unknown retained builder " .. token)
+    end
+    return function()
+      fail("retained builder " .. retained.id .. " cannot be resolved")
+    end
   end
 
   local resolver = (registries[prefix] or {})[name]

@@ -23,6 +23,7 @@ return {
     t.eq(payload_registry.validate("marker:state.version"), true)
     t.eq(payload_registry.validate("typed:review-feedback"), true)
     t.eq(payload_registry.validate("typed:ci-failure"), true)
+    t.eq(payload_registry.validate("comment_body:fix-feedback"), true)
     assert_rejected("unknown:ready", "unknown prefix unknown")
     assert_rejected("dedup:unregistered", "unknown dedup strategy unregistered")
     assert_rejected("literal:github-devloop.unregistered.v1", "unknown literal value github-devloop.unregistered.v1")
@@ -30,6 +31,14 @@ return {
     assert_rejected("marker:unregistered.value", "unknown marker family unregistered")
     assert_rejected("marker:state.unregistered", "unknown marker attr state.unregistered")
     assert_rejected("typed:unregistered", "unknown typed strategy unregistered")
+    assert_rejected("comment_body:unregistered", "unknown retained builder comment_body:unregistered")
+  end,
+
+  test_retained_builder_is_validated_but_not_resolved = function()
+    t.eq(payload_registry.validate("comment_body:fix-feedback"), true)
+    local ok, failure = pcall(payload_registry.resolve, "comment_body:fix-feedback", {})
+    t.eq(ok, false)
+    t.is_true(tostring(failure):find("retained builder comment_body:fix-feedback cannot be resolved", 1, true) ~= nil)
   end,
 
   test_resolve_returns_missing_evidence_without_partial_value = function()

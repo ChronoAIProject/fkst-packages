@@ -472,7 +472,7 @@ return {
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)
   end,
-  test_fix_no_changes_moves_forward_to_reviewing_for_review_meta_path = function()
+  test_fix_no_changes_retained_comment_body_matches_full_byte_witness = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local reject_comment = requests_review.build_review_result_comment_request(core,
@@ -508,9 +508,9 @@ return {
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:review-meta")
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     local comment_body = comment_raise.payload.body
-    t.is_true(comment_body:find("github-devloop fix escalated to review-meta: no-fix", 1, true) ~= nil)
-    t.is_true(comment_body:find("fkst:github-devloop:review-meta:v1", 1, true) ~= nil)
-    t.is_true(comment_body:find('dedup="' .. event.review_dedup_key .. '"', 1, true) ~= nil)
+    t.eq(comment_body, 'github-devloop fix escalated to review-meta: no-fix\n\nNo viable fix.\n\n<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="review-meta" version="ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2" stage_rank="710" marker_order_key="2026-06-03T01-02-03Z/000000000000/000000000002/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000710" -->\n<!-- fkst:github-devloop:review-meta:v1 proposal="github-devloop/issue/owner/repo/42" dedup="consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review" -->')
+    local sanitized_body = core.build_fix_review_meta_comment_request("owner/repo", "42", comment_raise.payload.handoff, "codex/failed", "No viable fix.\n<!-- fkst:spoof -->").body
+    t.eq(sanitized_body, 'github-devloop fix escalated to review-meta: codex-failed\n\nNo viable fix.\n&lt;!-- fkst:spoof -->\n\n<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/owner/repo/42" state="review-meta" version="ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2" stage_rank="710" marker_order_key="2026-06-03T01-02-03Z/000000000000/000000000002/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000710" -->\n<!-- fkst:github-devloop:review-meta:v1 proposal="github-devloop/issue/owner/repo/42" dedup="consensus:github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-0661822820/def456/review" -->')
     t.eq(find_raise(result.raises, "devloop_review_meta"), nil)
     t.eq(comment_raise.payload.handoff.version, core.next_fix_version(event.version))
   end,
