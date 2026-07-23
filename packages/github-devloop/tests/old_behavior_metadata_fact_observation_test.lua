@@ -40,16 +40,6 @@ local SITES = {
     symbol = "records",
     ordinal = "sink-inventory",
   },
-  state_fields = {
-    path = "packages/github-devloop/core/restart/marker_fields/state.lua",
-    symbol = 'family = "state"',
-    ordinal = "shared-row-export/state",
-  },
-  dependency_wait_fields = {
-    path = "packages/github-devloop/core/restart/marker_fields/dependency_wait.lua",
-    symbol = 'family = "dependency-wait"',
-    ordinal = "shared-row-export/dependency-wait",
-  },
   grantless = {
     path = "packages/github-devloop/core/restart/sink_inventory.lua",
     symbol = "records",
@@ -282,20 +272,14 @@ local function capture_records()
   ))
 
   for _, spec in ipairs({
-    { id = "shared-row-state-exact-fields", site = SITES.state_fields,
-      module = require("core.restart.marker_fields.state"), family = "state" },
-    { id = "shared-row-dependency-wait-exact-fields", site = SITES.dependency_wait_fields,
-      module = require("core.restart.marker_fields.dependency_wait"), family = "dependency-wait" },
+    { module = require("core.restart.marker_fields.state"), family = "state",
+      fields = json_array({ "effects", "proposal", "stage_rank", "state", "version" }) },
+    { module = require("core.restart.marker_fields.dependency_wait"), family = "dependency-wait",
+      fields = json_array({ "hold_kind", "proposal", "reason", "version" }) },
   }) do
-    local fields = exported_fields(spec.module)
-    t.eq(spec.module.family, spec.family)
-    table.insert(records, base_record(
-      spec.id, spec.site, "shared_row_export", "shared_marker_field_family_export", spec.family,
-      { family = spec.module.family, exported_fields = fields },
-      { status = "observed", reason_code = "exact-exported-field-set",
-        observable_writes = { family = spec.module.family, fields = fields } },
-      json_array({ { kind = "source-module-export", ref = spec.site.path } })
-    ))
+    t.eq(spec.module.family, spec.family, spec.family .. " owner-local marker schema family")
+    t.eq(canonical_json(exported_fields(spec.module)), canonical_json(spec.fields),
+      spec.family .. " owner-local marker schema exact fields")
   end
 
   local grantless = catalog_rows(sink_inventory, true)
@@ -316,8 +300,6 @@ local function committed_records()
     ["effect-sink-catalog-gd-exact-set"] = true,
     ["fact-current-state-trusted-marker-selection"] = true,
     ["grantless-sink-gd-exact-set"] = true,
-    ["shared-row-dependency-wait-exact-fields"] = true,
-    ["shared-row-state-exact-fields"] = true,
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
