@@ -99,20 +99,23 @@ function C.replay_thinking_true_stall_blocked(M, dept, issue, state, facts, log_
       return log_skip(dept, proposal_id, state, "thinking", "blocked", "skip-idempotent(reconcile marker already visible)", "reconcile result marker for visible true-stall round is already visible")
     end
     local version = conv_reconcile.reconcile_terminal_state_version(state.version, reconcile.round)
-    local transition = M.versioned_transition_status(state, { "thinking" }, "blocked", version)
-    if transition == "idempotent" or transition == "stale" then
-      return log_skip(dept, proposal_id, state, "thinking", "blocked", M.cas_outcome(state, transition, version), "current marker cannot be reconciled from thinking")
-    end
     local action = "drop"
     local reason = tostring(reconcile.terminal_cause) .. "-after-" .. tostring(reconcile.round) .. "-rounds"
-    local comment_request = M.build_reconcile_comment_request(issue.repo, issue.number, reconcile, action, reason, version)
-    local label_request = M.build_reconcile_label_request(issue.repo, issue.number, reconcile)
-    local add_labels, remove_labels = M.state_label_changes("blocked")
-    devloop_logging.log_cas_decision(dept, proposal_id, state, "thinking", "blocked", M.cas_outcome(state, transition, version), reason)
-    return raise_effects(dept, proposal_id, "blocked", version, { add = add_labels, remove = remove_labels }, {
-      { queue = "github-proxy.github_issue_comment_request", payload = comment_request },
-      { queue = "github-proxy.github_issue_label_request", payload = label_request },
+    local decision, effects = M.authorize_true_stall_drop({
+      issue = issue,
+      proposal_id = proposal_id,
+      state = state,
+      reconcile = reconcile,
+      version = version,
+      action = action,
+      reason = reason,
     })
+    if decision.status == "idempotent" or decision.status == "stale" then
+      return log_skip(dept, proposal_id, state, "thinking", "blocked", decision.cas_outcome, "current marker cannot be reconciled from thinking")
+    end
+    local add_labels, remove_labels = M.state_label_changes("blocked")
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "thinking", "blocked", decision.cas_outcome, reason)
+    return raise_effects(dept, proposal_id, "blocked", decision.incoming_version, { add = add_labels, remove = remove_labels }, effects)
 end
 
 function C.replay(caps, dept, issue, state, row, facts, log_skip, log_defer, raise_effects)

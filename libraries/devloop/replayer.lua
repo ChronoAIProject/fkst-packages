@@ -32,15 +32,93 @@ local function raise_effects(M, dept, proposal_id, apply_state, version, label_c
   return replay_fields.replay_raise_effects(devloop_logging.log_apply, devloop_logging.log_raise, dept, proposal_id, apply_state, version, label_changes, effects)
 end
 
+local function authorize_thinking_true_stall_drop(installed, args)
+  local state = args.state
+  local proposal_id = args.proposal_id
+  local lock_key = entity_lib.loop_lock_key(proposal_id)
+  if lock_key == nil then
+    error("github-devloop: restart-effect-snapshot-invalid: no transition lock key for thinking replay")
+  end
+
+  local restart_effects = installed.restart_effects()
+  local snapshot = restart_effects.seal_snapshot({
+    owner = installed.restart_package_name,
+    entity = { kind = "issue", repo = args.issue.repo, number = args.issue.number },
+    proposal_id = proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "issue-reconcile",
+      proposal_id,
+      state.state,
+      state.version,
+    }, "|"),
+    lock_epoch = lock_key .. "@" .. state.version,
+    generation = state.version,
+  })
+  local decision = restart_effects.decide_transition(snapshot, {
+    semantic_variant = "issue_reconcile_true_stall",
+    source_boundary = "devloop_reconcile",
+    target = "blocked",
+    incoming_version = args.version,
+  })
+  if decision.status == "pending" then
+    error("github-devloop: state-marker-pending: thinking state marker not yet visible for replay reconcile; retrying")
+  end
+  if decision.status == "idempotent" or decision.status == "stale" then
+    return decision, nil
+  end
+  if decision.status ~= "apply" then
+    error("github-devloop: restart-effect-decision-illegal: thinking replay reconcile decision rejected: "
+      .. tostring(decision.reason_code))
+  end
+
+  local grant = restart_effects.mint_grant(
+    snapshot,
+    decision,
+    "comment:issue:reconcile-blocked"
+  )
+  if grant == nil then
+    error("github-devloop: restart-effect-grant-mint-failed: thinking replay reconcile grant was not minted")
+  end
+  local facade = installed.restart_effect_facade().make({
+    family = "issue-reconcile",
+    verify_grant = restart_effects.verify_grant,
+    sink_inventory = installed.restart_sink_inventory(),
+  })
+  local facade_args = {
+    core = installed,
+    issue = { repo = args.issue.repo, number = args.issue.number },
+    reconcile = args.reconcile,
+    action = args.action,
+    reason = args.reason,
+    state_version = decision.incoming_version,
+  }
+  local effects = {}
+  for _, effect_id in ipairs(decision.granted_effect_ids) do
+    local payload, rejection = facade.emit(grant, effect_id, snapshot, facade_args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: thinking replay reconcile effect "
+        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    end
+    table.insert(effects, { queue = effect_id, payload = payload })
+  end
+  return decision, effects
+end
+
 local function thinking_caps(installed)
-  return {
+  local caps = {
     latest_complete_converge_round = function(...) return installed.latest_complete_converge_round(...) end,
     context_fetch = function(...) return context_bundle.context_fetch_ref_from_bundle(installed, ...) end,
     build_board_loop = function(...) return payloads_builders.build_board_loop_proposal(installed, ...) end,
     build_board = function(...) return payloads_builders.build_board_proposal(installed, ...) end,
     dispatch_live_run = function(...) return dispatch_live_run.dispatch_live_run_dedup(installed, ...) end,
-    replay_true_stall = function(...) return replay_thinking_convergence.replay_thinking_true_stall_blocked(installed, ...) end,
+    state_label_changes = function(...) return installed.state_label_changes(...) end,
+    authorize_true_stall_drop = function(args) return authorize_thinking_true_stall_drop(installed, args) end,
   }
+  caps.replay_true_stall = function(...)
+    return replay_thinking_convergence.replay_thinking_true_stall_blocked(caps, ...)
+  end
+  return caps
 end
 
 local function fixing_replay_comment_request(M, issue, pr_number, fix_payload, feedback, source_ref)

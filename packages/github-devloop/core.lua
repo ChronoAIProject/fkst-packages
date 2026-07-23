@@ -135,6 +135,9 @@ require("devloop.liveness").install(M, wiring.liveness(M))
 local prompts = require("devloop.prompts")
 prompts.install(M, wiring.prompts(), { implement = true })
 require("core.reconcile_requests").install(M)
+M.restart_effects = function() return require("core.restart_effects") end
+M.restart_effect_facade = function() return require("core.restart_effect_facade") end
+M.restart_sink_inventory = function() return require("core.restart.sink_inventory") end
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
 require("core.implement_attempt").install(M)
