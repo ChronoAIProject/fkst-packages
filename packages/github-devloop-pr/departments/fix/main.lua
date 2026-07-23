@@ -597,8 +597,9 @@ local function act_fix(event)
       target_version = reviewing_version,
       overlay_version = fix.version,
     })
-    if decision.status == "pending" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", decision.cas_outcome, "fixing state marker not yet visible")
+    if devloop_logging.log_typed_guard("pending_log_error", decision,
+      "fix", fix.proposal_id, state, "fixing", "reviewing",
+      "fixing state marker not yet visible") == "error" then
       error("github-devloop: fixing-marker-missing: fixing state marker not yet visible for fix; retrying")
     end
     if decision.status == "idempotent" then

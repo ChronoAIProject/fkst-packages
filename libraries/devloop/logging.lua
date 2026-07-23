@@ -64,6 +64,14 @@ end
 
 C.payload_field = logging.payload_field
 
+local typed_guard_actions = {
+  pending_log_error = { pending = "error" },
+  idempotent_or_stale_log_return = {
+    idempotent = "return",
+    stale = "return",
+  },
+}
+
 function C.log_cas_decision(dept, proposal_id, current, from_state, to_state, outcome, reason)
   local current_state = current
   local current_version = type(current) == "table" and current.version or nil
@@ -78,6 +86,19 @@ function C.log_cas_decision(dept, proposal_id, current, from_state, to_state, ou
     "outcome=" .. tostring(outcome or "unknown"),
     "reason=" .. error_facts.one_line(reason or ""),
   })
+end
+
+function C.log_typed_guard(shape, decision, dept, proposal_id, current, from_state, to_state, reason)
+  local actions = typed_guard_actions[shape]
+  if actions == nil then
+    error("devloop.logging: unknown typed guard shape: " .. tostring(shape))
+  end
+  local action = actions[decision.status]
+  if action == nil then
+    return nil
+  end
+  C.log_cas_decision(dept, proposal_id, current, from_state, to_state, decision.cas_outcome, reason)
+  return action
 end
 
 function C.log_apply(dept, proposal_id, to_state, version, labels, events)

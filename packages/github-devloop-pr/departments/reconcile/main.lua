@@ -225,8 +225,9 @@ local function pipeline_review(event)
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", "skip-stale(version-mismatch)", "review reconcile event does not match the canonical reviewing marker")
       return
     end
-    if decision.status == "idempotent" or decision.status == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "reviewing", "blocked", decision.cas_outcome, "current marker cannot be reconciled from reviewing")
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", decision,
+      "reconcile", reconcile.proposal_id, state, "reviewing", "blocked",
+      "current marker cannot be reconciled from reviewing") == "return" then
       return
     end
     if decision.status ~= "apply" then
@@ -367,8 +368,9 @@ local function pipeline_fix(event)
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", "skip-stale(version-mismatch)", "fix reconcile event does not match a canonical source marker")
       return
     end
-    if decision.status == "idempotent" or decision.status == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", decision.cas_outcome, "current marker cannot be reconciled from its source state")
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", decision,
+      "reconcile", reconcile.proposal_id, state, from_text, "blocked",
+      "current marker cannot be reconciled from its source state") == "return" then
       return
     end
     if decision.status ~= "apply" then
@@ -611,8 +613,9 @@ local function pipeline_timeout(event)
       devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(lineage-mismatch)", "timeout reconcile event does not match canonical state marker lineage")
       return
     end
-    if restart_decision.status == "idempotent" or restart_decision.status == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", restart_decision.cas_outcome, "current marker cannot be timeout reconciled")
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", restart_decision,
+      "reconcile", reconcile.proposal_id, state, reconcile.state, "blocked",
+      "current marker cannot be timeout reconciled") == "return" then
       return
     end
     if restart_decision.status ~= "apply" then

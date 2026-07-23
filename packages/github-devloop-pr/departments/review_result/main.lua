@@ -221,9 +221,9 @@ return saga.department(spec, { done = function() return false end, act = functio
         "reviewing", to_state, decision.cas_outcome, "review decision cannot advance current marker")
       return
     end
-    if decision.status == "pending" then
-      devloop_logging.log_cas_decision("review_result", origin.proposal_id, state,
-        "reviewing", to_state, decision.cas_outcome, "reviewing state marker not yet visible")
+    if devloop_logging.log_typed_guard("pending_log_error", decision,
+      "review_result", origin.proposal_id, state, "reviewing", to_state,
+      "reviewing state marker not yet visible") == "error" then
       error("github-devloop: review-result-marker-missing: reviewing marker not yet visible for review result; retrying")
     end
 

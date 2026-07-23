@@ -144,12 +144,14 @@ local function pipeline_thinking(event)
       target = "blocked",
       incoming_version = version,
     })
-    if decision.status == "pending" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", decision.cas_outcome, "thinking state marker not yet visible")
+    if devloop_logging.log_typed_guard("pending_log_error", decision,
+      "reconcile", reconcile.proposal_id, state, "thinking", "blocked",
+      "thinking state marker not yet visible") == "error" then
       error("github-devloop: state-marker-pending: thinking state marker not yet visible for reconcile; retrying")
     end
-    if decision.status == "idempotent" or decision.status == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", decision.cas_outcome, "current marker cannot be reconciled from thinking")
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", decision,
+      "reconcile", reconcile.proposal_id, state, "thinking", "blocked",
+      "current marker cannot be reconciled from thinking") == "return" then
       return
     end
     if decision.status ~= "apply" then
@@ -322,12 +324,14 @@ local function pipeline_timeout(event)
       target = "blocked",
       incoming_version = version,
     })
-    if transition_decision.status == "pending" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", transition_decision.cas_outcome, "state marker not yet visible for timeout reconcile")
+    if devloop_logging.log_typed_guard("pending_log_error", transition_decision,
+      "reconcile", reconcile.proposal_id, state, reconcile.state, "blocked",
+      "state marker not yet visible for timeout reconcile") == "error" then
       error("github-devloop: state-marker-pending: state marker not yet visible for timeout reconcile; retrying")
     end
-    if transition_decision.status == "idempotent" or transition_decision.status == "stale" then
-      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", transition_decision.cas_outcome, "current marker cannot be timeout reconciled")
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", transition_decision,
+      "reconcile", reconcile.proposal_id, state, reconcile.state, "blocked",
+      "current marker cannot be timeout reconciled") == "return" then
       return
     end
     if transition_decision.status ~= "apply" then

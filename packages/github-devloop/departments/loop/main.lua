@@ -102,12 +102,14 @@ return saga.department(spec, { done = function() return false end, act = functio
       error("github-devloop: restart-effect-decision-illegal: loop admission rejected: "
         .. tostring(transition.reason_code))
     end
-    if transition.status == "idempotent" or transition.status == "stale" then
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "unresolved event cannot advance current marker")
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", transition,
+      "loop", unresolved.proposal_id, state, "thinking", "thinking",
+      "unresolved event cannot advance current marker") == "return" then
       return
     end
-    if transition.status == "pending" then
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "thinking state marker not yet visible")
+    if devloop_logging.log_typed_guard("pending_log_error", transition,
+      "loop", unresolved.proposal_id, state, "thinking", "thinking",
+      "thinking state marker not yet visible") == "error" then
       error("github-devloop: state-marker-pending: thinking state marker not yet visible for unresolved; retrying")
     end
     if transition.status ~= "apply" then

@@ -811,10 +811,9 @@ local function process_issue_event(event)
         "current marker is not an unmanaged start")
       return
     end
-    if decision.status == "pending" then
-      devloop_logging.log_cas_decision("observe_issue", proposal_id, state,
-        "unmanaged", "thinking", decision.cas_outcome,
-        "unmanaged state marker pending for observe")
+    if devloop_logging.log_typed_guard("pending_log_error", decision,
+      "observe_issue", proposal_id, state, "unmanaged", "thinking",
+      "unmanaged state marker pending for observe") == "error" then
       error("github-devloop: state-marker-pending: unmanaged state marker pending for observe; retrying")
     end
     if decision.status ~= "apply" and decision.status ~= "idempotent" then
