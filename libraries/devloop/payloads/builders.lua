@@ -91,7 +91,7 @@ function C.build_devloop_ready_payload(M, source)
   })
   local marker_version = tostring(source.effect_version or source.dedup_key)
   local payload = {
-    schema = "github-devloop.ready.v1",
+    schema = resolve_payload_token("literal:github-devloop.ready.v1"),
     proposal_id = source.proposal_id,
     dedup_key = ready_version,
     source_ref = base_ids.normalize_source_ref(source.source_ref),
@@ -140,7 +140,7 @@ end
 function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, version)
   local review_version = version or origin.impl_version
   local payload = {
-    schema = "github-devloop.reviewing.v1",
+    schema = resolve_payload_token("literal:github-devloop.reviewing.v1"),
     proposal_id = origin.proposal_id,
     pr_number = pr_number,
     version = review_version,
@@ -283,7 +283,7 @@ end
 
 function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
   return {
-    schema = "github-devloop.review-meta.v1",
+    schema = resolve_payload_token("literal:github-devloop.review-meta.v1"),
     proposal_id = issue_proposal_id,
     review_proposal_id = unresolved.proposal_id,
     review_dedup_key = unresolved.dedup_key,
@@ -332,7 +332,7 @@ function C.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, versi
     current_head_sha = review_fact and review_fact.reviewed_head_sha
   end
   return {
-    schema = "github-devloop.merge-ready.v1",
+    schema = resolve_payload_token("literal:github-devloop.merge-ready.v1"),
     proposal_id = issue_proposal_id,
     pr_number = pr_number,
     version = version,
@@ -405,7 +405,7 @@ function C.build_proposal(issue)
     .. "\nRecurrence: read recent closed issues in context; if this is the third same-class instance, reframe to a class solution or give an explicit waiver."
 
   return {
-    schema = "consensus.proposal.v1",
+    schema = resolve_payload_token("literal:consensus.proposal.v1"),
     verdict_mode = "converge",
     proposal_id = proposal_id,
     title = title,
@@ -502,7 +502,7 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
   end
 
   return apply_high_risk_angles({
-    schema = "consensus.proposal.v1",
+    schema = resolve_payload_token("literal:consensus.proposal.v1"),
     verdict_mode = "gate",
     proposal_id = review_id,
     title = devloop_base.neutralize_untrusted_prompt_text(title),

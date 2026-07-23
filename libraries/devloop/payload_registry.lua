@@ -56,7 +56,22 @@ local dedup_resolvers = {
   end,
 }
 
+local function literal(value)
+  return function()
+    return value
+  end
+end
+
+local literal_resolvers = {
+  ["github-devloop.ready.v1"] = literal("github-devloop.ready.v1"),
+  ["github-devloop.reviewing.v1"] = literal("github-devloop.reviewing.v1"),
+  ["github-devloop.review-meta.v1"] = literal("github-devloop.review-meta.v1"),
+  ["github-devloop.merge-ready.v1"] = literal("github-devloop.merge-ready.v1"),
+  ["consensus.proposal.v1"] = literal("consensus.proposal.v1"),
+}
+
 local registries = {
+  literal = literal_resolvers,
   dedup = dedup_resolvers,
 }
 

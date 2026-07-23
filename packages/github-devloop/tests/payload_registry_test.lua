@@ -11,11 +11,17 @@ local function assert_rejected(token, message)
 end
 
 return {
-  test_validate_accepts_only_registered_dedup_strategies = function()
+  test_validate_accepts_only_registered_tokens = function()
     t.eq(payload_registry.validate("dedup:ready"), true)
     t.eq(payload_registry.validate("dedup:reviewing"), true)
+    t.eq(payload_registry.validate("literal:github-devloop.ready.v1"), true)
+    t.eq(payload_registry.validate("literal:github-devloop.reviewing.v1"), true)
+    t.eq(payload_registry.validate("literal:github-devloop.review-meta.v1"), true)
+    t.eq(payload_registry.validate("literal:github-devloop.merge-ready.v1"), true)
+    t.eq(payload_registry.validate("literal:consensus.proposal.v1"), true)
     assert_rejected("unknown:ready", "unknown prefix unknown")
     assert_rejected("dedup:unregistered", "unknown dedup strategy unregistered")
+    assert_rejected("literal:github-devloop.unregistered.v1", "unknown literal value github-devloop.unregistered.v1")
     assert_rejected("marker:unregistered.value", "unknown marker family unregistered")
   end,
 
@@ -30,6 +36,97 @@ return {
     })
     t.eq(value, nil)
     t.eq(failure, "missing-evidence")
+  end,
+
+  test_literal_schema_builders_are_byte_exact_with_previous_values = function()
+    local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
+    local fixtures = {
+      {
+        token = "literal:github-devloop.ready.v1",
+        previous = "github-devloop.ready.v1",
+        build = function()
+          return payloads_builders.build_devloop_ready_payload({
+            _max_impl_retry_attempts = 3,
+          }, {
+            proposal_id = "github-devloop/issue/owner/repo/42",
+            dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-07-23T01-02-03Z",
+            source_ref = source_ref,
+          })
+        end,
+      },
+      {
+        token = "literal:github-devloop.reviewing.v1",
+        previous = "github-devloop.reviewing.v1",
+        build = function()
+          return payloads_builders.build_devloop_reviewing_payload({
+            proposal_id = "github-devloop/issue/owner/repo/42",
+            impl_version = "ready/version",
+          }, 17, source_ref)
+        end,
+      },
+      {
+        token = "literal:github-devloop.review-meta.v1",
+        previous = "github-devloop.review-meta.v1",
+        build = function()
+          return payloads_builders.build_devloop_review_meta_payload({
+            proposal_id = "review/proposal/17",
+            dedup_key = "review/dedup/17",
+            source_ref = source_ref,
+          }, "github-devloop/issue/owner/repo/42", "ready/version", 17, 2)
+        end,
+      },
+      {
+        token = "literal:github-devloop.merge-ready.v1",
+        previous = "github-devloop.merge-ready.v1",
+        build = function()
+          return payloads_builders.build_devloop_merge_ready_payload(
+            "github-devloop/issue/owner/repo/42",
+            17,
+            "ready/version",
+            { review_dedup_key = "review/dedup/17" },
+            source_ref
+          )
+        end,
+      },
+      {
+        token = "literal:consensus.proposal.v1",
+        previous = "consensus.proposal.v1",
+        build = function()
+          return payloads_builders.build_proposal({
+            repo = "owner/repo",
+            number = 42,
+            title = "Literal schema parity",
+            updated_at = "2026-07-23T01:02:03Z",
+            source_ref = source_ref,
+          })
+        end,
+      },
+      {
+        token = "literal:consensus.proposal.v1",
+        previous = "consensus.proposal.v1",
+        build = function()
+          return payloads_builders.build_pr_review_proposal({
+            _max_title_len = 200,
+            _max_body_len = 2000,
+            short_review_observation_boundary_clause = function()
+              return "Review only the named issue requirements."
+            end,
+          }, "owner/repo", 42, 17, "ready/version", "abcdef1", {
+            title = "Literal schema parity",
+          }, {
+            kind = "external",
+            ref = "owner/repo#pr/17",
+          }, {})
+        end,
+      },
+    }
+
+    for _, fixture in ipairs(fixtures) do
+      local resolved, failure = payload_registry.resolve(fixture.token, nil)
+      t.eq(failure, nil)
+      t.eq(resolved, fixture.previous)
+      t.eq(fixture.build().schema, fixture.previous)
+    end
   end,
 
   test_ready_builder_dedup_is_byte_exact_with_previous_expression = function()
