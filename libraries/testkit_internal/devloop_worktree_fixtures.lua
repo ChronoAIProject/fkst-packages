@@ -581,11 +581,19 @@ function M.new(deps)
   end
 
   local function mock_implement_codex(exit_code, stdout, stderr)
+    local resolved_exit_code = exit_code or 0
     t.mock_command("codex exec", {
       stdout = stdout or "implemented",
       stderr = stderr or "",
-      exit_code = exit_code or 0,
+      exit_code = resolved_exit_code,
     })
+    if resolved_exit_code == 0 then
+      t.mock_command("scripts/run.sh test-affected", {
+        stdout = "",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
   end
 
   local function mock_git_status(stdout, exit_code, stderr)

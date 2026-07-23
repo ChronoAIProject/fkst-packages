@@ -72,9 +72,13 @@ local function run_local_iteration_check(ready, worktree)
   local check = M.local_iteration_check(worktree)
   devloop_logging.log_line(check.exit_code == 0 and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
     "exit_code=" .. tostring(check.exit_code),
-    "reason=timeout-harvest-local-iteration",
+    "reason=pre-handoff-local-iteration",
   })
-  return check.exit_code == 0, tostring(check.stderr or check.stdout or "")
+  local detail = tostring(check.stderr or "")
+  if detail == "" then
+    detail = tostring(check.stdout or "")
+  end
+  return check.exit_code == 0, detail
 end
 
 function M.clean_branch_head(base_head, branch)
@@ -120,6 +124,15 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
     error("github-devloop: unsafe-head-sha: unsafe implementing head_sha")
   end
   return head_sha
+end
+
+function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
+  local green, verify_detail = run_local_iteration_check(ready, worktree)
+  if not green then
+    return impl_failed_outcome(ready, "local-iteration-failed", verify_detail, attempt, started_at, exec_ref, base_head)
+  end
+  local verified_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
+  return implementation_outcome(ready, worktree, branch, verified_head, integration_branch, base_head, attempt, started_at, exec_ref)
 end
 
 function M.after_codex_failure(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, stderr)

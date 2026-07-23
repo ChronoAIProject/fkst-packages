@@ -191,9 +191,47 @@ return {
     t.eq(count_calls("git -C"), 10)
     t.eq(count_calls("git worktree add -b"), 1)
     t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("scripts/run.sh test-affected"), 1)
     t.eq(count_calls("status --porcelain"), 1)
     t.eq(count_calls("add -A"), 2)
     t.eq(count_calls("commit -m"), 2)
+  end,
+
+  test_implement_local_gate_failure_marks_impl_failed_before_publication = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    mock_fresh_implement_worktree()
+    t.mock_command("codex exec", {
+      stdout = "wrote docs/devloop/plans/42-plan.md\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_git_status(" M docs/devloop/plans/42-plan.md\n")
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = "FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md\n",
+      exit_code = 1,
+    })
+
+    local result = run_implement(event, opts("implement-local-gate-failure"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(count_calls("commit -m"), 1)
+    t.eq(count_calls("git push origin"), 0)
+    t.eq(count_calls("gh pr create"), 0)
+    local failure = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
+    t.is_true(failure ~= nil)
+    t.is_true(failure.payload.body:find("github-devloop implementation failed: local-iteration-failed", 1, true) ~= nil)
+    t.is_true(failure.payload.body:find("FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md", 1, true) ~= nil)
+    local failed_label = find_raise(result.raises, "github-proxy.github_issue_label_request", function(payload)
+      return payload.add_labels and payload.add_labels[1] == "fkst-dev:impl-failed"
+    end)
+    t.is_true(failed_label ~= nil)
+    t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request") == nil)
+    t.eq(branch, deterministic_branch_for(event))
   end,
 
   test_implement_missing_substrate_ref_still_spawns_codex = function()

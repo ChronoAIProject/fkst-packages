@@ -323,7 +323,7 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
         "head_sha=" .. tostring(head_sha),
         "reason=reusing clean ahead implementation branch",
       })
-      return implementation_outcome(ready, worktree, branch, head_sha, branches.integration, base_head, attempt, codex_started_at, exec_ref)
+      return harvest.after_codex_success(repo, issue_number, ready, branches.integration, branch, base_head, worktree, attempt, codex_started_at, exec_ref, head_sha)
     end
 
     local detail = tostring(result.stdout or "")
@@ -338,8 +338,7 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
     return harvest.impl_failed_outcome(ready, "no-changes", detail, attempt, codex_started_at, exec_ref, base_head)
   end
 
-  local head_sha = harvest.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
-  return implementation_outcome(ready, worktree, branch, head_sha, branches.integration, base_head, attempt, codex_started_at, exec_ref)
+  return harvest.after_codex_success(repo, issue_number, ready, branches.integration, branch, base_head, worktree, attempt, codex_started_at, exec_ref)
 end
 
 local function raise_attempt_outcome(repo, issue_number, outcome)
