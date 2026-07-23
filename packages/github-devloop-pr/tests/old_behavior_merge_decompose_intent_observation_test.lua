@@ -325,7 +325,8 @@ local function terminal_comment_markers(fixture, reconcile)
     tostring(fixture.issue_number),
     reconcile,
     "drop",
-    reason
+    reason,
+    reconcile.issue_version
   ).body
   local state_marker = core.state_marker(fixture.proposal_id, "blocked", reconcile.issue_version)
   local reconcile_marker = conv_reconcile.fix_reconcile_marker(

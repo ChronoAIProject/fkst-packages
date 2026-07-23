@@ -411,6 +411,7 @@ local function pipeline_fix(event)
       reconcile = reconcile,
       action = action,
       reason = reason,
+      version = decision.overlay_version,
     }
     local effects = {}
     for _, effect_id in ipairs(decision.granted_effect_ids) do
@@ -426,7 +427,7 @@ local function pipeline_fix(event)
 
     local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
     devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, from_text, "blocked", decision.cas_outcome, reason)
-    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", version, {
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", decision.overlay_version, {
       add = add_labels,
       remove = remove_labels,
     }, decision.granted_effect_ids)

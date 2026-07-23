@@ -57,9 +57,10 @@ core.build_fix_reconcile_comment_request = function(
   issue_number,
   reconcile,
   action,
-  reason
+  reason,
+  version
 )
-  local request = original_boundary(repo, issue_number, reconcile, action, reason)
+  local request = original_boundary(repo, issue_number, reconcile, action, reason, version)
   if active_boundary_calls ~= nil then
     table.insert(active_boundary_calls, {
       repo = repo,
@@ -67,18 +68,20 @@ core.build_fix_reconcile_comment_request = function(
       reconcile = reconcile,
       action = action,
       reason = reason,
+      version = version,
       request = request,
     })
   end
   return request
 end
-core.build_fix_reconcile_label_request = function(repo, issue_number, reconcile)
-  local request = original_label_boundary(repo, issue_number, reconcile)
+core.build_fix_reconcile_label_request = function(repo, issue_number, reconcile, version)
+  local request = original_label_boundary(repo, issue_number, reconcile, version)
   if active_label_boundary_calls ~= nil then
     table.insert(active_label_boundary_calls, {
       repo = repo,
       issue_number = issue_number,
       reconcile = reconcile,
+      version = version,
       request = request,
     })
   end
@@ -329,7 +332,9 @@ local function assert_catalog_matches_observed_admission(fixture)
     t.eq(boundary.issue_number, "42", fixture.name .. ": boundary issue")
     t.eq(boundary.reconcile, event, fixture.name .. ": boundary event")
     t.eq(boundary.action, "drop", fixture.name .. ": boundary action")
+    t.eq(boundary.version, event.issue_version, fixture.name .. ": boundary version")
     t.eq(#label_boundary_calls, 1, fixture.name .. ": label builder reach")
+    t.eq(label_boundary_calls[1].version, event.issue_version, fixture.name .. ": label boundary version")
   else
     t.eq(#label_boundary_calls, 0, fixture.name .. ": label builder not reached")
   end
@@ -478,6 +483,7 @@ local function new_trace_fixture(fixture, production)
       reconcile = boundary.reconcile,
       action = boundary.action,
       reason = boundary.reason,
+      version = boundary.version,
     }
     local old_requests = {
       ["github-proxy.github_pr_comment_request"] = boundary.request,

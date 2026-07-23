@@ -174,7 +174,7 @@ return {
     local event = fix_reconcile()
     mock_bot_env()
     mock_issue_review({ "fkst-dev:blocked" }, {
-      core.build_fix_reconcile_comment_request("owner/repo", "42", event, "drop", "already done").body,
+      core.build_fix_reconcile_comment_request("owner/repo", "42", event, "drop", "already done", event.issue_version).body,
     })
 
     local result = run_fix_reconcile(event, opts("fix-reconcile-idempotent"))

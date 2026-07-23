@@ -94,7 +94,7 @@ local function fixture_comments(fixture)
       issue_version = fixture.version,
       dedup_key = "fix-reconcile:" .. fixture.version,
       source_ref = copy_value(fixture.source_ref),
-    }, "drop", "fix-loop-max-rounds-after-3-rounds").body,
+    }, "drop", "fix-loop-max-rounds-after-3-rounds", fixture.version).body,
   })
   if fixture.family == "bound" then
     table.insert(comments, m_builders.merge_gate_marker(

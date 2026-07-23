@@ -175,13 +175,13 @@ function M.build_review_reconcile_label_request(repo, issue_number, review_recon
   )
 end
 
-function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
+function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile, version)
   local _, pr_number = devloop_base.parse_pr_source_ref(fix_reconcile.source_ref)
   return requests_labels.build_state_label_request(repo,
     issue_number,
     "blocked",
     fix_reconcile.proposal_id,
-    conv_reconcile.fix_reconcile_state_version(fix_reconcile.issue_version),
+    version,
     base_ids.dedup_key({
       "fix-reconcile",
       "label",
@@ -193,8 +193,7 @@ function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
   )
 end
 
-function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcile, action, reason)
-  local version = conv_reconcile.fix_reconcile_state_version(fix_reconcile.issue_version)
+function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcile, action, reason, version)
   local marker = conv_reconcile.fix_reconcile_marker(fix_reconcile.proposal_id, fix_reconcile.issue_version, action)
   local state_marker = devloop_state.state_marker(fix_reconcile.proposal_id, "blocked", version)
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")

@@ -243,6 +243,7 @@ local function valid_fix_reconcile_args(args)
     and type(args.reconcile) == "table"
     and type(args.action) == "string"
     and type(args.reason) == "string"
+    and type(args.version) == "string"
 end
 
 local function serialize_fix_reconcile_comment(args)
@@ -254,7 +255,8 @@ local function serialize_fix_reconcile_comment(args)
     args.issue_number,
     args.reconcile,
     args.action,
-    args.reason
+    args.reason,
+    args.version
   )
 end
 
@@ -265,7 +267,8 @@ local function serialize_fix_reconcile_label(args)
   return args.core.build_fix_reconcile_label_request(
     args.repo,
     args.issue_number,
-    args.reconcile
+    args.reconcile,
+    args.version
   )
 end
 
