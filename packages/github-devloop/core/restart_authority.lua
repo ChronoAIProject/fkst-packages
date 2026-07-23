@@ -367,6 +367,9 @@ function M.decide_transition(sealed_snapshot, intent)
     cas_outcome = resolved.cas_outcome,
     edge_id = edge.id,
     cas_policy_id = edge.cas_policy_id,
+    incoming_version = normalized.incoming_version,
+    target_version = normalized.target_version,
+    overlay_version = normalized.overlay_version,
     effect_entitlement_id = effect_entitlement_id,
     granted_effect_ids = granted_effect_ids,
     evidence = {

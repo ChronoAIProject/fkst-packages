@@ -106,6 +106,9 @@ return {
     local sealed = snapshot()
     local decided = decision(sealed, "apply")
     t.eq(decided.status, "apply")
+    t.eq(decided.incoming_version, V_CURRENT, "decision carries the byte-exact incoming version")
+    t.eq(decided.target_version, nil, "decision preserves an omitted target version")
+    t.eq(decided.overlay_version, V_CURRENT, "decision carries the byte-exact overlay version")
     t.eq(decided.effect_entitlement_id, APPLY_ENTITLEMENT_ID)
     assert_array(decided.granted_effect_ids, EFFECT_IDS, "apply entitlement")
 

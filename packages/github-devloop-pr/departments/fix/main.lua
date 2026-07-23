@@ -78,7 +78,7 @@ end
 
 local function emit_reviewing(restart_effect, repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
   fix.fix_summary = bounded_fix_summary(summary)
-  local new_version = devloop_state.next_fix_version(fix.version)
+  local new_version = restart_effect.decision.target_version
   local args = {
     core = core,
     repo = repo,
