@@ -203,25 +203,77 @@ return {
     t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
   end,
 
-  test_timeout_attempt_not_counted_after_implement_delegates_to_pr_child = function()
+  test_delegated_implementing_past_budget_blocked_pr_child_is_actionable = function()
     local event = h.ready()
-    local run_opts = opts("liveness-delegated-implement-codex-run-no-timeout-count")
+    local row = restart_transition_row("implementing")
+    local state = {
+      state = "implementing",
+      version = event.dedup_key,
+      proposal_id = event.proposal_id,
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
     local pr_proposal = entity_lib.pr_proposal_id(repo, 7)
-    codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
+    local source_ref = entity_lib.issue_source_ref(repo, 42)
     local comments = {
-      recent_state_comment("implementing", event.dedup_key),
+      state_comment("implementing", event.dedup_key, state.marker_created_at),
       issue_comment(core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 60), exec_ref)),
       issue_comment(m_builders.pr_delegation_marker(event.proposal_id, pr_proposal, 7, event.dedup_key, "g1")),
     }
-    mock_repo()
-    mock_issue_list("2026-06-03T01:02:05Z")
-    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, comments, "2026-06-03T01:02:05Z")
-    mock_empty_pr_list()
+    local facts = {
+      proposal_id = event.proposal_id,
+      source_ref = source_ref,
+      current = { comments = comments, labels = { "fkst-dev:enabled", "fkst-dev:implementing" } },
+      current_pr = {
+        comments = {
+          issue_comment(core.state_marker(pr_proposal, "blocked", "child-blocked-version"), "2026-06-03T01:00:00Z"),
+        },
+      },
+      fresh_current_state = state,
+      now_seconds = now_seconds,
+    }
 
-    local scanned = run_liveness_scan("liveness-delegated-implement-codex-run-no-timeout-count", run_opts)
-    t.eq(scanned.exit_code, 0)
-    assert_no_timeout_progress(scanned)
+    with_codex_runs({}, function()
+      -- With the delegated child_workflow_wait machinery deleted, an implementing row
+      -- past budget with NO live codex (the faithful #2687 shape: the implement codex
+      -- has died/handed off to a now-terminal child PR) is governed only by codex_run:v1.
+      -- The codex run is not running, so the actionable-epoch resolves actionable and the
+      -- receiver reports action="stuck" (force-terminate), NOT defer. This is the plain
+      -- codex-run-not-running path, distinct from the live-codex row-budget-absolute-cap
+      -- path exercised by test_stale_pr_delegation_does_not_suppress_implementing_row_budget_cap.
+      local receiver = core.restart_row_receiver_liveness(row, state, facts, now_seconds)
+      t.eq(receiver.action, "stuck")
+      t.eq(receiver.reason, "actionable-epoch-actionable")
+      local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, now_seconds)
+      t.eq(eval.status, "actionable")
+      t.eq(eval.epoch_source, "codex_run:v1")
+      t.eq(eval.row_budget_absolute_cap, nil)
+      for round = 1, 2 do
+        table.insert(comments, issue_comment(conv_attempts.timeout_attempt_v2_marker(
+          event.proposal_id,
+          row.from_state,
+          row.liveness_class_id,
+          eval.generation_key,
+          round,
+          source_ref
+        )))
+      end
+      local raised = capture_raises(function()
+        local handled = core.maybe_timeout_redrive_from_table("liveness_scan", {
+          repo = repo,
+          number = 42,
+          source_ref = source_ref,
+        }, state, row, facts)
+        t.eq(handled, true)
+      end)
+      t.eq(captured_raise(raised, "devloop_ready"), nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.issue_version, event.dedup_key)
+      t.eq(reconcile.payload.round, 3)
+    end)
   end,
 
   test_stale_pr_delegation_does_not_suppress_implementing_row_budget_cap = function()

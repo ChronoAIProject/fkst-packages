@@ -2,7 +2,6 @@ local base_ids = require("devloop.base_ids")
 local parsers_misc = require("devloop.parsers.misc")
 local conv_attempts = require("devloop.convergence.attempts")
 local contract_time = require("contract.time")
-local m_facts = require("devloop.markers.facts")
 local C = {}
 
 local function comment_created_ms(M, comment)
@@ -160,87 +159,6 @@ local function observed_fact(M, row, state, facts)
   return nil
 end
 
-local function transition_row(M, state_name)
-  if type(M.restart_transition_table) ~= "function" then
-    return nil
-  end
-  for _, candidate in ipairs(M.restart_transition_table()) do
-    if candidate.from_state == state_name then
-      return candidate
-    end
-  end
-  return nil
-end
-
-local function copy_row_for_child_workflow(row, child_row)
-  if type(child_row) ~= "table" then
-    return nil
-  end
-  local out = {}
-  for key, value in pairs(row or {}) do
-    out[key] = value
-  end
-  out.liveness_class_id = child_row.liveness_class_id
-  out.actionable_epoch = child_row.actionable_epoch
-  out.defer = child_row.defer
-  out.budget = child_row.budget
-  out.liveness_contract = child_row.liveness_contract
-  return out
-end
-
-local function delegation_comments(facts)
-  if facts and facts.current and type(facts.current.comments) == "table" then
-    return facts.current.comments
-  end
-  if facts and facts.snapshot and type(facts.snapshot.comments) == "table" then
-    return facts.snapshot.comments
-  end
-  return nil
-end
-
-local function valid_pr_delegation_fact(fact, proposal_id, version)
-  if type(fact) ~= "table" then
-    return nil
-  end
-  if tostring(fact.proposal_id or "") ~= tostring(proposal_id or "") then
-    return nil
-  end
-  if tostring(fact.version or "") ~= tostring(version or "") then
-    return nil
-  end
-  if fact.pr_number == nil or (fact.pr_proposal_id == nil and fact.pr_proposal == nil) then
-    return nil
-  end
-  return fact
-end
-
-local function trusted_pr_delegation_fact(M, state, facts)
-  local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
-  local version = state and state.version
-  local direct = facts and (facts.pr_delegation or facts["pr-delegation"]) or nil
-  local valid_direct = valid_pr_delegation_fact(direct, proposal_id, version)
-  if valid_direct ~= nil then
-    return valid_direct
-  end
-  return valid_pr_delegation_fact(
-    m_facts.pr_delegation_fact(delegation_comments(facts), proposal_id, version),
-    proposal_id,
-    version
-  )
-end
-
-local function delegated_implement_child_workflow_row(M, row, state, facts)
-  if row == nil or row.from_state ~= "implementing" then
-    return nil, nil
-  end
-  local delegation = trusted_pr_delegation_fact(M, state, facts)
-  if delegation == nil then
-    return nil, nil
-  end
-  local child_row = copy_row_for_child_workflow(row, transition_row(M, "awaiting-pr"))
-  return child_row, delegation
-end
-
 local function dependency_gate_fact(row, state, facts)
   if row == nil
     or row.actionable_epoch == nil
@@ -379,15 +297,6 @@ end
 local resolve_child_workflow_wait
 
 local function resolve_codex_run(M, row, state, facts, now_seconds)
-  local child_row, delegation = delegated_implement_child_workflow_row(M, row, state, facts)
-  if child_row ~= nil then
-    local eval = resolve_child_workflow_wait(M, child_row, state, facts, now_seconds)
-    eval.delegated_child_workflow_wait = true
-    eval.delegation = delegation
-    eval.child_budget_minutes = child_row.budget and tonumber(child_row.budget.minutes) or nil
-    eval.child_liveness_class_id = child_row.liveness_class_id
-    return eval
-  end
   local durable_eval = nil
   if row.actionable_epoch.source == "codex_run_with_durable_hold:v1" then
     durable_eval = durable_hold_eval(M, row, state, facts, now_seconds)
@@ -528,22 +437,6 @@ function C.actionable_epoch_timeout_due(M, row, state, facts, now_seconds)
     return true, eval.heartbeat_age_minutes or age
   end
   if is_codex_run_source(row.actionable_epoch.source) then
-    if eval.delegated_child_workflow_wait == true then
-      if eval.status ~= "actionable" then
-        return false, nil
-      end
-      local now_ms = tonumber(now_seconds) and tonumber(now_seconds) * 1000 or nil
-      local epoch_ms = tonumber(eval.epoch_ms)
-      if now_ms == nil or epoch_ms == nil or now_ms < epoch_ms then
-        return false, nil
-      end
-      local age = math.floor((now_ms - epoch_ms) / 60000)
-      local budget = tonumber(eval.child_budget_minutes)
-      if budget == nil or age < budget then
-        return false, age
-      end
-      return true, age
-    end
     if eval.status ~= "actionable" then
       return false, nil
     end
@@ -612,9 +505,6 @@ end
 
 function C.actionable_epoch_codex_run_decision(M, row, state, facts, due, age)
   local eval = facts and facts.actionable_epoch_eval
-  if type(eval) == "table" and eval.delegated_child_workflow_wait == true then
-    return nil
-  end
   if not (row
     and row.actionable_epoch
     and is_codex_run_source(row.actionable_epoch.source)
@@ -643,7 +533,7 @@ function C.actionable_epoch_child_workflow_decision(row, state, facts, due, age)
   local child_workflow_source = row
     and row.actionable_epoch
     and row.actionable_epoch.source == "child_workflow_wait:v1"
-  if not ((child_workflow_source or (type(eval) == "table" and eval.delegated_child_workflow_wait == true))
+  if not (child_workflow_source
     and type(eval) == "table"
     and eval.status == "actionable") then
     return nil
