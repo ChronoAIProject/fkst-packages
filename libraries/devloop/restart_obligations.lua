@@ -74,4 +74,76 @@ function M.define(entries)
   return entries
 end
 
+function M.derive(owner_edges, witness_index)
+  if type(owner_edges) ~= "table" then
+    error("devloop.restart_obligations: owner_edges must be an array")
+  end
+  if type(witness_index) ~= "table" then
+    error("devloop.restart_obligations: witness_index must be a table")
+  end
+
+  local obligations = {}
+  local unmapped = {}
+  local seen_edge_ids = {}
+  local edge_count = 0
+  for key, edge in pairs(owner_edges) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
+      error("devloop.restart_obligations: owner_edges must be an array of tables")
+    end
+    edge_count = edge_count + 1
+  end
+  if edge_count ~= #owner_edges then
+    error("devloop.restart_obligations: owner_edges must be a dense array")
+  end
+
+  for _, edge in ipairs(owner_edges) do
+    if edge.cas_policy_id ~= nil then
+      require_nonempty_string(edge.id, "owner_edges edge.id")
+      require_nonempty_string(edge.owner, "owner_edges edge.owner")
+      require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
+      if seen_edge_ids[edge.id] then
+        error("devloop.restart_obligations: duplicate CAS edge id " .. edge.id)
+      end
+      seen_edge_ids[edge.id] = true
+
+      local witness = witness_index[edge.id]
+      if witness == nil then
+        table.insert(unmapped, {
+          owner = edge.owner,
+          edge_id = edge.id,
+          cas_policy_id = edge.cas_policy_id,
+          reason = "missing-frozen-witness",
+        })
+      elseif type(witness) ~= "table"
+          or witness.owner ~= edge.owner
+          or witness.edge_id ~= edge.id then
+        table.insert(unmapped, {
+          owner = edge.owner,
+          edge_id = edge.id,
+          cas_policy_id = edge.cas_policy_id,
+          reason = "frozen-witness-identity-mismatch",
+        })
+      else
+        table.insert(obligations, {
+          obligation_id = edge.id .. "/cas-admission",
+          owner = edge.owner,
+          edge_id = edge.id,
+          case_kind = "cas-matrix",
+          input_fixture_id = witness.input_fixture_id,
+          expected_decision = witness.expected_decision,
+          expected_effect_ids = witness.expected_effect_ids,
+          expected_payload_obligations = witness.expected_payload_obligations,
+          witness_id = witness.witness_id,
+        })
+      end
+    end
+  end
+
+  M.define(obligations)
+  return {
+    obligations = obligations,
+    unmapped = unmapped,
+  }
+end
+
 return M
