@@ -196,6 +196,8 @@ function M.derive_cas_admission(edge, obligation, witness)
     "cas_variant",
     "timeout_evidence_policy_id",
     "cause_evidence",
+    "generation_epoch",
+    "lineage_keys",
   }, "edge")
   validate_fields(obligation, {
     "obligation_id",

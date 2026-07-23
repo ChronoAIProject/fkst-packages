@@ -585,6 +585,7 @@ return {
       extract_guard_boundary_edges = true,
       extract_operator_reentry_edges = true,
       extract_timeout_edges = true,
+      project_generation_fields = true,
       schema = true,
     })
     local schema = restart_edges.schema()

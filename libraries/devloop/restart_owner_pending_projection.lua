@@ -121,7 +121,7 @@ function M.edges(owner, rows, inventories)
   append_all(edges, restart_edges.extract_entry_edges(owner, inventories.entry, rows))
   append_all(edges, restart_edges.extract_operator_reentry_edges(owner, inventories.operator_reentry))
   append_all(edges, restart_edges.extract_canonicalization_edges(owner, inventories.canonicalization))
-  return edges
+  return restart_edges.project_generation_fields(edges, rows)
 end
 
 function M.derive(owner, rows, inventories)
@@ -410,6 +410,49 @@ function M.frozen_timeout_witness_index(owner, rows, edges)
           witness_id = source_path .. "#timeout_evidence_policy_id:" .. edge.id,
         }
       end
+    end
+  end
+  return witnesses
+end
+
+function M.frozen_generation_witness_index(owner, edges)
+  if owner_sources[owner] == nil then
+    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+  end
+  if type(edges) ~= "table" then
+    error("devloop.restart_owner_pending_projection: edges must be an array")
+  end
+
+  local witnesses = {}
+  for _, edge in ipairs(edges) do
+    local generation = type(edge) == "table" and edge.generation_epoch or nil
+    local mode = type(generation) == "table" and generation.mode or nil
+    if mode == "bump" or mode == "open" then
+      if edge.owner ~= owner or type(edge.id) ~= "string" or edge.id == ""
+          or type(generation.keys) ~= "table" or #generation.keys == 0
+          or type(edge.lineage_keys) ~= "table" or #edge.lineage_keys == 0 then
+        error("devloop.restart_owner_pending_projection: generation edge identity is invalid")
+      end
+      if witnesses[edge.id] ~= nil then
+        error("devloop.restart_owner_pending_projection: duplicate generation edge id " .. edge.id)
+      end
+      witnesses[edge.id] = {
+        owner = owner,
+        edge_id = edge.id,
+        generation_epoch = deep_copy(generation),
+        lineage_keys = deep_copy(edge.lineage_keys),
+        input_fixture_id = edge.id .. "/generation",
+        expected_decision = {
+          mode = mode,
+          keys = deep_copy(generation.keys),
+          lineage_keys = deep_copy(edge.lineage_keys),
+        },
+        expected_effect_ids = {},
+        expected_payload_obligations = {},
+        witness_id = "packages/" .. owner .. "/core/restart/transitions/index.lua#"
+          .. edge.target .. "/generation-entry|" .. edge.provenance.row
+          .. ":" .. edge.provenance.field,
+      }
     end
   end
   return witnesses

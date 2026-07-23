@@ -743,6 +743,132 @@ function M.extract_timeout_edges(owner, rows)
   return edges
 end
 
+local function copy_lineage_keys(value, context)
+  if type(value) ~= "table" then
+    error("devloop.restart_edges: " .. context .. " must be an array of strings")
+  end
+  local copied = {}
+  local count = 0
+  for key, item in pairs(value) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0
+        or not is_nonempty_string(item) then
+      error("devloop.restart_edges: " .. context .. " must be an array of strings")
+    end
+    count = count + 1
+    copied[key] = item
+  end
+  if count ~= #value then
+    error("devloop.restart_edges: " .. context .. " must be a dense array")
+  end
+  return copied
+end
+
+local function row_index(rows)
+  if type(rows) ~= "table" then
+    error("devloop.restart_edges: rows must be an array")
+  end
+  local indexed = {}
+  for _, row in ipairs(rows) do
+    local id = row_id(row)
+    if indexed[id] ~= nil then
+      error("devloop.restart_edges: duplicate row id " .. id)
+    end
+    indexed[id] = row
+  end
+  return indexed
+end
+
+local function matching_generation_declaration(edge, row)
+  local matches = {}
+  local function consider(candidate, boundary)
+    if type(candidate) == "table"
+        and candidate.state == edge.target
+        and candidate.output_variant == edge.semantic_variant
+        and boundary == edge.source.boundary then
+      table.insert(matches, candidate)
+    end
+  end
+
+  local signature = type(row) == "table" and row.responsibility_signature or nil
+  for _, successor in ipairs(type(signature) == "table" and signature.successors or {}) do
+    consider(successor, nil)
+  end
+  for _, guard_boundary in ipairs(type(row) == "table" and row.guard_boundaries or {}) do
+    for _, successor in ipairs(type(guard_boundary) == "table" and guard_boundary.successors or {}) do
+      consider(successor, guard_boundary.name)
+    end
+  end
+  for _, activation in ipairs(type(row) == "table" and row.receiver_activations or {}) do
+    consider(activation, activation.boundary)
+  end
+  if #matches > 1 then
+    error("devloop.restart_edges: ambiguous generation declaration for edge " .. edge.id)
+  end
+  return matches[1]
+end
+
+local function generation_mode(edge, declaration, target_row)
+  if type(declaration) == "table" and declaration.bump == true then
+    return "bump"
+  end
+  local policy = type(target_row) == "table" and target_row.generation_entry or nil
+  if policy == nil then
+    return "preserve"
+  end
+  if edge.source.state == nil or policy == "always" then
+    return "open"
+  end
+  if type(policy) == "table" then
+    if policy.birth_from == edge.source.state then
+      return "open"
+    end
+    if policy.reentry_bump == true then
+      return "bump"
+    end
+  end
+  return "preserve"
+end
+
+function M.project_generation_fields(edges, rows)
+  if type(edges) ~= "table" then
+    error("devloop.restart_edges: edges must be an array")
+  end
+  local rows_by_id = row_index(rows)
+  for _, edge in ipairs(edges) do
+    if type(edge) ~= "table" or not is_nonempty_string(edge.id)
+        or type(edge.source) ~= "table" or not is_nonempty_string(edge.target)
+        or not is_nonempty_string(edge.row_id) then
+      error("devloop.restart_edges: generation projection requires a canonical edge")
+    end
+    local row = rows_by_id[edge.row_id]
+    local target_row = rows_by_id[edge.target]
+    if type(row) ~= "table" or type(row.responsibility_signature) ~= "table" then
+      error("devloop.restart_edges: edge row has no responsibility signature: " .. edge.id)
+    end
+    if type(target_row) ~= "table" or type(target_row.responsibility_signature) ~= "table" then
+      error("devloop.restart_edges: edge target has no responsibility signature: " .. edge.id)
+    end
+    local declaration = matching_generation_declaration(
+      edge,
+      rows_by_id[edge.source.state]
+    )
+    local mode = generation_mode(edge, declaration, target_row)
+    local keys = {}
+    if mode ~= "preserve" then
+      keys = copy_lineage_keys(
+        target_row.responsibility_signature.lineage_keys,
+        edge.id .. ".generation_epoch.keys"
+      )
+    end
+    edge.generation_epoch = { mode = mode, keys = keys }
+    edge.lineage_keys = copy_lineage_keys(
+      row.responsibility_signature.lineage_keys,
+      edge.id .. ".lineage_keys"
+    )
+  end
+  return edges
+end
+
 function M.schema()
   return {
     structural_fields = { "id", "owner", "row_id", "kind", "source", "target", "provenance" },

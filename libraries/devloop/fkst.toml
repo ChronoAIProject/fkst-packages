@@ -111,6 +111,7 @@ public = [
   "devloop.restart_edges",
   "devloop.restart_effect_entitlements",
   "devloop.restart_bounded_loop_derivation",
+  "devloop.restart_generation_derivation",
   "devloop.restart_effect_facade",
   "devloop.restart_effect_seal",
   "devloop.restart_metadata",

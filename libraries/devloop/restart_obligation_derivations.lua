@@ -1,4 +1,5 @@
 local bounded_loop_derivation = require("devloop.restart_bounded_loop_derivation")
+local generation_derivation = require("devloop.restart_generation_derivation")
 
 local M = {}
 
@@ -10,6 +11,7 @@ function M.new(primitives)
   local bounded_loop = bounded_loop_derivation.new(primitives)
   K.bounded_loop_representatives = bounded_loop.bounded_loop_representatives
   K.derive_bounded_loop = bounded_loop.derive_bounded_loop
+  K.derive_generation = generation_derivation.new(primitives).derive_generation
 
   function K.derive_edge(owner_edges, witness_index)
     if type(owner_edges) ~= "table" then
