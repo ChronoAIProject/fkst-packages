@@ -230,6 +230,8 @@
 {"path":"packages/github-devloop/core/restart/marker_fields/state.lua","owner":"shared","reason":"marker fields are shared by the issue/PR seam."}
 {"path":"packages/github-devloop/core/restart/operator_reentry_inventory.lua","owner":"issue","reason":"authored operator reentry edges belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/sink_inventory.lua","owner":"issue","reason":"authored lifecycle-sink classifications belong to the parent issue saga authority."}
+{"path":"packages/github-devloop/core/restart/issue_reconcile_obligations.lua","owner":"issue","reason":"R5 issue-reconcile CAS-matrix obligations belong to the parent issue saga conformance and reference frozen parity witnesses."}
+{"path":"packages/github-devloop/core/restart/issue_reconcile_traces.lua","owner":"issue","reason":"R6 expected issue-reconcile traces belong to the parent issue saga conformance and project the R5 frozen parity witnesses."}
 {"path":"packages/github-devloop/core/restart/timeout_obligations.lua","owner":"issue","reason":"R5 timeout obligation declarations belong to the parent issue saga conformance and reference frozen parity witnesses."}
 {"path":"packages/github-devloop/core/restart/timeout_traces.lua","owner":"issue","reason":"R6 expected timeout traces belong to the parent issue saga conformance and project the R5 frozen parity witnesses."}
 {"path":"packages/github-devloop/core/restart/required_replay_payload_fields/fixing.lua","owner":"issue","reason":"required replay payload fields belong to the parent issue saga."}
