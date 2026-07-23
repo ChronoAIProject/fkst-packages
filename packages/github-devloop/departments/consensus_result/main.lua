@@ -164,10 +164,10 @@ local function decide_result_transition(repo, issue_number, proposal_id, lock_ke
     incoming_version = version,
     overlay_version = version,
   })
-  if decision.status == "illegal" then
-    error("github-devloop: restart-effect-decision-illegal: consensus result decision rejected: "
-      .. tostring(decision.reason_code))
-  end
+  consensus_result_caps.restart_effects.assert_decision_admissible(
+    decision,
+    "github-devloop: restart-effect-decision-illegal: consensus result decision rejected"
+  )
   return snapshot, decision
 end
 

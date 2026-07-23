@@ -90,10 +90,10 @@ return saga.department(spec, { done = function() return false end, act = functio
       })
     end
     local transition = decide(nil)
-    if transition.status == "illegal" then
-      error("github-devloop: restart-effect-decision-illegal: review activation admission rejected: "
-        .. tostring(transition.reason_code))
-    end
+    review_pr_caps.restart_effects.assert_decision_admissible(
+      transition,
+      "github-devloop: restart-effect-decision-illegal: review activation admission rejected"
+    )
     if transition.status == "pending" or transition.reason_code == "version-mismatch" then
       local verified_state = nil
       local hand_off_reason = "missing"
@@ -107,10 +107,10 @@ return saga.department(spec, { done = function() return false end, act = functio
         })
         handoff = { status = verified_state ~= nil and "valid" or "invalid" }
         transition = decide(handoff)
-        if transition.status == "illegal" then
-          error("github-devloop: restart-effect-decision-illegal: review activation handoff admission rejected: "
-            .. tostring(transition.reason_code))
-        end
+        review_pr_caps.restart_effects.assert_decision_admissible(
+          transition,
+          "github-devloop: restart-effect-decision-illegal: review activation handoff admission rejected"
+        )
       end
       if verified_state ~= nil then
         state = verified_state

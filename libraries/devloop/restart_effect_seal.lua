@@ -171,6 +171,12 @@ function M.make(config)
     return result
   end
 
+  function facade.assert_decision_admissible(decision, error_prefix)
+    if decision.status == "illegal" then
+      error(error_prefix .. ": " .. tostring(decision.reason_code))
+    end
+  end
+
   function facade.mint_grant(sealed_snapshot, decision_result, sink_id)
     local snapshot = snapshot_record(sealed_snapshot)
     local decision = sealed_decisions[decision_result]

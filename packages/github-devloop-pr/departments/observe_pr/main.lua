@@ -607,10 +607,10 @@ local function process_pr_event(event)
       incoming_version = origin.impl_version,
       overlay_version = origin.impl_version,
     })
-    if decision.status == "illegal" then
-      error("github-devloop: restart-effect-decision-illegal: observe PR reviewing decision rejected: "
-        .. tostring(decision.reason_code))
-    end
+    observe_pr_caps.restart_effects.assert_decision_admissible(
+      decision,
+      "github-devloop: restart-effect-decision-illegal: observe PR reviewing decision rejected"
+    )
     local transition = decision.status
     if has_issue_origin and transition == "pending" then
       devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "pr-open", "reviewing", decision.cas_outcome, "reviewing PR marker not yet visible")

@@ -72,10 +72,10 @@ local function decide_implementation_transition(repo, issue_number, lock_key, st
     generation = ready.dedup_key,
   })
   local decision = implement_caps.restart_effects.decide_transition(snapshot, intent)
-  if decision.status == "illegal" then
-    error("github-devloop: restart-effect-decision-illegal: implement activation rejected: "
-      .. tostring(decision.reason_code))
-  end
+  implement_caps.restart_effects.assert_decision_admissible(
+    decision,
+    "github-devloop: restart-effect-decision-illegal: implement activation rejected"
+  )
   return snapshot, decision
 end
 

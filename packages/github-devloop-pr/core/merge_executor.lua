@@ -384,10 +384,10 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     incoming_version = merge_ready.version,
     overlay_version = merge_ready.version,
   })
-  if decision.status == "illegal" then
-    error("github-devloop: restart-effect-decision-illegal: merge admission rejected: "
-      .. tostring(decision.reason_code))
-  end
+  restart_caps.restart_effects.assert_decision_admissible(
+    decision,
+    "github-devloop: restart-effect-decision-illegal: merge admission rejected"
+  )
   local transition = decision.status
   if state.state ~= "merge-ready" and state.state ~= "merging" and state.state ~= "merged" then
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, state, "merge-ready", "merging", "skip-stale(from-state-mismatch)", "issue is not currently merge-ready or merging")

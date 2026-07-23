@@ -98,10 +98,10 @@ return saga.department(spec, { done = function() return false end, act = functio
       target = "blocked",
       incoming_version = unresolved.dedup_key,
     })
-    if transition.status == "illegal" then
-      error("github-devloop: restart-effect-decision-illegal: loop admission rejected: "
-        .. tostring(transition.reason_code))
-    end
+    loop_caps.restart_effects.assert_decision_admissible(
+      transition,
+      "github-devloop: restart-effect-decision-illegal: loop admission rejected"
+    )
     if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", transition,
       "loop", unresolved.proposal_id, state, "thinking", "thinking",
       "unresolved event cannot advance current marker") == "return" then

@@ -131,10 +131,10 @@ return saga.department(spec, { done = function() return false end, act = functio
       dedup_key = unresolved.dedup_key,
       lock_key = lock_key,
     })
-    if transition.status == "illegal" then
-      error("github-devloop: restart-effect-decision-illegal: review loop admission rejected: "
-        .. tostring(transition.reason_code))
-    end
+    review_loop_caps.restart_effects.assert_decision_admissible(
+      transition,
+      "github-devloop: restart-effect-decision-illegal: review loop admission rejected"
+    )
     if transition.status == "pending" then
       devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing|blocked", transition.cas_outcome, "reviewing state marker not yet visible")
       error("github-devloop: review-loop-marker-missing: reviewing marker not yet visible for review loop; retrying")
