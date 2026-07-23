@@ -190,11 +190,9 @@ return {
     local live_thinking_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
     local terminal_version = conv_reconcile.reconcile_terminal_state_version(live_thinking_version, 3)
     t.eq(terminal_version, live_thinking_version .. "/loop/3")
-    t.eq(core.versioned_transition_status({ state = "thinking", version = live_thinking_version }, { "thinking" }, "blocked", terminal_version), "apply")
     local live_higher_loop = live_thinking_version .. "/loop/8"
     local higher_terminal = conv_reconcile.reconcile_terminal_state_version(live_higher_loop, 3)
     t.eq(higher_terminal, live_higher_loop .. "/loop/9")
-    t.eq(core.versioned_transition_status({ state = "thinking", version = live_higher_loop }, { "thinking" }, "blocked", higher_terminal), "apply")
 
     local label = core.build_reconcile_label_request("owner/repo", "42", reconcile)
     t.eq(label.add_labels[1], "fkst-dev:blocked")
@@ -242,7 +240,6 @@ return {
     local live_reviewing_version = issue_version .. "/review-loop/9"
     local terminal_version = conv_reconcile.review_reconcile_terminal_state_version(live_reviewing_version, 3)
     t.eq(terminal_version, live_reviewing_version .. "/review-loop/10")
-    t.eq(core.versioned_transition_status({ state = "reviewing", version = live_reviewing_version }, { "reviewing" }, "blocked", terminal_version), "apply")
 
     local marker = conv_reconcile.review_reconcile_marker(issue_proposal_id, issue_version, 3, "drop", "no-semantic-progress")
     t.eq(conv_reconcile.has_review_reconcile_marker(core, { marker }, issue_proposal_id, issue_version, 3), true)

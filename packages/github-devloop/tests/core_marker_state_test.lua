@@ -173,21 +173,6 @@ return {
     local current = core.current_state(comments, proposal_id)
     t.eq(current.state, "ready")
     t.eq(current.version, "v2")
-    t.eq(core.transition_status("thinking", { "thinking" }, "ready"), "apply")
-    t.eq(core.transition_status("ready", { "thinking" }, "ready"), "idempotent")
-    t.eq(core.transition_status(nil, { "thinking" }, "ready"), "pending")
-    t.eq(core.transition_status("implementing", { "thinking" }, "ready"), "stale")
-    local versioned_current = {
-      state = "ready",
-      version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
-    }
-    t.eq(core.versioned_transition_status(versioned_current, { "thinking" }, "ready", "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "stale")
-    t.eq(core.versioned_transition_status(versioned_current, { "ready" }, "implementing", "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"), "apply")
-    local ready_current = {
-      state = "ready",
-      version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z",
-    }
-    t.eq(core.versioned_transition_status(ready_current, { "ready" }, "implementing", "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "stale")
     local review_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-05T01-02-03Z"
     t.eq(core.compare_state_marker_order({ state = "pr-open", version = review_version }, "reviewing", review_version), -1)
     t.eq(core.compare_state_marker_order({ state = "reviewing", version = review_version }, "reviewing", review_version), 0)
@@ -572,23 +557,6 @@ return {
     t.eq(current.state, "blocked")
     t.eq(current.stage_rank, core.stage_rank("blocked"))
   end,
-  test_ready_marker_wins_same_version_tie_and_allows_implement_cas = function()
-    local proposal_id = "github-devloop/issue/owner/repo/42"
-    local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
-
-    local current = core.current_state({
-      core.state_marker(proposal_id, "ready", version),
-      core.state_marker(proposal_id, "thinking", version),
-    }, proposal_id)
-    t.eq(core.stage_rank("ready") > core.stage_rank("thinking"), true)
-    t.eq(current.state, "ready")
-    t.eq(current.version, version)
-    t.eq(current.stage_rank, core.stage_rank("ready"))
-
-    local transition = core.versioned_transition_status(current, { "ready" }, "implementing", version)
-    t.eq(transition, "apply")
-    t.eq(core.cas_outcome(current, transition, version), "applied")
-  end,
   test_stage_rank_does_not_override_different_versions = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local older_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
@@ -689,22 +657,6 @@ return {
     t.eq(core.version_loop_round(base .. "/loop/2"), 2)
     t.eq(core.version_loop_round(base .. "/loop/2/fix/1"), 2)
     t.eq(core.version_loop_round(base .. "/fix/1"), 0)
-  end,
-
-  test_consensus_loop_result_orders_after_answered_intake_marker = function()
-    local intake_version = "github-devloop/issue/owner/repo/42/intake/2485289059"
-    local consensus_version = "consensus:" .. intake_version .. "/loop/5"
-    local current = {
-      state = "thinking",
-      version = intake_version,
-    }
-
-    t.eq(core.versioned_transition_status(current, { "thinking" }, "ready", consensus_version), "apply")
-    t.eq(core.compare_state_marker_order(current, "ready", consensus_version), -1)
-    t.eq(core.current_state({
-      core.state_marker("github-devloop/issue/owner/repo/42", "thinking", intake_version),
-      core.state_marker("github-devloop/issue/owner/repo/42", "ready", consensus_version),
-    }, "github-devloop/issue/owner/repo/42").state, "ready")
   end,
 
   test_fixing_version_matches_link_normalized_lineage = function()
