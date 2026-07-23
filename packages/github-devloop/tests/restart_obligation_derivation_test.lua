@@ -29,6 +29,14 @@ local function witness_index_without(excluded_edge_id)
   return result
 end
 
+local function edge_witness_index_without(edges, excluded_edge_id)
+  local result = owner_projection.frozen_edge_witness_index(OWNER, edges)
+  if excluded_edge_id ~= nil then
+    result[excluded_edge_id] = nil
+  end
+  return result
+end
+
 local function pending_witness_index_without(edges, excluded_edge_id)
   local result = owner_projection.frozen_pending_witness_index(OWNER, edges)
   if excluded_edge_id ~= nil then
@@ -83,6 +91,54 @@ local function index_by_edge(entries)
 end
 
 return {
+  test_issue_owner_derives_one_edge_obligation_per_canonical_edge = function()
+    local edges = canonical_edges()
+    local witnesses = edge_witness_index_without(edges, nil)
+    local result = restart_obligations.derive_edge(edges, witnesses)
+    local derived = index_by_edge(result.obligations)
+    local unmapped = index_by_edge(result.unmapped)
+
+    for _, edge in ipairs(edges) do
+      local witness = witnesses[edge.id]
+      local obligation = derived[edge.id]
+      t.is_true(witness ~= nil)
+      t.is_true(obligation ~= nil)
+      t.eq(witness.edge_id, edge.id)
+      t.eq(witness.predecessor_state, edge.pending_order.predecessor_state)
+      t.eq(witness.target, edge.target)
+      t.eq(witness.kind, edge.kind)
+      t.eq(obligation.obligation_id, edge.id .. "/edge")
+      t.eq(obligation.owner, edge.owner)
+      t.eq(obligation.edge_id, edge.id)
+      t.eq(obligation.case_kind, "edge")
+      t.eq(obligation.input_fixture_id, witness.input_fixture_id)
+      t.eq(obligation.witness_id, witness.witness_id)
+      t.eq(obligation.expected_decision.predecessor_state, edge.pending_order.predecessor_state)
+      t.eq(obligation.expected_decision.target, edge.target)
+      t.eq(obligation.expected_decision.kind, edge.kind)
+      t.eq(obligation.expected_effect_ids, witness.expected_effect_ids)
+      t.eq(obligation.expected_payload_obligations, witness.expected_payload_obligations)
+      t.eq(unmapped[edge.id], nil)
+    end
+
+    t.eq(#result.obligations, #edges)
+    t.eq(#result.unmapped, 0)
+  end,
+
+  test_issue_owner_reports_removed_frozen_edge_witness_as_unmapped = function()
+    local edges = canonical_edges()
+    local removed_edge_id = edges[1].id
+    local result = restart_obligations.derive_edge(
+      edges,
+      edge_witness_index_without(edges, removed_edge_id)
+    )
+    local derived = index_by_edge(result.obligations)
+    local unmapped = index_by_edge(result.unmapped)
+    t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
+    t.eq(derived[removed_edge_id], nil)
+    t.eq(#result.obligations + #result.unmapped, #edges)
+  end,
+
   test_issue_owner_derives_cas_admission_obligations_from_canonical_edges = function()
     local edges = canonical_edges()
     local witnesses = witness_index_without(nil)

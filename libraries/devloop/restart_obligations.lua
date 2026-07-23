@@ -74,6 +74,99 @@ function M.define(entries)
   return entries
 end
 
+function M.derive_edge(owner_edges, witness_index)
+  if type(owner_edges) ~= "table" then
+    error("devloop.restart_obligations: owner_edges must be an array")
+  end
+  if type(witness_index) ~= "table" then
+    error("devloop.restart_obligations: witness_index must be a table")
+  end
+
+  local obligations = {}
+  local unmapped = {}
+  local seen_edge_ids = {}
+  local edge_count = 0
+  for key, edge in pairs(owner_edges) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
+      error("devloop.restart_obligations: owner_edges must be an array of tables")
+    end
+    edge_count = edge_count + 1
+  end
+  if edge_count ~= #owner_edges then
+    error("devloop.restart_obligations: owner_edges must be a dense array")
+  end
+
+  for _, edge in ipairs(owner_edges) do
+    require_nonempty_string(edge.id, "owner_edges edge.id")
+    require_nonempty_string(edge.owner, "owner_edges edge.owner")
+    local pending_order = edge.pending_order
+    if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
+      error("devloop.restart_obligations: edge.pending_order.participates must be a boolean")
+    end
+    if pending_order.predecessor_state ~= nil then
+      require_nonempty_string(
+        pending_order.predecessor_state,
+        "owner_edges edge.pending_order.predecessor_state"
+      )
+    elseif pending_order.participates then
+      error("devloop.restart_obligations: participating edge must have a predecessor_state")
+    end
+    require_nonempty_string(edge.target, "owner_edges edge.target")
+    require_nonempty_string(edge.kind, "owner_edges edge.kind")
+    if seen_edge_ids[edge.id] then
+      error("devloop.restart_obligations: duplicate edge id " .. edge.id)
+    end
+    seen_edge_ids[edge.id] = true
+
+    local predecessor_state = pending_order.predecessor_state
+    local witness = witness_index[edge.id]
+    local unmapped_reason = nil
+    if witness == nil then
+      unmapped_reason = "missing-frozen-witness"
+    elseif type(witness) ~= "table"
+        or witness.owner ~= edge.owner
+        or witness.edge_id ~= edge.id
+        or witness.predecessor_state ~= predecessor_state
+        or witness.target ~= edge.target
+        or witness.kind ~= edge.kind
+        or type(witness.expected_decision) ~= "table"
+        or witness.expected_decision.predecessor_state ~= predecessor_state
+        or witness.expected_decision.target ~= edge.target
+        or witness.expected_decision.kind ~= edge.kind then
+      unmapped_reason = "frozen-witness-edge-identity-mismatch"
+    end
+
+    if unmapped_reason ~= nil then
+      table.insert(unmapped, {
+        owner = edge.owner,
+        edge_id = edge.id,
+        predecessor_state = predecessor_state,
+        target = edge.target,
+        kind = edge.kind,
+        reason = unmapped_reason,
+      })
+    else
+      table.insert(obligations, {
+        obligation_id = edge.id .. "/edge",
+        owner = edge.owner,
+        edge_id = edge.id,
+        case_kind = "edge",
+        input_fixture_id = witness.input_fixture_id,
+        expected_decision = witness.expected_decision,
+        expected_effect_ids = witness.expected_effect_ids,
+        expected_payload_obligations = witness.expected_payload_obligations,
+        witness_id = witness.witness_id,
+      })
+    end
+  end
+
+  M.define(obligations)
+  return {
+    obligations = obligations,
+    unmapped = unmapped,
+  }
+end
+
 function M.derive(owner_edges, witness_index)
   if type(owner_edges) ~= "table" then
     error("devloop.restart_obligations: owner_edges must be an array")

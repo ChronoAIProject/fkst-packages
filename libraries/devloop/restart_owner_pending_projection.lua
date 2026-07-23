@@ -71,6 +71,11 @@ local owner_sources = {
   },
 }
 
+local edge_witness_sources = {
+  ["github-devloop"] = "packages/github-devloop/tests/restart_edges_conformance_test.lua",
+  ["github-devloop-pr"] = "packages/github-devloop-pr/tests/restart_edges_conformance_test.lua",
+}
+
 local entitlement_witness_sources = {
   ["github-devloop"] = {
     extraction = "packages/github-devloop/tests/restart_edges_conformance_test.lua",
@@ -122,6 +127,55 @@ local function expected_owner_projection(owner)
     end
   end
   return projection
+end
+
+function M.frozen_edge_witness_index(owner, edges)
+  local source_path = edge_witness_sources[owner]
+  if source_path == nil then
+    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+  end
+  if type(edges) ~= "table" then
+    error("devloop.restart_owner_pending_projection: edges must be an array")
+  end
+
+  local witnesses = {}
+  for _, edge in ipairs(edges) do
+    local pending_order = type(edge) == "table" and edge.pending_order or nil
+    local predecessor_state = type(pending_order) == "table"
+      and pending_order.predecessor_state or nil
+    if type(edge) ~= "table"
+        or edge.owner ~= owner
+        or type(edge.id) ~= "string" or edge.id == ""
+        or type(pending_order) ~= "table"
+        or type(pending_order.participates) ~= "boolean"
+        or (predecessor_state ~= nil
+          and (type(predecessor_state) ~= "string" or predecessor_state == ""))
+        or (pending_order.participates and predecessor_state == nil)
+        or type(edge.target) ~= "string" or edge.target == ""
+        or type(edge.kind) ~= "string" or edge.kind == "" then
+      error("devloop.restart_owner_pending_projection: edge witness identity is invalid")
+    end
+    if witnesses[edge.id] ~= nil then
+      error("devloop.restart_owner_pending_projection: duplicate edge witness id " .. edge.id)
+    end
+    witnesses[edge.id] = {
+      owner = owner,
+      edge_id = edge.id,
+      predecessor_state = predecessor_state,
+      target = edge.target,
+      kind = edge.kind,
+      input_fixture_id = edge.id,
+      expected_decision = {
+        predecessor_state = predecessor_state,
+        target = edge.target,
+        kind = edge.kind,
+      },
+      expected_effect_ids = {},
+      expected_payload_obligations = {},
+      witness_id = source_path .. "#edge:" .. edge.id,
+    }
+  end
+  return witnesses
 end
 
 function M.frozen_pending_witness_index(owner, edges)
