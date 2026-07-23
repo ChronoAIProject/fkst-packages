@@ -19,9 +19,11 @@ return {
     t.eq(payload_registry.validate("literal:github-devloop.review-meta.v1"), true)
     t.eq(payload_registry.validate("literal:github-devloop.merge-ready.v1"), true)
     t.eq(payload_registry.validate("literal:consensus.proposal.v1"), true)
+    t.eq(payload_registry.validate("source_ref:normalized"), true)
     assert_rejected("unknown:ready", "unknown prefix unknown")
     assert_rejected("dedup:unregistered", "unknown dedup strategy unregistered")
     assert_rejected("literal:github-devloop.unregistered.v1", "unknown literal value github-devloop.unregistered.v1")
+    assert_rejected("source_ref:unregistered", "unknown source_ref derivation unregistered")
     assert_rejected("marker:unregistered.value", "unknown marker family unregistered")
   end,
 
@@ -34,6 +36,10 @@ return {
       proposal_id = "github-devloop/issue/owner/repo/42",
       version = "ready/version",
     })
+    t.eq(value, nil)
+    t.eq(failure, "missing-evidence")
+
+    value, failure = payload_registry.resolve("source_ref:normalized", {})
     t.eq(value, nil)
     t.eq(failure, "missing-evidence")
   end,
@@ -126,6 +132,98 @@ return {
       t.eq(failure, nil)
       t.eq(resolved, fixture.previous)
       t.eq(fixture.build().schema, fixture.previous)
+    end
+  end,
+
+  test_normalized_source_ref_builders_are_byte_exact_with_previous_expression = function()
+    local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
+    local previous = base_ids.normalize_source_ref(source_ref)
+    local fixtures = {
+      function()
+        return payloads_builders.build_devloop_ready_payload({
+          _max_impl_retry_attempts = 3,
+        }, {
+          proposal_id = "github-devloop/issue/owner/repo/42",
+          dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-07-23T01-02-03Z",
+          source_ref = source_ref,
+        })
+      end,
+      function()
+        return payloads_builders.build_devloop_reviewing_payload({
+          proposal_id = "github-devloop/issue/owner/repo/42",
+          impl_version = "ready/version",
+        }, 17, source_ref)
+      end,
+      function()
+        return payloads_builders.build_devloop_fixing_payload({
+          proposal_id = "github-devloop/issue/owner/repo/42",
+          impl_version = "ready/version",
+        }, 17, {
+          review_proposal_id = "review/proposal/17",
+          review_dedup_key = "review/dedup/17",
+          reviewed_head_sha = "abcdef1",
+        }, source_ref)
+      end,
+      function()
+        return payloads_builders.build_devloop_review_meta_payload({
+          proposal_id = "review/proposal/17",
+          dedup_key = "review/dedup/17",
+        }, "github-devloop/issue/owner/repo/42", "ready/version", 17, 2, source_ref)
+      end,
+      function()
+        return payloads_builders.build_devloop_merge_ready_payload(
+          "github-devloop/issue/owner/repo/42",
+          17,
+          "ready/version",
+          { review_dedup_key = "review/dedup/17" },
+          source_ref
+        )
+      end,
+      function()
+        return payloads_builders.build_devloop_decompose_payload({
+          proposal_id = "github-devloop/issue/owner/repo/42",
+          pr_number = 17,
+          issue_version = "ready/version",
+          review_proposal_id = "review/proposal/17",
+          review_dedup_key = "review/dedup/17",
+          head_sha = "abcdef1",
+          round = 2,
+          source_ref = source_ref,
+        })
+      end,
+      function()
+        return payloads_builders.build_proposal({
+          repo = "owner/repo",
+          number = 42,
+          title = "Source ref parity",
+          updated_at = "2026-07-23T01:02:03Z",
+          source_ref = source_ref,
+        })
+      end,
+      function()
+        return payloads_builders.build_pr_review_proposal({
+          _max_title_len = 200,
+          _max_body_len = 2000,
+          short_review_observation_boundary_clause = function()
+            return "Review only the named issue requirements."
+          end,
+        }, "owner/repo", 42, 17, "ready/version", "abcdef1", {
+          title = "Source ref parity",
+        }, source_ref, {})
+      end,
+    }
+
+    local resolved, failure = payload_registry.resolve("source_ref:normalized", {
+      source_ref = source_ref,
+    })
+    t.eq(failure, nil)
+    t.eq(resolved.kind, previous.kind)
+    t.eq(resolved.ref, previous.ref)
+
+    for _, build in ipairs(fixtures) do
+      local actual = build().source_ref
+      t.eq(actual.kind, previous.kind)
+      t.eq(actual.ref, previous.ref)
     end
   end,
 

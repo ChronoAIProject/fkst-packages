@@ -94,7 +94,9 @@ function C.build_devloop_ready_payload(M, source)
     schema = resolve_payload_token("literal:github-devloop.ready.v1"),
     proposal_id = source.proposal_id,
     dedup_key = ready_version,
-    source_ref = base_ids.normalize_source_ref(source.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source.source_ref,
+    }),
   }
   if source.redrive_delivery ~= nil then
     payload.implementation_version = ready_version
@@ -149,7 +151,9 @@ function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
       version = review_version,
       pr_number = pr_number,
     }),
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }
   if origin.reviewing_comment_id ~= nil then
     payload.reviewing_hand_off = {
@@ -192,7 +196,9 @@ function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
     reviewed_head_sha = review_fact.reviewed_head_sha,
     repair_input = repair_input,
     ci_failure_key = review_fact.ci_failure_key,
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }
   if repair_input == "ci-failure" then
     payload.dedup_key = base_ids.dedup_key({
@@ -298,7 +304,9 @@ function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issu
       tostring(n),
       tostring(unresolved.dedup_key),
     }),
-    source_ref = base_ids.normalize_source_ref(source_ref or unresolved.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref or unresolved.source_ref,
+    }),
   }
 end
 
@@ -347,7 +355,9 @@ function C.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, versi
       tostring(review_fact and review_fact.review_dedup_key or "review"),
       tostring(current_head_sha or "nohead"),
     }),
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }
 end
 
@@ -366,7 +376,9 @@ function C.build_devloop_decompose_payload(fix_reconcile)
       tostring(fix_reconcile.proposal_id),
       tostring(fix_reconcile.issue_version),
     }),
-    source_ref = base_ids.normalize_source_ref(fix_reconcile.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = fix_reconcile.source_ref,
+    }),
   }
 end
 
@@ -413,7 +425,9 @@ function C.build_proposal(issue)
     content_fetch = issue.content_fetch,
     worktree = ".",
     dedup_key = devloop_base.proposal_dedup_key(proposal_id, issue.updated_at),
-    source_ref = base_ids.normalize_source_ref(issue.source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = issue.source_ref,
+    }),
   }
 end
 
@@ -509,7 +523,9 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
     body = body,
     content_fetch = content_fetch,
     dedup_key = devloop_base.pr_review_proposal_dedup_key(review_id),
-    source_ref = base_ids.normalize_source_ref(source_ref),
+    source_ref = resolve_payload_token("source_ref:normalized", {
+      source_ref = source_ref,
+    }),
   }, high_risk)
 end
 

@@ -56,6 +56,16 @@ local dedup_resolvers = {
   end,
 }
 
+local source_ref_resolvers = {
+  normalized = function(context)
+    local source_ref, failure = required(context, "source_ref")
+    if failure ~= nil then
+      return nil, failure
+    end
+    return base_ids.normalize_source_ref(source_ref)
+  end,
+}
+
 local function literal(value)
   return function()
     return value
@@ -71,6 +81,7 @@ local literal_resolvers = {
 }
 
 local registries = {
+  source_ref = source_ref_resolvers,
   literal = literal_resolvers,
   dedup = dedup_resolvers,
 }
