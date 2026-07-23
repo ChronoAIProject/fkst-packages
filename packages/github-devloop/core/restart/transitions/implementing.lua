@@ -33,6 +33,17 @@ return function(M, h)
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 awaiting-pr", "state:v1 impl-failed" }, { "awaiting-pr", "impl-failed" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/implementing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 120,
+        },
+      },
+    },
     budget = budget(120, "A live implementation codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
     liveness_contract = liveness({
       mode = "live-defer",

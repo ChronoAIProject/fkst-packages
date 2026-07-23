@@ -34,6 +34,17 @@ return function(M, h)
     observe_surfaces = { issue = true, liveness_scan = true },
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
     output_obligation = obligation({ "consensus.consensus_reached", "consensus.consensus_converge" }, { "ready", "dependency_wait", "declined", "blocked", "thinking" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/thinking/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "codex_run:v1",
+          resolver = "fkst.codex_runs",
+          budget_minutes = 150,
+        },
+      },
+    },
     budget = budget(150, "A live consensus receiver defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
     liveness_contract = liveness({
       mode = "live-defer",

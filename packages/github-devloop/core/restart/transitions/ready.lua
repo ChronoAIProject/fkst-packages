@@ -21,6 +21,17 @@ return function(M, h)
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 implementing" }, { "implementing", "dependency_wait", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/ready/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 120,
+        },
+      },
+    },
     budget = budget(120, "Actionable ready governs the implement codex run until the implementing marker is written at completion; 120 bounds a 60-minute codex attempt plus margin (matching fixing)."),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",

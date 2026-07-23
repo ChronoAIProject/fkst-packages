@@ -32,6 +32,17 @@ return function(M, h)
     observe_surfaces = { issue = true, liveness_scan = true },
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
     output_obligation = obligation({ "dependency-wait:v1", "dependency-release:v1", "state:v1 ready" }, { "dependency_wait", "ready", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/dependency_wait/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "live_defer_epoch:v1",
+          resolver = "dependency-hold",
+          budget_minutes = 525600,
+        },
+      },
+    },
     budget = budget(525600, "Dependency wait is blocker-bound; long-lived open blockers are refreshed, release creates a fresh ready entry, and stale resolver facts fail closed."),
     liveness_contract = liveness({
       mode = "live-defer",

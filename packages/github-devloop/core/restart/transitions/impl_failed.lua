@@ -21,6 +21,17 @@ return function(M, h)
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
     output_obligation = obligation({ "impl-failure:v1 retryable fact", "operator reready/reimplement command", "state:v1 implementing" }, { "implementing", "impl-failed" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/impl-failed/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 1440,
+        },
+      },
+    },
     reentry_commands = { "reready", "reimplement" },
     budget = budget(1440, "No receiver work is expected; the row waits up to 1410 minutes for operator reentry before the 30 minute watchdog margin."),
     liveness_contract = liveness({

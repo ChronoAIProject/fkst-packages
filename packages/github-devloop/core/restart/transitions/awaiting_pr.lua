@@ -60,6 +60,17 @@ return function(M, h)
     observe_surfaces = { issue = true, liveness_scan = true },
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
     output_obligation = obligation({ "state:v1 merged", "state:v1 ready", "state:v1 blocked" }, { "merged", "ready", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop/issue/awaiting-pr/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "child_workflow_wait:v1",
+          resolver = "child-state",
+          budget_minutes = 180 * 24 * 60,
+        },
+      },
+    },
     budget = budget(180 * 24 * 60, "The parent issue delegates PR work to a child workflow and waits on the PR child's state:v1 marker; PR review and merge time is deferred by child_workflow_wait rather than charged to the parent."),
     liveness_contract = liveness({
       mode = "live-defer",
