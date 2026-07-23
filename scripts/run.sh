@@ -251,6 +251,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/check_repo_intent_bounded_replay_checker_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_intent_bounded_replay_semantic_tree_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_content_truncation_test.py"'
+    'python3 -B "$ROOT/scripts/check_repo_fanout_only_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_coverage_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_devloop_godlib_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_devloop_installer_test.py"'

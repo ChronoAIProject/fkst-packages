@@ -12,6 +12,7 @@ import check_repo_dead_letter
 import check_repo_devloop_godlib
 import check_repo_devloop_decouple
 import check_repo_devloop_installer
+import check_repo_fanout_only
 import check_repo_service_locator
 import check_repo_ambient_surface
 import check_repo_core_param
@@ -165,6 +166,8 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
 
 def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violations: list[str], warnings: list[str]) -> None:
     root = config.project_root
+    for message in check_repo_fanout_only.repository_messages(root, enforce_base=True):
+        c.add(violations, "G-FANOUT-ONLY", message)
     for message in check_repo_restart_preflight.repository_messages(root):
         c.add(violations, "G-RESTART-PREFLIGHT", message)
     for message in check_repo_intent_bounded_replay.repository_messages(root, enforce_base=True):
