@@ -22,6 +22,17 @@ return function(M, h)
     driving_queue = decompose_queue,
     observe_surfaces = { pr = true, liveness_scan = true },
     output_obligation = obligation({ "decomposed:v1", "github-proxy.github_issue_create_request[*]", "operator rereview command" }, { "blocked", "reviewing" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/blocked/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 1440,
+        },
+      },
+    },
     reentry_commands = { "rereview" },
     operator_reentry = {
       kind = "external_command",

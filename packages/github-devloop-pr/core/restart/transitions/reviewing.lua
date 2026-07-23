@@ -66,6 +66,17 @@ return function(M, h)
       },
     },
     output_obligation = obligation({ "review-result:v1", "review-converge-round:v1", "state:v1 blocked" }, { "merge-ready", "fixing", "review-meta", "blocked", "reviewing" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/reviewing/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "live_defer_heartbeat:v1",
+          resolver = "live-defer",
+          budget_minutes = 150,
+        },
+      },
+    },
     budget = budget(150, "The long review receiver is supervised by review-converge-round heartbeats; this budget only bounds stale heartbeat redrive."),
     liveness_contract = liveness({
       mode = "live-defer",

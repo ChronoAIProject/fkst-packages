@@ -21,6 +21,17 @@ return function(M, h)
     driving_queue = "devloop_merge_ready",
     observe_surfaces = { issue = true, pr = true, liveness_scan = true },
     output_obligation = obligation({ "merged:v1", "state:v1 reviewing", "state:v1 fixing", "state:v1 blocked" }, { "merged", "reviewing", "fixing", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/merging/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 390,
+        },
+      },
+    },
     budget = budget(390, "The merging receiver is bounded by 30 minutes of merge work plus a 360 minute external CI wait window."),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",

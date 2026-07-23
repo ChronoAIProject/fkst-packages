@@ -2,6 +2,8 @@ local S = {}
 local hidden_state_conformance = require("devloop.hidden_state_conformance")
 local m_rrc = require("devloop.restart_responsibility_contract")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local temporal = require("devloop.restart_temporal_obligations")
+local owner_temporal_index = require("core.restart.temporal_obligations.index")
 
 local function record(id, message)
   return { id = id, message = message }
@@ -19,6 +21,19 @@ function S.errors(core)
   end
   local owner = core.restart_package_name
   local rows = core.restart_transition_table()
+  local temporal_ok, temporal_index = pcall(owner_temporal_index.derive, rows)
+  if not temporal_ok then
+    table.insert(out, record("gspan.temporal-obligations", tostring(temporal_index)))
+  else
+    for _, message in ipairs(temporal.index_errors(
+      owner,
+      rows,
+      temporal_index,
+      temporal.provider_capability_matrix()
+    )) do
+      table.insert(out, record("gspan.temporal-obligations", tostring(message)))
+    end
+  end
   local projection = owner_pending_projection.derive(owner, rows, {
     canonicalization = require("core.restart.canonicalization_inventory"),
     entry = require("core.restart.entry_inventory"),

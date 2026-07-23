@@ -28,6 +28,17 @@ return function(M, h)
       },
     },
     output_obligation = obligation({ "state:v1 reviewing", "devloop_reviewing", "state:v1 fixing", "devloop_fixing", "state:v1 blocked" }, { "reviewing", "fixing", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/pr-open/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 30,
+        },
+      },
+    },
     budget = budget(30, "No long receiver work is expected; the row uses the standard 30 minute watchdog margin after PR creation."),
     liveness_contract = liveness({
       mode = "row-budget-bounds-receiver",

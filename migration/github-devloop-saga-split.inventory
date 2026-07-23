@@ -154,6 +154,7 @@
 {"path":"packages/github-devloop-pr/core/restart/review_reconcile_traces.lua","owner":"pr","reason":"R6 expected review-reconcile traces belong to the PR saga conformance and project the R5 frozen OLD parity witnesses."}
 {"path":"packages/github-devloop-pr/core/restart/required_replay_payload_fields/fixing.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/required_replay_payload_fields/index.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
+{"path":"packages/github-devloop-pr/core/restart/temporal_obligations/index.lua","owner":"pr","reason":"PR-owner R10 temporal index derives only from canonical PR rows and the closed shared provider capability matrix."}
 {"path":"packages/github-devloop-pr/core/restart/transitions/blocked.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/transitions/closed_unmerged.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/transitions/fixing.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
