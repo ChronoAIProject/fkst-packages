@@ -611,7 +611,10 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       else
         log_gate(merge_ready, "dry-run", rollup_reason)
       end
-      error("github-devloop: merge-ci-wait: merge wait on " .. tostring(rollup_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, current_pr, {
+        kind = "CI_WAIT",
+        reason = rollup_reason,
+      })
     end
     log_gate(merge_ready, "fixing", rollup_reason)
     raise_fixing(repo, issue_number, merge_ready, state, current_pr, rollup_reason, queue_position)

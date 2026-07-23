@@ -43,7 +43,7 @@ function M.hold(core, merge_ready, repo, current_pr, classification)
     "ci_class=" .. tostring(classification and classification.kind or ""),
     "head_sha=" .. tostring(current_pr and current_pr.head_sha or ""),
   })
-  error("github-devloop: merge-ci-wait: merge wait on " .. reason .. "; retrying")
+  return nil
 end
 
 return M
