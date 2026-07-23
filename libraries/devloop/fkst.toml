@@ -86,6 +86,7 @@ public = [
   "devloop.payloads.builders",
   "devloop.payloads.predicates",
   "devloop.payloads.shared",
+  "devloop.payload_registry",
   "devloop.pr_safety",
   "devloop.prompts",
   "devloop.queue",

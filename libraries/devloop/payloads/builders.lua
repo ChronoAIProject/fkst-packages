@@ -12,6 +12,15 @@ local shared = require("devloop.payloads.shared")
 local board = require("devloop.payloads.board")
 local transition_version = require("contract.transition_version")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local payload_registry = require("devloop.payload_registry")
+
+local function resolve_payload_token(token, context)
+  local value, failure = payload_registry.resolve(token, context)
+  if failure ~= nil then
+    error("github-devloop: payload token resolution failed: " .. tostring(failure), 0)
+  end
+  return value
+end
 
 local function commit_subject_title(current)
   if type(current) ~= "table" then
@@ -77,9 +86,8 @@ function C.fixing_work_unit_key(fix)
 end
 
 function C.build_devloop_ready_payload(M, source)
-  local ready_version = base_ids.dedup_key({
-    "ready",
-    tostring(source.dedup_key),
+  local ready_version = resolve_payload_token("dedup:ready", {
+    dedup_key = source.dedup_key,
   })
   local marker_version = tostring(source.effect_version or source.dedup_key)
   local payload = {
@@ -136,11 +144,10 @@ function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
     proposal_id = origin.proposal_id,
     pr_number = pr_number,
     version = review_version,
-    dedup_key = base_ids.dedup_key({
-      "reviewing",
-      tostring(origin.proposal_id),
-      tostring(review_version),
-      tostring(pr_number),
+    dedup_key = resolve_payload_token("dedup:reviewing", {
+      proposal_id = origin.proposal_id,
+      version = review_version,
+      pr_number = pr_number,
     }),
     source_ref = base_ids.normalize_source_ref(source_ref),
   }

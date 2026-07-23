@@ -33,6 +33,7 @@
 {"path":"libraries/devloop/operator_commands.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/parsers.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/payloads.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
+{"path":"libraries/devloop/payload_registry.lua","owner":"shared","reason":"payload token validation and resolution are shared by issue ready and PR reviewing builders."}
 {"path":"libraries/devloop/pr_safety.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/prompts.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/queue.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
