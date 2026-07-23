@@ -31,13 +31,16 @@
 
 **为什么专门为「受骗」建账(而非泛泛「小心点」)**:本仓/本会话反复栽的形态,几乎都是「当场没识别出自己正被一个可信的东西骗」——不是缺原则,是骗术在**行动的那一刻**没被认出。而骗术**会重复**:stale marker 当 fresh、`MM:SS` 当 `HH:MM`、`elapsed_ms=429` 当 HTTP 429、别人的归因当根因、plausible 补丁的前提没核实——一次次以新面孔出现。「下次我记得小心」靠记忆,记忆会漂移、会在冲动下选择性遗忘;唯有**入账 + 导出机械动作**,才让下一次同类骗术在机制上难以再骗到我。
 
+**根子多在原材料,不在读者(核心)**:大多数误解/受骗的真根是**「原材料不好」**——我消费的输入(`board`/`doctor` 渲染、marker、日志行、CI/`git`/`ps` 的 stdout、issue body)本身模糊 / 有损 / 会误导,把该区分的信号**吞掉**了:stale 却看着 fresh、单位不自明、字段可 grep 碰撞、`git pull` 打印 `Updating…` 却被 lock 挡下**没真 ff**。**原材料不好 = 产出这份原材料那一层(producer)的 harness 不好**——没把它做成「自明、不可误读」。所以每次受骗,先问的**不是**「我(读者)该加什么检查」,**而是**「什么原材料骗了我?能不能在它的**产出方**把它修成不可误读」。修产出方一次,保护**所有**下游读者、且让该骗术**构造上不可能**;读者侧的自我检查只护「这一个读者这一次」,是 band-aid。这正是 natural-ownership(locus dyad·把不变式放到有因果控制的那层)/ make-illegal-states-unrepresentable / 美(删掉读者侧检查、直接让源不骗人)/「工欲善其事,必先利其器」(钝的是观察器/渲染器,**磨器**不是**绕器**)的同一句话。
+
 **机械动作(每次发现自己误解/受骗——无论当场自查抓到、还是事后才知——按此入账)**:
 1. **入账**(一条 memory·账本一行):`我当时相信什么 · 真值是什么(指到源头) · 什么骗了我(骗术的形状) · 我最终怎么识破的`。指不到「真值源头」就先别宣称已识破。
-2. **导出机制避免**:问「什么**可机械执行的检查/习惯/不变式**能让这一类骗术**在行动那一刻当场露馅**?」——**不是**「下次小心」(靠记忆,必漂移),**而是**一个具体动作(如「判同态跨轮项前,显式算 `marker-age = now − last-marker-ts`;marker 存在 ≠ 新鲜」)。
+2. **导出机制避免——首选修原材料的产出方(producer·natural owner),读者侧检查只是 fallback**:先问「什么原材料骗了我?能否在它的**产出方**把它做成**本身不可误读**?」——在产出方修:让 `dogfood.sh board` 把 `marker-age`/freshness 渲染进每行(stale 项就不可能看着 flowing)、让日志产出方发结构化字段(不可 grep 碰撞)、让时间戳带显式单位(`MM:SS` 不可当 `HH:MM`)、让工具在部分成功时 fail-loud 而非打印乐观的 `Updating…`。**修产出方一次 = 保护所有下游 + 该骗术构造上不可能**。**只有当产出方不归我 / 一时修不动时(`git`、GitHub API 的 stdout 等外部器),才退而在读者侧加一个可机械执行的检查**(如「判同态跨轮项前显式算 `marker-age`;存在 ≠ 新鲜」)——读者侧检查是 band-aid,能上提到产出方就上提(接 WORTH GATE「直接改根因 > band-aid」)。无论哪侧,都**不是**「下次小心」(靠记忆必漂移),**而是**一个落地的机械动作。
 3. **一次性 vs 一类**:一次性 → 入账 + 记住那个具体检查动作,修了走人;一类(三次法则 / 明显可泛化)→ 升成 conformance / review 透镜 / 引擎原语,让整类骗术**构造上不可再骗**(接「Harness 的本质:唯一写法 + 机械禁旁路」)。
 
 **账本(seed·本会话 + 历史;新受骗持续追加到 memory,复发成类的把 harness 蒸馏回此处)**:
-- **stale-marker 当 fresh**:把 #2687 冻结 5.5h 的 `08:59` markers 误读为「actively re-driven」——存在的 marker 被当成新鲜的。**harness**:判「同态跨轮」项前必显式算 `marker-age = now − last-marker-ts`;存在 ≠ 新鲜(接 detect-live-codex 的 freshness 教训)。
+- **stale-marker 当 fresh**:把 #2687 冻结 5.5h 的 `08:59` markers 误读为「actively re-driven」——存在的 marker 被当成新鲜的。**根**:原材料(`board` 渲染)只显示 state 不显示 marker-age,把 freshness 信号吞了。**harness 首选(修产出方)**:`dogfood.sh board` 渲染器把 `marker-age`/freshness 渲染进每行,stale 项**不可能**显示成 flowing(接 sharpen-the-tools:board 吞 `awaiting-pr` 行事故 = 同一形状——修 board 而非绕 board)。**fallback(读者侧,产出方一时没修时)**:判「同态跨轮」项前显式算 `marker-age = now − last-marker-ts`;存在 ≠ 新鲜(接 detect-live-codex 的 freshness 教训)。
+- **假绿/部分信号臆断成功**(本会话新增):`git pull` 打印 `Updating dccecae5..267c2abf` 却被 stale `.git/index.lock` 挡下**没真 ff**,我差点信「已更新」——`grep` 实际文件才发现没生效。**根**:`git` 的 stdout 乐观(打印意图行后才失败),原材料误导。**harness**:产出方(`git`)不归我修 → 读者侧 fallback:改文件类动作后**核实末态**(`grep`/`rev-parse HEAD`)而非信中间「意图」输出;`EXIT`/末态 > stdout 叙事(接实事求是门③「反证优先」)。
 - **plausible 前提当已核实**:先信「intake 误判 sound issue」→再信「decline 丢了 framing」,两次被合理叙事骗到差点 file/实现,均由源头核实推翻。**harness**:任何**驱动动作**(file / 实现 / 归因 / 喂下游)的前提,行动前必指到源头(fidelity/competence 门);越是推动我行动的前提,越要先核实。
 - **单位/字段误读**(历史):`MM:SS` 当 `HH:MM`、`elapsed_ms=429` 当 HTTP 429、`delivery_id` 段当 dedup。**harness**:一个值用前先验单位与含义;一个值出现 ≠ 它是我以为的那个含义。
 - **别人的归因当根因**(#1195 类):把别人/上游/oracle/sshx panel 的**未核实推断**当已核实事实用。**harness**:别人(含用户、含 oracle、含 sshx panel)给的未核实推断,对我仍是**假设**;喂下游 / 下结论前自己核实(接「给 oracle 喂未核实前提 = 制造 correlated 幻觉」)。
