@@ -121,6 +121,34 @@ local function index_by_edge(entries)
   return result
 end
 
+local function edge_pair_key(edge_a_id, edge_b_id)
+  return edge_a_id .. "\n" .. edge_b_id
+end
+
+local function compatible_edge_pairs(edges)
+  local result = {}
+  for _, edge_a in ipairs(edges) do
+    for _, edge_b in ipairs(edges) do
+      local pending_order = edge_b.pending_order
+      if edge_a.id ~= edge_b.id
+          and edge_a.owner == edge_b.owner
+          and type(pending_order) == "table"
+          and edge_a.target == pending_order.predecessor_state then
+        table.insert(result, { edge_a = edge_a, edge_b = edge_b })
+      end
+    end
+  end
+  return result
+end
+
+local function index_by_edge_pair(entries)
+  local result = {}
+  for _, entry in ipairs(entries) do
+    result[edge_pair_key(entry.edge_a_id, entry.edge_b_id)] = entry
+  end
+  return result
+end
+
 return {
   test_pr_owner_derives_one_edge_obligation_per_canonical_edge = function()
     local edges = canonical_edges()
@@ -168,6 +196,83 @@ return {
     t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
     t.eq(derived[removed_edge_id], nil)
     t.eq(#result.obligations + #result.unmapped, #edges)
+  end,
+
+  test_pr_owner_derives_compatible_ordered_typed_edge_pair_obligations = function()
+    local edges = canonical_edges()
+    local pairs = compatible_edge_pairs(edges)
+    local witnesses = edge_witness_index_without(edges, nil)
+    local result = restart_obligations.derive_edge_pair(edges, witnesses)
+    local derived = index_by_edge_pair(result.obligations)
+    local unmapped = index_by_edge_pair(result.unmapped)
+
+    t.is_true(#pairs > 0)
+    t.is_true(#pairs < (#edges * (#edges - 1)))
+    for _, pair in ipairs(pairs) do
+      local edge_a = pair.edge_a
+      local edge_b = pair.edge_b
+      local key = edge_pair_key(edge_a.id, edge_b.id)
+      local obligation = derived[key]
+      t.is_true(obligation ~= nil)
+      t.eq(obligation.obligation_id, edge_a.id .. "/then/" .. edge_b.id .. "/edge-pair")
+      t.eq(obligation.owner, OWNER)
+      t.eq(obligation.edge_id, edge_a.id .. "/then/" .. edge_b.id)
+      t.eq(obligation.edge_a_id, edge_a.id)
+      t.eq(obligation.edge_b_id, edge_b.id)
+      t.eq(obligation.edge_a_kind, edge_a.kind)
+      t.eq(obligation.edge_b_kind, edge_b.kind)
+      t.eq(obligation.case_kind, "edge-pair")
+      t.eq(obligation.expected_decision.edge_a.id, edge_a.id)
+      t.eq(obligation.expected_decision.edge_a.kind, edge_a.kind)
+      t.eq(obligation.expected_decision.edge_a.cas_policy_id, edge_a.cas_policy_id)
+      t.eq(obligation.expected_decision.edge_a.cas_variant, edge_a.cas_variant)
+      t.eq(obligation.expected_decision.edge_a.target, edge_a.target)
+      t.eq(obligation.expected_decision.edge_b.id, edge_b.id)
+      t.eq(obligation.expected_decision.edge_b.kind, edge_b.kind)
+      t.eq(obligation.expected_decision.edge_b.cas_policy_id, edge_b.cas_policy_id)
+      t.eq(obligation.expected_decision.edge_b.cas_variant, edge_b.cas_variant)
+      t.eq(obligation.expected_decision.edge_b.predecessor_state, edge_b.pending_order.predecessor_state)
+      t.eq(obligation.input_fixture_id,
+        witnesses[edge_a.id].input_fixture_id .. "/then/" .. witnesses[edge_b.id].input_fixture_id)
+      t.eq(obligation.member_witness_ids[1], witnesses[edge_a.id].witness_id)
+      t.eq(obligation.member_witness_ids[2], witnesses[edge_b.id].witness_id)
+      t.eq(obligation.witness_id,
+        witnesses[edge_a.id].witness_id .. "/then/" .. witnesses[edge_b.id].witness_id)
+      t.eq(obligation.expected_payload_obligations.edge_a,
+        witnesses[edge_a.id].expected_payload_obligations)
+      t.eq(obligation.expected_payload_obligations.edge_b,
+        witnesses[edge_b.id].expected_payload_obligations)
+      local expected_effect_index = 1
+      for _, member_witness in ipairs({ witnesses[edge_a.id], witnesses[edge_b.id] }) do
+        for _, effect_id in ipairs(member_witness.expected_effect_ids) do
+          t.eq(obligation.expected_effect_ids[expected_effect_index], effect_id)
+          expected_effect_index = expected_effect_index + 1
+        end
+      end
+      t.eq(#obligation.expected_effect_ids, expected_effect_index - 1)
+      t.eq(unmapped[key], nil)
+    end
+
+    t.eq(#result.obligations, #pairs)
+    t.eq(#result.unmapped, 0)
+  end,
+
+  test_pr_owner_reports_edge_pair_with_missing_member_witness_as_unmapped = function()
+    local edges = canonical_edges()
+    local pairs = compatible_edge_pairs(edges)
+    local removed_edge_id = pairs[1].edge_a.id
+    local result = restart_obligations.derive_edge_pair(
+      edges,
+      edge_witness_index_without(edges, removed_edge_id)
+    )
+    local derived = index_by_edge_pair(result.obligations)
+    local unmapped = index_by_edge_pair(result.unmapped)
+    local selected_key = edge_pair_key(pairs[1].edge_a.id, pairs[1].edge_b.id)
+
+    t.eq(unmapped[selected_key].reason, "missing-frozen-witness")
+    t.eq(unmapped[selected_key].missing_edge_ids[1], removed_edge_id)
+    t.eq(derived[selected_key], nil)
+    t.eq(#result.obligations + #result.unmapped, #pairs)
   end,
 
   test_pr_owner_derives_cas_admission_obligations_from_canonical_edges = function()

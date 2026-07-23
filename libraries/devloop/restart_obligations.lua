@@ -344,6 +344,182 @@ local function same_string_array(left, right)
   return true
 end
 
+local function is_dense_string_array(value)
+  if type(value) ~= "table" then
+    return false
+  end
+  local count = 0
+  for key, item in pairs(value) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(item) ~= "string" then
+      return false
+    end
+    count = count + 1
+  end
+  return count == #value
+end
+
+local function edge_pair_witness_matches(edge, witness)
+  local pending_order = edge.pending_order
+  local predecessor_state = pending_order.predecessor_state
+  return type(witness) == "table"
+    and witness.owner == edge.owner
+    and witness.edge_id == edge.id
+    and witness.predecessor_state == predecessor_state
+    and witness.target == edge.target
+    and witness.kind == edge.kind
+    and type(witness.input_fixture_id) == "string"
+    and witness.input_fixture_id ~= ""
+    and type(witness.witness_id) == "string"
+    and witness.witness_id ~= ""
+    and type(witness.expected_decision) == "table"
+    and witness.expected_decision.predecessor_state == predecessor_state
+    and witness.expected_decision.target == edge.target
+    and witness.expected_decision.kind == edge.kind
+    and is_dense_string_array(witness.expected_effect_ids)
+    and type(witness.expected_payload_obligations) == "table"
+end
+
+local function typed_edge_identity(edge, witness)
+  return {
+    id = witness.edge_id,
+    predecessor_state = witness.expected_decision.predecessor_state,
+    target = witness.expected_decision.target,
+    kind = witness.expected_decision.kind,
+    cas_policy_id = edge.cas_policy_id,
+    cas_variant = edge.cas_variant,
+  }
+end
+
+local function append_strings(target, values)
+  for _, value in ipairs(values) do
+    table.insert(target, value)
+  end
+end
+
+function M.derive_edge_pair(owner_edges, witness_index)
+  if type(owner_edges) ~= "table" then
+    error("devloop.restart_obligations: owner_edges must be an array")
+  end
+  if type(witness_index) ~= "table" then
+    error("devloop.restart_obligations: witness_index must be a table")
+  end
+
+  local edge_count = 0
+  local seen_edge_ids = {}
+  for key, edge in pairs(owner_edges) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(edge) ~= "table" then
+      error("devloop.restart_obligations: owner_edges must be an array of tables")
+    end
+    edge_count = edge_count + 1
+  end
+  if edge_count ~= #owner_edges then
+    error("devloop.restart_obligations: owner_edges must be a dense array")
+  end
+
+  for _, edge in ipairs(owner_edges) do
+    require_nonempty_string(edge.id, "owner_edges edge.id")
+    require_nonempty_string(edge.owner, "owner_edges edge.owner")
+    require_nonempty_string(edge.target, "owner_edges edge.target")
+    require_nonempty_string(edge.kind, "owner_edges edge.kind")
+    if edge.cas_policy_id ~= nil then
+      require_nonempty_string(edge.cas_policy_id, "owner_edges edge.cas_policy_id")
+    end
+    if edge.cas_variant ~= nil then
+      require_nonempty_string(edge.cas_variant, "owner_edges edge.cas_variant")
+    end
+    local pending_order = edge.pending_order
+    if type(pending_order) ~= "table" or type(pending_order.participates) ~= "boolean" then
+      error("devloop.restart_obligations: edge.pending_order.participates must be a boolean")
+    end
+    if pending_order.predecessor_state ~= nil then
+      require_nonempty_string(
+        pending_order.predecessor_state,
+        "owner_edges edge.pending_order.predecessor_state"
+      )
+    elseif pending_order.participates then
+      error("devloop.restart_obligations: participating edge must have a predecessor_state")
+    end
+    if seen_edge_ids[edge.id] then
+      error("devloop.restart_obligations: duplicate edge id " .. edge.id)
+    end
+    seen_edge_ids[edge.id] = true
+  end
+
+  local obligations = {}
+  local unmapped = {}
+  for _, edge_a in ipairs(owner_edges) do
+    for _, edge_b in ipairs(owner_edges) do
+      if edge_a.id ~= edge_b.id
+          and edge_a.owner == edge_b.owner
+          and edge_a.target == edge_b.pending_order.predecessor_state then
+        local witness_a = witness_index[edge_a.id]
+        local witness_b = witness_index[edge_b.id]
+        local missing_edge_ids = {}
+        if witness_a == nil then
+          table.insert(missing_edge_ids, edge_a.id)
+        end
+        if witness_b == nil then
+          table.insert(missing_edge_ids, edge_b.id)
+        end
+
+        local unmapped_reason = nil
+        if #missing_edge_ids > 0 then
+          unmapped_reason = "missing-frozen-witness"
+        elseif not edge_pair_witness_matches(edge_a, witness_a)
+            or not edge_pair_witness_matches(edge_b, witness_b) then
+          unmapped_reason = "frozen-witness-edge-identity-mismatch"
+        end
+
+        local pair_id = edge_a.id .. "/then/" .. edge_b.id
+        if unmapped_reason ~= nil then
+          table.insert(unmapped, {
+            owner = edge_a.owner,
+            edge_id = pair_id,
+            edge_a_id = edge_a.id,
+            edge_b_id = edge_b.id,
+            edge_a_kind = edge_a.kind,
+            edge_b_kind = edge_b.kind,
+            missing_edge_ids = missing_edge_ids,
+            reason = unmapped_reason,
+          })
+        else
+          local expected_effect_ids = {}
+          append_strings(expected_effect_ids, witness_a.expected_effect_ids)
+          append_strings(expected_effect_ids, witness_b.expected_effect_ids)
+          table.insert(obligations, {
+            obligation_id = pair_id .. "/edge-pair",
+            owner = edge_a.owner,
+            edge_id = pair_id,
+            edge_a_id = edge_a.id,
+            edge_b_id = edge_b.id,
+            edge_a_kind = edge_a.kind,
+            edge_b_kind = edge_b.kind,
+            case_kind = "edge-pair",
+            input_fixture_id = witness_a.input_fixture_id .. "/then/" .. witness_b.input_fixture_id,
+            expected_decision = {
+              edge_a = typed_edge_identity(edge_a, witness_a),
+              edge_b = typed_edge_identity(edge_b, witness_b),
+            },
+            expected_effect_ids = expected_effect_ids,
+            expected_payload_obligations = {
+              edge_a = witness_a.expected_payload_obligations,
+              edge_b = witness_b.expected_payload_obligations,
+            },
+            member_witness_ids = { witness_a.witness_id, witness_b.witness_id },
+            witness_id = witness_a.witness_id .. "/then/" .. witness_b.witness_id,
+          })
+        end
+      end
+    end
+  end
+
+  M.define(obligations)
+  return {
+    obligations = obligations,
+    unmapped = unmapped,
+  }
+end
+
 local function entitlement_expected_effect_ids(entitlements)
   local effect_ids = {}
   local seen = {}
