@@ -144,6 +144,8 @@
 {"path":"packages/github-devloop-pr/core/restart/marker_fields/state.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/operator_reentry_inventory.lua","owner":"pr","reason":"authored operator reentry edges belong to the PR saga authority."}
 {"path":"packages/github-devloop-pr/core/restart/sink_inventory.lua","owner":"pr","reason":"authored lifecycle-sink classifications belong to the PR saga authority."}
+{"path":"packages/github-devloop-pr/core/restart/review_reconcile_obligations.lua","owner":"pr","reason":"R5 review-reconcile CAS-matrix obligations belong to the PR saga conformance and reference frozen OLD parity witnesses."}
+{"path":"packages/github-devloop-pr/core/restart/review_reconcile_traces.lua","owner":"pr","reason":"R6 expected review-reconcile traces belong to the PR saga conformance and project the R5 frozen OLD parity witnesses."}
 {"path":"packages/github-devloop-pr/core/restart/required_replay_payload_fields/fixing.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/required_replay_payload_fields/index.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
 {"path":"packages/github-devloop-pr/core/restart/transitions/blocked.lua","owner":"pr","reason":"github-devloop-pr owns PR saga authority after extraction."}
