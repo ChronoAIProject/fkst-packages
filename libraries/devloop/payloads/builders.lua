@@ -170,14 +170,17 @@ function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
 end
 
 function C.build_current_head_reviewing_payload(origin, pr_number, current_pr, state, source_ref)
-  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state.version, current_pr.head_sha)
+  local state_version = resolve_payload_token("marker:state.version", {
+    state = state,
+  })
+  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state_version, current_pr.head_sha)
   if m_facts.has_any_review_result_marker(current_pr.comments, review_proposal_id, origin.proposal_id) then
     return nil
   end
   return C.build_devloop_reviewing_payload({
     proposal_id = origin.proposal_id,
-    impl_version = state.version,
-  }, pr_number, source_ref, state.version)
+    impl_version = state_version,
+  }, pr_number, source_ref, state_version)
 end
 
 function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_ref)

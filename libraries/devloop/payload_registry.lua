@@ -20,6 +20,22 @@ local function required(context, name)
   return context[name]
 end
 
+local function required_marker_attr(context, family, attr)
+  local fact, failure = required(context, family)
+  if failure ~= nil or type(fact) ~= "table" or fact[attr] == nil then
+    return nil, MISSING_EVIDENCE
+  end
+  return fact[attr]
+end
+
+local marker_resolvers = {
+  state = {
+    version = function(context)
+      return required_marker_attr(context, "state", "version")
+    end,
+  },
+}
+
 local dedup_resolvers = {
   ready = function(context)
     local dedup_key, failure = required(context, "dedup_key")
@@ -81,6 +97,7 @@ local literal_resolvers = {
 }
 
 local registries = {
+  marker = marker_resolvers,
   source_ref = source_ref_resolvers,
   literal = literal_resolvers,
   dedup = dedup_resolvers,

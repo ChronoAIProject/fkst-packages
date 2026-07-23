@@ -20,11 +20,13 @@ return {
     t.eq(payload_registry.validate("literal:github-devloop.merge-ready.v1"), true)
     t.eq(payload_registry.validate("literal:consensus.proposal.v1"), true)
     t.eq(payload_registry.validate("source_ref:normalized"), true)
+    t.eq(payload_registry.validate("marker:state.version"), true)
     assert_rejected("unknown:ready", "unknown prefix unknown")
     assert_rejected("dedup:unregistered", "unknown dedup strategy unregistered")
     assert_rejected("literal:github-devloop.unregistered.v1", "unknown literal value github-devloop.unregistered.v1")
     assert_rejected("source_ref:unregistered", "unknown source_ref derivation unregistered")
     assert_rejected("marker:unregistered.value", "unknown marker family unregistered")
+    assert_rejected("marker:state.unregistered", "unknown marker attr state.unregistered")
   end,
 
   test_resolve_returns_missing_evidence_without_partial_value = function()
@@ -42,6 +44,49 @@ return {
     value, failure = payload_registry.resolve("source_ref:normalized", {})
     t.eq(value, nil)
     t.eq(failure, "missing-evidence")
+
+    value, failure = payload_registry.resolve("marker:state.version", {})
+    t.eq(value, nil)
+    t.eq(failure, "missing-evidence")
+
+    value, failure = payload_registry.resolve("marker:state.version", { state = {} })
+    t.eq(value, nil)
+    t.eq(failure, "missing-evidence")
+  end,
+
+  test_state_marker_version_builder_reads_are_byte_exact_with_previous_expression = function()
+    local origin = {
+      repo = "owner/repo",
+      proposal_id = "github-devloop/issue/owner/repo/42",
+    }
+    local pr_number = 17
+    local source_ref = { kind = "external", ref = "owner/repo#pr/17" }
+    local versions = {
+      "ready/version",
+      "ready/version/fix/2",
+      "ready/version/review-loop/3",
+    }
+
+    for _, previous in ipairs(versions) do
+      local state = { version = previous }
+      local resolved, failure = payload_registry.resolve("marker:state.version", {
+        state = state,
+      })
+      t.eq(failure, nil)
+      t.eq(resolved, previous)
+
+      local payload = payloads_builders.build_current_head_reviewing_payload(origin, pr_number, {
+        head_sha = "abcdef1",
+        comments = {},
+      }, state, source_ref)
+      t.eq(payload.version, previous)
+      t.eq(payload.dedup_key, base_ids.dedup_key({
+        "reviewing",
+        tostring(origin.proposal_id),
+        tostring(previous),
+        tostring(pr_number),
+      }))
+    end
   end,
 
   test_literal_schema_builders_are_byte_exact_with_previous_values = function()
