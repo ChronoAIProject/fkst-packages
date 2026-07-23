@@ -94,6 +94,16 @@ return {
       boundary = "github-proxy.github_comment_written",
     },
     target = "pr-open",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/pr-open/entry/pr_open_handoff/apply",
+        effect_ids = { "devloop_observe_pr" },
+      },
+      idempotent = {
+        id = "github-devloop-pr/pr-open/entry/pr_open_handoff/idempotent",
+        effect_ids = { "devloop_observe_pr" },
+      },
+    },
     pending_order = { participates = false },
     provenance = {
       owner = "github-devloop-pr",

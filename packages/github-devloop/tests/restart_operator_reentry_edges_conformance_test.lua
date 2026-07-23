@@ -390,11 +390,11 @@ local function assert_operator_reentry_shape(edges)
   local seen_ids = {}
   for _, edge in ipairs(edges) do
     local edge_keys = key_set(structural_fields)
+    edge_keys.transition_effect_entitlements = true
     local expected_cas = cas_metadata_golden[edge.id]
     if expected_cas ~= nil then
       edge_keys.cas_policy_id = true
       edge_keys.cas_variant = true
-      edge_keys.transition_effect_entitlements = true
     end
     edge_keys.pending_order = true
     assert_exact_keys(edge, edge_keys)
@@ -424,8 +424,9 @@ local function assert_operator_reentry_shape(edges)
     t.eq(edge.provenance.row, "implementing")
     t.eq(edge.cas_policy_id, expected_cas and expected_cas.cas_policy_id or nil)
     t.eq(edge.cas_variant, expected_cas and expected_cas.cas_variant or nil)
-    assert_same_value(edge.transition_effect_entitlements,
-      expected_cas and implement_activation_entitlements(edge.id) or nil)
+    local expected_entitlements = expected_cas and implement_activation_entitlements(edge.id)
+      or operator_reentry_inventory[1].transition_effect_entitlements
+    assert_same_value(edge.transition_effect_entitlements, expected_entitlements)
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
     t.eq(seen_ids[edge.id], nil)
     seen_ids[edge.id] = true
@@ -625,6 +626,10 @@ local function valid_operator_reentry()
     kind = "operator_reentry",
     source = { state = "impl-failed", boundary = nil },
     target = "implementing",
+    transition_effect_entitlements = {
+      apply = { id = "owner/implementing/operator_reentry/reimplement_impl_failed/apply", effect_ids = {} },
+      idempotent = { id = "owner/implementing/operator_reentry/reimplement_impl_failed/idempotent", effect_ids = {} },
+    },
     cause_evidence = {
       command = "reimplement",
       requires_applied_certificate = true,

@@ -32,6 +32,7 @@ local structural_fields = {
   "target",
   "semantic_variant",
   "cause_evidence",
+  "transition_effect_entitlements",
   "provenance",
 }
 local implementing_merged_delegated_pr_id =
@@ -469,12 +470,7 @@ local function assert_canonicalization_shape(edges)
     t.eq(edge.provenance.row, edge.target)
     t.eq(edge.cas_policy_id, expected_cas and expected_cas.cas_policy_id or nil)
     t.eq(edge.cas_variant, expected_cas and expected_cas.cas_variant or nil)
-    if edge.id == implementing_merged_delegated_pr_id then
-      assert_same_value(
-        edge.transition_effect_entitlements,
-        canonicalization_inventory[3].transition_effect_entitlements
-      )
-    end
+    t.eq(type(edge.transition_effect_entitlements), "table")
     assert_same_value(edge.pending_order, pending_order_goldens[edge.id])
     t.eq(seen_ids[edge.id], nil)
     seen_ids[edge.id] = true
@@ -492,6 +488,10 @@ local function valid_canonicalization(semantic_variant, source_state, target, ma
       boundary = nil,
     },
     target = target or "ready",
+    transition_effect_entitlements = {
+      apply = { id = "owner/ready/canonicalization/legacy_ready_rederived/apply", effect_ids = {} },
+      idempotent = { id = "owner/ready/canonicalization/legacy_ready_rederived/idempotent", effect_ids = {} },
+    },
     cause_evidence = {
       marker = marker or "ready-split-canonicalized:v1",
       resolver = resolver or "ready_split_canonicalized_fact",

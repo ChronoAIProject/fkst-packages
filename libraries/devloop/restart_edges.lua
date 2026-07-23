@@ -98,7 +98,7 @@ end
 local function attach_effect_entitlements(edge, declaration, context)
   local entitlements = declaration.transition_effect_entitlements
   if entitlements == nil then
-    return
+    error("devloop.restart_edges: " .. context .. ".transition_effect_entitlements must be a table")
   end
   if type(entitlements) ~= "table" then
     error("devloop.restart_edges: " .. context .. ".transition_effect_entitlements must be a table")
@@ -649,6 +649,7 @@ function M.extract_guard_boundary_edges(owner, rows)
               },
             }
             attach_cas_metadata(edge, successor, "guard_boundary edge")
+            attach_effect_entitlements(edge, successor, "guard_boundary edge")
             attach_pending_order(edge, successor, "guard_boundary edge")
             table.insert(edges, edge)
           end

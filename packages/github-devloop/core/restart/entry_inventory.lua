@@ -46,6 +46,24 @@ return {
       boundary = "github-devloop.devloop_execute_request",
     },
     target = "thinking",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/thinking/entry/execute_request/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+          "consensus.proposal",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/thinking/entry/execute_request/idempotent",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+          "consensus.proposal",
+        },
+      },
+    },
     pending_order = { participates = false },
     provenance = {
       owner = "github-devloop",

@@ -77,6 +77,19 @@ return function(M, h)
           state = "dependency_wait",
           output_variant = "blocker_reappeared",
           kind = "guard_boundary",
+          transition_effect_entitlements = {
+            apply = {
+              id = "github-devloop/ready/guard_boundary/blocker_reappeared/apply",
+              effect_ids = {
+                "github-proxy.github_issue_comment_request",
+                "github-proxy.github_issue_label_request",
+              },
+            },
+            idempotent = {
+              id = "github-devloop/ready/guard_boundary/blocker_reappeared/idempotent",
+              effect_ids = {},
+            },
+          },
           pending_order = { participates = true, predecessor_state = "ready" },
           regression = "blocker_reappeared",
           failure = true,

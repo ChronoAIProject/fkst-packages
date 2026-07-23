@@ -1,5 +1,12 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(kind, semantic_variant, effect_ids)
+  local id = "github-devloop-pr/pr-open/" .. kind .. "/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -84,6 +91,9 @@ return function(M, h)
           state = "reviewing",
           output_variant = "review_requested",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("autonomous", "review_requested", {
+            "github-proxy.github_pr_comment_request",
+          }),
           pending_order = { participates = true, predecessor_state = "pr-open" },
           postcondition_family = "pr_viability_routed",
           decision_type = "PrViability",
@@ -117,6 +127,9 @@ return function(M, h)
           state = "blocked",
           output_variant = "pr_base_unmanaged",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("guard_boundary", "pr_base_unmanaged", {
+            "github-proxy.github_pr_comment_request",
+          }),
           pending_order = { participates = true, predecessor_state = "pr-open" },
           postcondition_family = "pr_viability_routed",
           decision_type = "PrViability",

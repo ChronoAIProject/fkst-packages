@@ -1,5 +1,14 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant)
+  local id = "github-devloop/implementing/autonomous/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = {
+      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    } },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -74,6 +83,7 @@ return function(M, h)
           state = "awaiting-pr",
           output_variant = "revision_published",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("revision_published"),
           pending_order = { participates = true, predecessor_state = "implementing" },
           postcondition_family = "revision_published",
           monotonic = true,
@@ -82,6 +92,7 @@ return function(M, h)
           state = "impl-failed",
           output_variant = "revision_failed",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("revision_failed"),
           pending_order = { participates = true, predecessor_state = "implementing" },
           failure = true,
           monotonic = true,

@@ -96,6 +96,16 @@ local expected_entries = {
     target = "pr-open",
     field = "entry_inventory.pr_open_handoff",
     semantic_variant = "pr_open_handoff",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop-pr/pr-open/entry/pr_open_handoff/apply",
+        effect_ids = { "devloop_observe_pr" },
+      },
+      idempotent = {
+        id = "github-devloop-pr/pr-open/entry/pr_open_handoff/idempotent",
+        effect_ids = { "devloop_observe_pr" },
+      },
+    },
   },
   ["github-devloop-pr/merge-ready/entry/handoff_to_merge_gate"] = {
     row_id = "merge-ready",

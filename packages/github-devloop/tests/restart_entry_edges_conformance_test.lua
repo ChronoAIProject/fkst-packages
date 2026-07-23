@@ -57,6 +57,24 @@ local expected_entries = {
     target = "thinking",
     field = "entry_inventory.execute_request",
     semantic_variant = "execute_request",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/thinking/entry/execute_request/apply",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+          "consensus.proposal",
+        },
+      },
+      idempotent = {
+        id = "github-devloop/thinking/entry/execute_request/idempotent",
+        effect_ids = {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+          "consensus.proposal",
+        },
+      },
+    },
   },
   ["github-devloop/impl-failed/entry/retry-implementation"] = {
     row_id = "impl-failed",

@@ -1,5 +1,14 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(semantic_variant)
+  local id = "github-devloop/dependency_wait/guard_boundary/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = {
+      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    } },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -71,6 +80,7 @@ return function(M, h)
           state = "dependency_wait",
           output_variant = "blockers_still_open",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("blockers_still_open"),
           pending_order = { participates = true, predecessor_state = "dependency_wait" },
           postcondition_family = "dependency-release-or-blocker-tracking",
           decision_type = "dependency_gate",
@@ -80,6 +90,7 @@ return function(M, h)
           state = "ready",
           output_variant = "blockers_released",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("blockers_released"),
           pending_order = { participates = true, predecessor_state = "dependency_wait" },
           postcondition_family = "dependency-release-or-blocker-tracking",
           decision_type = "dependency_gate",
@@ -89,6 +100,7 @@ return function(M, h)
           state = "blocked",
           output_variant = "dependency_resolver_stale",
           kind = "guard_boundary",
+          transition_effect_entitlements = effect_entitlements("dependency_resolver_stale"),
           pending_order = { participates = true, predecessor_state = "dependency_wait" },
           failure = true,
           terminal = true,

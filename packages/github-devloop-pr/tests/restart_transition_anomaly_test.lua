@@ -19,6 +19,10 @@ local rows = {
           kind = "autonomous",
           output_variant = "review-approved",
           cas_policy_id = CAS_POLICY_ID,
+          transition_effect_entitlements = {
+            apply = { id = EDGE_ID .. "/apply", effect_ids = {} },
+            idempotent = { id = EDGE_ID .. "/idempotent", effect_ids = {} },
+          },
         },
       },
     },

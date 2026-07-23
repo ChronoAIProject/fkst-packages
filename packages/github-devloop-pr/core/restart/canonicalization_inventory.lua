@@ -1,3 +1,11 @@
+local function effect_entitlements(semantic_variant, effect_ids)
+  local id = "github-devloop-pr/reviewing/canonicalization/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
+
 return {
   {
     semantic_variant = "fixing_head_renormalization",
@@ -9,6 +17,9 @@ return {
       boundary = nil,
     },
     target = "reviewing",
+    transition_effect_entitlements = effect_entitlements("fixing_head_renormalization", {
+      "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+    }),
     pending_order = { participates = true, predecessor_state = "fixing" },
     cause_evidence = {
       marker = "fix:v1",
@@ -30,6 +41,9 @@ return {
       boundary = nil,
     },
     target = "reviewing",
+    transition_effect_entitlements = effect_entitlements("pr_base_unmanaged_self_heal", {
+      "github-proxy.github_pr_comment_request",
+    }),
     pending_order = { participates = false },
     cause_evidence = {
       marker = "state:v1",

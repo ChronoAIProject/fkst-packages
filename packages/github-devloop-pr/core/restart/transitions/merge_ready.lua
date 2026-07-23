@@ -1,5 +1,12 @@
 local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
+local function effect_entitlements(kind, semantic_variant, effect_ids)
+  local id = "github-devloop-pr/merge-ready/" .. kind .. "/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
 return function(M, h)
   local fact = h.fact
   local obligation = h.obligation
@@ -126,6 +133,9 @@ return function(M, h)
           state = "blocked",
           output_variant = "fix_budget_exhausted",
           kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("autonomous", "fix_budget_exhausted", {
+            "devloop_fix_reconcile",
+          }),
           pending_order = { participates = true, predecessor_state = "merge-ready" },
           terminal = true,
           monotonic = true,
@@ -144,6 +154,9 @@ return function(M, h)
           {
             state = "reviewing",
             output_variant = "approval_stale",
+            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "approval_stale", {
+              "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+            }),
             pending_order = { participates = false },
             decision_type = "MergeEligibility",
             bump = true,
@@ -151,6 +164,7 @@ return function(M, h)
           {
             state = "merging",
             output_variant = "eligible_now",
+            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "eligible_now", {}),
             pending_order = { participates = true, predecessor_state = "merge-ready" },
             decision_type = "MergeEligibility",
             monotonic = true,
@@ -158,6 +172,9 @@ return function(M, h)
           {
             state = "fixing",
             output_variant = "code_repair_needed",
+            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "code_repair_needed", {
+              "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+            }),
             pending_order = { participates = false },
             decision_type = "MergeEligibility",
             failure = true,

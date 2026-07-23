@@ -9,6 +9,16 @@ return {
       boundary = nil,
     },
     target = "implementing",
+    transition_effect_entitlements = {
+      apply = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_impl_failed/apply",
+        effect_ids = { "github-proxy.github_issue_comment_request", "devloop_ready" },
+      },
+      idempotent = {
+        id = "github-devloop/implementing/operator_reentry/reimplement_impl_failed/idempotent",
+        effect_ids = {},
+      },
+    },
     pending_order = { participates = true, predecessor_state = "impl-failed" },
     cause_evidence = {
       command = "reimplement",

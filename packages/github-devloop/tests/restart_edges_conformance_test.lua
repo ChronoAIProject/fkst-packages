@@ -68,6 +68,13 @@ local function key_set(keys)
   return out
 end
 
+local function empty_entitlements(id)
+  return {
+    apply = { id = id .. "/apply", effect_ids = {} },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
+
 local function assert_exact_keys(value, expected)
   local count = 0
   for key in pairs(value) do
@@ -208,6 +215,7 @@ local function expected_guard_boundary_edges(owner, rows)
               source = { state = row.from_state, boundary = guard_boundary.name },
               target = successor.state,
               semantic_variant = successor.output_variant,
+              transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
               pending_order = copy_value(successor.pending_order),
               provenance = {
                 owner = owner,
@@ -671,8 +679,10 @@ return {
         kind = "autonomous",
         cas_policy_id = "cas.synthetic_v1",
         cas_variant = "synthetic_variant",
+        transition_effect_entitlements = empty_entitlements("owner/from/autonomous/with-cas"),
       },
-      { state = "without-cas", output_variant = "without-cas", kind = "autonomous" },
+      { state = "without-cas", output_variant = "without-cas", kind = "autonomous",
+        transition_effect_entitlements = empty_entitlements("owner/from/autonomous/without-cas") },
     })
     local edges = restart_edges.extract_autonomous_edges("owner", { valid })
     t.eq(#edges, 2)
@@ -686,12 +696,14 @@ return {
       semantic_variant = true,
       cas_policy_id = true,
       cas_variant = true,
+      transition_effect_entitlements = true,
       provenance = true,
     })
     t.eq(edges[1].cas_policy_id, "cas.synthetic_v1")
     t.eq(edges[1].cas_variant, "synthetic_variant")
     local edge_keys = key_set(structural_fields)
     edge_keys.semantic_variant = true
+    edge_keys.transition_effect_entitlements = true
     assert_exact_keys(edges[2], edge_keys)
     t.eq(edges[2].cas_policy_id, nil)
     t.eq(edges[2].cas_variant, nil)
@@ -779,8 +791,10 @@ return {
       from_state = "authored-order",
       responsibility_signature = {
         successors = {
-          { state = "z-target", output_variant = "z-first", kind = "timeout" },
-          { state = "a-target", output_variant = "a-second", kind = "guard_boundary" },
+          { state = "z-target", output_variant = "z-first", kind = "timeout",
+            transition_effect_entitlements = empty_entitlements("issue-owner/authored-order/timeout/z-first") },
+          { state = "a-target", output_variant = "a-second", kind = "guard_boundary",
+            transition_effect_entitlements = empty_entitlements("issue-owner/authored-order/guard_boundary/a-second") },
         },
       },
     }, {
@@ -821,14 +835,17 @@ return {
         {
           name = "z-boundary",
           successors = {
-            { state = "z-target", output_variant = "z-first" },
-            { state = "a-target", output_variant = "a-second" },
+            { state = "z-target", output_variant = "z-first",
+              transition_effect_entitlements = empty_entitlements("issue-owner/authored-order/guard_boundary/z-boundary/z-first") },
+            { state = "a-target", output_variant = "a-second",
+              transition_effect_entitlements = empty_entitlements("issue-owner/authored-order/guard_boundary/z-boundary/a-second") },
           },
         },
         {
           name = "a-boundary",
           successors = {
-            { state = "m-target", output_variant = "m-third" },
+            { state = "m-target", output_variant = "m-third",
+              transition_effect_entitlements = empty_entitlements("issue-owner/authored-order/guard_boundary/a-boundary/m-third") },
           },
         },
       },
