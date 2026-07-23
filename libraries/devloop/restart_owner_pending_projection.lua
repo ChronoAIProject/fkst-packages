@@ -82,6 +82,11 @@ local entitlement_witness_sources = {
   },
 }
 
+local timeout_witness_sources = {
+  ["github-devloop"] = "packages/github-devloop/tests/restart_edges_conformance_test.lua",
+  ["github-devloop-pr"] = "packages/github-devloop-pr/tests/restart_edges_conformance_test.lua",
+}
+
 local function append_all(target, values)
   for _, value in ipairs(values) do
     table.insert(target, value)
@@ -213,6 +218,66 @@ function M.frozen_entitlement_witness_index(owner, edges)
         witness_id = sources.extraction .. "#transition_effect_entitlements:" .. edge.id
           .. "|" .. sources.grant .. "#grant-seal",
       }
+    end
+  end
+  return witnesses
+end
+
+function M.frozen_timeout_witness_index(owner, rows, edges)
+  local source_path = timeout_witness_sources[owner]
+  if source_path == nil then
+    error("devloop.restart_owner_pending_projection: unknown lifecycle owner " .. tostring(owner))
+  end
+  if type(rows) ~= "table" then
+    error("devloop.restart_owner_pending_projection: rows must be an array")
+  end
+  if type(edges) ~= "table" then
+    error("devloop.restart_owner_pending_projection: edges must be an array")
+  end
+
+  local rows_by_id = {}
+  for _, row in ipairs(rows) do
+    if type(row) ~= "table" or type(row.from_state) ~= "string" or row.from_state == "" then
+      error("devloop.restart_owner_pending_projection: timeout witness row identity is invalid")
+    end
+    if rows_by_id[row.from_state] ~= nil then
+      error("devloop.restart_owner_pending_projection: duplicate timeout witness row id " .. row.from_state)
+    end
+    rows_by_id[row.from_state] = row
+  end
+
+  local witnesses = {}
+  for _, edge in ipairs(edges) do
+    if type(edge) == "table" and edge.timeout_evidence_policy_id ~= nil then
+      if edge.owner ~= owner or type(edge.id) ~= "string" or edge.id == ""
+          or type(edge.row_id) ~= "string" or edge.row_id == ""
+          or type(edge.timeout_evidence_policy_id) ~= "string"
+          or edge.timeout_evidence_policy_id == "" then
+        error("devloop.restart_owner_pending_projection: timeout edge identity is invalid")
+      end
+      if witnesses[edge.id] ~= nil then
+        error("devloop.restart_owner_pending_projection: duplicate timeout edge id " .. edge.id)
+      end
+      local row = rows_by_id[edge.row_id]
+      local actionable_epoch = type(row) == "table" and row.actionable_epoch or nil
+      local actionable_epoch_source = type(actionable_epoch) == "table"
+        and actionable_epoch.source or nil
+      if type(actionable_epoch_source) == "string" and actionable_epoch_source ~= "" then
+        witnesses[edge.id] = {
+          owner = owner,
+          edge_id = edge.id,
+          actionable_epoch_source = actionable_epoch_source,
+          resolver = edge.timeout_evidence_policy_id,
+          input_fixture_id = edge.id .. "/timeout-resolver",
+          expected_decision = {
+            actionable_epoch_source = actionable_epoch_source,
+            resolver = edge.timeout_evidence_policy_id,
+          },
+          expected_effect_ids = {},
+          expected_payload_obligations = {},
+          witness_id = source_path .. "#timeout_evidence_policy_id:" .. edge.id,
+        }
+      end
     end
   end
   return witnesses

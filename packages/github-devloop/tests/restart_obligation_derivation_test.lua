@@ -45,6 +45,14 @@ local function entitlement_witness_index_without(edges, excluded_edge_id)
   return result
 end
 
+local function timeout_witness_index_without(rows, edges, excluded_edge_id)
+  local result = owner_projection.frozen_timeout_witness_index(OWNER, rows, edges)
+  if excluded_edge_id ~= nil then
+    result[excluded_edge_id] = nil
+  end
+  return result
+end
+
 local function declared_effect_ids(entitlements)
   local result = {}
   local seen = {}
@@ -227,6 +235,68 @@ return {
     local result = restart_obligations.derive_entitlement(
       edges,
       entitlement_witness_index_without(edges, removed_edge_id)
+    )
+    local unmapped = index_by_edge(result.unmapped)
+    t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
+  end,
+
+  test_issue_owner_derives_timeout_obligations_from_typed_resolver = function()
+    local rows = h.core.restart_transition_table()
+    local edges = owner_projection.edges(OWNER, rows, inventories)
+    local witnesses = timeout_witness_index_without(rows, edges, nil)
+    local result = restart_obligations.derive_timeout(edges, witnesses)
+    local derived = index_by_edge(result.obligations)
+    local unmapped = index_by_edge(result.unmapped)
+    local rows_by_id = {}
+    local timeout_count = 0
+
+    for _, row in ipairs(rows) do
+      rows_by_id[row.from_state] = row
+    end
+    for _, edge in ipairs(edges) do
+      if edge.timeout_evidence_policy_id ~= nil then
+        timeout_count = timeout_count + 1
+        local witness = witnesses[edge.id]
+        local obligation = derived[edge.id]
+        t.is_true(witness ~= nil)
+        t.is_true(obligation ~= nil)
+        t.eq(obligation.obligation_id, edge.id .. "/timeout-resolver")
+        t.eq(obligation.owner, edge.owner)
+        t.eq(obligation.case_kind, "timeout")
+        t.eq(obligation.input_fixture_id, witness.input_fixture_id)
+        t.eq(obligation.witness_id, witness.witness_id)
+        t.eq(
+          obligation.expected_decision.actionable_epoch_source,
+          rows_by_id[edge.row_id].actionable_epoch.source
+        )
+        t.eq(obligation.expected_decision.resolver, edge.timeout_evidence_policy_id)
+        t.eq(obligation.expected_effect_ids, witness.expected_effect_ids)
+        t.eq(obligation.expected_payload_obligations, witness.expected_payload_obligations)
+        t.eq(unmapped[edge.id], nil)
+      else
+        t.eq(derived[edge.id], nil)
+        t.eq(unmapped[edge.id], nil)
+      end
+    end
+
+    t.eq(timeout_count, 1)
+    t.eq(#result.obligations, timeout_count)
+    t.eq(#result.unmapped, 0)
+  end,
+
+  test_issue_owner_reports_removed_frozen_timeout_witness_as_unmapped = function()
+    local rows = h.core.restart_transition_table()
+    local edges = owner_projection.edges(OWNER, rows, inventories)
+    local removed_edge_id = nil
+    for _, edge in ipairs(edges) do
+      if edge.timeout_evidence_policy_id ~= nil then
+        removed_edge_id = edge.id
+        break
+      end
+    end
+    local result = restart_obligations.derive_timeout(
+      edges,
+      timeout_witness_index_without(rows, edges, removed_edge_id)
     )
     local unmapped = index_by_edge(result.unmapped)
     t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
