@@ -69,6 +69,7 @@
 {"path":"libraries/devloop/restart_obligations.lua","owner":"shared","reason":"pure R5 obligation schema validation is shared by lifecycle owners while declarations and witnesses remain owner-local."}
 {"path":"libraries/devloop/restart_obligation_derivations.lua","owner":"shared","reason":"pure R5 kind derivation is shared by lifecycle owners while canonical edges and frozen witnesses remain owner-local."}
 {"path":"libraries/devloop/restart_trace.lua","owner":"shared","reason":"pure R6 trace shape validation and non-secret fingerprinting are shared by lifecycle owners while expected traces remain owner-local."}
+{"path":"libraries/devloop/restart_trace_derivation.lua","owner":"shared","reason":"pure R6 CAS-admission expected-trace derivation is shared while canonical edges, R5 obligations, frozen witnesses, and actual facade execution remain owner-local."}
 {"path":"libraries/devloop/restart_owner_pending_projection.lua","owner":"shared","reason":"pure full-edge-set collector shared by issue and PR pending projection conformance; owner-private rows and inventories are supplied as values."}
 {"path":"libraries/devloop/restart_pending_projection.lua","owner":"shared","reason":"pure pending-order relation shared by lifecycle edge owners and CAS conformance."}
 {"path":"libraries/devloop/restart_source_admission.lua","owner":"shared","reason":"pure closed source-shape and ingress route-admission checks shared by issue and PR shadow deciders."}

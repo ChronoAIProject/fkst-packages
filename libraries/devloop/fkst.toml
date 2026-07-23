@@ -122,6 +122,7 @@ public = [
   "devloop.restart_sinks",
   "devloop.restart_responsibility_contract",
   "devloop.restart_trace",
+  "devloop.restart_trace_derivation",
   "devloop.rounds",
   "devloop.saga_conformance",
   "devloop.state",
