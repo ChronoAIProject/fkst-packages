@@ -29,6 +29,14 @@ local function witness_index_without(excluded_edge_id)
   return result
 end
 
+local function pending_witness_index_without(edges, excluded_edge_id)
+  local result = owner_projection.frozen_pending_witness_index(OWNER, edges)
+  if excluded_edge_id ~= nil then
+    result[excluded_edge_id] = nil
+  end
+  return result
+end
+
 local function index_by_edge(entries)
   local result = {}
   for _, entry in ipairs(entries) do
@@ -81,6 +89,58 @@ return {
     local result = restart_obligations.derive(
       canonical_edges(),
       witness_index_without(removed_edge_id)
+    )
+    local unmapped = index_by_edge(result.unmapped)
+    t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
+  end,
+
+  test_issue_owner_derives_pending_obligations_from_typed_participation = function()
+    local edges = canonical_edges()
+    local witnesses = pending_witness_index_without(edges, nil)
+    local result = restart_obligations.derive_pending(edges, witnesses)
+    local derived = index_by_edge(result.obligations)
+    local unmapped = index_by_edge(result.unmapped)
+    local participating_count = 0
+
+    for _, edge in ipairs(edges) do
+      if edge.pending_order.participates then
+        participating_count = participating_count + 1
+        local witness = witnesses[edge.id]
+        local obligation = derived[edge.id]
+        t.is_true(witness ~= nil)
+        t.is_true(obligation ~= nil)
+        t.eq(obligation.obligation_id, edge.id .. "/pending-participation")
+        t.eq(obligation.owner, edge.owner)
+        t.eq(obligation.case_kind, "pending")
+        t.eq(obligation.input_fixture_id, witness.input_fixture_id)
+        t.eq(obligation.witness_id, witness.witness_id)
+        t.eq(obligation.expected_decision, witness.expected_decision)
+        t.eq(obligation.expected_effect_ids, witness.expected_effect_ids)
+        t.eq(obligation.expected_payload_obligations, witness.expected_payload_obligations)
+        t.eq(unmapped[edge.id], nil)
+      else
+        t.eq(derived[edge.id], nil)
+        t.eq(unmapped[edge.id], nil)
+      end
+    end
+
+    t.eq(participating_count, 19)
+    t.eq(#result.obligations, participating_count)
+    t.eq(#result.unmapped, 0)
+  end,
+
+  test_issue_owner_reports_removed_frozen_pending_witness_as_unmapped = function()
+    local edges = canonical_edges()
+    local removed_edge_id = nil
+    for _, edge in ipairs(edges) do
+      if edge.pending_order.participates then
+        removed_edge_id = edge.id
+        break
+      end
+    end
+    local result = restart_obligations.derive_pending(
+      edges,
+      pending_witness_index_without(edges, removed_edge_id)
     )
     local unmapped = index_by_edge(result.unmapped)
     t.eq(unmapped[removed_edge_id].reason, "missing-frozen-witness")
