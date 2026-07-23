@@ -65,6 +65,7 @@
 {"path":"libraries/devloop/restart_effect_facade.lua","owner":"shared","reason":"pure grant-verification and lifecycle-sink dispatch helper shared by owner-local effect facades; serializers and grants remain owner-authored."}
 {"path":"libraries/devloop/restart_effect_seal.lua","owner":"shared","reason":"pure factory that mints per-owner private seal state and holds no cross-owner authority."}
 {"path":"libraries/devloop/restart_metadata.lua","owner":"shared","reason":"pure lifecycle labels, ordering, stage ranks, and version metadata are shared by issue and PR policies without depending on lifecycle authority."}
+{"path":"libraries/devloop/restart_obligations.lua","owner":"shared","reason":"pure R5 obligation schema validation is shared by lifecycle owners while declarations and witnesses remain owner-local."}
 {"path":"libraries/devloop/restart_owner_pending_projection.lua","owner":"shared","reason":"pure full-edge-set collector shared by issue and PR pending projection conformance; owner-private rows and inventories are supplied as values."}
 {"path":"libraries/devloop/restart_pending_projection.lua","owner":"shared","reason":"pure pending-order relation shared by lifecycle edge owners and CAS conformance."}
 {"path":"libraries/devloop/restart_source_admission.lua","owner":"shared","reason":"pure closed source-shape and ingress route-admission checks shared by issue and PR shadow deciders."}
@@ -228,6 +229,7 @@
 {"path":"packages/github-devloop/core/restart/marker_fields/state.lua","owner":"shared","reason":"marker fields are shared by the issue/PR seam."}
 {"path":"packages/github-devloop/core/restart/operator_reentry_inventory.lua","owner":"issue","reason":"authored operator reentry edges belong to the parent issue saga authority."}
 {"path":"packages/github-devloop/core/restart/sink_inventory.lua","owner":"issue","reason":"authored lifecycle-sink classifications belong to the parent issue saga authority."}
+{"path":"packages/github-devloop/core/restart/timeout_obligations.lua","owner":"issue","reason":"R5 timeout obligation declarations belong to the parent issue saga conformance and reference frozen parity witnesses."}
 {"path":"packages/github-devloop/core/restart/required_replay_payload_fields/fixing.lua","owner":"issue","reason":"required replay payload fields belong to the parent issue saga."}
 {"path":"packages/github-devloop/core/restart/required_replay_payload_fields/index.lua","owner":"issue","reason":"required replay payload fields belong to the parent issue saga."}
 {"path":"packages/github-devloop/core/restart_authority.lua","owner":"issue","reason":"owner-local grant-disabled shadow decider for issue-side restart transitions (Step 0.0.3); composes typed edges + owner pending projection + CAS catalog in shadow, grant=nil, constructs no lifecycle effect."}
