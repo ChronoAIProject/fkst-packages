@@ -55,6 +55,22 @@ class DogfoodBoardHarness:
                     printf '%s\\n' 5000
                     ;;
                   repos/ChronoAIProject/fkst-packages/pulls?state=open*)
+                    # Two different --jq queries hit this URL: openpr (.head.ref, for
+                    # issue<->PR linkage) and pr_rows (number/sha/updated/base/title TSV).
+                    # Emulate each query's post-jq output. PR#50 is old (=> CI+age would
+                    # flag ⚠ STUCK) but its authoritative marker is terminal-blocked.
+                    case "$4" in
+                      *head.ref*) ;;
+                      *) printf '%s\t%s\t%s\t%s\t%s\n' 50 deadbeef 2026-06-27T00:00:00Z integration 'Terminal blocked PR' ;;
+                    esac
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/commits/deadbeef/check-runs*)
+                    printf '%s\n' success
+                    ;;
+                  repos/ChronoAIProject/fkst-packages/issues/50/comments?per_page=100)
+                    cat <<'JSON'
+[{"user":{"login":"loning"},"body":"github-devloop child workflow terminal.\\n\\n<!-- fkst:github-devloop:state:v1 proposal=\\\"github-devloop/issue/ChronoAIProject/fkst-packages/49\\\" state=\\\"blocked\\\" version=\\\"ready/2026-06-27T00-00-00Z/blocked/child-pr-blocked/1\\\" stage_rank=\\\"800\\\" marker_order_key=\\\"2026-06-27T00-00-00Z/000000000000/000000000000/000000000000/000000000000/000000000001/000000000000/000000000000/000000000000/000000000800\\\" -->"}]
+JSON
                     ;;
                   repos/ChronoAIProject/fkst-packages/issues?state=open*)
                     printf '%s\\t%s\\t%s\\t%s\\n' 33 2026-06-27T00:00:00Z 'fkst-dev:ready,fkst-dev:blocked-on-dependency' 'Dependency held'
@@ -207,6 +223,21 @@ class DogfoodBoardTest(unittest.TestCase):
             self.assertNotIn("#45   [awaiting-pr ] ⚠ STUCK", result.stdout)
             self.assertIn("#46   [awaiting-pr ] ✓ waiting child-cascade 12h", result.stdout)
             self.assertNotIn("#46   [awaiting-pr ] ⚠ STUCK", result.stdout)
+        finally:
+            h.close()
+
+    def test_pr_terminal_marker_reclassifies_stuck_to_parked(self) -> None:
+        # PR#50 is old + CI-green, so the CI+age-only classifier alone would flag it
+        # ⚠ STUCK. But its authoritative state:v1 marker is terminal-blocked (origin
+        # self-discovered as the parent issue #49 proposal), so it must reclassify to
+        # parked(blocked) — symmetric with the issue terminal classifier. This closes
+        # the false-"stuck" cry-wolf that buries real stuck PRs in noise.
+        h = DogfoodBoardHarness()
+        try:
+            result = h.run_board()
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertRegex(result.stdout, r"PR#50\b.*parked\(blocked\)")
+            self.assertNotRegex(result.stdout, r"PR#50\b.*⚠ STUCK")
         finally:
             h.close()
 

@@ -252,6 +252,29 @@ lifecycle_board_fact() { # $1 issue-number
   printf '%s\n' "$fact"
 }
 
+# Project a PR's OWN authoritative github-devloop state:v1 markers into a board fact,
+# symmetric with lifecycle_board_fact (issues). A PR's markers are keyed to the PARENT
+# issue's proposal, so the origin is SELF-DISCOVERED from the PR's own state:v1 marker
+# `proposal="..."` field rather than derived from the PR number. This lets the PR
+# classifier distinguish a genuinely-stuck PR from one that has reached a correct
+# terminal (blocked/merged/closed_unmerged) — the CI+age-only classifier cannot.
+pr_lifecycle_board_fact() { # $1 pr-number
+  local num="$1" comments origin fact tool
+  tool="$(lifecycle_board_fact_tool)" || return 1
+  [ -n "$tool" ] || return 1
+  comments=$(gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" 2>/dev/null) || return 1
+  origin=$(printf '%s' "$comments" | jq -r '.[].body' 2>/dev/null \
+    | grep -oE 'github-devloop:state:v1 proposal="[^"]+"' | head -1 \
+    | sed -E 's/.*proposal="([^"]+)".*/\1/')
+  [ -n "$origin" ] || return 1
+  fact=$(printf '%s' "$comments" | python3 "$tool" \
+    --origin "$origin" \
+    --bot-login "$BOT" \
+    --managed-bot-logins "$MANAGED_BOT_LOGINS" 2>/dev/null) || return 1
+  [ -n "$fact" ] || return 1
+  printf '%s\n' "$fact"
+}
+
 lifecycle_board_reclassify() { # $1 fact-json, $2 age-hours
   FACT_JSON="$1" AGE_H="$2" python3 - <<'PY'
 import json
@@ -822,6 +845,20 @@ board_one() { # $1 name, $2 stale_hours
     elif [ -z "$chk" ];                              then flow="⚠ NO-CI"
     elif [ "$a" -ge $((stale*2)) ];                  then flow="⚠ STUCK ${a}h"
     else flow="✓ flowing ${a}h"; fi
+    # A CI+age ⚠ can be a FALSE alarm: a PR that reached a correct terminal
+    # (blocked/merged/closed_unmerged) or is awaiting a child cascade is not stuck.
+    # Cross-check the PR's OWN authoritative state:v1 marker (symmetric with the issue
+    # classifier below): terminal -> parked(state), pipeline_stuck -> ⚠ with WHY,
+    # awaiting-pr -> waiting. A genuinely-stuck non-terminal PR has no such marker fact,
+    # so reclassify fails and the ⚠ CI+age verdict stands.
+    case "$flow" in
+      ⚠*)
+        local pr_fact pr_override
+        if pr_fact=$(pr_lifecycle_board_fact "$num") && pr_override=$(lifecycle_board_reclassify "$pr_fact" "$a"); then
+          flow="${pr_override#*$'\t'}"
+        fi
+        ;;
+    esac
     printf "  PR#%-4s →%-12s %-12s %s\n" "$num" "$base" "$flow" "$title"
   done
   fi
