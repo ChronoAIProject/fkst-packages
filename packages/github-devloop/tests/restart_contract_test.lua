@@ -483,8 +483,16 @@ return {
       version = base .. "/timeout/impl-failed/3",
       marker_created_at = "2026-06-03T01:02:03Z",
     }
-    local escalated = core.liveness_timeout_decision(row, over, contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"))
-    t.eq(escalated.action, "escalate")
+    -- Owner directive (#2725) root timeout lever: at/past the former escalation
+    -- threshold (3 attempts) a timeout must NEVER escalate to a terminal state; it
+    -- REDRIVES indefinitely, advancing the attempt/version lineage each sweep. The
+    -- decision is now `redrive` (never `escalate`); only an explicit cannot-proceed
+    -- reaches terminal, via its own dedicated edge.
+    local redriven = core.liveness_timeout_decision(row, over, contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"))
+    t.eq(redriven.action, "redrive")
+    t.eq(redriven.attempt, 4)
+    t.eq(core.version_timeout_round(redriven.version, "impl-failed"), 4)
+    t.eq(transition_version.strip_suffixes(redriven.version), transition_version.strip_suffixes(base))
   end,
 
   test_replay_timeout_classification_counts_declines_as_stuck = function()
