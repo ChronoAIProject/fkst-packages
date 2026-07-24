@@ -291,9 +291,7 @@ def _admission_trace_shape_messages(
 
 
 def _active_admission_trace(artifact: dict[str, Any]) -> dict[str, Any]:
-    active = dict(artifact)
-    active.pop("captured_sink_effects", None)
-    return active
+    return dict(artifact)
 
 
 def _trace_pair_messages(
