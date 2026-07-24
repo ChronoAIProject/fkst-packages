@@ -578,9 +578,10 @@ local function new_trace_fixture(fixture, production)
   return decided, writes
 end
 
-local function trace_artifact(corpus_hash, fixtures)
+local function trace_artifact(corpus_hash, fixtures, captured_sink_effects)
   return observation_support.admission_trace_artifact(
-    "restart-pr-merge-trace.v1", OWNER, "pr-merge", corpus_hash, fixtures
+    "restart-pr-merge-trace.v1", OWNER, "pr-merge", corpus_hash, fixtures,
+    captured_sink_effects
   )
 end
 
@@ -599,8 +600,8 @@ local function assert_merge_trace_equality()
     ))
   end
 
-  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures, corpus.captured_sink_effects)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures, corpus.captured_sink_effects)
   local canonical_json = observation_support.canonical_json
   t.eq(canonical_json(old_trace), canonical_json(observation_support.admission_trace_active_projection(corpus)),
     "R9 PR merge frozen OLD observation corpus")

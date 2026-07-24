@@ -32,6 +32,7 @@ local expected_new_apply_effects = {
   },
   ["github-devloop/implementing/autonomous/revision_published"] = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+    "git.push:implementation-branch",
   },
   ["github-devloop/implementing/operator_reentry/reimplement_impl_failed"] = {
     "github-proxy.github_issue_comment_request", "devloop_ready",

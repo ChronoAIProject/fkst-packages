@@ -622,9 +622,10 @@ local TRACE_FIXTURES = {
     current_version = V_EQUAL, event_version = V_EQUAL },
 }
 
-local function trace_artifact(corpus_hash, fixtures)
+local function trace_artifact(corpus_hash, fixtures, captured_sink_effects)
   return observation_support.admission_trace_artifact(
-    "restart-implement-activation-trace.v1", OWNER, "implement-activation", corpus_hash, fixtures
+    "restart-implement-activation-trace.v1", OWNER, "implement-activation", corpus_hash,
+    fixtures, captured_sink_effects
   )
 end
 
@@ -714,8 +715,8 @@ local function assert_implement_activation_trace_equality()
       decided.status, decided.reason_code, decided.cas_outcome, decided.effect_entitlement_id,
       decided.granted_effect_ids, new_writes))
   end
-  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures, corpus.captured_sink_effects)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures, corpus.captured_sink_effects)
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
     "R9 implement-activation OLD and NEW semantic trace")
   local mkdir_ok = os.execute("mkdir -p .fkst/run")

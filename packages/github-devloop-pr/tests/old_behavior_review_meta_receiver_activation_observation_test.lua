@@ -11,6 +11,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
 local workflow_codex = require("workflow_internal.codex")
 local review_meta_module = require("departments.review_meta.main")
+local restart_effects = require("core.restart_effects")
 
 local t = h.t
 local core = h.core
@@ -217,6 +218,20 @@ local function capture(fixture)
 end
 
 return {
+  test_review_meta_codex_sink_consumes_exact_grant = function()
+    local original = restart_effects.verify_grant
+    local verified = {}
+    restart_effects.verify_grant = function(grant, effect_id, snapshot)
+      local accepted = original(grant, effect_id, snapshot)
+      if accepted then verified[effect_id] = true end
+      return accepted
+    end
+    local ok, failure = pcall(capture, FIXTURES[8])
+    restart_effects.verify_grant = original
+    if not ok then error(failure, 0) end
+    t.eq(verified["codex.dispatch:review-meta"], true)
+  end,
+
   test_review_meta_receiver_activation_old_behavior_is_real_dispatch_and_bidirectional = function()
     local shadow_sink_records = ra.capture_shadow_sink_probes(t, {
       probes = SINK_PROBES,

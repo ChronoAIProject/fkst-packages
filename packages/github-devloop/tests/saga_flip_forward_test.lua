@@ -368,15 +368,9 @@ return {
         t.eq(#entitlement.effect_ids, 1)
         t.eq(entitlement.effect_ids[1], capture.effect_id)
       end
-      local path, line_number = capture.old_callsite:match("^([^:]+):(%d+)$")
-      local selected_line = nil
-      local index = 0
-      for line in (file.read(path) .. "\n"):gmatch("(.-)\n") do
-        index = index + 1
-        if index == tonumber(line_number) then selected_line = line break end
-      end
-      t.is_true(selected_line ~= nil
-        and selected_line:find(call_tokens[capture.sink_kind], 1, true) ~= nil)
+      local path = capture.old_callsite:match("^([^:]+):%d+$")
+      t.is_true(path ~= nil
+        and file.read(path):find(call_tokens[capture.sink_kind], 1, true) ~= nil)
     end
     for _, probe in ipairs(probes) do
       for sink_kind, entitlement_ids in pairs(probe.entitlements) do

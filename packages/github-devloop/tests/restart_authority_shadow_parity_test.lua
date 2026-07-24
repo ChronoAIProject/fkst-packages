@@ -811,6 +811,7 @@ return {
         t.eq(table.concat(shadow.granted_effect_ids, ","), table.concat({
           "github-proxy.github_issue_comment_request",
           "github-proxy.github_issue_label_request",
+          "git.push:implementation-branch",
         }, ","))
       elseif shadow.status == "idempotent" then
         t.eq(shadow.effect_entitlement_id, REVISION_PUBLISHED_EDGE_ID .. "/idempotent")

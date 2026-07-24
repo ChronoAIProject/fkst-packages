@@ -358,9 +358,10 @@ local TRACE_FIXTURES = {
   },
 }
 
-local function trace_artifact(corpus_hash, fixtures)
+local function trace_artifact(corpus_hash, fixtures, captured_sink_effects)
   return observation_support.admission_trace_artifact(
-    "restart-pr-fix-trace.v1", OWNER, "pr-fix", corpus_hash, fixtures
+    "restart-pr-fix-trace.v1", OWNER, "pr-fix", corpus_hash, fixtures,
+    captured_sink_effects
   )
 end
 
@@ -383,6 +384,7 @@ local function new_trace_fixture(fixture, production)
   })
   local writes = observation_support.json_array()
   local full_writes = observation_support.json_array()
+  local trace_effect_ids = observation_support.json_array()
   if decided.status == "apply" then
     local grant = restart_effects.mint_grant(snapshot, decided, "comment:pr:fix-reviewing")
     t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
@@ -400,14 +402,17 @@ local function new_trace_fixture(fixture, production)
       new_head_sha = FIXED_HEAD,
       new_version = core.next_fix_version(production.event.version),
     }
-    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
-      local emitted = facade.emit(grant, effect_id, snapshot, args)
-      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
-      table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
-      table.insert(full_writes, { queue = effect_id, payload = emitted })
+    for _, effect_id in ipairs(decided.granted_effect_ids) do
+      if effect_id ~= "git.push:fix-branch" then
+        local emitted = facade.emit(grant, effect_id, snapshot, args)
+        t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+        table.insert(trace_effect_ids, effect_id)
+        table.insert(writes, observation_support.admission_trace_write(#writes + 1, effect_id, emitted))
+        table.insert(full_writes, { queue = effect_id, payload = emitted })
+      end
     end
   end
-  return decided, writes, full_writes
+  return decided, writes, full_writes, trace_effect_ids
 end
 
 local function assert_fix_trace_equality()
@@ -416,7 +421,7 @@ local function assert_fix_trace_equality()
   local new_fixtures = observation_support.json_array()
   for _, fixture in ipairs(TRACE_FIXTURES) do
     local production = assert_catalog_matches_observed_decision(fixture)
-    local decided, new_writes = new_trace_fixture(fixture, production)
+    local decided, new_writes, _, trace_effect_ids = new_trace_fixture(fixture, production)
     local old_writes = production.observed.status == "apply"
       and observation_support.admission_trace_writes(
         production.result.raises,
@@ -430,7 +435,7 @@ local function assert_fix_trace_equality()
       production.observed.reason_code,
       production.decision.outcome,
       decided.effect_entitlement_id,
-      decided.granted_effect_ids,
+      trace_effect_ids,
       old_writes
     ))
     table.insert(new_fixtures, observation_support.admission_trace_fixture(
@@ -440,13 +445,13 @@ local function assert_fix_trace_equality()
       decided.reason_code,
       decided.cas_outcome,
       decided.effect_entitlement_id,
-      decided.granted_effect_ids,
+      trace_effect_ids,
       new_writes
     ))
   end
 
-  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures, corpus.captured_sink_effects)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures, corpus.captured_sink_effects)
   local canonical_json = observation_support.canonical_json
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
     "R9 PR fix production and independent facade admission trace")
