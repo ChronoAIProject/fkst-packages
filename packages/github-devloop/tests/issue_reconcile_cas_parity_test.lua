@@ -74,7 +74,6 @@ local function run_production(options)
     decide = restart_effects.decide_transition,
     mint = restart_effects.mint_grant,
     verify = restart_effects.verify_grant,
-    cas = devloop_state.versioned_transition_status,
     log_cas = devloop_logging.log_cas_decision,
     log_raise = devloop_logging.log_raise,
   }
@@ -100,9 +99,6 @@ local function run_production(options)
     if options.reject_verify then return false end
     return original.verify(grant, effect_id, snapshot)
   end
-  devloop_state.versioned_transition_status = function()
-    error("issue-reconcile production used retired direct CAS", 0)
-  end
   devloop_logging.log_cas_decision = function(...)
     local fields = { ... }
     table.insert(calls.logs, {
@@ -127,7 +123,6 @@ local function run_production(options)
 
   devloop_logging.log_raise = original.log_raise
   devloop_logging.log_cas_decision = original.log_cas
-  devloop_state.versioned_transition_status = original.cas
   restart_effects.verify_grant = original.verify
   restart_effects.mint_grant = original.mint
   restart_effects.decide_transition = original.decide

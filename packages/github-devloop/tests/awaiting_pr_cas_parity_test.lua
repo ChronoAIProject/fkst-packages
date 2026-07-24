@@ -77,36 +77,10 @@ local function observe_department(run)
   local decisions = {}
   local boundary_calls = {}
   local boundary_seen = {}
-  local original_versioned = devloop_state.versioned_transition_status
   local original_decide = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_parse_pr_proposal_id = entity_lib.parse_pr_proposal_id
 
-  devloop_state.versioned_transition_status = function(
-    current,
-    from_states,
-    to_state,
-    incoming_version,
-    target_version
-  )
-    local variant = probe_variant(from_states, to_state)
-    if variant == "implementing_to_awaiting_pr" then
-      error("awaiting-pr production used retired direct CAS", 0)
-    end
-    local outcome = original_versioned(current, from_states, to_state, incoming_version, target_version)
-    if variant ~= nil then
-      table.insert(probes, {
-        current = current,
-        from_states = from_states,
-        to_state = to_state,
-        incoming_version = incoming_version,
-        target_version = target_version,
-        outcome = outcome,
-        variant = variant,
-      })
-    end
-    return outcome
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide(snapshot, intent)
     if intent.semantic_variant == IMPLEMENTING_SHADOW_VARIANT then
@@ -152,7 +126,6 @@ local function observe_department(run)
   entity_lib.parse_pr_proposal_id = original_parse_pr_proposal_id
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end

@@ -1,10 +1,10 @@
 -- Non-circularity contract: production truth comes from the real review_result
--- department's owner decision and the exact legacy safe-version probe reconstructed
--- from those arguments. Frozen OLD payload truth remains the committed R9 corpus,
--- and direct legacy CAS use is rejected after the production swap.
+-- department's owner decision. OLD admission truth comes from the protected R9
+-- corpus or a frozen literal probe outcome on each additional edge case.
 
 local catalog = require("devloop.restart_cas_catalog")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
+local observation_support = require("testkit_internal.old_behavior_observation_support")
 local inventories = {
   canonicalization = require("core.restart.canonicalization_inventory"),
   entry = require("core.restart.entry_inventory"),
@@ -33,6 +33,8 @@ local V_EQUAL = "2026-06-03T01-02-03Z"
 local V_NEWER = "2026-06-04T01-02-03Z"
 local V_ORDERING_EQUAL_CURRENT = "v-loop-01"
 local V_ORDERING_EQUAL_INCOMING = "v-loop-1"
+local REVIEW_RESULT_CORPUS_PATH =
+  "migration/intent_bounded_replay/corpus/pr-review-result.json"
 
 local function version_at_fix_round(round)
   local version = V_EQUAL
@@ -59,7 +61,6 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local comment_builders = {}
-  local original_cyclic = devloop_state.cyclic_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_mint_grant = restart_effects.mint_grant
   local original_log_cas = devloop_logging.log_cas_decision
@@ -67,9 +68,6 @@ local function observe_department(run)
   local owner_decisions = {}
   local grant_mints = {}
 
-  devloop_state.cyclic_transition_status = function()
-    error("PR review-result production used retired direct CAS", 0)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide_transition(snapshot, intent)
     table.insert(owner_decisions, {
@@ -88,8 +86,7 @@ local function observe_department(run)
       to_state = intent.target,
       incoming_version = intent.incoming_version,
       target_version = intent.target_version,
-      outcome = original_cyclic(legacy_current, { "reviewing" }, intent.target,
-        intent.incoming_version, intent.target_version),
+      decision = decision,
     })
     return decision
   end
@@ -146,7 +143,6 @@ local function observe_department(run)
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.mint_grant = original_mint_grant
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.cyclic_transition_status = original_cyclic
   if not ok then
     error(result, 0)
   end
@@ -219,21 +215,36 @@ local function emitted_state(result)
   return nil
 end
 
-local function observed_admission(probe)
-  if probe.outcome == "pending" then
+local function protected_probe_outcome(fixture)
+  if fixture.fixture_id ~= nil then
+    return observation_support.protected_admission_fixture(
+      REVIEW_RESULT_CORPUS_PATH,
+      fixture.fixture_id
+    ).cas_status
+  end
+  if fixture.probe_outcome == nil then
+    error("review-result fixture is missing its frozen OLD probe outcome: "
+      .. tostring(fixture.name), 0)
+  end
+  return fixture.probe_outcome
+end
+
+local function observed_admission(probe_outcome, probe)
+  if probe_outcome == "pending" then
     return { status = "pending", reason_code = "source-marker-not-visible" }
   end
-  if probe.outcome == "idempotent" then
+  if probe_outcome == "idempotent" then
     return { status = "idempotent", reason_code = "already-at-target" }
   end
-  if probe.outcome == "stale" then
+  if probe_outcome == "stale" then
     if transition_version.compare(probe.incoming_version, probe.current.version) < 0 then
       return { status = "stale", reason_code = "incoming-version-older" }
     end
     return { status = "stale", reason_code = "advanced-or-diverged" }
   end
-  if probe.outcome ~= "apply" then
-    error("review-result admission probe returned an unknown outcome: " .. tostring(probe.outcome))
+  if probe_outcome ~= "apply" then
+    error("review-result protected admission probe returned an unknown outcome: "
+      .. tostring(probe_outcome))
   end
 
   -- The probe receives current_review_version after production's safe projection.
@@ -354,13 +365,14 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
 
   local comment_builder_reached = #comment_builders > 0
+  local old_probe_outcome = protected_probe_outcome(fixture)
   t.eq(
     #comment_builders,
     fixture.comment_builder_reached and 1 or 0,
     fixture.name .. ": post-admission comment builder reach"
   )
   if comment_builder_reached then
-    t.eq(probe.outcome, "apply", fixture.name .. ": comment builder requires an applied probe")
+    t.eq(old_probe_outcome, "apply", fixture.name .. ": comment builder requires an applied OLD probe")
     local boundary = comment_builders[1]
     t.eq(boundary.repo, "owner/repo", fixture.name .. ": boundary repo")
     t.eq(boundary.issue_number, "42", fixture.name .. ": boundary issue")
@@ -372,7 +384,7 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(boundary.reached.proposal_id, event.proposal_id, fixture.name .. ": boundary review proposal")
   end
 
-  local observed = observed_admission(probe)
+  local observed = observed_admission(old_probe_outcome, probe)
   local disposition = post_admission_disposition(result, observed.status == "apply", comment_builder_reached)
   t.eq(disposition, fixture.post_admission_disposition or "not-admitted", fixture.name .. ": post-admission disposition")
   local expected_queues = fixture.expected_queues or {}
@@ -381,7 +393,7 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(result.raises[index].queue, expected_queue, fixture.name .. ": captured effect queue " .. tostring(index))
   end
   if fixture.effect_state ~= nil then
-    t.eq(probe.outcome, "apply", fixture.name .. ": effect follows an applied shared probe")
+    t.eq(old_probe_outcome, "apply", fixture.name .. ": effect follows an applied OLD probe")
     t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
     t.eq(#grant_mints, 1, fixture.name .. ": exactly one review-result grant minted")
     t.eq(grant_mints[1].sink_id, "comment:pr:review-result", fixture.name .. ": review-result grant sink")
@@ -400,10 +412,14 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": catalog incoming version comes from probe")
   t.eq(evidence.target_version, probe.target_version, fixture.name .. ": catalog target version comes from probe")
   local actual = catalog.resolve(POLICY_ID, evidence, projection)
+  t.eq(owner_decisions[1].decision.status, observed.status,
+    fixture.name .. ": production owner status vs protected OLD")
+  t.eq(owner_decisions[1].decision.reason_code, observed.reason_code,
+    fixture.name .. ": production owner reason vs protected OLD")
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
   if fixture.probe_outcome ~= nil then
-    t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
+    t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
   end
   if fixture.admission_status ~= nil then
     t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
@@ -537,6 +553,7 @@ return {
         current_version = V_EQUAL,
         incoming_version = V_EQUAL,
         target_state = "fixing",
+        probe_outcome = "apply",
         comment_builder_reached = true,
         effect_state = "fixing",
         post_admission_disposition = "effect-emitted(fixing)",
@@ -552,6 +569,7 @@ return {
         current_version = V_EQUAL,
         incoming_version = V_EQUAL,
         target_state = "fixing",
+        probe_outcome = "idempotent",
         legacy_log_outcome = "skip-idempotent(already at to_state)",
       },
       {
@@ -560,6 +578,7 @@ return {
         current_version = nil,
         incoming_version = V_EQUAL,
         target_state = "fixing",
+        probe_outcome = "pending",
         expected_exit_code = 1,
         legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
       },
@@ -605,6 +624,7 @@ return {
         current_version = reflection_version,
         incoming_version = reflection_version,
         target_state = "review-meta",
+        probe_outcome = "apply",
         comment_builder_reached = true,
         effect_state = "review-meta",
         post_admission_disposition = "effect-emitted(review-meta)",
@@ -620,6 +640,7 @@ return {
         current_version = reflection_version,
         incoming_version = V_OLDER,
         target_state = "review-meta",
+        probe_outcome = "stale",
         legacy_log_outcome = "skip-stale(incoming version < current marker version)",
       },
       {
@@ -628,6 +649,7 @@ return {
         current_version = reflection_version,
         incoming_version = V_NEWER,
         target_state = "review-meta",
+        probe_outcome = "pending",
         expected_exit_code = 1,
         legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
       },
@@ -637,6 +659,7 @@ return {
         current_version = reflection_version,
         incoming_version = reflection_version,
         target_state = "review-meta",
+        probe_outcome = "idempotent",
         legacy_log_outcome = "skip-idempotent(already at to_state)",
       },
       {
@@ -646,6 +669,7 @@ return {
         current_version = nil,
         incoming_version = V_EQUAL,
         target_state = "merge-ready",
+        probe_outcome = "pending",
         expected_exit_code = 1,
         legacy_log_outcome = "retry-pending(from-state marker not yet visible)",
       },
@@ -674,6 +698,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_OLDER,
       target_state = "fixing",
+      probe_outcome = "stale",
     })
   end,
 
@@ -684,6 +709,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       target_state = "fixing",
+      probe_outcome = "apply",
       comment_builder_reached = true,
       effect_state = "fixing",
       post_admission_disposition = "effect-emitted(fixing)",
@@ -702,6 +728,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       target_state = "merge-ready",
+      probe_outcome = "apply",
       comment_builder_reached = true,
       effect_state = "merge-ready",
       post_admission_disposition = "effect-emitted(merge-ready)",
@@ -720,6 +747,7 @@ return {
       current_state = "reviewing",
       current_version = reflection_review_version,
       incoming_version = reflection_review_version,
+      probe_outcome = "apply",
       comment_builder_reached = true,
       effect_state = "review-meta",
       post_admission_disposition = "effect-emitted(review-meta)",
@@ -763,6 +791,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_NEWER,
       target_state = "fixing",
+      probe_outcome = "pending",
       expected_exit_code = 1,
     })
   end,
@@ -775,6 +804,7 @@ return {
       current_version = nil,
       incoming_version = V_EQUAL,
       target_state = "merge-ready",
+      probe_outcome = "pending",
       expected_exit_code = 1,
     })
   end,
@@ -786,6 +816,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       target_state = "fixing",
+      probe_outcome = "idempotent",
     })
   end,
 
@@ -796,6 +827,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       target_state = "fixing",
+      probe_outcome = "stale",
     })
   end,
 

@@ -78,14 +78,10 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local boundary_calls = {}
-  local original_versioned = devloop_state.versioned_transition_status
   local original_decide = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_build_timeout = conv_reconcile.build_timeout_reconcile_comment_request
 
-  devloop_state.versioned_transition_status = function()
-    error("timeout-reconcile production used retired direct CAS", 0)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide(snapshot, intent)
     table.insert(probes, {
@@ -135,7 +131,6 @@ local function observe_department(run)
   conv_reconcile.build_timeout_reconcile_comment_request = original_build_timeout
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end

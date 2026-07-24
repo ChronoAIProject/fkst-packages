@@ -56,7 +56,6 @@ local function observe_department(run, fixture)
   local decisions = {}
   local boundary_calls = {}
   local sequence = 0
-  local original_versioned = devloop_state.versioned_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_claim_issue = devloop_claims.claim_issue_for_management
@@ -68,15 +67,6 @@ local function observe_department(run, fixture)
     return fixture ~= nil and fixture.live_thinking == true
   end
 
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    if type(from_states) == "table"
-      and #from_states == 1
-      and from_states[1] == "unmanaged"
-      and to_state == "thinking" then
-      error("observe_issue production used retired direct entry CAS", 0)
-    end
-    return original_versioned(current, from_states, to_state, incoming_version, target_version)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide_transition(snapshot, intent)
     if intent.semantic_variant == "unmanaged_issue" then
@@ -95,13 +85,7 @@ local function observe_department(run, fixture)
         to_state = intent.target,
         incoming_version = intent.incoming_version,
         target_version = intent.target_version,
-        outcome = original_versioned(
-          legacy_current,
-          { "unmanaged" },
-          intent.target,
-          intent.incoming_version,
-          intent.target_version
-        ),
+        outcome = decision.status,
       })
     end
     return decision
@@ -143,7 +127,6 @@ local function observe_department(run, fixture)
   devloop_claims.claim_issue_for_management = original_claim_issue
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end
@@ -561,7 +544,6 @@ local function frozen_old_observation(observation_name)
     local site = record.site or {}
     if site.path == "packages/github-devloop/departments/observe_issue/main.lua"
       and site.symbol == "process_issue_event"
-      and site.ordinal == "versioned_transition_status:unmanaged->thinking"
       and tostring(record.observation_id or ""):find(needle, 1, true) ~= nil then
       t.eq(selected, nil, observation_name .. ": frozen OLD observation is unique")
       selected = record

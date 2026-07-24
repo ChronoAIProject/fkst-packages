@@ -361,6 +361,26 @@ class RestartLifecycleRatchetTest(unittest.TestCase):
         messages = self.messages_for(mutate=mutate)
         self.assertTrue(any('site_id writer:1: path does not exist' in m for m in messages), messages)
 
+    def test_retired_site_uses_protected_base_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def mutate(inventory):
+                inventory['owner_observation_fact_sites'].append({
+                    'site_id': 'fact:old-pending-projection',
+                    'path': 'libraries/devloop/state.lua',
+                    'symbol': 'can_reach',
+                    'ordinal': 'transition_status:pending-projection',
+                })
+
+            self.write_fixture(root, mutate=mutate)
+            with mock.patch.object(
+                ratchet.ratchet_base,
+                'file_at_base',
+                return_value=('present', 'local function can_reach() return true end\n'),
+            ):
+                self.assertEqual(ratchet.repository_messages(root, enforce_base=False), [])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -6,7 +6,10 @@ local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
 local transition_version = require("contract.transition_version")
 local core = require("core")
-local review_loop_caps = require("review_loop_department_caps")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
+local sink_inventory = require("core.restart.sink_inventory")
+local restart_package_name = assert(rawget(core, "restart_package_name"))
 local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 
@@ -35,8 +38,8 @@ local spec = {
 local function reviewing_segment_transition_status(comments, args)
   local state = entity_lib.current_entity_state(comments, args.proposal_id)
   local current_state = state or {}
-  local snapshot = review_loop_caps.restart_effects.seal_snapshot({
-    owner = review_loop_caps.restart_package_name,
+  local snapshot = restart_effects.seal_snapshot({
+    owner = restart_package_name,
     entity = { kind = "pr", repo = args.repo, number = args.pr_number },
     proposal_id = args.proposal_id,
     current = state,
@@ -52,7 +55,7 @@ local function reviewing_segment_transition_status(comments, args)
     lock_epoch = args.lock_key .. "@" .. tostring(current_state.version or args.dedup_key),
     generation = current_state.version or args.dedup_key,
   })
-  local transition = review_loop_caps.restart_effects.decide_transition(snapshot, {
+  local transition = restart_effects.decide_transition(snapshot, {
     semantic_variant = "review_convergence_round",
     source_boundary = "consensus.consensus_converge",
     target = "reviewing",
@@ -131,7 +134,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       dedup_key = unresolved.dedup_key,
       lock_key = lock_key,
     })
-    review_loop_caps.restart_effects.assert_decision_admissible(
+    restart_effects.assert_decision_admissible(
       transition,
       "github-devloop: restart-effect-decision-illegal: review loop admission rejected"
     )
@@ -147,13 +150,13 @@ return saga.department(spec, { done = function() return false end, act = functio
       error("github-devloop: restart-effect-decision-illegal: unsupported review loop admission status: "
         .. tostring(transition.status))
     end
-    local facade = review_loop_caps.restart_effect_facade.make({
+    local facade = restart_effect_facade.make({
       family = "pr-review-loop",
-      verify_grant = review_loop_caps.restart_effects.verify_grant,
-      sink_inventory = review_loop_caps.sink_inventory,
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = sink_inventory,
     })
     local function build_comment_request(round_for_comment, marker_body_for_comment)
-      local grant = review_loop_caps.restart_effects.mint_grant(
+      local grant = restart_effects.mint_grant(
         snapshot, transition, "comment:pr:review-converge-round"
       )
       if grant == nil then

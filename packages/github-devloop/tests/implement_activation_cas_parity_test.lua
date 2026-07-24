@@ -86,8 +86,6 @@ local function observe_department(run, opts)
   local boundary_calls = {}
   local serializer_calls = { comment = {}, label = {} }
   local sequence = 0
-  local original_versioned = devloop_state.versioned_transition_status
-  local original_cyclic = devloop_state.cyclic_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_verified_hand_off_state = payloads_predicates.verified_hand_off_state
@@ -136,27 +134,13 @@ local function observe_department(run, opts)
     })
     return original_implementing_label(repo, issue_number, ready)
   end
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    if to_state == "implementing" and probe_variant(from_states, to_state) ~= nil then
-      error("implement production used retired direct versioned activation CAS", 0)
-    end
-    return original_versioned(current, from_states, to_state, incoming_version, target_version)
-  end
-  devloop_state.cyclic_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    if to_state == "implementing" and probe_variant(from_states, to_state) ~= nil then
-      error("implement production used retired direct cyclic activation CAS", 0)
-    end
-    return original_cyclic(current, from_states, to_state, incoming_version, target_version)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide_transition(snapshot, intent)
     local source = decision_sources[intent.semantic_variant]
     if source ~= nil then
       local from_states = { source.state }
       local current = { state = snapshot.current.state, version = snapshot.current.version }
-      local outcome = source.kind == "cyclic"
-        and original_cyclic(current, from_states, "implementing", intent.incoming_version, intent.target_version)
-        or original_versioned(current, from_states, "implementing", intent.incoming_version, intent.target_version)
+      local outcome = decision.status
       sequence = sequence + 1
       local named_call = {
         sequence = sequence,
@@ -237,8 +221,6 @@ local function observe_department(run, opts)
   payloads_predicates.verified_hand_off_state = original_verified_hand_off_state
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.cyclic_transition_status = original_cyclic
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end

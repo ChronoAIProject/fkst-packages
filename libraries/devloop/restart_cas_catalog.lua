@@ -198,7 +198,7 @@ local function resolve_base(evidence, base, projection)
   local incoming_version = evidence.incoming_version
   if base == "plain" then
     -- The abstract cas.base_plain_legacy_v1 (the only resolve_base plain policy) models
-    -- production's versionless transition_status admission primitive, so its stale
+    -- the protected versionless admission baseline, so its stale
     -- cas_outcome must NOT version-branch. Concrete plain profiles that DO carry a
     -- cas_outcome version (e.g. loop_plain's dedup_key) resolve via resolve_profile, which
     -- passes incoming_version to base_result directly and is unaffected by this nil.
@@ -465,40 +465,49 @@ local policy_order = {
   "cas.legacy_implement_activation_handoff_v1",
 }
 
+local function protected_observation(surface, overlay)
+  return {
+    artifact = "migration/restart-lifecycle.inventory.json",
+    schema = "restart-old-behavior-observation.v2",
+    surface = surface,
+    overlay = overlay,
+  }
+end
+
 local policies = {
   ["cas.base_plain_legacy_v1"] = {
     evidence_type = "cas_base_evidence_v1",
-    production = { function_name = "transition_status", source = "libraries/devloop/state.lua:505" },
+    production = protected_observation("cas.base_plain_legacy_v1"),
     resolve = function(evidence, projection) return resolve_base(evidence, "plain", projection) end,
   },
   ["cas.base_versioned_legacy_v1"] = {
     evidence_type = "cas_base_evidence_v1",
-    production = { function_name = "versioned_transition_status", source = "libraries/devloop/state.lua:527" },
+    production = protected_observation("cas.base_versioned_legacy_v1"),
     resolve = function(evidence, projection) return resolve_base(evidence, "versioned", projection) end,
   },
   ["cas.base_cyclic_legacy_v1"] = {
     evidence_type = "cas_base_evidence_v1",
-    production = { function_name = "cyclic_transition_status", source = "libraries/devloop/state.lua:538" },
+    production = protected_observation("cas.base_cyclic_legacy_v1"),
     resolve = function(evidence, projection) return resolve_base(evidence, "cyclic", projection) end,
   },
   ["cas.legacy_loop_plain_v1"] = {
     evidence_type = "loop_cas_evidence_v1",
-    production = { function_name = "transition_status", overlay = "none", source = "packages/github-devloop/departments/loop/main.lua:75" },
+    production = protected_observation("packages/github-devloop/departments/loop/main.lua", "none"),
     base = "plain",
     variants = { thinking_to_blocked = variant({ "thinking" }, "blocked") },
     overlay = { kind = "none", statuses = {} },
   },
   ["cas.legacy_consensus_result_v1"] = {
     evidence_type = "consensus_result_cas_evidence_v1",
-    -- Admission-only: the versioned base fully models production's version-concurrency CAS
-    -- (consensus_result/main.lua:175 versioned_transition_status). Production's exact-version
+    -- Admission-only: the protected baseline fully models production's version-concurrency CAS.
+    -- Production's exact-version
     -- idempotent effect-completeness REPAIR (idempotent probe + effects incomplete → re-raise
     -- the result effects at the SAME version) is a POST-admission effect-idempotency
     -- disposition, not a version-CAS admission, so it is NOT folded into the catalog status
     -- (composed downstream, like merge's re-merge). catalog.resolve returns idempotent for the
     -- idempotent probe regardless of effect completeness; the re-apply is a separate axis
     -- verified by the non-circular consensus_result parity harness (post_admission_disposition).
-    production = { function_name = "versioned_transition_status", overlay = "admission-only versioned base (effect-completeness repair is a downstream disposition)", source = "packages/github-devloop/departments/consensus_result/main.lua:175" },
+    production = protected_observation("packages/github-devloop/departments/consensus_result/main.lua", "admission-only versioned base (effect-completeness repair is a downstream disposition)"),
     base = "versioned",
     variants = {
       thinking_to_ready = variant({ "thinking" }, "ready"),
@@ -509,7 +518,7 @@ local policies = {
   },
   ["cas.legacy_issue_reconcile_v1"] = {
     evidence_type = "reconcile_cas_evidence_v1",
-    production = { function_name = "versioned_transition_status", overlay = "state and terminal checks", source = "packages/github-devloop/departments/reconcile/main.lua:136" },
+    production = protected_observation("packages/github-devloop/departments/reconcile/main.lua", "state and terminal checks"),
     base = "versioned",
     variants = {
       thinking_to_blocked = variant({ "thinking" }, "blocked"),
@@ -519,7 +528,7 @@ local policies = {
   },
   ["cas.legacy_timeout_reconcile_v1"] = {
     evidence_type = "timeout_reconcile_cas_evidence_v1",
-    production = { function_name = "versioned_transition_status", overlay = "fresh-instance due attempt and lineage checks", source = "packages/github-devloop/departments/reconcile/main.lua:254" },
+    production = protected_observation("packages/github-devloop/departments/reconcile/main.lua", "fresh-instance due attempt and lineage checks"),
     base = "versioned",
     variants = {
       awaiting_pr_to_blocked = variant({ "awaiting-pr" }, "blocked"),
@@ -539,14 +548,14 @@ local policies = {
   },
   ["cas.legacy_observe_issue_entry_v1"] = {
     evidence_type = "observe_issue_entry_cas_evidence_v1",
-    production = { function_name = "versioned_transition_status", overlay = "current exact branch order", source = "packages/github-devloop/departments/observe_issue/main.lua:744" },
+    production = protected_observation("packages/github-devloop/departments/observe_issue/main.lua", "current exact branch order"),
     base = "versioned",
     variants = { unmanaged_to_thinking = variant({ "unmanaged" }, "thinking") },
     overlay = { kind = "none", statuses = {} },
   },
   ["cas.legacy_awaiting_pr_v1"] = {
     evidence_type = "awaiting_pr_cas_evidence_v1",
-    production = { function_name = "versioned_transition_status", overlay = "parent and child fact checks", source = "packages/github-devloop/core/awaiting_pr_replayer.lua:174" },
+    production = protected_observation("packages/github-devloop/core/awaiting_pr_replayer.lua", "parent and child fact checks"),
     base = "versioned",
     variants = {
       implementing_to_awaiting_pr = variant({ "implementing" }, "awaiting-pr"),
@@ -558,21 +567,21 @@ local policies = {
   },
   ["cas.legacy_observe_pr_v1"] = {
     evidence_type = "observe_pr_cas_evidence_v1",
-    production = { function_name = "versioned_transition_status", overlay = "raw pr-open version equality", source = "packages/github-devloop-pr/departments/observe_pr/main.lua:586" },
+    production = protected_observation("packages/github-devloop-pr/departments/observe_pr/main.lua", "raw pr-open version equality"),
     base = "versioned",
     variants = { pr_open_to_reviewing = variant({ "pr-open", "unmanaged" }, "reviewing") },
     overlay = { kind = "version", version_form = "raw", statuses = { apply = true }, only_states = { "pr-open" } },
   },
   ["cas.legacy_observe_pr_fix_v1"] = {
     evidence_type = "observe_pr_fix_cas_evidence_v1",
-    production = { function_name = "maybe_redrive_not_mergeable_pr", overlay = "state-only admission after not-mergeable guards", source = "packages/github-devloop-pr/departments/observe_pr/main.lua:316" },
+    production = protected_observation("packages/github-devloop-pr/departments/observe_pr/main.lua", "state-only admission after not-mergeable guards"),
     base = "plain",
     variants = { pr_open_to_fixing = variant({ "pr-open" }, "fixing") },
     overlay = { kind = "none", statuses = {} },
   },
   ["cas.legacy_review_result_v1"] = {
     evidence_type = "review_result_cas_evidence_v1",
-    production = { function_name = "cyclic_transition_status", overlay = "safe-segment equality", source = "packages/github-devloop-pr/departments/review_result/main.lua:185" },
+    production = protected_observation("packages/github-devloop-pr/departments/review_result/main.lua", "safe-segment equality"),
     base = "cyclic",
     base_current_version_form = "safe",
     variants = {
@@ -584,7 +593,7 @@ local policies = {
   },
   ["cas.legacy_fix_v1"] = {
     evidence_type = "fix_cas_evidence_v1",
-    production = { function_name = "cyclic_transition_status", overlay = "raw fixing version equality", source = "packages/github-devloop-pr/departments/fix/main.lua:516" },
+    production = protected_observation("packages/github-devloop-pr/departments/fix/main.lua", "raw fixing version equality"),
     base = "cyclic",
     variants = {
       fixing_to_reviewing = variant({ "fixing" }, "reviewing"),
@@ -594,7 +603,7 @@ local policies = {
   },
   ["cas.legacy_review_meta_v1"] = {
     evidence_type = "review_meta_cas_evidence_v1",
-    production = { function_name = "cyclic_transition_status", overlay = "raw review-meta version equality", source = "packages/github-devloop-pr/departments/review_meta/main.lua:201" },
+    production = protected_observation("packages/github-devloop-pr/departments/review_meta/main.lua", "raw review-meta version equality"),
     base = "cyclic",
     variants = {
       predecision_eligibility = {
@@ -606,7 +615,7 @@ local policies = {
   },
   ["cas.legacy_merge_v1"] = {
     evidence_type = "merge_cas_evidence_v1",
-    production = { function_name = "cyclic_transition_status", overlay = "admissible state and raw version equality", source = "packages/github-devloop-pr/core/merge_executor.lua:349" },
+    production = protected_observation("packages/github-devloop-pr/core/merge_executor.lua", "admissible state and raw version equality"),
     base = "cyclic",
     variants = {
       merge_ready_to_merging = variant({ "merge-ready" }, "merging"),
@@ -622,11 +631,7 @@ local policies = {
   },
   ["cas.legacy_merge_completion_v1"] = {
     evidence_type = "merge_completion_cas_evidence_v1",
-    production = {
-      function_name = "process_merge_ready_locked",
-      overlay = "same-attempt merge completion with raw version equality",
-      source = "packages/github-devloop-pr/core/merge_executor.lua:644",
-    },
+    production = protected_observation("packages/github-devloop-pr/core/merge_executor.lua", "same-attempt merge completion with raw version equality"),
     base = "cyclic",
     variants = {
       merge_ready_or_merging_to_merged = variant({ "merge-ready", "merging" }, "merged"),
@@ -640,7 +645,7 @@ local policies = {
   },
   ["cas.legacy_pr_fix_reconcile_v1"] = {
     evidence_type = "pr_fix_reconcile_cas_evidence_v1",
-    production = { function_name = "versioned_transition_status", overlay = "safe-segment source equality", source = "packages/github-devloop-pr/departments/reconcile/main.lua:293" },
+    production = protected_observation("packages/github-devloop-pr/departments/reconcile/main.lua", "safe-segment source equality"),
     base = "versioned",
     variants = {
       review_reject_to_blocked = variant({ "reviewing", "fixing", "merge-ready", "merging" }, "blocked"),
@@ -650,17 +655,17 @@ local policies = {
   },
   ["cas.legacy_review_loop_safe_v1"] = {
     evidence_type = "review_loop_safe_cas_evidence_v1",
-    production = { function_name = "reviewing_segment_transition_status", overlay = "dedicated safe equality without ordering", source = "packages/github-devloop-pr/departments/review_loop/main.lua:71" },
+    production = protected_observation("packages/github-devloop-pr/departments/review_loop/main.lua", "dedicated safe equality without ordering"),
     resolve = resolve_review_loop,
   },
   ["cas.legacy_review_activation_handoff_v1"] = {
     evidence_type = "review_activation_handoff_cas_evidence_v1",
-    production = { function_name = "reviewing_transition_status", overlay = "direct-ID handoff", source = "packages/github-devloop-pr/departments/review_pr/main.lua:29" },
+    production = protected_observation("packages/github-devloop-pr/departments/review_pr/main.lua", "direct-ID handoff"),
     resolve = resolve_review_activation,
   },
   ["cas.legacy_implement_activation_handoff_v1"] = {
     evidence_type = "implement_activation_handoff_cas_evidence_v1",
-    production = { function_name = "implementation_transition_status", overlay = "initial direct-ID once and structural rechecks", source = "packages/github-devloop/departments/implement/transitions.lua:50" },
+    production = protected_observation("packages/github-devloop/departments/implement/transitions.lua", "initial direct-ID once and structural rechecks"),
     variants = {
       ready_to_implementing = variant({ "ready" }, "implementing"),
       impl_failed_to_implementing = variant({ "impl-failed" }, "implementing"),

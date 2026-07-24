@@ -72,21 +72,11 @@ local function observe_department(run)
   local decisions = {}
   local result_marker_checks = {}
   local grant_mints = 0
-  local original_versioned = devloop_state.versioned_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_mint_grant = restart_effects.mint_grant
   local original_log_cas = devloop_logging.log_cas_decision
   local original_has_result_marker = devloop_state.has_result_marker
 
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version)
-    if type(from_states) == "table"
-      and #from_states == 1
-      and from_states[1] == "thinking"
-      and TARGET_SHADOW[to_state] ~= nil then
-      error("consensus_result production used retired direct result CAS", 0)
-    end
-    return original_versioned(current, from_states, to_state, incoming_version)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decided = original_decide_transition(snapshot, intent)
     local target_state = target_for_semantic_variant(intent.semantic_variant)
@@ -100,12 +90,7 @@ local function observe_department(run)
         from_states = { "thinking" },
         to_state = target_state,
         incoming_version = intent.incoming_version,
-        outcome = original_versioned(
-          legacy_current,
-          { "thinking" },
-          target_state,
-          intent.incoming_version
-        ),
+        outcome = decided.status,
       })
     end
     return decided
@@ -142,7 +127,6 @@ local function observe_department(run)
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.mint_grant = original_mint_grant
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end

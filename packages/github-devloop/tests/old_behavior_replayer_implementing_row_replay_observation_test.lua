@@ -267,7 +267,6 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = "implementing",
-      transition_kind = "versioned_transition_status",
       run = function() return testing.run_fake(observe_issue_department, event) end,
       codex_runs_for_read = controlled_codex_runs(fixture),
       write_mode = "real",

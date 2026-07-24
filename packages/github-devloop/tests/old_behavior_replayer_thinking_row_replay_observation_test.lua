@@ -289,7 +289,6 @@ local function capture_runtime(fixture)
       devloop_state = devloop_state,
       dept = "observe_issue",
       from_state = "thinking",
-      transition_kind = "versioned_transition_status",
       run = function()
         return testing.run_fake(observe_issue_department, event)
       end,
@@ -530,16 +529,6 @@ local function assert_internal_no_op_branches_are_not_production_reachable()
   local derived = devloop_state.current_state(terminal_comments, PROPOSAL_ID)
   t.eq(derived.state, "blocked", "visible reconcile marker is production-paired with blocked state marker")
   t.eq(derived.version, terminal_version, "paired blocked marker carries the terminal replay version")
-  t.eq(
-    devloop_state.versioned_transition_status(
-      { state = "thinking", version = BASE_VERSION },
-      { "thinking" },
-      "blocked",
-      terminal_version
-    ),
-    "apply",
-    "production thinking-to-blocked replay CAS cannot be idempotent or stale"
-  )
 end
 
 return {

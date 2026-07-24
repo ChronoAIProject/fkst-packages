@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real merge
 -- department's owner-decider and grant-gated synchronous marker path. Frozen
--- OLD truth comes from the former production branch copied below and the
--- byte-unchanged observation corpus; no owner decision computes OLD truth.
+-- OLD truth comes from the protected observation corpus or explicit literal
+-- edge-case records; no owner decision computes OLD truth.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -59,10 +59,6 @@ local function observe_department(run)
       to_state = intent.target,
       incoming_version = intent.incoming_version,
       target_version = intent.target_version,
-      outcome = devloop_state.cyclic_transition_status(
-        snapshot.current, { "merge-ready", "merging" }, "merging",
-        intent.incoming_version, intent.target_version
-      ),
       snapshot = snapshot,
       intent = intent,
       decision = decision,
@@ -147,50 +143,6 @@ local function current_fact(state, version)
   return { state = state, version = version }
 end
 
--- Frozen from merge_executor.lua's former direct cyclic CAS and exact branch order.
-local function frozen_old_admission(probe)
-  local current = probe.current
-  local incoming = probe.incoming_version
-  local transition = devloop_state.cyclic_transition_status(
-    current, { "merge-ready", "merging" }, "merging", incoming
-  )
-  if current.state ~= "merge-ready" and current.state ~= "merging" and current.state ~= "merged" then
-    return { status = "stale", reason_code = "from-state-mismatch",
-      cas_outcome = "skip-stale(from-state-mismatch)" }
-  end
-  if transition == "pending" then
-    return { status = "pending", reason_code = "source-marker-not-visible",
-      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
-  end
-  if transition == "stale" then
-    local reason = tostring(incoming or "") ~= tostring(current.version or "")
-      and "incoming-version-older" or "advanced-or-diverged"
-    return { status = "stale", reason_code = reason,
-      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
-  end
-  if transition == "idempotent" and current.state ~= "merging" then
-    return { status = "stale", reason_code = "advanced-or-diverged",
-      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
-  end
-  if transition == "apply" and current.state ~= "merge-ready" then
-    return { status = "stale", reason_code = "from-state-mismatch",
-      cas_outcome = "skip-stale(from-state-mismatch)" }
-  end
-  if transition ~= "apply" and transition ~= "idempotent" then
-    return { status = transition, reason_code = "advanced-or-diverged",
-      cas_outcome = devloop_state.cas_outcome(current, transition, incoming) }
-  end
-  if tostring(current.version or "") ~= tostring(incoming or "") then
-    return { status = "stale", reason_code = "version-mismatch",
-      cas_outcome = "skip-stale(version-mismatch)" }
-  end
-  if transition == "idempotent" then
-    return { status = "idempotent", reason_code = "already-at-target",
-      cas_outcome = "skip-idempotent(already at to_state)" }
-  end
-  return { status = "apply", reason_code = "apply", cas_outcome = "applied" }
-end
-
 local function evidence_from_probe(probe)
   return {
     current = current_fact(probe.current.state, probe.current.version),
@@ -201,8 +153,23 @@ local function evidence_from_probe(probe)
   }
 end
 
-local function observed_admission(probe)
-  return frozen_old_admission(probe)
+local function protected_admission(fixture)
+  if fixture.fixture_id ~= nil then
+    return observation_support.protected_admission_expectation(
+      MERGE_CORPUS_PATH,
+      fixture.fixture_id
+    )
+  end
+  if fixture.admission_status == nil
+    or fixture.admission_reason_code == nil
+    or fixture.admission_cas_outcome == nil then
+    error("merge fixture is missing its frozen OLD admission record: " .. tostring(fixture.name), 0)
+  end
+  return {
+    status = fixture.admission_status,
+    reason_code = fixture.admission_reason_code,
+    cas_outcome = fixture.admission_cas_outcome,
+  }
 end
 
 local function post_admission_disposition(result, decision, boundary_reached)
@@ -283,7 +250,7 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(boundary_calls[1].head_sha, event.reviewed_head_sha, fixture.name .. ": boundary head")
   end
 
-  local observed = observed_admission(probe)
+  local observed = protected_admission(fixture)
   local evidence = evidence_from_probe(probe)
   t.eq(evidence.current.state, probe.current.state, fixture.name .. ": catalog current state comes from probe")
   t.eq(evidence.current.version, probe.current.version, fixture.name .. ": catalog current version comes from probe")
@@ -297,9 +264,6 @@ local function assert_catalog_matches_observed_decision(fixture)
   t.eq(actual.status, observed.status, fixture.name .. ": catalog status vs frozen OLD")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": catalog reason vs frozen OLD")
   t.eq(actual.cas_outcome, observed.cas_outcome, fixture.name .. ": catalog outcome vs frozen OLD")
-  if fixture.probe_outcome ~= nil then
-    t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
-  end
   if fixture.admission_status ~= nil then
     t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
     t.eq(actual.status, fixture.admission_status, fixture.name .. ": catalog admission status")
@@ -520,7 +484,7 @@ local function observe_old_trace_fixture(fixture)
   t.eq(#probes, 1, fixture.fixture_id .. ": OLD production CAS probe count")
   local decision = trace_decision(decisions)
   t.is_true(decision ~= nil, fixture.fixture_id .. ": OLD production admission decision")
-  local observed = observed_admission(probes[1])
+  local observed = protected_admission(fixture)
   t.eq(probes[1].decision.status, observed.status,
     fixture.fixture_id .. ": production owner status vs frozen OLD")
   t.eq(probes[1].decision.reason_code, observed.reason_code,
@@ -629,6 +593,7 @@ return {
       probe_outcome = "apply",
       admission_status = "apply",
       admission_reason_code = "apply",
+      admission_cas_outcome = "applied",
       legacy_log_outcome = "retry-pending(merge-ready fact marker not visible)",
     })
   end,
@@ -645,6 +610,7 @@ return {
       probe_outcome = "idempotent",
       admission_status = "idempotent",
       admission_reason_code = "already-at-target",
+      admission_cas_outcome = "skip-idempotent(already at to_state)",
     })
   end,
 
@@ -657,6 +623,7 @@ return {
       probe_outcome = "stale",
       admission_status = "stale",
       admission_reason_code = "incoming-version-older",
+      admission_cas_outcome = "skip-stale(incoming version < current marker version)",
     })
   end,
 
@@ -670,6 +637,7 @@ return {
       probe_outcome = "pending",
       admission_status = "pending",
       admission_reason_code = "source-marker-not-visible",
+      admission_cas_outcome = "retry-pending(from-state marker not yet visible)",
     })
   end,
 
@@ -682,6 +650,7 @@ return {
       probe_outcome = "stale",
       admission_status = "stale",
       admission_reason_code = "incoming-version-older",
+      admission_cas_outcome = "skip-stale(incoming version < current marker version)",
     })
   end,
 
@@ -695,6 +664,7 @@ return {
       probe_outcome = "pending",
       admission_status = "pending",
       admission_reason_code = "source-marker-not-visible",
+      admission_cas_outcome = "retry-pending(from-state marker not yet visible)",
     })
   end,
 
@@ -707,6 +677,7 @@ return {
       probe_outcome = "pending",
       admission_status = "stale",
       admission_reason_code = "from-state-mismatch",
+      admission_cas_outcome = "skip-stale(from-state-mismatch)",
       legacy_log_outcome = "skip-stale(from-state-mismatch)",
     })
   end,
@@ -723,6 +694,7 @@ return {
       probe_outcome = "pending",
       admission_status = "stale",
       admission_reason_code = "from-state-mismatch",
+      admission_cas_outcome = "skip-stale(from-state-mismatch)",
       legacy_log_outcome = "skip-stale(from-state-mismatch)",
     })
   end,
@@ -736,6 +708,7 @@ return {
       probe_outcome = "pending",
       admission_status = "stale",
       admission_reason_code = "from-state-mismatch",
+      admission_cas_outcome = "skip-stale(from-state-mismatch)",
       legacy_log_outcome = "skip-stale(from-state-mismatch)",
     })
   end,
@@ -746,6 +719,10 @@ return {
       current_state = "blocked",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "stale",
+      admission_status = "stale",
+      admission_reason_code = "from-state-mismatch",
+      admission_cas_outcome = "skip-stale(from-state-mismatch)",
     })
   end,
 
@@ -758,6 +735,7 @@ return {
       probe_outcome = "stale",
       admission_status = "stale",
       admission_reason_code = "advanced-or-diverged",
+      admission_cas_outcome = "skip-advanced-or-diverged",
       legacy_log_outcome = "skip-advanced-or-diverged",
     })
   end,
@@ -771,6 +749,7 @@ return {
       probe_outcome = "stale",
       admission_status = "stale",
       admission_reason_code = "incoming-version-older",
+      admission_cas_outcome = "skip-stale(incoming version < current marker version)",
     })
   end,
 
@@ -784,6 +763,7 @@ return {
       probe_outcome = "pending",
       admission_status = "pending",
       admission_reason_code = "source-marker-not-visible",
+      admission_cas_outcome = "retry-pending(from-state marker not yet visible)",
     })
   end,
 
@@ -796,6 +776,7 @@ return {
       probe_outcome = "apply",
       admission_status = "stale",
       admission_reason_code = "from-state-mismatch",
+      admission_cas_outcome = "skip-stale(from-state-mismatch)",
       legacy_log_outcome = "skip-stale(from-state-mismatch)",
     })
   end,
@@ -813,6 +794,7 @@ return {
       probe_outcome = "apply",
       admission_status = "stale",
       admission_reason_code = "version-mismatch",
+      admission_cas_outcome = "skip-stale(version-mismatch)",
       legacy_log_outcome = "skip-stale(version-mismatch)",
     })
   end,
@@ -826,6 +808,7 @@ return {
       probe_outcome = "idempotent",
       admission_status = "stale",
       admission_reason_code = "version-mismatch",
+      admission_cas_outcome = "skip-stale(version-mismatch)",
       legacy_log_outcome = "skip-stale(version-mismatch)",
     })
   end,

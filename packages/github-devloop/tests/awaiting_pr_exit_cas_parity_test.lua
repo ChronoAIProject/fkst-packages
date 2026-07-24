@@ -187,7 +187,6 @@ local function run_apply(fixture)
   local original_branch_config = config.branch_config
   local original_write_mode = config.write_mode
   local original_autonomy_result_record = autonomy_ledger.autonomy_result_record
-  local original_versioned_transition_status = devloop_state.versioned_transition_status
   config.branch_config = function()
     return { integration = fixture.base_branch, upstream = fixture.base_branch }
   end
@@ -198,9 +197,6 @@ local function run_apply(fixture)
     t.eq(repo, REPO)
     t.eq(issue_number, ISSUE_NUMBER)
     return fake_autonomy_record(merge_ready)
-  end
-  devloop_state.versioned_transition_status = function()
-    error("awaiting-pr exit used retired direct CAS", 0)
   end
 
   local close_calls_before = h.count_calls("gh issue close 42 --repo owner/repo")
@@ -217,7 +213,6 @@ local function run_apply(fixture)
     }, { queue = "github-proxy.github_entity_changed", payload = issue })
   end)
 
-  devloop_state.versioned_transition_status = original_versioned_transition_status
   autonomy_ledger.autonomy_result_record = original_autonomy_result_record
   config.write_mode = original_write_mode
   config.branch_config = original_branch_config
