@@ -3,7 +3,10 @@ local base_ids = require("devloop.base_ids")
 local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
 local core, saga = require("core"), require("workflow.saga")
-local loop_caps = require("loop_department_caps")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
+local sink_inventory = require("core.restart.sink_inventory")
+local restart_package_name = assert(rawget(core, "restart_package_name"))
 local context_bundle = require("devloop.context_bundle")
 
 
@@ -78,8 +81,8 @@ return saga.department(spec, { done = function() return false end, act = functio
       devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", "skip-non-whitelisted-author", "issue author is not authorized for GitHub content")
       return
     end
-    local snapshot = loop_caps.restart_effects.seal_snapshot({
-      owner = loop_caps.restart_package_name,
+    local snapshot = restart_effects.seal_snapshot({
+      owner = restart_package_name,
       entity = { kind = "issue", repo = repo, number = issue_number },
       proposal_id = unresolved.proposal_id,
       current = state,
@@ -93,12 +96,12 @@ return saga.department(spec, { done = function() return false end, act = functio
       lock_epoch = lock_key .. "@" .. tostring(state.version or unresolved.dedup_key),
       generation = state.version or unresolved.dedup_key,
     })
-    local transition = loop_caps.restart_effects.decide_transition(snapshot, {
+    local transition = restart_effects.decide_transition(snapshot, {
       semantic_variant = "consensus-stalled",
       target = "blocked",
       incoming_version = unresolved.dedup_key,
     })
-    loop_caps.restart_effects.assert_decision_admissible(
+    restart_effects.assert_decision_admissible(
       transition,
       "github-devloop: restart-effect-decision-illegal: loop admission rejected"
     )
@@ -119,13 +122,13 @@ return saga.department(spec, { done = function() return false end, act = functio
 
     local base_version = conv_rounds.converge_base_version(unresolved.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(unresolved.source_ref)
-    local facade = loop_caps.restart_effect_facade.make({
+    local facade = restart_effect_facade.make({
       family = "loop-plain",
-      verify_grant = loop_caps.restart_effects.verify_grant,
-      sink_inventory = loop_caps.sink_inventory,
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = sink_inventory,
     })
     local function build_comment_request(unresolved_for_comment, round_for_comment, marker_body_for_comment, handoff_for_comment)
-      local grant = loop_caps.restart_effects.mint_grant(snapshot, transition, "comment:issue:converge-round")
+      local grant = restart_effects.mint_grant(snapshot, transition, "comment:issue:converge-round")
       if grant == nil then
         error("github-devloop: restart-effect-grant-mint-failed: loop comment grant was not minted")
       end

@@ -195,7 +195,7 @@ local function capture_runtime(fixture)
     if not ok then error(issued, 0) end
     call.issued = issued == true; table.insert(calls, call); return issued
   end
-  local ok, result, captured = pcall(function() return observation_support.observe_department({ config = config, devloop_logging = devloop_logging, devloop_state = devloop_state, dept = "observe_pr", from_state = "reviewing", transition_kind = "versioned_transition_status", run = function() return testing.run_fake(department, event) end, codex_runs_for_read = json_array(), write_mode = "real" }) end)
+  local ok, result, captured = pcall(function() return observation_support.observe_department({ config = config, devloop_logging = devloop_logging, devloop_state = devloop_state, dept = "observe_pr", from_state = "reviewing", run = function() return testing.run_fake(department, event) end, codex_runs_for_read = json_array(), write_mode = "real" }) end)
   replayer.replay_from_table = original
   if not ok then error(result, 0) end
   t.eq(#calls, 1, fixture.name .. ": real observe_pr dispatch reaches review replayer once")

@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real observe_pr
--- department's CAS path. The probe, exact guard calls, CAS logs, and effects are
--- observations only. Expected results never call a devloop.state transition
--- helper.
+-- department's owner-decider path. Expected OLD admission comes from the
+-- protected R9 corpus or frozen literal probe outcomes; it never comes from the
+-- production decision under test.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -52,22 +52,11 @@ local function observe_department(run)
   local replay_guard_calls = {}
   local closed_guard_calls = {}
   local post_probe_row_calls = {}
-  local original_versioned = devloop_state.versioned_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_restart_transition_row = replay_fields.restart_transition_row
   local original_replay_from_table = replayer.replay_from_table
 
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version, target_version)
-    if type(from_states) == "table"
-      and #from_states == 2
-      and from_states[1] == "pr-open"
-      and from_states[2] == "unmanaged"
-      and to_state == "reviewing" then
-      error("observe_pr production used retired direct reviewing CAS", 0)
-    end
-    return original_versioned(current, from_states, to_state, incoming_version, target_version)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide_transition(snapshot, intent)
     if intent.semantic_variant == SEMANTIC_VARIANT then
@@ -84,13 +73,7 @@ local function observe_department(run)
         to_state = intent.target,
         incoming_version = intent.incoming_version,
         target_version = intent.target_version,
-        outcome = original_versioned(
-          legacy_current,
-          { "pr-open", "unmanaged" },
-          intent.target,
-          intent.incoming_version,
-          intent.target_version
-        ),
+        decision = decision,
       })
     end
     return decision
@@ -155,7 +138,6 @@ local function observe_department(run)
   replay_fields.restart_transition_row = original_restart_transition_row
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end
@@ -269,21 +251,33 @@ local function decision_summary(decisions)
   return table.concat(out, " | ")
 end
 
-local function observed_admission(fixture, probe, decision, admitted_guard_reached)
+local function protected_probe_outcome(fixture)
+  if fixture.probe_outcome ~= nil then return fixture.probe_outcome end
+  return observation_support.protected_admission_fixture(
+    REVIEW_ACTIVATION_CORPUS_PATH, fixture.fixture_id).cas_status
+end
+
+local function protected_admission(fixture)
+  if fixture.fixture_id == nil then return nil end
+  return observation_support.protected_admission_expectation(
+    REVIEW_ACTIVATION_CORPUS_PATH, fixture.fixture_id)
+end
+
+local function observed_admission(fixture, probe_outcome, probe, decision, admitted_guard_reached)
   if probe == nil then
     return { status = "pre-cas", reason_code = "cas-probe-not-reached" }
   end
-  if probe.outcome == "pending" then
+  if probe_outcome == "pending" then
     return { status = "pending", reason_code = "source-marker-not-visible" }
   end
-  if probe.outcome == "idempotent" then
+  if probe_outcome == "idempotent" then
     return { status = "idempotent", reason_code = "already-at-target" }
   end
-  if probe.outcome == "stale" then
+  if probe_outcome == "stale" then
     return { status = "stale", reason_code = "incoming-version-older" }
   end
-  if probe.outcome ~= "apply" then
-    error(fixture.name .. ": observe_pr CAS probe returned " .. tostring(probe.outcome))
+  if probe_outcome ~= "apply" then
+    error(fixture.name .. ": observe_pr protected CAS probe returned " .. tostring(probe_outcome))
   end
 
   local legacy_reason = tostring(decision and decision.reason or "")
@@ -300,9 +294,9 @@ local function observed_admission(fixture, probe, decision, admitted_guard_reach
 end
 
 local function observed_cas_outcome(observed)
-  if observed.status == "apply" then
-    return "applied"
-  end
+  if observed.status == "apply" then return "applied" end
+  if observed.status == "idempotent" then return "skip-idempotent(already at to_state)" end
+  if observed.status == "pending" then return "retry-pending(from-state marker not yet visible)" end
   if observed.reason_code == "incoming-version-older" then
     return "skip-stale(incoming version < current marker version)"
   end
@@ -392,8 +386,10 @@ local function assert_observe_pr_admission_case(fixture)
     fixture.name .. ": admitted-before-builder guard reach"
   )
   local admitted_guard_reached = boundary_reached or pre_builder_admission_reached
+  local protected = probe ~= nil and protected_admission(fixture) or nil
+  local old_probe_outcome = probe ~= nil and protected_probe_outcome(fixture) or nil
   if admitted_guard_reached then
-    t.eq(probe and probe.outcome, "apply", fixture.name .. ": admission boundary requires an applied probe")
+    t.eq(old_probe_outcome, "apply", fixture.name .. ": admission boundary requires an applied OLD probe")
   end
 
   local decision = primary_decision(decisions, probe ~= nil)
@@ -405,10 +401,15 @@ local function assert_observe_pr_admission_case(fixture)
   t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
   t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
 
-  local observed = observed_admission(fixture, probe, decision, admitted_guard_reached)
+  local observed = protected
+    or observed_admission(fixture, old_probe_outcome, probe, decision, admitted_guard_reached)
   local actual = nil
   if probe ~= nil then
     actual = catalog.resolve(POLICY_ID, evidence_from_probe(probe), projection)
+    t.eq(probe.decision.status, observed.status, fixture.name .. ": production owner status vs protected OLD")
+    t.eq(probe.decision.reason_code, observed.reason_code, fixture.name .. ": production owner reason vs protected OLD")
+    t.eq(probe.decision.cas_outcome, observed.cas_outcome or observed_cas_outcome(observed),
+      fixture.name .. ": production owner outcome vs protected OLD")
     t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
     t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
     if observed.status == "apply" or observed.status == "stale" then
@@ -434,7 +435,7 @@ local function assert_observe_pr_admission_case(fixture)
       local legacy = {
         status = observed.status,
         reason_code = observed.reason_code,
-        cas_outcome = observed_cas_outcome(observed),
+        cas_outcome = observed.cas_outcome or observed_cas_outcome(observed),
       }
       assert_bidirectional(shadow, legacy, "status", fixture.name)
       assert_bidirectional(shadow, legacy, "reason_code", fixture.name)
@@ -449,7 +450,7 @@ local function assert_observe_pr_admission_case(fixture)
     end
   end
   if fixture.probe_outcome ~= nil then
-    t.eq(probe and probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
+    t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
   end
   if fixture.admission_status ~= nil then
     t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")

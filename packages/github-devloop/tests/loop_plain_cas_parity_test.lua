@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real loop
 -- department's owner-decider admission and first post-CAS round-marker guard.
--- The test reconstructs the frozen OLD transition_status probe only from the
--- production decider inputs, while production effects must pass through the
+-- The test projects the production decider result against the protected corpus,
+-- while production effects must pass through the
 -- grant facade. Proposal replay remains a separate declared row effect.
 
 local catalog = require("devloop.restart_cas_catalog")
@@ -50,16 +50,12 @@ local function observe_department(run)
   local boundary_calls = {}
   local grant_mints = 0
   local facade_emits = {}
-  local original_transition = devloop_state.transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_mint_grant = restart_effects.mint_grant
   local original_facade_make = restart_effect_facade.make
   local original_log_cas = devloop_logging.log_cas_decision
   local original_converge_round_facts = conv_rounds.converge_round_facts_for_proposal
 
-  devloop_state.transition_status = function()
-    error("loop production used retired direct transition_status", 0)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decided = original_decide_transition(snapshot, intent)
     if intent.semantic_variant == "consensus-stalled" then
@@ -70,7 +66,7 @@ local function observe_department(run)
         to_state = "blocked",
         incoming_version = nil,
         target_version = nil,
-        outcome = original_transition(legacy_current, { "thinking" }, "blocked"),
+        outcome = decided.status,
       })
     end
     return decided
@@ -137,7 +133,6 @@ local function observe_department(run)
   restart_effect_facade.make = original_facade_make
   restart_effects.mint_grant = original_mint_grant
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.transition_status = original_transition
   if not ok then
     error(result, 0)
   end
@@ -163,7 +158,7 @@ local function evidence_from_probe(probe, outcome_version)
   local definition = catalog.definition(POLICY_ID)
   local variant = definition and definition.variants[VARIANT]
   t.is_true(variant ~= nil, "loop plain probe must select a catalog variant")
-  t.eq(definition.production.function_name, "transition_status", "catalog production probe name")
+  t.eq(definition.production.artifact, "migration/restart-lifecycle.inventory.json")
   t.eq(#probe.from_states, #variant.source_states, "catalog source-state count comes from probe")
   for index, source_state in ipairs(probe.from_states) do
     t.eq(variant.source_states[index], source_state, "catalog source state comes from probe")

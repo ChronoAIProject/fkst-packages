@@ -167,7 +167,6 @@ end
 function M.observe_department(opts)
   local config = opts.config or error("OLD observation config dependency is required")
   local devloop_logging = opts.devloop_logging or error("OLD observation logging dependency is required")
-  local devloop_state = opts.devloop_state or error("OLD observation state dependency is required")
   local captured = {
     probes = M.json_array(),
     decisions = M.json_array(),
@@ -177,11 +176,6 @@ function M.observe_department(opts)
     handoff_direct_lookup_count = 0,
     liveness_read_count = 0,
   }
-  local transition_kind = opts.transition_kind or "cyclic_transition_status"
-  local original_transition = devloop_state[transition_kind]
-  if type(original_transition) ~= "function" then
-    error("OLD observation transition resolver is not callable: " .. tostring(transition_kind))
-  end
   local original_decision = devloop_logging.log_cas_decision
   local original_apply = devloop_logging.log_apply
   local original_raise = devloop_logging.log_raise
@@ -199,18 +193,6 @@ function M.observe_department(opts)
       running = running(captured.liveness_read_count)
     end
     return { running = running or M.json_array() }
-  end
-  devloop_state[transition_kind] = function(current, from_states, to_state, incoming_version, target_version)
-    local outcome = original_transition(current, from_states, to_state, incoming_version, target_version)
-    table.insert(captured.probes, {
-      current = M.copy_value(current),
-      from_states = M.copy_value(from_states),
-      to_state = to_state,
-      incoming_version = incoming_version,
-      target_version = target_version,
-      outcome = outcome,
-    })
-    return outcome
   end
   devloop_logging.log_cas_decision = function(dept, proposal_id, current, from_state, to_state, outcome, reason)
     if dept == opts.dept and from_state == opts.from_state then
@@ -266,103 +248,10 @@ function M.observe_department(opts)
   devloop_logging.log_raise = original_raise
   devloop_logging.log_apply = original_apply
   devloop_logging.log_cas_decision = original_decision
-  devloop_state[transition_kind] = original_transition
   if not ok then
     error(result, 0)
   end
   return result, captured
-end
-
-function M.build_record(opts)
-  local captured = opts.captured
-  local result = opts.result
-  local event = opts.event
-  opts.t.eq(#captured.probes, 1, "real " .. opts.dept .. " CAS probe count")
-  opts.t.is_true(#captured.decisions <= 1, "real " .. opts.dept .. " CAS decision count is zero only for defer")
-  opts.t.eq(#captured.raises, #result.raises, "logger and run_fake raise counts")
-  for index, raised in ipairs(result.raises) do
-    opts.t.eq(M.canonical_json(captured.raises[index].payload), M.canonical_json(raised.payload), "captured raise payload " .. index)
-    opts.t.eq(captured.raises[index].queue, raised.queue, "captured raise queue " .. index)
-  end
-
-  local probe = captured.probes[1]
-  local decision = captured.decisions[1]
-  local apply = captured.applies[1]
-  local status, reason_code, cas_outcome = opts.outcome_status(probe, decision, apply, captured)
-  local emitted_effects, observable_writes = opts.effects_from_raises(result.raises)
-  local observation_id_parts = { opts.observation_prefix }
-  if opts.observation_variant ~= nil then
-    table.insert(observation_id_parts, tostring(opts.observation_variant))
-  end
-  for _, value in ipairs({
-    probe.to_state,
-    status,
-    reason_code,
-    apply and apply.to_state or "none",
-  }) do
-    table.insert(observation_id_parts, tostring(value))
-  end
-  local observation_id = table.concat(observation_id_parts, "/")
-  local source_state = probe.from_states[1]
-  if type(opts.source_state) == "function" then
-    source_state = opts.source_state(probe, event)
-  end
-  local source_boundary = M.JSON_NULL
-  if type(opts.source_boundary) == "function" then
-    source_boundary = M.nullable(opts.source_boundary(probe, event))
-  end
-  local transition_kind = opts.transition_kind or "cyclic_transition_status"
-
-  return {
-    schema = "restart-old-behavior-observation.v2",
-    observation_id = observation_id,
-    owner = opts.owner,
-    site = M.copy_value(opts.site),
-    boundary = "writer",
-    typed_intent = {
-      kind = transition_kind,
-      source_state = M.nullable(source_state),
-      source_boundary = source_boundary,
-      target = probe.to_state,
-      cause_schema_id = event.payload.schema,
-      generation_epoch = {
-        current_version = M.nullable(probe.current.version),
-        incoming_version = probe.incoming_version,
-        target_version = M.nullable(probe.target_version),
-      },
-      lineage = opts.lineage(event.payload, probe, decision),
-    },
-    old_inputs = {
-      current_fact = {
-        state = M.nullable(probe.current.state),
-        version = M.nullable(probe.current.version),
-        stage_rank = M.nullable(probe.current.stage_rank),
-      },
-      caller_from_states = M.copy_value(probe.from_states),
-      incoming_version = probe.incoming_version,
-      target_version = M.nullable(probe.target_version),
-      handoff_reference = M.JSON_NULL,
-    },
-    old_outcome = {
-      status = status,
-      reason_code = reason_code,
-      cas_outcome = cas_outcome,
-      emitted_effects = emitted_effects,
-      observable_writes = observable_writes,
-      handoff_direct_lookup_count = captured.handoff_direct_lookup_count,
-      timeout_evidence_source = M.JSON_NULL,
-    },
-    evidence_refs = M.json_array({
-      {
-        kind = "runtime-cas-probe",
-        ref = "devloop.state." .. transition_kind .. ":" .. tostring(probe.outcome),
-      },
-      {
-        kind = "runtime-event-source",
-        ref = tostring(event.payload.source_ref and event.payload.source_ref.ref),
-      },
-    }),
-  }
 end
 
 function M.admission_trace_write(ordinal, effect_id, payload, context)
@@ -428,6 +317,38 @@ end
 
 function M.admission_trace_active_projection(artifact)
   return M.copy_value(artifact)
+end
+
+function M.protected_admission_fixture(path, fixture_id)
+  if type(path) ~= "string" or path == "" then
+    error("protected admission corpus path is required", 0)
+  end
+  if type(fixture_id) ~= "string" or fixture_id == "" then
+    error("protected admission fixture_id is required", 0)
+  end
+  local artifact = json.decode(file.read(path))
+  local match = nil
+  for _, fixture in ipairs(artifact.fixtures or {}) do
+    if fixture.fixture_id == fixture_id then
+      if match ~= nil then
+        error("protected admission fixture is ambiguous: " .. fixture_id, 0)
+      end
+      match = fixture
+    end
+  end
+  if match == nil then
+    error("protected admission fixture is missing: " .. fixture_id, 0)
+  end
+  return M.copy_value(match)
+end
+
+function M.protected_admission_expectation(path, fixture_id)
+  local fixture = M.protected_admission_fixture(path, fixture_id)
+  return {
+    status = fixture.cas_status,
+    reason_code = fixture.reason_code,
+    cas_outcome = fixture.cas_outcome,
+  }
 end
 
 function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures, captured_sink_effects)

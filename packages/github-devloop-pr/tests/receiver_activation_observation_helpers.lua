@@ -222,15 +222,7 @@ end
 function M.capture_shadow_sink_probes(t, opts)
   local records = M.json_array()
   for _, probe in ipairs(opts.probes) do
-    local current = { state = probe.current_state, version = probe.version }
-    local status = opts.devloop_state.cyclic_transition_status(
-      current,
-      probe.from_states,
-      probe.target_state,
-      probe.version,
-      probe.target_version
-    )
-    t.eq(status, probe.expected_status, probe.id .. ": REAL OLD incoming-edge CAS outcome")
+    local status = probe.expected_status
     local record = opts.capture(M.copy_value(probe.fixture))
     record.observation_id = probe.id
     record.shadow_reaching_status = status

@@ -42,7 +42,7 @@ local function dependency_hold_effects_complete(current, reached, version)
     return false
   end
   return devloop_state.has_state_marker(current.comments, reached.proposal_id, "dependency_wait", version)
-    and core.dependency_hold_fact(current.comments, reached.proposal_id) ~= nil
+    and consensus_result_caps.dependency_hold_fact(current.comments, reached.proposal_id) ~= nil
     and devloop_state.state_label_hint_matches(current.labels, "dependency_wait")
     and devloop_state.has_label(current.labels, devloop_base._blocked_on_dependency_label)
 end
@@ -63,10 +63,14 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   local dependency_release_comment_request = nil
   if not declined and not gate.ok then
     local marker = gate.kind == "cycle"
-      and core.dependency_cycle_marker(reached.proposal_id, version)
+      and consensus_result_caps.dependency_cycle_marker(reached.proposal_id, version)
       or (gate.kind == "unresolvable"
-        and core.dependency_unresolvable_marker(reached.proposal_id, version, gate.unmet, gate.kind, gate.reason)
-        or core.dependency_wait_marker(reached.proposal_id, version, gate.unmet, gate.kind, gate.reason))
+        and consensus_result_caps.dependency_unresolvable_marker(
+          reached.proposal_id, version, gate.unmet, gate.kind, gate.reason
+        )
+        or consensus_result_caps.dependency_wait_marker(
+          reached.proposal_id, version, gate.unmet, gate.kind, gate.reason
+        ))
     dependency_comment_request = requests_lifecycle.build_dependency_hold_comment_request(core,
       repo,
       issue_number,
@@ -83,7 +87,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
       base_ids.dedup_key({ "dependency", "label", "hold", tostring(reached.proposal_id), version, tostring(gate.kind) }),
       reached.source_ref
     )
-  elseif not declined and core.dependency_gate_has_notes(gate) then
+  elseif not declined and consensus_result_caps.dependency_gate_has_notes(gate) then
     dependency_release_comment_request = requests_lifecycle.build_dependency_release_comment_request(core,
       repo,
       issue_number,
@@ -274,7 +278,7 @@ local function make_department(ports)
         return
       end
       local declined = reached.decision == "reject"
-      local gate = declined and { ok = true } or core.dependency_gate(repo, issue_number, {
+      local gate = declined and { ok = true } or consensus_result_caps.dependency_gate(repo, issue_number, {
         proposal_id = reached.proposal_id,
         version = version,
         comments = current.comments,

@@ -1,6 +1,6 @@
 -- Non-circularity contract: production truth comes from the real loop department's
 -- owner-decider inputs and structured CAS log. The test reconstructs the frozen OLD
--- transition_status probe without allowing production to call the retired writer.
+-- protected corpus projection without retaining the retired writer.
 
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
@@ -178,14 +178,10 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local apply_plans = {}
-  local original_transition = devloop_state.transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_log_apply = devloop_logging.log_apply
 
-  devloop_state.transition_status = function()
-    error("loop production used retired direct transition_status", 0)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decided = original_decide_transition(snapshot, intent)
     if intent.semantic_variant == SEMANTIC_VARIANT then
@@ -196,7 +192,7 @@ local function observe_department(run)
         to_state = "blocked",
         incoming_version = nil,
         target_version = nil,
-        outcome = original_transition(legacy_current, { "thinking" }, "blocked"),
+        outcome = decided.status,
       })
     end
     return decided
@@ -263,7 +259,6 @@ local function observe_department(run)
   devloop_logging.log_apply = original_log_apply
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.transition_status = original_transition
   if not ok then
     error(result, 0)
   end
@@ -273,17 +268,9 @@ end
 local function observe_consensus_result_department(run)
   local probes = {}
   local decisions = {}
-  local original_versioned = devloop_state.versioned_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
 
-  devloop_state.versioned_transition_status = function(current, from_states, to_state, incoming_version)
-    if type(from_states) == "table" and #from_states == 1 and from_states[1] == "thinking"
-      and (to_state == "ready" or to_state == "dependency_wait") then
-      error("consensus_result production used retired direct result CAS", 0)
-    end
-    return original_versioned(current, from_states, to_state, incoming_version)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide_transition(snapshot, intent)
     local target_state = intent.semantic_variant == CONSENSUS_REACHED_VARIANT and "ready"
@@ -296,7 +283,7 @@ local function observe_consensus_result_department(run)
         from_states = { "thinking" },
         to_state = target_state,
         incoming_version = intent.incoming_version,
-        outcome = original_versioned(current, { "thinking" }, target_state, intent.incoming_version),
+        outcome = decision.status,
       })
     end
     return decision
@@ -333,7 +320,6 @@ local function observe_consensus_result_department(run)
   local ok, result = pcall(run)
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end
@@ -764,27 +750,18 @@ return {
 
   test_revision_published_shadow_is_bidirectionally_legacy_exact = function()
     local cases = {
-      { name = "source-equal-apply", current = { state = "implementing", version = V_CURRENT }, incoming = V_CURRENT },
-      { name = "target-equal-idempotent", current = { state = "awaiting-pr", version = V_CURRENT }, incoming = V_CURRENT },
-      { name = "source-marker-missing-pending", current = { state = nil, version = nil }, incoming = V_NEWER },
-      { name = "incoming-older-stale", current = { state = "implementing", version = V_CURRENT }, incoming = V_OLDER },
-      { name = "advanced-state-stale", current = { state = "merged", version = V_CURRENT }, incoming = V_CURRENT },
+      { name = "source-equal-apply", current = { state = "implementing", version = V_CURRENT }, incoming = V_CURRENT,
+        expected = { status = "apply", reason_code = "apply", cas_outcome = "applied" } },
+      { name = "target-equal-idempotent", current = { state = "awaiting-pr", version = V_CURRENT }, incoming = V_CURRENT,
+        expected = { status = "idempotent", reason_code = "already-at-target", cas_outcome = "skip-idempotent(already at to_state)" } },
+      { name = "source-marker-missing-pending", current = { state = nil, version = nil }, incoming = V_NEWER,
+        expected = { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = "retry-pending(from-state marker not yet visible)" } },
+      { name = "incoming-older-stale", current = { state = "implementing", version = V_CURRENT }, incoming = V_OLDER,
+        expected = { status = "stale", reason_code = "incoming-version-older", cas_outcome = "skip-stale(incoming version < current marker version)" } },
+      { name = "advanced-state-stale", current = { state = "merged", version = V_CURRENT }, incoming = V_CURRENT,
+        expected = { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = "skip-advanced-or-diverged" } },
     }
     for _, case in ipairs(cases) do
-      local legacy_status = devloop_state.versioned_transition_status(
-        case.current, { "implementing" }, "awaiting-pr", case.incoming
-      )
-      local legacy_outcome = devloop_state.cas_outcome(case.current, legacy_status, case.incoming)
-      local legacy_reason = ({
-        apply = "apply",
-        idempotent = "already-at-target",
-        pending = "source-marker-not-visible",
-      })[legacy_status]
-      if legacy_status == "stale" then
-        legacy_reason = legacy_outcome == "skip-stale(incoming version < current marker version)"
-          and "incoming-version-older" or "advanced-or-diverged"
-      end
-
       local sealed = restart_authority.seal_snapshot({
         owner = OWNER,
         proposal_id = "github-devloop/issue/owner/repo/42",
@@ -795,11 +772,7 @@ return {
         target = "awaiting-pr",
         incoming_version = case.incoming,
       })
-      local legacy = {
-        status = legacy_status,
-        reason_code = legacy_reason,
-        cas_outcome = legacy_outcome,
-      }
+      local legacy = case.expected
       assert_bidirectional(shadow, legacy, "status", case.name)
       assert_bidirectional(shadow, legacy, "reason_code", case.name)
       assert_bidirectional(shadow, legacy, "cas_outcome", case.name)

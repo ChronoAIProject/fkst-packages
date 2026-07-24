@@ -271,105 +271,6 @@ function C.ready_hand_off_comment_id(comments, proposal_id, marker_version)
   )
 end
 
-local function normalize_state(state)
-  if state == nil then
-    return "unmanaged"
-  end
-  return state
-end
-
-local function can_reach(from_state, to_state, seen)
-  local from = normalize_state(from_state)
-  if from == to_state then
-    return true
-  end
-  local next_states = restart_metadata.state_successors(from)
-  if next_states == nil then
-    return false
-  end
-  local visited = seen or {}
-  if visited[from] then
-    return false
-  end
-  visited[from] = true
-  for _, next_state in ipairs(next_states) do
-    if can_reach(next_state, to_state, visited) then
-      return true
-    end
-  end
-  return false
-end
-
-function C.transition_status(current, from_states, to_state)
-  local current_state = current
-  if type(current) == "table" then
-    current_state = current.state
-  end
-  if current_state == to_state then
-    return "idempotent"
-  end
-  local normalized_current = normalize_state(current_state)
-  for _, from_state in ipairs(from_states or {}) do
-    if normalized_current == normalize_state(from_state) then
-      return "apply"
-    end
-  end
-  for _, from_state in ipairs(from_states or {}) do
-    if can_reach(normalized_current, normalize_state(from_state)) then
-      return "pending"
-    end
-  end
-  return "stale"
-end
-
-function C.versioned_transition_status(current, from_states, to_state, incoming_version)
-  if type(current) == "table"
-    and current.version ~= nil
-    and incoming_version ~= nil
-    and C._compare_transition_versions(incoming_version, current.version) < 0 then
-    return "stale"
-  end
-  local status = C.transition_status(current, from_states, to_state)
-  return status
-end
-
-function C.cyclic_transition_status(current, from_states, to_state, incoming_version, target_version)
-  local current_state = current
-  local current_version = nil
-  if type(current) == "table" then
-    current_state = current.state
-    current_version = current.version
-  end
-  if incoming_version == nil then
-    return C.transition_status(current, from_states, to_state)
-  end
-  if target_version ~= nil and current_state == to_state and versions_equivalent(current_version, target_version) then
-    return "idempotent"
-  end
-
-  local version_order = C._compare_transition_versions(incoming_version, current_version)
-  if version_order > 0 then
-    return "pending"
-  end
-  if version_order < 0 then
-    return "stale"
-  end
-
-  if current_state == to_state then
-    return "idempotent"
-  end
-  local normalized_current = normalize_state(current_state)
-  for _, from_state in ipairs(from_states or {}) do
-    if normalized_current == normalize_state(from_state) then
-      return "apply"
-    end
-  end
-  if C.stage_rank(to_state) > C.stage_rank(current_state) then
-    return "apply"
-  end
-  return "stale"
-end
-
 function C.cas_outcome(current, transition, incoming_version)
   if transition == "apply" then
     return "applied"
@@ -428,7 +329,7 @@ end
 
 
 function S.install(M)
-  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "cyclic_transition_status", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "transition_status", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at", "versioned_transition_status"}) do M[n] = C[n] end
+  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
 end
 C.install = S.install
 
