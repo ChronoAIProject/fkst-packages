@@ -458,6 +458,7 @@ local policy_order = {
   "cas.legacy_fix_v1",
   "cas.legacy_review_meta_v1",
   "cas.legacy_merge_v1",
+  "cas.legacy_merge_completion_v1",
   "cas.legacy_pr_fix_reconcile_v1",
   "cas.legacy_review_loop_safe_v1",
   "cas.legacy_review_activation_handoff_v1",
@@ -612,6 +613,24 @@ local policies = {
     -- merging, merged}) before delegating an admissible current to the standard cyclic
     -- base + this raw version-equality overlay; see resolve_merge for the rationale.
     overlay = { kind = "version", version_form = "raw", statuses = { apply = true, idempotent = true } },
+    resolve_profile = resolve_merge,
+  },
+  ["cas.legacy_merge_completion_v1"] = {
+    evidence_type = "merge_completion_cas_evidence_v1",
+    production = {
+      function_name = "process_merge_ready_locked",
+      overlay = "same-attempt merge completion with raw version equality",
+      source = "packages/github-devloop-pr/core/merge_executor.lua:644",
+    },
+    base = "cyclic",
+    variants = {
+      merge_ready_or_merging_to_merged = variant({ "merge-ready", "merging" }, "merged"),
+    },
+    -- OLD enters through the closed merge-ready/merging gate, may observe the
+    -- same-attempt merging marker, and treats an already-merged target as idempotent.
+    -- Raw equality constrains apply only; idempotent target admission is owned by
+    -- the already-visible merged fact and must not be downgraded by a source overlay.
+    overlay = { kind = "version", version_form = "raw", statuses = { apply = true } },
     resolve_profile = resolve_merge,
   },
   ["cas.legacy_pr_fix_reconcile_v1"] = {

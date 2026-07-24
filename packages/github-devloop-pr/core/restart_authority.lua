@@ -217,6 +217,8 @@ function M.decide_transition(sealed_snapshot, intent)
       or (edge.kind == "entry" and edge.source.boundary == "devloop_timeout_reconcile"))
   local supported_merge = edge.cas_policy_id == "cas.legacy_merge_v1"
     and edge.cas_variant == "merge_ready_or_merging_to_merging"
+  local supported_merge_completion = edge.cas_policy_id == "cas.legacy_merge_completion_v1"
+    and edge.cas_variant == "merge_ready_or_merging_to_merged"
   local supported_pr_fix_reconcile = edge.cas_policy_id == "cas.legacy_pr_fix_reconcile_v1"
     and (edge.cas_variant == "review_reject_to_blocked"
       or edge.cas_variant == "bounded_fix_to_blocked")
@@ -232,6 +234,7 @@ function M.decide_transition(sealed_snapshot, intent)
     and not supported_review_reconcile
     and not supported_timeout_reconcile
     and not supported_merge
+    and not supported_merge_completion
     and not supported_pr_fix_reconcile
     and not supported_review_activation
     and not supported_review_loop then
@@ -289,7 +292,7 @@ function M.decide_transition(sealed_snapshot, intent)
     end
     if concrete_source_mode then
       local source_admitted = restart_source_admission.exact_source_state(variant.source_states, edge.source.state)
-      if supported_merge or supported_pr_fix_reconcile then
+      if supported_merge or supported_merge_completion or supported_pr_fix_reconcile then
         local admitted_sources = restart_source_admission.dense_unique_state_set(variant.source_states)
         source_admitted = admitted_sources ~= nil and admitted_sources[edge.source.state] == true
       end

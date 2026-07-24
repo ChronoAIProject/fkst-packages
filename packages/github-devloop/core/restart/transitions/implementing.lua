@@ -83,6 +83,8 @@ return function(M, h)
           state = "awaiting-pr",
           output_variant = "revision_published",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_awaiting_pr_v1",
+          cas_variant = "implementing_to_awaiting_pr",
           transition_effect_entitlements = effect_entitlements("revision_published"),
           pending_order = { participates = true, predecessor_state = "implementing" },
           postcondition_family = "revision_published",

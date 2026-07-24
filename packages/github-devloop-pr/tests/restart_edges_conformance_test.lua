@@ -38,6 +38,10 @@ local expected_successor_kinds = {
   ["reviewing/watchdog_reconcile_terminal"] = "timeout",
 }
 local expected_real_cas_by_id = {
+  ["github-devloop-pr/merging/autonomous/merge-completed"] = {
+    cas_policy_id = "cas.legacy_merge_completion_v1",
+    cas_variant = "merge_ready_or_merging_to_merged",
+  },
   ["github-devloop-pr/pr-open/autonomous/not_mergeable_repair"] =
     { cas_policy_id = "cas.legacy_observe_pr_fix_v1", cas_variant = "pr_open_to_fixing" },
   ["github-devloop-pr/reviewing/timeout/watchdog_reconcile_terminal"] = {

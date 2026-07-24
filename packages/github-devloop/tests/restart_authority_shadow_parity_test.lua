@@ -30,6 +30,9 @@ local V_OLDER = "consensus:github-devloop/issue/owner/repo/42/2026-06-02T01-02-0
 local V_NEWER = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 local V_ORDERING_EQUAL_CURRENT = V_CURRENT .. "/loop/01"
 local V_ORDERING_EQUAL_INCOMING = V_CURRENT .. "/loop/1"
+local REVISION_PUBLISHED_VARIANT = "revision_published"
+local REVISION_PUBLISHED_POLICY_ID = "cas.legacy_awaiting_pr_v1"
+local REVISION_PUBLISHED_EDGE_ID = "github-devloop/implementing/autonomous/revision_published"
 
 local state_labels = {
   thinking = "fkst-dev:thinking",
@@ -756,6 +759,66 @@ return {
     end
     for _, fixture in ipairs(dependency_wait_consensus_result_fixtures) do
       assert_dependency_wait_consensus_result_case(fixture)
+    end
+  end,
+
+  test_revision_published_shadow_is_bidirectionally_legacy_exact = function()
+    local cases = {
+      { name = "source-equal-apply", current = { state = "implementing", version = V_CURRENT }, incoming = V_CURRENT },
+      { name = "target-equal-idempotent", current = { state = "awaiting-pr", version = V_CURRENT }, incoming = V_CURRENT },
+      { name = "source-marker-missing-pending", current = { state = nil, version = nil }, incoming = V_NEWER },
+      { name = "incoming-older-stale", current = { state = "implementing", version = V_CURRENT }, incoming = V_OLDER },
+      { name = "advanced-state-stale", current = { state = "merged", version = V_CURRENT }, incoming = V_CURRENT },
+    }
+    for _, case in ipairs(cases) do
+      local legacy_status = devloop_state.versioned_transition_status(
+        case.current, { "implementing" }, "awaiting-pr", case.incoming
+      )
+      local legacy_outcome = devloop_state.cas_outcome(case.current, legacy_status, case.incoming)
+      local legacy_reason = ({
+        apply = "apply",
+        idempotent = "already-at-target",
+        pending = "source-marker-not-visible",
+      })[legacy_status]
+      if legacy_status == "stale" then
+        legacy_reason = legacy_outcome == "skip-stale(incoming version < current marker version)"
+          and "incoming-version-older" or "advanced-or-diverged"
+      end
+
+      local sealed = restart_authority.seal_snapshot({
+        owner = OWNER,
+        proposal_id = "github-devloop/issue/owner/repo/42",
+        current = case.current,
+      })
+      local shadow = restart_authority.decide_transition(sealed, {
+        semantic_variant = REVISION_PUBLISHED_VARIANT,
+        target = "awaiting-pr",
+        incoming_version = case.incoming,
+      })
+      local legacy = {
+        status = legacy_status,
+        reason_code = legacy_reason,
+        cas_outcome = legacy_outcome,
+      }
+      assert_bidirectional(shadow, legacy, "status", case.name)
+      assert_bidirectional(shadow, legacy, "reason_code", case.name)
+      assert_bidirectional(shadow, legacy, "cas_outcome", case.name)
+      t.eq(shadow.edge_id, REVISION_PUBLISHED_EDGE_ID, case.name .. ": exact owner edge")
+      t.eq(shadow.cas_policy_id, REVISION_PUBLISHED_POLICY_ID, case.name .. ": closed OLD policy")
+      t.eq(shadow.grant, nil, case.name .. ": grant consumption stays disabled")
+      if shadow.status == "apply" then
+        t.eq(shadow.effect_entitlement_id, REVISION_PUBLISHED_EDGE_ID .. "/apply")
+        t.eq(table.concat(shadow.granted_effect_ids, ","), table.concat({
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        }, ","))
+      elseif shadow.status == "idempotent" then
+        t.eq(shadow.effect_entitlement_id, REVISION_PUBLISHED_EDGE_ID .. "/idempotent")
+        t.eq(#shadow.granted_effect_ids, 0)
+      else
+        t.eq(shadow.effect_entitlement_id, nil)
+        t.eq(shadow.granted_effect_ids, nil)
+      end
     end
   end,
 

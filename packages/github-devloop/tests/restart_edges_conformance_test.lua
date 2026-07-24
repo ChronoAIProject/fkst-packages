@@ -36,6 +36,10 @@ local expected_successor_kinds = {
 }
 
 local expected_real_cas_by_id = {
+  ["github-devloop/implementing/autonomous/revision_published"] = {
+    cas_policy_id = "cas.legacy_awaiting_pr_v1",
+    cas_variant = "implementing_to_awaiting_pr",
+  },
   ["github-devloop/thinking/autonomous/consensus-reached"] = {
     cas_policy_id = "cas.legacy_consensus_result_v1",
     cas_variant = "thinking_to_ready",

@@ -138,6 +138,8 @@ return function(M, h)
           state = "merged",
           output_variant = "merge-completed",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_merge_completion_v1",
+          cas_variant = "merge_ready_or_merging_to_merged",
           transition_effect_entitlements = effect_entitlements("merge-completed", {
             "github-proxy.github_pr_comment_request",
           }),
