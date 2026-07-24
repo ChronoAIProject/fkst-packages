@@ -280,6 +280,20 @@ function M.maybe_timeout_redrive_from_table(dept, entity, state, table_row, fact
     end
     return false
   end
+  -- Owner directive (#2725) anti-spin decompose-escape: timeouts/counters REDRIVE and
+  -- never drop ACTIVE work to terminal `blocked`, BUT the `blocked` state is ALREADY
+  -- terminal and its decompose OUTPUT obligation still needs a bounded terminal STOP so
+  -- the redrive loop does not spin forever. Emitting the decompose-exhausted marker once
+  -- the attempt budget is reached is NOT a timeout->terminal transition (the issue is
+  -- already blocked); it is exactly the "decompose escape" the doctrine requires. This
+  -- restores the terminal-stop that previously lived on the (now never-taken) escalate
+  -- branch above, without reintroducing any active-state force-terminate.
+  if row.from_state == "blocked" then
+    local escape_limit = tonumber(row.on_timeout and row.on_timeout.escalate_after_attempts) or max_timeout_attempts
+    if escape_limit ~= nil and tonumber(decision.attempt) ~= nil and tonumber(decision.attempt) >= escape_limit then
+      return emit_decompose_exhausted_marker(dept, entity, state, facts, proposal_id, decision.attempt)
+    end
+  end
   local replay = replayer.replay_from_table_classified(M, dept, entity, {
     state = state.state,
     version = state.version,

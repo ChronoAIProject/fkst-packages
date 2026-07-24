@@ -321,12 +321,18 @@ local FIXTURES = {
     end,
   },
   {
+    -- Owner directive (#2725): the continuation ROUND-BUDGET is no longer a terminal
+    -- cause, so this lineage REDRIVES the next round (consensus.proposal + converge
+    -- comment) instead of routing to blocked. It still exercises the thinking->blocked
+    -- decide_transition probe (which admits), then redrives -- so it needs the context
+    -- bundle for the loop proposal. Kept as a documented redrive observation.
     name = "lineage-terminal-continuation-budget",
     probe_outcome = "apply",
     decision_outcome = "applied",
     status = "apply",
     reason_code = "lineage-terminal-continuation-budget",
     logs_apply = true,
+    needs_context = true,
     event = function()
       return loop_event({ dedup_key = BASE_VERSION .. "/loop/2", round = 2 })
     end,
@@ -396,12 +402,17 @@ local FIXTURES = {
     comments = function(event) return json_array({ state_marker(event, "thinking") }) end,
   },
   {
+    -- Owner directive (#2725): the continuation ROUND-BUDGET is no longer terminal, so
+    -- with the incoming round appended this lineage REDRIVES the next round instead of
+    -- routing to blocked. It still admits the thinking->blocked decide_transition probe,
+    -- then redrives -- needing the context bundle for the loop proposal.
     name = "current-terminal-continuation-budget",
     probe_outcome = "apply",
     decision_outcome = "applied",
     status = "apply",
     reason_code = "current-terminal-continuation-budget",
     logs_apply = true,
+    needs_context = true,
     event = function()
       return loop_event({
         dedup_key = BASE_VERSION .. "/loop/1",

@@ -685,7 +685,7 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), close_calls_before)
   end,
 
-  test_over_budget_awaiting_pr_timeout_reconcile_writes_why_terminal = function()
+  test_over_budget_awaiting_pr_redrives_never_terminal = function()
     local state = {
       state = "awaiting-pr",
       version = version .. "/timeout/awaiting-pr/2",
@@ -703,51 +703,11 @@ return {
       fresh_current_state = state,
       now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-12-01T01:02:03Z"),
     }
-    local raised = {}
-    local original_log_raise = devloop_logging.log_raise
-    devloop_logging.log_raise = function(_, _, queue, payload)
-      table.insert(raised, { queue = queue, payload = payload })
-    end
-    local ok, err = pcall(function()
-      t.eq(core.maybe_timeout_redrive_from_table("observe_issue", {
-        repo = repo,
-        number = issue_number,
-        source_ref = entity_lib.issue_source_ref(repo, issue_number),
-      }, state, row, facts), true)
-    end)
-    devloop_logging.log_raise = original_log_raise
-    if not ok then
-      error(err)
-    end
-    local reconcile = find_raise(raised, "devloop_timeout_reconcile")
-
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.state, "awaiting-pr")
-    t.eq(reconcile.payload.issue_version, state.version)
-    t.eq(reconcile.payload.round, 3)
-    mock_env()
-    entity_mocks.mock_issue_view_selector(t, {
-      repo = repo,
-      number = issue_number,
-      labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
-      comments = parent_comments({
-        version = state.version,
-        delegation_version = state.version,
-        created_at = "2025-01-01T00:00:00Z",
-      }),
-      assignees = { "fkst-test-bot" },
-      author_login = "fkst-test-bot",
-    }, "title,updatedAt,labels,comments,state,author")
-
-    local result = run_timeout_reconcile(reconcile.payload, h.opts("awaiting-pr-timeout-reconcile-terminal"))
-
-    t.eq(result.exit_code, 0)
-    local terminal = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    t.is_true(terminal ~= nil)
-    t.is_true(terminal.payload.body:find('state="blocked"', 1, true) ~= nil)
-    t.is_true(terminal.payload.body:find("reason_class=state-output-obligation-timeout", 1, true) ~= nil)
-    t.is_true(label ~= nil)
-    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+    -- Owner directive (#2725): an over-budget awaiting-pr timeout must NEVER escalate to a
+    -- terminal reconcile / blocked; the timeout DECISION is `redrive` (never `escalate`),
+    -- advancing the attempt/version lineage so the parent keeps polling the child PR.
+    local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
+    t.eq(decision.action, "redrive")
+    t.eq(core.version_timeout_round(decision.version, "awaiting-pr"), 3)
   end,
 }

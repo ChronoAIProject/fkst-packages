@@ -23,18 +23,24 @@ local function state_marker()
   )
 end
 
-local function first_resolvable_marker()
+-- Owner directive (#2725): the continuation ROUND-BUDGET is no longer terminal, so a
+-- budget-exhausted lineage now REDRIVES instead of routing to blocked. This graph smoke
+-- test therefore exercises the GENUINE no-progress terminal that REMAINS terminal under
+-- #2725: three identical convergence rounds (same angle=verdict) are a true-stall
+-- (no-semantic-progress), which still routes reconcile -> blocked. The blocked delivery
+-- chain (loop -> comment -> handoff -> reconcile -> blocked comment + label) is unchanged.
+local function true_stall_round_marker(round)
   return conv_rounds.converge_round_marker(
     "github-devloop/issue/owner/repo/42",
     base_version,
     convergence_shared.source_ref_digest(source_ref()),
-    0,
-    base_version,
-    "First resolvable question",
+    round,
+    base_version .. "/loop/" .. tostring(round),
+    "Unchanged question round " .. tostring(round),
     {
-      { angle = "minimal", verdict = "abstain", digest = "first-blocked" },
+      { angle = "minimal", verdict = "abstain", digest = "same-stall-" .. tostring(round) },
     },
-    "open:\nfirst resolvable finding"
+    "open:\nunchanged finding round " .. tostring(round)
   )
 end
 
@@ -104,7 +110,8 @@ end
 local function mock_issue_reads()
   local comments = {
     trusted_comment(state_marker()),
-    trusted_comment(first_resolvable_marker()),
+    trusted_comment(true_stall_round_marker(1)),
+    trusted_comment(true_stall_round_marker(2)),
   }
   entity_read_mocks.mock_issue_read_with_defaults(
     t,
@@ -143,17 +150,20 @@ local function mock_issue_reads()
 end
 
 local function evidence_continuation_unresolved()
+  -- Round 3 with the two identical prior rounds visible: three consecutive rounds with the
+  -- same angle=verdict is a true-stall (no-semantic-progress), the genuine no-progress
+  -- terminal that stays terminal under #2725 and routes to blocked.
   return {
     schema = "consensus.consensus_converge.v1",
     proposal_id = "github-devloop/issue/owner/repo/42",
-    dedup_key = base_version .. "/loop/1",
+    dedup_key = base_version .. "/loop/3",
     source_ref = source_ref(),
-    round = 1,
-    narrowed_question = "Second resolvable question",
+    round = 3,
+    narrowed_question = "Unchanged question round 3",
     angle_digests = {
-      { angle = "minimal", verdict = "abstain", digest = "still-blocked" },
+      { angle = "minimal", verdict = "abstain", digest = "same-stall-3" },
     },
-    findings_record = "open:\nsecond resolvable finding",
+    findings_record = "open:\nunchanged finding round 3",
   }
 end
 
@@ -208,7 +218,7 @@ return {
       "github-proxy.github_issue_comment_request",
       function(raised)
         return graph.payload_contains(raised, "github-devloop reconcile action: drop")
-          and graph.payload_contains(raised, "evidence-continuation-budget-exhausted-after-")
+          and graph.payload_contains(raised, "no-semantic-progress-after-")
           and graph.payload_contains(raised, 'state="blocked"')
       end
     )
