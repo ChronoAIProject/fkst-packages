@@ -123,11 +123,17 @@ return {
     })
     local loop = run_loop(loop_event, opts("thinking-replay-loop-regenerates-lost-handoff"))
     t.eq(loop.exit_code, 0)
-    t.eq(find_raise(loop.raises, "consensus.proposal"), nil)
+    -- Owner directive (#2725): the continuation round-budget is non-terminal. With two
+    -- DISTINCT rounds (round-0 visible + the incoming round 1, not a true-stall),
+    -- convergence REDRIVES the next round (consensus.proposal round 2) instead of
+    -- regenerating a terminal budget-exhausted reconcile handoff.
+    local loop_proposal = find_raise(loop.raises, "consensus.proposal")
+    t.is_true(loop_proposal ~= nil)
+    t.eq(loop_proposal.payload.round, 2)
     local marker = find_raise(loop.raises, "github-proxy.github_issue_comment_request")
     t.is_true(marker ~= nil)
     t.is_true(marker.payload.body:find('round="1"', 1, true) ~= nil)
-    t.eq(marker.payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
+    t.is_nil(marker.payload.handoff)
   end,
 
   test_thinking_redrive_defers_when_latest_visible_converge_round_run_is_live = function()

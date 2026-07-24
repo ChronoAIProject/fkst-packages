@@ -712,14 +712,19 @@ return {
 
     local result = run_loop(event, opts("loop-true-stall"))
     t.eq(result.exit_code, 0)
+    -- Owner directive (#2725): the raw continuation ROUND-BUDGET is no longer terminal,
+    -- but three identical convergence rounds are a genuine TRUE-STALL
+    -- (no-semantic-progress) which correctly REMAINS terminal. With the round-3 current
+    -- round appended to the visible round-1/round-2 lineage, terminal_cause is now the
+    -- true-stall at round 3, not the retired budget-exhaustion at round 2.
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "github-proxy.github_issue_comment_request")
     t.eq(find_raise(result.raises, "devloop_reconcile"), nil)
     t.eq(result.raises[1].payload.handoff.kind, "github-devloop.reconcile")
     t.eq(result.raises[1].payload.handoff.proposal_id, event.proposal_id)
-    t.eq(result.raises[1].payload.handoff.round, 2)
+    t.eq(result.raises[1].payload.handoff.round, 3)
     t.eq(result.raises[1].payload.handoff.base_version, base_version)
-    t.eq(result.raises[1].payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
+    t.eq(result.raises[1].payload.handoff.terminal_cause, "no-semantic-progress")
     t.eq(result.raises[1].payload.handoff.source_ref.ref, "owner/repo#issue/42")
   end,
 
@@ -744,16 +749,21 @@ return {
 
     local result = run_loop(event, opts("loop-second-resolvable-findings"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "github-proxy.github_issue_comment_request")
-    t.is_true(result.raises[1].payload.body:find('round="1"', 1, true) ~= nil)
+    -- Owner directive (#2725): the continuation round-budget is non-terminal; with two
+    -- DISTINCT resolvable rounds (not a true-stall), convergence REDRIVES the next round
+    -- instead of handing off a terminal reconcile.
+    t.eq(#result.raises, 2)
+    local proposal = find_raise(result.raises, "consensus.proposal")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.round, 2)
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(comment ~= nil)
+    t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
+    t.is_nil(comment.payload.handoff)
     t.eq(find_raise(result.raises, "devloop_reconcile"), nil)
-    t.eq(result.raises[1].payload.handoff.kind, "github-devloop.reconcile")
-    t.eq(result.raises[1].payload.handoff.round, 1)
-    t.eq(result.raises[1].payload.handoff.base_version, base_version)
   end,
 
-  test_loop_duplicate_terminal_round_redrives_reconcile_handoff = function()
+  test_loop_duplicate_round_is_non_terminal_skip = function()
     local event = unresolved({ round = 1 })
     local base_version = conv_rounds.converge_base_version(event.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
@@ -763,15 +773,13 @@ return {
 
     local result = run_loop(event, opts("loop-duplicate-converge-round"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(comment ~= nil)
-    t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")
-    t.eq(comment.payload.handoff.round, 1)
-    t.eq(comment.payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
+    -- Owner directive (#2725): the continuation round-budget is non-terminal, so a
+    -- duplicate converge round already at the visible lineage head no longer trips a
+    -- terminal reconcile handoff; it is a plain idempotent skip (never drops to blocked).
+    t.eq(#result.raises, 0)
   end,
 
-  test_loop_stale_lower_round_redrives_visible_terminal_lineage = function()
+  test_loop_stale_lower_round_is_non_terminal_skip = function()
     local base_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local event = unresolved({
       dedup_key = base_version .. "/loop/2",
@@ -788,12 +796,10 @@ return {
 
     local result = run_loop(event, opts("loop-stale-lower-round"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(comment ~= nil)
-    t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")
-    t.eq(comment.payload.handoff.round, 4)
-    t.eq(comment.payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
+    -- Owner directive (#2725): the round-budget is non-terminal; a stale lower incoming
+    -- round behind a newer visible lineage head is a plain idempotent skip, not a
+    -- terminal reconcile handoff (never drops to blocked).
+    t.eq(#result.raises, 0)
   end,
 
   test_loop_skips_foreign_proposal = function()

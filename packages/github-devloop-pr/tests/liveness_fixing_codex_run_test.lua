@@ -625,7 +625,7 @@ return {
     end)
   end,
 
-  test_fixing_no_codex_run_over_budget_escalates_to_blocked_with_why = function()
+  test_fixing_no_codex_run_over_budget_redrives_never_reaching_blocked = function()
     local event = fixing()
     local row = restart_transition_row("fixing")
     local state = fixing_state(event, event.version .. "/timeout/fixing/2")
@@ -645,18 +645,14 @@ return {
         }, state, row, facts)
         t.eq(handled, true)
       end)
-      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
-      t.is_true(reconcile ~= nil)
-      t.eq(reconcile.payload.state, "fixing")
-      t.eq(reconcile.payload.issue_version, state.version)
-      t.eq(reconcile.payload.round, 3)
-
-      local reconciled = run_timeout_reconcile(reconcile.payload, comments, "fixing-no-codex-run-blocked")
-      t.eq(reconciled.exit_code, 0)
-      local comment = h.find_raise(reconciled.raises, "github-proxy.github_pr_comment_request")
-      t.is_true(comment ~= nil)
-      t.is_true(tostring(comment.payload.body or ""):find('state="blocked"', 1, true) ~= nil)
-      t.is_true(tostring(comment.payload.body or ""):find("state-output-obligation-timeout", 1, true) ~= nil)
+      -- Owner directive (#2725): fixing past budget with no live codex REDRIVES (emits the
+      -- next timeout-attempt PR comment) and NEVER escalates to a terminal reconcile /
+      -- blocked -- the timeout is a counter, not an explicit cannot-proceed.
+      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
+      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request")
+      t.is_true(attempt ~= nil)
+      t.is_true(tostring(attempt.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+      t.is_true(tostring(attempt.payload.body or ""):find('state="fixing"', 1, true) ~= nil)
     end)
   end,
 
@@ -852,7 +848,7 @@ return {
     end)
   end,
 
-  test_review_meta_no_codex_run_over_budget_escalates = function()
+  test_review_meta_no_codex_run_over_budget_redrives = function()
     local event = h.review_meta_event()
     local row = restart_transition_row("review-meta")
     local state = {
@@ -877,11 +873,13 @@ return {
         }, state, row, facts)
         t.eq(handled, true)
       end)
-      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
-      t.is_true(reconcile ~= nil)
-      t.eq(reconcile.payload.state, "review-meta")
-      t.eq(reconcile.payload.issue_version, state.version)
-      t.eq(reconcile.payload.round, 3)
+      -- Owner directive (#2725): review-meta past budget REDRIVES (next timeout-attempt PR
+      -- comment), never escalating to a terminal reconcile.
+      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
+      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request")
+      t.is_true(attempt ~= nil)
+      t.is_true(tostring(attempt.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+      t.is_true(tostring(attempt.payload.body or ""):find('state="review-meta"', 1, true) ~= nil)
     end)
   end,
 

@@ -181,13 +181,16 @@ return {
       core.liveness_timeout_due_with_facts(row, state, facts3, now2)
       t.eq(core.liveness_timeout_attempt(row, state, facts3), 2)
 
-      -- (d) with the budget exceeded and the round accumulated to the escalate
-      -- limit, the actionable path force-terminates (devloop_timeout_reconcile).
+      -- (d) Owner directive (#2725): with the budget exceeded and the round accumulated
+      -- to the former escalate limit, the actionable path must NEVER force-terminate to a
+      -- terminal state; it REDRIVES, emitting the next timeout-attempt marker (round 3)
+      -- instead of the terminal devloop_timeout_reconcile event.
       local raised = run_timeout(row, state, facts3)
-      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
-      t.is_true(reconcile ~= nil)
-      t.eq(reconcile.payload.state, "implementing")
-      t.eq(reconcile.payload.round, 3)
+      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
+      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
+      t.is_true(attempt ~= nil)
+      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
     end)
   end,
 
@@ -225,11 +228,15 @@ return {
       table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
         row.from_state, row.liveness_class_id, facts.actionable_epoch_eval.generation_key, 2, event.source_ref)))
 
-      -- The implementing state must not defer forever on a live-reading codex_run;
-      -- at 10x budget it must force-terminate to a bounded terminal
-      -- (devloop_timeout_reconcile / impl-failed).
+      -- Owner directive (#2725) supersedes the #2624 undefeatable-budget contract: a
+      -- timeout/row-budget cap is exactly the transient/counter class that must NEVER
+      -- reach a terminal state. At 10x budget the implementing state must NOT
+      -- force-terminate (no devloop_timeout_reconcile, no fkst-dev:impl-failed label); it
+      -- REDRIVES, emitting the next timeout-attempt marker. The row-budget-absolute-cap
+      -- still fires as "stuck" (asserted above) so the redrive is gated by real liveness,
+      -- not deferred forever -- it just redrives instead of dropping to blocked.
       local raised = run_timeout(row, state, facts)
-      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
       local impl_failed = captured_raise(raised, "github-proxy.github_issue_label_request", function(payload)
         for _, label in ipairs(payload.add_labels or {}) do
           if label == "fkst-dev:impl-failed" then
@@ -238,8 +245,11 @@ return {
         end
         return false
       end)
-      t.is_true(reconcile ~= nil or impl_failed ~= nil,
-        "implementing must force-terminate 20h past budget instead of deferring forever on a live-reading codex_run")
+      t.eq(impl_failed, nil)
+      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
+      t.is_true(attempt ~= nil,
+        "implementing 20h past budget must redrive (emit a timeout-attempt marker), never force-terminate to a terminal state")
+      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
     end)
   end,
 }

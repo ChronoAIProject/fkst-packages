@@ -576,10 +576,16 @@ function C.actionable_epoch_heartbeat_decision(M, row, state, facts, due, age, l
     end
     return { action = "wait", age_minutes = age }
   end
+  -- Owner directive (#2725): a live-defer heartbeat past its (long) row budget is a
+  -- liveness/resource cap, not an explicit cannot-proceed, so it must REDRIVE rather
+  -- than escalate to terminal. `limit` is retained in the signature for callers but no
+  -- longer forces termination here (mirrors liveness/timeout.lua timeout_escalation).
+  local attempt = M.liveness_timeout_attempt(row, state, facts)
   return {
-    action = "escalate",
-    attempt = limit,
+    action = "redrive",
+    attempt = attempt + 1,
     age_minutes = age,
+    version = M.next_liveness_timeout_version(row, state, facts),
   }
 end
 

@@ -615,6 +615,18 @@ local function assert_timeout_owner_matrix(records)
   end
 end
 
+-- Owner directive (#2725): the timeout watchdog never escalates (decision.action is always
+-- redrive), so the reconcile department's timeout path short-circuits BEFORE the CAS
+-- boundary with skip-stale(no-longer-over-budget). The over-budget "apply"-family timeout
+-- reconciles therefore no longer drop the PR to terminal blocked -- the terminal drop is
+-- neutralized. The frozen OLD apply records are retained BYTE-EXACT (no re-record): they
+-- encode the CAS-admission scenario that assert_timeout_owner_matrix above validates
+-- UNCHANGED (decide_transition / versioned_transition_status still apply on the valid
+-- version). Only the DEPARTMENT boundary changed, asserted here -- exactly the byte-exact
+-- corpus + separate department-skip pattern used for the github-devloop
+-- timeout_reconcile_cas_parity corpus.
+local NEUTRALIZED_TIMEOUT_OUTCOME = "skip-stale(no-longer-over-budget)"
+
 local function assert_timeout_production_equals_frozen_old()
   local records = frozen_timeout_records()
   assert_timeout_owner_matrix(records)
@@ -625,47 +637,40 @@ local function assert_timeout_production_equals_frozen_old()
     local result, captured = run_timeout_production(record)
     local old = record.old_outcome
     local last_decision = captured.cas_decisions[#captured.cas_decisions]
-    t.eq(last_decision.outcome, old.cas_outcome, record.observation_id .. ": production disposition")
-    t.eq(
-      canonical_json(normalized_raises(result.raises)),
-      canonical_json(expected_raises(record)),
-      record.observation_id .. ": full payloads are byte-exact with frozen OLD"
-    )
     if old.status == "apply" then
+      -- #2725: the frozen OLD apply is now neutralized pre-cas -- the department skips
+      -- with skip-stale(no-longer-over-budget), reaches no CAS/owner decision, constructs
+      -- no facade, and emits nothing. (The frozen record's CAS-admission scenario is still
+      -- confirmed byte-exact by assert_timeout_owner_matrix.)
       apply_count = apply_count + 1
       t.eq(record.evidence_refs[1].ref, "devloop.state.versioned_transition_status:apply",
         record.observation_id .. ": frozen OLD came from the retired real CAS")
-      t.eq(#captured.owner_decisions, 1, record.observation_id .. ": one owner decision")
-      t.eq(captured.owner_decisions[1].decision.status, "apply", record.observation_id .. ": owner apply")
-      t.eq(captured.owner_decisions[1].intent.source_boundary, "devloop_timeout_reconcile",
-        record.observation_id .. ": canonical timeout boundary")
-      t.eq(#captured.facade_families, 1, record.observation_id .. ": one facade")
-      t.eq(captured.facade_families[1], "pr-timeout-reconcile", record.observation_id .. ": facade family")
-      t.eq(#captured.facade_emits, 2, record.observation_id .. ": comment and label facade emits")
-      t.eq(#captured.label_builders, 1, record.observation_id .. ": OLD label builder reused")
+      t.eq(last_decision.outcome, NEUTRALIZED_TIMEOUT_OUTCOME,
+        record.observation_id .. ": #2725 neutralizes the terminal drop pre-cas")
+      t.eq(#result.raises, 0, record.observation_id .. ": neutralized apply emits no effect")
+      t.eq(#captured.owner_decisions, 0, record.observation_id .. ": short-circuits before the CAS boundary")
+      t.eq(#captured.facade_families, 0, record.observation_id .. ": no facade constructed")
+      t.eq(#captured.facade_emits, 0, record.observation_id .. ": no facade emit")
       if timeout_is_issue_fallback(record) then
         issue_apply_count = issue_apply_count + 1
-        t.eq(#captured.issue_builders, 1, record.observation_id .. ": OLD issue comment builder reused")
-        t.eq(captured.facade_args[1].target_pr_number, nil, record.observation_id .. ": issue surface selected")
-        t.eq(result.raises[1].queue, "github-proxy.github_issue_comment_request",
-          record.observation_id .. ": issue comment queue preserved")
       else
         pr_apply_count = pr_apply_count + 1
-        t.eq(#captured.issue_builders, 0, record.observation_id .. ": issue builder not used")
-        t.eq(tostring(captured.facade_args[1].target_pr_number), tostring(PR_NUMBER),
-          record.observation_id .. ": PR surface selected")
-        t.eq(result.raises[1].queue, "github-proxy.github_pr_comment_request",
-          record.observation_id .. ": PR comment queue preserved")
       end
     else
+      t.eq(last_decision.outcome, old.cas_outcome, record.observation_id .. ": production disposition")
+      t.eq(
+        canonical_json(normalized_raises(result.raises)),
+        canonical_json(expected_raises(record)),
+        record.observation_id .. ": full payloads are byte-exact with frozen OLD"
+      )
       t.eq(#captured.owner_decisions, 0, record.observation_id .. ": unchanged pre-CAS guard")
       t.eq(#captured.facade_families, 0, record.observation_id .. ": guard does not construct facade")
       t.eq(#captured.facade_emits, 0, record.observation_id .. ": guard emits no effect")
     end
   end
-  t.eq(apply_count, 14, "all frozen timeout apply observations replayed")
-  t.eq(pr_apply_count, 8, "PR-surface apply observations replayed")
-  t.eq(issue_apply_count, 6, "issue-surface apply observations replayed")
+  t.eq(apply_count, 14, "all frozen timeout apply observations replayed (now neutralized pre-cas)")
+  t.eq(pr_apply_count, 8, "PR-surface apply observations replayed (neutralized)")
+  t.eq(issue_apply_count, 6, "issue-surface apply observations replayed (neutralized)")
 end
 
 return {

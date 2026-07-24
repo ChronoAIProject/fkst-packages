@@ -117,21 +117,18 @@ return {
 
     local result = run_review_loop(event, opts("review-loop-evidence-continuation-budget"))
     t.eq(result.exit_code, 0)
+    -- Owner directive (#2725): the review continuation ROUND-BUDGET is a raw counter that
+    -- must NEVER hand off a terminal review-reconcile; with two DISTINCT review rounds (not
+    -- a true-stall) review convergence REDRIVES the next review round (consensus.proposal +
+    -- converge comment) instead of dropping to blocked. No review-reconcile handoff.
     t.eq(#result.raises, 2)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    local proposal = find_raise(result.raises, "consensus.proposal")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.round, 2)
     local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
-    local reconcile = find_raise(result.raises, "devloop_review_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.schema, "github-devloop.review-reconcile.v1")
-    t.eq(reconcile.payload.proposal_id, issue_proposal_id())
-    t.eq(reconcile.payload.review_proposal_id, event.proposal_id)
-    t.eq(reconcile.payload.issue_version, review_version)
-    t.eq(reconcile.payload.head_sha, "def456")
-    t.eq(reconcile.payload.round, 1)
-    t.eq(reconcile.payload.terminal_cause, "evidence-continuation-budget-exhausted")
-    t.eq(reconcile.payload.dedup_key, "review-reconcile:" .. review_version .. "/review-loop/1")
+    t.eq(find_raise(result.raises, "devloop_review_reconcile"), nil)
   end,
 
   test_review_loop_new_head_or_version_resets_resolvability_boundary = function()
