@@ -145,6 +145,74 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ CODEX, PUSH, REVIEWING_COMMENT, REVIEWING_LABEL }) },
 })
 
+local function sink_probe_fixture(disposition, feedback)
+  return {
+    disposition = disposition,
+    status = "admitted",
+    reason = "new-head",
+    cas = "applied",
+    target = "reviewing",
+    source_line = 478,
+    codex = "changed",
+    feedback = feedback,
+    merge_gate = feedback == "merge-gate" and "matching" or nil,
+    effects = ra.json_array({ CODEX, PUSH, REVIEWING_COMMENT, REVIEWING_LABEL }),
+  }
+end
+
+local SINK_PROBES = ra.json_array({
+  {
+    id = "r9-shadow-fix-reviewing-changes-requested-idempotent",
+    current_state = "fixing", from_states = { "reviewing" }, target_state = "fixing",
+    version = VERSION, expected_status = "idempotent",
+    fixture = sink_probe_fixture("shadow-reviewing-changes-requested", "review-reject"),
+    owns = {
+      [CODEX] = { "github-devloop-pr/reviewing/autonomous/changes_requested/idempotent" },
+      [PUSH] = { "github-devloop-pr/reviewing/autonomous/changes_requested/idempotent" },
+    },
+  },
+  {
+    id = "r9-shadow-fix-review-meta-fix-idempotent",
+    current_state = "fixing", from_states = { "review-meta" }, target_state = "fixing",
+    version = VERSION, expected_status = "idempotent",
+    fixture = sink_probe_fixture("shadow-review-meta-fix", "review-meta"),
+    owns = {
+      [CODEX] = { "github-devloop-pr/review-meta/autonomous/fix/idempotent" },
+      [PUSH] = { "github-devloop-pr/review-meta/autonomous/fix/idempotent" },
+    },
+  },
+  {
+    id = "r9-shadow-fix-pr-open-not-mergeable-idempotent",
+    current_state = "fixing", from_states = { "pr-open" }, target_state = "fixing",
+    version = VERSION, expected_status = "idempotent",
+    fixture = sink_probe_fixture("shadow-pr-open-not-mergeable", "merge-gate"),
+    owns = {
+      [CODEX] = { "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/idempotent" },
+      [PUSH] = { "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/idempotent" },
+    },
+  },
+  {
+    id = "r9-shadow-fix-merge-ready-code-repair-apply",
+    current_state = "merge-ready", from_states = { "merge-ready" }, target_state = "fixing",
+    version = VERSION, expected_status = "apply",
+    fixture = sink_probe_fixture("shadow-merge-ready-code-repair", "merge-gate"),
+    owns = {
+      [CODEX] = { "github-devloop-pr/merge-ready/guard_boundary/merge_gate/code_repair_needed/apply" },
+      [PUSH] = { "github-devloop-pr/merge-ready/guard_boundary/merge_gate/code_repair_needed/apply" },
+    },
+  },
+  {
+    id = "r9-shadow-fix-merging-merge-needs-fix-apply",
+    current_state = "merging", from_states = { "merging" }, target_state = "fixing",
+    version = VERSION, expected_status = "apply",
+    fixture = sink_probe_fixture("shadow-merging-merge-needs-fix", "merge-gate"),
+    owns = {
+      [CODEX] = { "github-devloop-pr/merging/autonomous/merge-needs-fix/apply" },
+      [PUSH] = { "github-devloop-pr/merging/autonomous/merge-needs-fix/apply" },
+    },
+  },
+})
+
 local function fixing_payload(fixture)
   if fixture.payload then return ra.copy_value(fixture.payload) end
   local base = h.fixing()
@@ -209,7 +277,14 @@ local function capture(fixture)
     table.insert(comments, core.state_marker(PROPOSAL_ID, "reviewing", devloop_state.next_fix_version(fix.version)))
   end
   if fixture.payload == nil and not fixture.no_feedback and not fixture.foreign_proposal then
-    table.insert(comments, reject_comment(fix))
+    if fixture.feedback == "review-meta" then
+      table.insert(comments, m_builders.review_meta_marker(
+        PROPOSAL_ID, fix.review_dedup_key, "fix", fix.version,
+        "missing OLD entry observation evidence"
+      ))
+    else
+      table.insert(comments, reject_comment(fix))
+    end
   end
   if fixture.merge_gate then
     local canonical_review = fix.review_proposal_id
@@ -225,8 +300,9 @@ local function capture(fixture)
         fix.review_proposal_id, fix.review_dedup_key, HEAD_SHA, fix.gate_baseline_sha,
         "mergeable-conflicting", fix.predecessor_set, fix.ci_failure_key)
     end
+    local canonical_baseline = fixture.merge_gate == "matching" and fix.gate_baseline_sha or "abcdef2"
     local canonical_marker = m_builders.merge_gate_marker(PROPOSAL_ID, PR_NUMBER, fix.version,
-      canonical_review, canonical_dedup, canonical_head, "abcdef2", "mergeable-conflicting",
+      canonical_review, canonical_dedup, canonical_head, canonical_baseline, "mergeable-conflicting",
       fix.predecessor_set, fix.ci_failure_key)
     if fixture.merge_gate == "superseded" then
       table.insert(comments, canonical_marker)
@@ -374,8 +450,14 @@ end
 
 return {
   test_fix_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()
+    local shadow_sink_records = ra.capture_shadow_sink_probes(t, {
+      probes = SINK_PROBES,
+      capture = capture,
+      devloop_state = devloop_state,
+    })
     ra.assert_site(t, { dept = "fix", fixtures = FIXTURES, capture = capture,
       prefix = PREFIX, site = SITE, boundary = "entry_acceptor",
-      shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-fix.json" })
+      shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-fix.json",
+      shadow_sink_records = shadow_sink_records })
   end,
 }

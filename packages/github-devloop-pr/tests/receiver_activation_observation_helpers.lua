@@ -212,6 +212,41 @@ local function effect_ids(effects)
   return ids
 end
 
+local function contains(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then return true end
+  end
+  return false
+end
+
+function M.capture_shadow_sink_probes(t, opts)
+  local records = M.json_array()
+  for _, probe in ipairs(opts.probes) do
+    local current = { state = probe.current_state, version = probe.version }
+    local status = opts.devloop_state.cyclic_transition_status(
+      current,
+      probe.from_states,
+      probe.target_state,
+      probe.version,
+      probe.target_version
+    )
+    t.eq(status, probe.expected_status, probe.id .. ": REAL OLD reaching-edge CAS outcome")
+    local record = opts.capture(M.copy_value(probe.fixture))
+    record.observation_id = probe.id
+    record.shadow_reaching_status = status
+    record.shadow_sink_ownership = M.copy_value(probe.owns)
+    local observed = {}
+    for _, effect in ipairs(record.old_outcome.emitted_effects or {}) do
+      observed[effect.effect_id] = true
+    end
+    for effect_id in pairs(probe.owns) do
+      t.eq(observed[effect_id], true, probe.id .. ": REAL OLD dispatch reaches " .. effect_id)
+    end
+    table.insert(records, record)
+  end
+  return records
+end
+
 function M.record(opts)
   local emitted, writes = M.effects(opts.dept, opts.fixture, opts.result.raises, opts.captured)
   local fixture = opts.fixture
@@ -328,13 +363,17 @@ local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
   local corpus = json.decode(file.read(corpus_path))
   local captures = corpus.captured_sink_effects or {}
   local captured_ids = {}
+  local captures_by_id = {}
   local inventory_by_id = {}
   local runtime_by_id = {}
   local entitlement_ids = entitlement_id_set()
   local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push", merge = "gh_pr_merge" }
   for _, record in ipairs(sink_inventory) do inventory_by_id[record.id] = record end
   for _, record in ipairs(runtime_records) do runtime_by_id[record.observation_id] = record end
-  for _, capture in ipairs(captures) do captured_ids[capture.effect_id] = true end
+  for _, capture in ipairs(captures) do
+    captured_ids[capture.effect_id] = true
+    captures_by_id[capture.effect_id] = capture
+  end
 
   for ordinal, capture in ipairs(captures) do
     t.eq(capture.ordinal, ordinal, corpus_path .. ": stable captured sink order")
@@ -362,6 +401,18 @@ local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
         corpus_path .. ": OLD runtime sink ID and relative order")
       t.eq(filtered[ordinal].sink_kind, capture.sink_kind,
         corpus_path .. ": OLD runtime sink kind")
+    end
+  end
+  for _, runtime in ipairs(runtime_records) do
+    for effect_id, entitlement_ids in pairs(runtime.shadow_sink_ownership or {}) do
+      local capture = captures_by_id[effect_id]
+      t.is_true(capture ~= nil, runtime.observation_id .. ": shadow sink is present in corpus")
+      t.is_true(contains(capture.old_probe_ids, runtime.observation_id),
+        runtime.observation_id .. ": REAL OLD probe is recorded for " .. effect_id)
+      for _, entitlement_id in ipairs(entitlement_ids) do
+        t.is_true(contains(capture.owning_effect_entitlement_ids, entitlement_id),
+          runtime.observation_id .. ": reaching edge owns " .. effect_id)
+      end
     end
   end
 end
@@ -409,7 +460,10 @@ function M.assert_site(t, opts)
       .. tostring(inventory_difference or "canonical-json") .. "; runtime_records=" .. M.canonical_json(first), 0)
   end
   if opts.shadow_corpus_path ~= nil then
-    assert_shadow_sink_captures(t, first, opts.shadow_corpus_path)
+    local shadow_records = M.json_array()
+    for _, record in ipairs(first) do table.insert(shadow_records, record) end
+    for _, record in ipairs(opts.shadow_sink_records or {}) do table.insert(shadow_records, record) end
+    assert_shadow_sink_captures(t, shadow_records, opts.shadow_corpus_path)
   end
   t.eq(#first, #opts.fixtures, opts.dept .. ": complete " .. boundary_label .. " disposition count")
 end

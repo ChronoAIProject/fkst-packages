@@ -3,6 +3,7 @@ local ra = require("tests.receiver_activation_observation_helpers")
 local config = require("devloop.config")
 local devloop_base = require("devloop.base")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local fix_rounds = require("core.fix_rounds")
@@ -163,7 +164,53 @@ local FIXTURES = ra.json_array({
     effects = ra.json_array({ "comment:pr:merging-state", "github.merge:verified-pr" }) },
   DELEGATION_FIXTURES[4],
   DELEGATION_FIXTURES[3],
-})local function event_for(fixture)
+})
+
+local function merge_sink_fixture(disposition, current_state)
+  return {
+    disposition = disposition,
+    status = "admitted",
+    reason = "all-gates-satisfied",
+    cas = "applied",
+    target = "merging",
+    source_line = 615,
+    current_state = current_state,
+    current_version = VERSION,
+    merge_confirmation_pending = true,
+    verified_return = "merge-confirmation-pending",
+    expected_error = "merge-confirmation-pending",
+    effects = ra.json_array({ "comment:pr:merging-state", "github.merge:verified-pr" }),
+  }
+end
+
+local SINK_PROBES = ra.json_array({
+  {
+    id = "entry-merge-versioned-apply",
+    current_state = "merge-ready", from_states = { "merge-ready", "merging" }, target_state = "merging",
+    version = VERSION, expected_status = "apply",
+    fixture = merge_sink_fixture("versioned-apply", "merge-ready"),
+    owns = {
+      ["github.merge:verified-pr"] = {
+        "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/apply",
+        "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/apply",
+      },
+    },
+  },
+  {
+    id = "entry-merge-versioned-idempotent",
+    current_state = "merging", from_states = { "merge-ready", "merging" }, target_state = "merging",
+    version = VERSION, expected_status = "idempotent",
+    fixture = merge_sink_fixture("versioned-idempotent", "merging"),
+    owns = {
+      ["github.merge:verified-pr"] = {
+        "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/idempotent",
+        "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/idempotent",
+      },
+    },
+  },
+})
+
+local function event_for(fixture)
   return { queue = "github-devloop-pr.devloop_merge_ready", ts = "2026-06-03T02:03:04Z",
     payload = fixture.payload and ra.copy_value(fixture.payload) or merge_payload() }
 end
@@ -527,8 +574,14 @@ end
 
 return {
   test_merge_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()
+    local shadow_sink_records = ra.capture_shadow_sink_probes(t, {
+      probes = SINK_PROBES,
+      capture = capture,
+      devloop_state = devloop_state,
+    })
     ra.assert_site(t, { dept = "merge", fixtures = FIXTURES, capture = capture, prefix = PREFIX,
       site = SITE, boundary = "entry_acceptor",
-      shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-merge.json" })
+      shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-merge.json",
+      shadow_sink_records = shadow_sink_records })
   end,
 }

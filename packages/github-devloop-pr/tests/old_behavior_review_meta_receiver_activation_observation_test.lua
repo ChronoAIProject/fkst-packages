@@ -1,6 +1,7 @@
 local ra = require("tests.receiver_activation_observation_helpers")
 local context_bundle = require("devloop.context_bundle")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
@@ -86,6 +87,45 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "blocked", source_line = 249,
     current_state = "review-meta", current_version = VERSION, action = "block",
     effects = ra.json_array({ "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result" }),
+  },
+})
+
+local SINK_PROBES = ra.json_array({
+  {
+    id = "r9-shadow-review-meta-reviewing-needs-review-meta-idempotent",
+    current_state = "review-meta", from_states = { "reviewing" }, target_state = "review-meta",
+    version = VERSION, expected_status = "idempotent",
+    fixture = {
+      disposition = "shadow-reviewing-needs-review-meta", status = "admitted", reason = "admitted-fix",
+      cas = "applied", target = "fixing", source_line = 249,
+      current_state = "review-meta", current_version = VERSION, action = "fix",
+      effects = ra.json_array({
+        "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result",
+      }),
+    },
+    owns = {
+      ["codex.dispatch:review-meta"] = {
+        "github-devloop-pr/reviewing/autonomous/needs_review_meta/idempotent",
+      },
+    },
+  },
+  {
+    id = "r9-shadow-review-meta-fixing-revision-failed-idempotent",
+    current_state = "review-meta", from_states = { "fixing" }, target_state = "review-meta",
+    version = VERSION, expected_status = "idempotent",
+    fixture = {
+      disposition = "shadow-fixing-revision-failed", status = "admitted", reason = "admitted-fix",
+      cas = "applied", target = "fixing", source_line = 249,
+      current_state = "review-meta", current_version = VERSION, action = "fix",
+      effects = ra.json_array({
+        "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result",
+      }),
+    },
+    owns = {
+      ["codex.dispatch:review-meta"] = {
+        "github-devloop-pr/fixing/autonomous/revision_failed/idempotent",
+      },
+    },
   },
 })
 
@@ -177,9 +217,15 @@ end
 
 return {
   test_review_meta_receiver_activation_old_behavior_is_real_dispatch_and_bidirectional = function()
+    local shadow_sink_records = ra.capture_shadow_sink_probes(t, {
+      probes = SINK_PROBES,
+      capture = capture,
+      devloop_state = devloop_state,
+    })
     ra.assert_site(t, {
       dept = "review_meta", fixtures = FIXTURES, capture = capture, prefix = PREFIX, site = SITE,
       shadow_corpus_path = "migration/intent_bounded_replay/corpus/pr-review-meta.json",
+      shadow_sink_records = shadow_sink_records,
     })
   end,
 }
