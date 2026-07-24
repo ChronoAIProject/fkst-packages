@@ -586,7 +586,10 @@ local policies = {
     evidence_type = "fix_cas_evidence_v1",
     production = { function_name = "cyclic_transition_status", overlay = "raw fixing version equality", source = "packages/github-devloop-pr/departments/fix/main.lua:516" },
     base = "cyclic",
-    variants = { fixing_to_reviewing = variant({ "fixing" }, "reviewing") },
+    variants = {
+      fixing_to_reviewing = variant({ "fixing" }, "reviewing"),
+      fixing_to_review_meta = variant({ "fixing" }, "review-meta"),
+    },
     overlay = APPLY_ONLY_RAW,
   },
   ["cas.legacy_review_meta_v1"] = {
@@ -608,6 +611,8 @@ local policies = {
     variants = {
       merge_ready_to_merging = variant({ "merge-ready" }, "merging"),
       merge_ready_or_merging_to_merging = variant({ "merge-ready", "merging" }, "merging"),
+      merge_ready_to_fixing = variant({ "merge-ready" }, "fixing"),
+      merging_to_fixing = variant({ "merging" }, "fixing"),
     },
     -- resolve_merge applies production's admissible-state guard (current ∈ {merge-ready,
     -- merging, merged}) before delegating an admissible current to the standard cyclic

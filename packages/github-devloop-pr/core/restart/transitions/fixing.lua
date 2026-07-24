@@ -174,6 +174,8 @@ return function(M, h)
           state = "review-meta",
           output_variant = "revision_failed",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_fix_v1",
+          cas_variant = "fixing_to_review_meta",
           transition_effect_entitlements = effect_entitlements("revision_failed", {
             "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
           }),

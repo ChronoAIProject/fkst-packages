@@ -164,7 +164,18 @@ return function(M, h)
           {
             state = "merging",
             output_variant = "eligible_now",
-            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "eligible_now", {}),
+            cas_policy_id = "cas.legacy_merge_v1",
+            cas_variant = "merge_ready_or_merging_to_merging",
+            transition_effect_entitlements = {
+              apply = {
+                id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/apply",
+                effect_ids = { "github.merge:verified-pr" },
+              },
+              idempotent = {
+                id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/idempotent",
+                effect_ids = { "github.merge:verified-pr" },
+              },
+            },
             pending_order = { participates = true, predecessor_state = "merge-ready" },
             decision_type = "MergeEligibility",
             monotonic = true,
@@ -172,6 +183,8 @@ return function(M, h)
           {
             state = "fixing",
             output_variant = "code_repair_needed",
+            cas_policy_id = "cas.legacy_merge_v1",
+            cas_variant = "merge_ready_to_fixing",
             transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "code_repair_needed", {
               "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
             }),

@@ -38,9 +38,25 @@ local expected_successor_kinds = {
   ["reviewing/watchdog_reconcile_terminal"] = "timeout",
 }
 local expected_real_cas_by_id = {
+  ["github-devloop-pr/fixing/autonomous/revision_failed"] = {
+    cas_policy_id = "cas.legacy_fix_v1",
+    cas_variant = "fixing_to_review_meta",
+  },
+  ["github-devloop-pr/merge-ready/guard_boundary/merge_gate/code_repair_needed"] = {
+    cas_policy_id = "cas.legacy_merge_v1",
+    cas_variant = "merge_ready_to_fixing",
+  },
+  ["github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now"] = {
+    cas_policy_id = "cas.legacy_merge_v1",
+    cas_variant = "merge_ready_or_merging_to_merging",
+  },
   ["github-devloop-pr/merging/autonomous/merge-completed"] = {
     cas_policy_id = "cas.legacy_merge_completion_v1",
     cas_variant = "merge_ready_or_merging_to_merged",
+  },
+  ["github-devloop-pr/merging/autonomous/merge-needs-fix"] = {
+    cas_policy_id = "cas.legacy_merge_v1",
+    cas_variant = "merging_to_fixing",
   },
   ["github-devloop-pr/pr-open/autonomous/not_mergeable_repair"] =
     { cas_policy_id = "cas.legacy_observe_pr_fix_v1", cas_variant = "pr_open_to_fixing" },
@@ -201,8 +217,10 @@ local function expected_guard_boundary_edges(owner, rows)
     for _, successor in ipairs(type(signature) == "table" and signature.successors or {}) do
       if successor.kind == "guard_boundary" then
         row_has_edge = true
+        local edge_id = owner .. "/" .. row.from_state .. "/guard_boundary/" .. successor.output_variant
+        local expected_cas = expected_real_cas_by_id[edge_id]
         table.insert(expected, {
-          id = owner .. "/" .. row.from_state .. "/guard_boundary/" .. successor.output_variant,
+          id = edge_id,
           owner = owner,
           row_id = row.from_state,
           kind = "guard_boundary",
@@ -211,6 +229,8 @@ local function expected_guard_boundary_edges(owner, rows)
           semantic_variant = successor.output_variant,
           transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
           pending_order = copy_value(successor.pending_order),
+          cas_policy_id = expected_cas and expected_cas.cas_policy_id or nil,
+          cas_variant = expected_cas and expected_cas.cas_variant or nil,
           provenance = {
             owner = owner,
             row = row.from_state,
@@ -224,8 +244,11 @@ local function expected_guard_boundary_edges(owner, rows)
         for _, successor in ipairs(guard_boundary.successors) do
           if successor.kind ~= "timeout" then
             row_has_edge = true
+            local edge_id = owner .. "/" .. row.from_state .. "/guard_boundary/"
+              .. guard_boundary.name .. "/" .. successor.output_variant
+            local expected_cas = expected_real_cas_by_id[edge_id]
             table.insert(expected, {
-              id = owner .. "/" .. row.from_state .. "/guard_boundary/" .. guard_boundary.name .. "/" .. successor.output_variant,
+              id = edge_id,
               owner = owner,
               row_id = row.from_state,
               kind = "guard_boundary",
@@ -234,6 +257,8 @@ local function expected_guard_boundary_edges(owner, rows)
               semantic_variant = successor.output_variant,
               transition_effect_entitlements = copy_value(successor.transition_effect_entitlements),
               pending_order = copy_value(successor.pending_order),
+              cas_policy_id = expected_cas and expected_cas.cas_policy_id or nil,
+              cas_variant = expected_cas and expected_cas.cas_variant or nil,
               provenance = {
                 owner = owner,
                 row = row.from_state,
@@ -386,6 +411,8 @@ local function assert_guard_boundary_edges(actual, expected, rows_without_bounda
     local edge_keys = key_set(structural_fields)
     edge_keys.semantic_variant = true
     if expected_edge.pending_order ~= nil then edge_keys.pending_order = true end
+    if expected_edge.cas_policy_id ~= nil then edge_keys.cas_policy_id = true end
+    if expected_edge.cas_variant ~= nil then edge_keys.cas_variant = true end
     edge_keys.transition_effect_entitlements = true
     assert_exact_keys(edge, edge_keys)
     if expected_edge.source.boundary == nil then
@@ -402,9 +429,12 @@ local function assert_guard_boundary_edges(actual, expected, rows_without_bounda
     t.eq(edge.source.boundary, expected_edge.source.boundary)
     t.eq(edge.target, expected_edge.target)
     t.eq(edge.semantic_variant, expected_edge.semantic_variant)
+    t.eq(edge.cas_policy_id, expected_edge.cas_policy_id)
+    t.eq(edge.cas_variant, expected_edge.cas_variant)
     assert_semantic_variant(edge)
     assert_same_value(edge.transition_effect_entitlements, expected_edge.transition_effect_entitlements)
     assert_same_value(edge.pending_order, expected_edge.pending_order)
+    assert_valid_cas(edge)
     t.eq(edge.provenance.owner, expected_edge.provenance.owner)
     t.eq(edge.provenance.row, expected_edge.provenance.row)
     t.eq(edge.provenance.field, expected_edge.provenance.field)

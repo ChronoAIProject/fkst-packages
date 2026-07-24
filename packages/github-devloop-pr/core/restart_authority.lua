@@ -199,7 +199,8 @@ function M.decide_transition(sealed_snapshot, intent)
       or edge.cas_variant == "reviewing_to_fixing"
       or edge.cas_variant == "reviewing_to_review_meta")
   local supported_fix = edge.cas_policy_id == "cas.legacy_fix_v1"
-    and edge.cas_variant == "fixing_to_reviewing"
+    and (edge.cas_variant == "fixing_to_reviewing"
+      or edge.cas_variant == "fixing_to_review_meta")
   local supported_review_meta = edge.cas_policy_id == "cas.legacy_review_meta_v1"
     and edge.cas_variant == "predecision_eligibility"
     and (edge.semantic_variant == "fix"
@@ -216,7 +217,9 @@ function M.decide_transition(sealed_snapshot, intent)
     and (edge.kind == "timeout"
       or (edge.kind == "entry" and edge.source.boundary == "devloop_timeout_reconcile"))
   local supported_merge = edge.cas_policy_id == "cas.legacy_merge_v1"
-    and edge.cas_variant == "merge_ready_or_merging_to_merging"
+    and (edge.cas_variant == "merge_ready_or_merging_to_merging"
+      or edge.cas_variant == "merge_ready_to_fixing"
+      or edge.cas_variant == "merging_to_fixing")
   local supported_merge_completion = edge.cas_policy_id == "cas.legacy_merge_completion_v1"
     and edge.cas_variant == "merge_ready_or_merging_to_merged"
   local supported_pr_fix_reconcile = edge.cas_policy_id == "cas.legacy_pr_fix_reconcile_v1"

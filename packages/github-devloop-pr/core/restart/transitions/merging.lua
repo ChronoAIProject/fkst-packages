@@ -164,6 +164,8 @@ return function(M, h)
           state = "fixing",
           output_variant = "merge-needs-fix",
           kind = "autonomous",
+          cas_policy_id = "cas.legacy_merge_v1",
+          cas_variant = "merging_to_fixing",
           transition_effect_entitlements = effect_entitlements("merge-needs-fix", {
             "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
           }),

@@ -12,13 +12,14 @@ local inventories = {
 
 local PR_COMMENT = "github-proxy.github_pr_comment_request"
 local ISSUE_LABEL = "github-proxy.github_issue_label_request"
+local VERIFIED_MERGE = "github.merge:verified-pr"
 local expected_new_apply_effects = {
   ["github-devloop-pr/fixing/autonomous/fix_budget_exhausted"] = { "devloop_fix_reconcile" },
   ["github-devloop-pr/fixing/autonomous/revision_failed"] = { PR_COMMENT, ISSUE_LABEL },
   ["github-devloop-pr/merge-ready/autonomous/fix_budget_exhausted"] = { "devloop_fix_reconcile" },
   ["github-devloop-pr/merge-ready/guard_boundary/merge_gate/approval_stale"] = { PR_COMMENT, ISSUE_LABEL },
   ["github-devloop-pr/merge-ready/guard_boundary/merge_gate/code_repair_needed"] = { PR_COMMENT, ISSUE_LABEL },
-  ["github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now"] = {},
+  ["github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now"] = { VERIFIED_MERGE },
   ["github-devloop-pr/merging/autonomous/fix_budget_exhausted"] = { "devloop_fix_reconcile" },
   ["github-devloop-pr/merging/autonomous/head-advanced"] = { PR_COMMENT, ISSUE_LABEL },
   ["github-devloop-pr/merging/autonomous/merge-completed"] = { PR_COMMENT },
@@ -54,7 +55,8 @@ return {
       local expected = expected_new_apply_effects[edge.id]
       if expected ~= nil then
         assert_array(entitlements.apply.effect_ids, expected)
-        if edge.id == "github-devloop-pr/pr-open/entry/pr_open_handoff" then
+        if edge.id == "github-devloop-pr/pr-open/entry/pr_open_handoff"
+          or edge.id == "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now" then
           assert_array(entitlements.idempotent.effect_ids, expected)
         else
           assert_array(entitlements.idempotent.effect_ids, {})
