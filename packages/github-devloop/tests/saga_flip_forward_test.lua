@@ -5,6 +5,7 @@ local opts = h.opts
 local ready = h.ready
 local run_implement = h.run_implement
 local mock_issue_implement = h.mock_issue_implement
+local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
 local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
 local mock_existing_implement_branch = h.mock_existing_implement_branch
 local mock_git_push = h.mock_git_push
@@ -17,6 +18,7 @@ local deterministic_branch_for = h.deterministic_branch_for
 local find_raise = h.find_raise
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local conv_reconcile = require("devloop.convergence.reconcile")
 local owner_pending_projection = require("devloop.restart_owner_pending_projection")
 local sink_inventory = require("core.restart.sink_inventory")
 local restart_inventories = {
@@ -61,13 +63,136 @@ local function mock_real_write_mode()
   end
 end
 
-local function command_index(needle)
+local function command_index(needle, first_index)
   for index, call in ipairs(t.command_calls()) do
-    if tostring(call.rendered or ""):find(needle, 1, true) ~= nil then
+    if index >= (first_index or 1)
+      and tostring(call.rendered or ""):find(needle, 1, true) ~= nil then
       return index
     end
   end
   return nil
+end
+
+local function rendered_calls(first_index)
+  local calls = {}
+  for index, call in ipairs(t.command_calls()) do
+    if index >= first_index then table.insert(calls, tostring(call.rendered or "")) end
+  end
+  return table.concat(calls, " | ")
+end
+
+local function contains(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then return true end
+  end
+  return false
+end
+
+local function sink_probe_cases()
+  local ready_apply = ready()
+  local implementing_retry = ready()
+  local impl_failed_retry = ready({ impl_retry_attempt = 2 })
+  local blocked_open_pr = ready({ impl_retry_attempt = 2 })
+  local open_pr_blocked_version = blocked_open_pr.dedup_key .. "/review-loop/3"
+  blocked_open_pr.operator_reentry = {
+    command = "reimplement", from_state = "blocked", pr_number = 7,
+    state_version = open_pr_blocked_version, impl_version = blocked_open_pr.dedup_key,
+  }
+  local blocked_timeout = ready({ impl_retry_attempt = 2 })
+  local timeout_blocked_version = conv_reconcile.timeout_reconcile_state_version(
+    blocked_timeout.dedup_key, "implementing", 3
+  )
+  blocked_timeout.operator_reentry = {
+    command = "reimplement", from_state = "blocked",
+    terminal_reason = "implementing-timeout-without-pr",
+    state_version = timeout_blocked_version, impl_version = blocked_timeout.dedup_key,
+    timeout_round = 3,
+  }
+  return {
+    {
+      id = "r9-shadow-implement-success", event = ready_apply, labels = { "fkst-dev:ready" },
+      comments = { core.state_marker(ready_apply.proposal_id, "ready", ready_apply.dedup_key) },
+      owns = {
+        codex = { "github-devloop/ready/entry/implementation_kicked_off/apply" },
+        git = { "github-devloop/ready/entry/implementation_kicked_off/apply",
+          "github-devloop/implementing/autonomous/revision_published/apply" },
+      },
+    },
+    {
+      id = "r9-shadow-implementing-liveness-retry", event = implementing_retry,
+      labels = { "fkst-dev:implementing" }, no_visible_progress = true,
+      comments = { core.state_marker(implementing_retry.proposal_id, "implementing", implementing_retry.dedup_key) },
+      owns = { codex = { "github-devloop/ready/entry/implementation_kicked_off/idempotent" },
+        git = { "github-devloop/ready/entry/implementation_kicked_off/idempotent" } },
+    },
+    {
+      id = "r9-shadow-impl-failed-retry", event = impl_failed_retry,
+      labels = { "fkst-dev:impl-failed" },
+      comments = { core.state_marker(impl_failed_retry.proposal_id, "impl-failed", impl_failed_retry.dedup_key),
+        core.impl_failure_marker(impl_failed_retry.proposal_id, impl_failed_retry.dedup_key, "codex-failed", 1) },
+      owns = { codex = { "github-devloop/impl-failed/entry/retry-implementation/apply" },
+        git = { "github-devloop/impl-failed/entry/retry-implementation/apply" } },
+    },
+    {
+      id = "r9-shadow-reimplement-blocked-open-pr", event = blocked_open_pr,
+      labels = { "fkst-dev:blocked" }, issue_read_count = 3,
+      comments = { m_builders.pr_link_marker(blocked_open_pr.proposal_id, 7,
+        "devloop-owner-repo-42-01HY", blocked_open_pr.dedup_key, "dev"),
+        core.state_marker(blocked_open_pr.proposal_id, "blocked", open_pr_blocked_version) },
+      owns = { codex = { "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr/apply" },
+        git = { "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr/apply" } },
+    },
+    {
+      id = "r9-shadow-reimplement-blocked-implementing-timeout-without-pr", event = blocked_timeout,
+      labels = { "fkst-dev:blocked" }, issue_read_count = 3,
+      comments = { core.state_marker(blocked_timeout.proposal_id, "implementing", blocked_timeout.dedup_key),
+        core.state_marker(blocked_timeout.proposal_id, "blocked", timeout_blocked_version),
+        conv_reconcile.timeout_reconcile_marker(blocked_timeout.proposal_id, blocked_timeout.dedup_key,
+          "implementing", 3, "drop", { terminal_version = timeout_blocked_version,
+            from_state = "implementing", from_version = blocked_timeout.dedup_key,
+            reason_class = "state-output-obligation-timeout", source_ref = blocked_timeout.source_ref }) },
+      owns = { codex = { "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr/apply" },
+        git = { "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr/apply" } },
+    },
+  }
+end
+
+local function run_old_sink_probe(probe)
+  local event = probe.event
+  local branch = deterministic_branch_for(event)
+  local first_call = #t.command_calls() + 1
+  for _ = 1, probe.issue_read_count or 1 do
+    mock_issue_implement(probe.labels, probe.comments)
+  end
+  if probe.no_visible_progress then
+    t.mock_command("git fetch 'origin' '" .. branch .. "'", {
+      stdout = "", stderr = "fatal: couldn't find remote ref", exit_code = 128,
+    })
+    t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
+  end
+  mock_fresh_implement_worktree()
+  mock_implement_codex(0, "implemented")
+  mock_git_status(" M packages/github-devloop/core.lua\n")
+  mock_git_commit(head_sha, branch)
+  mock_git_push(branch)
+  t.mock_command(core.gh_pr_list_head_base_cmd("owner/repo", branch, "dev"), {
+    stdout = "[]\n", stderr = "", exit_code = 0,
+  })
+  t.mock_command("gh pr create", {
+    stdout = "https://github.example/owner/repo/pull/7\n", stderr = "", exit_code = 0,
+  })
+  mock_pr_child_adoptable(branch)
+  mock_bot_env()
+  mock_real_write_mode()
+
+  local result = run_implement(event, opts(probe.id, { FKST_GITHUB_WRITE = "1" }))
+  local codex_index = command_index("codex exec", first_call)
+  local push_index = command_index("push origin HEAD:refs/heads/" .. branch, first_call)
+  t.eq(result.exit_code, 0, probe.id .. ": OLD path outcome: "
+    .. tostring(result.error or result.stderr or "no error detail"))
+  t.is_true(codex_index ~= nil and push_index ~= nil and codex_index < push_index,
+    probe.id .. ": OLD dispatches implement codex before successful implementation git push; calls="
+      .. rendered_calls(first_call))
 end
 
 local function visible_child_comments(event, branch)
@@ -171,34 +296,28 @@ return {
     t.is_true(push_index < create_index)
   end,
 
-  test_r9_shadow_captures_implement_codex_then_git_push_from_real_old_path = function()
-    local event = ready()
-    local branch = deterministic_branch_for(event)
-    mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
-    })
-    mock_existing_empty_implement_worktree()
-    mock_implement_codex(0, "implemented")
-    mock_git_status(" M packages/github-devloop/core.lua\n")
-    mock_git_commit(head_sha, branch)
-    mock_git_push(branch)
-    t.mock_command(core.gh_pr_list_head_base_cmd("owner/repo", branch, "dev"), {
-      stdout = "[]\n", stderr = "", exit_code = 0,
-    })
-    t.mock_command("gh pr create", {
-      stdout = "https://github.example/owner/repo/pull/7\n", stderr = "", exit_code = 0,
-    })
-    mock_pr_child_adoptable(branch)
-    mock_bot_env()
-    mock_real_write_mode()
+  test_r9_shadow_old_ready_apply_reaches_shared_sinks = function()
+    run_old_sink_probe(sink_probe_cases()[1])
+  end,
 
-    local result = run_implement(event, opts("r9-shadow-implement-success", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 0)
-    local codex_index = command_index("codex exec")
-    local push_index = command_index("push origin HEAD:refs/heads/" .. branch)
-    t.is_true(codex_index ~= nil and push_index ~= nil and codex_index < push_index,
-      "protected OLD dispatches implement codex before implementation git push")
+  test_r9_shadow_old_implementing_liveness_retry_reaches_shared_sinks = function()
+    run_old_sink_probe(sink_probe_cases()[2])
+  end,
 
+  test_r9_shadow_old_impl_failed_retry_reaches_shared_sinks = function()
+    run_old_sink_probe(sink_probe_cases()[3])
+  end,
+
+  test_r9_shadow_old_blocked_open_pr_reentry_reaches_shared_sinks = function()
+    run_old_sink_probe(sink_probe_cases()[4])
+  end,
+
+  test_r9_shadow_old_blocked_timeout_reentry_reaches_shared_sinks = function()
+    run_old_sink_probe(sink_probe_cases()[5])
+  end,
+
+  test_r9_shadow_corpus_binds_every_reaching_old_probe = function()
+    local probes = sink_probe_cases()
     local corpus = json.decode(file.read(
       "migration/intent_bounded_replay/corpus/implement-activation.json"
     ))
@@ -221,13 +340,14 @@ return {
         if entitlement ~= nil then entitlement_ids[entitlement.id] = true end
       end
     end
+    local captures_by_kind = {}
     local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push" }
     for ordinal, capture in ipairs(captures) do
+      captures_by_kind[capture.sink_kind] = capture
       local inventory = inventory_by_kind[capture.sink_kind]
       t.eq(capture.ordinal, ordinal)
       t.eq(capture.effect_id, inventory.id)
       t.eq(inventory.authority_class, "lifecycle-authoritative")
-      t.eq(capture.old_probe_ids[1], "r9-shadow-implement-success")
       for _, entitlement_id in ipairs(capture.owning_effect_entitlement_ids) do
         t.eq(entitlement_ids[entitlement_id], true)
       end
@@ -240,6 +360,16 @@ return {
       end
       t.is_true(selected_line ~= nil
         and selected_line:find(call_tokens[capture.sink_kind], 1, true) ~= nil)
+    end
+    for _, probe in ipairs(probes) do
+      for sink_kind, owned_ids in pairs(probe.owns) do
+        local capture = captures_by_kind[sink_kind]
+        t.is_true(contains(capture.old_probe_ids, probe.id), probe.id .. ": OLD probe is recorded")
+        for _, entitlement_id in ipairs(owned_ids) do
+          t.is_true(contains(capture.owning_effect_entitlement_ids, entitlement_id),
+            probe.id .. ": reaching edge owns " .. sink_kind .. " sink")
+        end
+      end
     end
   end,
 
