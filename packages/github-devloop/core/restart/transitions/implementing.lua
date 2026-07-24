@@ -2,10 +2,14 @@ local payloads_builders = require("devloop.payloads.builders")
 local devloop_state = require("devloop.state")
 local function effect_entitlements(semantic_variant)
   local id = "github-devloop/implementing/autonomous/" .. semantic_variant
+  local effect_ids = {
+    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+  }
+  if semantic_variant == "revision_published" then
+    table.insert(effect_ids, "git.push:implementation-branch")
+  end
   return {
-    apply = { id = id .. "/apply", effect_ids = {
-      "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
-    } },
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
     idempotent = { id = id .. "/idempotent", effect_ids = {} },
   }
 end

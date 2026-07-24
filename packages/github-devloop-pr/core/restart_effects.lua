@@ -18,5 +18,6 @@ return restart_effect_seal.make({
   owner = owner,
   restart_authority = require("core.restart_authority"),
   edges = edges,
+  rows = core.restart_transition_table(),
   sinks = require("core.restart.sink_inventory"),
 })

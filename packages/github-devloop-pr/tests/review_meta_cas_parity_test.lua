@@ -357,15 +357,24 @@ local function assert_catalog_matches_observed_decision(fixture)
   if fixture.effect_state ~= nil then
     t.eq(probe.outcome, "apply", fixture.name .. ": decision reached only after the shared probe applied")
     t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
-    t.eq(#grant_mints, 1, fixture.name .. ": exactly one result grant minted")
-    t.eq(grant_mints[1].sink_id, "comment:pr:review-meta-result", fixture.name .. ": result grant sink")
+    local result_grant_mints = {}
+    for _, minted in ipairs(grant_mints) do
+      if minted.sink_id == "comment:pr:review-meta-result" then
+        table.insert(result_grant_mints, minted)
+      end
+    end
+    t.eq(#result_grant_mints, 1, fixture.name .. ": exactly one result grant minted")
+    t.eq(result_grant_mints[1].sink_id, "comment:pr:review-meta-result", fixture.name .. ": result grant sink")
     local expected_variant = fixture.effect_state == "blocked" and "block" or "fix"
-    t.eq(grant_mints[1].decision.edge_id,
+    t.eq(result_grant_mints[1].decision.edge_id,
       OWNER .. "/review-meta/autonomous/" .. expected_variant,
       fixture.name .. ": action-selected grant edge")
   else
     t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
-    t.eq(#grant_mints, 0, fixture.name .. ": non-effect path minted no grant")
+    for _, minted in ipairs(grant_mints) do
+      t.is_true(minted.sink_id ~= "comment:pr:review-meta-result",
+        fixture.name .. ": non-effect path minted no result grant")
+    end
   end
   return {
     result = result,
@@ -431,9 +440,10 @@ local TRACE_FIXTURES = {
   },
 }
 
-local function trace_artifact(corpus_hash, fixtures)
+local function trace_artifact(corpus_hash, fixtures, captured_sink_effects)
   return observation_support.admission_trace_artifact(
-    "restart-pr-review-meta-trace.v1", OWNER, "pr-review-meta", corpus_hash, fixtures
+    "restart-pr-review-meta-trace.v1", OWNER, "pr-review-meta", corpus_hash,
+    fixtures, captured_sink_effects
   )
 end
 
@@ -530,8 +540,8 @@ local function assert_review_meta_trace_equality()
     ))
   end
 
-  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures, corpus.captured_sink_effects)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures, corpus.captured_sink_effects)
   local canonical_json = observation_support.canonical_json
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
     "R9 PR review-meta OLD and NEW semantic trace")

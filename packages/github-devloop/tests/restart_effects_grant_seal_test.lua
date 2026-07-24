@@ -13,6 +13,9 @@ local EFFECT_IDS = {
   "github-proxy.github_issue_label_request",
 }
 local AUTHORITATIVE_SINK = "comment:issue:consensus-result"
+local RECEIVER_STATE = "implementing"
+local RECEIVER_ENTITLEMENT_ID = "github-devloop/implementing/receiver_dispatch"
+local RECEIVER_EFFECT_ID = "codex.dispatch:implement"
 local V_CURRENT = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local V_OLDER = "consensus:github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
 local V_NEWER = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
@@ -54,6 +57,44 @@ local function assert_array(actual, expected, context)
 end
 
 return {
+  test_receiver_dispatch_decision_is_row_owned_exact_and_one_shot = function()
+    local sealed = snapshot({
+      current = { state = RECEIVER_STATE, version = V_CURRENT },
+      snapshot_fingerprint = "snapshot:issue:42:implementing:v1",
+    })
+    local decided = restart_effects.decide_receiver_dispatch(sealed, {
+      receiver_state = RECEIVER_STATE,
+    })
+    t.eq(decided.status, "idempotent")
+    t.eq(decided.effect_entitlement_id, RECEIVER_ENTITLEMENT_ID)
+    assert_array(decided.granted_effect_ids, { RECEIVER_EFFECT_ID }, "receiver dispatch entitlement")
+
+    local grant = restart_effects.mint_grant(sealed, decided, RECEIVER_EFFECT_ID)
+    t.eq(type(grant), "table")
+    t.eq(restart_effects.verify_grant(grant, RECEIVER_EFFECT_ID, sealed), true)
+    t.eq(restart_effects.verify_grant(grant, RECEIVER_EFFECT_ID, sealed), false)
+  end,
+
+  test_initial_implement_receiver_dispatch_accepts_only_same_attempt_handoff = function()
+    local sealed = snapshot({
+      current = { state = "ready", version = V_CURRENT },
+      snapshot_fingerprint = "snapshot:issue:42:ready-handoff:v1",
+    })
+    local rejected = restart_effects.decide_receiver_dispatch(sealed, {
+      receiver_state = RECEIVER_STATE,
+    })
+    t.eq(rejected.status, "illegal")
+    t.eq(rejected.reason_code, "receiver-state-not-admitted")
+
+    local accepted = restart_effects.decide_receiver_dispatch(sealed, {
+      receiver_state = RECEIVER_STATE,
+      accepted_handoff = true,
+    })
+    t.eq(accepted.status, "apply")
+    t.eq(accepted.effect_entitlement_id, RECEIVER_ENTITLEMENT_ID)
+    assert_array(accepted.granted_effect_ids, { RECEIVER_EFFECT_ID }, "accepted handoff entitlement")
+  end,
+
   test_forged_plain_table_grant_and_analysis_decision_are_rejected = function()
     local sealed = snapshot()
     local decided = decision(sealed, "apply")

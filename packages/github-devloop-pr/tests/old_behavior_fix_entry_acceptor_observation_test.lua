@@ -18,6 +18,7 @@ local transition_version = require("contract.transition_version")
 local _observation_support = require("testkit_internal.old_behavior_observation_support")
 local workflow_codex = require("workflow_internal.codex")
 local fix_module = require("departments.fix.main")
+local restart_effects = require("core.restart_effects")
 
 local t = h.t
 local core = h.core
@@ -451,6 +452,21 @@ local function capture(fixture)
 end
 
 return {
+  test_fix_codex_and_publish_sinks_consume_exact_grants = function()
+    local original = restart_effects.verify_grant
+    local verified = {}
+    restart_effects.verify_grant = function(grant, effect_id, snapshot)
+      local accepted = original(grant, effect_id, snapshot)
+      if accepted then verified[effect_id] = true end
+      return accepted
+    end
+    local ok, failure = pcall(capture, sink_probe_fixture("grant-gated-fix-sinks", "review-reject"))
+    restart_effects.verify_grant = original
+    if not ok then error(failure, 0) end
+    t.eq(verified[CODEX], true)
+    t.eq(verified[PUSH], true)
+  end,
+
   test_fix_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()
     local shadow_sink_records = ra.capture_shadow_sink_probes(t, {
       probes = SINK_PROBES,
