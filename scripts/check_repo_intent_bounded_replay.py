@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 import hashlib
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -61,6 +62,8 @@ PROTECTED_MODULES = (
 MANIFEST_RE = re.compile(r"(?P<pr>[1-9][0-9]*)\.json")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_RE = re.compile(r"[0-9a-f]{40,64}")
+BASE_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/\-]*")
+SEMANTIC_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@#>;+-]*")
 
 MANIFEST_FIELDS = (
     "schema",
@@ -104,6 +107,13 @@ MANIFEST_HASH_FIELDS = (
     "behavior_diff_sha256",
     "manifest_sha256",
 )
+ANOMALY_TRANSPORT_FIELDS = {
+    "qualified_queues",
+    "ops_dependency",
+    "ephemeral_consumes",
+    "ingestion",
+    "package_visible_delivery_delta",
+}
 ATTESTATION_HASH_FIELDS = (
     "manifest_blob_sha256",
     "manifest_sha256",
@@ -575,12 +585,38 @@ def _self_hash_messages(
     return [f"{relative} {field} mismatch: declared {artifact[field]}, computed {actual}"]
 
 
+def _anomaly_transport_messages(value: Any, relative: str) -> list[str]:
+    label = f"{relative} anomaly_transport"
+    if not isinstance(value, dict):
+        return [f"{label} must be an object"]
+    messages = _exact_fields_messages(value, ANOMALY_TRANSPORT_FIELDS, label)
+    for field in ("qualified_queues", "ephemeral_consumes"):
+        identities = value.get(field)
+        if not _string_list(identities) or not identities:
+            messages.append(f"{label} field {field} must be a non-empty string array")
+            continue
+        canonical = sorted(set(identities), key=lambda item: item.encode("utf-8"))
+        if identities != canonical:
+            messages.append(f"{label} field {field} must be byte-sorted and unique")
+        if any(SEMANTIC_ID_RE.fullmatch(item) is None for item in identities):
+            messages.append(f"{label} field {field} contains a non-canonical semantic identity")
+    for field in ("ops_dependency", "ingestion", "package_visible_delivery_delta"):
+        identity = value.get(field)
+        if not _nonempty_string(identity) or SEMANTIC_ID_RE.fullmatch(identity) is None:
+            messages.append(f"{label} field {field} must be a canonical semantic identity")
+    return messages
+
+
 def _manifest_messages(
     artifact: dict[str, Any], relative: str, filename_pr: int
 ) -> list[str]:
     messages = _required_field_messages(artifact, MANIFEST_FIELDS, relative)
     if messages:
         return messages
+    expected = set(MANIFEST_FIELDS)
+    if "anomaly_transport" in artifact:
+        expected.add("anomaly_transport")
+    messages.extend(_exact_fields_messages(artifact, expected, relative))
     if artifact["schema"] != "fkst.intent-diff.v2":
         messages.append(f"{relative} schema must be fkst.intent-diff.v2")
     if artifact["intent"] != "behavior-change":
@@ -601,6 +637,42 @@ def _manifest_messages(
         messages.append(f"{relative} must not contain authoritative head_sha")
     messages.extend(_hash_field_messages(artifact, MANIFEST_HASH_FIELDS, relative))
     messages.extend(_self_hash_messages(artifact, "manifest_sha256", relative))
+    if "anomaly_transport" in artifact:
+        messages.extend(_anomaly_transport_messages(artifact["anomaly_transport"], relative))
+    return messages
+
+
+def _bound_manifest_messages(
+    root: Path,
+    artifact: dict[str, Any],
+    relative: str,
+    base_sha: str,
+    head_ref: str = "HEAD",
+) -> list[str]:
+    messages = _manifest_messages(artifact, relative, int(MANIFEST_RE.fullmatch(Path(relative).name).group("pr")))
+    if messages:
+        return messages
+    if artifact["base_sha"] != base_sha:
+        messages.append(f"{relative} base_sha must equal protected merge-base {base_sha}")
+    expected_identity = "/".join((
+        str(int(artifact["pr_number"])),
+        artifact["base_sha"],
+        artifact["semantic_tree_sha256"],
+        artifact["semantic_diff_sha256"],
+    ))
+    if artifact["one_use_identity"] != expected_identity:
+        messages.append(f"{relative} one_use_identity is not bound to pr/base/semantic hashes")
+    try:
+        actual_tree = semantic_tree_sha256(root, head_ref)
+        actual_diff = semantic_diff_sha256(root, base_sha, head_ref)
+    except Exception as error:
+        return messages + [f"{relative} cannot recompute semantic hashes: {error}"]
+    for field, actual in (
+        ("semantic_tree_sha256", actual_tree),
+        ("semantic_diff_sha256", actual_diff),
+    ):
+        if artifact[field] != actual:
+            messages.append(f"{relative} {field} mismatch: declared {artifact[field]}, computed {actual}")
     return messages
 
 
@@ -624,7 +696,25 @@ def _allowlist_entries(path: Path, root: Path) -> tuple[set[str], list[str]]:
     return _parse_allowlist(ALLOWLIST, path.read_text(encoding="utf-8").splitlines())
 
 
-def _base_allowlist(root: Path) -> tuple[str, set[str] | None, list[str]]:
+def _protected_base_sha(root: Path) -> str | None:
+    explicit = os.environ.get("FKST_RESTART_PREFLIGHT_BASE_REF")
+    if explicit and ".." not in explicit and BASE_REF_RE.fullmatch(explicit):
+        result = subprocess.run(
+            ["git", "merge-base", "HEAD", explicit], cwd=root, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    return ratchet_base.resolve_dev_merge_base(root)
+
+
+def _base_allowlist(root: Path, base_sha: str | None = None) -> tuple[str, set[str] | None, list[str]]:
+    if base_sha is not None:
+        text = ratchet_base.show_file_at(root, base_sha, ALLOWLIST)
+        if text is None:
+            return "absent", set(), []
+        entries, messages = _parse_allowlist(f"protected-base:{ALLOWLIST}", text.splitlines())
+        return "present", entries, messages
     status, text = ratchet_base.file_at_base(root, ALLOWLIST)
     if status != "present":
         return status, set() if status == "absent" else None, []
@@ -728,16 +818,18 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
 
     allowlist, allowlist_messages = _allowlist_entries(root / ALLOWLIST, root)
     messages.extend(allowlist_messages)
+    growth: set[str] = set()
+    protected_base: str | None = None
     if enforce_base:
-        base_status, base_allowlist, base_messages = _base_allowlist(root)
+        protected_base = _protected_base_sha(root)
+        base_status, base_allowlist, base_messages = _base_allowlist(root, protected_base)
         messages.extend(base_messages)
         if base_status == "unresolved":
             messages.append(
                 f"cannot resolve protected base {ALLOWLIST} to enforce the shrink-only ratchet"
             )
         elif base_allowlist is not None:
-            for entry in sorted(allowlist - base_allowlist):
-                messages.append(f"{entry} grows {ALLOWLIST} relative to the protected base")
+            growth = allowlist - base_allowlist
     manifests: dict[str, dict[str, Any]] = {}
     attestations: list[tuple[Path, dict[str, Any]]] = []
     for path in sorted(intent_diff_dir.iterdir()):
@@ -766,6 +858,28 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
             messages.append(f"{relative} is not listed in {ALLOWLIST}")
         if not manifest_messages:
             manifests[relative] = artifact
+
+    identities: dict[str, str] = {}
+    for relative, artifact in sorted(manifests.items()):
+        identity = artifact["one_use_identity"]
+        prior = identities.get(identity)
+        if prior is not None:
+            messages.append(f"{relative} reuses one_use_identity from {prior}")
+        else:
+            identities[identity] = relative
+
+    for entry in sorted(growth):
+        artifact = manifests.get(entry)
+        bound_messages = (
+            [f"{entry} has no structurally valid manifest"]
+            if artifact is None
+            else [f"cannot resolve protected merge-base for {entry}"]
+            if protected_base is None
+            else _bound_manifest_messages(root, artifact, entry, protected_base)
+        )
+        messages.extend(bound_messages)
+        if bound_messages:
+            messages.append(f"{entry} grows {ALLOWLIST} relative to the protected base")
 
     for path, artifact in attestations:
         messages.extend(_attestation_messages(root, path, artifact, manifests))
