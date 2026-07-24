@@ -42,4 +42,16 @@ return {
   test_explicit_non_timeout_exit_124_is_base_red = function()
     t.eq(verdict.classify(1, probe({ exit = 124, timed_out = false })), "BASE_RED")
   end,
+
+  -- KNOWN v1 LIMITATION (open, three-point control deferred): when the raw base_sha
+  -- probe is green but the candidate is red, v1 attributes it to the candidate
+  -- (OWN_LOCAL_RED) even though the red could have been introduced by the harness
+  -- delta substrate_pin.refresh commits into the candidate worktree before Codex
+  -- (a "preparation red"). This is a strict improvement over the prior behavior
+  -- (every red -> candidate) and never regresses it; splitting out PREPARATION_RED
+  -- needs a pre-Codex "prepared" third control point, left to a follow-up. This test
+  -- pins the current v1 attribution so the follow-up is a conscious, visible change.
+  test_own_local_red_conflates_preparation_red_known_v1_limitation = function()
+    t.eq(verdict.classify(1, probe()), "OWN_LOCAL_RED")
+  end,
 }

@@ -143,8 +143,17 @@ local function run_base_probe(worktree, base_sha)
   }
 end
 
-function M.base_local_iteration_probe(candidate_worktree, base_sha)
-  local probe_worktree = tostring(candidate_worktree) .. "-base-probe"
+-- Probe worktree path: a deterministic sibling of the (already deterministic)
+-- candidate worktree, tagged by attempt, pre-cleaned before use. The deterministic
+-- path is intentional -- a later run's pre-clean reaps any probe worktree a crashed
+-- prior run leaked, which a random/unique path would defeat -- and mirrors how the
+-- candidate worktree itself is named and reclaimed. The attempt tag keeps distinct
+-- attempts from ever sharing a probe path. (If the same attempt were somehow probed
+-- concurrently they would share this path; that degrades fail-closed to
+-- INDETERMINATE -- a safe re-drive, never a misattribution.)
+function M.base_local_iteration_probe(candidate_worktree, base_sha, probe_tag)
+  local suffix = probe_tag ~= nil and ("-" .. tostring(probe_tag)) or ""
+  local probe_worktree = tostring(candidate_worktree) .. "-base-probe" .. suffix
   local observation = { status = "cleanup-failed", base_sha = base_sha, worktree = probe_worktree }
   local preclean_ok, preclean_detail = clean_probe_worktree(probe_worktree)
   if preclean_ok then
@@ -247,7 +256,7 @@ end
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
   local green, verify_detail, candidate_check = run_local_iteration_check(ready, worktree)
   if not green then
-    local base_probe = M.base_local_iteration_probe(worktree, base_head)
+    local base_probe = M.base_local_iteration_probe(worktree, base_head, attempt)
     local verdict = local_iteration_verdict.classify(candidate_check.exit_code, base_probe)
     devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT_VERIFY_BASE", {
       "base_sha=" .. tostring(base_head),

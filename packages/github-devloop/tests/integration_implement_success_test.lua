@@ -319,8 +319,11 @@ return {
     local pinned_add = false
     for _, call in ipairs(t.command_calls()) do
       local rendered = tostring(call.rendered or "")
+      -- The trailing dash pins the attempt-tagged probe path (regression guard:
+      -- distinct attempts never share a probe worktree path -> no concurrent
+      -- preclean/cleanup collision). The prior untagged path would fail this.
       if rendered:find("git worktree add --detach", 1, true) ~= nil
-        and rendered:find(worktree .. "-base-probe", 1, true) ~= nil
+        and rendered:find(worktree .. "-base-probe-", 1, true) ~= nil
         and rendered:find("abc123", 1, true) ~= nil then
         pinned_add = true
       end
