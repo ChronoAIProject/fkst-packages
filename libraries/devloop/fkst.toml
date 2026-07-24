@@ -115,6 +115,7 @@ public = [
   "devloop.restart_effect_facade",
   "devloop.restart_effect_seal",
   "devloop.restart_metadata",
+  "devloop.restart_receiver_dispatch",
   "devloop.restart_obligation_derivations",
   "devloop.restart_obligations",
   "devloop.restart_owner_pending_projection",

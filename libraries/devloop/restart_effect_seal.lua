@@ -15,6 +15,7 @@ function M.make(config)
   local sealed_snapshots = setmetatable({}, { __mode = "k" })
   local sealed_decisions = setmetatable({}, { __mode = "k" })
   local issued_grants = setmetatable({}, { __mode = "k" })
+  local receiver_dispatch = require("devloop.restart_receiver_dispatch").index(owner, config.rows)
 
   local edges_by_id = {}
   for _, edge in ipairs(config.edges) do
@@ -52,6 +53,7 @@ function M.make(config)
     local fields = record.fields
     local entity = fields.entity
     local current = fields.current
+    local authority = decision_record.authority
     if type(entity) ~= "table"
       or not is_nonempty_string(entity.kind)
       or not is_nonempty_string(entity.repo)
@@ -61,20 +63,21 @@ function M.make(config)
       or not is_nonempty_string(fields.generation)
       or type(current) ~= "table"
       or not is_nonempty_string(current.version)
-      or type(decision_record.edge) ~= "table"
-      or not is_nonempty_string(decision_record.edge.target) then
+      or type(authority) ~= "table"
+      or not is_nonempty_string(authority.target) then
       return nil
     end
     return {
       owner_seal = owner_seal,
-      authority_kind = decision_record.edge.kind,
-      edge_id = decision_record.edge.id,
+      authority_kind = authority.kind,
+      edge_id = decision_record.result.edge_id,
+      receiver_dispatch_id = decision_record.result.receiver_dispatch_id,
       row_replay_id = decision_record.result.row_replay_id,
       entity = copy_value(entity),
       snapshot = decision_record.snapshot,
       snapshot_fingerprint = fields.snapshot_fingerprint,
       lock_epoch = fields.lock_epoch,
-      target = decision_record.edge.target,
+      target = authority.target,
       version = current.version,
       generation = fields.generation,
       decision_status = decision_record.result.status,
@@ -165,7 +168,42 @@ function M.make(config)
         return rejected
       end
       decision_record.edge = edge
+      decision_record.authority = edge
       decision_record.entitlement = entitlement
+    end
+    sealed_decisions[result] = decision_record
+    return result
+  end
+
+  function facade.decide_receiver_dispatch(sealed_snapshot, intent)
+    local record = snapshot_record(sealed_snapshot)
+    if record == nil then return illegal("unsealed-or-foreign-snapshot") end
+    local fields = record.fields
+    local authority_snapshot = restart_authority.seal_snapshot({
+      owner = owner,
+      proposal_id = fields.proposal_id,
+      current = copy_value(fields.current),
+    })
+    local result = restart_authority.decide_receiver_dispatch(authority_snapshot, intent)
+    result.grant = nil
+    result.current_fingerprint = fields.snapshot_fingerprint
+    local decision_record = { snapshot = sealed_snapshot, result = copy_value(result) }
+    if result.status == "apply" or result.status == "idempotent" then
+      local receiver = receiver_dispatch[result.receiver_state]
+      if receiver == nil
+        or result.receiver_dispatch_id ~= receiver.entitlement.id
+        or result.effect_entitlement_id ~= receiver.entitlement.id
+        or not arrays_equal(result.granted_effect_ids, receiver.entitlement.effect_ids) then
+        local rejected = illegal("receiver-effect-entitlement-drift")
+        sealed_decisions[rejected] = { snapshot = sealed_snapshot, result = copy_value(rejected) }
+        return rejected
+      end
+      decision_record.authority = {
+        id = receiver.entitlement.id,
+        kind = "receiver-dispatch",
+        target = receiver.receiver_state,
+      }
+      decision_record.entitlement = receiver.entitlement
     end
     sealed_decisions[result] = decision_record
     return result
@@ -189,7 +227,7 @@ function M.make(config)
       or sink.authority_class ~= "lifecycle-authoritative"
       or decision.minted == true
       or (decision.result.status ~= "apply" and decision.result.status ~= "idempotent")
-      or decision.entitlement == nil then
+      or decision.entitlement == nil or decision.authority == nil then
       return nil
     end
 

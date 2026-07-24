@@ -427,19 +427,21 @@ function M.admission_trace_fixture(
 end
 
 function M.admission_trace_active_projection(artifact)
-  local active = M.copy_value(artifact)
-  active.captured_sink_effects = nil
-  return active
+  return M.copy_value(artifact)
 end
 
-function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures)
-  return {
+function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures, captured_sink_effects)
+  local artifact = {
     schema = schema,
     owner = owner,
     family = family,
     fixtures = fixtures,
     artifact_sha256 = corpus_hash,
   }
+  if captured_sink_effects ~= nil then
+    artifact.captured_sink_effects = M.copy_value(captured_sink_effects)
+  end
+  return artifact
 end
 
 return M

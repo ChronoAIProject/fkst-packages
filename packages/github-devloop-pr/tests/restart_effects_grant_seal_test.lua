@@ -13,6 +13,18 @@ local EFFECT_IDS = {
   "github-proxy.github_issue_label_request",
 }
 local AUTHORITATIVE_SINK = "comment:pr:review-result"
+local RECEIVER_CASES = {
+  {
+    state = "fixing",
+    entitlement = "github-devloop-pr/fixing/receiver_dispatch",
+    effect = "codex.dispatch:fix",
+  },
+  {
+    state = "review-meta",
+    entitlement = "github-devloop-pr/review-meta/receiver_dispatch",
+    effect = "codex.dispatch:review-meta",
+  },
+}
 local V_CURRENT = "2026-06-03T01-02-03Z"
 local V_SAFE_CURRENT = "v-loop-01"
 local V_SAFE_INCOMING = "v-loop-1"
@@ -58,6 +70,26 @@ local function assert_array(actual, expected, context)
 end
 
 return {
+  test_receiver_dispatch_decisions_are_row_owned_exact_and_one_shot = function()
+    for _, case in ipairs(RECEIVER_CASES) do
+      local sealed = snapshot({
+        current = { state = case.state, version = V_CURRENT },
+        snapshot_fingerprint = "snapshot:pr:7:" .. case.state,
+      })
+      local decided = restart_effects.decide_receiver_dispatch(sealed, {
+        receiver_state = case.state,
+      })
+      t.eq(decided.status, "idempotent", case.state)
+      t.eq(decided.effect_entitlement_id, case.entitlement, case.state)
+      assert_array(decided.granted_effect_ids, { case.effect }, case.state .. " receiver entitlement")
+
+      local grant = restart_effects.mint_grant(sealed, decided, case.effect)
+      t.eq(type(grant), "table", case.state)
+      t.eq(restart_effects.verify_grant(grant, case.effect, sealed), true, case.state)
+      t.eq(restart_effects.verify_grant(grant, case.effect, sealed), false, case.state)
+    end
+  end,
+
   test_forged_plain_table_grant_and_analysis_decision_are_rejected = function()
     local sealed = snapshot()
     local decided = decision(sealed, "apply")

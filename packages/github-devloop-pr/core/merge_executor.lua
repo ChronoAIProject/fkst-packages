@@ -27,6 +27,7 @@ local config = require("devloop.config")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local merge_queue_tick_factory = require("core.merge_queue_tick")
+local restart_sink_grants = require("restart_sink_grants")
 local with_current_classification = ci_verdict.with_current_classification
 
 -- merge_executor is loaded while core is still assembling, so owner capabilities
@@ -685,6 +686,20 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
         repo, merge_ready, rechecked_pr_for_gate.comments,
         grant, snapshot, restart_caps.restart_effects
       )
+    end,
+    authorize_verified_merge = function(rechecked_pr)
+      return restart_sink_grants.verified_merge(restart_caps, {
+        repo = repo,
+        merge_ready = merge_ready,
+        rechecked_pr = rechecked_pr,
+        state = rechecked_state,
+        lock_key = lock_key,
+      })
+    end,
+    consume_verified_merge = function(authorization)
+      restart_sink_grants.consume(restart_caps, authorization,
+        "github.merge:verified-pr", "github-devloop: verified merge sink grant")
+      return true
     end,
   })
   if not merge_ok and merge_reason == "merge-confirmation-pending" then

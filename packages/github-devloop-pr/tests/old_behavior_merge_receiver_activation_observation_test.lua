@@ -208,6 +208,13 @@ local SINK_PROBES = ra.json_array({
   },
 })
 
+local function fixture_by_disposition(disposition)
+  for _, fixture in ipairs(FIXTURES) do
+    if fixture.disposition == disposition then return fixture end
+  end
+  return nil
+end
+
 local function event_for(fixture)
   return { queue = "github-devloop-pr.devloop_merge_ready", ts = "2026-06-03T02:03:04Z",
     payload = fixture.payload and ra.copy_value(fixture.payload) or merge_payload() }
@@ -571,6 +578,22 @@ local function capture(fixture)
 end
 
 return {
+  test_verified_merge_sink_consumes_exact_eligible_now_grant = function()
+    local restart_effects = require("core.restart_effects")
+    local original = restart_effects.verify_grant
+    local verified = {}
+    restart_effects.verify_grant = function(grant, effect_id, snapshot)
+      local accepted = original(grant, effect_id, snapshot)
+      if accepted then verified[effect_id] = true end
+      return accepted
+    end
+    local fixture = fixture_by_disposition("versioned-apply")
+    local ok, failure = pcall(capture, fixture)
+    restart_effects.verify_grant = original
+    if not ok then error(failure, 0) end
+    t.eq(verified["github.merge:verified-pr"], true)
+  end,
+
   test_merge_entry_acceptor_old_behavior_is_real_dispatch_and_bidirectional = function()
     local shadow_sink_records = ra.capture_shadow_sink_probes(t, {
       probes = SINK_PROBES,
