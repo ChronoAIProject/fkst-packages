@@ -130,15 +130,73 @@ def _exact_fields_messages(
     return messages
 
 
+CAPTURED_SINK_EFFECT_FIELDS = {
+    "effect_id",
+    "old_callsite",
+    "old_probe_ids",
+    "ordinal",
+    "owning_effect_entitlement_ids",
+    "sink_kind",
+}
+
+
+def _captured_sink_effect_messages(
+    captures: Any, relative: str,
+) -> list[str]:
+    if not isinstance(captures, list) or not captures:
+        return [f"{relative} captured_sink_effects must be a non-empty array"]
+    messages: list[str] = []
+    effect_ids: list[str] = []
+    expected_prefixes = {
+        "codex": "codex.dispatch:",
+        "git": "git.push:",
+        "merge": "github.merge:",
+    }
+    for index, capture in enumerate(captures, 1):
+        label = f"{relative} captured_sink_effects[{index - 1}]"
+        if not isinstance(capture, dict):
+            messages.append(f"{label} must be an object")
+            continue
+        messages.extend(_exact_fields_messages(capture, CAPTURED_SINK_EFFECT_FIELDS, label))
+        if not _positive_integer(capture.get("ordinal")) or int(capture["ordinal"]) != index:
+            messages.append(f"{label} ordinal must match its one-based capture order")
+        for field in ("effect_id", "old_callsite", "sink_kind"):
+            if not _nonempty_string(capture.get(field)):
+                messages.append(f"{label} field {field} must be a non-empty string")
+        probe_ids = capture.get("old_probe_ids")
+        if not _string_list(probe_ids) or not probe_ids:
+            messages.append(f"{label} old_probe_ids must be a non-empty string array")
+        entitlement_ids = capture.get("owning_effect_entitlement_ids")
+        if not _string_list(entitlement_ids) or not entitlement_ids:
+            messages.append(
+                f"{label} owning_effect_entitlement_ids must be a non-empty string array"
+            )
+        kind = capture.get("sink_kind")
+        prefix = expected_prefixes.get(kind)
+        effect_id = capture.get("effect_id")
+        if prefix is None:
+            messages.append(f"{label} sink_kind must be codex, git, or merge")
+        elif _nonempty_string(effect_id) and not effect_id.startswith(prefix):
+            messages.append(f"{label} effect_id does not match sink_kind {kind}")
+        if _nonempty_string(effect_id):
+            effect_ids.append(effect_id)
+    if len(effect_ids) != len(set(effect_ids)):
+        messages.append(f"{relative} captured_sink_effects effect_id values must be unique")
+    return messages
+
+
 def _admission_trace_shape_messages(
     artifact: dict[str, Any], relative: str, schema: str, family: str,
     owner: str = "github-devloop",
 ) -> list[str]:
-    messages = _exact_fields_messages(
-        artifact,
-        {"schema", "owner", "family", "fixtures", "artifact_sha256"},
-        relative,
-    )
+    expected_fields = {"schema", "owner", "family", "fixtures", "artifact_sha256"}
+    if "captured_sink_effects" in artifact:
+        expected_fields.add("captured_sink_effects")
+    messages = _exact_fields_messages(artifact, expected_fields, relative)
+    if "captured_sink_effects" in artifact:
+        messages.extend(
+            _captured_sink_effect_messages(artifact["captured_sink_effects"], relative)
+        )
     if artifact.get("schema") != schema:
         messages.append(f"{relative} schema must be {schema}")
     if artifact.get("owner") != owner:
@@ -226,8 +284,16 @@ def _admission_trace_shape_messages(
     if fixture_ids != sorted(fixture_ids) or len(fixture_ids) != len(set(fixture_ids)):
         messages.append(f"{relative} fixture_id values must be unique and byte-sorted")
     messages.extend(_hash_field_messages(artifact, ("artifact_sha256",), relative))
-    messages.extend(_self_hash_messages(artifact, "artifact_sha256", relative))
+    messages.extend(
+        _self_hash_messages(_active_admission_trace(artifact), "artifact_sha256", relative)
+    )
     return messages
+
+
+def _active_admission_trace(artifact: dict[str, Any]) -> dict[str, Any]:
+    active = dict(artifact)
+    active.pop("captured_sink_effects", None)
+    return active
 
 
 def _trace_pair_messages(
@@ -266,7 +332,7 @@ def _trace_pair_messages(
     )
     if messages:
         return messages
-    report = compare_report(old, new)
+    report = compare_report(_active_admission_trace(old), _active_admission_trace(new))
     if not report["equal"]:
         messages.append(
             f"{family} trace canonical hash mismatch: "

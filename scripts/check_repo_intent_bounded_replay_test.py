@@ -181,6 +181,23 @@ class AdmissionTraceShapeTest(unittest.TestCase):
             "example",
         )
 
+    def test_corpus_only_sink_capture_is_excluded_from_trace_hash(self) -> None:
+        artifact = self.artifact("pending", [], [], entitlement_id=None)
+        artifact["captured_sink_effects"] = [
+            {
+                "effect_id": "codex.dispatch:fix",
+                "old_callsite": "packages/github-devloop-pr/departments/fix/main.lua:248",
+                "old_probe_ids": ["entry-fix-new-fix-push-routes-reviewing"],
+                "ordinal": Decimal(1),
+                "owning_effect_entitlement_ids": [
+                    "github-devloop-pr/fixing/autonomous/revision_published/apply"
+                ],
+                "sink_kind": "codex",
+            }
+        ]
+
+        self.assertEqual(self.messages(artifact), [])
+
     def test_idempotent_writes_may_exactly_equal_declared_entitlement(self) -> None:
         effect_ids = ["queue.one", "queue.two"]
         artifact = self.artifact(

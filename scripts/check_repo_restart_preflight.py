@@ -43,6 +43,10 @@ ALLOWED_ANOMALY_SHADOW_PATHS = {
     "libraries/devloop/restart_transition_anomaly.lua",
     "packages/github-devloop/core/restart_analysis.lua",
     "packages/github-devloop-pr/core/restart_analysis.lua",
+    # The devloop library manifest only registers the shadow analyzer's
+    # public export; it cannot declare anomaly transport (queues, ops
+    # dependency, delivery live in department/ops manifests, still guarded).
+    "libraries/devloop/fkst.toml",
 }
 ATTESTATION_SCHEMA = "fkst.intent-diff-attestation.v1"
 SAFE_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/\-]*")
