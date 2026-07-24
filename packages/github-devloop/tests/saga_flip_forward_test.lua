@@ -31,6 +31,8 @@ local proposal_id = "github-devloop/issue/owner/repo/42"
 local pr_proposal_id = "github-devloop/pr/owner/repo/7"
 local head_sha = "def456"
 local base_sha = "abc123"
+local IMPLEMENT_DISPATCH_ENTITLEMENT_ID = "github-devloop/implementing/receiver_dispatch"
+local IMPLEMENT_PUBLISH_ENTITLEMENT_ID = "github-devloop/implementing/autonomous/revision_published/apply"
 
 local function pr_list_json(branch)
   return '[{"number":7,"head":{"ref":"' .. branch .. '","sha":"' .. head_sha .. '"},"base":{"ref":"dev"},"state":"open"}]\n'
@@ -112,26 +114,26 @@ local function sink_probe_cases()
     {
       id = "r9-shadow-implement-success", event = ready_apply, labels = { "fkst-dev:ready" },
       comments = { core.state_marker(ready_apply.proposal_id, "ready", ready_apply.dedup_key) },
-      owns = {
-        codex = { "github-devloop/ready/entry/implementation_kicked_off/apply" },
-        git = { "github-devloop/ready/entry/implementation_kicked_off/apply",
-          "github-devloop/implementing/autonomous/revision_published/apply" },
+      same_attempt_handoff = true,
+      entitlements = {
+        codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
+        git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID },
       },
     },
     {
       id = "r9-shadow-implementing-liveness-retry", event = implementing_retry,
       labels = { "fkst-dev:implementing" }, no_visible_progress = true,
       comments = { core.state_marker(implementing_retry.proposal_id, "implementing", implementing_retry.dedup_key) },
-      owns = { codex = { "github-devloop/ready/entry/implementation_kicked_off/idempotent" },
-        git = { "github-devloop/ready/entry/implementation_kicked_off/idempotent" } },
+      entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
+        git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
     },
     {
       id = "r9-shadow-impl-failed-retry", event = impl_failed_retry,
       labels = { "fkst-dev:impl-failed" },
       comments = { core.state_marker(impl_failed_retry.proposal_id, "impl-failed", impl_failed_retry.dedup_key),
         core.impl_failure_marker(impl_failed_retry.proposal_id, impl_failed_retry.dedup_key, "codex-failed", 1) },
-      owns = { codex = { "github-devloop/impl-failed/entry/retry-implementation/apply" },
-        git = { "github-devloop/impl-failed/entry/retry-implementation/apply" } },
+      entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
+        git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
     },
     {
       id = "r9-shadow-reimplement-blocked-open-pr", event = blocked_open_pr,
@@ -139,8 +141,8 @@ local function sink_probe_cases()
       comments = { m_builders.pr_link_marker(blocked_open_pr.proposal_id, 7,
         "devloop-owner-repo-42-01HY", blocked_open_pr.dedup_key, "dev"),
         core.state_marker(blocked_open_pr.proposal_id, "blocked", open_pr_blocked_version) },
-      owns = { codex = { "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr/apply" },
-        git = { "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr/apply" } },
+      entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
+        git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
     },
     {
       id = "r9-shadow-reimplement-blocked-implementing-timeout-without-pr", event = blocked_timeout,
@@ -151,8 +153,8 @@ local function sink_probe_cases()
           "implementing", 3, "drop", { terminal_version = timeout_blocked_version,
             from_state = "implementing", from_version = blocked_timeout.dedup_key,
             reason_class = "state-output-obligation-timeout", source_ref = blocked_timeout.source_ref }) },
-      owns = { codex = { "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr/apply" },
-        git = { "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr/apply" } },
+      entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
+        git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
     },
   }
 end
@@ -163,6 +165,12 @@ local function run_old_sink_probe(probe)
   local first_call = #t.command_calls() + 1
   for _ = 1, probe.issue_read_count or 1 do
     mock_issue_implement(probe.labels, probe.comments)
+  end
+  if probe.same_attempt_handoff then
+    for _, comment in ipairs(probe.comments) do
+      t.eq(comment:find('state="implementing"', 1, true), nil,
+        probe.id .. ": implementing marker is not visible before the same-attempt dispatch")
+    end
   end
   if probe.no_visible_progress then
     t.mock_command("git fetch 'origin' '" .. branch .. "'", {
@@ -316,7 +324,7 @@ return {
     run_old_sink_probe(sink_probe_cases()[5])
   end,
 
-  test_r9_shadow_corpus_binds_every_reaching_old_probe = function()
+  test_r9_shadow_corpus_binds_receiver_state_and_publish_entitlements_across_old_probes = function()
     local probes = sink_probe_cases()
     local corpus = json.decode(file.read(
       "migration/intent_bounded_replay/corpus/implement-activation.json"
@@ -330,14 +338,18 @@ return {
         inventory_by_kind[sink.effect_kind] = sink
       end
     end
-    local entitlement_ids = {}
+    local entitlements_by_id = {}
+    for _, row in ipairs(core.restart_transition_table()) do
+      local entitlement = row.receiver_dispatch_effect_entitlement
+      if entitlement ~= nil then entitlements_by_id[entitlement.id] = entitlement end
+    end
     for _, edge in ipairs(owner_pending_projection.edges(
       core.restart_package_name, core.restart_transition_table(), restart_inventories
     )) do
       for _, status in ipairs({ "apply", "idempotent" }) do
         local entitlement = edge.transition_effect_entitlements
           and edge.transition_effect_entitlements[status]
-        if entitlement ~= nil then entitlement_ids[entitlement.id] = true end
+        if entitlement ~= nil then entitlements_by_id[entitlement.id] = entitlement end
       end
     end
     local captures_by_kind = {}
@@ -349,7 +361,12 @@ return {
       t.eq(capture.effect_id, inventory.id)
       t.eq(inventory.authority_class, "lifecycle-authoritative")
       for _, entitlement_id in ipairs(capture.owning_effect_entitlement_ids) do
-        t.eq(entitlement_ids[entitlement_id], true)
+        t.is_true(entitlements_by_id[entitlement_id] ~= nil)
+      end
+      if capture.sink_kind == "codex" then
+        local entitlement = entitlements_by_id[capture.owning_effect_entitlement_ids[1]]
+        t.eq(#entitlement.effect_ids, 1)
+        t.eq(entitlement.effect_ids[1], capture.effect_id)
       end
       local path, line_number = capture.old_callsite:match("^([^:]+):(%d+)$")
       local selected_line = nil
@@ -362,12 +379,12 @@ return {
         and selected_line:find(call_tokens[capture.sink_kind], 1, true) ~= nil)
     end
     for _, probe in ipairs(probes) do
-      for sink_kind, owned_ids in pairs(probe.owns) do
+      for sink_kind, entitlement_ids in pairs(probe.entitlements) do
         local capture = captures_by_kind[sink_kind]
         t.is_true(contains(capture.old_probe_ids, probe.id), probe.id .. ": OLD probe is recorded")
-        for _, entitlement_id in ipairs(owned_ids) do
+        for _, entitlement_id in ipairs(entitlement_ids) do
           t.is_true(contains(capture.owning_effect_entitlement_ids, entitlement_id),
-            probe.id .. ": reaching edge owns " .. sink_kind .. " sink")
+            probe.id .. ": receiver/state-local entitlement owns " .. sink_kind .. " sink")
         end
       end
     end

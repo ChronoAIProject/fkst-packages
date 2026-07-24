@@ -23,6 +23,7 @@ local OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-
 local ORDER_EQUAL_CURRENT = VERSION .. "/loop/01"
 local ORDER_EQUAL_EVENT = VERSION .. "/loop/1"
 local HEAD_SHA = "def456"
+local REVIEW_META_DISPATCH_ENTITLEMENT_ID = "github-devloop-pr/review-meta/receiver_dispatch"
 local PREFIX = "receiver-activation-review-meta-"
 local SITE = {
   path = "packages/github-devloop-pr/departments/review_meta/main.lua",
@@ -103,9 +104,9 @@ local SINK_PROBES = ra.json_array({
         "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result",
       }),
     },
-    owns = {
+    entitlements = {
       ["codex.dispatch:review-meta"] = {
-        "github-devloop-pr/reviewing/autonomous/needs_review_meta/idempotent",
+        REVIEW_META_DISPATCH_ENTITLEMENT_ID,
       },
     },
   },
@@ -121,9 +122,9 @@ local SINK_PROBES = ra.json_array({
         "codex.dispatch:review-meta", "comment:pr:review-meta-result", "label:issue:review-meta-result",
       }),
     },
-    owns = {
+    entitlements = {
       ["codex.dispatch:review-meta"] = {
-        "github-devloop-pr/fixing/autonomous/revision_failed/idempotent",
+        REVIEW_META_DISPATCH_ENTITLEMENT_ID,
       },
     },
   },

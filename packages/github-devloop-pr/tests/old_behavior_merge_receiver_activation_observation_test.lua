@@ -189,9 +189,8 @@ local SINK_PROBES = ra.json_array({
     current_state = "merge-ready", from_states = { "merge-ready", "merging" }, target_state = "merging",
     version = VERSION, expected_status = "apply",
     fixture = merge_sink_fixture("versioned-apply", "merge-ready"),
-    owns = {
+    entitlements = {
       ["github.merge:verified-pr"] = {
-        "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/apply",
         "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/apply",
       },
     },
@@ -201,9 +200,8 @@ local SINK_PROBES = ra.json_array({
     current_state = "merging", from_states = { "merge-ready", "merging" }, target_state = "merging",
     version = VERSION, expected_status = "idempotent",
     fixture = merge_sink_fixture("versioned-idempotent", "merging"),
-    owns = {
+    entitlements = {
       ["github.merge:verified-pr"] = {
-        "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/idempotent",
         "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/idempotent",
       },
     },

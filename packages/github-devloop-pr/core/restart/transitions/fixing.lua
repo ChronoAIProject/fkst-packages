@@ -19,6 +19,10 @@ return function(M, h)
   local advancing_fact = h.advancing_fact
   return {
     from_state = "fixing",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop-pr/fixing/receiver_dispatch",
+      effect_ids = { "codex.dispatch:fix" },
+    },
     generation_entry = "always",
     liveness_class_id = "fixing.actionable",
     watchdog = {

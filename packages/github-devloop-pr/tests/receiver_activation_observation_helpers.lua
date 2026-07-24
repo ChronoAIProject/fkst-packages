@@ -230,16 +230,16 @@ function M.capture_shadow_sink_probes(t, opts)
       probe.version,
       probe.target_version
     )
-    t.eq(status, probe.expected_status, probe.id .. ": REAL OLD reaching-edge CAS outcome")
+    t.eq(status, probe.expected_status, probe.id .. ": REAL OLD incoming-edge CAS outcome")
     local record = opts.capture(M.copy_value(probe.fixture))
     record.observation_id = probe.id
     record.shadow_reaching_status = status
-    record.shadow_sink_ownership = M.copy_value(probe.owns)
+    record.shadow_sink_entitlements = M.copy_value(probe.entitlements)
     local observed = {}
     for _, effect in ipairs(record.old_outcome.emitted_effects or {}) do
       observed[effect.effect_id] = true
     end
-    for effect_id in pairs(probe.owns) do
+    for effect_id in pairs(probe.entitlements) do
       t.eq(observed[effect_id], true, probe.id .. ": REAL OLD dispatch reaches " .. effect_id)
     end
     table.insert(records, record)
@@ -328,7 +328,7 @@ local function assert_same_set(actual, expected, actual_label, expected_label)
   end
 end
 
-local function entitlement_id_set()
+local function entitlements_by_id()
   local core = require("core")
   local owner_pending_projection = require("devloop.restart_owner_pending_projection")
   local restart_inventories = {
@@ -336,7 +336,11 @@ local function entitlement_id_set()
     entry = require("core.restart.entry_inventory"),
     operator_reentry = require("core.restart.operator_reentry_inventory"),
   }
-  local ids = {}
+  local entitlements = {}
+  for _, row in ipairs(core.restart_transition_table()) do
+    local entitlement = row.receiver_dispatch_effect_entitlement
+    if entitlement ~= nil then entitlements[entitlement.id] = entitlement end
+  end
   local edges = owner_pending_projection.edges(
     core.restart_package_name, core.restart_transition_table(), restart_inventories
   )
@@ -344,10 +348,10 @@ local function entitlement_id_set()
     for _, status in ipairs({ "apply", "idempotent" }) do
       local entitlement = edge.transition_effect_entitlements
         and edge.transition_effect_entitlements[status]
-      if entitlement ~= nil then ids[entitlement.id] = true end
+      if entitlement ~= nil then entitlements[entitlement.id] = entitlement end
     end
   end
-  return ids
+  return entitlements
 end
 
 local function source_line(path, wanted)
@@ -366,7 +370,7 @@ local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
   local captures_by_id = {}
   local inventory_by_id = {}
   local runtime_by_id = {}
-  local entitlement_ids = entitlement_id_set()
+  local entitlement_index = entitlements_by_id()
   local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push", merge = "gh_pr_merge" }
   for _, record in ipairs(sink_inventory) do inventory_by_id[record.id] = record end
   for _, record in ipairs(runtime_records) do runtime_by_id[record.observation_id] = record end
@@ -383,7 +387,13 @@ local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
     t.eq(inventory.authority_class, "lifecycle-authoritative",
       corpus_path .. ": captured sink remains lifecycle-authoritative")
     for _, entitlement_id in ipairs(capture.owning_effect_entitlement_ids or {}) do
-      t.eq(entitlement_ids[entitlement_id], true, corpus_path .. ": owning entitlement exists")
+      t.is_true(entitlement_index[entitlement_id] ~= nil, corpus_path .. ": owning entitlement exists")
+    end
+    if capture.sink_kind == "codex" then
+      local entitlement = entitlement_index[capture.owning_effect_entitlement_ids[1]]
+      t.eq(#entitlement.effect_ids, 1, corpus_path .. ": receiver dispatch entitlement is exact")
+      t.eq(entitlement.effect_ids[1], capture.effect_id,
+        corpus_path .. ": receiver dispatch entitlement owns only the codex sink")
     end
     local path, line_number = tostring(capture.old_callsite):match("^([^:]+):(%d+)$")
     t.is_true(path ~= nil, corpus_path .. ": OLD callsite is file:line")
@@ -404,14 +414,14 @@ local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
     end
   end
   for _, runtime in ipairs(runtime_records) do
-    for effect_id, entitlement_ids in pairs(runtime.shadow_sink_ownership or {}) do
+    for effect_id, entitlement_ids in pairs(runtime.shadow_sink_entitlements or {}) do
       local capture = captures_by_id[effect_id]
       t.is_true(capture ~= nil, runtime.observation_id .. ": shadow sink is present in corpus")
       t.is_true(contains(capture.old_probe_ids, runtime.observation_id),
         runtime.observation_id .. ": REAL OLD probe is recorded for " .. effect_id)
       for _, entitlement_id in ipairs(entitlement_ids) do
         t.is_true(contains(capture.owning_effect_entitlement_ids, entitlement_id),
-          runtime.observation_id .. ": reaching edge owns " .. effect_id)
+          runtime.observation_id .. ": receiver/state-local entitlement owns " .. effect_id)
       end
     end
   end

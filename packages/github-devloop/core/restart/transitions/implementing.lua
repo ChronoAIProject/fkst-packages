@@ -21,6 +21,10 @@ return function(M, h)
   local responsibility_signature = h.responsibility_signature; local span_contract = h.span_contract
   return {
     from_state = "implementing",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop/implementing/receiver_dispatch",
+      effect_ids = { "codex.dispatch:implement" },
+    },
     liveness_class_id = "implementing.active",
     watchdog = {
       mode = "live-defer",

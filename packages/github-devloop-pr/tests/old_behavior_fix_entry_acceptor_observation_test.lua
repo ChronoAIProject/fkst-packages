@@ -39,6 +39,8 @@ local SITE = {
 
 local CODEX = "codex.dispatch:fix"
 local PUSH = "git.push:fix-branch"
+local FIX_DISPATCH_ENTITLEMENT_ID = "github-devloop-pr/fixing/receiver_dispatch"
+local FIX_PUBLISH_ENTITLEMENT_ID = "github-devloop-pr/fixing/autonomous/revision_published/apply"
 local REVIEWING_COMMENT = "comment:pr:fix-reviewing"
 local REVIEWING_LABEL = "label:issue:fix-reviewing"
 local META_COMMENT = "comment:pr:fix-review-meta"
@@ -166,9 +168,9 @@ local SINK_PROBES = ra.json_array({
     current_state = "fixing", from_states = { "reviewing" }, target_state = "fixing",
     version = VERSION, expected_status = "idempotent",
     fixture = sink_probe_fixture("shadow-reviewing-changes-requested", "review-reject"),
-    owns = {
-      [CODEX] = { "github-devloop-pr/reviewing/autonomous/changes_requested/idempotent" },
-      [PUSH] = { "github-devloop-pr/reviewing/autonomous/changes_requested/idempotent" },
+    entitlements = {
+      [CODEX] = { FIX_DISPATCH_ENTITLEMENT_ID },
+      [PUSH] = { FIX_PUBLISH_ENTITLEMENT_ID },
     },
   },
   {
@@ -176,9 +178,9 @@ local SINK_PROBES = ra.json_array({
     current_state = "fixing", from_states = { "review-meta" }, target_state = "fixing",
     version = VERSION, expected_status = "idempotent",
     fixture = sink_probe_fixture("shadow-review-meta-fix", "review-meta"),
-    owns = {
-      [CODEX] = { "github-devloop-pr/review-meta/autonomous/fix/idempotent" },
-      [PUSH] = { "github-devloop-pr/review-meta/autonomous/fix/idempotent" },
+    entitlements = {
+      [CODEX] = { FIX_DISPATCH_ENTITLEMENT_ID },
+      [PUSH] = { FIX_PUBLISH_ENTITLEMENT_ID },
     },
   },
   {
@@ -186,9 +188,9 @@ local SINK_PROBES = ra.json_array({
     current_state = "fixing", from_states = { "pr-open" }, target_state = "fixing",
     version = VERSION, expected_status = "idempotent",
     fixture = sink_probe_fixture("shadow-pr-open-not-mergeable", "merge-gate"),
-    owns = {
-      [CODEX] = { "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/idempotent" },
-      [PUSH] = { "github-devloop-pr/pr-open/autonomous/not_mergeable_repair/idempotent" },
+    entitlements = {
+      [CODEX] = { FIX_DISPATCH_ENTITLEMENT_ID },
+      [PUSH] = { FIX_PUBLISH_ENTITLEMENT_ID },
     },
   },
   {
@@ -196,9 +198,9 @@ local SINK_PROBES = ra.json_array({
     current_state = "merge-ready", from_states = { "merge-ready" }, target_state = "fixing",
     version = VERSION, expected_status = "apply",
     fixture = sink_probe_fixture("shadow-merge-ready-code-repair", "merge-gate"),
-    owns = {
-      [CODEX] = { "github-devloop-pr/merge-ready/guard_boundary/merge_gate/code_repair_needed/apply" },
-      [PUSH] = { "github-devloop-pr/merge-ready/guard_boundary/merge_gate/code_repair_needed/apply" },
+    entitlements = {
+      [CODEX] = { FIX_DISPATCH_ENTITLEMENT_ID },
+      [PUSH] = { FIX_PUBLISH_ENTITLEMENT_ID },
     },
   },
   {
@@ -206,9 +208,9 @@ local SINK_PROBES = ra.json_array({
     current_state = "merging", from_states = { "merging" }, target_state = "fixing",
     version = VERSION, expected_status = "apply",
     fixture = sink_probe_fixture("shadow-merging-merge-needs-fix", "merge-gate"),
-    owns = {
-      [CODEX] = { "github-devloop-pr/merging/autonomous/merge-needs-fix/apply" },
-      [PUSH] = { "github-devloop-pr/merging/autonomous/merge-needs-fix/apply" },
+    entitlements = {
+      [CODEX] = { FIX_DISPATCH_ENTITLEMENT_ID },
+      [PUSH] = { FIX_PUBLISH_ENTITLEMENT_ID },
     },
   },
 })

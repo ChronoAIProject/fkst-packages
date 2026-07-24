@@ -27,6 +27,10 @@ return function(M, h)
   end
   return {
     from_state = "review-meta",
+    receiver_dispatch_effect_entitlement = {
+      id = "github-devloop-pr/review-meta/receiver_dispatch",
+      effect_ids = { "codex.dispatch:review-meta" },
+    },
     liveness_class_id = "review_meta.actionable",
     watchdog = {
       mode = "live-defer",
