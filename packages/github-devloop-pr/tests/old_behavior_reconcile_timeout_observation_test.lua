@@ -99,13 +99,17 @@ end
 
 return {
   test_timeout_reconcile_blocked_payload_family_is_runtime_classified = function()
+    -- Owner directive (#2725): the timeout-reconcile department path to terminal blocked is
+    -- neutralized -- the re-derived timeout decision is redrive (never escalate), so a
+    -- blocked timeout-reconcile event short-circuits pre-cas (no-longer-over-budget) and
+    -- emits NO decompose-exhausted comment. The blocked decompose-escape now fires from the
+    -- live watchdog (maybe_timeout_redrive_from_table), not from this in-flight reconcile
+    -- department path (see the github-devloop blocked decompose-escape restoration).
     local pr = run_case("pr", false)
-    t.eq(#pr.raises, 1, "PR decompose exhaustion emits one comment")
-    t.eq(pr.raises[1].queue, "github-proxy.github_pr_comment_request")
+    t.eq(#pr.raises, 0, "neutralized timeout-reconcile emits no PR comment")
 
     local issue = run_case("issue", false)
-    t.eq(#issue.raises, 1, "issue decompose exhaustion emits one comment")
-    t.eq(issue.raises[1].queue, "github-proxy.github_issue_comment_request")
+    t.eq(#issue.raises, 0, "neutralized timeout-reconcile emits no issue comment")
 
     local visible = run_case("pr", true)
     t.eq(#visible.raises, 0, "visible decompose exhaustion marker is idempotent")
