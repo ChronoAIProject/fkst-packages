@@ -4,6 +4,7 @@ local config = require("devloop.config")
 local payloads_builders = require("devloop.payloads.builders")
 local branch_progress = require("departments.implement.branch_progress")
 local substrate_pin = require("departments.implement.substrate_pin")
+local local_iteration_verdict = require("departments.implement.local_iteration_verdict")
 local devloop_logging = require("devloop.logging")
 
 local exec_sync = exec_sync
@@ -68,17 +69,134 @@ function M.local_iteration_check(worktree)
   return exec_sync({ cmd = command, timeout = 7200 })
 end
 
+local function command_detail(result)
+  local detail = type(result) == "table" and tostring(result.stderr or "") or ""
+  if detail == "" and type(result) == "table" then
+    detail = tostring(result.stdout or "")
+  end
+  return detail
+end
+
+local function command_timed_out(result)
+  if type(result) ~= "table" then
+    return false
+  end
+  if result.timed_out ~= nil then
+    return result.timed_out == true
+  end
+  return tonumber(result.exit_code) == 124
+end
+
+local function clean_probe_worktree(worktree)
+  local ok, result = pcall(devloop_commands.git_worktree_force_clean, worktree, 60)
+  if not ok then
+    return false, tostring(result)
+  end
+  if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
+    return false, command_detail(result)
+  end
+  return true, ""
+end
+
+local function run_base_probe(worktree, base_sha)
+  local git = require("forge.git").production_handle("github-devloop")
+  local plan = git.git_worktree_add_detached_plan(worktree, base_sha)
+  local mkdir_result = exec_sync({ cmd = devloop_commands.mkdir_p_cmd(plan.parent_dir), timeout = 30 })
+  if type(mkdir_result) ~= "table" or tonumber(mkdir_result.exit_code) ~= 0 then
+    return { status = "setup-failed", detail = command_detail(mkdir_result) }
+  end
+
+  local add_result = git.git_worktree_add_detached(plan.worktree, plan.sha, 60)
+  if type(add_result) ~= "table" or tonumber(add_result.exit_code) ~= 0 then
+    return { status = "checkout-failed", detail = command_detail(add_result) }
+  end
+
+  local head_result = git.git_head_sha(plan.worktree, 30)
+  if type(head_result) ~= "table" or tonumber(head_result.exit_code) ~= 0 then
+    return { status = "head-read-failed", detail = command_detail(head_result) }
+  end
+  local head_readback = tostring(head_result.stdout or ""):gsub("%s+$", "")
+  if head_readback ~= base_sha then
+    return { status = "head-mismatch", head_readback = head_readback }
+  end
+
+  local check = M.local_iteration_check(plan.worktree)
+  local exit_code = type(check) == "table" and tonumber(check.exit_code) or nil
+  if exit_code == nil then
+    return { status = "command-failed", head_readback = head_readback, detail = command_detail(check) }
+  end
+  if command_timed_out(check) then
+    return {
+      status = "timeout",
+      exit = exit_code,
+      head_readback = head_readback,
+      timed_out = true,
+      detail = command_detail(check),
+    }
+  end
+  return {
+    status = "completed",
+    exit = exit_code,
+    head_readback = head_readback,
+    timed_out = check.timed_out,
+    detail = command_detail(check),
+  }
+end
+
+function M.base_local_iteration_probe(candidate_worktree, base_sha)
+  local probe_worktree = tostring(candidate_worktree) .. "-base-probe"
+  local observation = { status = "cleanup-failed", base_sha = base_sha, worktree = probe_worktree }
+  local preclean_ok, preclean_detail = clean_probe_worktree(probe_worktree)
+  if preclean_ok then
+    local ok, result = pcall(run_base_probe, probe_worktree, base_sha)
+    if ok and type(result) == "table" then
+      observation = result
+      observation.base_sha = base_sha
+      observation.worktree = probe_worktree
+    else
+      observation = {
+        status = "probe-failed",
+        base_sha = base_sha,
+        worktree = probe_worktree,
+        detail = tostring(result),
+      }
+    end
+  else
+    observation.detail = preclean_detail
+  end
+
+  local cleanup_ok, cleanup_detail = clean_probe_worktree(probe_worktree)
+  if not cleanup_ok then
+    observation.status = "cleanup-failed"
+    observation.detail = cleanup_detail
+  end
+  return observation
+end
+
 local function run_local_iteration_check(ready, worktree)
   local check = M.local_iteration_check(worktree)
   devloop_logging.log_line(check.exit_code == 0 and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
     "exit_code=" .. tostring(check.exit_code),
     "reason=pre-handoff-local-iteration",
   })
-  local detail = tostring(check.stderr or "")
-  if detail == "" then
-    detail = tostring(check.stdout or "")
+  return check.exit_code == 0, command_detail(check), check
+end
+
+local function base_probe_detail(probe)
+  local fields = {
+    "base_sha=" .. tostring(probe and probe.base_sha or ""),
+    "probe_status=" .. tostring(probe and probe.status or "missing"),
+  }
+  if probe and probe.exit ~= nil then
+    table.insert(fields, "base_exit=" .. tostring(probe.exit))
   end
-  return check.exit_code == 0, detail
+  if probe and probe.head_readback ~= nil then
+    table.insert(fields, "head_readback=" .. tostring(probe.head_readback))
+  end
+  if probe and tostring(probe.detail or "") ~= "" then
+    table.insert(fields, tostring(probe.detail))
+  end
+  return table.concat(fields, "\n")
 end
 
 function M.clean_branch_head(base_head, branch)
@@ -127,9 +245,24 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
-  local green, verify_detail = run_local_iteration_check(ready, worktree)
+  local green, verify_detail, candidate_check = run_local_iteration_check(ready, worktree)
   if not green then
-    return impl_failed_outcome(ready, "local-iteration-failed", verify_detail, attempt, started_at, exec_ref, base_head)
+    local base_probe = M.base_local_iteration_probe(worktree, base_head)
+    local verdict = local_iteration_verdict.classify(candidate_check.exit_code, base_probe)
+    devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT_VERIFY_BASE", {
+      "base_sha=" .. tostring(base_head),
+      "base_exit=" .. tostring(base_probe.exit),
+      "head_readback=" .. tostring(base_probe.head_readback),
+      "status=" .. tostring(base_probe.status),
+      "verdict=" .. tostring(verdict),
+    })
+    if verdict == "OWN_LOCAL_RED" then
+      return impl_failed_outcome(ready, "local-iteration-failed", verify_detail, attempt, started_at, exec_ref, base_head)
+    end
+    if verdict == "BASE_RED" then
+      return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
+    end
+    return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
   end
   local verified_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
   return implementation_outcome(ready, worktree, branch, verified_head, integration_branch, base_head, attempt, started_at, exec_ref)

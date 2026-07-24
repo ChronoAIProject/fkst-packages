@@ -74,6 +74,75 @@ local function find_comment_with(raises, text)
   end)
 end
 
+local function mock_candidate_local_red(_worktree, detail)
+  t.mock_command("scripts/run.sh test-affected", {
+    stdout = "",
+    stderr = detail or "candidate local iteration failed\n",
+    exit_code = 1,
+  })
+end
+
+local function mock_codex_success_without_local_iteration()
+  t.mock_command("codex exec", {
+    stdout = "implemented",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_base_probe(worktree, options)
+  local base_probe = worktree .. "-base-probe"
+  local values = options or {}
+  for _ = 1, 2 do
+    t.mock_command("git worktree remove --force", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree prune", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  t.mock_command("mkdir -p", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree add --detach", values.checkout or {
+    stdout = "Preparing worktree (detached HEAD abc123)\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  if values.checkout == nil or values.checkout.exit_code == 0 then
+    t.mock_command("rev-parse HEAD", values.head or {
+      stdout = "abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    if values.head == nil or values.head.exit_code == 0 then
+      t.mock_command("scripts/run.sh test-affected", values.check or {
+        stdout = "",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+  end
+  return base_probe
+end
+
+local function assert_impl_failure_without_publication(result, reason)
+  t.eq(result.exit_code, 0)
+  t.eq(count_calls("git push origin"), 0)
+  t.eq(count_calls("gh pr create"), 0)
+  local failure = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
+  t.is_true(failure ~= nil)
+  t.is_true(failure.payload.body:find("github-devloop implementation failed: " .. reason, 1, true) ~= nil)
+  t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request") == nil)
+  return failure
+end
+
 return {
   test_substrate_pin_refresh_skips_missing_base_pin_with_git_fake = function()
     local git = substrate_pin_git({})
@@ -192,6 +261,7 @@ return {
     t.eq(count_calls("git worktree add -b"), 1)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(count_calls("git worktree add --detach"), 0)
     t.eq(count_calls("status --porcelain"), 1)
     t.eq(count_calls("add -A"), 2)
     t.eq(count_calls("commit -m"), 2)
@@ -201,37 +271,114 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
-    mock_fresh_implement_worktree()
+    local worktree = mock_fresh_implement_worktree()
     t.mock_command("codex exec", {
       stdout = "wrote docs/devloop/plans/42-plan.md\n",
       stderr = "",
       exit_code = 0,
     })
     mock_git_status(" M docs/devloop/plans/42-plan.md\n")
-    t.mock_command("scripts/run.sh test-affected", {
-      stdout = "",
-      stderr = "FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md\n",
-      exit_code = 1,
-    })
+    mock_candidate_local_red(worktree, "FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md\n")
+    mock_base_probe(worktree)
 
     local result = run_implement(event, opts("implement-local-gate-failure"))
 
-    t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
-    t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(count_calls("scripts/run.sh test-affected"), 2)
+    t.eq(count_calls("git worktree add --detach"), 1)
     t.eq(count_calls("commit -m"), 1)
-    t.eq(count_calls("git push origin"), 0)
-    t.eq(count_calls("gh pr create"), 0)
-    local failure = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
-    t.is_true(failure ~= nil)
-    t.is_true(failure.payload.body:find("github-devloop implementation failed: local-iteration-failed", 1, true) ~= nil)
+    local failure = assert_impl_failure_without_publication(result, "local-iteration-failed")
     t.is_true(failure.payload.body:find("FILEMAP-UNCLASSIFIED docs/devloop/plans/42-plan.md", 1, true) ~= nil)
     local failed_label = find_raise(result.raises, "github-proxy.github_issue_label_request", function(payload)
       return payload.add_labels and payload.add_labels[1] == "fkst-dev:impl-failed"
     end)
     t.is_true(failed_label ~= nil)
-    t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request") == nil)
     t.eq(branch, deterministic_branch_for(event))
+  end,
+
+  test_implement_local_gate_base_missing_target_is_attributed_to_base = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree, "candidate failed\n")
+    mock_base_probe(worktree, {
+      check = {
+        stdout = "",
+        stderr = "make: *** No rule to make target 'preflight'. Stop.\n",
+        exit_code = 2,
+      },
+    })
+
+    local result = run_implement(event, opts("implement-base-missing-target"))
+
+    local failure = assert_impl_failure_without_publication(result, "base-local-iteration-failed")
+    t.is_true(failure.payload.body:find("base_sha=abc123", 1, true) ~= nil)
+    t.is_true(failure.payload.body:find("No rule to make target 'preflight'", 1, true) ~= nil)
+    local pinned_add = false
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = tostring(call.rendered or "")
+      if rendered:find("git worktree add --detach", 1, true) ~= nil
+        and rendered:find(worktree .. "-base-probe", 1, true) ~= nil
+        and rendered:find("abc123", 1, true) ~= nil then
+        pinned_add = true
+      end
+    end
+    t.eq(pinned_add, true)
+  end,
+
+  test_implement_local_gate_probe_checkout_failure_is_indeterminate = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree)
+    mock_base_probe(worktree, {
+      checkout = { stdout = "", stderr = "fatal: invalid reference: abc123\n", exit_code = 128 },
+    })
+
+    local result = run_implement(event, opts("implement-base-probe-checkout-failure"))
+
+    assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+  end,
+
+  test_implement_local_gate_probe_timeout_is_indeterminate = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree)
+    mock_base_probe(worktree, {
+      check = { stdout = "", stderr = "", exit_code = 124 },
+    })
+
+    local result = run_implement(event, opts("implement-base-probe-timeout"))
+
+    assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+  end,
+
+  test_implement_local_gate_probe_head_mismatch_is_indeterminate = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree)
+    mock_base_probe(worktree, {
+      head = {
+        stdout = "def456def456def456def456def456def456def4\n",
+        stderr = "",
+        exit_code = 0,
+      },
+    })
+
+    local result = run_implement(event, opts("implement-base-probe-head-mismatch"))
+
+    assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    t.eq(count_calls("scripts/run.sh test-affected"), 1)
   end,
 
   test_implement_missing_substrate_ref_still_spawns_codex = function()
