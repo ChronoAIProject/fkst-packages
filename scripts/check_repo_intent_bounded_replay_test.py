@@ -181,8 +181,9 @@ class AdmissionTraceShapeTest(unittest.TestCase):
             "example",
         )
 
-    def test_corpus_only_sink_capture_is_excluded_from_trace_hash(self) -> None:
+    def test_captured_sink_effects_is_active_in_trace_hash(self) -> None:
         artifact = self.artifact("pending", [], [], entitlement_id=None)
+        shadow_hash = artifact["artifact_sha256"]
         artifact["captured_sink_effects"] = [
             {
                 "effect_id": "codex.dispatch:fix",
@@ -195,7 +196,9 @@ class AdmissionTraceShapeTest(unittest.TestCase):
                 "sink_kind": "codex",
             }
         ]
-
+        active_hash = canonical_artifact_hash_v1(artifact)
+        self.assertNotEqual(active_hash, shadow_hash)
+        artifact["artifact_sha256"] = active_hash
         self.assertEqual(self.messages(artifact), [])
 
     def test_idempotent_writes_may_exactly_equal_declared_entitlement(self) -> None:
