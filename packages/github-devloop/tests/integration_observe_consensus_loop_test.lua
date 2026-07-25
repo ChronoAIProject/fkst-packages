@@ -261,7 +261,8 @@ return {
 
     local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:merging" } }), opts("observe-issue-merging-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "restart_transition_anomaly")
     t.eq(count_calls("--json body"), 0)
   end,
 

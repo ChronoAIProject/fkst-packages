@@ -109,6 +109,27 @@ local function assert_conflict_redrive(result, expected_from_state)
 end
 
 return {
+  test_observe_pr_emits_fresh_grantless_anomaly_each_pass = function()
+    local reviewing_marker = core.state_marker(proposal_id, "reviewing", version)
+    for pass = 1, 2 do
+      mock_pr("pr-open", "MERGEABLE", "CLEAN", { reviewing_marker })
+      local result = run_observe_pr_mergeability("observe-pr-anomaly-pass-" .. tostring(pass))
+      t.eq(result.exit_code, 0)
+      local anomaly = find_raise(result.raises, "restart_transition_anomaly")
+      t.is_true(anomaly ~= nil)
+      t.eq(anomaly.payload.schema, "restart-transition-anomaly.v1")
+      t.eq(anomaly.payload.owner, "github-devloop-pr")
+      t.eq(anomaly.payload.entity.kind, "pr")
+      t.eq(anomaly.payload.entity.number, 7)
+      for _, field in ipairs({
+        "source_ref", "dedup_key", "delivery_id", "delivery_key",
+        "durable_identity", "event_id", "idempotency_key", "message_id", "grant",
+      }) do
+        t.eq(anomaly.payload[field], nil, "anomaly transport must omit " .. field)
+      end
+    end
+  end,
+
   test_observe_pr_reviewing_conflict_redrives_to_fixing = function()
     mock_pr("reviewing", "CONFLICTING", "DIRTY")
     assert_conflict_redrive(run_observe_pr_mergeability("observe-pr-reviewing-conflict"), "reviewing")

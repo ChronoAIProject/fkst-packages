@@ -84,6 +84,13 @@ local function setup_stub_siblings(root)
   produces = {},
   published_seam = { "devloop_comment_written" },
   stall_window = "30s",
+  }]])
+
+  write_stub_package(root, "github-devloop-pr")
+  write_stub_department(root, "github-devloop-pr", "observe_pr", [[{
+  consumes = { "observe_pr_tick" },
+  produces = { "restart_transition_anomaly" },
+  stall_window = "30s",
 }]])
 
   write_stub_package(root, "github-proxy")
@@ -178,6 +185,8 @@ local function run_child(root)
     shell_quote(root .. "/packages/github-devloop-ops"),
     "--package-root",
     shell_quote(root .. "/packages/github-devloop"),
+    "--package-root",
+    shell_quote(root .. "/packages/github-devloop-pr"),
     "--package-root",
     shell_quote(root .. "/packages/github-proxy"),
     "--package-root",

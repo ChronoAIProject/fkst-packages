@@ -95,7 +95,8 @@ end
 local function catalog_rows(records, grantless_only)
   local rows = json_array()
   for _, record in ipairs(records or {}) do
-    if not grantless_only or tostring(record.authority_class):match("^grantless%-") then
+    if record.id ~= "queue:github-devloop.restart_transition_anomaly"
+      and (not grantless_only or tostring(record.authority_class):match("^grantless%-")) then
       table.insert(rows, {
         effect_id = record.id,
         department = record.callsite.department,
@@ -227,7 +228,8 @@ local function capture_current_state_fact()
   github_factory.production_handle = original_handle
   if not ok then error(result, 0) end
   t.eq(#calls, 1, "real observe_issue dispatch performs one authoritative current-state read")
-  t.eq(#result.raises, 0, "held fixture ends after the current-state read")
+  t.eq(#result.raises, 1, "held fixture adds only separately manifested R7 telemetry")
+  t.eq(result.raises[1].queue, "restart_transition_anomaly")
   local call = calls[1]
   t.eq(call.derived.state, "ready")
   t.eq(call.derived.version, CURRENT_VERSION)

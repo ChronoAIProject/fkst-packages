@@ -16,6 +16,8 @@ local transition_version = require("contract.transition_version")
 local observe_issue_caps = require("observe_issue_department_caps")
 local replayer = require("devloop.replayer")
 local awaiting_pr_replay = require("awaiting_pr_replay")
+local restart_analysis = require("core.restart_analysis")
+local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
 
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
@@ -28,6 +30,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local log = log
 local M = {}
+local restart_transition_table = core.restart_transition_table
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_issue" },
@@ -41,10 +44,22 @@ local spec = {
     "github-devloop-decompose.devloop_decompose",
     "devloop_reconcile",
     "devloop_timeout_reconcile",
+    "restart_transition_anomaly",
   },
   fanout = { "github-proxy.github_entity_changed" },
   stall_window = "30s",
 }
+
+local function emit_restart_transition_anomalies(comments, proposal_id, issue)
+  local history = restart_transition_anomaly.marker_history(comments, proposal_id)
+  local anomalies = restart_analysis.analyze_observed_transition_history(history, {
+    entity = { kind = "issue", repo = issue.repo, number = issue.number },
+    transitions = {},
+  })
+  for _, anomaly in ipairs(anomalies) do
+    devloop_logging.log_raise("observe_issue", proposal_id, "restart_transition_anomaly", anomaly)
+  end
+end
 
 local function issue_label_state(issue_state)
   if issue_state ~= nil
@@ -95,7 +110,7 @@ local function maybe_reconcile_issue_local_orphaned_pr(issue, proposal_id, curre
   if not issue_local_pr_bound_state_matches_link(issue_state, link) then
     return false
   end
-  local row = replay_fields.restart_transition_row(core.restart_transition_table(), issue_state.state)
+  local row = replay_fields.restart_transition_row(restart_transition_table(), issue_state.state)
   if row == nil or row.terminal == true then
     return false
   end
@@ -139,7 +154,7 @@ local function thinking_state_budget_exceeded(state)
 end
 
 local function replay_or_timeout(issue, proposal_id, current, link, snapshot, state, event_ts, issue_state)
-  local row = replay_fields.restart_transition_row(core.restart_transition_table(), state.state)
+  local row = replay_fields.restart_transition_row(restart_transition_table(), state.state)
   local facts = {
     proposal_id = proposal_id,
     current = current,
@@ -466,7 +481,7 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
     issue.source_ref
   )
   devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "dependency_wait", "ready", "applied(operator-dependency-waiver)", "trusted operator command created dependency waiver")
-  replayer.replay_from_table(core, "observe_issue", issue, state, replay_fields.restart_transition_row(core.restart_transition_table(), "dependency_wait"), {
+  replayer.replay_from_table(core, "observe_issue", issue, state, replay_fields.restart_transition_row(restart_transition_table(), "dependency_wait"), {
     proposal_id = proposal_id,
     current = current,
     command_comment_request = comment_request,
@@ -605,6 +620,7 @@ local function process_issue_event(event)
     devloop_logging.log_forged_markers("observe_issue", proposal_id, current.comments)
     local link = m_facts.pr_link_fact(current.comments, proposal_id)
     local issue_state = devloop_state.current_state(current.comments, proposal_id)
+    emit_restart_transition_anomalies(current.comments, proposal_id, issue)
     if devloop_base.is_intake_held(current.labels) then
       devloop_logging.log_cas_decision("observe_issue", proposal_id, { state = nil, version = nil }, "unmanaged", "thinking", "skip-held", "fkst-dev:hold label is present")
       return
@@ -649,7 +665,7 @@ local function process_issue_event(event)
       if not ensure_managed_issue_claim(issue, proposal_id, current, issue_state) then
         return
       end
-      local row = replay_fields.restart_transition_row(core.restart_transition_table(), "awaiting-pr")
+      local row = replay_fields.restart_transition_row(restart_transition_table(), "awaiting-pr")
       replayer.replay_from_table(core, "observe_issue", issue, issue_state, row, {
         proposal_id = proposal_id,
         current = current,

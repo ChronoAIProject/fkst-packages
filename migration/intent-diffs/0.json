@@ -1,0 +1,31 @@
+{
+  "schema": "fkst.intent-diff.v2",
+  "intent": "behavior-change",
+  "pr_number": 0,
+  "base_sha": "c64c2545bab73a4a7171062514e3c9b9bc925e11",
+  "semantic_tree_sha256": "73827c0d7801b6eab79a988c867f583ea03c5e5923ec663d1d1895b0c843b178",
+  "semantic_diff_sha256": "6a571999736898f36d231a0ed9c9ce517a604514b1f99e52792d5e7f404d3196",
+  "changed_row_ids": [],
+  "changed_edge_ids": [],
+  "changed_policy_ids": [],
+  "old_trace_sha256": "e2a880167a9b3246909adff08f6bdddcd4813c9a0c30b53318510795d577613c",
+  "new_trace_sha256": "516497b592f2601b63c941c8b1bfc21b7659df2a197e0376321b09e5409ed96d",
+  "behavior_diff_sha256": "ac28b58f332754693e8f3bc5b36199d0bea9041d8b64b8b6b9ca922793b098a6",
+  "cause": "Activate the reserved R7 anomaly transport after Step 8 terminal deletion.",
+  "review_reference": "SPEC:984,1739; manifest admission #2753",
+  "one_use_identity": "0/c64c2545bab73a4a7171062514e3c9b9bc925e11/73827c0d7801b6eab79a988c867f583ea03c5e5923ec663d1d1895b0c843b178/6a571999736898f36d231a0ed9c9ce517a604514b1f99e52792d5e7f404d3196",
+  "anomaly_transport": {
+    "qualified_queues": [
+      "github-devloop-pr.restart_transition_anomaly",
+      "github-devloop.restart_transition_anomaly"
+    ],
+    "ops_dependency": "github-devloop-pr",
+    "ephemeral_consumes": [
+      "github-devloop-pr.restart_transition_anomaly",
+      "github-devloop.restart_transition_anomaly"
+    ],
+    "ingestion": "github-devloop-ops.observability",
+    "package_visible_delivery_delta": "github-devloop-pr.observe_pr->github-devloop-pr.restart_transition_anomaly;github-devloop.observe_issue->github-devloop.restart_transition_anomaly"
+  },
+  "manifest_sha256": "91b6d97438d3c44fb5f221ba014c256501ec26c3ab88ce6f3fa436beae7b215d"
+}
