@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real reconcile
--- department's owner decision and emitted effects. The retired CAS is reconstructed
--- only from captured production snapshot and intent fields; frozen OLD payload truth
--- remains the committed R9 corpus.
+-- department's owner decision and emitted effects. OLD admission truth comes from
+-- the protected R9 corpus or a frozen literal probe outcome on each additional
+-- edge case.
 
 local base_ids = require("devloop.base_ids")
 local catalog = require("devloop.restart_cas_catalog")
@@ -121,31 +121,21 @@ local function observe_department(run)
   local decisions = {}
   local boundary_calls = {}
   local label_boundary_calls = {}
-  local original_versioned = devloop_state.versioned_transition_status
   local original_decide = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
 
-  devloop_state.versioned_transition_status = function()
-    error("PR fix reconcile production used retired direct CAS", 0)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local from_states = variant_source_states[intent.semantic_variant]
-    local outcome = original_versioned(
-      snapshot.current,
-      from_states,
-      intent.target,
-      intent.incoming_version,
-      intent.target_version
-    )
+    local decision = original_decide(snapshot, intent)
     table.insert(probes, {
       current = snapshot.current,
       from_states = copy_array(from_states),
       to_state = intent.target,
       incoming_version = intent.incoming_version,
       target_version = intent.target_version,
-      outcome = outcome,
+      decision = decision,
     })
-    return original_decide(snapshot, intent)
+    return decision
   end
   devloop_logging.log_cas_decision = function(
     dept,
@@ -182,7 +172,6 @@ local function observe_department(run)
   active_label_boundary_calls = nil
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide
-  devloop_state.versioned_transition_status = original_versioned
   if not ok then
     error(result, 0)
   end
@@ -217,25 +206,46 @@ local function state_is_in(state_name, states)
   return false
 end
 
-local function observed_admission(probe, decision, boundary_reached)
+local function protected_probe_outcome(fixture)
+  if fixture.probe_outcome ~= nil then
+    return fixture.probe_outcome
+  end
+  if fixture.fixture_id ~= nil then
+    return observation_support.protected_admission_fixture(
+      FIX_RECONCILE_CORPUS_PATH,
+      fixture.fixture_id
+    ).cas_status
+  end
+  error("PR fix reconcile fixture is missing its frozen OLD probe outcome: "
+    .. tostring(fixture.name), 0)
+end
+
+local function protected_admission(fixture)
+  if fixture.fixture_id == nil then return nil end
+  return observation_support.protected_admission_expectation(
+    FIX_RECONCILE_CORPUS_PATH, fixture.fixture_id)
+end
+
+local function observed_admission(probe_outcome, probe, decision, boundary_reached)
   local cas_outcome = decision.outcome
   if boundary_reached then
     return { status = "apply", reason_code = "apply", cas_outcome = cas_outcome }
   end
-  if probe.outcome == "pending" then
+  if probe_outcome == "pending" then
     return { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = cas_outcome }
   end
-  if probe.outcome == "idempotent" then
+  if probe_outcome == "idempotent" then
     return { status = "idempotent", reason_code = "already-at-target", cas_outcome = cas_outcome }
   end
-  if probe.outcome == "stale" then
+  if probe_outcome == "stale" then
     if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
       return { status = "stale", reason_code = "incoming-version-older", cas_outcome = cas_outcome }
     end
     return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = cas_outcome }
   end
-  if probe.outcome ~= "apply" then
-    error("PR fix reconcile admission probe returned an unknown outcome: " .. tostring(probe.outcome))
+  if probe_outcome ~= "apply" then
+    error("PR fix reconcile protected admission probe returned an unknown outcome: "
+      .. tostring(probe_outcome))
   end
   if not state_is_in(probe.current.state, probe.from_states) then
     return { status = "stale", reason_code = "from-state-mismatch", cas_outcome = cas_outcome }
@@ -340,19 +350,33 @@ local function assert_catalog_matches_observed_admission(fixture)
   end
 
   local probe = probes[1]
+  local observed = nil
   if probe ~= nil then
     assert_probe_shape(fixture.name, probe, variant, fixture)
-    local observed = observed_admission(probe, decision, boundary_reached)
+    local protected = protected_admission(fixture)
+    local old_probe_outcome = protected_probe_outcome(fixture)
+    observed = protected or observed_admission(old_probe_outcome, probe, decision, boundary_reached)
     local evidence = evidence_from_probe(probe, variant)
     t.eq(evidence.current, probe.current, fixture.name .. ": catalog current comes from probe")
     t.eq(evidence.incoming_version, probe.incoming_version, fixture.name .. ": catalog incoming version comes from probe")
     t.eq(evidence.target_version, probe.target_version, fixture.name .. ": catalog target version comes from probe")
     t.eq(evidence.overlay_version, probe.incoming_version, fixture.name .. ": catalog overlay comes from probe")
     local actual = catalog.resolve(POLICY_ID, evidence, projection)
+    t.eq(probe.decision.status, observed.status,
+      fixture.name .. ": production owner status vs protected OLD")
+    t.eq(probe.decision.reason_code, observed.reason_code,
+      fixture.name .. ": production owner reason vs protected OLD")
+    if protected ~= nil then
+      t.eq(probe.decision.cas_outcome, observed.cas_outcome,
+        fixture.name .. ": production owner outcome vs protected OLD")
+    end
     t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
     t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
+    if protected ~= nil then
+      t.eq(actual.cas_outcome, observed.cas_outcome, fixture.name .. ": admission outcome parity")
+    end
     if fixture.probe_outcome ~= nil then
-      t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
+      t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
     end
     if fixture.admission_status ~= nil then
       t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
@@ -378,7 +402,7 @@ local function assert_catalog_matches_observed_admission(fixture)
   end
   return probe and {
     evidence = evidence_from_probe(probe, variant),
-    observed = observed_admission(probe, decision, boundary_reached),
+    observed = observed,
     result = result,
     event = event,
     decision = decision,
@@ -617,6 +641,7 @@ return {
         current_version = V_EQUAL,
         incoming_version = V_EQUAL,
         boundary_reached = true,
+        probe_outcome = "apply",
         admission_status = "apply",
         effect_count = 2,
         post_admission_disposition = "effect-emitted(blocked)",
@@ -634,6 +659,7 @@ return {
         current_version = V_EQUAL,
         incoming_version = V_EQUAL,
         boundary_reached = true,
+        probe_outcome = "apply",
         admission_status = "apply",
         effect_count = 2,
         post_admission_disposition = "effect-emitted(blocked)",

@@ -69,6 +69,14 @@ local function run_verified_pr_merge(request)
           return false, before_reason or "before-merge-gate", rechecked_pr
         end
       end
+      if type(request.authorize_verified_merge) == "function" then
+        local authorization = request.authorize_verified_merge(rechecked_pr)
+        if authorization == nil
+          or type(request.consume_verified_merge) ~= "function"
+          or request.consume_verified_merge(authorization) ~= true then
+          error("forge.merge: verified merge grant was rejected")
+        end
+      end
       local merge_result = github("forge.merge").gh_pr_merge(repo, pr_number, merge_head_sha, 120)
       if merge_result.exit_code ~= 0 then
         if attempt < max_attempts and is_match_head_modified_error(merge_result.stderr) then

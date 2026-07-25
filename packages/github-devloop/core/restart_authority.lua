@@ -27,6 +27,8 @@ local projection = owner_pending_projection.derive(owner, rows, inventories)
 local catalog = require("devloop.restart_cas_catalog")
 local restart_effect_entitlements = require("devloop.restart_effect_entitlements")
 local restart_source_admission = require("devloop.restart_source_admission")
+local receiver_dispatch = require("devloop.restart_receiver_dispatch")
+local receiver_dispatch_index = receiver_dispatch.index(owner, rows)
 
 local function timeout_effect_edges()
   local projected = owner_pending_projection.edges(owner, rows, inventories)
@@ -382,6 +384,13 @@ function M.decide_transition(sealed_snapshot, intent)
     },
     grant = nil,
   }
+end
+
+function M.decide_receiver_dispatch(sealed_snapshot, intent)
+  if issued[sealed_snapshot] ~= true or sealed_snapshot.owner ~= owner then
+    return illegal("unsealed-or-foreign-snapshot", "unsealed")
+  end
+  return receiver_dispatch.decide(receiver_dispatch_index, sealed_snapshot.current, intent)
 end
 
 return M

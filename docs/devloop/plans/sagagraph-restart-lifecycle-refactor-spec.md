@@ -1704,9 +1704,27 @@ Manifest：
   "review_reference": "<review-reference>",
   "one_use_identity": "<pr/base/semantic-hashes>",
 
+  "anomaly_transport": {
+    "qualified_queues": [
+      "github-devloop-pr.restart_transition_anomaly",
+      "github-devloop.restart_transition_anomaly"
+    ],
+    "ops_dependency": "github-devloop-pr",
+    "ephemeral_consumes": [
+      "github-devloop-pr.restart_transition_anomaly",
+      "github-devloop.restart_transition_anomaly"
+    ],
+    "ingestion": "github-devloop-ops.observability",
+    "package_visible_delivery_delta": "github-devloop-pr.observe_pr->github-devloop-pr.restart_transition_anomaly;github-devloop.observe_issue->github-devloop.restart_transition_anomaly"
+  },
+
   "manifest_sha256": "<hash-with-this-field-omitted>"
 }
 ```
+
+`anomaly_transport`是 OPTIONAL且仅供 R7 post-terminal activation；R11 variant不得携带它。该 object一旦存在，必须恰有上述五个 fields。`qualified_queues`与`ephemeral_consumes`是 UTF-8 bytes排序、无重复的 semantic identity arrays；`ops_dependency`与`ingestion`各是一个 canonical semantic identity；`package_visible_delivery_delta`是 checker先逐 delivery推导 semantic atoms、按 UTF-8 bytes排序后以 `;`连接得到的 canonical identity。该编码不把多个 delivery折叠成 path authorization：CI仍在连接前逐 atom推导与比较，任一新增、缺失或重复 atom都会改变 equality结果并 fail closed。
+
+`one_use_identity`的唯一 canonical form为 `<pr_number>/<base_sha>/<semantic_tree_sha256>/<semantic_diff_sha256>`。同一 identity不得被另一 manifest复用。
 
 Manifest不得包含 authoritative exact `head_sha`或 whole-diff self-binding。
 
@@ -1736,7 +1754,7 @@ generated CI attestations outside tracked tree
 6. domain separator `fkst-semantic-diff-v1`；
 7. hash stream。
 
-R7 anomaly transport activation是保留的 post-terminal behavior change。其独立 manifest必须逐项列出新 qualified queues、ops `github-devloop-pr` dependency、ephemeral `consumes`、ingestion与预期 package-visible delivery delta，并证明：Step 8已完成；`M.spec.ephemeral`覆盖两个 anomaly queues；无 `source_ref`/`dedup_key`/durable identity；transport为 `grantless-telemetry`且无 minting path。该 PR不得与 refactor或其他 behavior change合并。
+R7 anomaly transport activation是保留的 post-terminal behavior change。其独立 manifest必须用 OPTIONAL `anomaly_transport` object逐项列出新 qualified queues、ops `github-devloop-pr` dependency、ephemeral `consumes`、ingestion与预期 package-visible delivery delta。CI/preflight必须从 protected base→HEAD tree直接推导这五类 semantic atoms，在 atom level要求 derived actual set与 manifest authorization **双向相等**：actual不得有未列 atom，manifest不得有未使用 atom；同一路径上的多个 atoms保持独立，禁止 path-level collapse。CI/preflight还必须直接从 base与HEAD tree验证（不得信 manifest boolean/flag）：Step 8 terminal deletion已完成且 OLD authorities在两棵树都不存在；恰好两个 owner anomaly queues，且两者都是、也只有两者是 ops `M.spec.ephemeral` consumes；transport无 `source_ref`、`dedup_key`、durable identity或 rehydration；每个 transport sink均分类为 `grantless-telemetry`，且无 require/carry/mint grant path；该 PR的 production semantic delta只有这一个 R7 activation，不含 refactor work或另一 behavior change。任一 derivation不足、predicate失败、atom缺失/多余/重复、manifest malformed或 binding/hash mismatch，必须保留 pre-manifest anomaly-activation rejection。该 PR不得与 refactor或其他 behavior change合并。
 
 R11 zero-surface activation同样是保留的 post-terminal behavior change。其独立 manifest必须证明：Step 8已完成；protected-base与 pre-migration known-dialogue inventory一致；`consensus` package→library迁移删除列明的 request-reply queues/deliveries并把 `migration/request-reply-message.allowlist` ratchet到 zero；`product-outcome parity`逐 fixture成立，即迁移前后 reply value、saga transitions与 markers相同。Queue→call delivery form是该 manifest唯一授权的 communication-form delta；该 PR不得与 lifecycle refactor或其他 behavior change合并。
 

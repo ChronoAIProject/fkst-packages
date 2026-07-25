@@ -10,8 +10,11 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tomllib
 from typing import Any, Iterable
 
+import check_repo_intent_bounded_replay as intent_replay
+from intent_bounded_replay.normalize import loads_json
 
 INVENTORY = "migration/restart-lifecycle.inventory.json"
 SEMANTIC_TREE_CONTROL = "scripts/intent_bounded_replay/semantic_tree.py"
@@ -55,6 +58,54 @@ ALLOWED_ANOMALY_SHADOW_PATHS = {
 }
 ATTESTATION_SCHEMA = "fkst.intent-diff-attestation.v1"
 SAFE_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/\-]*")
+BLOB_OID_RE = re.compile(r"[0-9a-f]{40}")
+R7_QUEUES = {
+    "github-devloop.restart_transition_anomaly",
+    "github-devloop-pr.restart_transition_anomaly",
+}
+R7_INGESTION = "github-devloop-ops.observability"
+R7_OWNER_DEPARTMENTS = {
+    "packages/github-devloop/departments/observe_issue/main.lua": "github-devloop.observe_issue",
+    "packages/github-devloop-pr/departments/observe_pr/main.lua": "github-devloop-pr.observe_pr",
+}
+R7_SINK_INVENTORIES = {
+    "packages/github-devloop/core/restart/sink_inventory.lua": "github-devloop",
+    "packages/github-devloop-pr/core/restart/sink_inventory.lua": "github-devloop-pr",
+}
+R7_OPS_DEPARTMENT = "packages/github-devloop-ops/departments/observability/main.lua"
+R7_OPS_MANIFEST = "packages/github-devloop-ops/fkst.toml"
+R7_PRODUCTION_PATHS = set(R7_OWNER_DEPARTMENTS) | set(R7_SINK_INVENTORIES) | {
+    R7_OPS_DEPARTMENT,
+    R7_OPS_MANIFEST,
+}
+OLD_AUTHORITY_PATHS = {
+    "libraries/devloop/restart_effect_seal.lua",
+    "packages/github-devloop/loop_department_caps.lua",
+    "packages/github-devloop-pr/review_loop_department_caps.lua",
+}
+OLD_AUTHORITY_PATTERNS = {
+    "libraries/devloop/state.lua": re.compile(
+        r"\b(?:transition_status|versioned_transition_status|cyclic_transition_status)\b"
+    ),
+    "libraries/devloop/di/providers.lua": re.compile(r'["]versioned_transition_status["]'),
+    "libraries/devloop/fkst.toml": re.compile(r'["]devloop\.restart_effect_seal["]'),
+}
+DURABLE_TRANSPORT_RE = re.compile(
+    r"\b(?:source_ref|dedup_key|delivery_id|delivery_key|durable_identity|event_id|"
+    r"idempotency_key|message_id|content_fetch|rehydrat[A-Za-z0-9_]*)\b"
+)
+GRANT_TRANSPORT_RE = re.compile(
+    r"\b(?:grant|mint_grant|verify_grant|restart_sink_grants|transition_grant|effect_grant|"
+    r"requires?_grant|grant_required)\b"
+)
+LUA_LIST_RE_TEMPLATE = r"\b%s\s*=\s*\{(?P<body>[^{}]*)\}"
+LUA_STRING_RE = re.compile(r"[\"']([^\"']+)[\"']")
+RAISE_CALL_RE = re.compile(r"\b(?:raise|log_raise)\s*\((?P<body>.{0,800}?)\)", re.DOTALL)
+QUEUE_RECORD_RE = re.compile(
+    r"\bqueue\s*\(\s*[\"'](?P<department>[^\"']+)[\"']\s*,\s*"
+    r"[\"'](?P<queue>[^\"']+)[\"']\s*,\s*[\"'](?P<authority>[^\"']+)[\"']",
+    re.DOTALL,
+)
 BLOB_OID_RE = re.compile(r"[0-9a-f]{40}")
 
 
@@ -288,6 +339,169 @@ def _new_matches(pattern: re.Pattern[str], old: str, new: str) -> Counter[str]:
     return Counter(pattern.findall(new)) - Counter(pattern.findall(old))
 
 
+def _lua_list_values(text: str, field: str) -> Counter[str]:
+    pattern = re.compile(LUA_LIST_RE_TEMPLATE % re.escape(field), re.DOTALL)
+    return Counter(
+        value
+        for match in pattern.finditer(text)
+        for value in LUA_STRING_RE.findall(match.group("body"))
+    )
+
+
+def _added_lua_values(root: Path, base: str, head_ref: str, path: str, field: str) -> Counter[str]:
+    return _lua_list_values(_text(root, head_ref, path), field) - _lua_list_values(_text(root, base, path), field)
+
+
+def _qualify_queue(owner: str, queue: str) -> str:
+    return queue if "." in queue else f"{owner}.{queue}"
+
+
+def _raise_records(text: str, path: str) -> Counter[str]:
+    department = R7_OWNER_DEPARTMENTS[path]
+    owner = department.split(".", 1)[0]
+    return Counter(
+        f"{department}->{_qualify_queue(owner, value)}"
+        for call in RAISE_CALL_RE.finditer(text)
+        for value in LUA_STRING_RE.findall(call.group("body"))
+        if ANOMALY_RE.search(value)
+    )
+
+
+def _sink_records(text: str, owner: str) -> Counter[str]:
+    return Counter(
+        _qualify_queue(owner, match.group("queue"))
+        for match in QUEUE_RECORD_RE.finditer(text)
+        if ANOMALY_RE.search(match.group("queue"))
+        and match.group("authority") == "grantless-telemetry"
+    )
+
+
+def _event_dependencies(text: str) -> set[str]:
+    if not text:
+        return set()
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return set()
+    dependencies = document.get("event_deps", {}).get("packages", [])
+    return set(dependencies) if isinstance(dependencies, list) else set()
+
+
+def _step8_complete(root: Path, base: str, head_ref: str) -> bool:
+    for ref in (base, head_ref):
+        tracked = set(_tracked_paths(root, ref))
+        if tracked & OLD_AUTHORITY_PATHS:
+            return False
+        if any(pattern.search(_text(root, ref, path)) for path, pattern in OLD_AUTHORITY_PATTERNS.items()):
+            return False
+    return True
+
+
+def _anomaly_manifest(
+    root: Path, base: str, head_ref: str, changed: set[str], paths: list[str],
+) -> dict[str, object] | None:
+    changed_manifests = sorted(
+        path for path in changed
+        if re.fullmatch(r"migration/intent-diffs/[1-9][0-9]*\.json", path)
+    )
+    if len(changed_manifests) != 1:
+        return None
+    relative = changed_manifests[0]
+    try:
+        artifact = loads_json(_blob(root, head_ref, relative))
+    except Exception:
+        return None
+    if not isinstance(artifact, dict) or "anomaly_transport" not in artifact:
+        return None
+    allowlist, allowlist_messages = intent_replay._parse_allowlist(
+        intent_replay.ALLOWLIST,
+        _text(root, head_ref, intent_replay.ALLOWLIST).splitlines(),
+    )
+    if allowlist_messages or relative not in allowlist:
+        return None
+    if intent_replay._bound_manifest_messages(root, artifact, relative, base, head_ref):
+        return None
+    identity = artifact["one_use_identity"]
+    for path in paths:
+        if path == relative or re.fullmatch(r"migration/intent-diffs/[1-9][0-9]*\.json", path) is None:
+            continue
+        try:
+            other = loads_json(_blob(root, head_ref, path))
+        except Exception:
+            continue
+        if isinstance(other, dict) and other.get("one_use_identity") == identity:
+            return None
+    return artifact
+
+
+def _r7_anomaly_admitted(
+    root: Path, base: str, head_ref: str, changed: set[str], paths: list[str],
+) -> bool:
+    artifact = _anomaly_manifest(root, base, head_ref, changed, paths)
+    if artifact is None or not _step8_complete(root, base, head_ref):
+        return False
+
+    owner_produces: Counter[str] = Counter()
+    deliveries: Counter[str] = Counter()
+    for path, department in R7_OWNER_DEPARTMENTS.items():
+        owner = department.split(".", 1)[0]
+        owner_produces.update(
+            _qualify_queue(owner, queue)
+            for queue in _added_lua_values(root, base, head_ref, path, "produces").elements()
+        )
+        deliveries.update(
+            _raise_records(_text(root, head_ref, path), path)
+            - _raise_records(_text(root, base, path), path)
+        )
+    consumes = _added_lua_values(root, base, head_ref, R7_OPS_DEPARTMENT, "consumes")
+    ephemeral = _added_lua_values(root, base, head_ref, R7_OPS_DEPARTMENT, "ephemeral")
+    dependencies = _event_dependencies(_text(root, head_ref, R7_OPS_MANIFEST)) - _event_dependencies(
+        _text(root, base, R7_OPS_MANIFEST)
+    )
+    sinks: Counter[str] = Counter()
+    for path, owner in R7_SINK_INVENTORIES.items():
+        sinks.update(
+            _sink_records(_text(root, head_ref, path), owner)
+            - _sink_records(_text(root, base, path), owner)
+        )
+
+    expected_deliveries = {
+        "github-devloop.observe_issue->github-devloop.restart_transition_anomaly",
+        "github-devloop-pr.observe_pr->github-devloop-pr.restart_transition_anomaly",
+    }
+    exact_shape = (
+        owner_produces == Counter({queue: 1 for queue in R7_QUEUES})
+        and consumes == Counter({queue: 1 for queue in R7_QUEUES})
+        and ephemeral == Counter({queue: 1 for queue in R7_QUEUES})
+        and deliveries == Counter({delivery: 1 for delivery in expected_deliveries})
+        and sinks == Counter({queue: 1 for queue in R7_QUEUES})
+        and dependencies == {"github-devloop-pr"}
+    )
+    semantic_changed = {
+        path for path in changed
+        if path.endswith((".lua", ".toml"))
+        and path.startswith(("packages/github-devloop/", "packages/github-devloop-pr/", "packages/github-devloop-ops/"))
+        and "/tests/" not in path
+    }
+    no_other_behavior = semantic_changed == R7_PRODUCTION_PATHS and all(
+        artifact[field] == []
+        for field in ("changed_row_ids", "changed_edge_ids", "changed_policy_ids")
+    )
+    no_durable_or_grant_path = all(
+        not _new_matches(pattern, _text(root, base, path), _text(root, head_ref, path))
+        for path in R7_PRODUCTION_PATHS
+        for pattern in (DURABLE_TRANSPORT_RE, GRANT_TRANSPORT_RE)
+    )
+    actual_atoms = {
+        "qualified_queues": sorted(owner_produces, key=lambda item: item.encode("utf-8")),
+        "ops_dependency": next(iter(dependencies), ""),
+        "ephemeral_consumes": sorted(ephemeral, key=lambda item: item.encode("utf-8")),
+        "ingestion": R7_INGESTION if consumes else "",
+        "package_visible_delivery_delta": ";".join(sorted(deliveries, key=lambda item: item.encode("utf-8"))),
+    }
+    return exact_shape and no_other_behavior and no_durable_or_grant_path and artifact["anomaly_transport"] == actual_atoms
+
+
 def _inventory_contract(
     root: Path, head_ref: str
 ) -> tuple[set[str], set[str], list[str]]:
@@ -412,6 +626,8 @@ def _anomaly_activation_messages(
             messages.append(
                 f"anomaly-transport-activation: {path} activates restart anomaly production, ingestion, dependency, or delivery during refactor"
             )
+    if messages and _r7_anomaly_admitted(root, base, head_ref, changed, _tracked_paths(root, head_ref)):
+        return []
     return messages
 
 

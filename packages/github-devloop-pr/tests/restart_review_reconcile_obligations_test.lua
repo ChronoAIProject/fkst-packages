@@ -9,7 +9,6 @@ local CORPUS_PATH = "migration/restart-lifecycle.inventory.json"
 local SITE = {
   path = "packages/github-devloop-pr/departments/reconcile/main.lua",
   symbol = "pipeline_review",
-  ordinal = "versioned_transition_status:reviewing->blocked",
 }
 
 local function is_frozen_record(record)
@@ -17,7 +16,6 @@ local function is_frozen_record(record)
   return type(site) == "table"
     and site.path == SITE.path
     and site.symbol == SITE.symbol
-    and site.ordinal == SITE.ordinal
 end
 
 local function frozen_records()

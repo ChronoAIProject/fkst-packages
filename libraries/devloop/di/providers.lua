@@ -41,7 +41,7 @@ function M.build_all(env)
       read = role_of(state, {
         "current_state", "is_state", "is_state_label", "has_label", "state_label",
         "state_order", "state_successors", "stage_rank", "version_order_key",
-        "version_updated_at", "versioned_transition_status",
+        "version_updated_at",
       }),
       cas = role_of(state, {
         "cas_outcome", "state_marker", "state_label_changes", "compare_state_marker_order",

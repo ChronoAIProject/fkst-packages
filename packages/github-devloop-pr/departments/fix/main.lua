@@ -20,6 +20,7 @@ local ci_repair_retry = require("core.ci_repair_retry")
 local ci_verdict = require("core.ci_verdict")
 local fix_write_gate = require("departments.fix.write_gate")
 local fix_caps = require("fix_department_caps")
+local restart_sink_grants = require("restart_sink_grants")
 local with_current_classification = ci_verdict.with_current_classification
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 local review_meta_caps = {
@@ -91,7 +92,8 @@ local function emit_reviewing(restart_effect, repo, issue_number, fix, old_head_
   local effects = {}
   local emitted_effect_ids = {}
   for _, effect_id in ipairs(restart_effect.decision.granted_effect_ids) do
-    if effect_id ~= "github-proxy.github_issue_label_request" or issue_number ~= nil then
+    if effect_id ~= "git.push:fix-branch"
+      and (effect_id ~= "github-proxy.github_issue_label_request" or issue_number ~= nil) then
       local payload, rejection = restart_effect.facade.emit(
         restart_effect.grant,
         effect_id,
@@ -190,6 +192,22 @@ local function validate_fix_write_gate_snapshot(repo, fix, branch, pr, reason_pr
   return fix_write_gate.validate(repo, fix, branch, pr, state, reason_prefix, fail_closed)
 end
 
+local function authorize_fix_receiver(repo, fix, pr, state, phase)
+  return restart_sink_grants.receiver(fix_caps, {
+    owner = fix_caps.restart_package_name,
+    entity = { kind = "pr", repo = repo, number = fix.pr_number },
+    proposal_id = fix.proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({ "fix-receiver", fix.proposal_id,
+      state.state or "missing", state.version or "missing", phase }, "|"),
+    lock_epoch = entity_lib.transition_lock_key(fix.proposal_id)
+      .. "@" .. tostring(state.version or "missing"),
+    generation = fix.version,
+    head = { sha = pr.head_sha },
+  }, { receiver_state = "fixing" }, "codex.dispatch:fix",
+    "github-devloop: fix receiver dispatch grant")
+end
+
 local function run_fix_attempt(plan)
   local worktree = branch_worktree(plan.repo, plan.issue_number, plan.fix.version, plan.branch)
   local merge_context, speculative_reason, speculative_current_set
@@ -245,6 +263,8 @@ local function run_fix_attempt(plan)
     version = plan.fix.dedup_key,
     tick = plan.event_ts,
   })
+  restart_sink_grants.consume(fix_caps, plan.receiver_authorization, "codex.dispatch:fix",
+    "github-devloop: fix codex dispatch grant")
   local result = workflow_codex.dispatch(convergence_identity.from_parts("fix", plan.fix.proposal_id, plan.fix.work_unit_key, {
     angle_lane = "worker",
   }), {
@@ -370,7 +390,7 @@ local function run_fix_attempt(plan)
     plan.fix.reviewed_head_sha,
     function(classification)
       local current_pr = classification.current_pr
-      local authorized = validate_fix_write_gate_snapshot(
+      local authorized, authorized_state = validate_fix_write_gate_snapshot(
         plan.repo, plan.fix, plan.branch, current_pr, "pre-dispatch", false
       )
       if authorized == nil then
@@ -384,6 +404,9 @@ local function run_fix_attempt(plan)
         }
       end
       plan.current_pr = current_pr
+      plan.receiver_authorization = authorize_fix_receiver(
+        plan.repo, plan.fix, current_pr, authorized_state, "pre-dispatch"
+      )
       return dispatch()
     end,
     {
@@ -444,7 +467,7 @@ local function pre_spawn_fix_attempt(repo, fix, attempt_plan)
     )
     return false
   end
-  return true
+  return authorize_fix_receiver(repo, fix, prechecked_pr, prechecked_state, "pre-spawn")
 end
 
 local function apply_fix_outcome(repo, issue_number, fix, branch, outcome, restart_effect)
@@ -510,6 +533,24 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome, resta
     error("github-devloop: fix-outcome-unknown: unknown fix outcome")
   end
 
+  local publish_authorization = restart_sink_grants.transition(fix_caps, {
+    owner = fix_caps.restart_package_name,
+    entity = { kind = "pr", repo = repo, number = fix.pr_number },
+    proposal_id = fix.proposal_id,
+    current = current_state,
+    snapshot_fingerprint = table.concat({ "fix-publish", fix.proposal_id,
+      current_state.version or "missing", outcome.new_head_sha }, "|"),
+    lock_epoch = entity_lib.transition_lock_key(fix.proposal_id)
+      .. "@" .. tostring(current_state.version or "missing"),
+    generation = fix.version,
+    head = { sha = outcome.new_head_sha },
+  }, { semantic_variant = "revision_published", target = "reviewing",
+    incoming_version = fix.version, target_version = devloop_state.next_fix_version(fix.version),
+    overlay_version = fix.version }, "git.push:fix-branch",
+    "github-devloop: fix publish grant")
+
+  restart_sink_grants.consume(fix_caps, publish_authorization, "git.push:fix-branch",
+    "github-devloop: fix branch push grant")
   local push = devloop_commands.git_push_ref_update(
     "origin",
     outcome.new_head_sha,
@@ -805,13 +846,14 @@ local function act_fix(event)
   if attempt_plan == nil then
     return
   end
-  local pre_spawn_gate_ok = false
+  local receiver_authorization = nil
   with_lock(lock_key, function()
-    pre_spawn_gate_ok = pre_spawn_fix_attempt(repo, fix, attempt_plan)
+    receiver_authorization = pre_spawn_fix_attempt(repo, fix, attempt_plan)
   end)
-  if not pre_spawn_gate_ok then
+  if receiver_authorization == nil or receiver_authorization == false then
     return
   end
+  attempt_plan.receiver_authorization = receiver_authorization
   local outcome = run_fix_attempt(attempt_plan)
   if outcome == nil then
     return

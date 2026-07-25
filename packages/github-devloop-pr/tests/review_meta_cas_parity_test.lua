@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real review_meta
 -- department's owner decision and the result-marker check admission boundary.
--- Frozen OLD payload truth remains the committed R9 corpus, and direct legacy CAS
--- use is rejected after the production swap.
+-- OLD admission truth comes from the protected R9 corpus or a frozen literal
+-- probe outcome on each additional edge case.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -53,7 +53,6 @@ local function observe_department(run)
   local effect_builders = { comment = {}, label = {} }
   local original_build_comment = core.build_review_meta_comment_request
   local original_build_label = core.build_review_meta_label_request
-  local original_cyclic = devloop_state.cyclic_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_mint_grant = restart_effects.mint_grant
   local original_log_cas = devloop_logging.log_cas_decision
@@ -70,9 +69,6 @@ local function observe_department(run)
     return false
   end
 
-  devloop_state.cyclic_transition_status = function()
-    error("PR review-meta production used retired direct CAS", 0)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide_transition(snapshot, intent)
     table.insert(owner_decisions, {
@@ -87,13 +83,7 @@ local function observe_department(run)
         to_state = "fixing",
         incoming_version = intent.incoming_version,
         target_version = intent.target_version,
-        outcome = original_cyclic(
-          snapshot.current,
-          { "review-meta" },
-          "fixing",
-          intent.incoming_version,
-          intent.target_version
-        ),
+        decision = decision,
       })
     end
     return decision
@@ -157,7 +147,6 @@ local function observe_department(run)
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.mint_grant = original_mint_grant
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.cyclic_transition_status = original_cyclic
   if not ok then
     error(result, 0)
   end
@@ -201,21 +190,36 @@ local function emitted_state(result)
   return nil
 end
 
-local function observed_admission(probe, decision, marker_check_reached)
-  if probe.outcome == "pending" then
+local function protected_probe_outcome(fixture)
+  if fixture.fixture_id ~= nil then
+    return observation_support.protected_admission_fixture(
+      REVIEW_META_CORPUS_PATH,
+      fixture.fixture_id
+    ).cas_status
+  end
+  if fixture.probe_outcome == nil then
+    error("review-meta fixture is missing its frozen OLD probe outcome: "
+      .. tostring(fixture.name), 0)
+  end
+  return fixture.probe_outcome
+end
+
+local function observed_admission(probe_outcome, probe, decision, marker_check_reached)
+  if probe_outcome == "pending" then
     return { status = "pending", reason_code = "source-marker-not-visible" }
   end
-  if probe.outcome == "idempotent" then
+  if probe_outcome == "idempotent" then
     return { status = "idempotent", reason_code = "already-at-target" }
   end
-  if probe.outcome == "stale" then
+  if probe_outcome == "stale" then
     if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
       return { status = "stale", reason_code = "incoming-version-older" }
     end
     return { status = "stale", reason_code = "advanced-or-diverged" }
   end
-  if probe.outcome ~= "apply" then
-    error("review-meta admission probe returned an unknown outcome: " .. tostring(probe.outcome))
+  if probe_outcome ~= "apply" then
+    error("review-meta protected admission probe returned an unknown outcome: "
+      .. tostring(probe_outcome))
   end
 
   local legacy_reason = tostring(decision and decision.reason or "")
@@ -328,12 +332,17 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(marker_checks[1].proposal_id, event.proposal_id, fixture.name .. ": marker boundary proposal")
     t.eq(marker_checks[1].dedup_key, event.dedup_key, fixture.name .. ": marker boundary dedup")
   end
-  local observed = observed_admission(probe, decision, marker_check_reached)
+  local old_probe_outcome = protected_probe_outcome(fixture)
+  local observed = observed_admission(old_probe_outcome, probe, decision, marker_check_reached)
   local actual = catalog.resolve(POLICY_ID, evidence_from_fixture(fixture), projection)
+  t.eq(owner_decisions[1].decision.status, observed.status,
+    fixture.name .. ": production owner status vs protected OLD")
+  t.eq(owner_decisions[1].decision.reason_code, observed.reason_code,
+    fixture.name .. ": production owner reason vs protected OLD")
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
   if fixture.probe_outcome ~= nil then
-    t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
+    t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
   end
   if fixture.admission_status ~= nil then
     t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
@@ -355,22 +364,33 @@ local function assert_catalog_matches_observed_decision(fixture)
   end
 
   if fixture.effect_state ~= nil then
-    t.eq(probe.outcome, "apply", fixture.name .. ": decision reached only after the shared probe applied")
+    t.eq(old_probe_outcome, "apply",
+      fixture.name .. ": decision reached only after the protected OLD probe applied")
     t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": emitted effect target")
-    t.eq(#grant_mints, 1, fixture.name .. ": exactly one result grant minted")
-    t.eq(grant_mints[1].sink_id, "comment:pr:review-meta-result", fixture.name .. ": result grant sink")
+    local result_grant_mints = {}
+    for _, minted in ipairs(grant_mints) do
+      if minted.sink_id == "comment:pr:review-meta-result" then
+        table.insert(result_grant_mints, minted)
+      end
+    end
+    t.eq(#result_grant_mints, 1, fixture.name .. ": exactly one result grant minted")
+    t.eq(result_grant_mints[1].sink_id, "comment:pr:review-meta-result", fixture.name .. ": result grant sink")
     local expected_variant = fixture.effect_state == "blocked" and "block" or "fix"
-    t.eq(grant_mints[1].decision.edge_id,
+    t.eq(result_grant_mints[1].decision.edge_id,
       OWNER .. "/review-meta/autonomous/" .. expected_variant,
       fixture.name .. ": action-selected grant edge")
   else
     t.eq(emitted_state(result), nil, fixture.name .. ": non-apply case emitted no state effect")
-    t.eq(#grant_mints, 0, fixture.name .. ": non-effect path minted no grant")
+    for _, minted in ipairs(grant_mints) do
+      t.is_true(minted.sink_id ~= "comment:pr:review-meta-result",
+        fixture.name .. ": non-effect path minted no result grant")
+    end
   end
   return {
     result = result,
     event = event,
     probe = probe,
+    old_probe_outcome = old_probe_outcome,
     decision = decision,
     observed = observed,
     effect_builders = effect_builders,
@@ -431,9 +451,10 @@ local TRACE_FIXTURES = {
   },
 }
 
-local function trace_artifact(corpus_hash, fixtures)
+local function trace_artifact(corpus_hash, fixtures, captured_sink_effects)
   return observation_support.admission_trace_artifact(
-    "restart-pr-review-meta-trace.v1", OWNER, "pr-review-meta", corpus_hash, fixtures
+    "restart-pr-review-meta-trace.v1", OWNER, "pr-review-meta", corpus_hash,
+    fixtures, captured_sink_effects
   )
 end
 
@@ -509,11 +530,10 @@ local function assert_review_meta_trace_equality()
       edge_id,
       production.observed.status,
       production.observed.reason_code,
-      devloop_state.cas_outcome(
-        production.probe.current,
-        production.probe.outcome,
-        fixture.incoming_version
-      ),
+      observation_support.protected_admission_fixture(
+        REVIEW_META_CORPUS_PATH,
+        fixture.fixture_id
+      ).cas_outcome,
       decided.effect_entitlement_id,
       decided.granted_effect_ids,
       old_writes
@@ -530,8 +550,8 @@ local function assert_review_meta_trace_equality()
     ))
   end
 
-  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures, corpus.captured_sink_effects)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures, corpus.captured_sink_effects)
   local canonical_json = observation_support.canonical_json
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
     "R9 PR review-meta OLD and NEW semantic trace")
@@ -576,7 +596,7 @@ local function assert_shadow_case(fixture, semantic_variant, target)
     reason_code = production.observed.reason_code,
     cas_outcome = devloop_state.cas_outcome(
       production.probe.current,
-      production.probe.outcome,
+      production.old_probe_outcome,
       production.probe.incoming_version
     ),
   }
@@ -658,6 +678,7 @@ return {
           current_state = "review-meta",
           current_version = V_EQUAL,
           incoming_version = V_EQUAL,
+          probe_outcome = "apply",
           codex_stdout = h.action_label .. " fix\n" .. h.reason_label .. " Run another fix pass.\nBlocking gap: missing CAS parity guard",
           effect_state = "fixing",
           marker_check_reached = true,
@@ -672,6 +693,7 @@ return {
           current_state = "review-meta",
           current_version = V_EQUAL,
           incoming_version = V_EQUAL,
+          probe_outcome = "apply",
           codex_stdout = h.action_label .. " block\n" .. h.reason_label .. " The review cannot be repaired safely.",
           effect_state = "blocked",
           marker_check_reached = true,
@@ -686,6 +708,7 @@ return {
           current_state = "fixing",
           current_version = V_EQUAL,
           incoming_version = V_EQUAL,
+          probe_outcome = "idempotent",
           result_marker_visible = true,
           marker_check_reached = true,
           post_admission_disposition = "effect-idempotent",
@@ -704,6 +727,7 @@ return {
       current_state = "review-meta",
       current_version = V_EQUAL,
       incoming_version = V_OLDER,
+      probe_outcome = "stale",
     })
   end,
 
@@ -713,6 +737,7 @@ return {
       current_state = "review-meta",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "apply",
       codex_stdout = h.action_label .. " fix\n" .. h.reason_label .. " Run another fix pass.\nBlocking gap: missing CAS parity guard",
       effect_state = "fixing",
       marker_check_reached = true,
@@ -726,6 +751,7 @@ return {
       current_state = "review-meta",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "apply",
       codex_stdout = h.action_label .. " block\n" .. h.reason_label .. " The review cannot be repaired safely.",
       effect_state = "blocked",
       marker_check_reached = true,
@@ -757,6 +783,7 @@ return {
       current_state = "review-meta",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "apply",
       result_marker_visible = true,
       marker_check_reached = true,
       post_admission_disposition = "effect-idempotent",
@@ -777,6 +804,7 @@ return {
       current_state = "fixing",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "idempotent",
       result_marker_visible = true,
       marker_check_reached = true,
       post_admission_disposition = "effect-idempotent",
@@ -793,6 +821,7 @@ return {
       current_state = "blocked",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "stale",
       legacy_log_outcome = "skip-advanced-or-diverged",
       legacy_log_reason = "current marker is no longer review-meta",
     })
@@ -804,6 +833,7 @@ return {
       current_state = "reviewing",
       current_version = V_EQUAL,
       incoming_version = V_OLDER,
+      probe_outcome = "stale",
     })
   end,
 

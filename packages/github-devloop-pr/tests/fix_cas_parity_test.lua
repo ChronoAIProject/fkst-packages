@@ -1,7 +1,7 @@
 -- Non-circularity contract: production truth comes from the real fix
 -- department's owner decision and the review-reject fact admission boundary.
--- Frozen OLD payload truth remains the committed R9 corpus, and direct legacy CAS
--- use is rejected after the production swap.
+-- OLD admission truth comes from the protected R9 corpus or a frozen literal
+-- probe outcome on each additional edge case.
 
 local catalog = require("devloop.restart_cas_catalog")
 local observation_support = require("testkit_internal.old_behavior_observation_support")
@@ -58,7 +58,6 @@ local function observe_department(run)
   local probes = {}
   local decisions = {}
   local boundary_calls = {}
-  local original_cyclic = devloop_state.cyclic_transition_status
   local original_decide_transition = restart_effects.decide_transition
   local original_log_cas = devloop_logging.log_cas_decision
   local original_review_reject_fact = m_facts.review_reject_fact
@@ -69,9 +68,6 @@ local function observe_department(run)
     return false
   end
 
-  devloop_state.cyclic_transition_status = function()
-    error("PR fix production used retired direct CAS", 0)
-  end
   restart_effects.decide_transition = function(snapshot, intent)
     local decision = original_decide_transition(snapshot, intent)
     table.insert(probes, {
@@ -80,13 +76,7 @@ local function observe_department(run)
       to_state = intent.target,
       incoming_version = intent.incoming_version,
       target_version = intent.target_version,
-      outcome = original_cyclic(
-        snapshot.current,
-        { "fixing" },
-        intent.target,
-        intent.incoming_version,
-        intent.target_version
-      ),
+      decision = decision,
     })
     return decision
   end
@@ -116,7 +106,6 @@ local function observe_department(run)
   m_facts.review_reject_fact = original_review_reject_fact
   devloop_logging.log_cas_decision = original_log_cas
   restart_effects.decide_transition = original_decide_transition
-  devloop_state.cyclic_transition_status = original_cyclic
   if not ok then
     error(result, 0)
   end
@@ -152,21 +141,21 @@ local function observe_shadow(run)
   return result, evidence
 end
 
-local function observed_admission(probe, decision, boundary_reached)
-  if probe.outcome == "pending" then
+local function observed_admission(probe_outcome, probe, decision, boundary_reached)
+  if probe_outcome == "pending" then
     return { status = "pending", reason_code = "source-marker-not-visible", cas_outcome = decision.outcome }
   end
-  if probe.outcome == "idempotent" then
+  if probe_outcome == "idempotent" then
     return { status = "idempotent", reason_code = "already-at-target", cas_outcome = decision.outcome }
   end
-  if probe.outcome == "stale" then
+  if probe_outcome == "stale" then
     if tostring(probe.incoming_version or "") ~= tostring(probe.current.version or "") then
       return { status = "stale", reason_code = "incoming-version-older", cas_outcome = decision.outcome }
     end
     return { status = "stale", reason_code = "advanced-or-diverged", cas_outcome = decision.outcome }
   end
-  if probe.outcome ~= "apply" then
-    error("fix admission probe returned an unknown outcome: " .. tostring(probe.outcome))
+  if probe_outcome ~= "apply" then
+    error("fix protected admission probe has an unknown outcome: " .. tostring(probe_outcome))
   end
 
   local legacy_outcome = tostring(decision and decision.outcome or "")
@@ -181,6 +170,19 @@ local function observed_admission(probe, decision, boundary_reached)
     return { status = "apply", reason_code = "apply", cas_outcome = "applied" }
   end
   error("fix admission apply did not reach a classified guard")
+end
+
+local function protected_probe_outcome(fixture)
+  if fixture.fixture_id ~= nil then
+    return observation_support.protected_admission_fixture(
+      FIX_CORPUS_PATH,
+      fixture.fixture_id
+    ).cas_status
+  end
+  if fixture.probe_outcome == nil then
+    error("fix fixture is missing its frozen OLD probe outcome: " .. tostring(fixture.name), 0)
+  end
+  return fixture.probe_outcome
 end
 
 local function post_admission_disposition(result, decision, boundary_reached)
@@ -289,12 +291,16 @@ local function assert_catalog_matches_observed_decision(fixture)
     t.eq(boundary_calls[1].version, event.version, fixture.name .. ": boundary version")
   end
 
-  local observed = observed_admission(probe, decision, boundary_reached)
+  local old_probe_outcome = protected_probe_outcome(fixture)
+  local observed = observed_admission(old_probe_outcome, probe, decision, boundary_reached)
   local actual = catalog.resolve(POLICY_ID, evidence_from_fixture(fixture), projection)
+  t.eq(probe.decision.status, observed.status, fixture.name .. ": production owner status vs protected OLD")
+  t.eq(probe.decision.reason_code, observed.reason_code, fixture.name .. ": production owner reason vs protected OLD")
+  t.eq(probe.decision.cas_outcome, observed.cas_outcome, fixture.name .. ": production owner outcome vs protected OLD")
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
   t.eq(actual.reason_code, observed.reason_code, fixture.name .. ": admission reason parity")
   if fixture.probe_outcome ~= nil then
-    t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
+    t.eq(old_probe_outcome, fixture.probe_outcome, fixture.name .. ": frozen literal probe outcome")
   end
   if fixture.admission_status ~= nil then
     t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
@@ -358,9 +364,10 @@ local TRACE_FIXTURES = {
   },
 }
 
-local function trace_artifact(corpus_hash, fixtures)
+local function trace_artifact(corpus_hash, fixtures, captured_sink_effects)
   return observation_support.admission_trace_artifact(
-    "restart-pr-fix-trace.v1", OWNER, "pr-fix", corpus_hash, fixtures
+    "restart-pr-fix-trace.v1", OWNER, "pr-fix", corpus_hash, fixtures,
+    captured_sink_effects
   )
 end
 
@@ -383,6 +390,7 @@ local function new_trace_fixture(fixture, production)
   })
   local writes = observation_support.json_array()
   local full_writes = observation_support.json_array()
+  local trace_effect_ids = observation_support.json_array()
   if decided.status == "apply" then
     local grant = restart_effects.mint_grant(snapshot, decided, "comment:pr:fix-reviewing")
     t.is_true(grant ~= nil, fixture.fixture_id .. ": NEW grant minted")
@@ -400,14 +408,17 @@ local function new_trace_fixture(fixture, production)
       new_head_sha = FIXED_HEAD,
       new_version = core.next_fix_version(production.event.version),
     }
-    for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
-      local emitted = facade.emit(grant, effect_id, snapshot, args)
-      t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
-      table.insert(writes, observation_support.admission_trace_write(ordinal, effect_id, emitted))
-      table.insert(full_writes, { queue = effect_id, payload = emitted })
+    for _, effect_id in ipairs(decided.granted_effect_ids) do
+      if effect_id ~= "git.push:fix-branch" then
+        local emitted = facade.emit(grant, effect_id, snapshot, args)
+        t.is_true(emitted ~= nil, fixture.fixture_id .. ": NEW facade emitted " .. effect_id)
+        table.insert(trace_effect_ids, effect_id)
+        table.insert(writes, observation_support.admission_trace_write(#writes + 1, effect_id, emitted))
+        table.insert(full_writes, { queue = effect_id, payload = emitted })
+      end
     end
   end
-  return decided, writes, full_writes
+  return decided, writes, full_writes, trace_effect_ids
 end
 
 local function assert_fix_trace_equality()
@@ -416,7 +427,7 @@ local function assert_fix_trace_equality()
   local new_fixtures = observation_support.json_array()
   for _, fixture in ipairs(TRACE_FIXTURES) do
     local production = assert_catalog_matches_observed_decision(fixture)
-    local decided, new_writes = new_trace_fixture(fixture, production)
+    local decided, new_writes, _, trace_effect_ids = new_trace_fixture(fixture, production)
     local old_writes = production.observed.status == "apply"
       and observation_support.admission_trace_writes(
         production.result.raises,
@@ -430,7 +441,7 @@ local function assert_fix_trace_equality()
       production.observed.reason_code,
       production.decision.outcome,
       decided.effect_entitlement_id,
-      decided.granted_effect_ids,
+      trace_effect_ids,
       old_writes
     ))
     table.insert(new_fixtures, observation_support.admission_trace_fixture(
@@ -440,13 +451,13 @@ local function assert_fix_trace_equality()
       decided.reason_code,
       decided.cas_outcome,
       decided.effect_entitlement_id,
-      decided.granted_effect_ids,
+      trace_effect_ids,
       new_writes
     ))
   end
 
-  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
-  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures, corpus.captured_sink_effects)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures, corpus.captured_sink_effects)
   local canonical_json = observation_support.canonical_json
   t.eq(canonical_json(old_trace), canonical_json(new_trace),
     "R9 PR fix production and independent facade admission trace")
@@ -551,6 +562,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       boundary_reached = true,
+      probe_outcome = "apply",
       expected_exit_code = 1,
       post_admission_disposition = "feedback-pending",
       legacy_log_outcome = "retry-pending(fix feedback marker not visible)",
@@ -563,6 +575,7 @@ return {
       current_state = "reviewing",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "idempotent",
     })
   end,
 
@@ -572,6 +585,7 @@ return {
       current_state = nil,
       current_version = nil,
       incoming_version = V_EQUAL,
+      probe_outcome = "pending",
       expected_exit_code = 1,
     })
   end,
@@ -596,6 +610,7 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       boundary_reached = true,
+      probe_outcome = "apply",
       expected_exit_code = 1,
       post_admission_disposition = "feedback-pending",
       legacy_log_outcome = "retry-pending(fix feedback marker not visible)",
@@ -608,6 +623,7 @@ return {
       current_state = "reviewing",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "idempotent",
     })
   end,
 
@@ -617,6 +633,7 @@ return {
       current_state = "fixing",
       current_version = V_EQUAL,
       incoming_version = V_OLDER,
+      probe_outcome = "stale",
     })
   end,
 
@@ -626,6 +643,7 @@ return {
       current_state = "fixing",
       current_version = V_EQUAL,
       incoming_version = V_NEWER,
+      probe_outcome = "pending",
       expected_exit_code = 1,
     })
   end,
@@ -636,6 +654,7 @@ return {
       current_state = nil,
       current_version = nil,
       incoming_version = V_EQUAL,
+      probe_outcome = "pending",
       expected_exit_code = 1,
     })
   end,
@@ -646,6 +665,7 @@ return {
       current_state = "blocked",
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
+      probe_outcome = "stale",
     })
   end,
 

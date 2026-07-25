@@ -14,6 +14,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local review_meta_caps = require("review_meta_department_caps").production()
+local restart_sink_grants = require("restart_sink_grants")
 
 local dispatch_liveness = {
   restart_transition_table = function(...)
@@ -70,6 +71,8 @@ local function review_meta_codex_decision(plan)
     devloop_base.judgment_worktree_with_exec(exec_sync, "review-meta", plan.review_meta.dedup_key)
   )
   codex_opts.sync = true
+  restart_sink_grants.consume(review_meta_caps, plan.receiver_authorization,
+    "codex.dispatch:review-meta", "github-devloop: review-meta codex dispatch grant")
   local result = workflow_codex.dispatch(convergence_identity.from_parts("review-meta", plan.review_meta.proposal_id, plan.review_meta.version, {
     angle_lane = "worker",
   }), codex_opts)
@@ -282,6 +285,19 @@ return saga.department(spec, { done = function() return false end, act = functio
       )
       return
     end
+
+    plan.receiver_authorization = restart_sink_grants.receiver(review_meta_caps, {
+      owner = review_meta_caps.restart_package_name,
+      entity = { kind = "pr", repo = repo, number = review_meta.pr_number },
+      proposal_id = review_meta.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({ "review-meta-receiver", review_meta.proposal_id,
+        state.state or "missing", state.version or "missing" }, "|"),
+      lock_epoch = lock_key .. "@" .. tostring(state.version or "missing"),
+      generation = review_meta.version,
+      head = { sha = current_pr.head_sha },
+    }, { receiver_state = "review-meta" }, "codex.dispatch:review-meta",
+      "github-devloop: review-meta receiver dispatch grant")
 
     local parsed = review_meta_codex_decision(plan)
     if parsed == nil then
