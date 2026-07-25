@@ -4,9 +4,16 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import json
 import math
+import os
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
+import check_repo_intent_bounded_replay as checker
 from check_repo_intent_bounded_replay import _admission_trace_shape_messages
 from intent_bounded_replay.compare import artifacts_equal, compare_report
 from intent_bounded_replay.normalize import (
@@ -14,6 +21,19 @@ from intent_bounded_replay.normalize import (
     canonical_json,
     loads_json,
 )
+from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_tree_sha256
+
+
+ZERO_HASH = "0" * 64
+ALLOWLIST_HEADER = "# protected allowlist\n"
+
+
+def git(root: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", *args], cwd=root, check=True, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    return result.stdout.strip()
 
 
 class CanonicalJsonTest(unittest.TestCase):
@@ -113,6 +133,121 @@ class ArtifactHashTest(unittest.TestCase):
         )
 
 
+class ManifestGrowthAdmissionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        git(self.root, "init", "-q")
+        git(self.root, "config", "user.email", "intent@example.invalid")
+        git(self.root, "config", "user.name", "Intent Test")
+        for relative in checker.PROTECTED_MODULES:
+            self.write(relative, "# protected fixture\n")
+        self.write(checker.ALLOWLIST, ALLOWLIST_HEADER)
+        self.write(f"{checker.INTENT_DIFF_DIR}/.gitkeep", "")
+        self.write("tracked.txt", "base\n")
+        self.base = self.commit("base")
+
+    def write(self, relative: str, content: str) -> None:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    def commit(self, message: str) -> str:
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", message)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def add_growth(self, entries: list[int] | None = None) -> None:
+        numbers = entries or [123]
+        paths = [f"{checker.INTENT_DIFF_DIR}/{number}.json" for number in numbers]
+        self.write(checker.ALLOWLIST, ALLOWLIST_HEADER + "\n".join(paths) + "\n")
+        self.write("tracked.txt", "behavior change\n")
+        self.commit("behavior")
+
+    def manifest(self, pr_number: int = 123, **overrides: object) -> dict[str, object]:
+        tree_hash = semantic_tree_sha256(self.root)
+        diff_hash = semantic_diff_sha256(self.root, self.base)
+        artifact: dict[str, object] = {
+            "schema": "fkst.intent-diff.v2",
+            "intent": "behavior-change",
+            "pr_number": pr_number,
+            "base_sha": self.base,
+            "semantic_tree_sha256": tree_hash,
+            "semantic_diff_sha256": diff_hash,
+            "changed_row_ids": [],
+            "changed_edge_ids": [],
+            "changed_policy_ids": [],
+            "old_trace_sha256": ZERO_HASH,
+            "new_trace_sha256": ZERO_HASH,
+            "behavior_diff_sha256": ZERO_HASH,
+            "cause": "bounded test change",
+            "review_reference": "review:test",
+            "one_use_identity": f"{pr_number}/{self.base}/{tree_hash}/{diff_hash}",
+            "manifest_sha256": "",
+        }
+        artifact.update(overrides)
+        artifact["manifest_sha256"] = canonical_artifact_hash_v1(artifact)
+        return artifact
+
+    def write_manifest(self, artifact: dict[str, object]) -> None:
+        number = int(artifact["pr_number"])
+        self.write(
+            f"{checker.INTENT_DIFF_DIR}/{number}.json",
+            json.dumps(artifact, sort_keys=True) + "\n",
+        )
+        self.commit(f"manifest {number}")
+
+    def messages(self) -> list[str]:
+        with mock.patch.object(checker, "_admission_trace_messages", return_value=[]), mock.patch.dict(
+            os.environ, {"FKST_RESTART_PREFLIGHT_BASE_REF": self.base}, clear=False,
+        ):
+            return checker.repository_messages(self.root, enforce_base=True)
+
+    def test_unmanifested_allowlist_growth_preserves_current_rejection(self) -> None:
+        self.add_growth()
+        self.assertIn(
+            f"{checker.INTENT_DIFF_DIR}/123.json grows {checker.ALLOWLIST} relative to the protected base",
+            self.messages(),
+        )
+
+    def test_matching_valid_manifest_admits_allowlist_growth(self) -> None:
+        self.add_growth()
+        self.write_manifest(self.manifest())
+        self.assertEqual(self.messages(), [])
+
+    def test_malformed_manifest_does_not_admit_growth(self) -> None:
+        self.add_growth()
+        artifact = self.manifest()
+        del artifact["review_reference"]
+        artifact["manifest_sha256"] = canonical_artifact_hash_v1(artifact)
+        self.write_manifest(artifact)
+        self.assertTrue(any("grows" in message for message in self.messages()))
+
+    def test_mis_self_hashed_manifest_does_not_admit_growth(self) -> None:
+        self.add_growth()
+        artifact = self.manifest()
+        artifact["manifest_sha256"] = "f" * 64
+        self.write_manifest(artifact)
+        self.assertTrue(any("grows" in message for message in self.messages()))
+
+    def test_wrong_base_manifest_does_not_admit_growth(self) -> None:
+        self.add_growth()
+        artifact = self.manifest(base_sha="f" * 40)
+        self.write_manifest(artifact)
+        self.assertTrue(any("grows" in message for message in self.messages()))
+
+    def test_reused_one_use_identity_does_not_admit_growth(self) -> None:
+        self.add_growth([123, 124])
+        first = self.manifest(123)
+        reused = self.manifest(124, one_use_identity=first["one_use_identity"])
+        self.write_manifest(first)
+        self.write_manifest(reused)
+        messages = self.messages()
+        self.assertTrue(any("one_use_identity" in message for message in messages))
+        self.assertTrue(any("grows" in message for message in messages))
+
+
 class CompareTest(unittest.TestCase):
     def test_identical_artifacts_compare_equal(self) -> None:
         old = {"schema": "example.v1", "values": [1, 2], "artifact_sha256": "old"}
@@ -181,8 +316,9 @@ class AdmissionTraceShapeTest(unittest.TestCase):
             "example",
         )
 
-    def test_corpus_only_sink_capture_is_excluded_from_trace_hash(self) -> None:
+    def test_captured_sink_effects_is_active_in_trace_hash(self) -> None:
         artifact = self.artifact("pending", [], [], entitlement_id=None)
+        shadow_hash = artifact["artifact_sha256"]
         artifact["captured_sink_effects"] = [
             {
                 "effect_id": "codex.dispatch:fix",
@@ -195,7 +331,9 @@ class AdmissionTraceShapeTest(unittest.TestCase):
                 "sink_kind": "codex",
             }
         ]
-
+        active_hash = canonical_artifact_hash_v1(artifact)
+        self.assertNotEqual(active_hash, shadow_hash)
+        artifact["artifact_sha256"] = active_hash
         self.assertEqual(self.messages(artifact), [])
 
     def test_idempotent_writes_may_exactly_equal_declared_entitlement(self) -> None:
