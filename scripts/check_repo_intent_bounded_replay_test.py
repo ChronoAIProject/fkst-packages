@@ -16,6 +16,7 @@ from unittest import mock
 import check_repo_intent_bounded_replay as checker
 from check_repo_intent_bounded_replay import _admission_trace_shape_messages
 from intent_bounded_replay.compare import artifacts_equal, compare_report
+import intent_bounded_replay.semantic_tree as semantic_tree
 from intent_bounded_replay.normalize import (
     canonical_artifact_hash_v1,
     canonical_json,
@@ -131,6 +132,78 @@ class ArtifactHashTest(unittest.TestCase):
             canonical_artifact_hash_v1(baseline),
             canonical_artifact_hash_v1({**baseline, "version": 2}),
         )
+
+
+class SemanticDiffHashTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        git(self.root, "init", "-q")
+        git(self.root, "config", "user.email", "intent@example.invalid")
+        git(self.root, "config", "user.name", "Intent Test")
+
+    def write(self, relative: str, content: str) -> Path:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def commit(self, message: str) -> str:
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", message)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def test_tree_enumerated_diff_matches_legacy_hash_without_manifest(self) -> None:
+        self.write("delete.txt", "deleted\n")
+        self.write("modify.txt", "before\n")
+        mode_path = self.write("mode.txt", "same\n")
+        self.write("type-change", "regular\n")
+        self.write("rename-old.txt", "rename\n")
+        base = self.commit("base")
+
+        (self.root / "delete.txt").unlink()
+        self.write("modify.txt", "after\n")
+        mode_path.chmod(0o755)
+        (self.root / "type-change").unlink()
+        (self.root / "type-change").symlink_to("symlink-target")
+        (self.root / "rename-old.txt").rename(self.root / "rename-new.txt")
+        self.write("add.txt", "added\n")
+        self.commit("head")
+
+        self.assertEqual(
+            semantic_diff_sha256(self.root, base),
+            "4710917d121d98e40d59c7eb6fa4c37e9432c9fb547e74453415ac260fe7e84f",
+        )
+
+    def test_numbered_manifest_exclusion_does_not_depend_on_raw_diff_path(self) -> None:
+        self.write("tracked.txt", "base\n")
+        base = self.commit("base")
+        self.write("migration/intent-diffs/2754.json", '{}\n')
+        head = self.commit("manifest")
+        empty_diff_hash = semantic_diff_sha256(self.root, head, head_ref=head)
+        original_git = semantic_tree._git
+        raw_diff_calls = []
+
+        def git_with_prefixed_raw_path(
+            repo_root: Path,
+            *args: str,
+            input_bytes: bytes | None = None,
+        ) -> bytes:
+            output = original_git(repo_root, *args, input_bytes=input_bytes)
+            if args[0] == "diff":
+                raw_diff_calls.append(args)
+                return output.replace(
+                    b"\0migration/intent-diffs/2754.json\0",
+                    b"\0./migration/intent-diffs/2754.json\0",
+                )
+            return output
+
+        with mock.patch.object(semantic_tree, "_git", side_effect=git_with_prefixed_raw_path):
+            actual = semantic_diff_sha256(self.root, base)
+
+        self.assertEqual(actual, empty_diff_hash)
+        self.assertEqual(raw_diff_calls, [])
 
 
 class ManifestGrowthAdmissionTest(unittest.TestCase):

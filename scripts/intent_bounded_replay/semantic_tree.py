@@ -167,50 +167,45 @@ def semantic_tree_sha256(
     return hashlib.sha256(stream).hexdigest()
 
 
-def _raw_diff_entries(
-    repo_root: Path, base_oid: bytes, head_oid: bytes
+def _git_mode_type(mode: bytes) -> int:
+    try:
+        return int(mode, 8) & 0o170000
+    except ValueError as error:
+        raise RuntimeError(f"git ls-tree returned invalid mode {mode!r}") from error
+
+
+def _tree_diff_entries(
+    repo_root: Path,
+    base_tree_oid: bytes,
+    head_tree_oid: bytes,
+    exclusions: Iterable[PathExclusion],
 ) -> list[tuple[bytes, bytes, bytes, bytes, bytes, bytes, bytes]]:
-    output = _git(
-        repo_root,
-        "diff",
-        "--raw",
-        "-z",
-        "--no-renames",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-abbrev",
-        "--ignore-submodules=none",
-        base_oid.decode("ascii"),
-        head_oid.decode("ascii"),
-        "--",
-    )
-    chunks = output.split(b"\0")
-    if chunks and chunks[-1] == b"":
-        chunks.pop()
+    exclusion_rules = tuple(exclusions)
+    base_entries = {
+        path: (mode, object_id)
+        for path, mode, object_id in _ls_tree_entries(repo_root, base_tree_oid)
+        if not _excluded(path, exclusion_rules)
+    }
+    head_entries = {
+        path: (mode, object_id)
+        for path, mode, object_id in _ls_tree_entries(repo_root, head_tree_oid)
+        if not _excluded(path, exclusion_rules)
+    }
     entries = []
-    index = 0
-    while index < len(chunks):
-        header = chunks[index]
-        index += 1
-        if not header.startswith(b":"):
-            raise RuntimeError(f"git diff --raw returned malformed header {header!r}")
-        parts = header[1:].split(b" ")
-        if len(parts) != 5:
-            raise RuntimeError(f"git diff --raw returned malformed header {header!r}")
-        old_mode, new_mode, old_id, new_id, status = parts
-        if status not in {b"A", b"D", b"M", b"T"}:
-            raise RuntimeError(f"git diff --raw returned unsupported status {status!r}")
-        if index >= len(chunks):
-            raise RuntimeError("git diff --raw omitted a changed path")
-        path = chunks[index]
-        index += 1
-        if status == b"A":
-            entry = (status, b"", path, b"", new_mode, b"", new_id.lower())
-        elif status == b"D":
-            entry = (status, path, b"", old_mode, b"", old_id.lower(), b"")
-        else:
-            entry = (status, path, path, old_mode, new_mode, old_id.lower(), new_id.lower())
-        entries.append(entry)
+    for path in base_entries.keys() | head_entries.keys():
+        old = base_entries.get(path)
+        new = head_entries.get(path)
+        if old is None:
+            new_mode, new_id = new
+            entries.append((b"A", b"", path, b"", new_mode, b"", new_id))
+        elif new is None:
+            old_mode, old_id = old
+            entries.append((b"D", path, b"", old_mode, b"", old_id, b""))
+        elif old != new:
+            old_mode, old_id = old
+            new_mode, new_id = new
+            status = b"T" if _git_mode_type(old_mode) != _git_mode_type(new_mode) else b"M"
+            entries.append((status, path, path, old_mode, new_mode, old_id, new_id))
     return entries
 
 
@@ -228,15 +223,9 @@ def semantic_diff_sha256(
     root = Path(repo_root)
     base_oid = _resolve(root, base_sha, "commit")
     head_oid = _resolve(root, head_ref, "commit")
-    exclusion_rules = tuple(exclusions)
-    entries = []
-    for entry in _raw_diff_entries(root, base_oid, head_oid):
-        status, old_path, new_path, old_mode, new_mode, old_id, new_id = entry
-        if old_path and _excluded(old_path, exclusion_rules):
-            continue
-        if new_path and _excluded(new_path, exclusion_rules):
-            continue
-        entries.append(entry)
+    base_tree_oid = _resolve(root, base_oid.decode("ascii"), "tree")
+    head_tree_oid = _resolve(root, head_oid.decode("ascii"), "tree")
+    entries = _tree_diff_entries(root, base_tree_oid, head_tree_oid, exclusions)
 
     object_ids = [
         object_id
