@@ -207,6 +207,19 @@ local function raise_implement_version_mismatch(repo, issue_number, ready, state
   devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", request)
 end
 
+-- A version mismatch between the ready event and the current `implementing`
+-- state marker is a normal supersession/staleness signal, NOT a fault: the
+-- authoritative recovery for a stuck implement re-raises devloop_ready with the
+-- SAME state.version (transitions/implementing.lua redrives `marker:state.version`),
+-- so a mismatch never carries the legitimate resume. It means a ready trigger
+-- (operator reintake / redrive / a stale re-delivery) diverged from authoritative
+-- state; the state machine only adopts the newer version once state advances
+-- (observe applies the reimplement command from impl-failed/blocked). The correct
+-- action is therefore to SKIP the diverged trigger and let the convergence
+-- machinery catch up -- exactly the skip-stale/fail-closed CAS decisions logged
+-- below. This handler must return cleanly: raising error() here dead-letters the
+-- whole pipeline dispatch (wrap_pipeline_failure re-raises), which crash-loops the
+-- queue, grows the DLQ unbounded, and starves valid sibling implements (#2763).
 local function handle_implementing_version_mismatch(repo, issue_number, current, ready, state, expected_version)
   local prior_attempts = core.implement_version_mismatch_attempt_count(
     current and current.comments,
@@ -223,11 +236,10 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
       terminal = false,
     })
     devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-stale(version-mismatch)", message)
+    -- Persist an attempt marker so the mismatch budget still accrues across
+    -- redeliveries (liveness re-injection), then skip cleanly instead of crashing.
     raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
-    error("github-devloop: fact-changed: implement-version-mismatch retrying: ready event version "
-      .. tostring(expected_version or "")
-      .. " does not match current implementing version "
-      .. tostring(state and state.version or ""))
+    return
   end
   devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
     source_ref = ready.source_ref,
@@ -235,10 +247,9 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
     terminal = true,
   })
   devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "fail-closed(version-mismatch-budget)", message)
-  error("github-devloop: fact-changed: implement-version-mismatch: ready event version "
-    .. tostring(expected_version or "")
-    .. " does not match current implementing version "
-    .. tostring(state and state.version or ""))
+  -- Budget exhausted: skip-stale forever (issue #718 / #373) without a fatal
+  -- error. The diverged trigger is dropped; authoritative state still governs.
+  return
 end
 
 local function implementing_mismatch_is_durable(current, proposal_id, state)
