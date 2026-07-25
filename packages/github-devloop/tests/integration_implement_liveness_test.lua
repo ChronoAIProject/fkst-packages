@@ -517,7 +517,9 @@ return {
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
 
     local result = run_implement(double_wrapped, opts("implement-726-double-wrapped-redrive"))
-    t.eq(result.exit_code, 1)
+    -- #2763: a version mismatch must be skipped gracefully (exit 0), never
+    -- error() out of the pipeline (which dead-letters and crash-loops the queue).
+    t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 0)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.eq(comment ~= nil, true)
@@ -535,7 +537,9 @@ return {
     })
 
     local result = run_implement(event, opts("implement-721-version-mismatch-budget"))
-    t.eq(result.exit_code, 1)
+    -- #2763: budget exhausted -> fail-closed skip-stale, but return cleanly
+    -- (exit 0) with no further raises, never a fatal error() / dead-letter.
+    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
@@ -548,10 +552,36 @@ return {
     })
 
     local result = run_implement(event, opts("implement-721-version-mismatch-persist"))
-    t.eq(result.exit_code, 1)
+    -- #2763: within budget -> persist the mismatch attempt marker and skip
+    -- gracefully (exit 0), never error() out of the pipeline.
+    t.eq(result.exit_code, 0)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.eq(comment ~= nil, true)
     t.eq(core.implement_version_mismatch_attempt_count({ comment.payload.body }, event.proposal_id, event.dedup_key, retry_version), 1)
+  end,
+
+  -- #2763 live regression: the ready event carries a NEWER version
+  -- (impl_retry_attempt=2 -> reimplement) than the current implementing state
+  -- marker (base). This is the supersession direction that crash-looped the
+  -- implement dept and grew the DLQ. It must skip gracefully, not error().
+  test_implementing_newer_version_supersession_skips_without_crash = function()
+    local event = ready()
+    local newer_version = core.implementation_attempt_version(event.dedup_key, 2)
+    -- Sanity: the incoming reimplement derives a strictly newer version than the
+    -- base version pinned by the current implementing state marker.
+    t.eq(newer_version ~= event.dedup_key, true)
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_attempt_started_at()),
+    })
+
+    local reimplement_event = ready({ impl_retry_attempt = 2 })
+    local result = run_implement(reimplement_event, opts("implement-2763-newer-version-supersession"))
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 0)
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.eq(comment ~= nil, true)
+    t.eq(core.implement_version_mismatch_attempt_count({ comment.payload.body }, event.proposal_id, newer_version, event.dedup_key), 1)
   end,
 
   test_observe_skips_implementing_state_marker_without_progress_facts = function()
