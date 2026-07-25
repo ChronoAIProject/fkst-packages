@@ -106,6 +106,7 @@ QUEUE_RECORD_RE = re.compile(
     r"[\"'](?P<queue>[^\"']+)[\"']\s*,\s*[\"'](?P<authority>[^\"']+)[\"']",
     re.DOTALL,
 )
+BLOB_OID_RE = re.compile(r"[0-9a-f]{40}")
 
 
 def _git(root: Path, args: list[str], *, text: bool = True):
