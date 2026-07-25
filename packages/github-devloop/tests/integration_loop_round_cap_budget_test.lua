@@ -1,7 +1,6 @@
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_helpers")
 local conv_rounds = require("devloop.convergence.rounds")
-local conv_reconcile = require("devloop.convergence.reconcile")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -18,23 +17,6 @@ end
 
 local function findings(text)
   return "open:\n" .. tostring(text or "current unresolved finding")
-end
-
-local function run_comment_handoff_from_request(request, comment_id, name)
-  return t.run_department("departments/comment_handoff/main.lua", {
-    queue = "github-proxy.github_comment_written",
-    payload = {
-      schema = "github-proxy.comment-written.v1",
-      repo = request.repo,
-      target = "issue",
-      issue_number = request.issue_number,
-      comment_id = comment_id,
-      request_dedup_key = request.dedup_key,
-      dedup_key = tostring(request.dedup_key) .. "/written/" .. tostring(comment_id),
-      source_ref = request.source_ref,
-      handoff = request.handoff,
-    },
-  }, opts(name))
 end
 
 return {
@@ -69,7 +51,7 @@ return {
     t.is_true(comment.payload.body:find('findings_record="open:%0Adependency evidence remains unresolved"', 1, true) ~= nil)
   end,
 
-  test_loop_evidence_continuation_budget_handoffs_reconcile = function()
+  test_loop_evidence_continuation_budget_redrives_next_round = function()
     local base_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local event = unresolved({
       dedup_key = base_version .. "/loop/1",
@@ -86,31 +68,19 @@ return {
 
     local result = run_loop(event, opts("loop-evidence-continuation-budget"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    -- Owner directive (#2725): the evidence-continuation ROUND-BUDGET is a raw counter
+    -- that must NEVER hand off a terminal reconcile; with two DISTINCT resolvable rounds
+    -- (not a true-stall) convergence REDRIVES the next round instead of dropping to
+    -- blocked. No terminal reconcile handoff is emitted.
+    t.eq(#result.raises, 2)
+    local proposal = find_raise(result.raises, "consensus.proposal")
+    t.is_true(proposal ~= nil)
+    t.eq(proposal.payload.round, 2)
+    t.eq(proposal.payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2")
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
-    t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")
-    t.eq(comment.payload.handoff.proposal_id, event.proposal_id)
-    t.eq(comment.payload.handoff.round, 1)
-    t.eq(comment.payload.handoff.base_version, base_version)
-    t.eq(comment.payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
-    t.eq(comment.payload.handoff.source_ref.ref, event.source_ref.ref)
-
-    local handoff = run_comment_handoff_from_request(
-      comment.payload,
-      "IC_resolvability_reconcile",
-      "loop-resolvability-comment-handoff-reconcile"
-    )
-    t.eq(handoff.exit_code, 0)
-    local reconcile_raise = find_raise(handoff.raises, "devloop_reconcile")
-    t.is_true(reconcile_raise ~= nil)
-    local expected = conv_reconcile.build_devloop_reconcile_payload(event, 1, base_version, "evidence-continuation-budget-exhausted")
-    t.eq(reconcile_raise.payload.schema, expected.schema)
-    t.eq(reconcile_raise.payload.proposal_id, expected.proposal_id)
-    t.eq(reconcile_raise.payload.dedup_key, expected.dedup_key)
-    t.eq(reconcile_raise.payload.round, expected.round)
-    t.eq(reconcile_raise.payload.base_version, expected.base_version)
+    t.is_nil(comment.payload.handoff)
+    t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
   end,
 
   test_loop_proposal_lineage_budget_survives_version_and_source_ref_drift = function()
@@ -136,14 +106,11 @@ return {
 
     local result = run_loop(event, opts("loop-drifted-lineage-budget"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(comment ~= nil)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
-    t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")
-    t.eq(comment.payload.handoff.round, 1)
-    t.eq(comment.payload.handoff.base_version, drift_version)
-    t.eq(comment.payload.handoff.terminal_cause, "evidence-continuation-budget-exhausted")
+    -- Owner directive (#2725): the round-budget is non-terminal. The forged non-bot
+    -- round-1 marker is still ignored and only the drifted bot lineage (round 1) counts,
+    -- but the incoming round 3 is a gap ahead of that head -- a plain idempotent skip,
+    -- not a terminal reconcile handoff (never drops to blocked).
+    t.eq(#result.raises, 0)
   end,
 
   test_loop_essence_stall_handoffs_terminal_reconcile_without_continuation = function()

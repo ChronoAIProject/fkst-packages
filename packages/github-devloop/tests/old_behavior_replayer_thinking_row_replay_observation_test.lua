@@ -157,18 +157,20 @@ local FIXTURES = json_array({
     expected_department_raises = 3,
   },
   {
+    -- Owner directive (#2725): the continuation ROUND-BUDGET is no longer a terminal
+    -- cause, so a converge round past the former budget REDRIVES the next round -- the
+    -- thinking row-replay re-raises consensus.proposal instead of routing to a terminal
+    -- blocked reconcile. The row-replay decision is now applied(replay) targeting
+    -- consensus.proposal, never blocked.
     name = "terminal-convergence-route-blocked",
     converge_round = 1,
-    expected_status = "route-to-transition",
-    expected_reason = "evidence-continuation-budget-exhausted-after-1-rounds",
-    expected_decision = "applied",
-    expected_target = "blocked",
-    expected_effect_ids = json_array({
-      "comment:issue:reconcile-blocked",
-      "label:issue:reconcile-blocked",
-    }),
+    expected_status = "re-raised",
+    expected_reason = "replay-next-converge-round-proposal",
+    expected_decision = "applied(replay)",
+    expected_target = "consensus.proposal",
+    expected_effect_ids = json_array({ "queue:consensus.proposal" }),
     expected_issued = true,
-    expected_department_raises = 2,
+    expected_department_raises = 1,
   },
 })
 

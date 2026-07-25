@@ -250,7 +250,12 @@ return {
     t.eq(#filtered, 2)
     t.eq(conv_rounds.continuation_budget_exhausted({ filtered[1] }), false)
     t.eq(conv_rounds.continuation_budget_exhausted(filtered), true)
-    t.eq(conv_rounds.terminal_cause(filtered, 1), "evidence-continuation-budget-exhausted")
+    -- Owner directive (#2725): the continuation ROUND-BUDGET is a raw counter and must
+    -- never reach terminal, so even when it is "exhausted" it is NO LONGER a terminal
+    -- cause. With no essence-stall and only 2 rounds (is_true_stall needs 3 identical),
+    -- terminal_cause is nil -> thinking convergence redrives the next round instead of
+    -- dropping to blocked.
+    t.eq(conv_rounds.terminal_cause(filtered, 1), nil)
   end,
 
   test_continuation_budget_uses_round_identity_not_findings_presence = function()
@@ -381,6 +386,8 @@ return {
     local filtered = conv_rounds.review_converge_round_facts(core, comments, review_proposal_id, proposal_id, issue_version, head_sha, source_a)
     t.eq(#filtered, 2)
     t.eq(conv_rounds.continuation_budget_exhausted(filtered), true)
-    t.eq(conv_rounds.terminal_cause(filtered, 1), "evidence-continuation-budget-exhausted")
+    -- Owner directive (#2725): round-budget exhaustion is non-terminal (see the issue
+    -- convergence test above); review convergence redrives instead of blocking.
+    t.eq(conv_rounds.terminal_cause(filtered, 1), nil)
   end,
 }
