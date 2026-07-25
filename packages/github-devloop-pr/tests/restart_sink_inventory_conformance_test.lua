@@ -92,6 +92,7 @@ local queue_policies = {
   ["devloop_reviewing"] = { "lifecycle-authoritative", "state:v1/reviewing+head+version" },
   ["devloop_timeout_reconcile"] = { "lifecycle-authoritative", "timeout-reconcile:v1/proposal+state+round" },
   ["github-devloop-decompose.devloop_decompose"] = { "grantless-published-intent", "decompose.v1/proposal+attempt" },
+  ["restart_transition_anomaly"] = { "grantless-telemetry", "restart-transition-anomaly.v1/per-pass-record" },
 }
 
 local semantic_specs = {

@@ -534,14 +534,56 @@ local tests = {
     mock_comment_handoff(old_event, canonical)
     mock_label_writes()
     mock_fix_execution(old_event, canonical)
-    local recovered = graph.run(poll_event(), { max_steps = 24 })
+    local observed = graph.run(poll_event(), { max_steps = 2 })
+    t.eq(observed.status, "quiescent")
+    t.eq(observed.final.dead_letters, 0)
+    t.eq(observed.final.pending, 1)
+    t.eq(observed.final.deliveries, 1)
+    t.eq(#observed.steps, 1)
+    graph.assert_covers(observed, {
+      "github-proxy.github_entity_changed -> github-devloop-pr.observe_pr",
+    })
+    local anomaly = graph.require_raise(
+      observed,
+      "github-devloop-pr.restart_transition_anomaly"
+    )
+    t.eq(anomaly.payload.schema, "restart-transition-anomaly.v1")
+    t.eq(anomaly.payload.owner, "github-devloop-pr")
+    t.eq(anomaly.payload.entity.kind, "pr")
+    t.eq(anomaly.payload.entity.repo, repo)
+    t.eq(anomaly.payload.entity.number, pr_number)
+    t.eq(anomaly.payload.observed_from, "merge-ready")
+    t.eq(anomaly.payload.observed_target, "fixing")
+    t.eq(anomaly.payload.decision_status, "indeterminate")
+    t.eq(anomaly.payload.reason_code, "duplicate-marker-order")
+    t.eq(anomaly.payload.cause_status, "indeterminate")
+    t.eq(anomaly.payload.ordering_status, "indeterminate")
+    t.eq(anomaly.payload.disposition, "ordering-indeterminate")
+
+    -- The package-local graph omits the reverse-dependent ops telemetry sink.
+    -- Resume the exact normal effect so the recovery path remains end-to-end.
+    local replay_request = graph.require_raise(
+      observed,
+      "github-proxy.github_pr_comment_request",
+      function(raised)
+        return raised.payload.handoff ~= nil
+          and raised.payload.handoff.kind == "github-devloop.fixing"
+      end
+    )
+    local recovered = graph.run({
+      queue = replay_request.queue,
+      payload = replay_request.payload,
+      source_ref = {
+        kind = replay_request.payload.source_ref.kind,
+        reference = replay_request.payload.source_ref.ref,
+      },
+    }, { max_steps = 24 })
     t.eq(recovered.status, "quiescent")
     t.eq(recovered.final.dead_letters, 0)
     t.eq(recovered.final.pending, 0)
     t.eq(recovered.final.deliveries, 0)
     t.is_true(#recovered.steps <= 24)
     graph.assert_covers(recovered, {
-      "github-proxy.github_entity_changed -> github-devloop-pr.observe_pr",
       "github-proxy.github_pr_comment_request -> github-proxy.github_pr_comment",
       "github-proxy.github_comment_written -> github-devloop-pr.comment_handoff",
       "github-devloop-pr.devloop_fixing -> github-devloop-pr.fix",

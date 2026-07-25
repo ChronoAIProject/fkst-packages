@@ -318,7 +318,8 @@ return {
       },
     }, opts("observe-pr-merging-self-heal"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 2)
+    t.eq(#result.raises, 3)
+    t.is_true(find_raise(result.raises, "restart_transition_anomaly") ~= nil)
     local merge_raise = find_raise(result.raises, "devloop_merge_ready")
     t.eq(find_label_raise(result.raises, "pr").payload.add_labels[1], "fkst-dev:merging")
     t.eq(merge_raise.payload.schema, "github-devloop.merge-ready.v1")

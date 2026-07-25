@@ -8,6 +8,8 @@ local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
 local check_runs = require("forge.github.check_runs")
 local queue = require("devloop.queue")
+local restart_analysis = require("core.restart_analysis")
+local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
 local transition_version = require("contract.transition_version")
 local m_facts = require("devloop.markers.facts")
 local core, saga, replay_fields = require("core"), require("workflow.saga"), require("devloop.replay_fields")
@@ -25,6 +27,7 @@ local devloop_commands = require("devloop.commands")
 local observe_pr_caps = require("observe_pr_department_caps")
 
 local M = {}
+local restart_transition_table = core.restart_transition_table
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_pr" },
@@ -39,10 +42,22 @@ local spec = {
     "devloop_merge_ready",
     "devloop_review_reconcile",
     "devloop_timeout_reconcile",
+    "restart_transition_anomaly",
   },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
+
+local function emit_restart_transition_anomalies(comments, origin, pr_number)
+  local history = restart_transition_anomaly.marker_history(comments, origin.proposal_id)
+  local anomalies = restart_analysis.analyze_observed_transition_history(history, {
+    entity = { kind = "pr", repo = origin.repo, number = pr_number },
+    transitions = {},
+  })
+  for _, anomaly in ipairs(anomalies) do
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "restart_transition_anomaly", anomaly)
+  end
+end
 
 local function pr_source_ref(repo, pr_number)
   return entity_lib.pr_source_ref(repo, pr_number)
@@ -149,7 +164,7 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     repo = origin.repo,
     number = origin.issue_number,
     source_ref = origin.issue_number ~= nil and entity_lib.issue_source_ref(origin.repo, origin.issue_number) or source_ref,
-  }, state, replay_fields.restart_transition_row(core.restart_transition_table(), state.state), {
+  }, state, replay_fields.restart_transition_row(restart_transition_table(), state.state), {
     proposal_id = origin.proposal_id,
     current = { comments = current_pr.comments or {} },
     current_pr = current_pr,
@@ -262,7 +277,7 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
 end
 
 local function maybe_liveness_timeout(origin, pr_number, current_pr, state, source_ref, issue_current, now_seconds)
-  local row = replay_fields.restart_transition_row(core.restart_transition_table(), state and state.state)
+  local row = replay_fields.restart_transition_row(restart_transition_table(), state and state.state)
   if not core.restart_row_observable_on(row, "pr") then
     return false
   end
@@ -308,7 +323,7 @@ local function build_conflict_review_fact(origin, pr_number, current_pr, version
 end
 
 local function maybe_redrive_not_mergeable_pr(origin, pr_number, current_pr, state, source_ref, issue_current)
-  local row = replay_fields.restart_transition_row(core.restart_transition_table(), state and state.state)
+  local row = replay_fields.restart_transition_row(restart_transition_table(), state and state.state)
   local recovery = row and row.pr_recovery and row.pr_recovery.not_mergeable or nil
   if recovery == nil then
     return false
@@ -532,6 +547,8 @@ local function process_pr_event(event)
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, { state = nil, version = nil }, "pr-open", "reviewing", "skip-foreign(" .. reason .. ")", "PR origin mismatch")
     return
   end
+
+  emit_restart_transition_anomalies(current_pr.comments, origin, pr.number)
 
   local source_ref = pr_source_ref(pr.repo, pr.number)
   local lock_key = entity_lib.transition_lock_key(origin.proposal_id)
