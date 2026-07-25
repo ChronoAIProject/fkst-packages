@@ -4,19 +4,22 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import tomllib
-from typing import Iterable
+from typing import Any, Iterable
 
 import check_repo_intent_bounded_replay as intent_replay
 from intent_bounded_replay.normalize import loads_json
 
 INVENTORY = "migration/restart-lifecycle.inventory.json"
 SEMANTIC_TREE_CONTROL = "scripts/intent_bounded_replay/semantic_tree.py"
+COCHANGE_GRANT_DIR = "migration/restart-cochange-grants/"
+COCHANGE_GRANT_SCHEMA = "fkst.restart-cochange-grant.v1"
 CHECKER_CONTROLS = {
     "scripts/check_repo_intent_bounded_replay.py",
     "scripts/check_repo_restart_preflight.py",
@@ -25,6 +28,8 @@ CHECKER_CONTROLS = {
     "scripts/intent_bounded_replay/normalize.py",
     SEMANTIC_TREE_CONTROL,
 }
+COCHANGE_GRANT_FIELDS = {"schema", "entries", "grant_sha256"}
+COCHANGE_ENTRY_FIELDS = {"path", "status", "old_blob", "new_blob"}
 SEMANTIC_PREFIXES = (
     "libraries/devloop/",
     "packages/github-devloop/",
@@ -100,6 +105,7 @@ QUEUE_RECORD_RE = re.compile(
     r"[\"'](?P<queue>[^\"']+)[\"']\s*,\s*[\"'](?P<authority>[^\"']+)[\"']",
     re.DOTALL,
 )
+BLOB_OID_RE = re.compile(r"[0-9a-f]{40}")
 
 
 def _git(root: Path, args: list[str], *, text: bool = True):
@@ -181,10 +187,10 @@ def _text(root: Path, ref: str, path: str) -> str:
     return _blob(root, ref, path).decode("utf-8", "replace")
 
 
-def _changed_paths(root: Path, base: str) -> set[str]:
+def _changed_paths(root: Path, base: str, head_ref: str) -> set[str]:
     result = _git(
         root,
-        ["diff", "--name-only", "-z", "--no-renames", base, "HEAD", "--"],
+        ["diff", "--name-only", "-z", "--no-renames", base, head_ref, "--"],
         text=False,
     )
     if result.returncode != 0:
@@ -203,6 +209,129 @@ def _production_semantic(path: str) -> bool:
         and any(path.startswith(prefix) for prefix in SEMANTIC_PREFIXES)
         and "/tests/" not in path
     )
+
+
+def _checker_control(path: str) -> bool:
+    return path in CHECKER_CONTROLS or path.startswith(COCHANGE_GRANT_DIR)
+
+
+def _git_object_exists(root: Path, ref: str, path: str) -> bool:
+    return _git(root, ["cat-file", "-e", f"{ref}:{path}"]).returncode == 0
+
+
+def _blob_oid(root: Path, ref: str, path: str) -> str:
+    result = _git(
+        root,
+        ["rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}:{path}"],
+    )
+    oid = result.stdout.strip()
+    if result.returncode != 0 or BLOB_OID_RE.fullmatch(oid) is None:
+        return ""
+    return oid
+
+
+def _cochange_delta_entry(root: Path, base: str, head_ref: str, path: str) -> dict[str, str] | None:
+    old_blob = _blob_oid(root, base, path)
+    new_blob = _blob_oid(root, head_ref, path)
+    if old_blob and new_blob:
+        status = "M"
+    elif old_blob:
+        status = "D"
+    elif new_blob:
+        status = "A"
+    else:
+        return None
+    return {
+        "path": path,
+        "status": status,
+        "old_blob": old_blob,
+        "new_blob": new_blob,
+    }
+
+
+# Admission binds only git-native blob OIDs and stdlib JSON; it does not depend on
+# a HEAD-tamperable repo parser/canonicalizer. Without a valid base-resident grant,
+# the conservative cochange rejection remains byte-identical.
+def _cochange_promotion_admitted(
+    root: Path,
+    base: str,
+    head_ref: str,
+    changed_checkers: Iterable[str],
+    changed_semantics: Iterable[str],
+) -> bool:
+    delta_paths = set(changed_checkers) | set(changed_semantics)
+    expected_entries: dict[str, dict[str, str]] = {}
+    for path in delta_paths:
+        entry = _cochange_delta_entry(root, base, head_ref, path)
+        if entry is None:
+            return False
+        expected_entries[path] = entry
+
+    try:
+        grant_paths = sorted(
+            path
+            for path in _tracked_paths(root, base)
+            if path.startswith(COCHANGE_GRANT_DIR) and path.endswith(".json")
+        )
+    except RuntimeError:
+        return False
+
+    for grant_path in grant_paths:
+        if not _git_object_exists(root, base, grant_path):
+            continue
+        base_blob = _blob(root, base, grant_path)
+        if base_blob != _blob(root, head_ref, grant_path):
+            continue
+        try:
+            document = json.loads(base_blob)
+        except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(document, dict) or set(document) != COCHANGE_GRANT_FIELDS:
+            continue
+        if document.get("schema") != COCHANGE_GRANT_SCHEMA:
+            continue
+        grant_sha256 = document.get("grant_sha256")
+        if not isinstance(grant_sha256, str):
+            continue
+        body: dict[str, Any] = dict(document)
+        del body["grant_sha256"]
+        canonical_body = json.dumps(
+            body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        if hashlib.sha256(canonical_body).hexdigest() != grant_sha256:
+            continue
+
+        entries = document.get("entries")
+        if not isinstance(entries, list):
+            continue
+        actual_entries: dict[str, dict[str, str]] = {}
+        valid_entries = True
+        for entry in entries:
+            if not isinstance(entry, dict) or set(entry) != COCHANGE_ENTRY_FIELDS:
+                valid_entries = False
+                break
+            path = entry.get("path")
+            if not isinstance(path, str) or not path or path in actual_entries:
+                valid_entries = False
+                break
+            if entry.get("status") not in {"M", "A", "D"}:
+                valid_entries = False
+                break
+            old_blob = entry.get("old_blob")
+            new_blob = entry.get("new_blob")
+            if not isinstance(old_blob, str) or not isinstance(new_blob, str):
+                valid_entries = False
+                break
+            if old_blob and BLOB_OID_RE.fullmatch(old_blob) is None:
+                valid_entries = False
+                break
+            if new_blob and BLOB_OID_RE.fullmatch(new_blob) is None:
+                valid_entries = False
+                break
+            actual_entries[path] = entry
+        if valid_entries and actual_entries == expected_entries:
+            return True
+    return False
 
 
 def _new_matches(pattern: re.Pattern[str], old: str, new: str) -> Counter[str]:
@@ -517,7 +646,7 @@ def repository_messages(
 
     try:
         paths = _tracked_paths(root, head_ref)
-        changed = _changed_paths(root, base)
+        changed = _changed_paths(root, base, head_ref)
     except RuntimeError as error:
         return [f"protected-base-unresolved: {error}"]
 
@@ -529,9 +658,11 @@ def repository_messages(
             f"exclusion-control-changed: {SEMANTIC_TREE_CONTROL} differs from the protected base"
         )
 
-    changed_checkers = sorted(changed & CHECKER_CONTROLS)
+    changed_checkers = sorted(path for path in changed if _checker_control(path))
     changed_semantics = sorted(path for path in changed if _production_semantic(path))
-    if changed_checkers and changed_semantics:
+    if changed_checkers and changed_semantics and not _cochange_promotion_admitted(
+        root, base, head_ref, changed_checkers, changed_semantics
+    ):
         messages.append(
             "checker-checked-cochange: checker controls and production restart semantics changed together "
             f"(checkers={','.join(changed_checkers)}; semantics={','.join(changed_semantics)})"
