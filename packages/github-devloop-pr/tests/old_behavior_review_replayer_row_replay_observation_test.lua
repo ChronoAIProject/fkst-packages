@@ -65,7 +65,10 @@ local REVIEW_PROPOSAL = devloop_base.pr_review_proposal_id(REPO, PR_NUMBER, VERS
 local FIXTURES = json_array({
   { name = "absent-round-reraise", expected_status = "re-raised", expected_decision = "applied(replay)", expected_target = "reviewing", expected_effect_ids = json_array({ "comment:pr:row-replay" }) },
   { name = "round-zero-reraise", rounds = 0, expected_status = "re-raised", expected_decision = "applied(replay)", expected_target = "reviewing", expected_effect_ids = json_array({ "comment:pr:row-replay" }) },
-  { name = "terminal-evidence-budget", rounds = 1, terminal_cause = "evidence-continuation-budget-exhausted", expected_status = "route-to-transition", expected_decision = "applied(replay)", expected_target = "blocked", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_review_reconcile" }) },
+  -- Owner directive (#2725): the review continuation ROUND-BUDGET is no longer terminal, so
+  -- this budget lineage REDRIVES the next review round (re-raises the review converge
+  -- proposal) instead of routing to blocked -- exactly like absent/round-zero reraise.
+  { name = "terminal-evidence-budget", rounds = 1, expected_status = "re-raised", expected_decision = "applied(replay)", expected_target = "reviewing", expected_effect_ids = json_array({ "comment:pr:row-replay" }) },
   { name = "terminal-external-evidence", rounds = 0, essence_stall = true, terminal_cause = "external-evidence-required", expected_status = "route-to-transition", expected_decision = "applied(replay)", expected_target = "blocked", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_review_reconcile" }) },
   { name = "terminal-no-semantic-progress", rounds = 3, same_verdicts = true, terminal_cause = "no-semantic-progress", expected_status = "route-to-transition", expected_decision = "applied(replay)", expected_target = "blocked", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_review_reconcile" }) },
 })

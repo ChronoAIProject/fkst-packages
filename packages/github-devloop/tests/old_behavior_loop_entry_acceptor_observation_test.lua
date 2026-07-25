@@ -46,10 +46,13 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "reconcile", source_line = 122, round = 1,
     prior = { { round = 0, findings_record = "open:\nexternal evidence remains", essence_stall = true } },
     effects = ra.json_array({ COMMENT }) },
+  -- Owner directive (#2725): the continuation ROUND-BUDGET is no longer terminal, so this
+  -- lineage REDRIVES the next round (consensus.proposal + converge comment) instead of
+  -- routing to a terminal reconcile/blocked.
   { disposition = "lineage-terminal-continuation-budget", status = "admitted", reason = "lineage-continuation-budget",
-    cas = "applied", target = "reconcile", source_line = 122, round = 2,
+    cas = "applied", target = "proposal", source_line = 195, round = 2,
     prior = { { round = 1, findings_record = "open:\nsecond resolvable finding" } },
-    effects = ra.json_array({ COMMENT }) },
+    effects = ra.json_array({ PROPOSAL, COMMENT }) },
   { disposition = "lineage-terminal-no-semantic-progress", status = "admitted", reason = "lineage-no-semantic-progress",
     cas = "applied", target = "reconcile", source_line = 122, round = 4,
     prior = {
@@ -67,11 +70,13 @@ local FIXTURES = ra.json_array({
     cas = "applied", target = "reconcile", source_line = 164, round = 0,
     findings_record = "open:\nno source-verifiable evidence remains", essence_stall = true,
     effects = ra.json_array({ COMMENT }) },
+  -- Owner directive (#2725): continuation ROUND-BUDGET non-terminal -> REDRIVE the next
+  -- round instead of routing to a terminal reconcile/blocked.
   { disposition = "current-terminal-continuation-budget", status = "admitted", reason = "current-continuation-budget",
-    cas = "applied", target = "reconcile", source_line = 164, round = 1,
+    cas = "applied", target = "proposal", source_line = 195, round = 1,
     findings_record = "open:\nsecond resolvable finding",
     prior = { { round = 0, findings_record = "open:\nfirst resolvable finding" } },
-    effects = ra.json_array({ COMMENT }) },
+    effects = ra.json_array({ PROPOSAL, COMMENT }) },
   { disposition = "current-terminal-no-semantic-progress", status = "admitted", reason = "current-no-semantic-progress",
     cas = "applied", target = "reconcile", source_line = 164, round = 4,
     findings_record = "open:\nfourth unchanged finding",

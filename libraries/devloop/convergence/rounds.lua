@@ -116,9 +116,16 @@ function C.terminal_cause(facts, current_round)
   if C.is_true_stall(facts, current_round) then
     return "no-semantic-progress"
   end
-  if C.continuation_budget_exhausted(facts) then
-    return "evidence-continuation-budget-exhausted"
-  end
+  -- Owner directive (#2725): the convergence continuation budget is a raw round
+  -- COUNTER (`max_converge_round >= 1`), i.e. exactly the transient/round-budget class
+  -- that must NEVER reach a terminal state. It is therefore no longer a terminal cause:
+  -- thinking convergence REDRIVES the next /loop/N round instead of dropping to blocked
+  -- after a single round (this is the class that was blocking the D5-result tasks).
+  -- The genuine progress signals above (`external-evidence-required` essence-stall and
+  -- `no-semantic-progress` true-stall over 3 identical rounds) remain — see the report's
+  -- (C) note; those are explicit no-further-autonomous-progress signals, not counters.
+  -- `continuation_budget_exhausted` + the `terminal_causes` membership are retained so
+  -- `is_terminal_cause` still recognises any already-emitted historical marker.
   return nil
 end
 

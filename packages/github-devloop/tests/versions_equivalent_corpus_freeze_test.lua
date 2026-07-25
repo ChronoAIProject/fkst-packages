@@ -118,6 +118,10 @@ local golden_safe_segments = {
   ["github-devloop.own-ci-reconcile.v1/ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3/fix-loop-max-rounds"] = "github-devloop.own-ci-reconci-1530018327",
   ["github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"] = "github-devloop-issue-owner-re-1391474564",
   ["github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1"] = "github-devloop-issue-owner-re-3306236848",
+  -- Owner directive (#2725): the thinking-convergence continuation-budget observations
+  -- now REDRIVE the next round instead of routing to blocked, so the round-2 loop proposal
+  -- version enters the observed corpus (was terminal/absent before).
+  ["github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2"] = "github-devloop-issue-owner-re-3306236849",
   ["github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118403/def456/review"] = "github-devloop-pr-review-owne-2286247082",
   ["github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118404/def456/review"] = "github-devloop-pr-review-owne-1697876604",
   ["github-devloop/pr-review/owner-repo-2718475964/7/ready-consensus-github-devloo-2455118405/def456/r/m/1783840000000/attempt/2"] = "github-devloop-pr-review-owne-3165195857",
@@ -400,8 +404,8 @@ return {
   test_observed_version_corpus_matches_frozen_safe_segment_goldens = function()
     local versions = observed_versions()
     local seen = {}
-    t.eq(#versions, 200)
-    t.eq(count_keys(golden_safe_segments), 200)
+    t.eq(#versions, 201)
+    t.eq(count_keys(golden_safe_segments), 201)
     for _, version in ipairs(versions) do
       seen[version] = true
       t.eq(transition_version.safe_version_segment(version), golden_safe_segments[version], version)
@@ -438,18 +442,19 @@ return {
         relationship_counts[key] = relationship_counts[key] + 1
       end
     end
-    -- Frozen over the observed corpus (200 distinct forms, 40000 ordered pairs):
+    -- Frozen over the observed corpus (201 distinct forms, 40401 ordered pairs -- the
+    -- #2725 redrive adds the round-2 loop proposal version):
     --  * equivalent => compare-equal (equivalent_compare_nonzero == 0): versions_equivalent
     --    never claims equivalence for forms that transition_version.compare orders apart.
-    --  * compare-equal does NOT imply equivalent (non_equivalent_compare_equal == 4032):
+    --  * compare-equal does NOT imply equivalent (non_equivalent_compare_equal == 3818):
     --    versions_equivalent is STRICTER than ordering-equality -- it distinguishes forms
     --    that compare() treats as order-equal (different base/suffix families).
     -- These frozen counts confirm versions_equivalent's domain semantics over the real
     -- corpus; any future change that alters this relationship fails here.
-    t.eq(relationship_counts.equivalent_compare_equal, 200, "relationship counts not frozen (eq&compare-equal = self-diagonal)")
+    t.eq(relationship_counts.equivalent_compare_equal, 201, "relationship counts not frozen (eq&compare-equal = self-diagonal)")
     t.eq(relationship_counts.equivalent_compare_nonzero, 0, "relationship counts not frozen (equivalent => compare-equal)")
-    t.eq(relationship_counts.non_equivalent_compare_equal, 3812, "relationship counts not frozen (compare-equal !=> equivalent)")
-    t.eq(relationship_counts.non_equivalent_compare_nonzero, 35988, "relationship counts not frozen")
+    t.eq(relationship_counts.non_equivalent_compare_equal, 3818, "relationship counts not frozen (compare-equal !=> equivalent)")
+    t.eq(relationship_counts.non_equivalent_compare_nonzero, 36382, "relationship counts not frozen")
   end,
 
   test_observed_suffix_families_freeze_base_stripping_and_equivalence = function()

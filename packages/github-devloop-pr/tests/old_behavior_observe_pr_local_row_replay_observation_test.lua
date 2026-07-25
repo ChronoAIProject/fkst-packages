@@ -67,7 +67,7 @@ local BASE_VERSION = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06
 local SOURCE_REF = { kind = "external", ref = "owner/repo#pr/7001" }
 local EXPECTED_ROW_COUNTS = {
   ["pr-open"] = 3,
-  reviewing = 11,
+  reviewing = 10,
   fixing = 13,
   ["review-meta"] = 7,
   ["merge-ready"] = 9,
@@ -80,7 +80,13 @@ local EXPECTED_ROW_COUNTS = {
 local FIXTURES = json_array({
   -- Comprehensive row-local decision lattice.
   { name = "route-reviewing-rejected", state = "reviewing", marker = "review-result-reject", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "fixing", expected_effect_ids = json_array({ "comment:pr:row-replay", "label:issue:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:190-212" },
-  { name = "route-reviewing-converge-terminal", state = "reviewing", marker = "review-converge-budget", terminal_cause = "evidence-continuation-budget-exhausted", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "blocked", expected_effect_ids = json_array({ "queue:github-devloop-pr.devloop_review_reconcile" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:241-252" },
+  -- Owner directive (#2725): the review-converge budget row (formerly
+  -- "route-reviewing-converge-terminal", terminal_cause evidence-continuation-budget-
+  -- exhausted -> blocked) is no longer terminal; it REDRIVES the next review round, which
+  -- is the SAME row-state decision class as "route-reviewing-no-result" (reviewing ->
+  -- applied(replay) -> reviewing -> comment:pr:row-replay). Per this suite's collapse
+  -- invariant (one fixture per distinct decision class), that budget scenario is now
+  -- subsumed by route-reviewing-no-result and its dedicated fixture is removed.
   { name = "route-reviewing-merged", state = "reviewing", pr_state = "MERGED", expected_status = "routed", expected_decision = "applied(linked-pr-merged)", expected_target = "merged", expected_effect_ids = json_array({ "comment:issue:row-replay", "label:issue:row-replay" }), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:52-65,637-677" },
   { name = "route-reviewing-merged-head-missing", state = "reviewing", pr_state = "MERGED", head_sha = "", expected_status = "routed-noop", expected_decision = "skip-foreign(head)", expected_target = "merged", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:52-65,637-640" },
   { name = "route-reviewing-open-head-missing", state = "reviewing", head_sha = "", expected_status = "routed-noop", expected_decision = "skip-foreign(pr-head)", expected_target = "reviewing", expected_effect_ids = json_array(), evidence_ref = "packages/github-devloop-pr/core/pr_review_replayer.lua:52-71,770-773" },
@@ -513,14 +519,14 @@ local function assert_row_universe()
     t.eq(counts[state], expected, state .. ": complete production-reachable row disposition count")
   end
   t.eq(reason_count, 21, "collapsed distinct decision reason-code count")
-  t.eq(#FIXTURES, 56, "collapsed production-reachable observe_pr local row decision-class count")
+  t.eq(#FIXTURES, 55, "collapsed production-reachable observe_pr local row decision-class count")
 end
 
 return {
   test_observe_pr_local_row_replay_old_behavior_is_real_dispatch_and_bidirectional = function()
     assert_row_universe()
     local fixtures, first, second = fixture_tuples(), capture_records(), capture_records()
-    t.eq(#first, 56, "collapsed production-reachable observe_pr local row replay count")
+    t.eq(#first, 55, "collapsed production-reachable observe_pr local row replay count")
     local repeat_difference = first_difference(second, first, "old_behavior_observations[observe-pr-local-row-replay][repeat]")
     if repeat_difference ~= nil or canonical_json(second) ~= canonical_json(first) then error("second OLD observe_pr local row replay capture differs at " .. tostring(repeat_difference or "canonical-json"), 0) end
     local runtime = record_tuples(first, "runtime records")

@@ -117,12 +117,13 @@ return {
 
     local first = run_review_loop(event, opts("review-v2-mixed-first-pass"))
     t.eq(first.exit_code, 0)
+    -- Owner directive (#2725): the review continuation ROUND-BUDGET is non-terminal; with
+    -- distinct review rounds (not a true-stall) review convergence REDRIVES the next round
+    -- (consensus.proposal + converge comment) instead of a terminal review-reconcile handoff.
     t.eq(#first.raises, 2)
-    t.eq(find_raise(first.raises, "consensus.proposal"), nil)
+    t.is_true(find_raise(first.raises, "consensus.proposal") ~= nil)
     t.eq(find_raise(first.raises, "devloop_review_meta"), nil)
-    local reconcile = find_raise(first.raises, "devloop_review_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.terminal_cause, "evidence-continuation-budget-exhausted")
+    t.eq(find_raise(first.raises, "devloop_review_reconcile"), nil)
   end,
 
   test_review_loop_abstain_approve_boundary_exhausts_evidence_continuation = function()
@@ -138,12 +139,13 @@ return {
 
     local result = run_review_loop(event, opts("review-v2-abstain-approve-boundary"))
     t.eq(result.exit_code, 0)
+    -- Owner directive (#2725): the review continuation ROUND-BUDGET is non-terminal; review
+    -- convergence REDRIVES the next round (consensus.proposal + converge comment) instead of
+    -- a terminal review-reconcile handoff.
     t.eq(#result.raises, 2)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.is_true(find_raise(result.raises, "consensus.proposal") ~= nil)
     t.eq(find_raise(result.raises, "devloop_review_meta"), nil)
-    local reconcile = find_raise(result.raises, "devloop_review_reconcile")
-    t.is_true(reconcile ~= nil)
-    t.eq(reconcile.payload.terminal_cause, "evidence-continuation-budget-exhausted")
+    t.eq(find_raise(result.raises, "devloop_review_reconcile"), nil)
   end,
 
   test_reviewing_liveness_defers_from_real_review_loop_heartbeat = function()

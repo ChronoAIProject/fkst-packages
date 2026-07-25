@@ -483,8 +483,16 @@ return {
       version = base .. "/timeout/impl-failed/3",
       marker_created_at = "2026-06-03T01:02:03Z",
     }
-    local escalated = core.liveness_timeout_decision(row, over, contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"))
-    t.eq(escalated.action, "escalate")
+    -- Owner directive (#2725) root timeout lever: at/past the former escalation
+    -- threshold (3 attempts) a timeout must NEVER escalate to a terminal state; it
+    -- REDRIVES indefinitely, advancing the attempt/version lineage each sweep. The
+    -- decision is now `redrive` (never `escalate`); only an explicit cannot-proceed
+    -- reaches terminal, via its own dedicated edge.
+    local redriven = core.liveness_timeout_decision(row, over, contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"))
+    t.eq(redriven.action, "redrive")
+    t.eq(redriven.attempt, 4)
+    t.eq(core.version_timeout_round(redriven.version, "impl-failed"), 4)
+    t.eq(transition_version.strip_suffixes(redriven.version), transition_version.strip_suffixes(base))
   end,
 
   test_replay_timeout_classification_counts_declines_as_stuck = function()
@@ -596,94 +604,75 @@ return {
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
       t.eq(age, 180)
-      local raised = capture_raises(function()
-        local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
-          repo = "owner/repo",
-          number = 42,
-          source_ref = source_ref,
-        }, state, row, facts)
-        t.eq(applied, true)
-      end)
-      t.eq(#raised, 1)
-      t.eq(raised[1].queue, "devloop_timeout_reconcile")
-      t.eq(raised[1].payload.state, "thinking")
-      t.eq(raised[1].payload.issue_version, state.version)
-      t.eq(raised[1].payload.round, 3)
+      -- Owner directive (#2725): a live codex_run past the absolute row-budget cap is a
+      -- liveness/resource cap -- exactly the class that must NEVER reach a terminal
+      -- state. The row-budget-absolute-cap still fires (receiver "stuck", asserted
+      -- above), but the timeout DECISION is now `redrive` (never `escalate`), so no
+      -- terminal devloop_timeout_reconcile event is produced; thinking convergence
+      -- redrives the next round instead of dropping to blocked.
+      local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
+      t.eq(decision.action, "redrive")
+      t.eq(decision.attempt, 4)
+      t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
     end)
   end,
 
-  test_stale_thinking_converge_round_climbs_to_blocked_reconcile = function()
+  test_stale_thinking_converge_round_redrives_never_reaching_blocked = function()
     local row = table_by_state().thinking
     local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
-    local raised = capture_raises(function()
-      local applied = core.maybe_timeout_redrive_from_table("liveness_scan", {
-        repo = "owner/repo",
-        number = 42,
-        source_ref = source_ref,
-      }, {
-        state = "thinking",
-        version = version .. "/timeout/thinking/3",
-        proposal_id = "github-devloop/issue/owner/repo/42",
-        marker_created_at = "2026-06-03T00:00:00Z",
-      }, row, {
-        proposal_id = "github-devloop/issue/owner/repo/42",
-        source_ref = source_ref,
-        current = {
-          comments = {
-            {
-              body = conv_rounds.converge_round_marker("github-devloop/issue/owner/repo/42", version, convergence_shared.source_ref_digest(source_ref), 1, "consensus:github-devloop/issue/owner/repo/42/loop/1", "Stale convergence", {
-                { angle = "minimal", verdict = "continue", digest = "stale" },
-              }),
-              author_login = "fkst-test-bot",
-              created_at = "2026-06-03T00:00:00Z",
-            },
+    local state = {
+      state = "thinking",
+      version = version .. "/timeout/thinking/3",
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      marker_created_at = "2026-06-03T00:00:00Z",
+    }
+    local facts = {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      source_ref = source_ref,
+      current = {
+        comments = {
+          {
+            body = conv_rounds.converge_round_marker("github-devloop/issue/owner/repo/42", version, convergence_shared.source_ref_digest(source_ref), 1, "consensus:github-devloop/issue/owner/repo/42/loop/1", "Stale convergence", {
+              { angle = "minimal", verdict = "continue", digest = "stale" },
+            }),
+            author_login = "fkst-test-bot",
+            created_at = "2026-06-03T00:00:00Z",
           },
         },
-        now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"),
-      })
-      t.eq(applied, true)
-    end)
-    t.eq(#raised, 1)
-    t.eq(raised[1].queue, "devloop_timeout_reconcile")
-    t.eq(raised[1].payload.state, "thinking")
+      },
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"),
+    }
+    -- Owner directive (#2725): a stale thinking convergence round past budget is a
+    -- round/counter condition that must NEVER climb to a terminal blocked reconcile. The
+    -- timeout DECISION is now `redrive` (never `escalate`), so thinking convergence
+    -- redrives the next round instead of dropping to blocked.
+    local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
+    t.eq(decision.action, "redrive")
+    t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
   end,
 
-  test_liveness_timeout_escalates_thinking_to_timeout_reconcile_event = function()
+  test_liveness_timeout_thinking_redrives_never_escalating_to_reconcile = function()
     local row = table_by_state().thinking
     local base = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local raised = {}
-    local original_log_raise = devloop_logging.log_raise
-    devloop_logging.log_raise = function(_, _, queue, payload)
-      table.insert(raised, { queue = queue, payload = payload })
-    end
-    local ok, err = pcall(function()
-      local applied = core.maybe_timeout_redrive_from_table("observe_issue", {
-        repo = "owner/repo",
-        number = 42,
-        source_ref = entity_lib.issue_source_ref("owner/repo", 42),
-      }, {
-        state = "thinking",
-        version = base .. "/timeout/thinking/3",
-        proposal_id = "github-devloop/issue/owner/repo/42",
-        marker_created_at = "2026-06-03T01:02:03Z",
-      }, row, {
-        proposal_id = "github-devloop/issue/owner/repo/42",
-        now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"),
-      })
-      t.eq(applied, true)
-    end)
-    devloop_logging.log_raise = original_log_raise
-    if not ok then
-      error(err)
-    end
-    t.eq(#raised, 1)
-    t.eq(raised[1].queue, "devloop_timeout_reconcile")
-    t.eq(raised[1].payload.schema, "github-devloop.timeout-reconcile.v1")
-    t.eq(raised[1].payload.state, "thinking")
-    t.eq(raised[1].payload.issue_version, base .. "/timeout/thinking/3")
-    t.eq(raised[1].payload.round, 3)
-    t.eq(raised[1].payload.dedup_key, "timeout-reconcile:" .. base .. "/timeout/thinking/3/timeout-reconcile/thinking/3")
+    local state = {
+      state = "thinking",
+      version = base .. "/timeout/thinking/3",
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      marker_created_at = "2026-06-03T01:02:03Z",
+    }
+    local facts = {
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-06-04T01:02:03Z"),
+    }
+    -- Owner directive (#2725): at/past the former escalation threshold (round 3) the
+    -- thinking timeout must NEVER escalate to a terminal devloop_timeout_reconcile event.
+    -- The decision is now `redrive` (never `escalate`), advancing the attempt/version
+    -- lineage so thinking convergence redrives the next round.
+    local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
+    t.eq(decision.action, "redrive")
+    t.eq(decision.attempt, 4)
+    t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
   end,
 
   test_restart_table_matches_state_graph_and_stage_rank = function()
