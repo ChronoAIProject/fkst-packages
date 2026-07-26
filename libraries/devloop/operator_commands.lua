@@ -114,20 +114,30 @@ function C.reintake_source_refs_match(left, right, limit)
     and tostring(left.ref) == tostring(right.ref)
 end
 
-function C.has_operator_command_response(comments, command)
+function C.operator_command_response_fact(comments, command)
   if type(comments) ~= "table" or type(command) ~= "table" then
-    return false
+    return nil
   end
   local marker = '<!-- fkst:github-devloop:operator-command:v1 command="'
     .. tostring(command.command)
     .. '" key="' .. tostring(command.key)
     .. '"'
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    if parsers_misc._comment_body(comment):find(marker, 1, true) ~= nil then
-      return true
+    for candidate in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:operator%-command:v1.-%-%->") do
+      if candidate:find(marker, 1, true) ~= nil then
+        return {
+          outcome = candidate:match(' outcome="([^"]+)"'),
+          reason = candidate:match(' reason="([^"]+)"'),
+          comment_created_at = parsers_misc._comment_created_at(comment),
+        }
+      end
     end
   end
-  return false
+  return nil
+end
+
+function C.has_operator_command_response(comments, command)
+  return C.operator_command_response_fact(comments, command) ~= nil
 end
 
 function C.operator_command_response_count(comments, command_name, outcome, reason)
