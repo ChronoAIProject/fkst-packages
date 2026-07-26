@@ -269,8 +269,12 @@ local function make_department(ports)
       reached = event.payload
     end
 
-    if reached.schema ~= "consensus.consensus_reached.v1" or type(reached.proposal_id) ~= "string" then
-      error("github-devloop: consensus-result-invalid: malformed caller-owned decision")
+    if reached.schema ~= "consensus.consensus_reached.v1"
+      or type(reached.proposal_id) ~= "string"
+      or reached.proposal_id:match("^github%-devloop/issue/") == nil then
+      devloop_logging.log_entry("consensus_result", event, "unknown", devloop_logging.payload_field(reached, "dedup_key"))
+      devloop_logging.log_cas_decision("consensus_result", "unknown", { state = nil, version = nil }, "thinking", "ready", "skip-foreign(proposal_id)", "unsupported event payload")
+      return
     end
     if reached.status ~= nil and reached.status ~= "reached" then
       error("github-devloop: consensus-result-invalid: library result has an unsupported status")

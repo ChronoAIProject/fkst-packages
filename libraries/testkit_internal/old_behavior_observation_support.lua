@@ -540,6 +540,14 @@ local function normalize_delivery_field(container, key, role, atoms)
   return true
 end
 
+local function normalize_source_positions(projection)
+  for _, evidence in ipairs((projection or {}).evidence_refs or {}) do
+    if type(evidence.ref) == "string" then
+      evidence.ref = evidence.ref:gsub("(%.lua):%d+$", "%1:<line>")
+    end
+  end
+end
+
 local function project_old_behavior_record(record)
   local projection = M.copy_value(record)
   local atoms = {}
@@ -700,6 +708,11 @@ function M.assert_old_behavior_records(actual, expected, context, manifest)
     else
       local runtime_product, runtime_atoms = project_old_behavior_record(runtime_record)
       local committed_product, committed_atoms = project_old_behavior_record(committed_record)
+      -- A source line number is positional metadata, not a product outcome: authorized R11
+      -- edits shift statements within a file without changing behavior. Normalize only the
+      -- line, keeping the file path exact, and only for manifest-authorized observations.
+      normalize_source_positions(runtime_product)
+      normalize_source_positions(committed_product)
       local difference = M.first_difference(runtime_product, committed_product, observation_id .. ".product")
       if difference ~= nil or M.canonical_json(runtime_product) ~= M.canonical_json(committed_product) then
         error(tostring(context) .. " product projection differs at "
