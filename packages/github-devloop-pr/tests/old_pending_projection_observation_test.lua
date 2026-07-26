@@ -6,7 +6,7 @@ return {
     local observation = inventory.old_pending_projection or {}
     t.eq(observation.observation_id, "fact-old-pending-projection-exact-graph")
     t.eq(observation.status, "observed")
-    t.eq(observation.site.path, "libraries/devloop/state.lua")
+    t.eq(observation.site.path, "libraries/devloop/restart_pending_projection.lua")
     t.eq(observation.site.symbol, "can_reach")
     t.eq(observation.site.ordinal, "transition_status:pending-projection")
     t.eq(#observation.projection_edges, 33, "complete protected pending projection")
