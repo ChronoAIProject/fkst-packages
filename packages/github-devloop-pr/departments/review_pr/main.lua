@@ -20,7 +20,7 @@ local review_pr_caps = require("review_pr_department_caps")
 local spec = {
   consumes = { "devloop_reviewing" },
   produces = {
-    "consensus.proposal",
+    "devloop_review_request",
     "github-proxy.github_pr_comment_request",
   },
   stall_window = "30s",
@@ -202,8 +202,8 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
 
     devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, state, "reviewing", "review-proposal", "applied", "raising PR diff review proposal")
-    local raised = { "consensus.proposal" }
+    local raised = { "devloop_review_request" }
     devloop_logging.log_apply("review_pr", reviewing.proposal_id, nil, nil, { add = {}, remove = {} }, raised)
-    devloop_logging.log_raise("review_pr", reviewing.proposal_id, "consensus.proposal", proposal)
+    devloop_logging.log_raise("review_pr", reviewing.proposal_id, "devloop_review_request", proposal)
   end)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_pr" })

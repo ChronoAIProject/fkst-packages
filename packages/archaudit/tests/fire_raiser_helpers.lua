@@ -46,6 +46,7 @@ function H.setup_workspace(name, child_test)
     "testkit",
     "testkit_internal",
     "forge",
+    "consensus",
     "devloop",
   }) do
     copy_dir(source .. "/libraries/" .. lib, root .. "/libraries/" .. lib)

@@ -18,17 +18,20 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local review_result_caps = require("review_result_department_caps")
+local consensus_call = require("devloop.consensus_call")
+local queue = require("devloop.queue")
+local v_pr_review_unresolved = require("devloop.validators.pr_review_unresolved")
 -- Preserve existing body line coordinates for the coverage ratchet.
 
 local spec = {
-  consumes = { "consensus.consensus_reached" },
+  consumes = { "devloop_review_request" },
   produces = {
+    "devloop_review_continue",
     "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
     "devloop_fix_reconcile",
     "github-devloop-decompose.devloop_decompose",
   },
-  fanout = { "consensus.consensus_reached" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
@@ -43,13 +46,35 @@ local function copy_reached_with_review_dedup(reached, review_dedup_key)
 end
 
 return saga.department(spec, { done = function() return false end, act = function(event)
-  local reached = type(event.payload) == "table" and event.payload or {}
+  if not queue.event_queue_matches(event, "devloop_review_request", "github-devloop-pr") then
+    error("github-devloop: consumed-queue-unrouted: dept=review_result queue="
+      .. tostring(event and event.queue))
+  end
+  local proposal = type(event.payload) == "table" and event.payload or {}
+  local reached = consensus_call.reach(proposal)
+  if reached == nil then
+    return
+  end
+  if reached.status == "converge" then
+    if not v_pr_review_unresolved.is_supported_pr_review_unresolved(reached) then
+      error("github-devloop: review-continuation-invalid: library result violates the caller contract")
+    end
+    devloop_logging.log_entry("review_result", event, reached.proposal_id, reached.dedup_key)
+    devloop_logging.log_apply("review_result", reached.proposal_id, nil, nil,
+      { add = {}, remove = {} }, { "devloop_review_continue" })
+    devloop_logging.log_raise("review_result", reached.proposal_id, "devloop_review_continue", reached)
+    return
+  end
+
   if reached.schema ~= "consensus.consensus_reached.v1"
     or type(reached.proposal_id) ~= "string"
     or reached.proposal_id:match("^github%-devloop/pr%-review/") == nil then
     devloop_logging.log_entry("review_result", event, "unknown", devloop_logging.payload_field(reached, "dedup_key"))
     devloop_logging.log_cas_decision("review_result", "unknown", { state = nil, version = nil }, "reviewing", "merge-ready|fixing", "skip-foreign(proposal_id)", "unsupported event payload")
     return
+  end
+  if reached.status ~= nil and reached.status ~= "reached" then
+    error("github-devloop: review-result-invalid: library result has an unsupported status")
   end
 
   local review_repo, proposal_pr_number, review_version, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(reached.proposal_id)

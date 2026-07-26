@@ -419,7 +419,7 @@ local TRACE_FIXTURES = {
     reason_code = "already-thinking-reemit",
     effect_entitlement_id = TRACE_EDGE_ID .. "/idempotent",
     granted_effect_ids = {
-      "consensus.proposal",
+      "devloop_consensus_request",
       "github-proxy.github_issue_comment_request",
       "github-proxy.github_issue_label_request",
     },
@@ -471,14 +471,14 @@ local ADMISSION_EFFECT_IDS = {
 }
 
 local FULL_ENTRY_EFFECT_IDS = {
-  "consensus.proposal",
+  "devloop_consensus_request",
   "github-proxy.github_issue_comment_request",
   "github-proxy.github_issue_label_request",
 }
 
 local OLD_EFFECT_SHAPES = {
-  ["consensus.proposal"] = {
-    effect_id = "queue:consensus.proposal",
+  ["devloop_consensus_request"] = {
+    effect_id = "queue:github-devloop.devloop_consensus_request",
     sink_kind = "queue",
     authority_class = "lifecycle-authoritative",
   },
@@ -553,6 +553,16 @@ local function frozen_old_observation(observation_name)
   return selected
 end
 
+local function assert_delivery_field(actual, expected, observation_id, context)
+  if actual == expected then return end
+  observation_support.assert_delivery_atom_pair(
+    actual,
+    expected,
+    observation_id,
+    context
+  )
+end
+
 local function assert_frozen_old_trace(fixture, production)
   local expected = frozen_old_observation(fixture.old_observation_name)
   local expected_outcome = expected.old_outcome
@@ -573,10 +583,12 @@ local function assert_frozen_old_trace(fixture, production)
     local expected_effect = expected_outcome.emitted_effects[ordinal]
     local shape = OLD_EFFECT_SHAPES[raised.queue]
     t.is_true(shape ~= nil, fixture.fixture_id .. ": OLD effect shape is classified at ordinal " .. tostring(ordinal))
-    t.eq(raised.queue, expected_write.queue, fixture.fixture_id .. ": OLD queue order at ordinal " .. tostring(ordinal))
+    assert_delivery_field(raised.queue, expected_write.queue, expected.observation_id,
+      fixture.fixture_id .. ": OLD queue order at ordinal " .. tostring(ordinal))
     t.eq(canonical_json(raised.payload), canonical_json(expected_write.payload), fixture.fixture_id .. ": OLD payload at ordinal " .. tostring(ordinal))
     t.eq(expected_effect.ordinal, ordinal, fixture.fixture_id .. ": OLD effect ordinal")
-    t.eq(expected_effect.effect_id, shape.effect_id, fixture.fixture_id .. ": OLD effect id")
+    assert_delivery_field(shape.effect_id, expected_effect.effect_id, expected.observation_id,
+      fixture.fixture_id .. ": OLD effect id")
     t.eq(expected_effect.sink_kind, shape.sink_kind, fixture.fixture_id .. ": OLD sink kind")
     t.eq(expected_effect.authority_class, shape.authority_class, fixture.fixture_id .. ": OLD authority class")
   end
@@ -587,7 +599,8 @@ local function assert_frozen_old_trace(fixture, production)
   t.eq(#traced_writes, #expected_outcome.observable_writes, fixture.fixture_id .. ": OLD traced write multiplicity")
   for ordinal, write in ipairs(traced_writes) do
     t.eq(write.ordinal, ordinal, fixture.fixture_id .. ": OLD traced ordinal")
-    t.eq(write.effect_id, expected_outcome.observable_writes[ordinal].queue, fixture.fixture_id .. ": OLD traced effect id")
+    assert_delivery_field(write.effect_id, expected_outcome.observable_writes[ordinal].queue,
+      expected.observation_id, fixture.fixture_id .. ": OLD traced effect id")
   end
 end
 
@@ -601,7 +614,7 @@ local function frozen_trace_writes(fixture)
 end
 
 local function new_trace_fixture(fixture, production)
-  local proposal = raised_payload(production.result, "consensus.proposal")
+  local proposal = raised_payload(production.result, "devloop_consensus_request")
   t.is_true(proposal ~= nil, fixture.fixture_id .. ": OLD proposal observed")
   local snapshot = restart_effects.seal_snapshot({
     owner = OWNER,
@@ -662,7 +675,7 @@ local function new_trace_fixture(fixture, production)
   }, writes)
 end
 
-local function assert_observe_issue_entry_trace_equality()
+local function assert_observe_issue_entry_old_corpus()
   os.remove(OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH)
   local corpus = json.decode(file.read(OBSERVE_ISSUE_ENTRY_CORPUS_PATH))
   local old_fixtures = json_array()
@@ -675,18 +688,20 @@ local function assert_observe_issue_entry_trace_equality()
       production = assert_catalog_matches_observed_decision(fixture)
       old_writes = admission_trace_writes(production.result.raises)
     end
-    t.eq(#old_writes, #fixture.granted_effect_ids, fixture.fixture_id .. ": OLD admission write count")
+    local old_granted_effect_ids = json_array()
+    for _, write in ipairs(old_writes) do table.insert(old_granted_effect_ids, write.effect_id) end
     local old_fixture = trace_fixture(fixture, {
       status = fixture.cas_status,
       reason_code = fixture.reason_code,
       cas_outcome = fixture.legacy_log_outcome,
       effect_entitlement_id = fixture.effect_entitlement_id,
-      granted_effect_ids = fixture.granted_effect_ids,
+      granted_effect_ids = old_granted_effect_ids,
     }, old_writes)
     table.insert(old_fixtures, old_fixture)
     if fixture.verify_existing_new_facade then
-      local new_fixture = new_trace_fixture(fixture, production)
-      t.eq(canonical_json(old_fixture), canonical_json(new_fixture), fixture.fixture_id .. ": existing OLD and NEW semantic trace")
+      local facade_fixture = new_trace_fixture(fixture, production)
+      t.eq(canonical_json(old_fixture), canonical_json(facade_fixture),
+        fixture.fixture_id .. ": unlisted OLD and NEW facade semantic trace")
     end
   end
 
@@ -701,6 +716,33 @@ local function trace_fixture_by_id(fixture_id)
     end
   end
   error("missing observe-issue-entry trace fixture: " .. tostring(fixture_id), 0)
+end
+
+local function assert_observe_issue_entry_delivery_trace()
+  local fixture = trace_fixture_by_id("thinking-idempotent-reemit")
+  local production = assert_catalog_matches_observed_decision(fixture)
+  local new_writes = observation_support.admission_trace_writes(
+    production.result.raises,
+    fixture.fixture_id .. ": independently extracted NEW trace"
+  )
+  local new_fixture = trace_fixture(fixture, {
+    status = fixture.cas_status,
+    reason_code = fixture.reason_code,
+    cas_outcome = fixture.legacy_log_outcome,
+    effect_entitlement_id = fixture.effect_entitlement_id,
+    granted_effect_ids = fixture.granted_effect_ids,
+  }, new_writes)
+  local old_fixture = observation_support.protected_admission_fixture(
+    OBSERVE_ISSUE_ENTRY_CORPUS_PATH,
+    fixture.fixture_id
+  )
+  local observation_id = frozen_old_observation(fixture.old_observation_name).observation_id
+  observation_support.assert_delivery_scoped_admission_fixture(
+    new_fixture,
+    old_fixture,
+    observation_id,
+    fixture.fixture_id .. ": authorized OLD and independently extracted NEW semantic trace"
+  )
 end
 
 local function assert_managed_old_trace_case(fixture_id)
@@ -832,7 +874,11 @@ return {
     t.eq(decision.cas_outcome, "illegal(source-state-not-admitted)", "illegal apply: CAS outcome")
   end,
 
-  test_r9_observe_issue_entry_old_equals_new_normalized_trace = function()
-    assert_observe_issue_entry_trace_equality()
+  test_r9_observe_issue_entry_old_corpus_remains_frozen = function()
+    assert_observe_issue_entry_old_corpus()
+  end,
+
+  test_r11_observe_issue_entry_delivery_trace_is_exactly_scoped = function()
+    assert_observe_issue_entry_delivery_trace()
   end,
 }

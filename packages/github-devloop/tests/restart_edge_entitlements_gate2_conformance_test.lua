@@ -44,7 +44,7 @@ local expected_new_apply_effects = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
   },
   ["github-devloop/thinking/entry/execute_request"] = {
-    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request", "consensus.proposal",
+    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request", "devloop_consensus_request",
   },
 }
 

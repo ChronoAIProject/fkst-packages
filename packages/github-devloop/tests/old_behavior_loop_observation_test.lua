@@ -128,15 +128,19 @@ return {
 
       local result = h.run_loop(event, h.opts("old-behavior-loop-" .. fixture.name))
       t.eq(result.exit_code, 0, fixture.name .. ": production run")
-      t.eq(#result.raises, 2, fixture.name .. ": exactly proposal and convergence comment")
+      t.eq(#result.raises, 2, fixture.name .. ": exactly continuation result and convergence comment")
 
-      local proposal = h.find_raise(result.raises, "consensus.proposal")
+      local proposal = h.take_consensus_proposal()
       t.is_true(proposal ~= nil, fixture.name .. ": next consensus proposal")
-      t.eq(proposal.payload.round, fixture.next_round, fixture.name .. ": next round")
+      t.eq(proposal.round, fixture.next_round, fixture.name .. ": next round")
       t.eq(
-        proposal.payload.dedup_key,
+        proposal.dedup_key,
         "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/" .. tostring(fixture.next_round),
         fixture.name .. ": next-round dedup"
+      )
+      t.is_true(
+        h.find_raise(result.raises, "devloop_consensus_request") ~= nil,
+        fixture.name .. ": renamed consensus proposal request"
       )
 
       local comment = h.find_raise(result.raises, "github-proxy.github_issue_comment_request")

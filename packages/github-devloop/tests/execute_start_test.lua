@@ -63,7 +63,7 @@ local function assert_execution_effects(raises, request)
   t.eq(#raises, 3)
   t.eq(raises[1].queue, "github-proxy.github_issue_comment_request")
   t.eq(raises[2].queue, "github-proxy.github_issue_label_request")
-  t.eq(raises[3].queue, "consensus.proposal")
+  t.eq(raises[3].queue, "devloop_consensus_request")
 
   local comment = raises[1].payload
   t.eq(comment.schema, "github-proxy.v1")
@@ -111,7 +111,7 @@ return {
     local raises = {
       { queue = "github-proxy.github_issue_comment_request", payload = effects.thinking_comment_request },
       { queue = "github-proxy.github_issue_label_request", payload = effects.thinking_label_request },
-      { queue = "consensus.proposal", payload = effects.proposal },
+      { queue = "devloop_consensus_request", payload = effects.proposal },
     }
     assert_execution_effects(raises, request)
   end,

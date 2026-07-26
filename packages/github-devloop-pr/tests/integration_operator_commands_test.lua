@@ -149,7 +149,7 @@ return {
     }, "devloop-owner-repo-42-01HY", "feedface")
     local review = run_review_pr(reviewing_raise.payload, opts("operator-rereview-review"))
     t.eq(review.exit_code, 0)
-    t.eq(find_raise(review.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(review.raises, "devloop_review_request"), nil)
   end,
 
   test_untrusted_rereview_command_is_ignored = function()

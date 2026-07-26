@@ -1,6 +1,6 @@
-local angle_answers = require("angle_answers")
-local core = require("core")
-local rebuttal = require("departments.decide.rebuttal")
+local angle_answers = require("consensus.angle_answers")
+local core = require("consensus.core")
+local rebuttal = require("consensus.rebuttal")
 local t = fkst.test
 
 local function proposal(extra)

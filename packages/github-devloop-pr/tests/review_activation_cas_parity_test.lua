@@ -596,7 +596,7 @@ local function assert_case(fixture)
   local expected_effect_count = boundary_reached and 1 or 0
   t.eq(#result.raises, expected_effect_count, fixture.name .. ": captured effect count")
   if expected_effect_count == 1 then
-    t.eq(result.raises[1].queue, "consensus.proposal", fixture.name .. ": captured effect queue")
+    t.eq(result.raises[1].queue, "devloop_review_request", fixture.name .. ": captured effect queue")
     t.eq(result.raises[1].payload.schema, "consensus.proposal.v1", fixture.name .. ": captured effect schema")
   end
   t.eq(

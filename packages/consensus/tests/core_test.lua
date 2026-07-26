@@ -1,5 +1,5 @@
-local core = require("core")
-local synthesis = require("departments.decide.synthesis")
+local core = require("consensus.core")
+local synthesis = require("consensus.synthesis")
 local t = fkst.test
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -73,7 +73,7 @@ end
 
 local function with_real_consensus_catalog(fn)
   local original_t = _G.t
-  local catalog = require("locales.en")
+  local catalog = require("consensus.locale")
   _G.t = function(key)
     local value = catalog[key]
     if value == nil then
@@ -227,7 +227,7 @@ return {
   test_is_eligible_rejects_missing_source_ref_and_wrong_schema = function()
     t.eq(core.is_eligible(proposal({ source_ref = false })), false)
     t.eq(core.is_eligible(proposal({ schema = "other.proposal.v1" })), false)
-    t.eq(core.is_eligible(proposal({ proposal_id = "../bad" })), false)
+    t.eq(core.is_eligible(proposal({ proposal_id = "../caller-owned" })), true)
     t.eq(core.is_eligible(proposal({ dedup_key = "bad key" })), false)
   end,
 
@@ -666,7 +666,7 @@ return {
     }, "Only implement the bounded parser fix.")
 
     t.eq(payload.schema, "consensus.consensus_reached.v1")
-    t.eq(payload.proposal_id, "proposal-42")
+    t.is_nil(payload.proposal_id)
     t.eq(payload.decision, "approve")
     t.eq(payload.framing, "Only implement the bounded parser fix.")
     t.eq(payload.dedup_key, "consensus:proposal-42-v1")

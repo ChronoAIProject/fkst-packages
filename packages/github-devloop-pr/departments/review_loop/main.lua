@@ -24,13 +24,13 @@ local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local spec = {
-  consumes = { "consensus.consensus_converge" },
+  consumes = { "devloop_review_continue" },
   produces = {
-    "consensus.proposal",
+    "devloop_review_request",
     "github-proxy.github_pr_comment_request",
     "devloop_review_reconcile",
   },
-  fanout = { "consensus.consensus_converge" },
+  fanout = { "devloop_review_continue" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
@@ -57,7 +57,7 @@ local function reviewing_segment_transition_status(comments, args)
   })
   local transition = restart_effects.decide_transition(snapshot, {
     semantic_variant = "review_convergence_round",
-    source_boundary = "consensus.consensus_converge",
+    source_boundary = "github-devloop-pr.devloop_review_continue",
     target = "reviewing",
     evidence_refs = {
       "devloop.entity.current_entity_state",
@@ -264,10 +264,11 @@ return saga.department(spec, { done = function() return false end, act = functio
       return
     end
     devloop_logging.log_apply("review_loop", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
-      "consensus.proposal",
+      "devloop_review_request",
       "github-proxy.github_pr_comment_request",
     })
-    devloop_logging.log_raise("review_loop", origin.proposal_id, "consensus.proposal", proposal)
-    devloop_logging.log_raise("review_loop", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+    devloop_logging.log_raise("review_loop", origin.proposal_id, "devloop_review_request", proposal)
+    devloop_logging.log_raise("review_loop", origin.proposal_id,
+      "github-proxy.github_pr_comment_request", comment_request)
   end)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_loop" })

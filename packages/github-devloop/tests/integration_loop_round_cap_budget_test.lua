@@ -8,6 +8,7 @@ local unresolved = h.unresolved
 local run_loop = h.run_loop
 local mock_issue_loop = h.mock_issue_loop
 local find_raise = h.find_raise
+local take_consensus_proposal = h.take_consensus_proposal
 
 local function angles(round, verdict)
   return {
@@ -36,13 +37,14 @@ return {
     local result = run_loop(event, opts("loop-first-evidence-continuation"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = take_consensus_proposal()
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.round, 1)
-    t.eq(proposal.payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1")
-    t.eq(proposal.payload.convergence_question, event.narrowed_question)
-    t.eq(proposal.payload.findings_record, event.findings_record)
-    t.eq(proposal.payload.prior_round_digests, nil)
+    t.eq(proposal.round, 1)
+    t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1")
+    t.eq(proposal.convergence_question, event.narrowed_question)
+    t.eq(proposal.findings_record, event.findings_record)
+    t.eq(proposal.prior_round_digests, nil)
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
 
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
@@ -73,10 +75,11 @@ return {
     -- (not a true-stall) convergence REDRIVES the next round instead of dropping to
     -- blocked. No terminal reconcile handoff is emitted.
     t.eq(#result.raises, 2)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = take_consensus_proposal()
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.round, 2)
-    t.eq(proposal.payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2")
+    t.eq(proposal.round, 2)
+    t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2")
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
     t.is_nil(comment.payload.handoff)
@@ -130,7 +133,7 @@ return {
     local result = run_loop(event, opts("loop-essence-stall"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(take_consensus_proposal(), nil)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
     t.eq(comment.payload.handoff.kind, "github-devloop.reconcile")

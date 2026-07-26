@@ -24,14 +24,29 @@ return {
         { angle = "minimal", verdict = "abstain", digest = "needs-specificity" },
       },
     })
+    h.mock_next_consensus_result(function(proposal)
+      return h.reached({
+        status = "reached",
+        dedup_key = "consensus:" .. proposal.dedup_key,
+        effect_version = proposal.effect_version,
+        source_ref = proposal.source_ref,
+      })
+    end)
     local result = run_loop(event, opts("loop-dedup-lineage"))
+    local called_proposal = h.take_consensus_proposal()
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal").payload
-    t.eq(proposal.dedup_key, conv_rounds.converge_proposal_base_dedup(base_version) .. "/loop/1")
-    t.eq(proposal.round, 1)
-    t.eq(proposal.convergence_question, event.narrowed_question)
-    t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
-    t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
+    t.is_true(called_proposal ~= nil)
+    t.eq(called_proposal.proposal_id, "github-devloop/issue/owner/repo/42")
+    t.eq(called_proposal.dedup_key, conv_rounds.converge_proposal_base_dedup(base_version) .. "/loop/1")
+    t.eq(called_proposal.round, 1)
+    t.eq(called_proposal.convergence_question, event.narrowed_question)
+    t.eq(called_proposal.source_ref.ref, "owner/repo#issue/42")
+    t.is_true(called_proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
+
+    local request = find_raise(result.raises, "devloop_consensus_request").payload
+    t.eq(request.schema, "consensus.proposal.v1")
+    t.eq(request.proposal_id, "github-devloop/issue/owner/repo/42")
+    t.eq(request.dedup_key, called_proposal.dedup_key)
 
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     t.is_true(comment.body:find('version="' .. base_version .. '"', 1, true) ~= nil)

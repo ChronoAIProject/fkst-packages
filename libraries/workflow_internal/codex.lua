@@ -109,7 +109,12 @@ end
 
 local function identity_parts(identity_or_role, proposal_id, dedup_key)
   if type(identity_or_role) == "table" then
-    return identity_or_role.role, identity_or_role.proposal_id, identity_or_role.dedup_key
+    local legacy_id = identity_or_role.proposal_id
+    local invocation_id = identity_or_role.invocation_id
+    if legacy_id ~= nil and invocation_id ~= nil and tostring(legacy_id) ~= tostring(invocation_id) then
+      error("workflow_internal.codex: conflicting run identity")
+    end
+    return identity_or_role.role, invocation_id or legacy_id, identity_or_role.dedup_key
   end
   return identity_or_role, proposal_id, dedup_key
 end

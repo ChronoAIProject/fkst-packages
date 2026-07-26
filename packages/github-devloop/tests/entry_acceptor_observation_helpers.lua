@@ -212,12 +212,14 @@ local function assert_bidirectional(actual, expected, actual_label, expected_lab
   end
 end
 
-local function committed_records(site)
+local function committed_records(site, prefix)
   local inventory = json.decode(file.read("migration/restart-lifecycle.inventory.json"))
   local records = M.json_array()
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     local actual = record.site or {}
-    if actual.path == site.path and actual.symbol == site.symbol and actual.ordinal == site.ordinal then
+    if actual.path == site.path and actual.symbol == site.symbol
+      and type(record.observation_id) == "string"
+      and record.observation_id:sub(1, #prefix) == prefix then
       table.insert(records, record)
     end
   end
@@ -243,15 +245,12 @@ function M.assert_site(t, opts)
   local runtime_set = tuple_set(first, function(record) return record_tuple(record, opts.prefix) end,
     opts.dept .. " runtime records")
   assert_bidirectional(runtime_set, fixture_set, "runtime records", "production fixture lattice")
-  local expected = committed_records(opts.site)
-  local inventory_set = tuple_set(expected, function(record) return record_tuple(record, opts.prefix) end,
-    opts.dept .. " inventory records")
-  assert_bidirectional(runtime_set, inventory_set, "runtime records", "inventory records")
-  local difference = M.first_difference(first, expected, "old_behavior_observations[" .. opts.dept .. "]")
-  if difference or M.canonical_json(first) ~= M.canonical_json(expected) then
-    error("runtime-bound OLD " .. opts.dept .. " entry acceptor observation differs at "
-      .. tostring(difference or "canonical-json") .. "; runtime_records=" .. M.canonical_json(first), 0)
-  end
+  local expected = committed_records(opts.site, opts.prefix)
+  observation_support.assert_old_behavior_records(
+    first,
+    expected,
+    "runtime-bound OLD " .. opts.dept .. " entry acceptor observation"
+  )
   t.eq(#first, #opts.fixtures, opts.dept .. ": exhaustive entry acceptor count")
 end
 

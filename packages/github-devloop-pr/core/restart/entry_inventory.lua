@@ -63,7 +63,7 @@ return {
     kind = "entry",
     source = {
       state = nil,
-      boundary = "consensus.consensus_converge",
+      boundary = "github-devloop-pr.devloop_review_continue",
     },
     target = "reviewing",
     pending_order = { participates = false },

@@ -51,7 +51,7 @@ return {
     })
     local result = run_observe(event, run_opts)
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
@@ -70,7 +70,7 @@ return {
       now = "2026-06-03T02:00:00Z",
     }))
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
     t.eq(proposal.payload.dedup_key, version)
     t.eq(proposal.payload.round, 1)
@@ -95,7 +95,7 @@ return {
       now = "2026-06-03T02:00:00Z",
     }))
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
     t.eq(proposal.payload.dedup_key, original.dedup_key .. "/loop/1")
     t.eq(proposal.payload.round, 1)
@@ -127,9 +127,10 @@ return {
     -- DISTINCT rounds (round-0 visible + the incoming round 1, not a true-stall),
     -- convergence REDRIVES the next round (consensus.proposal round 2) instead of
     -- regenerating a terminal budget-exhausted reconcile handoff.
-    local loop_proposal = find_raise(loop.raises, "consensus.proposal")
+    local loop_proposal = h.take_consensus_proposal()
     t.is_true(loop_proposal ~= nil)
-    t.eq(loop_proposal.payload.round, 2)
+    t.eq(loop_proposal.round, 2)
+    t.is_true(find_raise(loop.raises, "devloop_consensus_request") ~= nil)
     local marker = find_raise(loop.raises, "github-proxy.github_issue_comment_request")
     t.is_true(marker ~= nil)
     t.is_true(marker.payload.body:find('round="1"', 1, true) ~= nil)
@@ -160,7 +161,7 @@ return {
     })
     local result = run_observe(event, run_opts)
     t.eq(result.exit_code, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 }

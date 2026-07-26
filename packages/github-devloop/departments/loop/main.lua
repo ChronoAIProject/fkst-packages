@@ -24,12 +24,12 @@ local github_factory = require("devloop.github_factory")
 local github_author_policy = require("devloop.github_author_policy")
 local transition_version = require("contract.transition_version")
 local spec = {
-  consumes = { "consensus.consensus_converge" },
+  consumes = { "devloop_consensus_continue" },
   produces = {
-    "consensus.proposal",
+    "devloop_consensus_request",
     "github-proxy.github_issue_comment_request",
   },
-  fanout = { "consensus.consensus_converge" },
+  fanout = { "devloop_consensus_continue" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
@@ -244,12 +244,14 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local comment_request = build_comment_request(unresolved, round, marker_body)
 
-    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "raising loop proposal round " .. tostring(next_n))
+    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking",
+      transition.cas_outcome, "raising loop proposal round " .. tostring(next_n))
     devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
-      "consensus.proposal",
+      "devloop_consensus_request",
       "github-proxy.github_issue_comment_request",
     })
-    devloop_logging.log_raise("loop", unresolved.proposal_id, "consensus.proposal", proposal)
-    devloop_logging.log_raise("loop", unresolved.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+    devloop_logging.log_raise("loop", unresolved.proposal_id, "devloop_consensus_request", proposal)
+    devloop_logging.log_raise("loop", unresolved.proposal_id,
+      "github-proxy.github_issue_comment_request", comment_request)
   end)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "loop" })

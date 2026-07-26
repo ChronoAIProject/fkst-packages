@@ -433,7 +433,9 @@ function M.assert_site(t, opts)
   local committed = M.json_array()
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     local site = record.site or {}
-    if site.path == opts.site.path and site.symbol == opts.site.symbol and site.ordinal == opts.site.ordinal then
+    if site.path == opts.site.path and site.symbol == opts.site.symbol
+      and type(record.observation_id) == "string"
+      and record.observation_id:sub(1, #opts.prefix) == opts.prefix then
       table.insert(committed, record)
     end
   end
@@ -443,14 +445,12 @@ function M.assert_site(t, opts)
   end
   local runtime_set = tuple_set(first, function(record) return tuple_from_record(record, opts.prefix) end, "runtime")
   local fixture_set = tuple_set(opts.fixtures, tuple_from_fixture, "fixture")
-  local inventory_set = tuple_set(committed, function(record) return tuple_from_record(record, opts.prefix) end, "inventory")
   assert_same_set(runtime_set, fixture_set, "runtime", "fixture")
-  assert_same_set(runtime_set, inventory_set, "runtime", "inventory")
-  local inventory_difference = M.first_difference(first, committed, boundary_label .. "[" .. opts.dept .. "]")
-  if inventory_difference or M.canonical_json(first) ~= M.canonical_json(committed) then
-    error("runtime-bound OLD " .. opts.dept .. " differs at "
-      .. tostring(inventory_difference or "canonical-json") .. "; runtime_records=" .. M.canonical_json(first), 0)
-  end
+  observation_support.assert_old_behavior_records(
+    first,
+    committed,
+    "runtime-bound OLD " .. opts.dept .. " " .. boundary_label
+  )
   if opts.shadow_corpus_path ~= nil then
     local shadow_records = M.json_array()
     for _, record in ipairs(first) do table.insert(shadow_records, record) end

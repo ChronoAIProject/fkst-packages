@@ -31,6 +31,7 @@ local run_review_pr = h.run_review_pr
 local run_review_result = h.run_review_result
 local run_fix = h.run_fix
 local run_review_loop = h.run_review_loop
+local take_consensus_proposal = h.take_consensus_proposal
 local run_review_meta = h.run_review_meta
 local run_merge = h.run_merge
 local json_string = h.json_string
@@ -154,7 +155,7 @@ return {
     local review_result = run_review_pr(reviewing_raise.payload, opts("fix-write-rereview"))
     t.eq(review_result.exit_code, 0)
     t.eq(#review_result.raises, 1)
-    local proposal = find_raise(review_result.raises, "consensus.proposal").payload
+    local proposal = find_raise(review_result.raises, "devloop_review_request").payload
     t.eq(proposal.proposal_id, devloop_base.pr_review_proposal_id("owner/repo", 7, expected_version, "feedface"))
     t.is_nil(proposal.body:find("+fixed again", 1, true))
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
@@ -606,11 +607,11 @@ return {
     })
 
     local result = run_review_loop(event, opts("review-loop-under-budget"))
+    local proposal = take_consensus_proposal()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    t.eq(result.raises[1].queue, "consensus.proposal")
-    t.is_true(result.raises[1].payload.dedup_key:find("/loop/1", 1, true) ~= nil)
-    t.is_nil(result.raises[1].payload.body:find("+return true", 1, true))
+    t.is_true(proposal.dedup_key:find("/loop/1", 1, true) ~= nil)
+    t.is_nil(proposal.body:find("+return true", 1, true))
     t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)
     t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find('round="0"', 1, true) ~= nil)
   end,
@@ -637,10 +638,10 @@ return {
     })
 
     local result = run_review_loop(event, opts("review-loop-long-version-apply"))
+    local proposal = take_consensus_proposal()
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    t.eq(result.raises[1].queue, "consensus.proposal")
-    t.eq(result.raises[1].payload.proposal_id, proposal_id)
+    t.eq(proposal.proposal_id, proposal_id)
     t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)
     t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find('round="0"', 1, true) ~= nil)
   end,

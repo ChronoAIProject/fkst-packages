@@ -314,7 +314,7 @@ return {
     if reviewed.exit_code ~= 0 then
       error("review_pr redrive failed: " .. tostring(reviewed.error or reviewed.stderr))
     end
-    local proposal = find_raise(reviewed, "consensus.proposal")
+    local proposal = find_raise(reviewed, "devloop_review_request")
     t.is_true(proposal ~= nil)
     t.eq(proposal.payload.proposal_id, review_id)
     t.eq(proposal.payload.dedup_key, delivery_dedup_key)

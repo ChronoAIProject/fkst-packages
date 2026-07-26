@@ -5,10 +5,10 @@ name = "devloop"
 root = "."
 
 [lib_deps]
-libraries = ["contract", "workflow_internal", "forge"]
+libraries = ["contract", "workflow_internal", "forge", "consensus"]
 
 [dependency_constraints]
-allowed_lib_deps = ["contract", "workflow_internal", "forge"]
+allowed_lib_deps = ["contract", "workflow_internal", "forge", "consensus"]
 
 [library]
 name = "devloop"
@@ -34,6 +34,7 @@ public = [
   "devloop.commands.prs",
   "devloop.commands.support",
   "devloop.commands.validators",
+  "devloop.consensus_call",
   "devloop.comment_handoff",
   "devloop.config",
   "devloop.conflict_telemetry",

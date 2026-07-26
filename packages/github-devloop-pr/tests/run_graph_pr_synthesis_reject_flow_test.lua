@@ -21,7 +21,11 @@ local issue_proposal_id = "github-devloop/issue/owner/repo/42"
 local reviewed_version = transition_version.safe_version_segment(h.reviewing().version)
 local reviewed_head_sha = "def456"
 local review_proposal_id = devloop_base.pr_review_proposal_id(repo, pr_number, reviewed_version, reviewed_head_sha)
-local review_dedup_key = review_proposal_id .. "/review"
+local review_dedup_key = devloop_base.pr_review_redrive_delivery_dedup_key(
+  review_proposal_id,
+  "restart-liveness-v2/reviewing/reviewing.active/live_defer_heartbeat-v1/review-converge-round-missing/1783840000000.0",
+  7
+)
 
 local function pr_source_ref()
   return entity_lib.pr_source_ref(repo, pr_number)
@@ -43,7 +47,7 @@ end
 
 local function initial_event()
   return {
-    queue = "consensus.proposal",
+    queue = "devloop_review_request",
     payload = proposal(),
     source_ref = {
       kind = "external",
@@ -157,25 +161,14 @@ return {
 
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 4 }))
     graph.assert_covers(trace, {
-      "consensus.proposal -> consensus.decide",
-      "consensus.consensus_reached -> github-devloop-pr.review_result",
+      "github-devloop-pr.devloop_review_request -> github-devloop-pr.review_result",
     })
 
-    local decide_step = graph.require_delivery(trace, {
-      queue = "consensus.proposal",
-      consumer = "consensus.decide",
-    })
     local review_step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "github-devloop-pr.devloop_review_request",
       consumer = "github-devloop-pr.review_result",
     })
-    t.eq(decide_step.exit_code, 0)
     t.eq(review_step.exit_code, 0)
-
-    local reached = graph.require_raise(trace, "consensus.consensus_reached")
-    t.eq(reached.payload.decision, "reject")
-    t.eq(reached.payload.blocking_gap, gap)
-    t.eq(reached.payload.blocking_gaps[1], gap)
 
     local comment = graph.require_raise(trace, "github-proxy.github_pr_comment_request")
     t.is_true(comment.payload.body:find('decision="reject"', 1, true) ~= nil)

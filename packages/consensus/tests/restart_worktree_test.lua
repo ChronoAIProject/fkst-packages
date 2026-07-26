@@ -1,4 +1,5 @@
 local t = fkst.test
+local reach_test_helper = require("tests.reach_test_helpers")
 
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -37,10 +38,7 @@ local function proposal(extra)
 end
 
 local function run_decide(value, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "proposal",
-    payload = value,
-  }, run_opts)
+  return reach_test_helper.run(value, run_opts)
 end
 
 local function synthesis_stdout(line)

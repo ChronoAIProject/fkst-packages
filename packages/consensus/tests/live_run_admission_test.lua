@@ -1,6 +1,7 @@
 local identity = require("contract.convergence_identity")
 local workflow_codex = require("workflow_internal.codex")
 local t = fkst.test
+local reach_test_helper = require("tests.reach_test_helpers")
 require("tests.cache_seed_helpers")
 
 local function nonce()
@@ -80,11 +81,24 @@ local function proposal(extra)
   return value
 end
 
+local function library_run_identity(value, angle_lane)
+  local generation = value.generation or 0
+  local round = value.round or 0
+  return {
+    role = "consensus",
+    invocation_id = value.dedup_key,
+    generation = generation,
+    round = round,
+    angle_lane = angle_lane,
+    dedup_key = "convergence:consensus:" .. value.dedup_key
+      .. ":g" .. tostring(generation)
+      .. ":r" .. tostring(round)
+      .. ":" .. tostring(angle_lane),
+  }
+end
+
 local function run_decide(event_payload, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "proposal",
-    payload = event_payload,
-  }, run_opts)
+  return reach_test_helper.run(event_payload, run_opts)
 end
 
 local function mock_judgment_runtime()
@@ -253,9 +267,9 @@ return {
   end,
 
   test_workflow_dispatch_sets_identity_fields_and_defers_without_spawn = function()
-    local run_identity = identity.from_proposal("consensus", proposal(), { angle_lane = "teleology" })
+    local run_identity = library_run_identity(proposal(), "teleology")
     with_codex_runs({
-      { role = run_identity.role, proposal_id = run_identity.proposal_id, dedup_key = run_identity.dedup_key, status = "running" },
+      { role = run_identity.role, proposal_id = run_identity.invocation_id, dedup_key = run_identity.dedup_key, status = "running" },
     }, function()
       local result = workflow_codex.dispatch(run_identity, { prompt = "hello", worktree = "/tmp/worktree" })
       t.eq(result.deferred, true)
@@ -273,6 +287,23 @@ return {
       t.eq(calls[1].opts.timeout, 3600)
       t.eq(calls[1].opts.role, "consensus")
       t.eq(calls[1].opts.proposal_id, "proposal-42")
+      t.eq(calls[1].opts.dedup_key, "dedup-42")
+    end)
+  end,
+
+  test_workflow_dispatch_maps_source_agnostic_invocation_identity = function()
+    local run_identity = {
+      role = "consensus",
+      invocation_id = "consensus-call-42",
+      dedup_key = "dedup-42",
+    }
+    with_dispatch_fakes(nil, function(calls)
+      local result = workflow_codex.dispatch(run_identity, { prompt = "hello", worktree = "/tmp/worktree" })
+
+      t.eq(result.kind, "async")
+      t.eq(run_identity.proposal_id, nil)
+      t.eq(#calls, 1)
+      t.eq(calls[1].opts.proposal_id, "consensus-call-42")
       t.eq(calls[1].opts.dedup_key, "dedup-42")
     end)
   end,
@@ -440,11 +471,11 @@ return {
   test_consensus_decide_defers_when_same_proposal_run_is_live = function()
     mock_judgment_runtime()
     local run_opts = opts("matching-live-run")
-    local run_identity = identity.from_proposal("consensus", proposal(), { angle_lane = "teleology" })
+    local run_identity = library_run_identity(proposal(), "teleology")
     seed_codex_run(run_opts, {
       run_id = nonce(),
       role = run_identity.role,
-      proposal_id = run_identity.proposal_id,
+      proposal_id = run_identity.invocation_id,
       dedup_key = run_identity.dedup_key,
       status = "running",
       started_at = "2026-06-03T00:30:00Z",
@@ -467,11 +498,11 @@ return {
     mock_angle("fidelity", "approve", "Fidelity approves.")
 
     local run_opts = opts("defer-then-redrive")
-    local run_identity = identity.from_proposal("consensus", proposal(), { angle_lane = "teleology" })
+    local run_identity = library_run_identity(proposal(), "teleology")
     seed_codex_run(run_opts, {
       run_id = nonce(),
       role = run_identity.role,
-      proposal_id = run_identity.proposal_id,
+      proposal_id = run_identity.invocation_id,
       dedup_key = run_identity.dedup_key,
       status = "running",
       started_at = "2026-06-03T00:30:00Z",

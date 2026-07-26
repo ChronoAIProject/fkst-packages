@@ -15,6 +15,7 @@ local inventories = {
 }
 local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
+local consensus_call = require("devloop.consensus_call")
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
@@ -36,7 +37,7 @@ local PR_NUMBER = 7
 local BRANCH = "devloop-owner-repo-42-01HY"
 local BASE_BRANCH = "dev"
 local HEAD_SHA = "def456"
-local SOURCE_BOUNDARY = "consensus.consensus_converge"
+local SOURCE_BOUNDARY = "github-devloop-pr.devloop_review_continue"
 local SEMANTIC_VARIANT = "review_convergence_round"
 local OWNER = "github-devloop-pr"
 local TRACE_EDGE_ID = OWNER .. "/reviewing/entry/review_convergence_round"
@@ -300,13 +301,28 @@ end
 local function run_real_department(event)
   local raises = {}
   local original_raise = raise
+  local original_reach = consensus_call.reach
   raise = function(queue, payload)
     table.insert(raises, { queue = queue, payload = payload })
   end
+  consensus_call.reach = function(proposal)
+    return {
+      status = "converge",
+      schema = "consensus.consensus_converge.v1",
+      proposal_id = proposal.proposal_id,
+      dedup_key = "consensus:" .. proposal.dedup_key,
+      source_ref = proposal.source_ref,
+      round = proposal.round,
+      narrowed_question = proposal.convergence_question,
+      angle_digests = {},
+      effect_version = proposal.effect_version,
+    }
+  end
   local ok, failure = pcall(review_loop_department.pipeline, {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_review_continue",
     payload = event,
   })
+  consensus_call.reach = original_reach
   raise = original_raise
   return {
     exit_code = ok and 0 or 1,
@@ -361,6 +377,15 @@ local function assert_review_loop_admission_case(fixture)
     state = "OPEN",
     base_branch = BASE_BRANCH,
   })
+  if fixture.mock_context_bundle then
+    h.mock_context_bundle(event)
+    h.mock_issue_review({ "fkst-dev:reviewing" }, comments)
+    t.mock_command("/worktrees/devloop-", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
+  end
 
   local result, probes, decisions, boundary_calls, comment_builders,
     owner_decisions, grant_mints, facade_emissions = observe_department(function()
@@ -374,12 +399,15 @@ local function assert_review_loop_admission_case(fixture)
   t.eq(probe.current.version, fixture.current_version, fixture.name .. ": probe current version")
   t.is_true(type(probe.review_version) == "string", fixture.name .. ": probe review version")
 
-  t.eq(#decisions, 1, fixture.name .. ": structured CAS decision count")
+  local expected_decision_count = fixture.expected_decision_count or 1
+  t.eq(#decisions, expected_decision_count, fixture.name .. ": structured CAS decision count")
   local decision = decisions[1]
-  t.eq(decision.dept, "review_loop", fixture.name .. ": CAS decision department")
-  t.eq(decision.from_state, "reviewing", fixture.name .. ": logged source state")
-  t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
-  t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
+  if decision ~= nil then
+    t.eq(decision.dept, "review_loop", fixture.name .. ": CAS decision department")
+    t.eq(decision.from_state, "reviewing", fixture.name .. ": logged source state")
+    t.is_true(type(decision.outcome) == "string", fixture.name .. ": legacy log outcome captured")
+    t.is_true(type(decision.reason) == "string", fixture.name .. ": legacy log reason captured")
+  end
 
   local boundary_reached = #boundary_calls > 0
   t.eq(boundary_reached, fixture.boundary_reached == true, fixture.name .. ": admission boundary reach")
@@ -411,7 +439,10 @@ local function assert_review_loop_admission_case(fixture)
   t.eq(probe.outcome, fixture.probe_outcome, fixture.name .. ": literal probe outcome")
   t.eq(observed.status, fixture.admission_status, fixture.name .. ": observed admission status")
   t.eq(resolved.status, fixture.admission_status, fixture.name .. ": catalog admission status")
-  local expected_grants = fixture.post_admission_disposition == "effect-emitted" and 1 or 0
+  local expected_grants = fixture.expected_grant_count
+  if expected_grants == nil then
+    expected_grants = fixture.post_admission_disposition == "effect-emitted" and 1 or 0
+  end
   t.eq(#grant_mints, expected_grants, fixture.name .. ": production grant count")
   t.eq(#facade_emissions, expected_grants, fixture.name .. ": production facade emission count")
   if expected_grants == 1 then
@@ -488,22 +519,23 @@ local function assert_review_loop_admission_case(fixture)
   }
 end
 
-local function assert_malformed_is_pre_cas_and_catalog_illegal()
+local function assert_malformed_skips_before_cas_and_catalog_remains_illegal()
   local malformed = review_event(V_EQUAL, { proposal_id = 42 })
   local result, probes, decisions, boundary_calls, _, owner_decisions, grant_mints,
     facade_emissions = observe_department(function()
       return run_real_department(malformed)
     end)
 
-  t.eq(result.exit_code, 0, "review-loop-malformed: production rejects unsupported payload")
+  t.eq(result.exit_code, 0, "review-loop-malformed: production skips unsupported payload")
   t.eq(#probes, 0, "review-loop-malformed: production rejects before CAS")
   t.eq(#boundary_calls, 0, "review-loop-malformed: admission boundary is not reached")
   t.eq(#owner_decisions, 0, "review-loop-malformed: owner decider is not reached")
   t.eq(#grant_mints, 0, "review-loop-malformed: no grants")
   t.eq(#facade_emissions, 0, "review-loop-malformed: no facade emissions")
   t.eq(#result.raises, 0, "review-loop-malformed: no effects")
-  t.eq(#decisions, 1, "review-loop-malformed: rejection decision count")
-  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", "review-loop-malformed: rejection outcome")
+  t.eq(#decisions, 1, "review-loop-malformed: one skip decision")
+  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)",
+    "review-loop-malformed: base skip disposition")
 
   local resolved = catalog.resolve(POLICY_ID, {
     current = { state = "reviewing", version = V_EQUAL },
@@ -660,6 +692,34 @@ return {
     })
   end,
 
+  test_review_loop_nonterminal_apply_preserves_absent_legacy_cas_log = function()
+    assert_review_loop_admission_case({
+      name = "review-loop-nonterminal-apply",
+      current_state = "reviewing",
+      current_version = V_EQUAL,
+      event_version = V_EQUAL,
+      event_overrides = {
+        round = 0,
+        narrowed_question = "Which reviewed-head evidence resolves the gap?",
+        angle_digests = {
+          { angle = "minimal", verdict = "abstain", digest = "more evidence available" },
+        },
+        findings_record = "open:\nmore source-verifiable evidence is available",
+      },
+      boundary_reached = true,
+      probe_outcome = "apply",
+      admission_status = "apply",
+      expected_decision_count = 0,
+      expected_grant_count = 1,
+      mock_context_bundle = true,
+      post_admission_disposition = "effect-emitted",
+      expected_queues = {
+        "devloop_review_request",
+        "github-proxy.github_pr_comment_request",
+      },
+    })
+  end,
+
   test_review_loop_safe_equal_raw_different_applies = function()
     t.is_true(V_LONG ~= transition_version.safe_version_segment(V_LONG), "review-loop-safe-equal: raw fixture differs")
     assert_review_loop_admission_case({
@@ -733,8 +793,8 @@ return {
     })
   end,
 
-  test_review_loop_malformed_evidence_and_payload_fail_closed_before_cas = function()
-    assert_malformed_is_pre_cas_and_catalog_illegal()
+  test_review_loop_malformed_evidence_and_payload_skip_before_cas = function()
+    assert_malformed_skips_before_cas_and_catalog_remains_illegal()
   end,
 
   test_r9_pr_review_loop_old_equals_new_equals_corpus = function()

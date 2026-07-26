@@ -43,8 +43,8 @@ local EFFECTS = {
     sink_kind = "label",
     authority_class = "lifecycle-authoritative",
   },
-  ["consensus.proposal"] = {
-    effect_id = "queue:consensus.proposal",
+  ["devloop_consensus_request"] = {
+    effect_id = "queue:github-devloop.devloop_consensus_request",
     sink_kind = "queue",
     authority_class = "lifecycle-authoritative",
   },
@@ -157,7 +157,7 @@ local FIXTURES = json_array({
     expected_effect_ids = json_array({
       "comment:issue:thinking-state",
       "label:issue:thinking-state",
-      "queue:consensus.proposal",
+      "queue:github-devloop.devloop_consensus_request",
     }),
     source_line = 58,
   },
@@ -481,20 +481,10 @@ return {
     local runtime_tuples = tuple_set(first, record_tuple, "runtime records")
     assert_bidirectional_membership(runtime_tuples, fixture_tuples, "runtime records", "production fixture lattice", first)
     local expected = committed_records()
-    local inventory_tuples = tuple_set(expected, record_tuple, "inventory records")
-    assert_bidirectional_membership(runtime_tuples, inventory_tuples, "runtime records", "inventory records", first)
-    local inventory_difference = first_difference(
+    observation_support.assert_old_behavior_records(
       first,
       expected,
-      "old_behavior_observations[execute-start-receiver-activation]"
+      "runtime-bound OLD execute_start receiver activation observation"
     )
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error(
-        "runtime-bound OLD execute_start receiver activation observation differs at "
-          .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
-        0
-      )
-    end
   end,
 }
