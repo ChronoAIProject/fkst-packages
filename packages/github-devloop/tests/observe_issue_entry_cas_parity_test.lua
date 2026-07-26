@@ -709,6 +709,15 @@ local function assert_observe_issue_entry_old_corpus()
   t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 observe-issue-entry OLD observation corpus")
 end
 
+local function trace_fixture_by_id(fixture_id)
+  for _, fixture in ipairs(TRACE_FIXTURES) do
+    if fixture.fixture_id == fixture_id then
+      return fixture
+    end
+  end
+  error("missing observe-issue-entry trace fixture: " .. tostring(fixture_id), 0)
+end
+
 local function assert_observe_issue_entry_delivery_trace()
   local fixture = trace_fixture_by_id("thinking-idempotent-reemit")
   local production = assert_catalog_matches_observed_decision(fixture)
@@ -734,15 +743,6 @@ local function assert_observe_issue_entry_delivery_trace()
     observation_id,
     fixture.fixture_id .. ": authorized OLD and independently extracted NEW semantic trace"
   )
-end
-
-local function trace_fixture_by_id(fixture_id)
-  for _, fixture in ipairs(TRACE_FIXTURES) do
-    if fixture.fixture_id == fixture_id then
-      return fixture
-    end
-  end
-  error("missing observe-issue-entry trace fixture: " .. tostring(fixture_id), 0)
 end
 
 local function assert_managed_old_trace_case(fixture_id)

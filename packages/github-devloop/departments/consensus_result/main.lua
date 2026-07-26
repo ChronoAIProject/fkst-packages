@@ -246,6 +246,8 @@ local function make_department(ports)
       error("github-devloop: consumed-queue-unrouted: dept=consensus_result queue=" .. tostring(event and event.queue))
     end
     if is_consensus_request and type(event.payload) ~= "table" then
+      devloop_logging.log_entry("consensus_result", event, "unknown", devloop_logging.payload_field(event.payload, "dedup_key"))
+      devloop_logging.log_cas_decision("consensus_result", "unknown", { state = nil, version = nil }, "thinking", "ready", "skip-foreign(proposal_id)", "unsupported event payload")
       return
     end
     if is_consensus_request then

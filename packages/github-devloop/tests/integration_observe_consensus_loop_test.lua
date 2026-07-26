@@ -810,9 +810,9 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_loop_fails_closed_for_foreign_proposal = function()
+  test_loop_skips_foreign_proposal = function()
     local result = run_loop(unresolved({ proposal_id = "autochrono/issue/owner/repo/42" }), opts("loop-foreign"))
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 

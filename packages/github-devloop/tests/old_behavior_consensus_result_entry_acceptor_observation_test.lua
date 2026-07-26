@@ -31,9 +31,8 @@ local HOLD_LABEL = "label:issue:dependency-hold"
 local RELEASE_COMMENT = "comment:issue:dependency-release"
 
 local FIXTURES = ra.json_array({
-  { disposition = "fail-malformed-local-decision", status = "error", reason = "unsupported-payload",
-    cas = "fail-closed(consensus-result-invalid)", target = "reject", source_line = 271,
-    error = "malformed caller-owned decision",
+  { disposition = "skip-foreign-payload", status = "rejected", reason = "skip-foreign(proposal_id)",
+    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 249,
     payload = { schema = "unsupported.result.v1", proposal_id = PROPOSAL_ID, dedup_key = VERSION } },
   { disposition = "fail-owned-malformed-proposal", status = "error", reason = "owned-proposal-malformed",
     cas = "fail-closed(consensus-result-invalid)", target = "reject", source_line = 149, error = "owned proposal_id is malformed",

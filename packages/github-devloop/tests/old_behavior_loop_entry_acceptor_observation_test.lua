@@ -28,9 +28,8 @@ local COMMENT = "comment:issue:converge-round"
 local CONSENSUS_CONTINUE = "queue:github-devloop.devloop_consensus_continue"
 
 local FIXTURES = ra.json_array({
-  { disposition = "fail-malformed-local-continuation", status = "error", reason = "unsupported-event-payload",
-    cas = "fail-closed(consensus-continuation-invalid)", target = "reject", source_line = 52,
-    error = "malformed caller-owned convergence result",
+  { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-event-payload",
+    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 52,
     payload = { schema = "unsupported.converge.v1", proposal_id = PROPOSAL_ID, dedup_key = VERSION } },
   { disposition = "skip-non-whitelisted-author", status = "rejected", reason = "non-whitelisted-author",
     cas = "skip-non-whitelisted-author", target = "reject", source_line = 78, author_login = "ordinary-user",

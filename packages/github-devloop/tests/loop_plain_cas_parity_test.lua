@@ -576,12 +576,11 @@ local function assert_malformed_pre_cas()
   local result, probes, decisions, boundary_calls = observe_department(function()
     return run_real_department(payload)
   end)
-  t.eq(result.exit_code, 1, "loop-malformed: production fails closed on malformed caller-owned continuation")
-  t.is_true(tostring(result.error):find("malformed caller-owned convergence result", 1, true) ~= nil,
-    "loop-malformed: exact fail-closed error")
+  t.eq(result.exit_code, 0, "loop-malformed: production rejects malformed payload without error")
   t.eq(#probes, 0, "loop-malformed: production rejects before CAS")
   t.eq(#boundary_calls, 0, "loop-malformed: production rejects before admission boundary")
-  t.eq(#decisions, 0, "loop-malformed: no benign pre-CAS decision is logged")
+  t.eq(#decisions, 1, "loop-malformed: pre-CAS decision is logged")
+  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", "loop-malformed: legacy log outcome")
   t.eq(#result.raises, 0, "loop-malformed: no effects are emitted")
 end
 

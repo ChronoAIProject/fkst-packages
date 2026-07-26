@@ -49,18 +49,22 @@ end
 return saga.department(spec, { done = function() return false end, act = function(event)
   local unresolved = event.payload or {}
   if not v_unresolved.is_supported_unresolved(unresolved) then
-    error("github-devloop: consensus-continuation-invalid: malformed caller-owned convergence result")
+    devloop_logging.log_entry("loop", event, "unknown", devloop_logging.payload_field(unresolved, "dedup_key"))
+    devloop_logging.log_cas_decision("loop", "unknown", { state = nil, version = nil }, "thinking", "thinking", "skip-foreign(proposal_id)", "unsupported event payload")
+    return
   end
 
   devloop_logging.log_entry("loop", event, unresolved.proposal_id, unresolved.dedup_key)
   local repo, issue_number = base_ids.parse_proposal_id(unresolved.proposal_id)
   if repo == nil then
-    error("github-devloop: consensus-continuation-invalid: proposal_id is malformed")
+    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, { state = nil, version = nil }, "thinking", "thinking", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
+    return
   end
 
   local lock_key = entity_lib.loop_lock_key(unresolved.proposal_id)
   if lock_key == nil then
-    error("github-devloop: consensus-continuation-invalid: no transition lock key")
+    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, { state = nil, version = nil }, "thinking", "thinking", "skip-foreign(proposal_id)", "no transition lock key")
+    return
   end
 
   local call = with_lock(lock_key, function()
