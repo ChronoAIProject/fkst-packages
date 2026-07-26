@@ -576,6 +576,10 @@ return {
     t.eq(reservation.successor_version, reintake.raises[1].payload.effect_id)
 
     table.insert(world.issues[101].comments, command_response(command, "applied"))
+    table.insert(world.issues[101].comments, reintake_command(
+      "IC_owner_reintake_101_next",
+      "2026-07-16T00:00:04Z"
+    ))
     t.eq(controller.reconcile(REPO, proposal_id(101)), true)
     t.eq(controller.reconcile(REPO, proposal_id(101)), true)
     t.eq(world.grant.holders[1], 101)
@@ -585,7 +589,7 @@ return {
       101,
       "thinking",
       reservation.successor_version,
-      "2026-07-16T00:00:04Z"
+      "2026-07-16T00:00:05Z"
     ))
     t.eq(controller.reconcile(REPO, proposal_id(101)), true)
     t.eq(world.grant.holders[1], 101)
@@ -594,8 +598,8 @@ return {
     table.insert(world.issues[101].comments, state_comment(
       101,
       "blocked",
-      proposal_id(101) .. "/2026-07-16T00-00-05Z/intake/3",
-      "2026-07-16T00:00:05Z"
+      proposal_id(101) .. "/2026-07-16T00-00-06Z/intake/3",
+      "2026-07-16T00:00:06Z"
     ))
     local third = testing.run_fake(department, owner_event(103))
     t.eq(third.raises[1].queue, "devloop_intake_candidate")

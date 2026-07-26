@@ -60,7 +60,7 @@ local function parse_command(body)
   return nil
 end
 
-function C.operator_command_fact(comments, command_name)
+function C.operator_command_fact(comments, command_name, expected_key)
   if type(comments) ~= "table" then
     return nil
   end
@@ -69,14 +69,17 @@ function C.operator_command_fact(comments, command_name)
     local parsed = parse_command(parsers_misc._comment_body(comment))
     if parsed ~= nil and parsed.command == command_name then
       if parsers_misc._is_trusted_comment(comment) then
-        latest = {
-          command = parsed.command,
-          key = command_key(comment, index),
-          author_login = parsers_misc._comment_author_login(comment),
-          created_at = parsers_misc._comment_created_at(comment),
-          body = parsers_misc._comment_body(comment),
-          blocker_number = parsed.blocker_number,
-        }
+        local key = command_key(comment, index)
+        if expected_key == nil or key == tostring(expected_key) then
+          latest = {
+            command = parsed.command,
+            key = key,
+            author_login = parsers_misc._comment_author_login(comment),
+            created_at = parsers_misc._comment_created_at(comment),
+            body = parsers_misc._comment_body(comment),
+            blocker_number = parsed.blocker_number,
+          }
+        end
       else
         devloop_logging.log_line("info", "operator_command", "IGNORED", {
           "command=" .. tostring(parsed.command),

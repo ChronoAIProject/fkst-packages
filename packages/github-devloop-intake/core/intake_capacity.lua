@@ -279,8 +279,12 @@ local function reintake_reservation_is_live(repo, current, reservation)
     return false
   end
   local proposal_id = base_ids.proposal_id(repo, number)
-  local command = operator_commands.operator_command_fact(current.comments, "reintake")
-  if command == nil or command.key ~= reservation.command_key then
+  local command = operator_commands.operator_command_fact(
+    current.comments,
+    "reintake",
+    reservation.command_key
+  )
+  if command == nil then
     return false
   end
   local response = operator_commands.operator_command_response_fact(current.comments, {
