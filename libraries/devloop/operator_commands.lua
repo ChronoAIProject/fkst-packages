@@ -60,7 +60,7 @@ local function parse_command(body)
   return nil
 end
 
-function C.operator_command_fact(comments, command_name)
+function C.operator_command_fact(comments, command_name, expected_key)
   if type(comments) ~= "table" then
     return nil
   end
@@ -69,14 +69,17 @@ function C.operator_command_fact(comments, command_name)
     local parsed = parse_command(parsers_misc._comment_body(comment))
     if parsed ~= nil and parsed.command == command_name then
       if parsers_misc._is_trusted_comment(comment) then
-        latest = {
-          command = parsed.command,
-          key = command_key(comment, index),
-          author_login = parsers_misc._comment_author_login(comment),
-          created_at = parsers_misc._comment_created_at(comment),
-          body = parsers_misc._comment_body(comment),
-          blocker_number = parsed.blocker_number,
-        }
+        local key = command_key(comment, index)
+        if expected_key == nil or key == tostring(expected_key) then
+          latest = {
+            command = parsed.command,
+            key = key,
+            author_login = parsers_misc._comment_author_login(comment),
+            created_at = parsers_misc._comment_created_at(comment),
+            body = parsers_misc._comment_body(comment),
+            blocker_number = parsed.blocker_number,
+          }
+        end
       else
         devloop_logging.log_line("info", "operator_command", "IGNORED", {
           "command=" .. tostring(parsed.command),
@@ -114,20 +117,31 @@ function C.reintake_source_refs_match(left, right, limit)
     and tostring(left.ref) == tostring(right.ref)
 end
 
-function C.has_operator_command_response(comments, command)
+function C.operator_command_response_fact(comments, command)
   if type(comments) ~= "table" or type(command) ~= "table" then
-    return false
+    return nil
   end
   local marker = '<!-- fkst:github-devloop:operator-command:v1 command="'
     .. tostring(command.command)
     .. '" key="' .. tostring(command.key)
     .. '"'
+  local latest = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    if parsers_misc._comment_body(comment):find(marker, 1, true) ~= nil then
-      return true
+    for candidate in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:operator%-command:v1.-%-%->") do
+      if candidate:find(marker, 1, true) ~= nil then
+        latest = {
+          outcome = candidate:match(' outcome="([^"]+)"'),
+          reason = candidate:match(' reason="([^"]+)"'),
+          comment_created_at = parsers_misc._comment_created_at(comment),
+        }
+      end
     end
   end
-  return false
+  return latest
+end
+
+function C.has_operator_command_response(comments, command)
+  return C.operator_command_response_fact(comments, command) ~= nil
 end
 
 function C.operator_command_response_count(comments, command_name, outcome, reason)
