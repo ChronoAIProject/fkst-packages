@@ -804,6 +804,8 @@ def _attestation_messages(
 
 
 def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
+    from check_repo_restart_preflight import _step8_complete  # Lazy to avoid the checker import cycle.
+
     root = Path(root)
     messages = _admission_trace_messages(root)
     messages.extend(
@@ -878,7 +880,7 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
             else _bound_manifest_messages(root, artifact, entry, protected_base)
         )
         messages.extend(bound_messages)
-        if bound_messages:
+        if bound_messages or not _step8_complete(root, protected_base, "HEAD"):
             messages.append(f"{entry} grows {ALLOWLIST} relative to the protected base")
 
     for path, artifact in attestations:

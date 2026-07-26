@@ -211,10 +211,20 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
             self.messages(),
         )
 
-    def test_matching_valid_manifest_admits_allowlist_growth(self) -> None:
+    def test_post_terminal_valid_manifest_growth_is_admitted(self) -> None:
         self.add_growth()
         self.write_manifest(self.manifest())
         self.assertEqual(self.messages(), [])
+
+    def test_during_refactor_valid_manifest_growth_is_forbidden(self) -> None:
+        self.write("libraries/devloop/restart_effect_seal.lua", "return {}\n")
+        self.commit("retain old authority")
+        self.add_growth()
+        self.write_manifest(self.manifest())
+        self.assertIn(
+            f"{checker.INTENT_DIFF_DIR}/123.json grows {checker.ALLOWLIST} relative to the protected base",
+            self.messages(),
+        )
 
     def test_malformed_manifest_does_not_admit_growth(self) -> None:
         self.add_growth()
