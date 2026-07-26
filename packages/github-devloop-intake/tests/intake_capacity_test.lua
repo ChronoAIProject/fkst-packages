@@ -71,7 +71,7 @@ local function contains(values, expected)
 end
 
 local function active_issue(current)
-  return capacity.issue_is_active(REPO, current)
+  return capacity.issue_occupies_capacity(REPO, current)
 end
 
 local function new_world(max_inflight)
@@ -334,6 +334,29 @@ return {
     t.eq(claims.issue_claim_state(world.issues[71].assignees, OWNER), "unassigned")
     t.eq(claims.issue_claim_state(world.issues[72].assignees, OWNER), "self")
     t.eq(world:active_claim_count(), 1)
+  end,
+
+  test_blocked_issue_only_reacquires_capacity_through_explicit_reintake_authorization = function()
+    h.mock_bot_env()
+    local world = new_world(1)
+    world:add(issue(75, {
+      comments = {
+        decision_comment(75, "enable"),
+        state_comment(75, "blocked"),
+      },
+    }))
+    local controller = capacity.new(world:ports("/runtime/reintake"))
+
+    t.eq(authorize(controller, world, 75), false)
+    local reintake_granted = controller.authorize_reintake(
+      REPO,
+      75,
+      world:current(75),
+      proposal_id(75)
+    )
+
+    t.eq(reintake_granted, true)
+    t.eq(world.grant.holders[1], 75)
   end,
 
   test_declined_state_marker_releases_capacity_for_next_issue = function()

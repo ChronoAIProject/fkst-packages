@@ -9,6 +9,8 @@ local conv_reconcile = require("devloop.convergence.reconcile")
 local conv_rounds = require("devloop.convergence.rounds")
 local convergence_shared = require("devloop.convergence.shared")
 local m_builders = require("devloop.markers.builders")
+local testing = require("testkit_internal.testing")
+local admission_department = require("departments.admission.main")
 
 local function mock_repo_env(repo)
   t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
@@ -203,6 +205,63 @@ return {
     t.eq(result.raises[1].payload.effect_id, expected_effect_key(proposal_id, command, command.created_at))
     t.eq(result.raises[1].payload.reintake_command_created_at, command.created_at)
     t.eq(result.raises[1].payload.reintake_effect_updated_at, command.created_at)
+  end,
+
+  test_admission_terminal_blocked_reintake_uses_explicit_capacity_authorization = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local command = trusted_reintake_command("IC_reintake_blocked_capacity")
+    local current = {
+      number = 42,
+      title = "Issue",
+      body = "",
+      updated_at = "2026-06-04T03:00:00Z",
+      state = "OPEN",
+      labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+      comments = {
+        m_builders.intake_decision_marker(proposal_id, "enable", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
+        trusted_comment(core.state_marker(proposal_id, "blocked", proposal_id .. "/2026-06-04T02-00-00Z/intake/1"), "2026-06-04T02:00:00Z"),
+        command,
+      },
+      assignees = {},
+    }
+    local reintake_authorized = false
+    h.mock_bot_env()
+    mock_repo_env()
+    local department = admission_department.make_department({
+      capacity = {
+        reconcile = function()
+          return true, "wip-cap-reconciled"
+        end,
+        authorize = function()
+          error("standard capacity authorization must not handle explicit reintake")
+        end,
+        authorize_reintake = function(repo, issue_number, candidate, actual_proposal_id)
+          t.eq(repo, "owner/repo")
+          t.eq(tostring(issue_number), "42")
+          t.eq(candidate, current)
+          t.eq(actual_proposal_id, proposal_id)
+          reintake_authorized = true
+          return true, "wip-cap-granted"
+        end,
+        relinquish = function()
+          return true
+        end,
+      },
+      claims = {
+        claim_issue_for_management = function()
+          return true
+        end,
+      },
+      read_current_issue = function()
+        return "owner/repo", 42, current, nil
+      end,
+    })
+
+    local result = testing.run_fake(department, entity_changed(42))
+
+    t.eq(reintake_authorized, true)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "devloop_intake_candidate")
   end,
 
   test_admission_reintake_refuses_after_blocked_then_newer_active_marker_with_stale_labels = function()

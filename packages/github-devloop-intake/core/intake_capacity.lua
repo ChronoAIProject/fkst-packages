@@ -119,7 +119,7 @@ local function contains(values, expected)
   return false
 end
 
-local function issue_is_active(repo, current)
+local function issue_occupies_capacity(repo, current)
   if type(current) ~= "table" or tostring(current.state or ""):upper() ~= "OPEN" then
     return false
   end
@@ -185,7 +185,7 @@ local function build_snapshot(ports, repo, owner, grant, candidate_number, candi
   return snapshot
 end
 
-local function desired_holders(repo, owner, max_inflight, grant, snapshot, candidate_number)
+local function desired_holders(repo, owner, max_inflight, grant, snapshot, candidate_number, admit_nonoccupying_candidate)
   local holders = {}
   local selected = {}
 
@@ -196,7 +196,7 @@ local function desired_holders(repo, owner, max_inflight, grant, snapshot, candi
     if #holders < max_inflight
       and current ~= nil
       and ownership ~= "other"
-      and issue_is_active(repo, current)
+      and issue_occupies_capacity(repo, current)
       and not selected[normalized] then
       table.insert(holders, normalized)
       selected[normalized] = true
@@ -207,8 +207,10 @@ local function desired_holders(repo, owner, max_inflight, grant, snapshot, candi
   for number, current in pairs(snapshot) do
     local ownership = claims.issue_claim_state(current.assignees, owner, current.labels)
     local is_current_candidate = tonumber(candidate_number) == number
+    local candidate_is_eligible = issue_occupies_capacity(repo, current)
+      or (is_current_candidate and admit_nonoccupying_candidate == true)
     if not selected[number]
-      and issue_is_active(repo, current)
+      and candidate_is_eligible
       and (ownership == "self" or (is_current_candidate and ownership == "unassigned")) then
       table.insert(candidates, number)
     end
@@ -231,7 +233,7 @@ local function converge_claims(ports, repo, owner, holders, snapshot)
       and claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
       table.insert(releases, {
         number = number,
-        active = issue_is_active(repo, current),
+        active = issue_occupies_capacity(repo, current),
       })
     end
   end
@@ -271,7 +273,7 @@ end
 function C.new(ports)
   validate_ports(ports)
 
-  local function decide(repo, candidate_number, candidate_current, proposal_id)
+  local function decide(repo, candidate_number, candidate_current, proposal_id, admit_nonoccupying_candidate)
     local max_inflight = ports.max_inflight()
     if max_inflight == nil or not ports.write_enabled() then
       return true, max_inflight == nil and "wip-cap-disabled" or "wip-cap-dry-run"
@@ -279,7 +281,15 @@ function C.new(ports)
     local owner = ports.owner()
     local grant = ports.read_grant(repo, owner)
     local snapshot = build_snapshot(ports, repo, owner, grant, candidate_number, candidate_current)
-    local holders = desired_holders(repo, owner, max_inflight, grant, snapshot, candidate_number)
+    local holders = desired_holders(
+      repo,
+      owner,
+      max_inflight,
+      grant,
+      snapshot,
+      candidate_number,
+      admit_nonoccupying_candidate
+    )
 
     if not grant_matches(grant, repo, owner, max_inflight, holders) then
       local record = {
@@ -367,10 +377,13 @@ function C.new(ports)
 
   return {
     authorize = function(repo, issue_number, current, proposal_id)
-      return decide(repo, tonumber(issue_number), current, proposal_id)
+      return decide(repo, tonumber(issue_number), current, proposal_id, false)
+    end,
+    authorize_reintake = function(repo, issue_number, current, proposal_id)
+      return decide(repo, tonumber(issue_number), current, proposal_id, true)
     end,
     reconcile = function(repo, proposal_id)
-      return decide(repo, nil, nil, proposal_id)
+      return decide(repo, nil, nil, proposal_id, false)
     end,
     relinquish = relinquish,
   }
@@ -518,7 +531,7 @@ function C.production(_M)
 end
 
 C.schema = schema
-C.issue_is_active = issue_is_active
+C.issue_occupies_capacity = issue_occupies_capacity
 C.grant_ref = grant_ref
 
 return C
