@@ -119,14 +119,6 @@ local function setup_stub_siblings(root)
   stall_window = "30s",
 }]])
 
-  write_stub_package(root, "consensus")
-  write_stub_department(root, "consensus", "decide", [[{
-  consumes = { "proposal" },
-  produces = { "consensus_reached", "consensus_converge" },
-  published_seam = { "proposal" },
-  stall_window = "30s",
-}]])
-
   write_stub_package(root, "github-devloop-decompose")
   write_stub_department(root, "github-devloop-decompose", "decompose", [[{
   consumes = { "devloop_decompose" },
@@ -153,6 +145,7 @@ local function setup_workspace(name, child_test)
     "testkit",
     "testkit_internal",
     "forge",
+    "consensus",
     "devloop",
   }) do
     copy_dir(source .. "/libraries/" .. lib, root .. "/libraries/" .. lib)
@@ -189,8 +182,6 @@ local function run_child(root)
     shell_quote(root .. "/packages/github-devloop-pr"),
     "--package-root",
     shell_quote(root .. "/packages/github-proxy"),
-    "--package-root",
-    shell_quote(root .. "/packages/consensus"),
     "--package-root",
     shell_quote(root .. "/packages/github-devloop-decompose"),
   }, " ")

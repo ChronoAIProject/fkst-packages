@@ -73,8 +73,8 @@ local over_doctor_golden = {
   },
   thinking = {
     budget_minutes = 150,
-    reason = "state age 151m exceeds 150m liveness budget for consensus.proposal",
-    suggested = "inspect consensus.proposal delivery and re-run observe/liveness",
+    reason = "state age 151m exceeds 150m liveness budget for devloop_consensus_request",
+    suggested = "inspect devloop_consensus_request delivery and re-run observe/liveness",
   },
 }
 

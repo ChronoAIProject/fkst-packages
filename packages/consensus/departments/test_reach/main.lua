@@ -4,6 +4,7 @@ local saga = require("workflow.saga")
 local spec = {
   consumes = { "test_reach" },
   produces = { "test_reached", "test_converge" },
+  published_seam = { "test_reach" },
   ephemeral = { "test_reach" },
 }
 

@@ -1,5 +1,5 @@
 kind = "library"
-name = "consensus-lib"
+name = "consensus"
 
 [code]
 root = "."

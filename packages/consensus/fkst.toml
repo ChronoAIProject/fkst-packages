@@ -1,5 +1,5 @@
 kind = "package"
-name = "consensus"
+name = "consensus-tests"
 persistence_class = "judgment_pipeline"
 
 [code]

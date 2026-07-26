@@ -397,7 +397,6 @@ local function run_duplicate_recovery_fixture()
       "--project-root", shell_quote(composed_root),
       "--package-root", shell_quote(composed_root .. "/packages/github-devloop-pr"),
       "--package-root", shell_quote(composed_root .. "/packages/github-proxy"),
-      "--package-root", shell_quote(composed_root .. "/packages/consensus"),
       "--package-root", shell_quote(composed_root .. "/packages/github-devloop-decompose"),
     }, " ")
     local output, passed = command_output(command)
