@@ -198,6 +198,15 @@ local function reservation_equal(left, right)
     and tostring(left and left.successor_version) == tostring(right and right.successor_version)
 end
 
+local function contains_reservation(reservations, expected)
+  for _, reservation in ipairs(reservations or {}) do
+    if reservation_equal(reservation, expected) then
+      return true
+    end
+  end
+  return false
+end
+
 local function grant_matches(grant, repo, owner, max_inflight, holders, reservations)
   if type(grant) ~= "table"
     or grant.schema ~= schema
@@ -495,16 +504,25 @@ function C.new(ports)
     if candidate_number == nil then
       return true, "wip-cap-reconciled"
     end
-    if contains(holders, candidate_number) then
+    local holder_granted = contains(holders, candidate_number)
+    local reservation_granted = requested_reservation == nil
+      or contains_reservation(reservations, requested_reservation)
+    if holder_granted and reservation_granted then
       if type(ports.log_decision) == "function" then
         ports.log_decision(proposal_id, grant, "granted", "remote capacity grant contains candidate")
       end
       return true, "wip-cap-granted"
     end
+    local held_reason = holder_granted and requested_reservation ~= nil
+      and "remote capacity grant does not contain the command-bound reintake reservation"
+      or "remote capacity grant is full"
+    local outcome = holder_granted and requested_reservation ~= nil
+      and "wip-cap-reservation-mismatch"
+      or "wip-cap-reached"
     if type(ports.log_decision) == "function" then
-      ports.log_decision(proposal_id, grant, "held", "remote capacity grant is full")
+      ports.log_decision(proposal_id, grant, "held", held_reason)
     end
-    return false, "wip-cap-reached"
+    return false, outcome
   end
 
   local function relinquish(repo, issue_number, proposal_id)

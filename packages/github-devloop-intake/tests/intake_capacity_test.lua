@@ -472,12 +472,47 @@ return {
 
     t.eq(controller.authorize_reintake(REPO, 76, world:current(76), proposal_id(76)), true)
     world:claim(76)
-    table.insert(world.issues[76].comments, command_response(command, "refused"))
+    table.insert(world.issues[76].comments, command_response(command, "applied", "2026-07-16T00:00:03Z"))
+    table.insert(world.issues[76].comments, command_response(command, "refused", "2026-07-16T00:00:04Z"))
 
     t.eq(controller.reconcile(REPO, proposal_id(76)), true)
     t.eq(#world.grant.holders, 0)
     t.eq(#world.grant.reintake_reservations, 0)
     t.eq(claims.issue_claim_state(world.issues[76].assignees, OWNER), "unassigned")
+  end,
+
+  test_reintake_cas_loss_does_not_accept_holder_without_matching_reservation = function()
+    h.mock_bot_env()
+    local command = reintake_command("IC_reintake_contended_77")
+    local world = new_world(1)
+    world:add(issue(77, {
+      assignees = { OWNER },
+      comments = {
+        decision_comment(77, "enable"),
+        state_comment(77, "blocked", nil, "2026-07-16T00:00:01Z"),
+        command,
+      },
+    }))
+    world.grant = {
+      schema = capacity.schema,
+      repo = REPO,
+      owner = OWNER,
+      capacity = 1,
+      holders = { 77 },
+      reintake_reservations = {},
+      sha = string.format("%040x", 10),
+    }
+    world.before_next_cas = function()
+      world.grant.sha = string.format("%040x", 11)
+    end
+    local controller = capacity.new(world:ports("/runtime/reintake-contended"))
+    local department = owner_department(world, controller)
+
+    local result = testing.run_fake(department, owner_event(77))
+
+    t.eq(#result.raises, 0)
+    t.eq(world.grant.holders[1], 77)
+    t.eq(#world.grant.reintake_reservations, 0)
   end,
 
   test_real_admission_converts_blocked_holder_to_reintake_reservation_without_claim_gap = function()

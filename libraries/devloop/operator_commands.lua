@@ -122,10 +122,11 @@ function C.operator_command_response_fact(comments, command)
     .. tostring(command.command)
     .. '" key="' .. tostring(command.key)
     .. '"'
+  local latest = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for candidate in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:operator%-command:v1.-%-%->") do
       if candidate:find(marker, 1, true) ~= nil then
-        return {
+        latest = {
           outcome = candidate:match(' outcome="([^"]+)"'),
           reason = candidate:match(' reason="([^"]+)"'),
           comment_created_at = parsers_misc._comment_created_at(comment),
@@ -133,7 +134,7 @@ function C.operator_command_response_fact(comments, command)
       end
     end
   end
-  return nil
+  return latest
 end
 
 function C.has_operator_command_response(comments, command)
