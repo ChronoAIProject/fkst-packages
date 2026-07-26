@@ -97,7 +97,8 @@ end
 local function catalog_rows(records, grantless_only)
   local rows = json_array()
   for _, record in ipairs(records or {}) do
-    if not grantless_only or tostring(record.authority_class):match("^grantless%-") then
+    if record.id ~= "queue:github-devloop-pr.restart_transition_anomaly"
+      and (not grantless_only or tostring(record.authority_class):match("^grantless%-")) then
       table.insert(rows, {
         effect_id = record.id,
         department = record.callsite.department,

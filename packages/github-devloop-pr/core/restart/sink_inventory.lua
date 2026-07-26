@@ -51,6 +51,7 @@ queue("observe_pr", "devloop_review_meta", "lifecycle-authoritative", "state:v1/
 queue("observe_pr", "devloop_merge_ready", "lifecycle-authoritative", "state:v1/merge-ready+review+head")
 queue("observe_pr", "devloop_review_reconcile", "grantless-published-intent", "review-reconcile:v1/proposal+round")
 queue("observe_pr", "devloop_timeout_reconcile", "lifecycle-authoritative", "timeout-reconcile:v1/proposal+state+round")
+queue("observe_pr", "restart_transition_anomaly", "grantless-telemetry", "restart-transition-anomaly.v1/per-pass-record")
 queue("review_loop", "consensus.proposal", "grantless-published-intent", "consensus-proposal:v1/review-proposal+dedup")
 queue("review_loop", "devloop_review_reconcile", "grantless-published-intent", "review-reconcile:v1/proposal+round")
 queue("review_pr", "consensus.proposal", "grantless-published-intent", "consensus-proposal:v1/review-proposal+dedup")
