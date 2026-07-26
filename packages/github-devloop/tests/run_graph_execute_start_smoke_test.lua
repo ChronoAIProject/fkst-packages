@@ -114,7 +114,7 @@ return {
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 8 }))
     graph.assert_covers(trace, {
       "github-devloop.devloop_execute_request -> github-devloop.execute_start",
-      "consensus.proposal -> consensus.decide",
+      "github-devloop.devloop_consensus_request -> github-devloop.consensus_result",
       "github-proxy.github_issue_comment_request -> github-proxy.github_comment",
       "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
     })
@@ -127,7 +127,7 @@ return {
     t.eq(#step.raises, 3)
     t.eq(step.raises[1].queue, "github-proxy.github_issue_comment_request")
     t.eq(step.raises[2].queue, "github-proxy.github_issue_label_request")
-    t.eq(step.raises[3].queue, "devloop_consensus_request")
+    t.eq(step.raises[3].queue, "github-devloop.devloop_consensus_request")
 
     local comment = step.raises[1].payload
     t.eq(comment.schema, "github-proxy.v1")
