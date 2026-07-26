@@ -159,9 +159,9 @@ local FIXTURES = json_array({
   {
     -- Owner directive (#2725): the continuation ROUND-BUDGET is no longer a terminal
     -- cause, so a converge round past the former budget REDRIVES the next round -- the
-    -- thinking row-replay re-raises consensus.proposal instead of routing to a terminal
+    -- thinking row-replay re-enters the local consensus request instead of routing to a terminal
     -- blocked reconcile. The row-replay decision is now applied(replay) targeting
-    -- consensus.proposal, never blocked.
+    -- consensus request, never blocked.
     name = "terminal-convergence-route-blocked",
     converge_round = 1,
     expected_status = "re-raised",

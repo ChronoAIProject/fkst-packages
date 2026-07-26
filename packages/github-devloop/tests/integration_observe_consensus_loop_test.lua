@@ -445,9 +445,13 @@ return {
     t.eq(#complete.raises, 0)
   end,
 
-	  test_consensus_result_skips_foreign_proposal = function()
-	    local result = run_result(reached({ proposal_id = "autochrono/issue/owner/repo/42" }), opts("result-foreign"))
-	    t.eq(result.exit_code, 0)
+  test_consensus_result_fails_loud_for_malformed_local_decision = function()
+    local result = run_result_expecting_failure(
+      reached({ proposal_id = "autochrono/issue/owner/repo/42" }),
+      opts("result-malformed-local-decision")
+    )
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.failure.error):find("owned proposal_id is malformed", 1, true) ~= nil)
     t.eq(#result.raises, 0)
   end,
 

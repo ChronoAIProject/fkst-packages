@@ -211,22 +211,7 @@ local function post_admission_disposition(result, decision, boundary_reached)
 end
 
 local function run_real_department(payload)
-  local raises = {}
-  local original_raise = raise
-  raise = function(queue, raised_payload)
-    table.insert(raises, { queue = queue, payload = raised_payload })
-  end
-  local ok, failure = pcall(loop_department.pipeline, {
-    queue = "devloop_consensus_continue",
-    payload = payload,
-    ts = "2026-06-03T01:02:03Z",
-  })
-  raise = original_raise
-  return {
-    exit_code = ok and 0 or 1,
-    error = ok and nil or tostring(failure),
-    raises = raises,
-  }
+  return h.run_loop(payload, h.opts("loop-plain-cas-parity"))
 end
 
 local function fixture_comments(event, fixture)
@@ -378,6 +363,9 @@ local function assert_case(fixture)
     fixture.name .. ": post-admission disposition"
   )
   t.eq(decision.outcome, fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome")
+  if fixture.legacy_log_reason ~= nil then
+    t.eq(decision.reason, fixture.legacy_log_reason, fixture.name .. ": legacy log reason")
+  end
   return {
     event = event,
     result = result,
@@ -407,6 +395,7 @@ local TRACE_FIXTURES = {
     effect_count = 2,
     post_admission_disposition = "effects-emitted(2)",
     legacy_log_outcome = "applied",
+    legacy_log_reason = "raising loop proposal round 1",
   },
   {
     fixture_id = "source-older-stale",
@@ -587,11 +576,13 @@ local function assert_malformed_pre_cas()
   local result, probes, decisions, boundary_calls = observe_department(function()
     return run_real_department(payload)
   end)
-  t.eq(result.exit_code, 0, "loop-malformed: production rejects malformed payload without error")
+  t.eq(result.exit_code, 1, "loop-malformed: production fails closed on malformed caller-owned continuation")
+  t.is_true(tostring(result.error):find("malformed caller-owned convergence result", 1, true) ~= nil,
+    "loop-malformed: exact fail-closed error")
   t.eq(#probes, 0, "loop-malformed: production rejects before CAS")
   t.eq(#boundary_calls, 0, "loop-malformed: production rejects before admission boundary")
-  t.eq(#decisions, 1, "loop-malformed: pre-CAS decision is logged")
-  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", "loop-malformed: legacy log outcome")
+  t.eq(#decisions, 0, "loop-malformed: no benign pre-CAS decision is logged")
+  t.eq(#result.raises, 0, "loop-malformed: no effects are emitted")
 end
 
 return {
@@ -609,6 +600,7 @@ return {
       effect_count = 2,
       post_admission_disposition = "effects-emitted(2)",
       legacy_log_outcome = "applied",
+      legacy_log_reason = "raising loop proposal round 1",
     })
   end,
 
@@ -676,6 +668,7 @@ return {
       effect_count = 2,
       post_admission_disposition = "effects-emitted(2)",
       legacy_log_outcome = "applied",
+      legacy_log_reason = "raising loop proposal round 1",
     })
   end,
 

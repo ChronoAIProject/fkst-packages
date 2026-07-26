@@ -309,7 +309,7 @@ local function build_record(fixture)
       cas_outcome = "not-applicable-direct-constructor",
       emitted_effects = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop-pr.devloop_review_request",
           sink_kind = "queue",
           authority_class = "lifecycle-authoritative",
           ordinal = 1,
@@ -317,7 +317,7 @@ local function build_record(fixture)
       }),
       observable_writes = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop-pr.devloop_review_request",
           queue = proposal_raise.queue,
           payload = copy_value(proposal_raise.payload),
         },

@@ -116,7 +116,7 @@ return {
       t.is_true(record ~= nil, observation_id .. ": protected continuation baseline")
       local effects = record.old_outcome.emitted_effects
       t.eq(#effects, 2, observation_id .. ": proposal and convergence comment")
-      t.eq(effects[1].effect_id, "queue:github-devloop.devloop_consensus_request")
+      t.eq(effects[1].effect_id, "queue:github-devloop.devloop_consensus_continue")
       t.eq(effects[2].effect_id, "comment:issue:converge-round")
     end
   end,

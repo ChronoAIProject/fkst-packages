@@ -92,7 +92,7 @@ local function start_supervise(bin, root, package_root, runtime_root, durable_ro
 end
 
 local function write_fixture(root, canonical_dedup, redrive_dedup)
-  local package_root = root .. "/packages/consensus"
+  local package_root = root .. "/packages/github-devloop-pr"
   run_command("mkdir -p " .. shell_quote(package_root .. "/departments/initial"))
   run_command("mkdir -p " .. shell_quote(package_root .. "/departments/redrive"))
   run_command("mkdir -p " .. shell_quote(package_root .. "/departments/decide"))
@@ -105,7 +105,7 @@ libraries = []
 ]])
   write_file(package_root .. "/fkst.toml", [[
 kind = "package"
-name = "consensus"
+name = "github-devloop-pr"
 
 [code]
 root = "."
@@ -115,11 +115,11 @@ root = "."
 local M = {}
 M.spec = {
   consumes = { %q },
-  produces = { "proposal" },
+  produces = { "devloop_review_request" },
   stall_window = "1s",
 }
 function M.pipeline(_event)
-  raise("proposal", {
+  raise("devloop_review_request", {
     schema = "consensus.proposal.v1",
     proposal_id = "github-devloop/pr-review/owner-repo/7/version/def456",
     dedup_key = %q,
@@ -134,7 +134,7 @@ return M
   write_file(package_root .. "/departments/decide/main.lua", string.format([[
 local M = {}
 M.spec = {
-  consumes = { "proposal" },
+  consumes = { "devloop_review_request" },
   produces = {},
   stall_window = "1s",
   retry = { max_attempts = 1, base = "1s", cap = "1s" },
@@ -169,7 +169,7 @@ end
 
 local function decide_logs(root)
   return command_output("find " .. shell_quote(root .. "/runtime-redrive/logs/framework-child")
-    .. " -type f -name " .. shell_quote("consensus.decide-*.log") .. " -exec cat {} +")
+    .. " -type f -name " .. shell_quote("github-devloop-pr.decide-*.log") .. " -exec cat {} +")
 end
 
 local function remove_fixture(root)

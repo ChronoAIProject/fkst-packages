@@ -257,7 +257,7 @@ return saga.department(spec, { done = function() return false end, act = functio
   local result = consensus_call.reach(call.proposal)
   local result_queue = result.status == "reached" and "devloop_issue_decision" or "devloop_consensus_continue"
   devloop_logging.log_cas_decision("loop", unresolved.proposal_id, call.state,
-    "thinking", "thinking", call.cas_outcome, "called consensus for loop round " .. tostring(call.next_round))
+    "thinking", "thinking", call.cas_outcome, "raising loop proposal round " .. tostring(call.next_round))
   devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
     result_queue,
     "github-proxy.github_issue_comment_request",

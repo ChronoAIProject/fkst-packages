@@ -26,6 +26,7 @@ return {
     })
     h.mock_next_consensus_result(function(proposal)
       return h.reached({
+        status = "reached",
         dedup_key = "consensus:" .. proposal.dedup_key,
         effect_version = proposal.effect_version,
         source_ref = proposal.source_ref,
