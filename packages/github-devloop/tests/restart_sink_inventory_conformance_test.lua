@@ -90,6 +90,7 @@ local queue_policies = {
   ["context_bundle_probe"] = { "grantless-non-lifecycle", "test-probe/context-bundle-request" },
   ["context_bundle_probe_result"] = { "grantless-non-lifecycle", "test-probe/context-bundle-result" },
   ["devloop_observe_issue"] = { "grantless-telemetry", "observe-issue:v1/source-ref+dedup" },
+  ["restart_transition_anomaly"] = { "grantless-telemetry", "restart-transition-anomaly.v1/per-pass-record" },
   ["devloop_ready"] = { "lifecycle-authoritative", "ready:v1/proposal+version" },
   ["devloop_reconcile"] = { "lifecycle-authoritative", "reconcile:v1/proposal+round" },
   ["devloop_timeout_reconcile"] = { "lifecycle-authoritative", "timeout-reconcile:v1/proposal+state+round" },
