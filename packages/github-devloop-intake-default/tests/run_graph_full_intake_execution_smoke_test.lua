@@ -234,7 +234,7 @@ return {
     local thinking_label = require_raise_from_step(trace, execute_index, "github-proxy.github_issue_label_request")
     t.eq(thinking_label.payload.add_labels[1], "fkst-dev:thinking")
 
-    local proposal = require_raise_from_step(trace, execute_index, "consensus.proposal", function(raised)
+    local proposal = require_raise_from_step(trace, execute_index, "devloop_consensus_request", function(raised)
       local payload = raised.payload or {}
       return payload.schema == "consensus.proposal.v1"
         and payload.proposal_id == proposal_id
