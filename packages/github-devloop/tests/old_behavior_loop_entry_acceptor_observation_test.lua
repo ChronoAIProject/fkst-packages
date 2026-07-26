@@ -1,7 +1,6 @@
 local ra = require("tests.entry_acceptor_observation_helpers")
 local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
-local consensus_call = require("devloop.consensus_call")
 local core = require("core")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
@@ -25,7 +24,7 @@ local SITE = {
   ordinal = "consumes:devloop_consensus_continue",
 }
 local COMMENT = "comment:issue:converge-round"
-local CONSENSUS_CONTINUE = "queue:github-devloop.devloop_consensus_continue"
+local CONSENSUS_REQUEST = "queue:github-devloop.devloop_consensus_request"
 
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-event-payload",
@@ -51,9 +50,9 @@ local FIXTURES = ra.json_array({
   -- lineage REDRIVES the next round (local consensus continuation + converge comment) instead of
   -- routing to a terminal reconcile/blocked.
   { disposition = "lineage-terminal-continuation-budget", status = "admitted", reason = "lineage-continuation-budget",
-    cas = "applied", target = "consensus_continue", source_line = 265, round = 2,
+    cas = "applied", target = "proposal", source_line = 265, round = 2,
     prior = { { round = 1, findings_record = "open:\nsecond resolvable finding" } },
-    effects = ra.json_array({ CONSENSUS_CONTINUE, COMMENT }) },
+    effects = ra.json_array({ CONSENSUS_REQUEST, COMMENT }) },
   { disposition = "lineage-terminal-no-semantic-progress", status = "admitted", reason = "lineage-no-semantic-progress",
     cas = "applied", target = "reconcile", source_line = 122, round = 4,
     prior = {
@@ -74,10 +73,10 @@ local FIXTURES = ra.json_array({
   -- Owner directive (#2725): continuation ROUND-BUDGET non-terminal -> REDRIVE the next
   -- round instead of routing to a terminal reconcile/blocked.
   { disposition = "current-terminal-continuation-budget", status = "admitted", reason = "current-continuation-budget",
-    cas = "applied", target = "consensus_continue", source_line = 265, round = 1,
+    cas = "applied", target = "proposal", source_line = 265, round = 1,
     findings_record = "open:\nsecond resolvable finding",
     prior = { { round = 0, findings_record = "open:\nfirst resolvable finding" } },
-    effects = ra.json_array({ CONSENSUS_CONTINUE, COMMENT }) },
+    effects = ra.json_array({ CONSENSUS_REQUEST, COMMENT }) },
   { disposition = "current-terminal-no-semantic-progress", status = "admitted", reason = "current-no-semantic-progress",
     cas = "applied", target = "reconcile", source_line = 164, round = 4,
     findings_record = "open:\nfourth unchanged finding",
@@ -87,8 +86,8 @@ local FIXTURES = ra.json_array({
       { round = 3, findings_record = "open:\nthird unchanged finding" },
     }, effects = ra.json_array({ COMMENT }) },
   { disposition = "admitted-reraise-narrowed-proposal", status = "admitted", reason = "continue-convergence",
-    cas = "applied", target = "consensus_continue", source_line = 265, round = 0,
-    effects = ra.json_array({ CONSENSUS_CONTINUE, COMMENT }) },
+    cas = "applied", target = "proposal", source_line = 265, round = 0,
+    effects = ra.json_array({ CONSENSUS_REQUEST, COMMENT }) },
 })
 
 local function event_for(fixture)
@@ -114,7 +113,7 @@ end
 local function capture(fixture)
   h.mock_bot_env()
   local event = event_for(fixture)
-  if fixture.target == "consensus_continue" then h.mock_context_bundle(event.payload) end
+  if fixture.target == "proposal" then h.mock_context_bundle(event.payload) end
   local comments = ra.json_array()
   if fixture.current_state then
     table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
@@ -137,19 +136,6 @@ local function capture(fixture)
   end, restorations)
   ra.replace(github_author_policy, "from_handle_policy", function()
     return github_author_policy.from_logins({ "fkst-test-bot" })
-  end, restorations)
-  ra.replace(consensus_call, "reach", function(proposal)
-    return {
-      status = "converge",
-      schema = "consensus.consensus_converge.v1",
-      proposal_id = proposal.proposal_id,
-      dedup_key = "consensus:" .. proposal.dedup_key,
-      source_ref = proposal.source_ref,
-      round = proposal.round,
-      narrowed_question = proposal.convergence_question,
-      angle_digests = {},
-      effect_version = proposal.effect_version,
-    }
   end, restorations)
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
   local result = fixture.error and testing.run_fake_expecting_failure(loop_department, event)

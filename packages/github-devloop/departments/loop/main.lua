@@ -23,12 +23,10 @@ local devloop_commands = require("devloop.commands")
 local github_factory = require("devloop.github_factory")
 local github_author_policy = require("devloop.github_author_policy")
 local transition_version = require("contract.transition_version")
-local consensus_call = require("devloop.consensus_call")
 local spec = {
   consumes = { "devloop_consensus_continue" },
   produces = {
-    "devloop_consensus_continue",
-    "devloop_issue_decision",
+    "devloop_consensus_request",
     "github-proxy.github_issue_comment_request",
   },
   fanout = { "devloop_consensus_continue" },
@@ -67,7 +65,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     return
   end
 
-  local call = with_lock(lock_key, function()
+  with_lock(lock_key, function()
     devloop_base.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
@@ -246,27 +244,14 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local comment_request = build_comment_request(unresolved, round, marker_body)
 
-    return {
-      proposal = proposal,
-      comment_request = comment_request,
-      state = state,
-      cas_outcome = transition.cas_outcome,
-      next_round = next_n,
-    }
+    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking",
+      transition.cas_outcome, "raising loop proposal round " .. tostring(next_n))
+    devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
+      "devloop_consensus_request",
+      "github-proxy.github_issue_comment_request",
+    })
+    devloop_logging.log_raise("loop", unresolved.proposal_id, "devloop_consensus_request", proposal)
+    devloop_logging.log_raise("loop", unresolved.proposal_id,
+      "github-proxy.github_issue_comment_request", comment_request)
   end)
-  if call == nil then
-    return
-  end
-
-  local result = consensus_call.reach(call.proposal)
-  local result_queue = result.status == "reached" and "devloop_issue_decision" or "devloop_consensus_continue"
-  devloop_logging.log_cas_decision("loop", unresolved.proposal_id, call.state,
-    "thinking", "thinking", call.cas_outcome, "raising loop proposal round " .. tostring(call.next_round))
-  devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
-    result_queue,
-    "github-proxy.github_issue_comment_request",
-  })
-  devloop_logging.log_raise("loop", unresolved.proposal_id, result_queue, result)
-  devloop_logging.log_raise("loop", unresolved.proposal_id,
-    "github-proxy.github_issue_comment_request", call.comment_request)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "loop" })

@@ -239,9 +239,9 @@ return {
     t.eq(#codex_calls(), 5)
   end,
 
-  test_reply_fails_loud_for_malformed_local_judgment = function()
+  test_reply_skips_foreign_judgment = function()
     local malformed = run_reply(judgment({ schema = "other.judgment.v1" }), opts("reply-malformed-intent"))
-    t.eq(malformed.exit_code, 1)
+    t.eq(malformed.exit_code, 0)
     t.eq(#malformed.raises, 0)
     t.eq(#codex_calls(), 0)
   end,

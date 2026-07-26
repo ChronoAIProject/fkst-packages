@@ -88,7 +88,6 @@ local queue_policies = {
   ["cache_seeded"] = { "grantless-non-lifecycle", "test-probe/cache-seed-result" },
   ["devloop_consensus_request"] = { "lifecycle-authoritative", "consensus-proposal:v1/proposal+dedup" },
   ["devloop_consensus_continue"] = { "lifecycle-authoritative", "consensus-converge:v1/proposal+dedup" },
-  ["devloop_issue_decision"] = { "lifecycle-authoritative", "consensus-result:v1/proposal+dedup" },
   ["context_bundle_probe"] = { "grantless-non-lifecycle", "test-probe/context-bundle-request" },
   ["context_bundle_probe_result"] = { "grantless-non-lifecycle", "test-probe/context-bundle-result" },
   ["devloop_observe_issue"] = { "grantless-telemetry", "observe-issue:v1/source-ref+dedup" },

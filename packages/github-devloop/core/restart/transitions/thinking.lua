@@ -33,7 +33,7 @@ return function(M, h)
     driving_queue = "devloop_consensus_request",
     observe_surfaces = { issue = true, liveness_scan = true },
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
-    output_obligation = obligation({ "devloop_issue_decision", "devloop_consensus_continue" }, { "ready", "dependency_wait", "declined", "blocked", "thinking" }),
+    output_obligation = obligation({ "call:consensus.reach", "devloop_consensus_continue" }, { "ready", "dependency_wait", "declined", "blocked", "thinking" }),
     temporal_obligations = {
       {
         obligation_id = "github-devloop/issue/thinking/response-with-deadline",
@@ -218,9 +218,9 @@ return function(M, h)
     kickoff = "devloop_consensus_request",
     replay = "Initial thinking reuses the state version as proposal dedup; convergence replays the next /loop/N from the latest complete converge-round marker.",
     span_contract = span_contract({
-      department = "consensus_result",
+      department = "external:consensus",
       durable_start_marker = "state:v1 thinking",
-      spawn_predecessor = "precheck_consensus_request",
+      spawn_predecessor = "devloop_consensus_request",
       spawn_function = "consensus_call.reach",
     }),
   }

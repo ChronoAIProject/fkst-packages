@@ -16,10 +16,9 @@ local consensus_result_caps = require("consensus_result_department_caps")
 local consensus_call = require("devloop.consensus_call")
 local queue = require("devloop.queue")
 local v_unresolved = require("devloop.validators.unresolved")
-local v_validate_proposal = require("devloop.validators.validate_proposal")
 
 local spec = {
-  consumes = { "devloop_consensus_request", "devloop_issue_decision" },
+  consumes = { "devloop_consensus_request" },
   produces = {
     "devloop_consensus_continue",
     "github-proxy.github_issue_label_request",
@@ -209,28 +208,16 @@ local function granted_result_payloads(snapshot, decision, args)
   return payloads
 end
 
-local function precheck_consensus_request(ports, proposal)
-  if not v_validate_proposal.validate_proposal(proposal) then
-    error("github-devloop: consensus-request-invalid: malformed caller proposal")
+local function receive_consensus_request(event)
+  if not queue.event_queue_matches(event, "devloop_consensus_request") then
+    error("github-devloop: consumed-queue-unrouted: dept=consensus_result queue=" .. tostring(event and event.queue))
   end
-  local repo, issue_number = base_ids.parse_proposal_id(proposal.proposal_id)
-  if repo == nil or not base_ids.issue_ref_round_trips(repo, issue_number) then
-    error("github-devloop: consensus-request-invalid: owned proposal_id is malformed")
+  if type(event.payload) ~= "table" then
+    devloop_logging.log_entry("consensus_result", event, "unknown", devloop_logging.payload_field(event.payload, "dedup_key"))
+    devloop_logging.log_cas_decision("consensus_result", "unknown", { state = nil, version = nil }, "thinking", "ready", "skip-foreign(proposal_id)", "unsupported event payload")
+    return nil
   end
-  local expected_source_ref = entity_lib.issue_source_ref(repo, issue_number)
-  if proposal.source_ref.kind ~= expected_source_ref.kind
-    or proposal.source_ref.ref ~= expected_source_ref.ref then
-    error("github-devloop: consensus-request-invalid: owned source_ref does not match proposal_id")
-  end
-  local current = ports.github.read_issue(expected_source_ref, {
-    consumer = "consensus_result",
-    force_fresh = true,
-  })
-  devloop_logging.log_forged_markers("consensus_result", proposal.proposal_id, current.comments)
-  local version = proposal.effect_version or proposal.dedup_key
-  if not devloop_state.has_state_marker(current.comments, proposal.proposal_id, "thinking", version) then
-    error("github-devloop: state-marker-pending: state:v1 thinking marker not yet visible before consensus; retrying")
-  end
+  return event.payload
 end
 
 local function make_department(ports)
@@ -239,34 +226,24 @@ local function make_department(ports)
   end
 
   local function act_result(event)
-    local reached
-    local is_consensus_request = queue.event_queue_matches(event, "devloop_consensus_request")
-    local is_issue_decision = queue.event_queue_matches(event, "devloop_issue_decision")
-    if not is_consensus_request and not is_issue_decision then
-      error("github-devloop: consumed-queue-unrouted: dept=consensus_result queue=" .. tostring(event and event.queue))
-    end
-    if is_consensus_request and type(event.payload) ~= "table" then
-      devloop_logging.log_entry("consensus_result", event, "unknown", devloop_logging.payload_field(event.payload, "dedup_key"))
-      devloop_logging.log_cas_decision("consensus_result", "unknown", { state = nil, version = nil }, "thinking", "ready", "skip-foreign(proposal_id)", "unsupported event payload")
+    local proposal = receive_consensus_request(event)
+    if proposal == nil then
       return
     end
-    if is_consensus_request then
-      local proposal = event.payload
-      precheck_consensus_request(ports, proposal)
-      reached = consensus_call.reach(proposal)
-      if reached.status == "converge" then
-        if not v_unresolved.is_supported_unresolved(reached) then
-          error("github-devloop: consensus-continuation-invalid: library result violates the caller contract")
-        end
-        devloop_logging.log_entry("consensus_result", event, reached.proposal_id, reached.dedup_key)
-        devloop_logging.log_apply("consensus_result", reached.proposal_id, nil, nil,
-          { add = {}, remove = {} }, { "devloop_consensus_continue" })
-        devloop_logging.log_raise("consensus_result", reached.proposal_id,
-          "devloop_consensus_continue", reached)
-        return
+    local reached = consensus_call.reach(proposal)
+    if reached == nil then
+      return
+    end
+    if reached.status == "converge" then
+      if not v_unresolved.is_supported_unresolved(reached) then
+        error("github-devloop: consensus-continuation-invalid: library result violates the caller contract")
       end
-    else
-      reached = event.payload
+      devloop_logging.log_entry("consensus_result", event, reached.proposal_id, reached.dedup_key)
+      devloop_logging.log_apply("consensus_result", reached.proposal_id, nil, nil,
+        { add = {}, remove = {} }, { "devloop_consensus_continue" })
+      devloop_logging.log_raise("consensus_result", reached.proposal_id,
+        "devloop_consensus_continue", reached)
+      return
     end
 
     if reached.schema ~= "consensus.consensus_reached.v1"
@@ -291,10 +268,6 @@ local function make_department(ports)
     if reached.source_ref.kind ~= expected_source_ref.kind
       or reached.source_ref.ref ~= expected_source_ref.ref then
       error("github-devloop: consensus-result-invalid: owned source_ref does not match proposal_id")
-    end
-
-    if reached.status == "converge" then
-      return
     end
 
     devloop_logging.log_entry("consensus_result", event, reached.proposal_id, reached.dedup_key)

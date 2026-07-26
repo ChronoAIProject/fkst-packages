@@ -387,7 +387,7 @@ return {
       proposal_id = "autochrono/pr-review/owner/repo/7/v1",
       dedup_key = "consensus:autochrono/pr-review/owner/repo/7/v1",
     }), opts("review-result-foreign"))
-    t.eq(foreign.exit_code, 1)
+    t.eq(foreign.exit_code, 0)
     t.eq(#foreign.raises, 0)
   end,
 }

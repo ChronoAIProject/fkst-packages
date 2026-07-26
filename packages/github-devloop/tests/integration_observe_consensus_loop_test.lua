@@ -319,10 +319,7 @@ return {
       exit_code = 0,
     })
 
-    local result = h.run_department("departments/consensus_result/main.lua", {
-      queue = "devloop_issue_decision",
-      payload = reached(),
-    }, opts("result-non-whitelisted-author", {
+    local result = run_result(reached(), opts("result-non-whitelisted-author", {
       FKST_GITHUB_AUTHORIZED_LOGINS = "trusted-human",
     }))
     t.eq(result.exit_code, 0)
@@ -445,13 +442,12 @@ return {
     t.eq(#complete.raises, 0)
   end,
 
-  test_consensus_result_fails_loud_for_malformed_local_decision = function()
-    local result = run_result_expecting_failure(
+  test_consensus_result_skips_foreign_result = function()
+    local result = run_result(
       reached({ proposal_id = "autochrono/issue/owner/repo/42" }),
       opts("result-malformed-local-decision")
     )
-    t.eq(result.exit_code, 1)
-    t.is_true(tostring(result.failure.error):find("owned proposal_id is malformed", 1, true) ~= nil)
+    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
@@ -682,7 +678,7 @@ return {
     t.eq(proposal.convergence_question, event.narrowed_question)
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     t.eq(proposal.worktree, ".")
-    t.is_true(find_raise(result.raises, "devloop_consensus_continue") ~= nil)
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
 
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     t.is_true(comment.body:find("fkst:github-devloop:converge-round:v1", 1, true) ~= nil)
@@ -763,7 +759,7 @@ return {
     local proposal = take_consensus_proposal()
     t.is_true(proposal ~= nil)
     t.eq(proposal.round, 2)
-    t.is_true(find_raise(result.raises, "devloop_consensus_continue") ~= nil)
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
@@ -857,7 +853,7 @@ return {
     t.eq(thinking.exit_code, 0)
     t.eq(#thinking.raises, 2)
     t.is_true(take_consensus_proposal() ~= nil)
-    t.is_true(find_raise(thinking.raises, "devloop_consensus_continue") ~= nil)
+    t.is_true(find_raise(thinking.raises, "devloop_consensus_request") ~= nil)
     t.is_true(find_raise(thinking.raises, "github-proxy.github_issue_comment_request") ~= nil)
   end,
 

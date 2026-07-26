@@ -1,5 +1,5 @@
 local consensus = require("consensus")
-local v_validate_proposal = require("devloop.validators.validate_proposal")
+local strings = require("contract.strings")
 
 local M = {}
 
@@ -27,13 +27,20 @@ local function attach_caller_lineage(result, proposal_id)
 end
 
 function M.reach(proposal)
-  if not v_validate_proposal.validate_proposal(proposal) then
-    error("devloop: consensus-call-invalid: invalid caller proposal")
+  if type(proposal) ~= "table" then
+    return consensus.reach(proposal)
   end
-  return attach_caller_lineage(
-    consensus.reach(copy_without_caller_lineage(proposal)),
-    proposal.proposal_id
-  )
+  if proposal.schema == "consensus.proposal.v1"
+    and not strings.is_path_safe_key(proposal.proposal_id, 200) then
+    return nil
+  end
+  local result = consensus.reach(copy_without_caller_lineage(proposal), {
+    invocation_id = proposal.proposal_id,
+  })
+  if result == nil then
+    return nil
+  end
+  return attach_caller_lineage(result, proposal.proposal_id)
 end
 
 return M

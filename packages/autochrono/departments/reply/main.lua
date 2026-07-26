@@ -11,7 +11,7 @@ local spec = {
 
 local function parse_judgment(payload)
   if type(payload) ~= "table" or payload.schema ~= "autochrono.judge_issue.v1" then
-    error("autochrono: judgment-invalid: malformed local judgment intent")
+    return nil
   end
 
   local repo = tostring(payload.repo or "")
@@ -36,6 +36,9 @@ end
 local function reply_done(event)
   local payload = event.payload
   local _, repo, issue_number = parse_judgment(payload)
+  if repo == nil then
+    return true
+  end
 
   local cache_key = core.replied_cache_key(repo, issue_number)
   local already_replied = false
@@ -48,7 +51,12 @@ end
 local function act_reply(event)
   local payload = event.payload
   local proposal, repo, issue_number, expected_source_ref = parse_judgment(payload)
-  local reached = consensus.reach(proposal)
+  if proposal == nil then
+    return
+  end
+  local reached = consensus.reach(proposal, {
+    invocation_id = core.proposal_id(repo, issue_number),
+  })
   if reached == nil or reached.status == "converge" then
     return
   end

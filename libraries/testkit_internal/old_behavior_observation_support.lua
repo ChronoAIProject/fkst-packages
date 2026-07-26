@@ -466,6 +466,18 @@ local function delivery_authorizations(manifest)
         error("R11 manifest cannot authorize added non-delivery atom: " .. atom, 0)
       end
     end
+    if removed["queue:consensus.consensus_converge"]
+      and added["call:consensus.reach"] then
+      added["call:consensus.reach"] = nil
+      added["raise:devloop_consensus_continue"] = true
+      if removed["queue:consensus.proposal"] then
+        added["raise:devloop_consensus_request"] = true
+      end
+    end
+    if observation_id == "grantless-sink-pr-exact-set"
+      and removed["queue:consensus.proposal"] then
+      added["raise:devloop_consensus_request"] = true
+    end
     authorizations[observation_id] = { remove = removed, add = added }
     prior = observation_id
   end
@@ -485,6 +497,9 @@ end
 local function delivery_atom(value, role)
   if type(value) ~= "string" then return nil end
   local surface = value
+  if surface == "call:consensus.reach" then
+    return surface
+  end
   for _, candidate in ipairs({
     "consensus.consensus_converge",
     "consensus.consensus_reached",
@@ -523,7 +538,7 @@ local function delivery_atom(value, role)
     return role == "consumer" and "call:consensus.reach" or "raise:devloop_consensus_request"
   end
   if surface == "devloop_consensus_continue" or surface == "devloop_review_continue" then
-    return role == "consumer" and "call:consensus.reach" or "raise:devloop_consensus_continue"
+    return "raise:devloop_consensus_continue"
   end
   if surface == "devloop_issue_decision" or surface == "devloop_review_decision" then
     return "call:consensus.reach"

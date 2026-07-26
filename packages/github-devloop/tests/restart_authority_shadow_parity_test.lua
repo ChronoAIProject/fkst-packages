@@ -51,7 +51,7 @@ local fixtures = {
     expected_status = "apply",
     expected_entitlement_id = APPLY_ENTITLEMENT_ID,
     expected_effect_ids = {
-      "devloop_consensus_continue",
+      "devloop_consensus_request",
       "github-proxy.github_issue_comment_request",
     },
   },

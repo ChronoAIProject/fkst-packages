@@ -266,6 +266,16 @@ local function capture_records()
 
   local sink_inventory = require("core.restart.sink_inventory")
   local all_sinks = catalog_rows(sink_inventory, false)
+  table.insert(all_sinks, {
+    effect_id = "call:consensus.reach",
+    department = "consensus_result",
+    sink_kind = "adapter",
+    authority_class = "lifecycle-authoritative",
+    family = "consensus-call:v1/proposal+dedup",
+  })
+  table.sort(all_sinks, function(left, right)
+    return canonical_json(left) < canonical_json(right)
+  end)
   table.insert(records, base_record(
     "effect-sink-catalog-gd-exact-set", SITES.sink_catalog, "effect_sink", "effect_sink_catalog",
     "declared sink set", { record_count = #all_sinks },

@@ -44,7 +44,7 @@ return {
     t.eq(proposal.convergence_question, event.narrowed_question)
     t.eq(proposal.findings_record, event.findings_record)
     t.eq(proposal.prior_round_digests, nil)
-    t.is_true(find_raise(result.raises, "devloop_consensus_continue") ~= nil)
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
 
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
@@ -79,7 +79,7 @@ return {
     t.is_true(proposal ~= nil)
     t.eq(proposal.round, 2)
     t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/2")
-    t.is_true(find_raise(result.raises, "devloop_consensus_continue") ~= nil)
+    t.is_true(find_raise(result.raises, "devloop_consensus_request") ~= nil)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
     t.is_nil(comment.payload.handoff)

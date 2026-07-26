@@ -98,10 +98,10 @@ return {
     t.eq(called_proposal.prior_round_digests, nil)
     t.eq(called_proposal.worktree, worktree)
 
-    local decision = find_raise(result.raises, "devloop_review_decision")
-    t.is_true(decision ~= nil)
-    t.eq(decision.payload.proposal_id, event.proposal_id)
-    t.eq(find_raise(result.raises, "devloop_review_request"), nil)
+    local request = find_raise(result.raises, "devloop_review_request")
+    t.is_true(request ~= nil)
+    t.eq(request.payload.proposal_id, event.proposal_id)
+    t.eq(request.payload.dedup_key, called_proposal.dedup_key)
 
     local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment ~= nil)

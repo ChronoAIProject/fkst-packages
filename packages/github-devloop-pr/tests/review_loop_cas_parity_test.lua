@@ -519,21 +519,23 @@ local function assert_review_loop_admission_case(fixture)
   }
 end
 
-local function assert_malformed_is_pre_cas_and_catalog_illegal()
+local function assert_malformed_skips_before_cas_and_catalog_remains_illegal()
   local malformed = review_event(V_EQUAL, { proposal_id = 42 })
   local result, probes, decisions, boundary_calls, _, owner_decisions, grant_mints,
     facade_emissions = observe_department(function()
       return run_real_department(malformed)
     end)
 
-  t.eq(result.exit_code, 1, "review-loop-malformed: production fails closed on unsupported payload")
+  t.eq(result.exit_code, 0, "review-loop-malformed: production skips unsupported payload")
   t.eq(#probes, 0, "review-loop-malformed: production rejects before CAS")
   t.eq(#boundary_calls, 0, "review-loop-malformed: admission boundary is not reached")
   t.eq(#owner_decisions, 0, "review-loop-malformed: owner decider is not reached")
   t.eq(#grant_mints, 0, "review-loop-malformed: no grants")
   t.eq(#facade_emissions, 0, "review-loop-malformed: no facade emissions")
   t.eq(#result.raises, 0, "review-loop-malformed: no effects")
-  t.eq(#decisions, 0, "review-loop-malformed: no benign rejection decision")
+  t.eq(#decisions, 1, "review-loop-malformed: one skip decision")
+  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)",
+    "review-loop-malformed: base skip disposition")
 
   local resolved = catalog.resolve(POLICY_ID, {
     current = { state = "reviewing", version = V_EQUAL },
@@ -708,11 +710,11 @@ return {
       probe_outcome = "apply",
       admission_status = "apply",
       expected_decision_count = 0,
-      expected_grant_count = 0,
+      expected_grant_count = 1,
       mock_context_bundle = true,
       post_admission_disposition = "effect-emitted",
       expected_queues = {
-        "devloop_review_continue",
+        "devloop_review_request",
         "github-proxy.github_pr_comment_request",
       },
     })
@@ -791,8 +793,8 @@ return {
     })
   end,
 
-  test_review_loop_malformed_evidence_and_payload_fail_closed_before_cas = function()
-    assert_malformed_is_pre_cas_and_catalog_illegal()
+  test_review_loop_malformed_evidence_and_payload_skip_before_cas = function()
+    assert_malformed_skips_before_cas_and_catalog_remains_illegal()
   end,
 
   test_r9_pr_review_loop_old_equals_new_equals_corpus = function()

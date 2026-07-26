@@ -139,8 +139,8 @@ return {
         fixture.name .. ": next-round dedup"
       )
       t.is_true(
-        h.find_raise(result.raises, "devloop_consensus_continue") ~= nil,
-        fixture.name .. ": synchronous consensus continuation"
+        h.find_raise(result.raises, "devloop_consensus_request") ~= nil,
+        fixture.name .. ": renamed consensus proposal request"
       )
 
       local comment = h.find_raise(result.raises, "github-proxy.github_issue_comment_request")

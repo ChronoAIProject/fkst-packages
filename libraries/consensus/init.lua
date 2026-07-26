@@ -51,9 +51,9 @@ local function codex_opts(proposal, prompt, worktree, role)
   return core.judgment_codex_opts(prompt, worktree)
 end
 
-local function codex_identity(proposal, role, angle_lane)
+local function codex_identity(proposal, role, angle_lane, invocation_id)
   local run_role = role or "consensus"
-  local invocation_key = tostring(proposal.dedup_key)
+  local invocation_key = tostring(invocation_id or proposal.dedup_key)
   local generation = proposal.generation
   local round = proposal.round
   local lane = tostring(angle_lane)
@@ -77,13 +77,13 @@ end
 local function defer_live_run(identity)
   error(
     "consensus: live-run-active: role=" .. tostring(identity.role)
-      .. " invocation_key=" .. tostring(identity.invocation_id)
+      .. " proposal_id=" .. tostring(identity.invocation_id)
       .. " dedup_key=" .. tostring(identity.dedup_key)
   )
 end
 
-local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts)
-  local run_identity = codex_identity(proposal, role, angle_lane)
+local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts, invocation_id)
+  local run_identity = codex_identity(proposal, role, angle_lane, invocation_id)
   local dispatch_opts = codex_opts(proposal, prompt, worktree, run_identity.role)
   for key, value in pairs(opts or {}) do
     dispatch_opts[key] = value
@@ -95,21 +95,21 @@ local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts
   return result
 end
 
-local function spawn_angle(proposal, angle, runtime_root)
+local function spawn_angle(proposal, angle, runtime_root, invocation_id)
   local prompt = core.build_angle_prompt(proposal, angle)
   local worktree = prepare_seat_worktree(proposal,
     judgment_scratch_worktree(runtime_root, "angle-" .. tostring(angle), proposal.dedup_key)
   )
-  return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle))
+  return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle), nil, invocation_id)
 end
 
-local function decide(proposal)
+local function decide(proposal, invocation_id)
   local angle_results = {}
   local handles = {}
   local angles = core.angles(proposal)
   local verdict_mode = core.verdict_mode(proposal)
   for _, angle in ipairs(angles) do
-    local run_identity = codex_identity(proposal, "consensus", tostring(angle))
+    local run_identity = codex_identity(proposal, "consensus", tostring(angle), invocation_id)
     if workflow_codex.live_run_active(run_identity) then
       defer_live_run(run_identity)
     end
@@ -117,7 +117,7 @@ local function decide(proposal)
 
   local runtime_root = read_runtime_root()
   for _, angle in ipairs(angles) do
-    table.insert(handles, spawn_angle(proposal, angle, runtime_root))
+    table.insert(handles, spawn_angle(proposal, angle, runtime_root, invocation_id))
   end
 
   local results = await_all(handles)
@@ -165,7 +165,7 @@ local function decide(proposal)
         return judgment_scratch_worktree(root, kind, identity)
       end,
       dispatch_codex = function(target_proposal, prompt, worktree, role, angle_lane)
-        return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane)
+        return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane, nil, invocation_id)
       end,
     })
     local rebuttal_outputs = await_all(rebuttal_handles)
@@ -208,7 +208,7 @@ local function decide(proposal)
       )
       return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
         sync = true,
-      })
+      }, invocation_id)
     end,
   })
   return synthesis.to_decision_result(proposal, angle_results, rebuttal_results, parsed, {
@@ -230,10 +230,15 @@ local function with_status(status, value)
   return result
 end
 
-function M.reach(proposal)
-  if not core.is_eligible(proposal) then
-    error("consensus: proposal-invalid: proposal is not eligible")
+function M.reach(proposal, options)
+  if type(proposal) ~= "table" or proposal.schema ~= "consensus.proposal.v1" then
+    log.warn("consensus: unsupported proposal schema")
+    return nil
   end
+  if not core.is_eligible(proposal) then
+    return nil
+  end
+  local invocation_id = type(options) == "table" and options.invocation_id or proposal.dedup_key
 
   local cache_key = result_memo_key(proposal.dedup_key)
   local memoized = result_memo.load(cache_key, proposal.dedup_key)
@@ -241,17 +246,18 @@ function M.reach(proposal)
     return memoized
   end
 
-  local ok, result = pcall(decide, proposal)
+  local ok, result = pcall(decide, proposal, invocation_id)
   if not ok then
     if core.is_stale_generation_context_error(result) then
       log.warn(
-        "consensus tag=STALE_GENERATION_CONTEXT"
+        "consensus dept=decide tag=STALE_GENERATION_CONTEXT"
+          .. " proposal_id=" .. tostring(invocation_id)
           .. " dedup_key=" .. tostring(proposal.dedup_key)
           .. " error_class=" .. core.stale_generation_context_error_class()
       )
       return nil
     end
-    error(result, 0)
+    error(result)
   end
 
   with_lock(cache_key, function()

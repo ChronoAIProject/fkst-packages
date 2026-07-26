@@ -130,7 +130,7 @@ return {
     local loop_proposal = h.take_consensus_proposal()
     t.is_true(loop_proposal ~= nil)
     t.eq(loop_proposal.round, 2)
-    t.is_true(find_raise(loop.raises, "devloop_consensus_continue") ~= nil)
+    t.is_true(find_raise(loop.raises, "devloop_consensus_request") ~= nil)
     local marker = find_raise(loop.raises, "github-proxy.github_issue_comment_request")
     t.is_true(marker ~= nil)
     t.is_true(marker.payload.body:find('round="1"', 1, true) ~= nil)

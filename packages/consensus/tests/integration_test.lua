@@ -799,9 +799,9 @@ return {
     t.eq(#codex_calls(), 3)
   end,
 
-  test_missing_source_ref_fails_closed_without_codex = function()
+  test_missing_source_ref_skips_without_codex = function()
     local result = run_decide(proposal({ source_ref = false }), opts("no-source-ref"))
-    t.is_true(result.exit_code ~= 0)
+    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     -- fail-closed BEFORE spawning any codex angle
     t.eq(#codex_calls(), 0)

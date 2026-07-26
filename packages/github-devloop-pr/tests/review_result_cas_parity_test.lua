@@ -21,6 +21,7 @@ local h = require("tests.devloop_helpers")
 local restart_authority = require("core.restart_authority")
 local restart_effects = require("core.restart_effects")
 local review_result_trace = require("tests.review_result_trace_helpers")
+local consensus_call = require("devloop.consensus_call")
 local t = h.t
 local core = h.core
 local projection = owner_pending_projection.derive(core.restart_package_name, core.restart_transition_table(), inventories)
@@ -271,13 +272,16 @@ end
 local function run_real_department(event)
   local raises = {}
   local original_raise = raise
+  local original_reach = consensus_call.reach
   raise = function(queue, payload)
     table.insert(raises, { queue = queue, payload = payload })
   end
+  consensus_call.reach = function() return event end
   local ok, failure = pcall(review_result_department.pipeline, {
-    queue = "devloop_review_decision",
+    queue = "devloop_review_request",
     payload = event,
   })
+  consensus_call.reach = original_reach
   raise = original_raise
   return {
     exit_code = ok and 0 or 1,
@@ -533,14 +537,16 @@ local function assert_review_meta_shadow_case(fixture)
   t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
 end
 
-local function assert_rejected_before_cas(name, payload)
-  local result, probes, _, comment_builders = observe_department(function()
+local function assert_skipped_before_cas(name, payload)
+  local result, probes, decisions, comment_builders = observe_department(function()
     return run_real_department(payload)
   end)
   t.eq(#probes, 0, name .. ": invalid production input must not reach CAS")
   t.eq(#comment_builders, 0, name .. ": invalid production input must not reach comment builder")
-  t.eq(result.exit_code, 1, name .. ": production fails closed on malformed local input")
+  t.eq(result.exit_code, 0, name .. ": production skips foreign malformed input")
   t.eq(#result.raises, 0, name .. ": malformed production input must emit no effects")
+  t.eq(#decisions, 1, name .. ": malformed production input logs one skip decision")
+  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", name .. ": base skip disposition")
   t.eq(post_admission_disposition(result, false, false), "not-admitted", name .. ": pre-CAS disposition")
 end
 
@@ -874,10 +880,10 @@ return {
     review_result_trace.assert_equality(assert_catalog_matches_observed_decision)
   end,
 
-  test_review_result_malformed_evidence_and_payload_fail_closed_before_cas = function()
+  test_review_result_malformed_evidence_and_payload_skip_before_cas = function()
     local payload = h.review_reached()
     payload.proposal_id = 42
     payload.dedup_key = 42
-    assert_rejected_before_cas("review-result-malformed-version-source", payload)
+    assert_skipped_before_cas("review-result-malformed-version-source", payload)
   end,
 }

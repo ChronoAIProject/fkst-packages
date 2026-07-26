@@ -43,10 +43,10 @@ return {
     t.eq(called_proposal.source_ref.ref, "owner/repo#issue/42")
     t.is_true(called_proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
 
-    local decision = find_raise(result.raises, "devloop_issue_decision").payload
-    t.eq(decision.schema, "consensus.consensus_reached.v1")
-    t.eq(decision.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+    local request = find_raise(result.raises, "devloop_consensus_request").payload
+    t.eq(request.schema, "consensus.proposal.v1")
+    t.eq(request.proposal_id, "github-devloop/issue/owner/repo/42")
+    t.eq(request.dedup_key, called_proposal.dedup_key)
 
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     t.is_true(comment.body:find('version="' .. base_version .. '"', 1, true) ~= nil)
