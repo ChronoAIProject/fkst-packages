@@ -114,20 +114,47 @@ function C.reintake_source_refs_match(left, right, limit)
     and tostring(left.ref) == tostring(right.ref)
 end
 
-function C.has_operator_command_response(comments, command)
+local function operator_command_response_fact(comments, command)
   if type(comments) ~= "table" or type(command) ~= "table" then
-    return false
+    return nil
   end
   local marker = '<!-- fkst:github-devloop:operator-command:v1 command="'
     .. tostring(command.command)
     .. '" key="' .. tostring(command.key)
     .. '"'
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    if parsers_misc._comment_body(comment):find(marker, 1, true) ~= nil then
-      return true
+  for index, comment in ipairs(comments) do
+    if parsers_misc._is_trusted_comment(comment) then
+      local body = parsers_misc._comment_body(comment)
+      if body:find(marker, 1, true) ~= nil then
+        return {
+          comment_index = index,
+          outcome = body:match('<!%-%- fkst:github%-devloop:operator%-command:v1.- outcome="([^"]+)".-%-%->'),
+        }
+      end
     end
   end
-  return false
+  return nil
+end
+
+function C.has_operator_command_response(comments, command)
+  return operator_command_response_fact(comments, command) ~= nil
+end
+
+function C.reintake_transition_is_pending(comments, command, proposal_id)
+  local response = operator_command_response_fact(comments, command)
+  if response == nil then
+    return true
+  end
+  if response.outcome ~= "applied" then
+    return false
+  end
+  local successor_comments = {}
+  for index = response.comment_index + 1, #(comments or {}) do
+    table.insert(successor_comments, comments[index])
+  end
+  return not devloop_state.reached(successor_comments, proposal_id, "thinking", {
+    domain = "github-devloop-issue",
+  })
 end
 
 function C.operator_command_response_count(comments, command_name, outcome, reason)

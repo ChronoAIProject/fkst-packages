@@ -149,7 +149,7 @@ local function issue_has_pending_reintake(repo, current)
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local command = operator_commands.operator_command_fact(current.comments, "reintake")
   return command ~= nil
-    and not operator_commands.has_operator_command_response(current.comments, command)
+    and operator_commands.reintake_transition_is_pending(current.comments, command, proposal_id)
     and marker_facts.has_intake_decision_marker(current.comments, proposal_id)
     and not devloop_base.is_intake_held(current.labels)
     and not devloop_state.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id)

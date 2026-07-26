@@ -5,6 +5,7 @@ local capacity = require("core.intake_capacity")
 local base_ids = require("devloop.base_ids")
 local claims = require("devloop.claims")
 local marker_builders = require("devloop.markers.builders")
+local operator_commands = require("devloop.operator_commands")
 
 local REPO = "owner/repo"
 local OWNER = "fkst-test-bot"
@@ -345,14 +346,15 @@ return {
     t.eq(world:active_claim_count(), 1)
   end,
 
-  test_blocked_issue_reintake_grant_survives_ordinary_reconciliation = function()
+  test_blocked_issue_reintake_grant_survives_response_until_active_successor = function()
     h.mock_bot_env()
     local world = new_world(1)
+    local command = reintake_command("IC_reintake_capacity_75")
     world:add(issue(75, {
       comments = {
         decision_comment(75, "enable"),
         state_comment(75, "blocked"),
-        reintake_command("IC_reintake_capacity_75"),
+        command,
       },
     }))
     local controller = capacity.new(world:ports("/runtime/reintake"))
@@ -368,6 +370,14 @@ return {
     t.eq(reintake_granted, true)
     world:claim(75)
     local successful_cas_after_grant = world.successful_cas
+    local command_fact = assert(operator_commands.operator_command_fact(
+      world.issues[75].comments,
+      "reintake"
+    ))
+    table.insert(world.issues[75].comments, trusted_comment(
+      operator_commands.operator_command_marker(command_fact, "applied", "reintake"),
+      "2026-07-16T00:00:03Z"
+    ))
 
     local reconciled, reason = controller.reconcile(REPO, proposal_id(75))
 
@@ -376,6 +386,25 @@ return {
     t.eq(world.successful_cas, successful_cas_after_grant)
     t.eq(world.grant.holders[1], 75)
     t.eq(claims.issue_claim_state(world.issues[75].assignees, OWNER), "self")
+
+    table.insert(world.issues[75].comments, state_comment(
+      75,
+      "thinking",
+      proposal_id(75) .. "/2026-07-16T00-00-04Z/intake/2",
+      "2026-07-16T00:00:04Z"
+    ))
+    t.eq(controller.reconcile(REPO, proposal_id(75)), true)
+    t.eq(world.grant.holders[1], 75)
+
+    table.insert(world.issues[75].comments, state_comment(
+      75,
+      "blocked",
+      proposal_id(75) .. "/2026-07-16T00-00-05Z/intake/3",
+      "2026-07-16T00:00:05Z"
+    ))
+    t.eq(controller.reconcile(REPO, proposal_id(75)), true)
+    t.eq(#world.grant.holders, 0)
+    t.eq(claims.issue_claim_state(world.issues[75].assignees, OWNER), "unassigned")
   end,
 
   test_declined_state_marker_releases_capacity_for_next_issue = function()
