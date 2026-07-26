@@ -63,9 +63,29 @@ end
 
 M.impl_failed_outcome = impl_failed_outcome
 
-function M.local_iteration_check(worktree)
-  local command = "cd " .. devloop_base._shell_single_quote(worktree)
-    .. " && " .. config.local_iteration_test_command()
+-- base_head (optional): the candidate worktree's frozen fork-point sha. When
+-- present it is pinned as BASE for the local-iteration command so `make preflight`
+-- (admission/echo-verify) compares the candidate against ITS OWN base instead of
+-- the moving origin/dev default. Without this pin, once origin/dev advances past
+-- the frozen base_sha the worktree forks from, admission's
+-- `merge-base --is-ancestor <BASE> <candidate HEAD>` no longer holds (origin/dev
+-- stops being an ancestor of the frozen base) and the whole check reds out with an
+-- infrastructure error ("protected base is not an ancestor of candidate HEAD")
+-- unrelated to the candidate diff -> make exit 2 -> base-local-iteration-failed.
+-- Pinning BASE=base_head keeps base_head an ancestor of candidate HEAD (it is the
+-- fork point) and the diff non-vacuous, so the check stays fully meaningful (real
+-- build/verify + admission) but stops wedging on origin/dev drift. Threaded as an
+-- environment assignment (not a positional/make argument) so a non-make local test
+-- command ignores it harmlessly; the trureturing Makefile consumes it via
+-- `BASE ?= origin/dev` and preflight's `${BASE:-origin/dev}` (both env-driven).
+-- When base_head is nil/empty the command is byte-for-byte unchanged
+-- (base-independent) -- the base probe deliberately relies on that.
+function M.local_iteration_check(worktree, base_head)
+  local invocation = config.local_iteration_test_command()
+  if base_head ~= nil and tostring(base_head) ~= "" then
+    invocation = "BASE=" .. devloop_base._shell_single_quote(base_head) .. " " .. invocation
+  end
+  local command = "cd " .. devloop_base._shell_single_quote(worktree) .. " && " .. invocation
   return exec_sync({ cmd = command, timeout = 7200 })
 end
 
@@ -120,6 +140,11 @@ local function run_base_probe(worktree, base_sha)
     return { status = "head-mismatch", head_readback = head_readback }
   end
 
+  -- Intentionally base-independent (no base_head pin): the probe worktree HEAD IS
+  -- base_sha, so pinning BASE=base_sha would make revision == candidate HEAD and
+  -- trip admission's "protected base equals clean candidate HEAD; vacuous" guard.
+  -- Leaving base_head nil keeps the probe on its default base reference, matching
+  -- its role of measuring the base tree independently of the candidate's fork point.
   local check = M.local_iteration_check(plan.worktree)
   local exit_code = type(check) == "table" and tonumber(check.exit_code) or nil
   if exit_code == nil then
@@ -182,8 +207,8 @@ function M.base_local_iteration_probe(candidate_worktree, base_sha, probe_tag)
   return observation
 end
 
-local function run_local_iteration_check(ready, worktree)
-  local check = M.local_iteration_check(worktree)
+local function run_local_iteration_check(ready, worktree, base_head)
+  local check = M.local_iteration_check(worktree, base_head)
   devloop_logging.log_line(check.exit_code == 0 and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
     "exit_code=" .. tostring(check.exit_code),
     "reason=pre-handoff-local-iteration",
@@ -254,7 +279,7 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
-  local green, verify_detail, candidate_check = run_local_iteration_check(ready, worktree)
+  local green, verify_detail, candidate_check = run_local_iteration_check(ready, worktree, base_head)
   if not green then
     local base_probe = M.base_local_iteration_probe(worktree, base_head, attempt)
     local verdict = local_iteration_verdict.classify(candidate_check.exit_code, base_probe)
@@ -287,7 +312,7 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   local green = false
   local verify_detail = ""
   if dirty or existing_head ~= nil then
-    green, verify_detail = run_local_iteration_check(ready, worktree)
+    green, verify_detail = run_local_iteration_check(ready, worktree, base_head)
   end
   if green then
     local head_sha = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
