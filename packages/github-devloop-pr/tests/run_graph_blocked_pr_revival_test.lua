@@ -256,7 +256,7 @@ return {
       "github-proxy.github_pr_comment_request -> github-proxy.github_pr_comment",
       "github-proxy.github_comment_written -> github-devloop-pr.comment_handoff",
       "github-devloop-pr.devloop_reviewing -> github-devloop-pr.review_pr",
-      "consensus.proposal -> consensus.decide",
+      "github-devloop-pr.devloop_review_request -> github-devloop-pr.review_result",
     })
 
     local comment_request = graph.require_raise(reentry_trace, "github-proxy.github_pr_comment_request")
@@ -267,7 +267,10 @@ return {
     local reviewing = graph.require_raise(reentry_trace, "github-devloop-pr.devloop_reviewing")
     t.eq(reviewing.payload.version, expected_version)
 
-    local proposal = graph.require_raise(reentry_trace, "devloop_review_request").payload
+    local proposal = graph.require_raise(
+      reentry_trace,
+      "github-devloop-pr.devloop_review_request"
+    ).payload
     t.eq(
       proposal.proposal_id,
       devloop_base.pr_review_proposal_id(repo, rereview_pr_number, expected_version, pushed_head_sha)
