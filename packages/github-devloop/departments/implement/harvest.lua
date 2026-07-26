@@ -89,6 +89,22 @@ function M.local_iteration_check(worktree, base_head)
   return exec_sync({ cmd = command, timeout = 7200 })
 end
 
+-- Base-health check for the base-probe: runs config.base_health_command (a
+-- base-INDEPENDENT engineering command: build + test + selftest) against a worktree
+-- whose HEAD IS base_sha, measuring only whether the base tree itself is healthy.
+-- Unlike M.local_iteration_check it does NOT run the candidate's local-iteration
+-- command (`make preflight`, whose trailing admission gate is base-relative and reds
+-- out on origin/dev drift) and it never threads a BASE pin (the probe worktree HEAD
+-- already IS base_sha; a self-pin would be a vacuous no-op diff). A healthy base
+-- exits 0 (verdict -> OWN_LOCAL_RED, impl-fail the genuinely broken candidate); a
+-- genuinely broken base (compile error / failing test / selftest regression) exits
+-- non-zero (verdict -> BASE_RED, retry).
+function M.base_health_check(worktree)
+  local invocation = config.base_health_command()
+  local command = "cd " .. devloop_base._shell_single_quote(worktree) .. " && " .. invocation
+  return exec_sync({ cmd = command, timeout = 7200 })
+end
+
 local function command_detail(result)
   local detail = type(result) == "table" and tostring(result.stderr or "") or ""
   if detail == "" and type(result) == "table" then
@@ -140,12 +156,17 @@ local function run_base_probe(worktree, base_sha)
     return { status = "head-mismatch", head_readback = head_readback }
   end
 
-  -- Intentionally base-independent (no base_head pin): the probe worktree HEAD IS
-  -- base_sha, so pinning BASE=base_sha would make revision == candidate HEAD and
-  -- trip admission's "protected base equals clean candidate HEAD; vacuous" guard.
-  -- Leaving base_head nil keeps the probe on its default base reference, matching
-  -- its role of measuring the base tree independently of the candidate's fork point.
-  local check = M.local_iteration_check(plan.worktree)
+  -- Base-INDEPENDENT base-health probe (see M.base_health_check): measures whether
+  -- base_sha itself builds/tests/selftests, NOT the candidate's local-iteration
+  -- command. The candidate command is `make preflight`, whose trailing admission gate
+  -- is base-relative: on a worktree whose HEAD IS the frozen base_sha it reds out with
+  -- an infrastructure error once origin/dev advances past base_sha (origin/dev stops
+  -- being an ancestor), which the verdict would misread as BASE_RED and loop a
+  -- genuinely broken candidate forever. The base-health command drops that gate, so a
+  -- healthy base is green (-> OWN_LOCAL_RED, impl-fail) while a genuinely broken base
+  -- still reds (-> BASE_RED, retry). No BASE pin is threaded (the probe worktree HEAD
+  -- already IS base_sha; a self-pin would be a vacuous no-op diff).
+  local check = M.base_health_check(plan.worktree)
   local exit_code = type(check) == "table" and tonumber(check.exit_code) or nil
   if exit_code == nil then
     return { status = "command-failed", head_readback = head_readback, detail = command_detail(check) }

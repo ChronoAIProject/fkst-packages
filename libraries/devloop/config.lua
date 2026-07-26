@@ -31,6 +31,7 @@ local allowed_env = {
   FKST_DEVLOOP_BOARD_CMD = true,
   FKST_DEVLOOP_TEST_COMMAND = true,
   FKST_DEVLOOP_LOCAL_TEST_COMMAND = true,
+  FKST_DEVLOOP_BASE_HEALTH_COMMAND = true,
   FKST_OUTPUT_LANG = true,
   FKST_DEBUG_STAMP = true,
 }
@@ -200,6 +201,26 @@ function C.local_iteration_test_command(exec)
   local command = C.read_env("FKST_DEVLOOP_LOCAL_TEST_COMMAND", exec)
   if command == nil then
     return "scripts/run.sh test-affected"
+  end
+  return command
+end
+
+-- The base-health command answers "is the frozen base_sha itself healthy?"
+-- (build + test + selftest) INDEPENDENTLY of the moving origin/dev. The implement
+-- base-probe runs THIS, not local_iteration_test_command: the candidate's local
+-- command is `make preflight` in the trureturing deployment, whose trailing stage is
+-- a base-RELATIVE admission gate (echo-verify ancestry). Once origin/dev advances
+-- past the frozen base_sha, that gate reds out with an infrastructure error unrelated
+-- to base health, which the verdict would misread as BASE_RED and retry a genuinely
+-- broken candidate forever. A dedicated base-INDEPENDENT engineering command keeps a
+-- healthy base green (-> OWN_LOCAL_RED, impl-fail) while a genuinely broken base still
+-- reds (-> BASE_RED, retry). When FKST_DEVLOOP_BASE_HEALTH_COMMAND is unset the value
+-- falls back to local_iteration_test_command, so a deployment that has not opted in is
+-- byte-for-byte unchanged (conservative extension).
+function C.base_health_command(exec)
+  local command = C.read_env("FKST_DEVLOOP_BASE_HEALTH_COMMAND", exec)
+  if command == nil then
+    return C.local_iteration_test_command(exec)
   end
   return command
 end

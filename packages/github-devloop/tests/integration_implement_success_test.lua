@@ -122,7 +122,7 @@ local function mock_base_probe(worktree, options)
       exit_code = 0,
     })
     if values.head == nil or values.head.exit_code == 0 then
-      t.mock_command("scripts/run.sh test-affected", values.check or {
+      t.mock_command(values.check_command or "scripts/run.sh test-affected", values.check or {
         stdout = "",
         stderr = "",
         exit_code = 0,
@@ -130,6 +130,19 @@ local function mock_base_probe(worktree, options)
     end
   end
   return base_probe
+end
+
+-- Mocks FKST_DEVLOOP_BASE_HEALTH_COMMAND so the base-probe runs a base-INDEPENDENT
+-- command distinct from the candidate's local-iteration command. Pushed several times
+-- because config.base_health_command reads the env each time it is consulted.
+local function mock_base_health_command(command)
+  for _ = 1, 4 do
+    t.mock_command('printf %s "$FKST_DEVLOOP_BASE_HEALTH_COMMAND"', {
+      stdout = command,
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function assert_impl_failure_without_publication(result, reason)
@@ -509,5 +522,92 @@ return {
     end
     t.eq(candidate_pinned, true)
     t.eq(probe_base_independent, true)
+  end,
+
+  -- Regression (the mislabel this fix removes): when the candidate's local-iteration
+  -- command is `make preflight` (engineering + a base-RELATIVE admission gate), the
+  -- base-probe must NOT reuse it. On a worktree whose HEAD IS the frozen base_sha, once
+  -- origin/dev advances past base_sha the admission gate reds out with an infrastructure
+  -- error unrelated to base health -> the old base-probe (which ran the same command)
+  -- went red -> BASE_RED -> a genuinely broken candidate looped forever. The base-probe
+  -- now runs the dedicated base-INDEPENDENT base-health command (build + test +
+  -- selftest). Here the base-health command is green (base is healthy) while the
+  -- candidate is red, so the verdict is OWN_LOCAL_RED -> impl-fail (no loop). The probe
+  -- invokes the base-health command, never the admission-carrying local command.
+  test_base_probe_runs_base_health_command_and_healthy_base_is_own_local_red = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree, "candidate failed\n")
+    mock_base_health_command("make base-health-probe")
+    mock_base_probe(worktree, {
+      check_command = "make base-health-probe",
+      check = { stdout = "", stderr = "", exit_code = 0 },
+    })
+
+    local result = run_implement(event, opts("implement-base-probe-health-green"))
+    assert_impl_failure_without_publication(result, "local-iteration-failed")
+
+    -- The base-probe ran the base-health command (not the local command), and the
+    -- candidate check carries the BASE pin while the probe stays base-independent.
+    local probe_ran_base_health = false
+    local probe_ran_local_command = false
+    local candidate_pinned = false
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = tostring(call.rendered or "")
+      if rendered:find("-base-probe", 1, true) ~= nil
+        and rendered:find("make base-health-probe", 1, true) ~= nil then
+        probe_ran_base_health = true
+      end
+      if rendered:find("-base-probe", 1, true) ~= nil
+        and rendered:find("scripts/run.sh test-affected", 1, true) ~= nil then
+        probe_ran_local_command = true
+      end
+      if rendered:find("scripts/run.sh test-affected", 1, true) ~= nil
+        and rendered:find("-base-probe", 1, true) == nil then
+        candidate_pinned = rendered:find("&& BASE='abc123' scripts/run.sh test-affected", 1, true) ~= nil
+      end
+    end
+    t.eq(probe_ran_base_health, true)
+    t.eq(probe_ran_local_command, false)
+    t.eq(candidate_pinned, true)
+  end,
+
+  -- The fix must NOT weaken detection of a genuinely broken base: when the base-health
+  -- command itself reds (base_sha does not build / fails tests / selftest regression),
+  -- the verdict stays BASE_RED and the lane is retried (base-local-iteration-failed),
+  -- never misattributed to the candidate.
+  test_base_probe_genuinely_broken_base_health_is_base_red = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree, "candidate failed\n")
+    mock_base_health_command("make base-health-probe")
+    mock_base_probe(worktree, {
+      check_command = "make base-health-probe",
+      check = {
+        stdout = "",
+        stderr = "base build failed: error CS0103\n",
+        exit_code = 2,
+      },
+    })
+
+    local result = run_implement(event, opts("implement-base-probe-health-red"))
+
+    local failure = assert_impl_failure_without_publication(result, "base-local-iteration-failed")
+    t.is_true(failure.payload.body:find("base build failed: error CS0103", 1, true) ~= nil)
+    local probe_ran_base_health = false
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = tostring(call.rendered or "")
+      if rendered:find("-base-probe", 1, true) ~= nil
+        and rendered:find("make base-health-probe", 1, true) ~= nil then
+        probe_ran_base_health = true
+      end
+    end
+    t.eq(probe_ran_base_health, true)
   end,
 }

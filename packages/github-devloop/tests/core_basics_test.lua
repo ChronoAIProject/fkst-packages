@@ -38,6 +38,9 @@ return {
     t.eq(config.test_command(exec), "scripts/run.sh test")
     local local_command = config.local_iteration_test_command(exec)
     t.eq(local_command, "scripts/run.sh test-affected")
+    -- Base-health command falls back to the local-iteration command when its own env
+    -- (FKST_DEVLOOP_BASE_HEALTH_COMMAND) is unset -> conservative default.
+    t.eq(config.base_health_command(exec), "scripts/run.sh test-affected")
 
     t.eq(config.env_present_command("GH_TOKEN"), 'if [ -n "${GH_TOKEN:-}" ]; then printf present; fi')
     responses[config.env_present_command("GH_TOKEN")] = { stdout = "present", exit_code = 0 }
@@ -61,6 +64,14 @@ return {
     t.eq(cfg.rollup_merge, "manual")
     t.eq(config.test_command(exec), "cargo build && cargo test")
     t.eq(config.local_iteration_test_command(exec), "make preflight")
+    -- With the base-health env still unset, base_health_command tracks the local
+    -- command (`make preflight`) -- unchanged behavior for a non-opted-in deployment.
+    t.eq(config.base_health_command(exec), "make preflight")
+    -- When set, FKST_DEVLOOP_BASE_HEALTH_COMMAND overrides with a base-INDEPENDENT
+    -- engineering command (no base-relative admission gate) for the base-probe.
+    responses['printf %s "$FKST_DEVLOOP_BASE_HEALTH_COMMAND"'] =
+      { stdout = "make dotnet && make test && make selftest", exit_code = 0 }
+    t.eq(config.base_health_command(exec), "make dotnet && make test && make selftest")
 
     responses['printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"'] = { stdout = "../bad", exit_code = 0 }
     t.raises(function()
