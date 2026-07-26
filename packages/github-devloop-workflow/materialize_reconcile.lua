@@ -49,14 +49,68 @@ local function terminal(core, deps, repo, issue_number, origin, state, reason_co
   return "terminal"
 end
 
-local function reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current_labels)
-  local request = actions.terminal_label_request(repo, issue_number, origin, terminal_fact, current_labels)
+local function raise_label_projection(origin, request, projection_state)
   if request == nil then
-    log_decision(origin, "terminal", "terminal-label", "skip-idempotent(label-current)", "terminal label projection already matches the trusted workflow terminal marker")
+    log_decision(origin, "projection", "label-projection", "skip-idempotent(label-current)", projection_state .. " label projection already matches workflow truth")
     return
   end
-  log_decision(origin, "terminal", "terminal-label", "applied(reconcile)", "terminal label projection derived from trusted workflow terminal marker")
+  log_decision(origin, "projection", "label-projection", "applied(reconcile)", projection_state .. " label projection reconciled under its current generation marker")
   actions.raise_request(origin, "github-proxy.github_issue_label_request", request)
+end
+
+local function reconcile_label_projection(repo, issue_number, origin, projection_state, current_labels, current_projection)
+  if current_projection == nil or tostring(current_projection.state or "") ~= tostring(projection_state) then
+    local generation = (current_projection and current_projection.generation or 0) + 1
+    log_decision(origin, "projection", "label-projection", "applied(generation)", projection_state .. " label projection opened generation " .. tostring(generation))
+    actions.raise_request(
+      origin,
+      "github-proxy.github_issue_comment_request",
+      actions.label_projection_marker_request(repo, issue_number, origin, projection_state, generation)
+    )
+    return "marker-requested"
+  end
+  raise_label_projection(origin, actions.label_projection_request(
+    repo,
+    issue_number,
+    origin,
+    current_projection,
+    current_labels
+  ), projection_state)
+  return "projection-current"
+end
+
+local function reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current_labels, current_projection)
+  return reconcile_label_projection(
+    repo,
+    issue_number,
+    origin,
+    actions.terminal_projection_state(terminal_fact),
+    current_labels,
+    current_projection
+  )
+end
+
+local function reconcile_done_projection(repo, issue_number, origin, current_labels)
+  local request = actions.done_label_request(repo, issue_number, origin, current_labels)
+  if request == nil then
+    log_decision(origin, "terminal", "terminal-label", "skip-idempotent(label-current)", "merged label projection already matches the trusted workflow terminal marker")
+    return
+  end
+  log_decision(origin, "terminal", "terminal-label", "applied(reconcile)", "merged label projection derived from the trusted workflow terminal marker")
+  actions.raise_request(origin, "github-proxy.github_issue_label_request", request)
+end
+
+local function reconcile_active_projection(repo, issue_number, origin, terminal_fact, current_labels, current_projection)
+  if terminal_fact ~= nil and tostring(terminal_fact.state or "") == "blocked" then
+    return reconcile_label_projection(
+      repo,
+      issue_number,
+      origin,
+      "thinking",
+      current_labels,
+      current_projection
+    )
+  end
 end
 
 local function load_blueprint(deps, ctx, workflow_id)
@@ -246,10 +300,13 @@ local function process_origin(core, deps, repo, issue_number, event)
     -- is a derived child verdict, so each poll must recompute it from current child
     -- facts: a child can recover and merge after the workflow recorded child-fatal.
     local terminal_fact = discovery.latest_terminal(core, current, origin)
+    local label_projection = discovery.latest_label_projection(core, current, origin)
     if terminal_fact ~= nil and tostring(terminal_fact.state or "") ~= "blocked" then
-      reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels)
       if tostring(terminal_fact.state or "") == "done" then
+        reconcile_done_projection(repo, issue_number, origin, current.labels)
         lease.close_done_origin(core, deps, repo, issue_number, origin)
+      else
+        reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection)
       end
       log_decision(origin, "discover", "terminal", "skip-terminal", "trusted workflow terminal marker already exists")
       return "skip"
@@ -280,9 +337,11 @@ local function process_origin(core, deps, repo, issue_number, event)
     local facts = discovery.materialization_facts(core, current, origin)
     local created_marker = actions.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, discovery.trusted_comments, log_decision)
     if created_marker == "wait" then
+      reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection)
       return "wait"
     end
     if created_marker then
+      reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection)
       return "created-marker"
     end
 
@@ -297,6 +356,7 @@ local function process_origin(core, deps, repo, issue_number, event)
       "reason=" .. tostring(decision.reason_code or decision.why or ""),
     })
     if decision.action == "wait" then
+      reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection)
       log_decision(origin, "frontier", "wait", "skip-wait", decision.why or "frontier-waits")
       return "wait"
     end
@@ -304,12 +364,19 @@ local function process_origin(core, deps, repo, issue_number, event)
       if terminal_fact ~= nil
         and tostring(terminal_fact.state or "") == "blocked"
         and tostring(decision.state or "error") == "blocked" then
-        reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels)
+        reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection)
+        if tostring(terminal_fact.reason_code or "") == tostring(decision.reason_code or "frontier-terminal") then
+          return "terminal"
+        end
       end
       return terminal(core, deps, repo, issue_number, origin, decision.state or "error", decision.reason_code or "frontier-terminal")
     end
     if decision.action == "materialize" then
-      return perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, current_digest, facts, current, decision, event)
+      local outcome = perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, current_digest, facts, current, decision, event)
+      if outcome ~= "terminal" then
+        reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection)
+      end
+      return outcome
     end
     return terminal(core, deps, repo, issue_number, origin, "error", "unknown-frontier-action")
   end)

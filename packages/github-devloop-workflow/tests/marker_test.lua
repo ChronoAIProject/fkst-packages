@@ -301,6 +301,31 @@ local tests = {
     t.is_nil(marker.parse_terminal_marker(body, origin))
   end,
 
+  test_label_projection_marker_round_trip_binds_state_to_generation = function()
+    local built, err = marker.build_label_projection_marker(origin, "thinking", 2)
+    t.is_nil(err)
+    t.eq(
+      built,
+      '<!-- fkst:github-devloop-workflow:label-projection:v1 origin="github-devloop/issue/owner/repo/42" state="thinking" generation="2" -->'
+    )
+    local parsed = marker.parse_label_projection_marker("Projection fact.\n" .. built, origin)
+    t.eq(parsed.origin, origin)
+    t.eq(parsed.state, "thinking")
+    t.eq(parsed.generation, 2)
+  end,
+
+  test_label_projection_marker_rejects_invalid_state_and_generation = function()
+    local built, err = marker.build_label_projection_marker(origin, "merged", 1)
+    t.is_nil(built)
+    t.eq(err.path, "projection_state")
+    t.eq(err.code, "invalid_projection_state")
+
+    built, err = marker.build_label_projection_marker(origin, "blocked", 0)
+    t.is_nil(built)
+    t.eq(err.path, "generation")
+    t.eq(err.code, "invalid_generation")
+  end,
+
   test_lineage_header_round_trip_and_parse_from_body = function()
     local built, err = marker.build_lineage_header(origin, digest, slot)
     t.is_nil(err)

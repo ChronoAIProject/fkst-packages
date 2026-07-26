@@ -183,10 +183,16 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
   })
 end
 
-function M.terminal_label_request(repo, issue_number, origin, terminal_fact, current_labels)
+function M.terminal_projection_state(terminal_fact)
   local terminal_state = tostring(terminal_fact and terminal_fact.state or "")
-  local projection_state = terminal_state == "done" and "merged" or "blocked"
-  local add_labels, remove_labels = state_labels.state_label_reconcile_changes(current_labels, projection_state)
+  if terminal_state == "blocked" or terminal_state == "error" then
+    return "blocked"
+  end
+  error("github-devloop-workflow: invalid-terminal-projection-state: terminal label projection requires a trusted workflow terminal disposition")
+end
+
+function M.done_label_request(repo, issue_number, origin, current_labels)
+  local add_labels, remove_labels = state_labels.state_label_reconcile_changes(current_labels, "merged")
   if #add_labels == 0 and #remove_labels == 0 then
     return nil
   end
@@ -200,7 +206,7 @@ function M.terminal_label_request(repo, issue_number, origin, terminal_fact, cur
       "workflow",
       "terminal-label",
       tostring(origin),
-      terminal_state,
+      "done",
     }),
     safe_source_ref(repo, issue_number)
   )
@@ -213,10 +219,69 @@ function M.terminal_label_request(repo, issue_number, origin, terminal_fact, cur
       origin = tostring(origin),
     },
     expected = {
-      state = terminal_state,
+      state = "done",
     },
     order_by = {
       "monotonic",
+    },
+  }
+  return request
+end
+
+function M.label_projection_marker_request(repo, issue_number, origin, projection_state, generation)
+  local built, err = marker.build_label_projection_marker(origin, projection_state, generation)
+  if built == nil then
+    error("github-devloop-workflow: label-projection-marker-build-failed: label projection marker build failed: " .. tostring(err and err.code or "unknown"))
+  end
+  return build_comment_request(repo, issue_number, origin, built, {
+    "label-projection",
+    tostring(generation),
+  })
+end
+
+function M.label_projection_request(repo, issue_number, origin, projection_fact, current_labels)
+  if tostring(projection_fact and projection_fact.origin or "") ~= tostring(origin) then
+    error("github-devloop-workflow: invalid-label-projection-origin: label projection fact does not belong to the workflow origin")
+  end
+  local projection_state = tostring(projection_fact and projection_fact.state or "")
+  local generation = projection_fact and projection_fact.generation
+  local _, marker_err = marker.build_label_projection_marker(origin, projection_state, generation)
+  if marker_err ~= nil then
+    error("github-devloop-workflow: invalid-label-projection-fact: label projection fact is invalid: " .. tostring(marker_err.code or "unknown"))
+  end
+  local add_labels, remove_labels = state_labels.state_label_reconcile_changes(current_labels, projection_state)
+  if #add_labels == 0 and #remove_labels == 0 then
+    return nil
+  end
+
+  local request = requests_labels.build_label_request(
+    repo,
+    issue_number,
+    add_labels,
+    remove_labels,
+    base_ids.dedup_key({
+      "workflow",
+      "label-projection",
+      tostring(origin),
+      projection_state,
+      tostring(generation),
+    }),
+    safe_source_ref(repo, issue_number)
+  )
+  request.require_marker_guard = true
+  request.marker_guard = {
+    namespace = "github-devloop-workflow",
+    marker = "label-projection",
+    version = "v1",
+    match = {
+      origin = tostring(origin),
+    },
+    expected = {
+      state = projection_state,
+      generation = tostring(generation),
+    },
+    order_by = {
+      "generation",
     },
   }
   return request
