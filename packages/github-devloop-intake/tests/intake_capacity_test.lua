@@ -314,7 +314,7 @@ return {
     t.eq(world:release_order()[2], 2)
   end,
 
-  test_terminal_winner_releases_capacity_for_next_issue = function()
+  test_blocked_winner_releases_capacity_for_next_issue = function()
     h.mock_bot_env()
     local world = new_world(1)
     world:add(issue(71))
@@ -323,7 +323,7 @@ return {
 
     t.eq(authorize(first_runtime, world, 71), true)
     world:claim(71)
-    world.issues[71].state = "CLOSED"
+    world.issues[71].comments = { state_comment(71, "blocked") }
 
     local next_runtime = capacity.new(world:ports("/runtime/next"))
     local next_granted = authorize(next_runtime, world, 72)

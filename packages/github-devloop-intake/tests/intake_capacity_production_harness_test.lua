@@ -560,7 +560,7 @@ end
 
 return {
   -- Regression #438/#2379: intake capacity is one remote CAS authority across runtime generations.
-  test_real_cas_department_delivery_and_restart_harness = function()
+  test_real_cas_department_delivery_restart_and_blocked_slot_release_harness = function()
     local source = repo_root()
     local root = read_command("mktemp -d " .. shell_quote("/tmp/fkst-intake-capacity-production.XXXXXX")):gsub("%s+$", "")
     local active = {}
@@ -620,6 +620,33 @@ return {
       stop_process(pid_b)
       active[pid_a] = nil
       active[pid_b] = nil
+
+      local item_a = delivered(concurrent, 41) and 41 or 42
+      local item_b = item_a == 41 and 42 or 41
+      write_issue(concurrent, item_a, "OPEN", "enable", "blocked", owner)
+      write_file(root .. "/trigger/input.trigger", "blocked-slot-release\n")
+      local release_pid = start_supervise(args(base, {
+        clone = clone_a, runtime = root .. "/runtime-blocked-slot-release",
+        durable = root .. "/durable-blocked-slot-release",
+        log = root .. "/blocked-slot-release", id = "blocked-slot-release", issue = tostring(item_b),
+        case = concurrent, repo = common.repo, issues = common.issues,
+        updated_at = "2026-07-17T00:00:01Z",
+      }))
+      active[release_pid] = true
+      wait_until("successor admission after blocked holder releases the producer slot", logs, function()
+        if delivered(concurrent, item_b) and issue_owner(concurrent, item_b) == owner then
+          return true
+        end
+        return nil, "item_b=" .. tostring(item_b)
+          .. " owner=" .. issue_owner(concurrent, item_b)
+          .. " delivered=" .. tostring(delivered(concurrent, item_b))
+      end)
+      local released_grant = assert(remote_grant(remote, common.repo))
+      t.eq(released_grant.holders[1], item_b)
+      t.eq(issue_owner(concurrent, item_a), "")
+      t.eq(active_claim_count(concurrent, { 41, 42 }), 1)
+      stop_process(release_pid)
+      active[release_pid] = nil
 
       local restart = case_root(root, "restart")
       write_issue(restart, 61, "OPEN", "", "", nil)

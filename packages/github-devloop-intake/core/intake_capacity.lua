@@ -129,7 +129,10 @@ local function issue_is_active(repo, current)
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local decision = marker_facts.intake_decision_fact(current.comments, proposal_id)
+  local occupies_capacity = not marker_facts.has_state_marker(current.comments, proposal_id)
+    or devloop_state.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id)
   return (decision == nil or decision.decision == "enable")
+    and occupies_capacity
     and not devloop_state.current_issue_observation_is_terminal(current.comments, proposal_id)
 end
 

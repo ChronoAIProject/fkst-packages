@@ -143,19 +143,6 @@ local function mock_empty_pr_list()
   })
 end
 
-local function one_open_request_producer_emission(open_issue, pending_items)
-  local terminal_blocked = false
-  for _, label in ipairs(open_issue.labels or {}) do
-    if label.name == "fkst-dev:blocked" then
-      terminal_blocked = true
-    end
-  end
-  if open_issue.state == "OPEN" and not terminal_blocked then
-    return nil
-  end
-  return pending_items[1]
-end
-
 local function mock_branch_config()
   t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
     stdout = "dev",
@@ -576,11 +563,8 @@ return {
     t.eq(reconcile.payload.round, 3)
   end,
 
-  test_liveness_scan_timeout_attempt_releases_one_open_request_slot_for_item_b = function()
+  test_liveness_scan_timeout_attempt_escalates_to_blocked_at_cap = function()
     local comments = { ready_state_comment("IC_ready_timeout_sweep", version, "2026-06-03T00:00:00Z") }
-    local item_a = { state = "OPEN", labels = { { name = "fkst-dev:ready" } } }
-    local pending_items = { "item-b" }
-    t.eq(one_open_request_producer_emission(item_a, pending_items), nil)
     for sweep = 1, 3 do
       mock_blocked_by(42, {})
       mock_repo()
@@ -621,10 +605,6 @@ return {
         local blocked_label = find_raise(reconciled.raises, "github-proxy.github_issue_label_request")
         t.is_true(blocked_label ~= nil)
         t.eq(blocked_label.payload.add_labels[1], "fkst-dev:blocked")
-        for _, label in ipairs(blocked_label.payload.add_labels) do
-          table.insert(item_a.labels, { name = label })
-        end
-        t.eq(one_open_request_producer_emission(item_a, pending_items), "item-b")
       end
     end
   end,
