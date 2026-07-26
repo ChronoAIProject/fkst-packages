@@ -1,28 +1,6 @@
--- Reproduction for the #2624 implementing perpetual-stall (>12h stuck at
--- `implementing`, no round-2 timeout-attempt, no force-terminate).
---
--- Ground truth (#2624): implementing entered ~14:15:45Z (epoch_ms 1784729745000),
--- a single `timeout-attempt:v2` round=1 fired ~2h later (budget 120), then the
--- pipeline perpetually `live-defer`s -- observe_issue re-derives and logs
--- `codex-run-live`, the state never advances, no round-2 marker ever appears,
--- no force-terminate to a terminal state ever happens.
---
--- These two tests DISCRIMINATE the three hypotheses by driving the REAL
--- restart-liveness machinery (`maybe_timeout_redrive_from_table` /
--- `restart_row_receiver_liveness` / `restart_row_liveness_signal`) with faked
--- `fkst.codex_runs` + markers:
---
---   H1 generation-reset   -> REFUTED by test 1: the actionable-epoch generation_key
---                            is derived from the (stable) state-entry epoch_ms, so it
---                            is IDENTICAL across restarts and the round ACCUMULATES to
---                            escalation. The stall is not a round reset.
---   H2 stale-row live-defer -> CONFIRMED by test 2: a codex_runs row that reads live at
---                            every observation (unexpired lease) makes the implementing
---                            live-defer hold forever -- there is NO absolute row-budget
---                            cap on the live path, so the 120-min budget is DEFEATED and
---                            the state never force-terminates. (RED.)
---   H3 double-spawn       -> not the mechanism: the stall is a clean perpetual defer,
---                            no spawn/conflict is required to reproduce it.
+-- Exercise restart-liveness across repeated observations. Attempts accumulate under a
+-- stable actionable generation when no receiver is live, while a positively matching
+-- `fkst.codex_runs` row remains the authoritative reason to defer.
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local contract_time = require("contract.time")
@@ -142,12 +120,7 @@ local function persistently_live_implement_run(event, now_seconds)
 end
 
 return {
-  -- CONTROL / discriminator for H1 (generation-reset). Proves:
-  --   (a) the actionable-epoch epoch_ms IS the stable state-entry time,
-  --   (b) the generation_key is IDENTICAL across restarts (re-derivations),
-  --   (c) the timeout round ACCUMULATES across restarts (does not reset), and
-  --   (d) the actionable (not-live) path DOES force-terminate at the budget.
-  -- So a round reset is NOT what stalls #2624.
+  -- The actionable epoch and timeout attempts remain stable across restarts.
   test_actionable_path_generation_stable_and_force_terminates = function()
     local event = ready()
     local row = restart_transition_row("implementing")
@@ -181,31 +154,16 @@ return {
       core.liveness_timeout_due_with_facts(row, state, facts3, now2)
       t.eq(core.liveness_timeout_attempt(row, state, facts3), 2)
 
-      -- (d) Owner directive (#2725): with the budget exceeded and the round accumulated
-      -- to the former escalate limit, the actionable path must NEVER force-terminate to a
-      -- terminal state; it REDRIVES, emitting the next timeout-attempt marker (round 3)
-      -- instead of the terminal devloop_timeout_reconcile event.
       local raised = run_timeout(row, state, facts3)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.round, 3)
+      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
     end)
   end,
 
-  -- REPRODUCTION for #2624 (H2). A codex_runs row that reads live at every
-  -- observation (unexpired lease) defers the implementing state FOREVER: even
-  -- 20h past state entry -- 10x the 120-min budget and far beyond any legitimate
-  -- 2h implement codex -- the live-defer path never force-terminates. The
-  -- 120-min row budget is DEFEATED by the fresh live signal.
-  --
-  -- The passing assertion below is the CORRECT behavior the doctrine requires
-  -- ("every non-terminal state has an undefeatable budget + guaranteed
-  -- termination"): the implementing state MUST force-terminate. It is RED against
-  -- current code, which returns a pure live-defer (skip-timeout-count) with zero
-  -- effects, no matter how much wall-clock passes.
-  test_persistently_live_codex_run_never_force_terminates = function()
+  test_persistently_live_codex_run_defers_without_consuming_attempt_budget = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local state = state_for(event)
@@ -215,41 +173,16 @@ return {
     local facts = facts_for(event, {}, now_seconds)
 
     with_codex_runs({ persistently_live_implement_run(event, now_seconds) }, function()
-      -- The receiver liveness reads "live", but the row-budget cap makes that
-      -- non-deferred once the stable state-entry budget is exhausted.
       local receiver = core.restart_row_receiver_liveness(row, state, facts, now_seconds)
-      t.eq(receiver.action, "stuck")
-      t.eq(receiver.reason, "row-budget-absolute-cap")
+      t.eq(receiver.action, "defer")
+      t.eq(receiver.reason, "actionable-epoch-deferred")
       t.eq(receiver.signal.family, "codex_run:v1")
       local due = core.liveness_timeout_due_with_facts(row, state, facts, now_seconds)
-      t.eq(due, true)
-      table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
-        row.from_state, row.liveness_class_id, facts.actionable_epoch_eval.generation_key, 1, event.source_ref)))
-      table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
-        row.from_state, row.liveness_class_id, facts.actionable_epoch_eval.generation_key, 2, event.source_ref)))
-
-      -- Owner directive (#2725) supersedes the #2624 undefeatable-budget contract: a
-      -- timeout/row-budget cap is exactly the transient/counter class that must NEVER
-      -- reach a terminal state. At 10x budget the implementing state must NOT
-      -- force-terminate (no devloop_timeout_reconcile, no fkst-dev:impl-failed label); it
-      -- REDRIVES, emitting the next timeout-attempt marker. The row-budget-absolute-cap
-      -- still fires as "stuck" (asserted above) so the redrive is gated by real liveness,
-      -- not deferred forever -- it just redrives instead of dropping to blocked.
+      t.eq(due, false)
       local raised = run_timeout(row, state, facts)
       t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local impl_failed = captured_raise(raised, "github-proxy.github_issue_label_request", function(payload)
-        for _, label in ipairs(payload.add_labels or {}) do
-          if label == "fkst-dev:impl-failed" then
-            return true
-          end
-        end
-        return false
-      end)
-      t.eq(impl_failed, nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil,
-        "implementing 20h past budget must redrive (emit a timeout-attempt marker), never force-terminate to a terminal state")
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+      t.eq(captured_raise(raised, "devloop_ready"), nil)
+      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
     end)
   end,
 }

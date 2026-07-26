@@ -441,21 +441,16 @@ local TRACE_FIXTURES = {
     legacy_log_outcome = "pending",
   },
   {
-    -- Owner directive (#2725): the timeout watchdog never escalates, so the reconcile
-    -- DEPARTMENT short-circuits this source-equal timeout-reconcile pre-CAS with
-    -- skip-stale(no-longer-over-budget) -- it no longer reaches the apply boundary (the
-    -- terminal drop is neutralized). The frozen CAS ADMISSION layer (decide_transition /
-    -- catalog / restart_timeout_trace) is UNCHANGED and still applies on the valid
-    -- version, so the corpus stays byte-exact `apply`; only the department observation is
-    -- now pre-cas. The trace below records the byte-exact CAS admission (apply) built
-    -- independently of the department, while assert_case verifies the department skip.
     fixture_id = "source-equal-apply",
     name = "r9-timeout-reconcile-source-equal-apply",
     current_state = "ready",
     current_version = READY_ATTEMPT,
-    admission_phase = "pre-cas",
-    legacy_log_outcome = "skip-stale(no-longer-over-budget)",
-    cas_admits = true,
+    boundary_reached = true,
+    admission_status = "apply",
+    probe_incoming_is_derived = true,
+    effect_count = 2,
+    post_admission_disposition = "effect-emitted(blocked)",
+    legacy_log_outcome = "applied",
   },
   {
     fixture_id = "source-older-stale",
@@ -482,14 +477,6 @@ local function normalized_old_admission(fixture, production, incoming_version)
     return "stale", "incoming-version-older",
       devloop_state.cas_outcome({ state = fixture.current_state, version = fixture.current_version }, "stale", incoming_version)
   end
-  -- Owner directive (#2725): the timeout watchdog never escalates, so the reconcile
-  -- department short-circuits an over-budget source-equal timeout-reconcile pre-CAS with
-  -- skip-stale(no-longer-over-budget). It never reaches the CAS apply, so its admission is
-  -- a stale skip -- the terminal drop is neutralized.
-  if outcome:find("no-longer-over-budget", 1, true) ~= nil then
-    return "stale", "advanced-or-diverged",
-      devloop_state.cas_outcome({ state = fixture.current_state, version = fixture.current_version }, "stale", incoming_version)
-  end
   error("timeout reconcile trace saw unsupported pre-CAS outcome: " .. tostring(outcome), 0)
 end
 
@@ -508,17 +495,8 @@ local function assert_timeout_reconcile_trace_equality()
   local old_fixtures = json_array()
   local new_fixtures = json_array()
   for _, fixture in ipairs(TRACE_FIXTURES) do
-    -- assert_case observes the real DEPARTMENT; under #2725 the source-equal timeout
-    -- reconcile short-circuits pre-cas (no-longer-over-budget) and never reaches the
-    -- department's CAS boundary (verified here as admission_phase="pre-cas").
+    -- Observe the real department before comparing the independently frozen CAS trace.
     assert_case(fixture)
-    -- The frozen corpus records the CAS ADMISSION layer (decide_transition / catalog),
-    -- which #2725 leaves UNCHANGED -- the CAS edge still admits on the valid version, so
-    -- the corpus stays byte-exact and restart_timeout_trace / obligations remain green.
-    -- We therefore record the byte-exact CAS admission built INDEPENDENTLY of the
-    -- department (whose boundary the timeout no longer reaches). OLD == NEW == corpus,
-    -- while the department-level neutralization is covered by the pre-cas assert_case
-    -- above and by the standalone pre-cas source-apply / safe-equal tests.
     local incoming_version = conv_reconcile.timeout_reconcile_state_version(
       fixture.event_version or fixture.current_version or (V_EQUAL .. "/timeout/ready/3"),
       "ready",
@@ -607,18 +585,17 @@ return {
     assert_timeout_reconcile_trace_equality()
   end,
 
-  test_timeout_reconcile_source_is_pre_cas_no_longer_over_budget = function()
-    -- Owner directive (#2725): the timeout watchdog no longer escalates (decision.action
-    -- is always redrive), so the reconcile department's timeout path short-circuits BEFORE
-    -- the CAS admission boundary with skip-stale(no-longer-over-budget). A source-equal
-    -- timeout-reconcile event therefore never reaches the effect-builder / apply boundary
-    -- and drops NO blocked effect; the terminal drop is neutralized per #2725.
+  test_timeout_reconcile_source_equal_applies_blocked_effect = function()
     assert_case({
-      name = "timeout-reconcile-source-no-longer-over-budget",
+      name = "timeout-reconcile-source-equal-apply",
       current_state = "ready",
       current_version = READY_ATTEMPT,
-      admission_phase = "pre-cas",
-      legacy_log_outcome = "skip-stale(no-longer-over-budget)",
+      boundary_reached = true,
+      admission_status = "apply",
+      probe_incoming_is_derived = true,
+      effect_count = 2,
+      post_admission_disposition = "effect-emitted(blocked)",
+      legacy_log_outcome = "applied",
     })
   end,
 
@@ -632,16 +609,17 @@ return {
       transition_version.strip_suffixes(V_ORDERING_EQUAL_EVENT),
       "timeout-reconcile-safe-equal: fixture versions must share canonical lineage"
     )
-    -- Owner directive (#2725): even with byte-different but canonically-equal lineage,
-    -- the timeout-reconcile path short-circuits pre-CAS with skip-stale(no-longer-over-
-    -- budget) -- the watchdog never escalates, so the terminal drop is neutralized.
     assert_case({
       name = "timeout-reconcile-safe-equal-raw-different",
       current_state = "ready",
       current_version = V_ORDERING_EQUAL_CURRENT,
       event_version = V_ORDERING_EQUAL_EVENT,
-      admission_phase = "pre-cas",
-      legacy_log_outcome = "skip-stale(no-longer-over-budget)",
+      boundary_reached = true,
+      admission_status = "apply",
+      probe_incoming_is_derived = true,
+      effect_count = 2,
+      post_admission_disposition = "effect-emitted(blocked)",
+      legacy_log_outcome = "applied",
     })
   end,
 

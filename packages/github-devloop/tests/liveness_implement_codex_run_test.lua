@@ -143,12 +143,12 @@ return {
       },
     }, function()
       local receiver = core.restart_row_receiver_liveness(row, state, at_budget, at_budget.now_seconds)
-      t.eq(receiver.action, "stuck")
-      t.eq(receiver.reason, "row-budget-absolute-cap")
+      t.eq(receiver.action, "defer")
       t.eq(receiver.signal.family, "codex_run:v1")
       local due, age = core.liveness_timeout_due_with_facts(row, state, at_budget, at_budget.now_seconds)
-      t.eq(due, true)
-      t.eq(age, 120)
+      t.eq(due, false)
+      t.eq(age, nil)
+      assert_no_timeout_effects(run_timeout(row, state, at_budget))
     end)
   end,
 
@@ -180,7 +180,7 @@ return {
     end)
   end,
 
-  test_implement_hung_codex_run_past_deadline_terminates_after_budget = function()
+  test_implement_hung_codex_run_past_deadline_escalates_after_attempt_budget = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
@@ -219,16 +219,13 @@ return {
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
       t.eq(due, true)
       t.eq(age, 180)
-      -- Owner directive (#2725): at/past the former escalation threshold (round 3) a
-      -- timeout must NEVER reach a terminal state; it REDRIVES, emitting the next
-      -- timeout-attempt marker instead of the terminal devloop_timeout_reconcile event.
       local raised = run_timeout(row, state, facts)
       t.eq(captured_raise(raised, "devloop_ready"), nil)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.round, 3)
+      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
     end)
   end,
 
@@ -353,16 +350,13 @@ return {
       t.eq(age, 180)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
       t.eq(receiver.action, "stuck")
-      -- Owner directive (#2725): at/past the former escalation threshold (round 3) a
-      -- timeout must NEVER reach a terminal state; it REDRIVES, emitting the next
-      -- timeout-attempt marker instead of the terminal devloop_timeout_reconcile event.
       local raised = run_timeout(row, state, facts)
       t.eq(captured_raise(raised, "devloop_ready"), nil)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.round, 3)
+      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
     end)
     fkst.codex_runs = original
     if not ok then
@@ -454,16 +448,13 @@ return {
       t.eq(age, 180)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
       t.eq(receiver.action, "stuck")
-      -- Owner directive (#2725): at/past the former escalation threshold (round 3) a
-      -- timeout must NEVER reach a terminal state; it REDRIVES, emitting the next
-      -- timeout-attempt marker instead of the terminal devloop_timeout_reconcile event.
       local raised = run_timeout(row, state, facts)
       t.eq(captured_raise(raised, "devloop_ready"), nil)
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.round, 3)
+      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
     end)
   end,
 

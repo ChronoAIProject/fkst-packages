@@ -541,7 +541,7 @@ return {
     t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(proposal_id, version, "blocked", 1, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
   end,
 
-  test_liveness_scan_over_budget_ready_redrives_never_reconciles = function()
+  test_liveness_scan_over_budget_ready_escalates_to_timeout_reconcile = function()
     local timeout_version = version .. "/timeout/ready/3"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
       {
@@ -556,21 +556,14 @@ return {
       source = "liveness-scan",
     }), opts("liveness-scan-ready-timeout"))
     t.eq(result.exit_code, 0)
-    -- Owner directive (#2725): at/past the former escalation threshold (round 3) a ready
-    -- timeout must NEVER reach a terminal reconcile. The observe entry-point defers the
-    -- ready-timeout redrive to the liveness sweep (which climbs the timeout-attempt marker,
-    -- see test_liveness_scan_ready_timeout_chain_redrives_not_reconciles); observe itself
-    -- emits no terminal devloop_timeout_reconcile and never drops ready to blocked.
-    t.eq(find_raise(result.raises, "devloop_timeout_reconcile"), nil)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request", function(payload)
-      for _, l in ipairs(payload.add_labels or {}) do
-        if l == "fkst-dev:blocked" then return true end
-      end
-      return false
-    end), nil)
+    local reconcile = find_raise(result.raises, "devloop_timeout_reconcile")
+    t.is_true(reconcile ~= nil)
+    t.eq(reconcile.payload.state, "ready")
+    t.eq(reconcile.payload.issue_version, timeout_version)
+    t.eq(reconcile.payload.round, 3)
   end,
 
-  test_liveness_scan_timeout_attempt_climbs_and_redrives_across_frozen_sweeps = function()
+  test_liveness_scan_timeout_attempt_escalates_to_blocked_at_cap = function()
     local comments = { ready_state_comment("IC_ready_timeout_sweep", version, "2026-06-03T00:00:00Z") }
     for sweep = 1, 3 do
       mock_blocked_by(42, {})
@@ -594,22 +587,29 @@ return {
         table.insert(comments, timeout_attempt_comment("ready", version, sweep, "2026-06-03T00:0" .. tostring(sweep) .. ":00Z"))
         t.eq(find_raise(result.raises, "devloop_timeout_reconcile"), nil)
       else
-        -- Owner directive (#2725): the timeout-attempt COUNTER never escalates to a
-        -- terminal reconcile; sweep 3 REDRIVES exactly like sweeps 1-2 (ready hand-off +
-        -- the next timeout-attempt marker), never dropping to blocked.
-        local ready_raise = find_raise(result.raises, "devloop_ready")
-        t.is_true(ready_raise ~= nil)
-        t.is_true(ready_raise.payload.dedup_key:find("/redrive/ready/" .. tostring(sweep), 1, true) ~= nil)
-        t.eq(core.version_timeout_round(ready_raise.payload.dedup_key, "ready"), 0)
-        local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil)
-        t.is_true(attempt.payload.body:find('round="' .. tostring(sweep) .. '"', 1, true) ~= nil)
-        t.eq(find_raise(result.raises, "devloop_timeout_reconcile"), nil)
+        t.eq(find_raise(result.raises, "devloop_ready"), nil)
+        t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+        local timeout_reconcile = find_raise(result.raises, "devloop_timeout_reconcile")
+        t.is_true(timeout_reconcile ~= nil)
+        t.eq(timeout_reconcile.payload.state, "ready")
+        t.eq(timeout_reconcile.payload.round, 3)
+
+        mock_blocked_by(42, {})
+        mock_issue_reconcile({ "fkst-dev:ready" }, comments)
+        local reconciled = run_timeout_reconcile(timeout_reconcile.payload,
+          opts("liveness-scan-ready-timeout-reconcile-blocked"))
+        t.eq(reconciled.exit_code, 0)
+        local blocked_comment = find_raise(reconciled.raises, "github-proxy.github_issue_comment_request")
+        t.is_true(blocked_comment ~= nil)
+        t.is_true(blocked_comment.payload.body:find('state="blocked"', 1, true) ~= nil)
+        local blocked_label = find_raise(reconciled.raises, "github-proxy.github_issue_label_request")
+        t.is_true(blocked_label ~= nil)
+        t.eq(blocked_label.payload.add_labels[1], "fkst-dev:blocked")
       end
     end
   end,
 
-  test_liveness_scan_ready_timeout_chain_redrives_not_reconciles = function()
+  test_liveness_scan_ready_timeout_chain_escalates = function()
     local live_version = version .. "/timeout/ready/2"
     mock_blocked_by(42, {})
     mock_repo()
@@ -621,21 +621,15 @@ return {
     }, "2026-06-03T02:00:03Z")
     mock_empty_pr_list()
 
-    -- Owner directive (#2725): at/past the former escalation threshold a ready timeout
-    -- chain REDRIVES, climbing the next timeout-attempt marker, and NEVER produces a
-    -- terminal devloop_timeout_reconcile event; ready is never dropped to blocked. (Here
-    -- the visible markers carry no ready hand-off comment, so the redrive emits the
-    -- timeout-attempt marker without a fresh devloop_ready re-dispatch.)
     local scanned = run_liveness_scan("liveness-scan-ready-timeout-reconcile-chain")
     t.eq(scanned.exit_code, 0)
-    t.eq(find_raise(scanned.raises, "devloop_timeout_reconcile"), nil)
-    local attempt = find_raise(scanned.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(attempt ~= nil)
-    t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-    t.is_true(attempt.payload.body:find('state="ready"', 1, true) ~= nil)
+    local reconcile = find_raise(scanned.raises, "devloop_timeout_reconcile")
+    t.is_true(reconcile ~= nil)
+    t.eq(reconcile.payload.issue_version, live_version)
+    t.eq(reconcile.payload.round, 3)
   end,
 
-  test_liveness_scan_timeout_reconcile_no_longer_blocks_ready = function()
+  test_liveness_scan_timeout_reconcile_blocks_stuck_ready = function()
     local stale_version = version .. "/timeout/ready/1"
     local live_version = version .. "/timeout/ready/2"
     local payload = conv_reconcile.build_devloop_timeout_reconcile_payload(restart_transition_row("ready"),
@@ -653,14 +647,14 @@ return {
     })
     mock_blocked_by(42, {})
 
-    -- Owner directive (#2725): the timeout-reconcile department path to terminal blocked
-    -- is neutralized. The re-derived timeout DECISION is redrive (never escalate), so a
-    -- timeout-reconcile event is a no-op skip (no-longer-over-budget); ready is never
-    -- dropped to blocked.
-    local reconciled = run_timeout_reconcile(payload, opts("liveness-scan-ready-timeout-reconcile-noop"))
+    local reconciled = run_timeout_reconcile(payload, opts("liveness-scan-ready-timeout-reconcile-applies"))
     t.eq(reconciled.exit_code, 0)
-    t.eq(find_raise(reconciled.raises, "github-proxy.github_issue_comment_request"), nil)
-    t.eq(find_raise(reconciled.raises, "github-proxy.github_issue_label_request"), nil)
+    local comment = find_raise(reconciled.raises, "github-proxy.github_issue_comment_request")
+    local label = find_raise(reconciled.raises, "github-proxy.github_issue_label_request")
+    t.is_true(comment ~= nil)
+    t.is_true(comment.payload.body:find('state="blocked"', 1, true) ~= nil)
+    t.is_true(label ~= nil)
+    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
   end,
 
   test_liveness_scan_timeout_reconcile_skips_when_ready_state_advanced = function()
@@ -736,7 +730,7 @@ return {
     end), nil)
   end,
 
-  test_liveness_scan_absent_codex_run_redrives_after_budget = function()
+  test_liveness_scan_absent_codex_run_escalates_after_attempt_budget = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
@@ -776,20 +770,14 @@ return {
 
     local scanned = run_liveness_scan("liveness-scan-absent-codex-run-escalates")
     t.eq(scanned.exit_code, 0)
-    -- Owner directive (#2725): implementing past budget with no live codex REDRIVES the
-    -- ready hand-off and emits the next timeout-attempt marker; it NEVER escalates to a
-    -- terminal reconcile / blocked (the timeout is a counter, not an explicit block).
-    t.eq(find_raise(scanned.raises, "devloop_timeout_reconcile"), nil)
-    local reraised = find_raise(scanned.raises, "devloop_ready")
-    t.is_true(reraised ~= nil)
-    t.eq(reraised.payload.proposal_id, event.proposal_id)
-    local attempt = find_raise(scanned.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(attempt ~= nil)
-    t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-    t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+    t.eq(find_raise(scanned.raises, "devloop_ready"), nil)
+    local reconcile = find_raise(scanned.raises, "devloop_timeout_reconcile")
+    t.is_true(reconcile ~= nil)
+    t.eq(reconcile.payload.state, "implementing")
+    t.eq(reconcile.payload.round, 3)
   end,
 
-  test_codex_runs_error_over_budget_redrives_timeout_decision = function()
+  test_codex_runs_error_over_budget_escalates_timeout_decision = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
@@ -841,15 +829,11 @@ return {
         }, state, row, facts)
         t.eq(applied, true)
       end)
-      -- Owner directive (#2725): a codex-runs-unavailable fallback over budget is a
-      -- liveness-indeterminate condition that must NEVER escalate to a terminal
-      -- reconcile; it REDRIVES (re-dispatches the implement via devloop_ready + emits the
-      -- next timeout-attempt marker) instead of dropping to blocked.
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      t.is_true(captured_raise(raised, "devloop_ready") ~= nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
+      t.eq(captured_raise(raised, "devloop_ready"), nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.round, 3)
       local logged_fallback = false
       for _, log in ipairs(logs) do
         if log.tag == "CODEX_RUNS" and table.concat(log.fields or {}, " "):find("outcome=defer", 1, true) ~= nil then

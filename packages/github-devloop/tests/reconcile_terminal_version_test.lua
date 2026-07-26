@@ -106,7 +106,7 @@ return {
     t.eq(#implementing_result.raises, 0)
   end,
 
-  test_implementing_timeout_reconcile_is_neutralized_noop = function()
+  test_implementing_timeout_reconcile_adopts_open_pr_instead_of_blocking = function()
     local event = h.ready()
     local impl_version = event.dedup_key
     local state_version = impl_version .. "/timeout/implementing/2"
@@ -180,14 +180,20 @@ return {
     local result = run_timeout_reconcile(payload, opts("timeout-reconcile-open-pr-adopts"))
 
     t.eq(result.exit_code, 0)
-    -- Owner directive (#2725): the timeout-reconcile department path is neutralized. The
-    -- re-derived timeout DECISION is redrive (never escalate), so a timeout-reconcile
-    -- event is a no-op skip (no-longer-over-budget). The live redrive path (not this
-    -- legacy department) adopts an open PR / re-dispatches; this event neither blocks nor
-    -- mutates the issue or PR.
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
-    t.eq(find_raise(result.raises, "github-proxy.github_pr_comment_request"), nil)
-    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload_body)
+      return tostring(payload_body.body or ""):find('state="blocked"', 1, true) ~= nil
+    end), nil)
+    local issue_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload_body)
+      return tostring(payload_body.body or ""):find('state="awaiting-pr"', 1, true) ~= nil
+    end)
+    t.is_true(issue_comment ~= nil)
+    t.is_true(tostring(issue_comment.payload.body):find("fkst:github-devloop:pr-delegation:v1", 1, true) ~= nil)
+    local pr_comment = find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(pr_comment ~= nil)
+    t.is_true(tostring(pr_comment.payload.body):find('state="pr-open"', 1, true) ~= nil)
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.is_true(label ~= nil)
+    t.eq(label.payload.add_labels[1], "fkst-dev:awaiting-pr")
   end,
 
 }

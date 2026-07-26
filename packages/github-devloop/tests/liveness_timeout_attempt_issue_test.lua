@@ -239,9 +239,8 @@ return {
       -- past budget with NO live codex (the faithful #2687 shape: the implement codex
       -- has died/handed off to a now-terminal child PR) is governed only by codex_run:v1.
       -- The codex run is not running, so the actionable-epoch resolves actionable and the
-      -- receiver reports action="stuck" (force-terminate), NOT defer. This is the plain
-      -- codex-run-not-running path, distinct from the live-codex row-budget-absolute-cap
-      -- path exercised by test_stale_pr_delegation_does_not_suppress_implementing_row_budget_cap.
+      -- receiver reports action="stuck", not defer. A positively matching live Codex run
+      -- remains authoritative and is covered separately below.
       local receiver = core.restart_row_receiver_liveness(row, state, facts, now_seconds)
       t.eq(receiver.action, "stuck")
       t.eq(receiver.reason, "actionable-epoch-actionable")
@@ -267,19 +266,15 @@ return {
         }, state, row, facts)
         t.eq(handled, true)
       end)
-      -- Owner directive (#2725): the delegated implementing row past budget REDRIVES
-      -- (re-dispatches the implement via devloop_ready + emits the next timeout-attempt
-      -- marker); it NEVER reaches a terminal reconcile, even with a now-terminal child PR.
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      t.is_true(captured_raise(raised, "devloop_ready") ~= nil)
-      local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil)
+      t.eq(captured_raise(raised, "devloop_ready"), nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "implementing")
+      t.eq(reconcile.payload.round, 3)
     end)
   end,
 
-  test_stale_pr_delegation_does_not_suppress_implementing_row_budget_cap = function()
+  test_stale_pr_delegation_does_not_override_matching_live_codex_run = function()
     local event = h.ready()
     local row = restart_transition_row("implementing")
     local state = {
@@ -336,20 +331,10 @@ return {
         },
       }, function()
         local receiver = core.restart_row_receiver_liveness(row, state, facts, now_seconds)
-        t.eq(receiver.action, "stuck", case.name)
-        t.eq(receiver.reason, "row-budget-absolute-cap", case.name)
-        t.eq(receiver.age_minutes, 180, case.name)
+        t.eq(receiver.action, "defer", case.name)
+        t.eq(receiver.signal.family, "codex_run:v1", case.name)
         local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, now_seconds)
-        for round = 1, 2 do
-          table.insert(comments, issue_comment(conv_attempts.timeout_attempt_v2_marker(
-            event.proposal_id,
-            row.from_state,
-            row.liveness_class_id,
-            eval.generation_key,
-            round,
-            entity_lib.issue_source_ref(repo, 42)
-          )))
-        end
+        t.eq(eval.status, "deferred", case.name)
         local raised = capture_raises(function()
           local handled = core.maybe_timeout_redrive_from_table("liveness_scan", {
             repo = repo,
@@ -358,15 +343,9 @@ return {
           }, state, row, facts)
           t.eq(handled, true, case.name)
         end)
-        -- Owner directive (#2725): the row-budget-absolute-cap still fires (receiver
-        -- "stuck", asserted above), but a timeout must NEVER reach terminal reconcile;
-        -- it REDRIVES, emitting the next timeout-attempt marker instead.
         t.eq(captured_raise(raised, "devloop_ready"), nil, case.name)
         t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil, case.name)
-        local attempt = captured_raise(raised, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil, case.name)
-        t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil, case.name)
-        t.is_true(attempt.payload.body:find('state="implementing"', 1, true) ~= nil, case.name)
+        t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil, case.name)
       end)
     end
   end,
@@ -429,13 +408,11 @@ return {
         t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
         table.insert(comments, issue_comment(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42))))
       else
-        -- Owner directive (#2725): the impl-failed retry/attempt counter must NEVER climb
-        -- to a terminal reconcile; past the former limit it REDRIVES, emitting the next
-        -- timeout-attempt marker (round 3) rather than dropping to blocked.
-        t.eq(find_raise(result, "devloop_timeout_reconcile"), nil)
-        local attempt = find_raise(result, "github-proxy.github_issue_comment_request")
-        t.is_true(attempt ~= nil)
-        t.is_true(attempt.payload.body:find(conv_attempts.timeout_attempt_marker(event.proposal_id, event.dedup_key, "impl-failed", sweep, entity_lib.issue_source_ref(repo, 42)), 1, true) ~= nil)
+        t.eq(find_raise(result, "github-proxy.github_issue_comment_request"), nil)
+        local reconcile = find_raise(result, "devloop_timeout_reconcile")
+        t.is_true(reconcile ~= nil)
+        t.eq(reconcile.payload.state, "impl-failed")
+        t.eq(reconcile.payload.round, 3)
       end
     end
   end,

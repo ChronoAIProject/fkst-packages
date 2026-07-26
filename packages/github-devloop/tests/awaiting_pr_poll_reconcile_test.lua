@@ -685,7 +685,7 @@ return {
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), close_calls_before)
   end,
 
-  test_over_budget_awaiting_pr_redrives_never_terminal = function()
+  test_over_budget_awaiting_pr_escalates_after_attempt_budget = function()
     local state = {
       state = "awaiting-pr",
       version = version .. "/timeout/awaiting-pr/2",
@@ -703,11 +703,8 @@ return {
       fresh_current_state = state,
       now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-12-01T01:02:03Z"),
     }
-    -- Owner directive (#2725): an over-budget awaiting-pr timeout must NEVER escalate to a
-    -- terminal reconcile / blocked; the timeout DECISION is `redrive` (never `escalate`),
-    -- advancing the attempt/version lineage so the parent keeps polling the child PR.
     local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
-    t.eq(decision.action, "redrive")
-    t.eq(core.version_timeout_round(decision.version, "awaiting-pr"), 3)
+    t.eq(decision.action, "escalate")
+    t.eq(decision.attempt, 3)
   end,
 }

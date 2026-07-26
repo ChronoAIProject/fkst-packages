@@ -309,15 +309,6 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
   end
   local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
   if signal.live then
-    local due, age, budget, entry_ms = row_budget_absolute_due(row, state, now_seconds)
-    if due then
-      local eval = actionable(M, row, state, entry_ms, "codex-run:row-budget-absolute-cap", "codex run is still running over row budget")
-      eval.signal = signal
-      eval.row_budget_absolute_cap = true
-      eval.age_minutes = age
-      eval.budget_minutes = budget
-      return eval
-    end
     local eval = deferred("codex run is still running")
     eval.signal = signal
     return eval
@@ -576,16 +567,10 @@ function C.actionable_epoch_heartbeat_decision(M, row, state, facts, due, age, l
     end
     return { action = "wait", age_minutes = age }
   end
-  -- Owner directive (#2725): a live-defer heartbeat past its (long) row budget is a
-  -- liveness/resource cap, not an explicit cannot-proceed, so it must REDRIVE rather
-  -- than escalate to terminal. `limit` is retained in the signature for callers but no
-  -- longer forces termination here (mirrors liveness/timeout.lua timeout_escalation).
-  local attempt = M.liveness_timeout_attempt(row, state, facts)
   return {
-    action = "redrive",
-    attempt = attempt + 1,
+    action = "escalate",
+    attempt = limit,
     age_minutes = age,
-    version = M.next_liveness_timeout_version(row, state, facts),
   }
 end
 

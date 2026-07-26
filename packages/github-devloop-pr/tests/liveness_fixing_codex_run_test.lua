@@ -453,7 +453,7 @@ local function run_timeout_reconcile(payload, comments, name)
   }, opts(name or "fixing-timeout-reconcile"))
 end
 
-local function assert_live_run_over_row_budget_caps(event, row, state, facts, role, dedup_key)
+local function assert_live_run_defers(event, row, state, facts, role, dedup_key)
   with_codex_runs({
     {
       run_id = role .. "-live-over-row-budget",
@@ -465,11 +465,11 @@ local function assert_live_run_over_row_budget_caps(event, row, state, facts, ro
     },
   }, function()
     local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
-    t.eq(receiver.action, "stuck")
-    t.eq(receiver.reason, "row-budget-absolute-cap")
+    t.eq(receiver.action, "defer")
+    t.eq(receiver.reason, "actionable-epoch-deferred")
     local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
-    t.eq(due, true)
-    t.eq(age, 180)
+    t.eq(due, false)
+    t.eq(age, nil)
   end)
 end
 
@@ -625,7 +625,7 @@ return {
     end)
   end,
 
-  test_fixing_no_codex_run_over_budget_redrives_never_reaching_blocked = function()
+  test_fixing_no_codex_run_over_budget_escalates_to_blocked_with_why = function()
     local event = fixing()
     local row = restart_transition_row("fixing")
     local state = fixing_state(event, event.version .. "/timeout/fixing/2")
@@ -645,18 +645,22 @@ return {
         }, state, row, facts)
         t.eq(handled, true)
       end)
-      -- Owner directive (#2725): fixing past budget with no live codex REDRIVES (emits the
-      -- next timeout-attempt PR comment) and NEVER escalates to a terminal reconcile /
-      -- blocked -- the timeout is a counter, not an explicit cannot-proceed.
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(tostring(attempt.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(tostring(attempt.payload.body or ""):find('state="fixing"', 1, true) ~= nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "fixing")
+      t.eq(reconcile.payload.issue_version, state.version)
+      t.eq(reconcile.payload.round, 3)
+
+      local reconciled = run_timeout_reconcile(reconcile.payload, comments, "fixing-no-codex-run-blocked")
+      t.eq(reconciled.exit_code, 0)
+      local comment = h.find_raise(reconciled.raises, "github-proxy.github_pr_comment_request")
+      t.is_true(comment ~= nil)
+      t.is_true(tostring(comment.payload.body or ""):find('state="blocked"', 1, true) ~= nil)
+      t.is_true(tostring(comment.payload.body or ""):find("state-output-obligation-timeout", 1, true) ~= nil)
     end)
   end,
 
-  test_fixing_live_codex_run_over_budget_force_terminates_at_row_cap = function()
+  test_fixing_live_codex_run_over_budget_defers = function()
     local event = fixing()
     local row = restart_transition_row("fixing")
     local state = fixing_state(event, event.version .. "/timeout/fixing/2")
@@ -664,7 +668,7 @@ return {
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
     local facts = timeout_facts(event, state, comments)
-    assert_live_run_over_row_budget_caps(event, row, state, facts, "fix", event.work_unit_key)
+    assert_live_run_defers(event, row, state, facts, "fix", event.work_unit_key)
   end,
 
   test_liveness_scan_fixing_live_codex_run_drops_redrive = function()
@@ -848,7 +852,7 @@ return {
     end)
   end,
 
-  test_review_meta_no_codex_run_over_budget_redrives = function()
+  test_review_meta_no_codex_run_over_budget_escalates = function()
     local event = h.review_meta_event()
     local row = restart_transition_row("review-meta")
     local state = {
@@ -873,17 +877,15 @@ return {
         }, state, row, facts)
         t.eq(handled, true)
       end)
-      -- Owner directive (#2725): review-meta past budget REDRIVES (next timeout-attempt PR
-      -- comment), never escalating to a terminal reconcile.
-      t.eq(captured_raise(raised, "devloop_timeout_reconcile"), nil)
-      local attempt = captured_raise(raised, "github-proxy.github_pr_comment_request")
-      t.is_true(attempt ~= nil)
-      t.is_true(tostring(attempt.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-      t.is_true(tostring(attempt.payload.body or ""):find('state="review-meta"', 1, true) ~= nil)
+      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
+      t.is_true(reconcile ~= nil)
+      t.eq(reconcile.payload.state, "review-meta")
+      t.eq(reconcile.payload.issue_version, state.version)
+      t.eq(reconcile.payload.round, 3)
     end)
   end,
 
-  test_review_meta_live_codex_run_over_budget_force_terminates_at_row_cap = function()
+  test_review_meta_live_codex_run_over_budget_defers = function()
     local event = h.review_meta_event()
     local row = restart_transition_row("review-meta")
     local state = {
@@ -896,7 +898,7 @@ return {
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 1))
     table.insert(comments, timeout_attempt_v2_comment(row, state, comments, 2))
     local facts = timeout_facts(event, state, comments)
-    assert_live_run_over_row_budget_caps(event, row, state, facts, "review-meta", event.version)
+    assert_live_run_defers(event, row, state, facts, "review-meta", event.version)
   end,
 
   test_review_meta_dispatch_with_live_run_without_completion_markers_skips_redelivery = function()

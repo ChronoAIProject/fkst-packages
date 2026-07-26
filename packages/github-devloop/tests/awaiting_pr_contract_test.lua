@@ -88,14 +88,9 @@ return {
     if not ok then
       error(err)
     end
-    -- Owner directive (#2725): an awaiting-pr timeout must NEVER escalate to a terminal
-    -- reconcile; it REDRIVES, emitting the next timeout-attempt marker instead of the
-    -- terminal devloop_timeout_reconcile event.
-    t.eq(raised[#raised].queue, "github-proxy.github_issue_comment_request")
-    t.is_true(tostring(raised[#raised].payload.body):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil)
-    t.is_true(tostring(raised[#raised].payload.body):find('state="awaiting-pr"', 1, true) ~= nil)
-    for _, r in ipairs(raised) do
-      t.eq(r.queue == "devloop_timeout_reconcile", false)
-    end
+    t.eq(#raised, 1)
+    t.eq(raised[1].queue, "devloop_timeout_reconcile")
+    t.eq(raised[1].payload.state, "awaiting-pr")
+    t.eq(raised[1].payload.round, 3)
   end,
 }
