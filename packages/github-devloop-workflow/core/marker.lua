@@ -11,6 +11,7 @@ M.MAX_MATERIALIZATION_DIGEST_BYTES = M.MAX_PLAN_DIGEST_BYTES
 M.MAX_CHILD_DEDUP_KEY_BYTES = 512
 M.MAX_CHILD_ISSUE_BYTES = 30
 M.MAX_TERMINAL_REASON_CODE_BYTES = 128
+M.MAX_LABEL_PROJECTION_GENERATION = 2147483647
 
 M.MATERIALIZATION_STATES = {
   pending = true,
@@ -30,9 +31,15 @@ M.TERMINAL_STATES = {
   error = true,
 }
 
+M.LABEL_PROJECTION_STATES = {
+  thinking = true,
+  blocked = true,
+}
+
 local BLUEPRINT_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:blueprint:v1.-%-%->"
 local MATERIALIZATION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:materialization:v1.-%-%->"
 local TERMINAL_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:terminal:v1.-%-%->"
+local LABEL_PROJECTION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:label%-projection:v1.-%-%->"
 local LINEAGE_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->"
 
 local function attr(marker, name)
@@ -123,6 +130,22 @@ end
 
 local function validate_terminal_state(value, path)
   return validate_member(value, path, M.TERMINAL_STATES, "invalid_terminal_state")
+end
+
+local function validate_projection_state(value, path)
+  return validate_member(value, path, M.LABEL_PROJECTION_STATES, "invalid_projection_state")
+end
+
+local function validate_projection_generation(value, path)
+  local generation = tonumber(value)
+  if generation == nil
+    or generation < 1
+    or generation ~= math.floor(generation)
+    or generation > M.MAX_LABEL_PROJECTION_GENERATION
+    or (type(value) == "string" and tostring(generation) ~= value) then
+    return false, fail(path, "invalid_generation", "must be a canonical positive integer")
+  end
+  return true, nil, generation
 end
 
 local function validate_reason_code(value, path)
@@ -350,9 +373,11 @@ function M.build_terminal_marker(origin_proposal_id, terminal_state, reason_code
   ok, err = validate_reason_code(reason_code, "reason_code")
   if not ok then return nil, err end
 
+  local monotonic = terminal_state == "blocked" and "false" or "true"
   return '<!-- fkst:github-devloop-workflow:terminal:v1 origin="' .. origin_proposal_id
     .. '" state="' .. terminal_state
     .. '" reason_code="' .. reason_code
+    .. '" monotonic="' .. monotonic
     .. '" -->',
     nil
 end
@@ -397,6 +422,63 @@ function M.parse_terminal_marker(comment_body, origin_proposal_id)
     return nil
   end
   return terminal_fact_from_marker(latest_marker, origin_proposal_id)
+end
+
+function M.build_label_projection_marker(origin_proposal_id, projection_state, generation)
+  local ok, err = validate_origin(origin_proposal_id, "origin_proposal_id")
+  if not ok then return nil, err end
+  ok, err = validate_projection_state(projection_state, "projection_state")
+  if not ok then return nil, err end
+  local parsed_generation
+  ok, err, parsed_generation = validate_projection_generation(generation, "generation")
+  if not ok then return nil, err end
+
+  return '<!-- fkst:github-devloop-workflow:label-projection:v1 origin="' .. origin_proposal_id
+    .. '" state="' .. projection_state
+    .. '" generation="' .. tostring(parsed_generation)
+    .. '" -->',
+    nil
+end
+
+local function label_projection_fact_from_marker(projection_marker, origin_proposal_id)
+  local origin = attr(projection_marker, "origin")
+  local state = attr(projection_marker, "state")
+  local generation = attr(projection_marker, "generation")
+  local ok = validate_origin(origin, "origin")
+  if not ok then return nil end
+  ok = validate_projection_state(state, "state")
+  if not ok then return nil end
+  local parsed_generation
+  ok, _, parsed_generation = validate_projection_generation(generation, "generation")
+  if not ok or origin ~= tostring(origin_proposal_id) then
+    return nil
+  end
+  return {
+    origin = origin,
+    state = state,
+    generation = parsed_generation,
+  }
+end
+
+function M.parse_label_projection_marker(comment_body, origin_proposal_id)
+  if type(comment_body) ~= "string" then
+    return nil
+  end
+  local ok = validate_origin(origin_proposal_id, "origin_proposal_id")
+  if not ok then
+    return nil
+  end
+
+  local latest_marker = nil
+  for projection_marker in comment_body:gmatch(LABEL_PROJECTION_MARKER_PATTERN) do
+    if attr(projection_marker, "origin") == tostring(origin_proposal_id) then
+      latest_marker = projection_marker
+    end
+  end
+  if latest_marker == nil then
+    return nil
+  end
+  return label_projection_fact_from_marker(latest_marker, origin_proposal_id)
 end
 
 function M.build_lineage_header(origin_proposal_id, blueprint_digest, slot_id)
