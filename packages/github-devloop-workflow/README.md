@@ -34,7 +34,9 @@ the general model, **dynamic result-driven materialization**.
   frontier slot's child issue (static slot = literal body; generated slot = a codex that fetches the
   predecessor's merged result by `source_ref` and produces the next issue's title/body), **wait** for
   a still-running predecessor, or write a **terminal** marker (`done` / `blocked` / `error`). Each
-  materialized child is an ordinary devloop issue whose merged result feeds the next slot.
+  materialized child is an ordinary devloop issue whose merged result feeds the next slot. Later polls
+  derive the advisory lifecycle-label projection from the trusted terminal marker: `done` projects to
+  `fkst-dev:merged`, while `blocked` and `error` project to `fkst-dev:blocked`.
 
 Replay is idempotent by construction: materialization raises the child create immediately, using a
 deterministic child dedup key. Later polls first reconcile an already-created child from the
@@ -127,8 +129,8 @@ colliding ids.
 
 - `fkst:github-devloop-workflow:blueprint:v1` — origin, immutable structure (workflow id + plan digest).
 - `fkst:github-devloop-workflow:materialization:v1` — per-slot CAS ledger (state + digests + child).
-- `fkst:github-devloop-workflow:terminal:v1` — origin terminal (`done`/`blocked`/`error` + reason code;
-  full prose in the comment body).
+- `fkst:github-devloop-workflow:terminal:v1` — origin terminal (`done`/`blocked`/`error` + reason code +
+  whether the terminal is monotonic; full prose in the comment body).
 - `fkst:github-devloop-workflow:lineage:v1` — in a materialized child's issue body (origin + blueprint
   digest + slot), so the child is recognized as an ordinary workflow-step issue.
 

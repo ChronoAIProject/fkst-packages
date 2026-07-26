@@ -111,6 +111,21 @@ local function created_comment(slot_id, predecessor_ref_digest, spec, child_issu
   return comment(built)
 end
 
+local function label_projection_comment(state, generation)
+  local built, err = marker.build_label_projection_marker(origin, state, generation)
+  t.is_nil(err)
+  return comment(built)
+end
+
+local function comments_with(comments, extra)
+  local out = {}
+  for _, item in ipairs(comments or {}) do
+    out[#out + 1] = item
+  end
+  out[#out + 1] = extra
+  return out
+end
+
 local function divergent_generated_comment(slot_id, predecessor_ref_digest, spec)
   local entry = materialization.write_generated_entry(
     origin,
@@ -172,6 +187,7 @@ local function run_with(fakes)
     produces = {
       "github-proxy.github_issue_create_request",
       "github-proxy.github_issue_comment_request",
+      "github-proxy.github_issue_label_request",
     },
     stall_window = "2m",
   }, materialize_reconcile.handlers(core, {
@@ -236,6 +252,49 @@ local function only_queue(raised, queue)
 end
 
 local tests = {
+  test_blueprint_digest_mismatch_replay_repairs_missing_terminal_label_projection = function()
+    local changed_blueprint = blueprint()
+    changed_blueprint.version = "2026-07-26"
+    local current_labels = { "fkst-dev:enabled", "fkst-dev:thinking" }
+
+    local first = run_with({
+      blueprint = changed_blueprint,
+      current = issue({ comment(blueprint_marker()) }, { labels = current_labels }),
+    })
+    local terminal_comments = only_queue(first, "github-proxy.github_issue_comment_request")
+    t.eq(#terminal_comments, 1)
+    t.eq(#only_queue(first, "github-proxy.github_issue_label_request"), 0)
+    t.is_true(terminal_comments[1].payload.body:find('state="error"', 1, true) ~= nil)
+    t.is_true(terminal_comments[1].payload.body:find('reason_code="blueprint-digest-mismatch"', 1, true) ~= nil)
+
+    local projection = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(terminal_comments[1].payload.body),
+      }, { labels = current_labels }),
+    })
+    local projection_comments = only_queue(projection, "github-proxy.github_issue_comment_request")
+    t.eq(#projection_comments, 1)
+    t.eq(#only_queue(projection, "github-proxy.github_issue_label_request"), 0)
+    local projection_fact = marker.parse_label_projection_marker(projection_comments[1].payload.body, origin)
+    t.eq(projection_fact.state, "blocked")
+    t.eq(projection_fact.generation, 1)
+
+    local replay = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(terminal_comments[1].payload.body),
+        comment(projection_comments[1].payload.body),
+      }, { labels = current_labels }),
+    })
+    local label_requests = only_queue(replay, "github-proxy.github_issue_label_request")
+    t.eq(#only_queue(replay, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(#label_requests, 1)
+    t.eq(label_requests[1].payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(label_requests[1].payload.marker_guard.expected.state, "blocked")
+    t.eq(label_requests[1].payload.marker_guard.expected.generation, "1")
+  end,
+
   test_static_frontier_raises_issue_create_directly_without_origin_spec = function()
     local raised = run_with()
     t.eq(#raised, 1)
@@ -362,6 +421,64 @@ local tests = {
     t.eq(raised[1].payload.parent_comment_target.issue_number, origin_issue)
     t.is_true(raised[1].payload.body:find("Generated follow-up body.", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find('predecessor_ref_digest="' .. predecessor_ref_digest .. '"', 1, true) == nil)
+  end,
+
+  test_recovered_blocked_origin_advances_projection_generation_before_repairing_labels = function()
+    local first_spec = generated_spec("first")
+    local first_pred = materialization.EMPTY_PREDECESSOR_REF_DIGEST
+    local blocked_terminal, terminal_err = marker.build_terminal_marker(origin, "blocked", "child-fatal-first")
+    t.is_nil(terminal_err)
+    local base_comments = {
+      comment(blueprint_marker()),
+      created_comment("first", first_pred, first_spec, 108),
+      comment(blocked_terminal),
+      label_projection_comment("blocked", 1),
+    }
+
+    local recovered = run_with({
+      current = issue(base_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = { ["108"] = "running" },
+    })
+    local recovered_comments = only_queue(recovered, "github-proxy.github_issue_comment_request")
+    t.eq(#recovered_comments, 1)
+    t.eq(#only_queue(recovered, "github-proxy.github_issue_label_request"), 0)
+    local active_projection = marker.parse_label_projection_marker(recovered_comments[1].payload.body, origin)
+    t.eq(active_projection.state, "thinking")
+    t.eq(active_projection.generation, 2)
+
+    local active_visible_comments = comments_with(base_comments, comment(recovered_comments[1].payload.body))
+    local active = run_with({
+      current = issue(active_visible_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = { ["108"] = "running" },
+    })
+    local active_labels = only_queue(active, "github-proxy.github_issue_label_request")
+    t.eq(#active_labels, 1)
+    t.eq(active_labels[1].payload.add_labels[1], "fkst-dev:thinking")
+    t.eq(active_labels[1].payload.marker_guard.expected.generation, "2")
+
+    local reblocked = run_with({
+      current = issue(active_visible_comments, { labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      child_statuses = { ["108"] = "fatal" },
+    })
+    local reblocked_comments = only_queue(reblocked, "github-proxy.github_issue_comment_request")
+    t.eq(#reblocked_comments, 1)
+    t.eq(#only_queue(reblocked, "github-proxy.github_issue_label_request"), 0)
+    local blocked_projection = marker.parse_label_projection_marker(reblocked_comments[1].payload.body, origin)
+    t.eq(blocked_projection.state, "blocked")
+    t.eq(blocked_projection.generation, 3)
+
+    local repaired = run_with({
+      current = issue(
+        comments_with(active_visible_comments, comment(reblocked_comments[1].payload.body)),
+        { labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }
+      ),
+      child_statuses = { ["108"] = "fatal" },
+    })
+    local blocked_labels = only_queue(repaired, "github-proxy.github_issue_label_request")
+    t.eq(#blocked_labels, 1)
+    t.eq(blocked_labels[1].payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(blocked_labels[1].payload.marker_guard.expected.generation, "3")
+    t.is_true(active_labels[1].payload.dedup_key ~= blocked_labels[1].payload.dedup_key)
   end,
 
   test_child_fatal_writes_blocked_terminal = function()

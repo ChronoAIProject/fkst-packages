@@ -135,6 +135,17 @@ function M.latest_terminal(core, current, origin)
   return fact
 end
 
+function M.latest_label_projection(core, current, origin)
+  local latest = nil
+  for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
+    local fact = marker.parse_label_projection_marker(parsers_misc.comment_body(comment), origin)
+    if fact ~= nil and (latest == nil or fact.generation > latest.generation) then
+      latest = fact
+    end
+  end
+  return latest
+end
+
 function M.materialization_facts(core, current, origin)
   local facts = {}
   for _, comment in ipairs(M.trusted_comments(core, current and current.comments)) do
