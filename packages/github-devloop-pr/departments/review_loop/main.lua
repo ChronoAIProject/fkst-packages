@@ -23,14 +23,15 @@ local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
+local consensus_call = require("devloop.consensus_call")
 local spec = {
-  consumes = { "consensus.consensus_converge" },
+  consumes = { "devloop_review_continue" },
   produces = {
-    "consensus.proposal",
+    "devloop_review_continue",
+    "devloop_review_decision",
     "github-proxy.github_pr_comment_request",
     "devloop_review_reconcile",
   },
-  fanout = { "consensus.consensus_converge" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
@@ -57,7 +58,7 @@ local function reviewing_segment_transition_status(comments, args)
   })
   local transition = restart_effects.decide_transition(snapshot, {
     semantic_variant = "review_convergence_round",
-    source_boundary = "consensus.consensus_converge",
+    source_boundary = "github-devloop-pr.devloop_review_continue",
     target = "reviewing",
     evidence_refs = {
       "devloop.entity.current_entity_state",
@@ -71,17 +72,14 @@ end
 return saga.department(spec, { done = function() return false end, act = function(event)
   local unresolved = event.payload or {}
   if not v_pr_review_unresolved.is_supported_pr_review_unresolved(unresolved) then
-    devloop_logging.log_entry("review_loop", event, "unknown", devloop_logging.payload_field(unresolved, "dedup_key"))
-    devloop_logging.log_cas_decision("review_loop", "unknown", { state = nil, version = nil }, "reviewing", "reviewing|blocked", "skip-foreign(proposal_id)", "unsupported event payload")
-    return
+    error("github-devloop: review-continuation-invalid: malformed caller-owned convergence result")
   end
 
   devloop_logging.log_entry("review_loop", event, unresolved.proposal_id, unresolved.dedup_key)
   local _, pr_number, review_version, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(unresolved.proposal_id)
   local repo, source_pr_number = devloop_base.parse_pr_source_ref(unresolved.source_ref)
   if repo == nil or tostring(source_pr_number) ~= tostring(pr_number) then
-    devloop_logging.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|blocked", "skip-foreign(source_ref)", "review source_ref does not match PR review proposal")
-    return
+    error("github-devloop: review-continuation-invalid: source_ref does not match review proposal")
   end
 
   devloop_base.assert_trusted_bot_configured()
@@ -118,12 +116,11 @@ return saga.department(spec, { done = function() return false end, act = functio
 
   local lock_key = entity_lib.transition_lock_key(origin.proposal_id)
   if lock_key == nil then
-    devloop_logging.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|blocked", "skip-foreign(proposal_id)", "no issue transition lock key")
-    return
+    error("github-devloop: review-continuation-invalid: no issue transition lock key")
   end
   local pr_source_ref = entity_lib.pr_source_ref(repo, pr_number)
 
-  with_lock(lock_key, function()
+  local call = with_lock(lock_key, function()
     devloop_logging.log_forged_markers("review_loop", origin.proposal_id, current_pr.comments)
     local state, snapshot, transition = reviewing_segment_transition_status(current_pr.comments, {
       repo = repo,
@@ -263,11 +260,30 @@ return saga.department(spec, { done = function() return false end, act = functio
       log.warn("github-devloop dept=review_loop proposal_id=" .. tostring(origin.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-loop-proposal")
       return
     end
-    devloop_logging.log_apply("review_loop", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
-      "consensus.proposal",
-      "github-proxy.github_pr_comment_request",
-    })
-    devloop_logging.log_raise("review_loop", origin.proposal_id, "consensus.proposal", proposal)
-    devloop_logging.log_raise("review_loop", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+    return {
+      proposal = proposal,
+      comment_request = comment_request,
+      state = state,
+      cas_outcome = transition.cas_outcome,
+      next_round = next_n,
+    }
   end)
+  if call == nil then
+    return
+  end
+
+  local result = consensus_call.reach(call.proposal)
+  local result_queue = result.status == "reached"
+    and "devloop_review_decision"
+    or "devloop_review_continue"
+  devloop_logging.log_cas_decision("review_loop", origin.proposal_id, call.state,
+    "reviewing", "reviewing", call.cas_outcome,
+    "called consensus for review loop round " .. tostring(call.next_round))
+  devloop_logging.log_apply("review_loop", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
+    result_queue,
+    "github-proxy.github_pr_comment_request",
+  })
+  devloop_logging.log_raise("review_loop", origin.proposal_id, result_queue, result)
+  devloop_logging.log_raise("review_loop", origin.proposal_id,
+    "github-proxy.github_pr_comment_request", call.comment_request)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "review_loop" })

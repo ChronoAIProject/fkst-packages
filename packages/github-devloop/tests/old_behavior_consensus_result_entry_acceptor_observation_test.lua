@@ -21,7 +21,7 @@ local PREFIX = "entry-consensus-result-"
 local SITE = {
   path = "packages/github-devloop/departments/consensus_result/main.lua",
   symbol = "pipeline",
-  ordinal = "consumes:consensus.consensus_reached",
+  ordinal = "consumes:devloop_issue_decision",
 }
 
 local RESULT_COMMENT = "comment:issue:consensus-result"
@@ -113,7 +113,7 @@ local function event_for(fixture)
     decision_reason = fixture.decision == "reject" and "premise-refuted" or nil,
     effect_version = fixture.event_version,
   })
-  return { queue = "consensus.consensus_reached", ts = "2026-06-03T02:03:04Z", payload = payload }
+  return { queue = "devloop_issue_decision", ts = "2026-06-03T02:03:04Z", payload = payload }
 end
 
 local function trusted(body)

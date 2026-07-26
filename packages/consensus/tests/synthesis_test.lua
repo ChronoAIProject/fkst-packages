@@ -1,5 +1,5 @@
-local core = require("core")
-local synthesis = require("departments.decide.synthesis")
+local core = require("consensus.core")
+local synthesis = require("consensus.synthesis")
 local t = fkst.test
 
 local verdict_label = "⟦FKST:VERDICT⟧"

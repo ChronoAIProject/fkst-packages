@@ -174,7 +174,7 @@ function M.install(core, deps)
       error("consensus: invalid-angle: angle must be a single-line bounded token")
     end
 
-    local prompt = require("prompts.angle")
+    local prompt = require("consensus.prompts.angle")
     local verdict_mode = core.verdict_mode(proposal)
     local context_block = ""
     if proposal.context ~= nil and proposal.context ~= "" then
@@ -214,7 +214,7 @@ function M.install(core, deps)
     if type(own_result) ~= "table" then
       error("consensus: invalid-rebuttal-seat: own result must be a table")
     end
-    local prompt = require("prompts.rebuttal")
+    local prompt = require("consensus.prompts.rebuttal")
     local context_block = ""
     if proposal.context ~= nil and proposal.context ~= "" then
       context_block = "Context:\n" .. neutralize(proposal.context)
@@ -249,7 +249,7 @@ function M.install(core, deps)
     if type(proposal) ~= "table" then
       error("consensus: invalid-proposal: proposal must be a table")
     end
-    local synthesis = require("departments.decide.synthesis")
+    local synthesis = require("consensus.synthesis")
     return synthesis.build_prompt({
       proposal = proposal,
       render_prompt_template = function(template, vars, target_proposal)

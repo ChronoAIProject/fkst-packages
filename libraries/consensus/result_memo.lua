@@ -1,5 +1,24 @@
 local M = {}
 
+local reached_fields = {
+  angle_results = true,
+  blocking_gap = true,
+  blocking_gaps = true,
+  body = true,
+  decision = true,
+  decision_reason = true,
+  dedup_key = true,
+  effect_version = true,
+  framing = true,
+  p1_verdicts = true,
+  p2_verdicts = true,
+  schema = true,
+  source_ref = true,
+  status = true,
+  verdict_path = true,
+  verified_moves = true,
+}
+
 local function key_less(left, right)
   local left_type = type(left)
   local right_type = type(right)
@@ -85,8 +104,14 @@ function M.load(key, expected_dedup_key)
   end
   payload = plain_data(payload)
   if payload.schema ~= "consensus.consensus_reached.v1"
+    or payload.status ~= "reached"
     or payload.dedup_key ~= "consensus:" .. tostring(expected_dedup_key) then
     error("consensus: result-memo-invalid: memo payload identity mismatch")
+  end
+  for field in pairs(payload) do
+    if not reached_fields[field] then
+      error("consensus: result-memo-invalid: memo payload has an unknown field")
+    end
   end
   return payload
 end

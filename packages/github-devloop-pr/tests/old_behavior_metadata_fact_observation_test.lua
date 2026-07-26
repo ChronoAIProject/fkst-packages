@@ -212,7 +212,7 @@ local function capture_review_loop_fact()
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
   local department = ra.make_department(review_loop_department, ports, core)
   local review_id = devloop_base.pr_review_proposal_id(REPO, PR_NUMBER, VERSION, HEAD_SHA)
-  local event = { queue = "consensus.consensus_converge", ts = "2026-06-03T02:03:04Z", payload = h.review_unresolved({
+  local event = { queue = "devloop_review_continue", ts = "2026-06-03T02:03:04Z", payload = h.review_unresolved({
     proposal_id = review_id,
     source_ref = { kind = "external", ref = REPO .. "#pr/" .. PR_NUMBER },
     dedup_key = "consensus:" .. review_id .. "/review",

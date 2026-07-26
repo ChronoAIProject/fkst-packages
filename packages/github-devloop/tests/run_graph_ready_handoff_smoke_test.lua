@@ -45,7 +45,7 @@ end
 
 local function initial_event()
   return {
-    queue = "consensus.consensus_reached",
+    queue = "devloop_issue_decision",
     payload = reached(),
     source_ref = {
       kind = "external",
@@ -170,7 +170,7 @@ return {
     })
 
     local result_step, result_index = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "devloop_issue_decision",
       consumer = "github-devloop.consensus_result",
     })
     t.eq(result_step.exit_code, 0)

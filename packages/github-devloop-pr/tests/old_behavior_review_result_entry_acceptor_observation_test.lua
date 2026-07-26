@@ -30,7 +30,7 @@ local PREFIX = "entry-review-result-"
 local SITE = {
   path = "packages/github-devloop-pr/departments/review_result/main.lua",
   symbol = "pipeline",
-  ordinal = "consumes:consensus.consensus_reached",
+  ordinal = "consumes:devloop_review_decision",
 }
 
 local RESULT_COMMENT = "comment:pr:review-result"
@@ -41,9 +41,10 @@ local FIX_RECONCILE = "queue:github-devloop-pr.devloop_fix_reconcile"
 local DECOMPOSE = "queue:github-devloop-decompose.devloop_decompose"
 
 local FIXTURES = ra.json_array({
-  { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-payload",
-    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 52,
-    payload = { schema = "unsupported.review-result.v1", proposal_id = PROPOSAL_ID, dedup_key = "bad" } },
+  { disposition = "fail-malformed-local-decision", status = "error", reason = "unsupported-payload",
+    cas = "fail-closed(review-result-invalid)", target = "reject", source_line = 73,
+    payload = { schema = "unsupported.review-result.v1", proposal_id = PROPOSAL_ID, dedup_key = "bad" },
+    error = "malformed caller-owned decision" },
   { disposition = "fail-owned-malformed-proposal", status = "error", reason = "owned-proposal-malformed",
     cas = "fail-closed(review-result-invalid)", target = "reject", source_line = 58,
     malformed_proposal = true, error = "owned review proposal_id is malformed" },
@@ -155,7 +156,7 @@ end
 
 local function capture(fixture)
   h.mock_bot_env()
-  local event = { queue = "consensus.consensus_reached", ts = "2026-06-03T02:03:04Z", payload = review_payload(fixture) }
+  local event = { queue = "devloop_review_decision", ts = "2026-06-03T02:03:04Z", payload = review_payload(fixture) }
   local ports = ra.fake_ports()
   local restorations = {}
   local captured = ra.capture_logging("review_result", devloop_logging, restorations)

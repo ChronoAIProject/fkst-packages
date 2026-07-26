@@ -607,7 +607,7 @@ local outcome = run_fix_attempt(attempt_plan)
     assert_listed("libraries/devloop/requests/lifecycle.lua")
     assert_listed("packages/github-devloop/core/restart/transitions/implementing.lua")
     assert_listed("packages/github-devloop/departments/implement/main.lua")
-    assert_listed("packages/consensus/departments/decide/main.lua")
+    assert_listed("libraries/consensus/init.lua")
     assert_listed("packages/github-devloop-pr/core/restart/transitions/fixing.lua")
     assert_listed("packages/github-devloop-pr/departments/fix/main.lua")
   end,

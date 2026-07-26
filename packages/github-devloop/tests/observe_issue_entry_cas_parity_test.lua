@@ -419,7 +419,7 @@ local TRACE_FIXTURES = {
     reason_code = "already-thinking-reemit",
     effect_entitlement_id = TRACE_EDGE_ID .. "/idempotent",
     granted_effect_ids = {
-      "consensus.proposal",
+      "devloop_consensus_request",
       "github-proxy.github_issue_comment_request",
       "github-proxy.github_issue_label_request",
     },
@@ -471,14 +471,14 @@ local ADMISSION_EFFECT_IDS = {
 }
 
 local FULL_ENTRY_EFFECT_IDS = {
-  "consensus.proposal",
+  "devloop_consensus_request",
   "github-proxy.github_issue_comment_request",
   "github-proxy.github_issue_label_request",
 }
 
 local OLD_EFFECT_SHAPES = {
-  ["consensus.proposal"] = {
-    effect_id = "queue:consensus.proposal",
+  ["devloop_consensus_request"] = {
+    effect_id = "queue:github-devloop.devloop_consensus_request",
     sink_kind = "queue",
     authority_class = "lifecycle-authoritative",
   },
@@ -601,7 +601,7 @@ local function frozen_trace_writes(fixture)
 end
 
 local function new_trace_fixture(fixture, production)
-  local proposal = raised_payload(production.result, "consensus.proposal")
+  local proposal = raised_payload(production.result, "devloop_consensus_request")
   t.is_true(proposal ~= nil, fixture.fixture_id .. ": OLD proposal observed")
   local snapshot = restart_effects.seal_snapshot({
     owner = OWNER,

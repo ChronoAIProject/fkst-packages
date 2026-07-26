@@ -51,7 +51,7 @@ local fixtures = {
     expected_status = "apply",
     expected_entitlement_id = APPLY_ENTITLEMENT_ID,
     expected_effect_ids = {
-      "consensus.proposal",
+      "devloop_consensus_request",
       "github-proxy.github_issue_comment_request",
     },
   },
@@ -333,7 +333,7 @@ local function run_real_department(payload)
     table.insert(raises, { queue = queue, payload = raised_payload })
   end
   local ok, failure = pcall(loop_department.pipeline, {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_consensus_continue",
     payload = payload,
     ts = "2026-06-03T01:02:03Z",
   })
@@ -440,7 +440,7 @@ end
 local function lifecycle_authoritative_projection(apply_plans, context)
   local projection = {}
   local grantless_effect_ids = {
-    ["consensus.proposal"] = true,
+    ["devloop_consensus_request"] = true,
   }
   for _, plan in ipairs(apply_plans) do
     t.eq(plan.dept, "loop", context .. ": apply plan department")

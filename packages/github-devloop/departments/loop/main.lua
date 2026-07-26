@@ -23,13 +23,14 @@ local devloop_commands = require("devloop.commands")
 local github_factory = require("devloop.github_factory")
 local github_author_policy = require("devloop.github_author_policy")
 local transition_version = require("contract.transition_version")
+local consensus_call = require("devloop.consensus_call")
 local spec = {
-  consumes = { "consensus.consensus_converge" },
+  consumes = { "devloop_consensus_continue" },
   produces = {
-    "consensus.proposal",
+    "devloop_consensus_continue",
+    "devloop_issue_decision",
     "github-proxy.github_issue_comment_request",
   },
-  fanout = { "consensus.consensus_converge" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
@@ -47,25 +48,21 @@ end
 return saga.department(spec, { done = function() return false end, act = function(event)
   local unresolved = event.payload or {}
   if not v_unresolved.is_supported_unresolved(unresolved) then
-    devloop_logging.log_entry("loop", event, "unknown", devloop_logging.payload_field(unresolved, "dedup_key"))
-    devloop_logging.log_cas_decision("loop", "unknown", { state = nil, version = nil }, "thinking", "thinking", "skip-foreign(proposal_id)", "unsupported event payload")
-    return
+    error("github-devloop: consensus-continuation-invalid: malformed caller-owned convergence result")
   end
 
   devloop_logging.log_entry("loop", event, unresolved.proposal_id, unresolved.dedup_key)
   local repo, issue_number = base_ids.parse_proposal_id(unresolved.proposal_id)
   if repo == nil then
-    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, { state = nil, version = nil }, "thinking", "thinking", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
-    return
+    error("github-devloop: consensus-continuation-invalid: proposal_id is malformed")
   end
 
   local lock_key = entity_lib.loop_lock_key(unresolved.proposal_id)
   if lock_key == nil then
-    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, { state = nil, version = nil }, "thinking", "thinking", "skip-foreign(proposal_id)", "no transition lock key")
-    return
+    error("github-devloop: consensus-continuation-invalid: no transition lock key")
   end
 
-  with_lock(lock_key, function()
+  local call = with_lock(lock_key, function()
     devloop_base.assert_trusted_bot_configured()
 
     local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
@@ -244,12 +241,27 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local comment_request = build_comment_request(unresolved, round, marker_body)
 
-    devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "raising loop proposal round " .. tostring(next_n))
-    devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
-      "consensus.proposal",
-      "github-proxy.github_issue_comment_request",
-    })
-    devloop_logging.log_raise("loop", unresolved.proposal_id, "consensus.proposal", proposal)
-    devloop_logging.log_raise("loop", unresolved.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+    return {
+      proposal = proposal,
+      comment_request = comment_request,
+      state = state,
+      cas_outcome = transition.cas_outcome,
+      next_round = next_n,
+    }
   end)
+  if call == nil then
+    return
+  end
+
+  local result = consensus_call.reach(call.proposal)
+  local result_queue = result.status == "reached" and "devloop_issue_decision" or "devloop_consensus_continue"
+  devloop_logging.log_cas_decision("loop", unresolved.proposal_id, call.state,
+    "thinking", "thinking", call.cas_outcome, "called consensus for loop round " .. tostring(call.next_round))
+  devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
+    result_queue,
+    "github-proxy.github_issue_comment_request",
+  })
+  devloop_logging.log_raise("loop", unresolved.proposal_id, result_queue, result)
+  devloop_logging.log_raise("loop", unresolved.proposal_id,
+    "github-proxy.github_issue_comment_request", call.comment_request)
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "loop" })

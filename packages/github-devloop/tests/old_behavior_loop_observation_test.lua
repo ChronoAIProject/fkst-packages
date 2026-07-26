@@ -116,7 +116,7 @@ return {
       t.is_true(record ~= nil, observation_id .. ": protected continuation baseline")
       local effects = record.old_outcome.emitted_effects
       t.eq(#effects, 2, observation_id .. ": proposal and convergence comment")
-      t.eq(effects[1].effect_id, "queue:consensus.proposal")
+      t.eq(effects[1].effect_id, "queue:github-devloop.devloop_consensus_request")
       t.eq(effects[2].effect_id, "comment:issue:converge-round")
     end
   end,
@@ -128,15 +128,19 @@ return {
 
       local result = h.run_loop(event, h.opts("old-behavior-loop-" .. fixture.name))
       t.eq(result.exit_code, 0, fixture.name .. ": production run")
-      t.eq(#result.raises, 2, fixture.name .. ": exactly proposal and convergence comment")
+      t.eq(#result.raises, 2, fixture.name .. ": exactly continuation result and convergence comment")
 
-      local proposal = h.find_raise(result.raises, "consensus.proposal")
+      local proposal = h.take_consensus_proposal()
       t.is_true(proposal ~= nil, fixture.name .. ": next consensus proposal")
-      t.eq(proposal.payload.round, fixture.next_round, fixture.name .. ": next round")
+      t.eq(proposal.round, fixture.next_round, fixture.name .. ": next round")
       t.eq(
-        proposal.payload.dedup_key,
+        proposal.dedup_key,
         "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/" .. tostring(fixture.next_round),
         fixture.name .. ": next-round dedup"
+      )
+      t.is_true(
+        h.find_raise(result.raises, "devloop_consensus_continue") ~= nil,
+        fixture.name .. ": synchronous consensus continuation"
       )
 
       local comment = h.find_raise(result.raises, "github-proxy.github_issue_comment_request")

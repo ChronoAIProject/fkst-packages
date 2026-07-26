@@ -1,5 +1,5 @@
 local M = {}
-local provenance = require("departments.decide.provenance")
+local provenance = require("consensus.provenance")
 
 local function unanimous_verdict(results)
   local first = nil
@@ -129,8 +129,8 @@ function M.post_rebuttal_reached(proposal, p1_results, p2_results, verdict_mode,
   caps.assert_all_angle_answers_valid(p1_results, "blind")
   caps.assert_all_angle_answers_valid(p2_results, "rebuttal")
   return {
-    queue = "consensus_reached",
-    payload = caps.build_reached_payload(proposal, decision, p2_results, nil, {
+    kind = "reached",
+    value = caps.build_reached_payload(proposal, decision, p2_results, nil, {
       verdict_path = "post-rebuttal-unanimity",
       p1_verdicts = provenance.verdict_vector(p1_results),
       p2_verdicts = provenance.verdict_vector(p2_results),

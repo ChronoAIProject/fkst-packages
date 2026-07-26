@@ -217,7 +217,7 @@ local function run_real_department(payload)
     table.insert(raises, { queue = queue, payload = raised_payload })
   end
   local ok, failure = pcall(loop_department.pipeline, {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_consensus_continue",
     payload = payload,
     ts = "2026-06-03T01:02:03Z",
   })

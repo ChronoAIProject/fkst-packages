@@ -21,10 +21,10 @@ local PREFIX = "entry-loop-"
 local SITE = {
   path = "packages/github-devloop/departments/loop/main.lua",
   symbol = "pipeline",
-  ordinal = "consumes:consensus.consensus_converge",
+  ordinal = "consumes:devloop_consensus_continue",
 }
 local COMMENT = "comment:issue:converge-round"
-local PROPOSAL = "queue:consensus.proposal"
+local PROPOSAL = "queue:github-devloop.devloop_consensus_request"
 
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "unsupported-event-payload",
@@ -99,7 +99,7 @@ local function event_for(fixture)
     findings_record = fixture.findings_record,
     essence_stall = fixture.essence_stall,
   })
-  return { queue = "consensus.consensus_converge", ts = "2026-06-03T02:03:04Z", payload = payload }
+  return { queue = "devloop_consensus_continue", ts = "2026-06-03T02:03:04Z", payload = payload }
 end
 
 local function round_marker(event, fact)

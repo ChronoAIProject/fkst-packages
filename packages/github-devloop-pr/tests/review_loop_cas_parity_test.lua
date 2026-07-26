@@ -36,7 +36,7 @@ local PR_NUMBER = 7
 local BRANCH = "devloop-owner-repo-42-01HY"
 local BASE_BRANCH = "dev"
 local HEAD_SHA = "def456"
-local SOURCE_BOUNDARY = "consensus.consensus_converge"
+local SOURCE_BOUNDARY = "github-devloop-pr.devloop_review_continue"
 local SEMANTIC_VARIANT = "review_convergence_round"
 local OWNER = "github-devloop-pr"
 local TRACE_EDGE_ID = OWNER .. "/reviewing/entry/review_convergence_round"
@@ -304,7 +304,7 @@ local function run_real_department(event)
     table.insert(raises, { queue = queue, payload = payload })
   end
   local ok, failure = pcall(review_loop_department.pipeline, {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_review_continue",
     payload = event,
   })
   raise = original_raise
@@ -495,15 +495,14 @@ local function assert_malformed_is_pre_cas_and_catalog_illegal()
       return run_real_department(malformed)
     end)
 
-  t.eq(result.exit_code, 0, "review-loop-malformed: production rejects unsupported payload")
+  t.eq(result.exit_code, 1, "review-loop-malformed: production fails closed on unsupported payload")
   t.eq(#probes, 0, "review-loop-malformed: production rejects before CAS")
   t.eq(#boundary_calls, 0, "review-loop-malformed: admission boundary is not reached")
   t.eq(#owner_decisions, 0, "review-loop-malformed: owner decider is not reached")
   t.eq(#grant_mints, 0, "review-loop-malformed: no grants")
   t.eq(#facade_emissions, 0, "review-loop-malformed: no facade emissions")
   t.eq(#result.raises, 0, "review-loop-malformed: no effects")
-  t.eq(#decisions, 1, "review-loop-malformed: rejection decision count")
-  t.eq(decisions[1].outcome, "skip-foreign(proposal_id)", "review-loop-malformed: rejection outcome")
+  t.eq(#decisions, 0, "review-loop-malformed: no benign rejection decision")
 
   local resolved = catalog.resolve(POLICY_ID, {
     current = { state = "reviewing", version = V_EQUAL },

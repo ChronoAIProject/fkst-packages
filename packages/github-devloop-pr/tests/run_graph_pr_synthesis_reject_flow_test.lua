@@ -43,7 +43,7 @@ end
 
 local function initial_event()
   return {
-    queue = "consensus.proposal",
+    queue = "devloop_review_request",
     payload = proposal(),
     source_ref = {
       kind = "external",
@@ -162,17 +162,17 @@ return {
     })
 
     local decide_step = graph.require_delivery(trace, {
-      queue = "consensus.proposal",
+      queue = "devloop_review_request",
       consumer = "consensus.decide",
     })
     local review_step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "devloop_review_decision",
       consumer = "github-devloop-pr.review_result",
     })
     t.eq(decide_step.exit_code, 0)
     t.eq(review_step.exit_code, 0)
 
-    local reached = graph.require_raise(trace, "consensus.consensus_reached")
+    local reached = graph.require_raise(trace, "devloop_review_decision")
     t.eq(reached.payload.decision, "reject")
     t.eq(reached.payload.blocking_gap, gap)
     t.eq(reached.payload.blocking_gaps[1], gap)

@@ -127,7 +127,7 @@ return {
     t.eq(#step.raises, 3)
     t.eq(step.raises[1].queue, "github-proxy.github_issue_comment_request")
     t.eq(step.raises[2].queue, "github-proxy.github_issue_label_request")
-    t.eq(step.raises[3].queue, "consensus.proposal")
+    t.eq(step.raises[3].queue, "devloop_consensus_request")
 
     local comment = step.raises[1].payload
     t.eq(comment.schema, "github-proxy.v1")

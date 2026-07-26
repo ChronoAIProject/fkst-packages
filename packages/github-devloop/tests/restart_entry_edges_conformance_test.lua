@@ -35,7 +35,7 @@ local expected_entries = {
       apply = {
         id = "github-devloop/thinking/entry/unmanaged_issue/apply",
         effect_ids = {
-          "consensus.proposal",
+          "devloop_consensus_request",
           "github-proxy.github_issue_comment_request",
           "github-proxy.github_issue_label_request",
         },
@@ -43,7 +43,7 @@ local expected_entries = {
       idempotent = {
         id = "github-devloop/thinking/entry/unmanaged_issue/idempotent",
         effect_ids = {
-          "consensus.proposal",
+          "devloop_consensus_request",
           "github-proxy.github_issue_comment_request",
           "github-proxy.github_issue_label_request",
         },
@@ -63,7 +63,7 @@ local expected_entries = {
         effect_ids = {
           "github-proxy.github_issue_comment_request",
           "github-proxy.github_issue_label_request",
-          "consensus.proposal",
+          "devloop_consensus_request",
         },
       },
       idempotent = {
@@ -71,7 +71,7 @@ local expected_entries = {
         effect_ids = {
           "github-proxy.github_issue_comment_request",
           "github-proxy.github_issue_label_request",
-          "consensus.proposal",
+          "devloop_consensus_request",
         },
       },
     },

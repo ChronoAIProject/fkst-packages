@@ -105,8 +105,8 @@ local function comments_for(fixture)
 end
 
 local EFFECTS = {
-  ["consensus.proposal"] = {
-    effect_id = "queue:consensus.proposal",
+  ["devloop_consensus_request"] = {
+    effect_id = "queue:github-devloop.devloop_consensus_request",
     sink_kind = "queue",
     authority_class = "lifecycle-authoritative",
   },
@@ -128,8 +128,8 @@ local FIXTURES = json_array({
     expected_status = "re-raised",
     expected_reason = "replay-current-thinking-proposal",
     expected_decision = "applied(replay)",
-    expected_target = "consensus.proposal",
-    expected_effect_ids = json_array({ "queue:consensus.proposal" }),
+    expected_target = "devloop_consensus_request",
+    expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }),
     expected_issued = true,
     expected_department_raises = 1,
   },
@@ -140,8 +140,8 @@ local FIXTURES = json_array({
     expected_status = "re-raised",
     expected_reason = "replay-next-converge-round-proposal",
     expected_decision = "applied(replay)",
-    expected_target = "consensus.proposal",
-    expected_effect_ids = json_array({ "queue:consensus.proposal" }),
+    expected_target = "devloop_consensus_request",
+    expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }),
     expected_issued = true,
     expected_department_raises = 1,
   },
@@ -151,7 +151,7 @@ local FIXTURES = json_array({
     expected_status = "no-op",
     expected_reason = "matching-consensus-run-live",
     expected_decision = "skip-idempotent(live-exec-ref)",
-    expected_target = "consensus.proposal",
+    expected_target = "devloop_consensus_request",
     expected_effect_ids = json_array(),
     expected_issued = false,
     expected_department_raises = 3,
@@ -167,8 +167,8 @@ local FIXTURES = json_array({
     expected_status = "re-raised",
     expected_reason = "replay-next-converge-round-proposal",
     expected_decision = "applied(replay)",
-    expected_target = "consensus.proposal",
-    expected_effect_ids = json_array({ "queue:consensus.proposal" }),
+    expected_target = "devloop_consensus_request",
+    expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }),
     expected_issued = true,
     expected_department_raises = 1,
   },
@@ -309,7 +309,7 @@ local function capture_runtime(fixture)
   t.eq(dispatch.state, "thinking", fixture.name .. ": production-derived replay state")
   t.eq(dispatch.version, BASE_VERSION, fixture.name .. ": production-derived replay version")
   t.eq(dispatch.row_from_state, "thinking", fixture.name .. ": production thinking row")
-  t.eq(dispatch.driving_queue, "consensus.proposal", fixture.name .. ": production thinking driving queue")
+  t.eq(dispatch.driving_queue, "devloop_consensus_request", fixture.name .. ": production thinking driving queue")
   t.eq(dispatch.issued, fixture.expected_issued, fixture.name .. ": exact row replay return disposition")
   t.eq(#captured.decisions, 1, fixture.name .. ": one replay disposition")
   t.eq(captured.decisions[1].outcome, fixture.expected_decision, fixture.name .. ": exact replay decision")
@@ -337,7 +337,7 @@ local function build_record(fixture)
   )
 
   local target_version = nil
-  if fixture.expected_target == "consensus.proposal" and dispatch.raises[1] ~= nil then
+  if fixture.expected_target == "devloop_consensus_request" and dispatch.raises[1] ~= nil then
     target_version = dispatch.raises[1].payload.dedup_key
   elseif fixture.expected_target == "blocked" then
     target_version = dispatch.applies[1] and dispatch.applies[1].version or nil

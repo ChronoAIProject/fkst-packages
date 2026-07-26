@@ -43,8 +43,8 @@ local EFFECTS = {
     sink_kind = "label",
     authority_class = "lifecycle-authoritative",
   },
-  ["consensus.proposal"] = {
-    effect_id = "queue:consensus.proposal",
+  ["devloop_consensus_request"] = {
+    effect_id = "queue:github-devloop.devloop_consensus_request",
     sink_kind = "queue",
     authority_class = "lifecycle-authoritative",
   },
@@ -157,7 +157,7 @@ local FIXTURES = json_array({
     expected_effect_ids = json_array({
       "comment:issue:thinking-state",
       "label:issue:thinking-state",
-      "queue:consensus.proposal",
+      "queue:github-devloop.devloop_consensus_request",
     }),
     source_line = 58,
   },

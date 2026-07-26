@@ -315,7 +315,7 @@ return {
     seed_pr_and_issue_reads("reviewing", { review_converge_round_marker() })
 
     local trace = graph.require_quiescent(graph.run(
-      initial_event("consensus.consensus_converge", unresolved_payload()),
+      initial_event("devloop_review_continue", unresolved_payload()),
       { max_steps = 4 }
     ))
     graph.assert_covers(trace, {
@@ -323,7 +323,7 @@ return {
     })
 
     local step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_converge",
+      queue = "devloop_review_continue",
       consumer = "github-devloop-pr.review_loop",
     })
     t.eq(step.exit_code, 0)
@@ -339,7 +339,7 @@ return {
     })
 
     local trace = graph.require_quiescent(graph.run(
-      initial_event("consensus.consensus_reached", reached_payload()),
+      initial_event("devloop_review_decision", reached_payload()),
       { max_steps = 4 }
     ))
     graph.assert_covers(trace, {
@@ -347,7 +347,7 @@ return {
     })
 
     local step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "devloop_review_decision",
       consumer = "github-devloop-pr.review_result",
     })
     t.eq(step.exit_code, 0)
@@ -358,11 +358,11 @@ return {
     source_mismatch.blocking_gap = "missing regression guard"
     source_mismatch.source_ref = entity_lib.pr_source_ref(repo, 8)
     local trace = graph.run(
-      initial_event("consensus.consensus_reached", source_mismatch),
+      initial_event("devloop_review_decision", source_mismatch),
       { max_steps = 4 }
     )
     local step = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "devloop_review_decision",
       consumer = "github-devloop-pr.review_result",
     })
     t.is_true(step.exit_code ~= 0)
@@ -373,11 +373,11 @@ return {
     local replay_version = core.next_review_loop_version(reviewed_version)
     local replay_proposal_id = devloop_base.pr_review_proposal_id(repo, pr_number, replay_version, reviewed_head_sha)
     local refused_trace = graph.run(
-      initial_event("consensus.consensus_reached", refused_reject_payload(replay_proposal_id)),
+      initial_event("devloop_review_decision", refused_reject_payload(replay_proposal_id)),
       { max_steps = 4 }
     )
     local refused_step = graph.require_delivery(refused_trace, {
-      queue = "consensus.consensus_reached",
+      queue = "devloop_review_decision",
       consumer = "github-devloop-pr.review_result",
     })
     t.is_true(refused_step.exit_code ~= 0)
@@ -414,18 +414,18 @@ return {
     )
     t.is_true(redrive.payload.dedup_key ~= devloop_base.pr_review_proposal_dedup_key(replay_proposal_id))
 
-    local proposal = graph.require_raise(replay_trace, "consensus.proposal")
+    local proposal = graph.require_raise(replay_trace, "devloop_review_request")
     t.eq(proposal.payload.proposal_id, replay_proposal_id)
     t.eq(proposal.payload.dedup_key, redrive.payload.dedup_key)
     local decide_step = graph.require_delivery(replay_trace, {
-      queue = "consensus.proposal",
+      queue = "devloop_review_request",
       consumer = "consensus.decide",
     })
     t.eq(decide_step.exit_code, 0)
-    local reached = graph.require_raise(replay_trace, "consensus.consensus_reached")
+    local reached = graph.require_raise(replay_trace, "devloop_review_decision")
     t.eq(reached.payload.proposal_id, replay_proposal_id)
     local review_step = graph.require_delivery(replay_trace, {
-      queue = "consensus.consensus_reached",
+      queue = "devloop_review_decision",
       consumer = "github-devloop-pr.review_result",
     })
     t.eq(review_step.exit_code, 0)

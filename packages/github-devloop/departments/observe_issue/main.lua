@@ -35,7 +35,7 @@ local restart_transition_table = core.restart_transition_table
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "devloop_observe_issue" },
   produces = {
-    "consensus.proposal",
+    "devloop_consensus_request",
     "github-proxy.github_issue_label_request",
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_create_request",
@@ -306,10 +306,10 @@ local function maybe_apply_issue_rereview_command(issue, proposal_id, current, s
   devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "stalled-thinking", "thinking", "applied(operator-rereview)", "trusted operator command requested issue rereview")
   devloop_logging.log_apply("observe_issue", proposal_id, "thinking", proposal.dedup_key, { add = {}, remove = {} }, {
     "github-proxy.github_issue_comment_request",
-    "consensus.proposal",
+    "devloop_consensus_request",
   })
   devloop_logging.log_raise("observe_issue", proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-  devloop_logging.log_raise("observe_issue", proposal_id, "consensus.proposal", proposal)
+  devloop_logging.log_raise("observe_issue", proposal_id, "devloop_consensus_request", proposal)
   return true
 end
 

@@ -141,8 +141,8 @@ end
 
 local function payload_for_queue(queue)
   local payloads = {
-    ["consensus.consensus_converge"] = issue_unresolved_payload(),
-    ["consensus.consensus_reached"] = issue_consensus_payload(),
+    ["devloop_consensus_continue"] = issue_unresolved_payload(),
+    ["devloop_issue_decision"] = issue_consensus_payload(),
     dead_letter = {
       delivery_id = "delivery/v1/raised/queue/github-devloop.devloop_ready/dept/github-devloop.implement/01HY",
       queue = "github-devloop.devloop_ready",
@@ -309,7 +309,7 @@ local cases = {
   {
     dept = "loop",
     path = "departments/loop/main.lua",
-    queue = "consensus.consensus_converge",
+    queue = "devloop_consensus_continue",
   },
   {
     dept = "implement",
@@ -319,7 +319,7 @@ local cases = {
   {
     dept = "consensus_result",
     path = "departments/consensus_result/main.lua",
-    queue = "consensus.consensus_reached",
+    queue = "devloop_issue_decision",
   },
   {
     dept = "observe_issue",

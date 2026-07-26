@@ -8,7 +8,7 @@ local restart_effect_facade = require("devloop.restart_effect_facade")
 
 local M = {}
 
-local PROPOSAL_EFFECT_ID = "consensus.proposal"
+local PROPOSAL_EFFECT_ID = "devloop_consensus_request"
 local COMMENT_EFFECT_ID = "github-proxy.github_issue_comment_request"
 local LABEL_EFFECT_ID = "github-proxy.github_issue_label_request"
 
@@ -336,7 +336,7 @@ local SERIALIZERS_BY_FAMILY = {
   },
   ["observe-issue-entry"] = {
     [PROPOSAL_EFFECT_ID] = {
-      sink_id = "queue:consensus.proposal",
+      sink_id = "queue:github-devloop.devloop_consensus_request",
       serialize = serialize_thinking_proposal,
     },
     [COMMENT_EFFECT_ID] = {

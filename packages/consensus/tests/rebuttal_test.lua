@@ -1,5 +1,5 @@
-local core = require("core")
-local rebuttal = require("departments.decide.rebuttal")
+local core = require("consensus.core")
+local rebuttal = require("consensus.rebuttal")
 local t = fkst.test
 
 local stance_label = "⟦FKST:STANCE⟧"

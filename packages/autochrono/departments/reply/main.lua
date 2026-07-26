@@ -1,45 +1,41 @@
+local consensus = require("consensus")
 local core = require("core")
 local mapping = require("departments.reply.mapping")
 local saga = require("workflow.saga")
 
 local spec = {
-  consumes = { "consensus.consensus_reached" },
+  consumes = { "judge_issue" },
   produces = { "reply" },
-  fanout = { "consensus.consensus_reached" },
   stall_window = "30s",
 }
 
-local function classify(payload)
-  if type(payload) ~= "table"
-    or payload.schema ~= "consensus.consensus_reached.v1"
-    or type(payload.proposal_id) ~= "string"
-    or payload.proposal_id:match("^autochrono/issue/") == nil then
-    return "foreign"
+local function parse_judgment(payload)
+  if type(payload) ~= "table" or payload.schema ~= "autochrono.judge_issue.v1" then
+    error("autochrono: judgment-invalid: malformed local judgment intent")
   end
 
-  local repo, issue_number = core.parse_proposal_id(payload.proposal_id)
-  if repo == nil or not core.issue_ref_round_trips(repo, issue_number) then
-    error("autochrono: consensus-result-invalid: owned proposal_id is malformed")
+  local repo = tostring(payload.repo or "")
+  local issue_number = tostring(payload.issue_number or "")
+  if not core.issue_ref_round_trips(repo, issue_number) then
+    error("autochrono: judgment-invalid: malformed issue reference")
   end
   local expected_source_ref = tostring(repo) .. "#issue/" .. tostring(issue_number)
-  if (payload.decision ~= "approve" and payload.decision ~= "reject")
-    or not core.validate_reached(payload)
+  local proposal = payload.proposal
+  if not core.validate_proposal(proposal)
+    or payload.dedup_key ~= proposal.dedup_key
+    or type(payload.source_ref) ~= "table"
     or payload.source_ref.kind ~= "external"
-    or payload.source_ref.ref ~= expected_source_ref then
-    error("autochrono: consensus-result-invalid: owned consensus result violates the consumer contract")
+    or payload.source_ref.ref ~= expected_source_ref
+    or proposal.source_ref.kind ~= "external"
+    or proposal.source_ref.ref ~= expected_source_ref then
+    error("autochrono: judgment-invalid: local judgment intent violates the caller contract")
   end
-  if payload.decision == "reject" then
-    return "ignored"
-  end
-  return "route", repo, issue_number
+  return proposal, repo, issue_number, expected_source_ref
 end
 
 local function reply_done(event)
   local payload = event.payload
-  local disposition, repo, issue_number = classify(payload)
-  if disposition ~= "route" then
-    return true
-  end
+  local _, repo, issue_number = parse_judgment(payload)
 
   local cache_key = core.replied_cache_key(repo, issue_number)
   local already_replied = false
@@ -51,8 +47,20 @@ end
 
 local function act_reply(event)
   local payload = event.payload
-  local disposition, repo, issue_number = classify(payload)
-  if disposition ~= "route" then
+  local proposal, repo, issue_number, expected_source_ref = parse_judgment(payload)
+  local reached = consensus.reach(proposal)
+  if reached == nil or reached.status == "converge" then
+    return
+  end
+  if reached.status ~= "reached"
+    or reached.schema ~= "consensus.consensus_reached.v1"
+    or (reached.decision ~= "approve" and reached.decision ~= "reject")
+    or not core.validate_reached(reached)
+    or reached.source_ref.kind ~= "external"
+    or reached.source_ref.ref ~= expected_source_ref then
+    error("autochrono: consensus-result-invalid: consensus result violates the caller contract")
+  end
+  if reached.decision == "reject" then
     return
   end
 
@@ -62,7 +70,7 @@ local function act_reply(event)
       return
     end
 
-    raise("reply", mapping.build_reply(payload, repo, issue_number))
+    raise("reply", mapping.build_reply(reached, repo, issue_number))
     cache_set(cache_key, core.reply_dedup_key(repo, issue_number))
   end)
 end

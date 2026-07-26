@@ -1,4 +1,5 @@
-local core = require("core")
+local core = require("consensus.core")
+local reach_test_helper = require("tests.reach_test_helpers")
 local t = fkst.test
 require("tests.cache_seed_helpers")
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -49,17 +50,11 @@ local function proposal(extra)
 end
 
 local function run_decide(event_payload, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "proposal",
-    payload = event_payload,
-  }, run_opts)
+  return reach_test_helper.run(event_payload, run_opts)
 end
 
 local function run_namespaced_decide(event_payload, run_opts)
-  return t.run_department("departments/decide/main.lua", {
-    queue = "consensus.proposal",
-    payload = event_payload,
-  }, run_opts)
+  return reach_test_helper.run(event_payload, run_opts)
 end
 
 local function seed_cache(key, value, run_opts)
@@ -806,7 +801,7 @@ return {
 
   test_missing_source_ref_fails_closed_without_codex = function()
     local result = run_decide(proposal({ source_ref = false }), opts("no-source-ref"))
-    t.eq(result.exit_code, 0)
+    t.is_true(result.exit_code ~= 0)
     t.eq(#result.raises, 0)
     -- fail-closed BEFORE spawning any codex angle
     t.eq(#codex_calls(), 0)

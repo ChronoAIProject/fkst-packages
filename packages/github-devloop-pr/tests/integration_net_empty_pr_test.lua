@@ -142,7 +142,7 @@ return {
     if re_review.exit_code ~= 0 then
       error("net-empty review step failed: " .. result_summary(re_review))
     end
-    local unexpected_proposal = find_raise(re_review.raises, "consensus.proposal")
+    local unexpected_proposal = find_raise(re_review.raises, "devloop_review_request")
     if unexpected_proposal ~= nil then
       error("net-empty review raised proposal; name_only_calls="
         .. tostring(count_calls("gh pr diff '7' --repo 'owner/repo' --name-only"))

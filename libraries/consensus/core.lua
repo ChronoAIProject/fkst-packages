@@ -1,8 +1,9 @@
 local M = {}
-local angle_answers = require("angle_answers")
+local angle_answers = require("consensus.angle_answers")
 local codex = require("workflow_internal.codex")
 local env = require("workflow_internal.env")
 local error_facts = require("contract.error_facts")
+local locale = require("consensus.locale")
 local strings = require("contract.strings")
 
 
@@ -275,9 +276,6 @@ function M.is_eligible(proposal)
   if proposal.schema ~= "consensus.proposal.v1" then
     return false
   end
-  if not is_path_safe_key(proposal.proposal_id, max_key_len) then
-    return false
-  end
   if not is_path_safe_key(proposal.dedup_key, max_key_len) then
     return false
   end
@@ -357,10 +355,11 @@ function M.output_language(exec)
 end
 
 local function locale_text(key, vars)
-  if type(t) ~= "function" then
-    error("consensus: i18n-primitive-missing: i18n catalog primitive t is unavailable")
+  local value = locale[key]
+  if type(value) ~= "string" then
+    error("consensus: locale-key-missing: missing locale key " .. tostring(key))
   end
-  return t(key, vars)
+  return value
 end
 
 function M.prompt_preamble(proposal, exec)
@@ -669,7 +668,6 @@ function M.build_reached_payload(proposal, decision, angle_results, framing, pro
 
   local payload = {
     schema = "consensus.consensus_reached.v1",
-    proposal_id = proposal.proposal_id,
     decision = clean_decision,
     framing = clean_framing,
     body = table.concat(body_lines, "\n"),
@@ -729,7 +727,6 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results, fi
 
   local payload = {
     schema = "consensus.consensus_converge.v1",
-    proposal_id = proposal.proposal_id,
     round = tonumber(proposal.round) or 0,
     narrowed_question = bounded(narrowed_question, max_narrowed_question_len),
     angle_digests = angle_digests,
@@ -754,7 +751,7 @@ function M.build_converge_payload(proposal, narrowed_question, angle_results, fi
   return payload
 end
 
-require("core.prompt_rendering").install(M, {
+require("consensus.prompt_rendering").install(M, {
   verdict_label = verdict_label,
   reply_label = reply_label,
   gap_label = gap_label,

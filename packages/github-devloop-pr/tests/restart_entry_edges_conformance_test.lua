@@ -72,7 +72,7 @@ local expected_entries = {
     row_id = "reviewing",
     output_variant = "review_convergence_round",
     source_state = nil,
-    source_boundary = "consensus.consensus_converge",
+    source_boundary = "github-devloop-pr.devloop_review_continue",
     target = "reviewing",
     field = "entry_inventory.review_convergence_round",
     semantic_variant = "review_convergence_round",
@@ -618,7 +618,7 @@ local function review_receiver_entry(reviewing_request)
   mock_marker_comment(comment_id, reviewing_request.body)
   local review_result = h.run_review_pr(reviewing.payload, h.opts("restart-entry-reviewing-receiver"))
   assert_department_ok(review_result, "reviewing-receiver")
-  t.is_true(h.find_raise(review_result.raises, "consensus.proposal") ~= nil)
+  t.is_true(h.find_raise(review_result.raises, "devloop_review_request") ~= nil)
 
   return {
     owner = owner,
@@ -630,7 +630,7 @@ end
 
 local function review_convergence_round_entry()
   local department = require("departments.review_loop.main")
-  local queue_name = consumed_queue(department.spec, "consensus.consensus_converge")
+  local queue_name = consumed_queue(department.spec, "devloop_review_continue")
   local reviewing_state = h.reviewing()
   local unresolved = h.review_unresolved({
     round = 0,
@@ -652,9 +652,10 @@ local function review_convergence_round_entry()
     body = "Issue context",
   })
   local result = h.run_review_loop(unresolved, h.opts("restart-entry-review-convergence-round"))
+  local proposal = h.take_consensus_proposal()
 
   assert_department_ok(result, "review-convergence-round")
-  t.is_true(h.find_raise(result.raises, "consensus.proposal") ~= nil)
+  t.is_true(proposal ~= nil)
   local comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
   t.is_true(comment ~= nil)
   t.is_true(comment.payload.body:find("fkst:github-devloop:review-converge-round:v1", 1, true) ~= nil)

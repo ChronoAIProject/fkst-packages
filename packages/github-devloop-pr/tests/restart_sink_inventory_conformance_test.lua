@@ -81,7 +81,9 @@ local request_surface_kinds = {
 }
 
 local queue_policies = {
-  ["consensus.proposal"] = { "grantless-published-intent", "consensus-proposal:v1/review-proposal+dedup" },
+  ["devloop_review_request"] = { "lifecycle-authoritative", "consensus-proposal:v1/review-proposal+dedup" },
+  ["devloop_review_continue"] = { "lifecycle-authoritative", "consensus-converge:v1/review-proposal+dedup" },
+  ["devloop_review_decision"] = { "lifecycle-authoritative", "consensus-reached:v1/review-proposal+dedup" },
   ["devloop_fix_reconcile"] = { "lifecycle-authoritative", "fix-reconcile:v1/proposal+round" },
   ["devloop_fixing"] = { "lifecycle-authoritative", "state:v1/fixing+head+version" },
   ["devloop_merge_queue_tick"] = { "lifecycle-authoritative", "merge-queue-tick:v1/repo+head" },

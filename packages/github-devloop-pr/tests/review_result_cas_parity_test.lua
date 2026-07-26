@@ -275,7 +275,7 @@ local function run_real_department(event)
     table.insert(raises, { queue = queue, payload = payload })
   end
   local ok, failure = pcall(review_result_department.pipeline, {
-    queue = "consensus.consensus_reached",
+    queue = "devloop_review_decision",
     payload = event,
   })
   raise = original_raise
@@ -539,7 +539,7 @@ local function assert_rejected_before_cas(name, payload)
   end)
   t.eq(#probes, 0, name .. ": invalid production input must not reach CAS")
   t.eq(#comment_builders, 0, name .. ": invalid production input must not reach comment builder")
-  t.eq(result.exit_code, 0, name .. ": production rejects malformed input without failing the pipeline")
+  t.eq(result.exit_code, 1, name .. ": production fails closed on malformed local input")
   t.eq(#result.raises, 0, name .. ": malformed production input must emit no effects")
   t.eq(post_admission_disposition(result, false, false), "not-admitted", name .. ": pre-CAS disposition")
 end

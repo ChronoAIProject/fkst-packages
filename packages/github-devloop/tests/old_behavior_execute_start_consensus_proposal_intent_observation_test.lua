@@ -15,7 +15,7 @@ local copy_value = observation_support.copy_value
 local first_difference = observation_support.first_difference
 local json_array = observation_support.json_array
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
-local PROPOSAL_QUEUE = "consensus.proposal"
+local PROPOSAL_QUEUE = "devloop_consensus_request"
 local OBSERVATION_PREFIX = "intent:github-devloop:execute-start/"
 local SITE = {
   path = "packages/github-devloop/departments/execute_start/main.lua",
@@ -173,7 +173,7 @@ local function build_record()
       cas_outcome = "not-applicable-published-intent",
       emitted_effects = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop.devloop_consensus_request",
           sink_kind = "queue",
           authority_class = "lifecycle-authoritative",
           ordinal = 1,
@@ -181,7 +181,7 @@ local function build_record()
       }),
       observable_writes = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop.devloop_consensus_request",
           queue = raised.queue,
           payload = copy_value(payload),
         },
@@ -192,7 +192,7 @@ local function build_record()
     evidence_refs = json_array({
       {
         kind = "runtime-raise-capture",
-        ref = "devloop.logging.log_raise:execute_start:consensus.proposal",
+        ref = "devloop.logging.log_raise:execute_start:devloop_consensus_request",
       },
       {
         kind = "runtime-event-source",

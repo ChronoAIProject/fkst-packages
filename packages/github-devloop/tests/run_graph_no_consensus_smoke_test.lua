@@ -169,7 +169,7 @@ end
 
 local function initial_event()
   return {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_consensus_continue",
     payload = evidence_continuation_unresolved(),
     source_ref = {
       kind = "external",
@@ -193,7 +193,7 @@ return {
     })
 
     local loop_step, loop_index = graph.require_delivery(trace, {
-      queue = "consensus.consensus_converge",
+      queue = "devloop_consensus_continue",
       consumer = "github-devloop.loop",
     })
     t.eq(loop_step.exit_code, 0)

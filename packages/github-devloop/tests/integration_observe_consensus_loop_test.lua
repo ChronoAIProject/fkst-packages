@@ -86,6 +86,7 @@ local mock_issue_view_failure = h.mock_issue_view_failure
 local count_calls = h.count_calls
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
+local take_consensus_proposal = h.take_consensus_proposal
 
 return {
   test_observe_opt_in_issue_raises_proposal_and_thinking_label = function()
@@ -94,7 +95,7 @@ return {
     local result = run_observe(issue(), opts("observe-opt-in"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 3)
-    t.eq(result.raises[1].queue, "consensus.proposal")
+    t.eq(result.raises[1].queue, "devloop_consensus_request")
     t.eq(result.raises[1].payload.schema, "consensus.proposal.v1")
     t.eq(result.raises[1].payload.proposal_id, "github-devloop/issue/owner/repo/42")
     t.is_true(#result.raises[1].payload.body < 256)
@@ -122,7 +123,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(count_calls("codex exec"), 0)
   end,
 
@@ -144,7 +145,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(count_calls("codex exec"), 0)
   end,
 
@@ -175,7 +176,7 @@ return {
     }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
@@ -196,7 +197,7 @@ return {
     t.eq(request.assignees[1], "fkst-test-bot")
     t.eq(request.dedup_key, forks.fork_issue_dedup_key("owner/repo", 42))
     t.eq(request.post_create_blocked_by.blocked_issue_number, 42)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
   end,
 
   test_observe_skips_not_opt_in_and_already_stateful = function()
@@ -304,7 +305,7 @@ return {
       updated_at = "2026-06-03T01:02:05Z",
     }), run_opts)
     t.eq(thinking.exit_code, 0)
-    local replay_proposal = find_raise(thinking.raises, "consensus.proposal").payload
+    local replay_proposal = find_raise(thinking.raises, "devloop_consensus_request").payload
     t.eq(replay_proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-05Z")
     t.eq(replay_proposal.source_ref.ref, "owner/repo#issue/42")
     t.eq(count_calls("--json body"), 0)
@@ -319,7 +320,7 @@ return {
     })
 
     local result = h.run_department("departments/consensus_result/main.lua", {
-      queue = "consensus.consensus_reached",
+      queue = "devloop_issue_decision",
       payload = reached(),
     }, opts("result-non-whitelisted-author", {
       FKST_GITHUB_AUTHORIZED_LOGINS = "trusted-human",
@@ -666,17 +667,18 @@ return {
     local result = run_loop(event, opts("loop-converge-round"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
-    t.eq(result.raises[1].queue, "consensus.proposal")
-    t.eq(result.raises[1].payload.schema, "consensus.proposal.v1")
-    t.eq(result.raises[1].payload.proposal_id, "github-devloop/issue/owner/repo/42")
-    t.is_true(#result.raises[1].payload.body < 256)
-    t.is_nil(result.raises[1].payload.body:find("Body from GitHub", 1, true))
-    t.is_true(result.raises[1].payload.content_fetch:find("runtime-cache:", 1, true) == 1)
-    t.is_nil(result.raises[1].payload.content_fetch:find("gh issue", 1, true))
-    t.eq(result.raises[1].payload.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1")
-    t.eq(result.raises[1].payload.convergence_question, event.narrowed_question)
-    t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#issue/42")
-    t.eq(result.raises[1].payload.worktree, ".")
+    local proposal = take_consensus_proposal()
+    t.eq(proposal.schema, "consensus.proposal.v1")
+    t.eq(proposal.proposal_id, "github-devloop/issue/owner/repo/42")
+    t.is_true(#proposal.body < 256)
+    t.is_nil(proposal.body:find("Body from GitHub", 1, true))
+    t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
+    t.is_nil(proposal.content_fetch:find("gh issue", 1, true))
+    t.eq(proposal.dedup_key, "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/loop/1")
+    t.eq(proposal.convergence_question, event.narrowed_question)
+    t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
+    t.eq(proposal.worktree, ".")
+    t.is_true(find_raise(result.raises, "devloop_consensus_continue") ~= nil)
 
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     t.is_true(comment.body:find("fkst:github-devloop:converge-round:v1", 1, true) ~= nil)
@@ -691,7 +693,7 @@ return {
     }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
@@ -754,9 +756,10 @@ return {
     -- DISTINCT resolvable rounds (not a true-stall), convergence REDRIVES the next round
     -- instead of handing off a terminal reconcile.
     t.eq(#result.raises, 2)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = take_consensus_proposal()
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.round, 2)
+    t.eq(proposal.round, 2)
+    t.is_true(find_raise(result.raises, "devloop_consensus_continue") ~= nil)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find('round="1"', 1, true) ~= nil)
@@ -803,9 +806,9 @@ return {
     t.eq(#result.raises, 0)
   end,
 
-  test_loop_skips_foreign_proposal = function()
+  test_loop_fails_closed_for_foreign_proposal = function()
     local result = run_loop(unresolved({ proposal_id = "autochrono/issue/owner/repo/42" }), opts("loop-foreign"))
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
   end,
 
@@ -849,8 +852,9 @@ return {
     local thinking = run_loop(unresolved(), opts("loop-state-label-thinking"))
     t.eq(thinking.exit_code, 0)
     t.eq(#thinking.raises, 2)
-    t.eq(thinking.raises[1].queue, "consensus.proposal")
-    t.eq(thinking.raises[2].queue, "github-proxy.github_issue_comment_request")
+    t.is_true(take_consensus_proposal() ~= nil)
+    t.is_true(find_raise(thinking.raises, "devloop_consensus_continue") ~= nil)
+    t.is_true(find_raise(thinking.raises, "github-proxy.github_issue_comment_request") ~= nil)
   end,
 
   test_loop_issue_view_failure_errors_for_retry = function()

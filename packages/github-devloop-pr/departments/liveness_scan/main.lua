@@ -22,7 +22,6 @@ local spec = {
     "devloop_observe_pr",
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_pr_comment_request",
-    "consensus.proposal",
     "devloop_reviewing",
     "devloop_fixing",
     "devloop_review_meta",

@@ -204,7 +204,7 @@ return {
       wait_until("canonical review delivery to become terminal", function()
         local output, observed = observe(bin, durable_root)
         if observed
-          and output:find('"queue": "consensus.proposal"', 1, true) ~= nil
+          and output:find('"queue": "devloop_review_request"', 1, true) ~= nil
           and output:find('/dedup/', 1, true) ~= nil
           and output:find('"permanent": true', 1, true) ~= nil then
           return output
@@ -225,7 +225,7 @@ return {
         return nil, output
       end)
       local snapshot = observe(bin, durable_root)
-      t.is_true(snapshot:find('"queue": "consensus.proposal"', 1, true) ~= nil)
+      t.is_true(snapshot:find('"queue": "devloop_review_request"', 1, true) ~= nil)
       t.is_true(snapshot:find('"permanent": true', 1, true) ~= nil)
     end)
 

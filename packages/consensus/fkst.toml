@@ -6,4 +6,4 @@ persistence_class = "judgment_pipeline"
 root = "."
 
 [lib_deps]
-libraries = ["contract", "workflow", "workflow_internal", "testkit_internal"]
+libraries = ["contract", "workflow", "workflow_internal", "testkit_internal", "consensus"]

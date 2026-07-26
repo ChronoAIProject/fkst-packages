@@ -215,7 +215,7 @@ return {
     local first = h.run_observe(event.payload, opts)
     h.mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {})
     local second = h.run_observe(event.payload, opts)
-    local proposal = find_raise(first.raises, "consensus.proposal").payload
+    local proposal = find_raise(first.raises, "devloop_consensus_request").payload
 
     t.is_true(proposal.content_fetch:find("runtime-cache:", 1, true) == 1)
     t.is_true(proposal.body:find("GitHub issue", 1, true) ~= nil)
@@ -223,7 +223,7 @@ return {
     t.eq(count_calls(h.argv_rendered(core.gh_issue_list_board_digest_cmd("owner/repo"))), 0)
     t.eq(count_calls(h.argv_rendered(core.gh_pr_list_board_digest_cmd("owner/repo"))), 0)
     t.eq(count_calls("gh issue list --repo owner/repo --state closed --limit 30 --json number,title,closedAt,labels,author"), 0)
-    t.eq(find_raise(second.raises, "consensus.proposal").payload.body, proposal.body)
+    t.eq(find_raise(second.raises, "devloop_consensus_request").payload.body, proposal.body)
   end,
 
   test_board_digest_cache_key_includes_repo = function()

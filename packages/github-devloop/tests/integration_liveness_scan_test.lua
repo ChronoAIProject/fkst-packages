@@ -401,7 +401,7 @@ return {
       t.eq(find_raise(result.raises, "devloop_ready", function(payload)
         return payload.proposal_id == target_proposal
       end), nil, "live codex-run state should not respawn implement: " .. tostring(state))
-      t.eq(find_raise(result.raises, "consensus.proposal", function(payload)
+      t.eq(find_raise(result.raises, "devloop_consensus_request", function(payload)
         return payload.proposal_id == target_proposal
       end), nil, "live codex-run state should not respawn consensus: " .. tostring(state))
     end
@@ -485,7 +485,7 @@ return {
       source = "liveness-scan",
     }), opts("liveness-scan-thinking-timeout-redrive-next-round"))
     t.eq(result.exit_code, 0)
-    local proposal = find_raise(result.raises, "consensus.proposal")
+    local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
     t.eq(proposal.payload.proposal_id, proposal_id)
     t.eq(core.version_timeout_round(proposal.payload.dedup_key, "thinking"), 0)

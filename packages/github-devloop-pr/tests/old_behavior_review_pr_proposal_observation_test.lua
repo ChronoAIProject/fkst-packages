@@ -237,7 +237,7 @@ local function capture_runtime(fixture)
   t.eq(#decisions, 1, fixture.name .. ": real dispatch reaches the applied review branch")
   local proposal_raises = json_array()
   for _, raised in ipairs(result.raises) do
-    if raised.queue == "consensus.proposal" then
+    if raised.queue == "devloop_review_request" then
       table.insert(proposal_raises, copy_value(raised))
     end
   end
@@ -274,7 +274,7 @@ local function build_record(fixture)
       kind = "direct_constructor",
       source_state = "reviewing",
       source_boundary = event.queue,
-      target = "consensus.proposal",
+      target = "devloop_review_request",
       cause_schema_id = event.payload.schema,
       generation_epoch = {
         current_version = decision.current.version,
