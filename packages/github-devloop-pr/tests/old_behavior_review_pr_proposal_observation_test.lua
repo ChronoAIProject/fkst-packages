@@ -394,14 +394,10 @@ return {
     end
     t.eq(#first, #FIXTURES, "every production payload branch has one observation")
     local expected = committed_records()
-    local inventory_difference = first_difference(first, expected, "old_behavior_observations[review-pr-proposal]")
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error(
-        "runtime-bound OLD direct-constructor observation differs at "
-          .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
-        0
-      )
-    end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "runtime-bound OLD review proposal observation"
+    )
   end,
 }

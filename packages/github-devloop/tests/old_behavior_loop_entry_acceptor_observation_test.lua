@@ -115,7 +115,7 @@ end
 local function capture(fixture)
   h.mock_bot_env()
   local event = event_for(fixture)
-  if fixture.target == "proposal" then h.mock_context_bundle(event.payload) end
+  if fixture.target == "consensus_continue" then h.mock_context_bundle(event.payload) end
   local comments = ra.json_array()
   if fixture.current_state then
     table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))

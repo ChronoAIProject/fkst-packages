@@ -287,10 +287,10 @@ return {
       error("second github-devloop-pr metadata capture differs at " .. tostring(repeat_difference or "canonical-json"), 0)
     end
     local expected = committed_records()
-    local difference = first_difference(first, expected, "old_behavior_observations[metadata-pr]")
-    if difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error("source-bound github-devloop-pr metadata observation differs at "
-        .. tostring(difference or "canonical-json") .. "; runtime_records=" .. canonical_json(first), 0)
-    end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "source-bound github-devloop-pr metadata observation"
+    )
   end,
 }

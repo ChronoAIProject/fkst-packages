@@ -553,20 +553,10 @@ return {
     local runtime_tuples = record_tuple_set(first, "runtime records")
     assert_bidirectional_membership(runtime_tuples, fixtures, "runtime records", "production fixture lattice", first)
     local expected = committed_records()
-    local inventory_tuples = record_tuple_set(expected, "inventory records")
-    assert_bidirectional_membership(runtime_tuples, inventory_tuples, "runtime records", "inventory records", first)
-    local inventory_difference = first_difference(
+    observation_support.assert_old_behavior_records(
       first,
       expected,
-      "old_behavior_observations[replayer-thinking-row-replay]"
+      "runtime-bound OLD thinking row replay observation"
     )
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error(
-        "runtime-bound OLD thinking row replay observation differs at "
-          .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
-        0
-      )
-    end
   end,
 }

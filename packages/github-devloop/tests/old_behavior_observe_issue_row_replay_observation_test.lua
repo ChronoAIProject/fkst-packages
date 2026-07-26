@@ -368,9 +368,11 @@ return {
     local runtime_tuples = record_tuple_set(first, "runtime records")
     assert_bidirectional(runtime_tuples, fixtures, "runtime records", "production fixture lattice", first)
     local expected = committed_records()
-    assert_bidirectional(runtime_tuples, record_tuple_set(expected, "inventory records"), "runtime records", "inventory records", first)
-    local difference = first_difference(first, expected, "old_behavior_observations[observe-issue-row-replay]")
-    if difference ~= nil or canonical_json(first) ~= canonical_json(expected) then error("runtime-bound OLD observe_issue row replay observation differs at " .. tostring(difference or "canonical-json") .. "; runtime_records=" .. canonical_json(first), 0) end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "runtime-bound OLD observe_issue row replay observation"
+    )
 
     local drifted = copy_value(first)
     drifted[1].old_outcome.emitted_effects = {}

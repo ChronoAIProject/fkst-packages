@@ -259,7 +259,8 @@ local function is_target_record(record)
   return type(site) == "table"
     and site.path == SITE.path
     and site.symbol == SITE.symbol
-    and site.ordinal == SITE.ordinal
+    and type(record.observation_id) == "string"
+    and record.observation_id:sub(1, #OBSERVATION_PREFIX) == OBSERVATION_PREFIX
 end
 
 local function committed_records()
@@ -293,20 +294,10 @@ return {
     local runtime_tuples = record_tuple_set(first, "runtime records")
     assert_bidirectional_tuple_membership(runtime_tuples, fixture_tuples, "runtime records", "production fixture lattice", first)
     local expected = committed_records()
-    local inventory_tuples = record_tuple_set(expected, "inventory records")
-    assert_bidirectional_tuple_membership(runtime_tuples, inventory_tuples, "runtime records", "inventory records", first)
-    local inventory_difference = first_difference(
+    observation_support.assert_old_behavior_records(
       first,
       expected,
-      "old_behavior_observations[execute-start-consensus-proposal-intent]"
+      "runtime-bound OLD published-intent observation"
     )
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error(
-        "runtime-bound OLD published-intent observation differs at "
-          .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
-        0
-      )
-    end
   end,
 }
