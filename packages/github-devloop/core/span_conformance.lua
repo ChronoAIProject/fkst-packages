@@ -439,10 +439,23 @@ local function contains_codex_dispatch(source)
     or source:find("%f[%w_]dispatch%s*%(") ~= nil
 end
 
-local function function_contains_spawn(source, function_name)
-  for _, block in ipairs(function_blocks(source)) do
-    if short_function_name(block.name) == function_name and contains_codex_dispatch(block.body) then
-      return true
+local function function_reaches_spawn(functions, function_name)
+  local pending = { short_function_name(function_name) }
+  local seen = {}
+  while #pending > 0 do
+    local current = table.remove(pending)
+    if not seen[current] then
+      seen[current] = true
+      for _, block in ipairs(functions[current] or {}) do
+        if contains_codex_dispatch(block.body) then
+          return true
+        end
+        for _, callee in ipairs(call_names(block.body)) do
+          if not seen[callee] and functions[callee] ~= nil then
+            table.insert(pending, callee)
+          end
+        end
+      end
     end
   end
   return false
@@ -508,12 +521,17 @@ local function spawn_start_messages(transition_sources, department_sources, supp
         ))
       else
         local saw_spawn = false
+        local declared_function_reaches_spawn = contract.spawn_function ~= nil
+          and function_reaches_spawn(functions, contract.spawn_function)
         for _, source_path in ipairs(sorted_keys(sources)) do
           local source = sources[source_path]
           if contract.spawn_function ~= nil then
-            if function_contains_spawn(source, contract.spawn_function) then
-              saw_spawn = true
-              for _, call_pos in ipairs(function_call_positions(source, contract.spawn_function)) do
+            if declared_function_reaches_spawn then
+              local call_positions = function_call_positions(source, contract.spawn_function)
+              if #call_positions > 0 then
+                saw_spawn = true
+              end
+              for _, call_pos in ipairs(call_positions) do
                 if predecessor_call_before(source, contract.spawn_predecessor, call_pos) < 0 then
                   table.insert(messages, string.format(
                     "%s:%d %s call must be preceded by span start predecessor %q for durable start marker %q",

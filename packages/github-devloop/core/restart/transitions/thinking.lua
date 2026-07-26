@@ -220,8 +220,8 @@ return function(M, h)
     span_contract = span_contract({
       department = "consensus_result",
       durable_start_marker = "state:v1 thinking",
-      spawn_predecessor = "devloop_consensus_request",
-      spawn_function = "consensus.reach",
+      spawn_predecessor = "precheck_consensus_request",
+      spawn_function = "consensus_call.reach",
     }),
   }
 end
