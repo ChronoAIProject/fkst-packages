@@ -32,6 +32,7 @@ local spec = {
     "github-proxy.github_pr_comment_request",
     "devloop_review_reconcile",
   },
+  fanout = { "devloop_review_continue" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }

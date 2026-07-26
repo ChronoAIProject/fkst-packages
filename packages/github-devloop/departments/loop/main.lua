@@ -31,6 +31,7 @@ local spec = {
     "devloop_issue_decision",
     "github-proxy.github_issue_comment_request",
   },
+  fanout = { "devloop_consensus_continue" },
   stall_window = "30s",
   retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
