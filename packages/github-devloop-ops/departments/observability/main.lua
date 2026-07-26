@@ -10,15 +10,39 @@ local queue_starvation = require("devloop.queue_starvation")
 local reaper = require("departments.observability.reaper")
 local topology = require("departments.observability.topology")
 local devloop_logging = require("devloop.logging")
+local queue = require("devloop.queue")
 
 
 local spec = {
-  consumes = { "devloop_observe_tick" },
+  consumes = {
+    "devloop_observe_tick",
+    "github-devloop-pr.restart_transition_anomaly",
+    "github-devloop.restart_transition_anomaly",
+  },
+  ephemeral = {
+    "github-devloop-pr.restart_transition_anomaly",
+    "github-devloop.restart_transition_anomaly",
+  },
   produces = { "github-proxy.github_issue_create_request" },
   graph_json = true,
   retry = false,
   stall_window = "2m",
 }
+
+local function ingest_restart_transition_anomaly(event)
+  local anomaly = event.payload or {}
+  if anomaly.schema ~= "restart-transition-anomaly.v1" then
+    error("github-devloop: restart-anomaly-schema-invalid: ops received an invalid restart transition anomaly schema")
+  end
+  local entity = type(anomaly.entity) == "table" and anomaly.entity or {}
+  log.warn("github-devloop dept=observability tag=RESTART_TRANSITION_ANOMALY"
+    .. " owner=" .. tostring(anomaly.owner or "unknown")
+    .. " entity_kind=" .. tostring(entity.kind or "unknown")
+    .. " repo=" .. tostring(entity.repo or "unknown")
+    .. " number=" .. tostring(entity.number or "unknown")
+    .. " disposition=" .. tostring(anomaly.disposition or "unknown")
+    .. " reason_code=" .. tostring(anomaly.reason_code or "unknown"))
+end
 
 common.install_common(core)
 avm_scoreboard.install_avm_scoreboard(core)
@@ -115,8 +139,14 @@ function core.observe_devloop_entities(event)
 end
 
 local department = saga.department(spec, { done = function() return false end, act = function(event)
-  devloop_logging.log_entry("observability", event, "github-devloop/observability", "tick")
-  core.observe_devloop_entities(event)
+  queue.dispatch_consumed_queue("observability", spec, event, {
+    devloop_observe_tick = function(tick)
+      devloop_logging.log_entry("observability", tick, "github-devloop/observability", "tick")
+      core.observe_devloop_entities(tick)
+    end,
+    ["github-devloop-pr.restart_transition_anomaly"] = ingest_restart_transition_anomaly,
+    ["github-devloop.restart_transition_anomaly"] = ingest_restart_transition_anomaly,
+  }, "github-devloop-ops")
 end, wrap = devloop_logging.wrap_pipeline_failure, name = "observability" })
 department.spec.graph_json = true
 

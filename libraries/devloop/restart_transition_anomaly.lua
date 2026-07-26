@@ -1,4 +1,5 @@
 local restart_edges = require("devloop.restart_edges")
+local parsers_misc = require("devloop.parsers.misc")
 
 local M = {}
 
@@ -205,6 +206,26 @@ function M.schema()
     cause_statuses = copy_value(CAUSE_STATUSES),
     ordering_statuses = { complete = true, indeterminate = true },
   }
+end
+
+function M.marker_history(comments, proposal_id)
+  local history = {}
+  local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local attrs = {}
+      for key, value in marker:gmatch('([%w._-]+)="([^"]*)"') do
+        attrs[key] = value
+      end
+      if attrs.proposal == proposal_id and is_nonempty_string(attrs.state) then
+        table.insert(history, {
+          state = attrs.state,
+          order = parsers_misc._comment_created_at(comment),
+        })
+      end
+    end
+  end
+  return history
 end
 
 function M.analyze_observed_transition_history(canonical_rows, marker_history, observed_evidence)
