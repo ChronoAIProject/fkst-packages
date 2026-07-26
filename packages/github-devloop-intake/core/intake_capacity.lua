@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
 local claims = require("devloop.claims")
 local commands = require("devloop.commands")
 local config = require("devloop.config")
@@ -6,6 +7,7 @@ local contract_error_facts = require("contract.error_facts")
 local devloop_logging = require("devloop.logging")
 local forge_validators = require("devloop.forge_validators")
 local marker_facts = require("devloop.markers.facts")
+local operator_commands = require("devloop.operator_commands")
 local parsers_issue = require("devloop.parsers.issue")
 local devloop_state = require("devloop.state")
 
@@ -136,6 +138,23 @@ local function issue_occupies_capacity(repo, current)
     and not devloop_state.current_issue_observation_is_terminal(current.comments, proposal_id)
 end
 
+local function issue_has_pending_reintake(repo, current)
+  if type(current) ~= "table" or tostring(current.state or ""):upper() ~= "OPEN" then
+    return false
+  end
+  local issue_number = tonumber(current.number)
+  if issue_number == nil then
+    return false
+  end
+  local proposal_id = base_ids.proposal_id(repo, issue_number)
+  local command = operator_commands.operator_command_fact(current.comments, "reintake")
+  return command ~= nil
+    and not operator_commands.has_operator_command_response(current.comments, command)
+    and marker_facts.has_intake_decision_marker(current.comments, proposal_id)
+    and not devloop_base.is_intake_held(current.labels)
+    and not devloop_state.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id)
+end
+
 local function grant_matches(grant, repo, owner, max_inflight, holders)
   if type(grant) ~= "table"
     or grant.schema ~= schema
@@ -193,10 +212,12 @@ local function desired_holders(repo, owner, max_inflight, grant, snapshot, candi
     local normalized = tonumber(number)
     local current = normalized and snapshot[normalized] or nil
     local ownership = current and claims.issue_claim_state(current.assignees, owner, current.labels) or "other"
+    local holder_is_eligible = current ~= nil
+      and (issue_occupies_capacity(repo, current) or issue_has_pending_reintake(repo, current))
     if #holders < max_inflight
       and current ~= nil
       and ownership ~= "other"
-      and issue_occupies_capacity(repo, current)
+      and holder_is_eligible
       and not selected[normalized] then
       table.insert(holders, normalized)
       selected[normalized] = true

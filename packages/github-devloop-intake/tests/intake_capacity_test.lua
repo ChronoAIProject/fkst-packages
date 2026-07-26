@@ -28,6 +28,15 @@ local function trusted_comment(body, created_at)
   }
 end
 
+local function reintake_command(id)
+  return {
+    id = id,
+    body = "fkst: reintake",
+    author_login = OWNER,
+    created_at = "2026-07-16T00:00:02Z",
+  }
+end
+
 local function proposal_id(number)
   return base_ids.proposal_id(REPO, number)
 end
@@ -336,13 +345,14 @@ return {
     t.eq(world:active_claim_count(), 1)
   end,
 
-  test_blocked_issue_only_reacquires_capacity_through_explicit_reintake_authorization = function()
+  test_blocked_issue_reintake_grant_survives_ordinary_reconciliation = function()
     h.mock_bot_env()
     local world = new_world(1)
     world:add(issue(75, {
       comments = {
         decision_comment(75, "enable"),
         state_comment(75, "blocked"),
+        reintake_command("IC_reintake_capacity_75"),
       },
     }))
     local controller = capacity.new(world:ports("/runtime/reintake"))
@@ -356,7 +366,16 @@ return {
     )
 
     t.eq(reintake_granted, true)
+    world:claim(75)
+    local successful_cas_after_grant = world.successful_cas
+
+    local reconciled, reason = controller.reconcile(REPO, proposal_id(75))
+
+    t.eq(reconciled, true)
+    t.eq(reason, "wip-cap-reconciled")
+    t.eq(world.successful_cas, successful_cas_after_grant)
     t.eq(world.grant.holders[1], 75)
+    t.eq(claims.issue_claim_state(world.issues[75].assignees, OWNER), "self")
   end,
 
   test_declined_state_marker_releases_capacity_for_next_issue = function()
