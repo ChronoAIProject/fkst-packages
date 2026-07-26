@@ -12,6 +12,7 @@ import subprocess
 from typing import Any
 
 from intent_bounded_replay.compare import compare_report
+from intent_bounded_replay import delivery_authorization
 from intent_bounded_replay.normalize import (
     canonical_artifact_hash_v1,
     canonical_json,
@@ -605,8 +606,6 @@ def _anomaly_transport_messages(value: Any, relative: str) -> list[str]:
         if not _nonempty_string(identity) or SEMANTIC_ID_RE.fullmatch(identity) is None:
             messages.append(f"{label} field {field} must be a canonical semantic identity")
     return messages
-
-
 def _manifest_messages(
     artifact: dict[str, Any], relative: str, filename_pr: int
 ) -> list[str]:
@@ -616,6 +615,7 @@ def _manifest_messages(
     expected = set(MANIFEST_FIELDS)
     if "anomaly_transport" in artifact:
         expected.add("anomaly_transport")
+    if "authorized_delivery_atoms" in artifact: expected.add("authorized_delivery_atoms")
     messages.extend(_exact_fields_messages(artifact, expected, relative))
     if artifact["schema"] != "fkst.intent-diff.v2":
         messages.append(f"{relative} schema must be fkst.intent-diff.v2")
@@ -639,6 +639,7 @@ def _manifest_messages(
     messages.extend(_self_hash_messages(artifact, "manifest_sha256", relative))
     if "anomaly_transport" in artifact:
         messages.extend(_anomaly_transport_messages(artifact["anomaly_transport"], relative))
+    messages.extend(delivery_authorization.delivery_authorization_messages(artifact, relative))
     return messages
 
 
