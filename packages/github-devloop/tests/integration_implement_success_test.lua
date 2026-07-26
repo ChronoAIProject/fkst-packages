@@ -443,4 +443,71 @@ return {
     t.is_true(branch_pin_read_index < codex_index)
     t.is_true(pin_commit_index < codex_index)
   end,
+
+  -- Regression: local-iteration must pin BASE to the candidate's frozen fork point
+  -- (base_head), not the moving origin/dev default. The reproduced failure: the
+  -- candidate worktree forks from a frozen base_sha; once origin/dev advances past
+  -- it, admission's `merge-base --is-ancestor origin/dev <candidate HEAD>` no longer
+  -- holds and `make preflight` reds out with an infrastructure error unrelated to
+  -- the diff -> base-local-iteration-failed on every lane. With base_head pinned the
+  -- candidate is compared against its own base (an ancestor of HEAD, non-vacuous
+  -- diff) so the check passes and the implementation is published. Here base_head is
+  -- the mocked integration head (abc123).
+  test_local_iteration_pins_candidate_base_head_not_moving_origin_dev = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(0, "implemented")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit("def456", branch)
+
+    local result = run_implement(event, opts("implement-pins-base-head"))
+    t.eq(result.exit_code, 0)
+
+    -- Candidate check is green with BASE pinned -> the base probe is never reached.
+    t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(count_calls("git worktree add --detach"), 0)
+
+    local candidate_pinned = false
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = tostring(call.rendered or "")
+      if rendered:find("scripts/run.sh test-affected", 1, true) ~= nil then
+        candidate_pinned = rendered:find("&& BASE='abc123' scripts/run.sh test-affected", 1, true) ~= nil
+          and rendered:find("-base-probe", 1, true) == nil
+      end
+    end
+    t.eq(candidate_pinned, true)
+  end,
+
+  -- The base probe must stay base-independent (no BASE pin): its worktree HEAD IS
+  -- base_sha, so pinning BASE=base_sha would trip admission's "protected base equals
+  -- clean candidate HEAD; vacuous" guard. Only the candidate check carries the pin.
+  test_local_iteration_base_probe_is_base_independent = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree, "candidate failed\n")
+    mock_base_probe(worktree)
+
+    local result = run_implement(event, opts("implement-base-probe-base-independent"))
+    assert_impl_failure_without_publication(result, "local-iteration-failed")
+
+    local candidate_pinned = false
+    local probe_base_independent = nil
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = tostring(call.rendered or "")
+      if rendered:find("scripts/run.sh test-affected", 1, true) ~= nil then
+        if rendered:find("-base-probe", 1, true) ~= nil then
+          probe_base_independent = rendered:find("BASE=", 1, true) == nil
+        else
+          candidate_pinned = rendered:find("&& BASE='abc123' scripts/run.sh test-affected", 1, true) ~= nil
+        end
+      end
+    end
+    t.eq(candidate_pinned, true)
+    t.eq(probe_base_independent, true)
+  end,
 }
