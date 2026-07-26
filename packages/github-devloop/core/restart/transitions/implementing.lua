@@ -61,7 +61,7 @@ return function(M, h)
         },
       },
     },
-    budget = budget(120, "A live implementation codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline, or when codex run liveness is transiently indeterminate; a permanently indeterminate signal is bounded by this row budget."),
+    budget = budget(120, "A live implementation codex defers when fkst.codex_runs() positively reports a matching run with an unexpired run-derived deadline. Indeterminate observations defer until the execution authority can establish that the run is absent, expired, or dead."),
     liveness_contract = liveness({
       mode = "live-defer",
       real_execution = {
@@ -73,7 +73,7 @@ return function(M, h)
         },
         status = "running",
         on_error = "defer",
-        indeterminate_timeout = "row-budget",
+        indeterminate_timeout = "defer",
       },
     }),
     on_timeout = timeout("devloop_ready"),

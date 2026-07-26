@@ -313,7 +313,7 @@ return {
     end
   end,
 
-  test_implement_codex_runs_unavailable_past_budget_escalates = function()
+  test_implement_codex_runs_unavailable_past_budget_defers_without_timeout_effects = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
@@ -327,36 +327,15 @@ return {
     end
     local ok, err = pcall(function()
       local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, facts.now_seconds)
-      t.eq(eval.status, "actionable")
-      t.eq(eval.reason, "codex run liveness indeterminate over row budget")
+      t.eq(eval.status, "deferred")
       t.eq(eval.signal.reason, "codex-runs-unavailable")
       t.eq(eval.codex_runs_fallback, true)
-      table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
-        row.from_state,
-        row.liveness_class_id,
-        eval.generation_key,
-        1,
-        event.source_ref
-      )))
-      table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
-        row.from_state,
-        row.liveness_class_id,
-        eval.generation_key,
-        2,
-        event.source_ref
-      )))
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
-      t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(due, false)
+      t.eq(age, nil)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
-      t.eq(receiver.action, "stuck")
-      local raised = run_timeout(row, state, facts)
-      t.eq(captured_raise(raised, "devloop_ready"), nil)
-      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
-      t.is_true(reconcile ~= nil)
-      t.eq(reconcile.payload.state, "implementing")
-      t.eq(reconcile.payload.round, 3)
-      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
+      t.eq(receiver.action, "defer")
+      assert_no_timeout_effects(run_timeout(row, state, facts))
     end)
     fkst.codex_runs = original
     if not ok then
@@ -407,7 +386,7 @@ return {
     end)
   end,
 
-  test_implement_running_codex_run_without_deadline_past_budget_escalates = function()
+  test_implement_running_codex_run_without_deadline_past_budget_defers_without_timeout_effects = function()
     local event = ready()
     local row = restart_transition_row("implementing")
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
@@ -425,36 +404,15 @@ return {
       },
     }, function()
       local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, facts.now_seconds)
-      t.eq(eval.status, "actionable")
-      t.eq(eval.reason, "codex run liveness indeterminate over row budget")
+      t.eq(eval.status, "deferred")
       t.eq(eval.signal.reason, "codex-run-deadline-unavailable")
       t.eq(eval.signal.indeterminate, true)
-      table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
-        row.from_state,
-        row.liveness_class_id,
-        eval.generation_key,
-        1,
-        event.source_ref
-      )))
-      table.insert(facts.current.comments, trusted_comment(conv_attempts.timeout_attempt_v2_marker(event.proposal_id,
-        row.from_state,
-        row.liveness_class_id,
-        eval.generation_key,
-        2,
-        event.source_ref
-      )))
       local due, age = core.liveness_timeout_due_with_facts(row, state, facts, facts.now_seconds)
-      t.eq(due, true)
-      t.eq(age, 180)
+      t.eq(due, false)
+      t.eq(age, nil)
       local receiver = core.restart_row_receiver_liveness(row, state, facts, facts.now_seconds)
-      t.eq(receiver.action, "stuck")
-      local raised = run_timeout(row, state, facts)
-      t.eq(captured_raise(raised, "devloop_ready"), nil)
-      local reconcile = captured_raise(raised, "devloop_timeout_reconcile")
-      t.is_true(reconcile ~= nil)
-      t.eq(reconcile.payload.state, "implementing")
-      t.eq(reconcile.payload.round, 3)
-      t.eq(captured_raise(raised, "github-proxy.github_issue_comment_request"), nil)
+      t.eq(receiver.action, "defer")
+      assert_no_timeout_effects(run_timeout(row, state, facts))
     end)
   end,
 

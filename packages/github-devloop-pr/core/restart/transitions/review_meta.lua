@@ -75,6 +75,7 @@ return function(M, h)
         },
         status = "running",
         on_error = "defer",
+        indeterminate_timeout = "defer",
       },
     }),
     on_timeout = timeout("devloop_review_meta"),

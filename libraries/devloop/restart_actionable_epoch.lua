@@ -121,17 +121,6 @@ local function invalid(reason)
   }
 end
 
-local function row_budget_absolute_due(row, state, now_seconds)
-  local entry_ms = state_entry_ms(state)
-  local now_ms = tonumber(now_seconds) and tonumber(now_seconds) * 1000 or nil
-  local budget = row and row.budget and tonumber(row.budget.minutes) or nil
-  if now_ms == nil or entry_ms == nil or budget == nil or budget <= 0 or now_ms < entry_ms then
-    return false, nil, budget, entry_ms
-  end
-  local age = math.floor((now_ms - entry_ms) / 60000)
-  return age >= budget, age, budget, entry_ms
-end
-
 local function clear_fact(M, row, state, facts)
   local comments = live_defer_comments(row, facts)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
@@ -314,22 +303,10 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
     return eval
   end
   if signal.codex_runs_fallback == true or signal.indeterminate == true then
-    local due, age, _, entry_ms = row_budget_absolute_due(row, state, now_seconds)
-    if entry_ms == nil then
-      return invalid("codex run indeterminate epoch is missing state entry")
-    end
-    if age == nil then
-      return invalid("codex run indeterminate row budget is invalid")
-    end
-    if due then
-      local eval = actionable(M, row, state, entry_ms, "codex-run:indeterminate", "codex run liveness indeterminate over row budget")
-      eval.signal = signal
-      eval.codex_runs_fallback = signal.codex_runs_fallback == true
-      eval.indeterminate = signal.indeterminate == true
-      return eval
-    end
     local eval = deferred("codex run liveness is indeterminate")
     eval.signal = signal
+    eval.codex_runs_fallback = signal.codex_runs_fallback == true
+    eval.indeterminate = signal.indeterminate == true
     return eval
   end
   if durable_eval ~= nil then

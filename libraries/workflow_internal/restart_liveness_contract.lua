@@ -63,7 +63,7 @@ local epoch_sources = {
   ["codex_run:v1"] = {
     durable = true,
     opens_generation = "spawn_or_redrive_only",
-    -- Deferred time is not yet excluded; bounded by an oversized budget until a no-live-onset epoch is added.
+    -- Only authoritative not-running or expired execution opens an actionable generation.
     excludes_deferred_time = false,
     requires_real_execution = true,
     real_execution_primitive = "fkst.codex_runs",
