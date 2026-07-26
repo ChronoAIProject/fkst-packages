@@ -3,6 +3,8 @@ local devloop_base = require("devloop.base")
 local devloop_claims = require("devloop.claims")
 local devloop_entity = require("devloop.entity")
 local devloop_logging = require("devloop.logging")
+local requests_labels = require("devloop.requests.labels")
+local state_labels = require("devloop.state_labels")
 local marker = require("core.marker")
 local materialization = require("core.materialization")
 local parsers_misc = require("devloop.parsers.misc")
@@ -179,6 +181,45 @@ function M.terminal_request(repo, issue_number, origin, state, reason_code)
     tostring(state),
     tostring(reason_code),
   })
+end
+
+function M.terminal_label_request(repo, issue_number, origin, terminal_fact, current_labels)
+  local terminal_state = tostring(terminal_fact and terminal_fact.state or "")
+  local projection_state = terminal_state == "done" and "merged" or "blocked"
+  local add_labels, remove_labels = state_labels.state_label_reconcile_changes(current_labels, projection_state)
+  if #add_labels == 0 and #remove_labels == 0 then
+    return nil
+  end
+
+  local request = requests_labels.build_label_request(
+    repo,
+    issue_number,
+    add_labels,
+    remove_labels,
+    base_ids.dedup_key({
+      "workflow",
+      "terminal-label",
+      tostring(origin),
+      terminal_state,
+    }),
+    safe_source_ref(repo, issue_number)
+  )
+  request.require_marker_guard = true
+  request.marker_guard = {
+    namespace = "github-devloop-workflow",
+    marker = "terminal",
+    version = "v1",
+    match = {
+      origin = tostring(origin),
+    },
+    expected = {
+      state = terminal_state,
+    },
+    order_by = {
+      "monotonic",
+    },
+  }
+  return request
 end
 
 function M.materialization_comment_request(repo, issue_number, origin, entry, state, child_issue)

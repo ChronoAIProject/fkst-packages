@@ -350,9 +350,11 @@ function M.build_terminal_marker(origin_proposal_id, terminal_state, reason_code
   ok, err = validate_reason_code(reason_code, "reason_code")
   if not ok then return nil, err end
 
+  local monotonic = terminal_state == "blocked" and "false" or "true"
   return '<!-- fkst:github-devloop-workflow:terminal:v1 origin="' .. origin_proposal_id
     .. '" state="' .. terminal_state
     .. '" reason_code="' .. reason_code
+    .. '" monotonic="' .. monotonic
     .. '" -->',
     nil
 end

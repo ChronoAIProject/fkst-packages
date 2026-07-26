@@ -372,6 +372,33 @@ return {
     graph.assert_covers(trace, {})
   end,
 
+  test_run_graph_replays_error_terminal_into_advisory_blocked_label = function()
+    local terminal_body, terminal_err = core.marker.build_terminal_marker(
+      origin,
+      "error",
+      "blueprint-digest-mismatch"
+    )
+    t.is_nil(terminal_err)
+    mock_env()
+    mock_write_mode("", 4)
+    mock_materialization_cycle(workflow_history(false, terminal_body), nil, nil, false)
+
+    local trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/error-terminal-replay" },
+    }, { max_steps = 4 }))
+
+    graph.assert_covers(trace, {
+      "github-devloop-workflow.workflow_materialization_tick -> github-devloop-workflow.workflow_materialize_next",
+      "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
+    })
+    local label = graph.require_raise(trace, "github-proxy.github_issue_label_request")
+    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(label.payload.marker_guard.expected.state, "error")
+    t.eq(graph.find_raise(trace, "github-proxy.github_issue_comment_request"), nil)
+  end,
+
   test_run_graph_rederives_revived_merged_child_after_child_fatal = function()
     mock_env()
     mock_write_mode("", 4)

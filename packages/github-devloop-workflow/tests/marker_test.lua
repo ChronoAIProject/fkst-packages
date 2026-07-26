@@ -272,7 +272,7 @@ local tests = {
     t.is_nil(err)
     t.eq(
       built,
-      '<!-- fkst:github-devloop-workflow:terminal:v1 origin="github-devloop/issue/owner/repo/42" state="blocked" reason_code="child-fatal" -->'
+      '<!-- fkst:github-devloop-workflow:terminal:v1 origin="github-devloop/issue/owner/repo/42" state="blocked" reason_code="child-fatal" monotonic="false" -->'
     )
     local parsed = marker.parse_terminal_marker("Full prose lives outside the marker.\n" .. built, origin)
     t.eq(parsed.origin, origin)

@@ -172,6 +172,7 @@ local function run_with(fakes)
     produces = {
       "github-proxy.github_issue_create_request",
       "github-proxy.github_issue_comment_request",
+      "github-proxy.github_issue_label_request",
     },
     stall_window = "2m",
   }, materialize_reconcile.handlers(core, {
@@ -236,6 +237,34 @@ local function only_queue(raised, queue)
 end
 
 local tests = {
+  test_blueprint_digest_mismatch_replay_repairs_missing_terminal_label_projection = function()
+    local changed_blueprint = blueprint()
+    changed_blueprint.version = "2026-07-26"
+    local current_labels = { "fkst-dev:enabled", "fkst-dev:thinking" }
+
+    local first = run_with({
+      blueprint = changed_blueprint,
+      current = issue({ comment(blueprint_marker()) }, { labels = current_labels }),
+    })
+    local terminal_comments = only_queue(first, "github-proxy.github_issue_comment_request")
+    t.eq(#terminal_comments, 1)
+    t.eq(#only_queue(first, "github-proxy.github_issue_label_request"), 0)
+    t.is_true(terminal_comments[1].payload.body:find('state="error"', 1, true) ~= nil)
+    t.is_true(terminal_comments[1].payload.body:find('reason_code="blueprint-digest-mismatch"', 1, true) ~= nil)
+
+    local replay = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(terminal_comments[1].payload.body),
+      }, { labels = current_labels }),
+    })
+    local label_requests = only_queue(replay, "github-proxy.github_issue_label_request")
+    t.eq(#only_queue(replay, "github-proxy.github_issue_comment_request"), 0)
+    t.eq(#label_requests, 1)
+    t.eq(label_requests[1].payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(label_requests[1].payload.marker_guard.expected.state, "error")
+  end,
+
   test_static_frontier_raises_issue_create_directly_without_origin_spec = function()
     local raised = run_with()
     t.eq(#raised, 1)

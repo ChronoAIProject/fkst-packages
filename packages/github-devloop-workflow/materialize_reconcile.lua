@@ -49,6 +49,16 @@ local function terminal(core, deps, repo, issue_number, origin, state, reason_co
   return "terminal"
 end
 
+local function reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current_labels)
+  local request = actions.terminal_label_request(repo, issue_number, origin, terminal_fact, current_labels)
+  if request == nil then
+    log_decision(origin, "terminal", "terminal-label", "skip-idempotent(label-current)", "terminal label projection already matches the trusted workflow terminal marker")
+    return
+  end
+  log_decision(origin, "terminal", "terminal-label", "applied(reconcile)", "terminal label projection derived from trusted workflow terminal marker")
+  actions.raise_request(origin, "github-proxy.github_issue_label_request", request)
+end
+
 local function load_blueprint(deps, ctx, workflow_id)
   if type(deps.load_blueprint) == "function" then
     return deps.load_blueprint(ctx, workflow_id)
@@ -237,6 +247,7 @@ local function process_origin(core, deps, repo, issue_number, event)
     -- facts: a child can recover and merge after the workflow recorded child-fatal.
     local terminal_fact = discovery.latest_terminal(core, current, origin)
     if terminal_fact ~= nil and tostring(terminal_fact.state or "") ~= "blocked" then
+      reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels)
       if tostring(terminal_fact.state or "") == "done" then
         lease.close_done_origin(core, deps, repo, issue_number, origin)
       end
@@ -290,6 +301,11 @@ local function process_origin(core, deps, repo, issue_number, event)
       return "wait"
     end
     if decision.action == "terminal" then
+      if terminal_fact ~= nil
+        and tostring(terminal_fact.state or "") == "blocked"
+        and tostring(decision.state or "error") == "blocked" then
+        reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels)
+      end
       return terminal(core, deps, repo, issue_number, origin, decision.state or "error", decision.reason_code or "frontier-terminal")
     end
     if decision.action == "materialize" then

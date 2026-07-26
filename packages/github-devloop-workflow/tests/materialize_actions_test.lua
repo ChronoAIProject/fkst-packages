@@ -47,6 +47,15 @@ local function has(s, sub)
   return tostring(s):find(sub, 1, true) ~= nil
 end
 
+local function contains(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then
+      return true
+    end
+  end
+  return false
+end
+
 return {
   -- Regression: the materialization marker comment dedup_key must be
   -- DETERMINISTIC and derived from the slot/digests/state — not a Lua table
@@ -102,6 +111,7 @@ return {
     t.is_nil(r1.replace_marker)
     t.is_true(not has(r1.body, "fkst:github-devloop-workflow:materialization:v1"))
     t.is_true(has(r1.body, "fkst:github-devloop-workflow:terminal:v1"))
+    t.is_true(has(r1.body, 'monotonic="true"'))
     t.is_true(has(r1.body, "Workflow complete: every step merged."))
     t.is_true(r1.body:find("Workflow complete: every step merged.\n\n<!-- fkst:github-devloop-workflow:terminal:v1", 1, true) == 1)
     local parsed = marker.parse_terminal_marker(r1.body, origin)
@@ -112,7 +122,44 @@ return {
     t.eq(r1.body, "Workflow complete: every step merged.\n\n" .. expected_marker)
     local blocked = actions.terminal_request(repo, 1, origin, "blocked", "child-fatal")
     t.is_true(has(blocked.body, "Workflow blocked: child-fatal."))
+    t.is_true(has(blocked.body, 'monotonic="false"'))
     t.eq(marker.parse_terminal_marker(blocked.body, origin).state, "blocked")
+  end,
+
+  test_terminal_label_projection_maps_every_disposition_and_guards_the_workflow_fact = function()
+    local cases = {
+      { state = "done", expected_label = "fkst-dev:merged" },
+      { state = "blocked", expected_label = "fkst-dev:blocked" },
+      { state = "error", expected_label = "fkst-dev:blocked" },
+    }
+    for _, case in ipairs(cases) do
+      local request = actions.terminal_label_request(repo, 42, origin, {
+        state = case.state,
+        reason_code = "terminal-reason",
+      }, { "fkst-dev:thinking", "manual-label" })
+
+      t.eq(request.schema, "github-proxy.label.v1")
+      t.eq(request.add_labels[1], case.expected_label)
+      t.is_true(contains(request.remove_labels, "fkst-dev:thinking"))
+      t.is_true(not contains(request.remove_labels, "manual-label"))
+      t.eq(request.require_marker_guard, true)
+      t.eq(request.marker_guard.namespace, "github-devloop-workflow")
+      t.eq(request.marker_guard.marker, "terminal")
+      t.eq(request.marker_guard.version, "v1")
+      t.eq(request.marker_guard.match.origin, origin)
+      t.eq(request.marker_guard.expected.state, case.state)
+      t.eq(request.marker_guard.order_by[1], "monotonic")
+      t.eq(request.source_ref.ref, repo .. "#issue/42")
+    end
+  end,
+
+  test_terminal_label_projection_is_quiet_when_the_advisory_label_is_current = function()
+    local request = actions.terminal_label_request(repo, 42, origin, {
+      state = "error",
+      reason_code = "blueprint-digest-mismatch",
+    }, { "fkst-dev:enabled", "fkst-dev:blocked" })
+
+    t.is_nil(request)
   end,
 
   test_issue_create_keeps_origin_parent_comment_target = function()
