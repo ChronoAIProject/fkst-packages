@@ -186,6 +186,16 @@ local function fake_department(opts)
         labels = {},
         author_login = "alice",
       },
+      ["owner/repo#issue/900"] = {
+        repo = repo,
+        number = escalation_issue_number,
+        state = "OPEN",
+        title = "Escalate blocked output obligation",
+        body = "Escalation.\n\n" .. escalation_marker(),
+        comments = {},
+        labels = { core._hold_label },
+        author_login = "fkst-test-bot",
+      },
     },
   })
   local github = github_fake.new(model)
@@ -326,6 +336,7 @@ return {
     t.is_true(receipt ~= nil)
     local rendered_receipt = receipt.payload.body
       .. "\n\n<!-- fkst:github-proxy:comment:" .. receipt.payload.dedup_key .. " -->\n"
+    model.issues["owner/repo#issue/900"].comments = { bot_comment(rendered_receipt) }
 
     mock_census({ bot_comment(rendered_receipt) })
     local failed = run_tick_expecting_failure(department)
@@ -335,7 +346,11 @@ return {
     mock_census({ bot_comment(rendered_receipt) })
     local replay = run_tick(department)
 
-    t.eq(#reads, 3)
+    t.eq(#reads, 5)
+    t.eq(reads[3].source_ref.ref, "owner/repo#issue/900")
+    t.eq(reads[3].force_fresh, true)
+    t.eq(reads[5].source_ref.ref, "owner/repo#issue/900")
+    t.eq(reads[5].force_fresh, true)
     t.eq(find_raise(replay.raises, "github-proxy.github_issue_comment_request"), nil)
     t.eq(control.close_attempts, 2)
     local closed = close_write(model.writes)

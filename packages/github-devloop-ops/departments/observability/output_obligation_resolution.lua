@@ -75,6 +75,40 @@ function M.reconcile(core, github, repo, entity, limits, deadline)
     log_resolution(fact, decision.decision, "defer", mode, "deadline-after-source-read")
     return nil
   end
+  local current_escalation = github.read_issue(fact.escalation_source_ref, {
+    force_fresh = true,
+    timeout = timeout,
+    consumer = "github-devloop-ops.output-obligation-resolution-close-guard",
+  })
+  local current_fact, current_reason = failure_triage_cap.classify_output_obligation_escalation_issue(
+    current_escalation,
+    fact.escalation_repo,
+    fact.escalation_issue_number
+  )
+  if current_fact == nil then
+    log_resolution(fact, decision.decision, "skip", mode, current_reason or "escalation-changed")
+    return nil
+  end
+  local current_decision = failure_triage_cap.output_obligation_resolution_decision(
+    current_fact,
+    current_escalation,
+    source_issue
+  )
+  if current_decision.decision ~= "source-closed" or current_decision.action ~= "close" then
+    log_resolution(current_fact, current_decision.decision, "skip", mode, current_decision.reason or "escalation-changed")
+    return nil
+  end
+  if not core.observability_has_budget(deadline) then
+    log_resolution(current_fact, current_decision.decision, "defer", mode, "deadline-after-escalation-read")
+    return nil
+  end
+  timeout = core.observability_call_timeout(limits, deadline)
+  if timeout < 1 then
+    log_resolution(current_fact, current_decision.decision, "defer", mode, "deadline-after-escalation-read")
+    return nil
+  end
+  fact = current_fact
+  decision = current_decision
   local closed = github.issue_close(fact.escalation_repo, fact.escalation_issue_number, timeout)
   if type(closed) ~= "table" or closed.exit_code ~= 0 then
     error("github-devloop-ops: output-obligation-close-failed: escalation issue close failed: "

@@ -336,4 +336,69 @@ return {
     t.is_true(logs[1]:find("decision=source-closed", 1, true) ~= nil)
     t.is_true(logs[1]:find("action=defer", 1, true) ~= nil)
   end,
+
+  test_close_reclassifies_and_redecides_fresh_escalation_before_write = function()
+    for _ = 1, 16 do
+      t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+        stdout = "fkst-test-bot",
+        stderr = "",
+        exit_code = 0,
+      })
+      t.mock_command('printf %s "$FKST_GITHUB_WRITE"', {
+        stdout = "1",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    local snapshot = escalation_issue()
+    snapshot.comments = {
+      bot_comment(core.output_obligation_resolution_receipt_marker(classify(snapshot))),
+    }
+    local changed_escalations = {
+      escalation_issue({
+        labels = {},
+        comments = snapshot.comments,
+      }),
+      escalation_issue({ comments = {} }),
+    }
+
+    for _, current_escalation in ipairs(changed_escalations) do
+      local reads = {}
+      local close_calls = 0
+      resolution.reconcile({
+        observability_has_budget = function()
+          return true
+        end,
+        observability_call_timeout = function()
+          return 10
+        end,
+      }, {
+        read_issue = function(source_ref, opts)
+          table.insert(reads, {
+            source_ref = source_ref,
+            force_fresh = opts and opts.force_fresh,
+          })
+          if source_ref.ref == "owner/repo#issue/42" then
+            return source_issue()
+          end
+          if source_ref.ref == "owner/repo#issue/900" then
+            return current_escalation
+          end
+          error("unexpected source ref: " .. tostring(source_ref.ref))
+        end,
+        issue_close = function()
+          close_calls = close_calls + 1
+          return { exit_code = 0, stdout = "", stderr = "" }
+        end,
+      }, repo, {
+        issue_number = escalation_issue_number,
+        parent_issue = snapshot,
+      }, {}, {})
+
+      t.eq(#reads, 2)
+      t.eq(reads[2].source_ref.ref, "owner/repo#issue/900")
+      t.eq(reads[2].force_fresh, true)
+      t.eq(close_calls, 0)
+    end
+  end,
 }
