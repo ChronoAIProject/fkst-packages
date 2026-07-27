@@ -6,6 +6,7 @@ local h = require("tests.devloop_helpers")
 local m_builders = require("devloop.markers.builders")
 local testing = require("testkit_internal.testing")
 local _workflow_codex = require("workflow_internal.codex")
+local consensus_call = require("devloop.consensus_call")
 local consensus_result_module = require("departments.consensus_result.main")
 
 local t = h.t
@@ -21,7 +22,7 @@ local PREFIX = "entry-consensus-result-"
 local SITE = {
   path = "packages/github-devloop/departments/consensus_result/main.lua",
   symbol = "pipeline",
-  ordinal = "consumes:consensus.consensus_reached",
+  ordinal = "consumes:devloop_consensus_request",
 }
 
 local RESULT_COMMENT = "comment:issue:consensus-result"
@@ -32,7 +33,7 @@ local RELEASE_COMMENT = "comment:issue:dependency-release"
 
 local FIXTURES = ra.json_array({
   { disposition = "skip-foreign-payload", status = "rejected", reason = "skip-foreign(proposal_id)",
-    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 143,
+    cas = "skip-foreign(proposal_id)", target = "reject", source_line = 249,
     payload = { schema = "unsupported.result.v1", proposal_id = PROPOSAL_ID, dedup_key = VERSION } },
   { disposition = "fail-owned-malformed-proposal", status = "error", reason = "owned-proposal-malformed",
     cas = "fail-closed(consensus-result-invalid)", target = "reject", source_line = 149, error = "owned proposal_id is malformed",
@@ -113,7 +114,7 @@ local function event_for(fixture)
     decision_reason = fixture.decision == "reject" and "premise-refuted" or nil,
     effect_version = fixture.event_version,
   })
-  return { queue = "consensus.consensus_reached", ts = "2026-06-03T02:03:04Z", payload = payload }
+  return { queue = "devloop_consensus_request", ts = "2026-06-03T02:03:04Z", payload = payload }
 end
 
 local function trusted(body)
@@ -165,6 +166,7 @@ local function capture(fixture)
   local restorations = {}
   local captured = ra.capture_logging("consensus_result", devloop_logging, restorations)
   ra.replace(core, "dependency_gate", function() return gate_for(fixture) end, restorations)
+  ra.replace(consensus_call, "reach", function() return event.payload end, restorations)
   ra.replace(_G, "with_lock", function(_, fn) return fn() end, restorations)
   local result = fixture.error and testing.run_fake_expecting_failure(department, event)
     or testing.run_fake(department, event)

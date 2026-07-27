@@ -35,7 +35,7 @@ local CONSENSUS_VERSION = "consensus:github-devloop/issue/owner/repo/42/2026-06-
 local IMPLEMENTING_VERSION = "ready/github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 
 local FIXTURES = json_array({
-  { name = "route-thinking", state = "thinking", version_kind = "proposal", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "consensus.proposal", expected_effect_ids = json_array({ "queue:consensus.proposal" }), expected_dispatched = true },
+  { name = "route-thinking", state = "thinking", version_kind = "proposal", expected_status = "routed", expected_decision = "applied(replay)", expected_target = "devloop_consensus_request", expected_effect_ids = json_array({ "queue:github-devloop.devloop_consensus_request" }), expected_dispatched = true },
   { name = "route-dependency-wait", state = "dependency_wait", version = CONSENSUS_VERSION, dependency_wait = true, expected_status = "routed", expected_decision = "release-dependency-hold", expected_target = "ready", expected_effect_ids = json_array({ "comment:issue:row-replay", "comment:issue:row-replay", "label:issue:row-replay" }), expected_dispatched = true },
   { name = "route-ready", state = "ready", version = CONSENSUS_VERSION, ready_handoff = true, expected_status = "routed", expected_decision = "applied(replay)", expected_target = "implementing", expected_effect_ids = json_array({ "queue:devloop_ready" }), expected_dispatched = true },
   { name = "route-implementing", state = "implementing", version = IMPLEMENTING_VERSION, expected_status = "routed-noop", expected_decision = "skip-pending(no-implementing-fact)", expected_target = "devloop_ready", expected_effect_ids = json_array(), expected_dispatched = true },
@@ -128,7 +128,7 @@ local function prepare_fixture(fixture)
 end
 
 local function effect_id_for_queue(queue)
-  if queue == "consensus.proposal" then return "queue:consensus.proposal", "queue" end
+  if queue == "devloop_consensus_request" then return "queue:github-devloop.devloop_consensus_request", "queue" end
   if queue == "devloop_ready" then return "queue:devloop_ready", "queue" end
   if queue == "github-proxy.github_issue_comment_request" then return "comment:issue:row-replay", "comment" end
   if queue == "github-proxy.github_issue_label_request" then return "label:issue:row-replay", "label" end
@@ -368,9 +368,11 @@ return {
     local runtime_tuples = record_tuple_set(first, "runtime records")
     assert_bidirectional(runtime_tuples, fixtures, "runtime records", "production fixture lattice", first)
     local expected = committed_records()
-    assert_bidirectional(runtime_tuples, record_tuple_set(expected, "inventory records"), "runtime records", "inventory records", first)
-    local difference = first_difference(first, expected, "old_behavior_observations[observe-issue-row-replay]")
-    if difference ~= nil or canonical_json(first) ~= canonical_json(expected) then error("runtime-bound OLD observe_issue row replay observation differs at " .. tostring(difference or "canonical-json") .. "; runtime_records=" .. canonical_json(first), 0) end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "runtime-bound OLD observe_issue row replay observation"
+    )
 
     local drifted = copy_value(first)
     drifted[1].old_outcome.emitted_effects = {}

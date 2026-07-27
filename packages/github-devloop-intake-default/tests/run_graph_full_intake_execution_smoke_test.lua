@@ -43,8 +43,8 @@ local function initial_event()
 end
 
 local function mock_env()
-  author_policy.mock_env(t, nil, { times = 32 })
-  for _ = 1, 32 do
+  author_policy.mock_env(t, nil, { times = 96, configure = devloop_base })
+  for _ = 1, 96 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), {
       stdout = "",
       stderr = "",
@@ -56,7 +56,7 @@ local function mock_env()
       exit_code = 0,
     })
   end
-  for _ = 1, 12 do
+  for _ = 1, 36 do
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
       stdout = "/tmp/fkst-packages-test/github-devloop-intake-default-full-run-graph/runtime",
       stderr = "",
@@ -140,7 +140,7 @@ local function mock_context_bundle()
     entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_recent_closed_cmd(repo, 30), { stdout = "[]\n" })
     t.mock_command("gh pr list", { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
-  for _ = 1, 16 do
+  for _ = 1, 48 do
     t.mock_command("touch ", ok)
     t.mock_command("printf %s '", ok)
     t.mock_command(" > ", ok)
@@ -234,7 +234,7 @@ return {
     local thinking_label = require_raise_from_step(trace, execute_index, "github-proxy.github_issue_label_request")
     t.eq(thinking_label.payload.add_labels[1], "fkst-dev:thinking")
 
-    local proposal = require_raise_from_step(trace, execute_index, "consensus.proposal", function(raised)
+    local proposal = require_raise_from_step(trace, execute_index, "github-devloop.devloop_consensus_request", function(raised)
       local payload = raised.payload or {}
       return payload.schema == "consensus.proposal.v1"
         and payload.proposal_id == proposal_id

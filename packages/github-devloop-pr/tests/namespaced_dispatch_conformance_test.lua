@@ -60,9 +60,20 @@ local function timeout_reconcile()
 end
 
 local function payload_for_queue(_path, queue)
+  local request_id = review_proposal_id()
   local payloads = {
-    ["consensus.consensus_converge"] = review_unresolved(),
-    ["consensus.consensus_reached"] = review_reached(),
+    ["devloop_review_request"] = {
+      schema = "consensus.proposal.v1",
+      verdict_mode = "gate",
+      proposal_id = request_id,
+      title = "Review PR diff",
+      body = "Decide whether the reviewed PR diff is safe to merge.",
+      worktree = ".",
+      dedup_key = devloop_base.pr_review_proposal_dedup_key(request_id),
+      source_ref = { kind = "external", ref = "owner/repo#pr/7" },
+    },
+    ["devloop_review_continue"] = review_unresolved(),
+    ["devloop_review_decision"] = review_reached(),
     ["github-proxy.github_comment_written"] = {
       schema = "github-proxy.comment-written.v1",
       repo = "owner/repo",

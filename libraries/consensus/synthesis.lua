@@ -1,5 +1,5 @@
 local M = {}
-local provenance = require("departments.decide.provenance")
+local provenance = require("consensus.provenance")
 local strings = require("contract.strings")
 
 local max_field_len = 1000
@@ -462,8 +462,8 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
     caps.assert_all_angle_answers_valid(p1_results, "blind")
     caps.assert_all_angle_answers_valid(p2_results, "rebuttal")
     return {
-      queue = "consensus_reached",
-      payload = caps.build_reached_payload(proposal, {
+      kind = "reached",
+      value = caps.build_reached_payload(proposal, {
         decision = parsed.decision,
         decision_reason = parsed.decision_reason,
         blocking_gaps = parsed.blocking_gap ~= nil and { parsed.blocking_gap } or nil,
@@ -477,7 +477,7 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
   end
 
   return {
-    queue = "consensus_converge",
+    kind = "converge",
     angle_results = p2_results,
     narrowed_question = parsed.narrowed_question,
     findings_record = parsed.findings_record,
@@ -486,7 +486,7 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
 end
 
 function M.build_prompt(ctx, repair, prior_result)
-  local prompt = require("prompts.synthesis")
+  local prompt = require("consensus.prompts.synthesis")
   local vars = ctx.vars(repair, prior_result)
   return ctx.render_prompt_template(prompt.template, vars, ctx.proposal)
 end

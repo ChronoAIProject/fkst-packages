@@ -13,7 +13,7 @@ local expected_states = {
   implementing = { from_state = "implementing", terminal = false, driving_queue = "devloop_ready", budget_minutes = 120 },
   merged = { from_state = "merged", terminal = true, driving_queue = "none", budget_minutes = nil },
   ready = { from_state = "ready", terminal = false, driving_queue = "devloop_ready", budget_minutes = 120 },
-  thinking = { from_state = "thinking", terminal = false, driving_queue = "consensus.proposal", budget_minutes = 150 },
+  thinking = { from_state = "thinking", terminal = false, driving_queue = "devloop_consensus_request", budget_minutes = 150 },
 }
 
 local function copy_value(value)

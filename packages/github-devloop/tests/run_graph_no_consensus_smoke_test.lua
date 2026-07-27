@@ -169,7 +169,7 @@ end
 
 local function initial_event()
   return {
-    queue = "consensus.consensus_converge",
+    queue = "devloop_consensus_continue",
     payload = evidence_continuation_unresolved(),
     source_ref = {
       kind = "external",
@@ -186,14 +186,14 @@ return {
 
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 8 }))
     graph.assert_covers(trace, {
-      "consensus.consensus_converge -> github-devloop.loop",
+      "github-devloop.devloop_consensus_continue -> github-devloop.loop",
       "github-proxy.github_issue_comment_request -> github-proxy.github_comment",
       "github-proxy.github_comment_written -> github-devloop.comment_handoff",
       "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
     })
 
     local loop_step, loop_index = graph.require_delivery(trace, {
-      queue = "consensus.consensus_converge",
+      queue = "github-devloop.devloop_consensus_continue",
       consumer = "github-devloop.loop",
     })
     t.eq(loop_step.exit_code, 0)

@@ -51,8 +51,8 @@ local function reconcile_capacity(context, repo, proposal_id)
   return reconciled
 end
 
-local function claim_with_capacity(context, repo, issue_number, current, proposal_id, admission, detail)
-  local granted, reason = context.capacity.authorize(repo, issue_number, current, proposal_id)
+local function claim_with_capacity(context, authorize, repo, issue_number, current, proposal_id, admission, detail)
+  local granted, reason = authorize(repo, issue_number, current, proposal_id)
   if not granted then
     devloop_logging.log_cas_decision(
       "admission",
@@ -88,24 +88,34 @@ local function handle_pending_reintake(context, repo, issue, current, proposal_i
   if command == nil then
     return false
   end
-  reconcile_capacity(context, repo, proposal_id)
   if current.state ~= "OPEN" then
+    reconcile_capacity(context, repo, proposal_id)
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an open issue", source_ref)
     return true
   end
   if not m_facts.has_intake_decision_marker(current.comments, proposal_id) then
+    reconcile_capacity(context, repo, proposal_id)
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an existing intake decision", source_ref)
     return true
   end
   if devloop_base.is_intake_held(current.labels) then
+    reconcile_capacity(context, repo, proposal_id)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "reintake-command", "candidate", "skip-held", "fkst-dev:hold label is present")
     return true
   end
   if core.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id) then
+    reconcile_capacity(context, repo, proposal_id)
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states", source_ref)
     return true
   end
-  if not claim_with_capacity(context, repo, issue.number, current, proposal_id) then
+  if not claim_with_capacity(
+    context,
+    context.capacity.authorize_reintake,
+    repo,
+    issue.number,
+    current,
+    proposal_id
+  ) then
     return true
   end
   local payload = core.build_intake_admission_candidate(repo, issue, command, now(), current.comments)
@@ -209,7 +219,16 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
     return
   end
-  if not claim_with_capacity(context, repo, issue_number, current, proposal_id, claim_admission, claim_detail) then
+  if not claim_with_capacity(
+    context,
+    context.capacity.authorize,
+    repo,
+    issue_number,
+    current,
+    proposal_id,
+    claim_admission,
+    claim_detail
+  ) then
     return
   end
 

@@ -106,7 +106,7 @@ local function capture_runtime()
   t.eq(#constructor_calls, 1, "real execute_start dispatch calls the constructor exactly once")
   local proposal_raises = json_array()
   for _, raised in ipairs(result.raises) do
-    if raised.queue == "consensus.proposal" then
+    if raised.queue == "devloop_consensus_request" then
       table.insert(proposal_raises, copy_value(raised))
     end
   end
@@ -135,7 +135,7 @@ local function build_record()
       kind = "direct_constructor",
       source_state = "execution-request",
       source_boundary = event.queue,
-      target = "consensus.proposal",
+      target = "devloop_consensus_request",
       cause_schema_id = event.payload.schema,
       generation_epoch = {
         current_version = JSON_NULL,
@@ -166,7 +166,7 @@ local function build_record()
       cas_outcome = "not-applicable-direct-constructor",
       emitted_effects = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop.devloop_consensus_request",
           sink_kind = "queue",
           authority_class = "lifecycle-authoritative",
           ordinal = 1,
@@ -174,7 +174,7 @@ local function build_record()
       }),
       observable_writes = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop.devloop_consensus_request",
           queue = proposal_raise.queue,
           payload = copy_value(proposal_raise.payload),
         },
@@ -238,14 +238,10 @@ return {
       error("second OLD direct-constructor runtime capture differs at " .. tostring(repeat_difference or "canonical-json"), 0)
     end
     local expected = committed_records()
-    local inventory_difference = first_difference(first, expected, "old_behavior_observations[execute-start-proposal]")
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error(
-        "runtime-bound OLD direct-constructor observation differs at "
-          .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
-        0
-      )
-    end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "runtime-bound OLD direct-constructor observation"
+    )
   end,
 }

@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local transition_version = require("contract.transition_version")
 local t = fkst.test
 local core = require("core")
+local actions = require("core.materialize.actions")
 local graph = require("testkit.graph")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local base_ids = require("devloop.base_ids")
@@ -171,6 +172,20 @@ local function revived_child_history(state)
   )
 end
 
+local function stale_label_impl_failed_child_history()
+  local body = core.state_marker(revived_child, "impl-failed", child_version)
+    .. "\n"
+    .. '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. revived_child
+    .. '" reason="no-changes" dedup="' .. child_version .. '" -->'
+  return issue_json(
+    revived_child_issue,
+    "Workflow child",
+    { "fkst-dev:enabled", "fkst-dev:thinking" },
+    { { body = body } },
+    "OPEN"
+  )
+end
+
 local function pr_origin_body()
   return m_builders.pr_origin_marker(
     revived_child,
@@ -221,7 +236,7 @@ local function mock_pr_view(state)
   })
 end
 
-local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim)
+local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout)
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues?state=open&per_page=100'", {
     stdout = '[[{"number":' .. tostring(origin_issue) .. ',"title":"Workflow origin","state":"OPEN","updatedAt":"2026-07-12T00:25:02Z"}]]\n',
     stderr = "",
@@ -239,9 +254,11 @@ local function mock_materialization_cycle(origin_comments, revived_state, pr_sta
   })
   if revived_state ~= nil then
     t.mock_command("gh issue view " .. tostring(revived_child_issue) .. " --repo " .. repo .. " --json '" .. full_fields .. "'", {
-      stdout = revived_child_history(revived_state), stderr = "", exit_code = 0,
+      stdout = revived_stdout or revived_child_history(revived_state), stderr = "", exit_code = 0,
     })
-    mock_pr_view(pr_state or "OPEN")
+    if pr_state ~= nil then
+      mock_pr_view(pr_state)
+    end
   end
   if releases_claim then
     t.mock_command("gh issue view " .. tostring(origin_issue) .. " --repo " .. repo .. " --json 'assignees,author'", {
@@ -370,6 +387,144 @@ return {
     t.eq(trace.consumer_result.status, "accepted")
     t.eq(#trace.raised, 0)
     graph.assert_covers(trace, {})
+  end,
+
+  test_run_graph_replays_error_terminal_into_advisory_blocked_label = function()
+    local terminal_body, terminal_err = core.marker.build_terminal_marker(
+      origin,
+      "error",
+      "blueprint-digest-mismatch"
+    )
+    t.is_nil(terminal_err)
+    mock_env()
+    mock_write_mode("", 4)
+    mock_materialization_cycle(workflow_history(false, terminal_body), nil, nil, false)
+
+    local projection_trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/error-terminal-replay" },
+    }, { max_steps = 4 }))
+
+    local projection = graph.require_raise(projection_trace, "github-proxy.github_issue_comment_request")
+    local projection_fact = core.marker.parse_label_projection_marker(projection.payload.body, origin)
+    t.eq(projection_fact.state, "blocked")
+    t.eq(projection_fact.generation, 1)
+
+    local history = workflow_history(false, terminal_body)
+    history[#history + 1] = { body = projection.payload.body, created_at = "2026-07-10T20:44:00Z" }
+    mock_env()
+    mock_write_mode("", 4)
+    mock_materialization_cycle(history, nil, nil, false)
+    local trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/error-terminal-projection" },
+    }, { max_steps = 4 }))
+
+    graph.assert_covers(trace, {
+      "github-devloop-workflow.workflow_materialization_tick -> github-devloop-workflow.workflow_materialize_next",
+      "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
+    })
+    local label = graph.require_raise(trace, "github-proxy.github_issue_label_request")
+    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(label.payload.marker_guard.expected.state, "blocked")
+    t.eq(label.payload.marker_guard.expected.generation, "1")
+    t.eq(graph.find_raise(trace, "github-proxy.github_issue_comment_request"), nil)
+  end,
+
+  test_run_graph_rejects_delayed_active_projection_after_newer_blocked_generation = function()
+    local active_marker, active_err = core.marker.build_label_projection_marker(origin, "thinking", 2)
+    local blocked_marker, blocked_err = core.marker.build_label_projection_marker(origin, "blocked", 3)
+    t.is_nil(active_err)
+    t.is_nil(blocked_err)
+    local stale_request = actions.label_projection_request(repo, origin_issue, origin, {
+      origin = origin,
+      state = "thinking",
+      generation = 2,
+    }, { "fkst-dev:enabled", "fkst-dev:blocked" })
+
+    mock_env()
+    mock_write_mode("1", 2)
+    t.mock_command("gh api repos/" .. repo .. "/issues/" .. tostring(origin_issue), {
+      stdout = ownership_json(), stderr = "", exit_code = 0,
+    })
+    local comments = rest_comments_json({ { body = active_marker }, { body = blocked_marker } })
+    for _, command in ipairs({
+      "gh api --paginate --slurp repos/" .. repo .. "/issues/" .. tostring(origin_issue) .. "/comments?per_page=100",
+      "gh api --paginate --slurp 'repos/" .. repo .. "/issues/" .. tostring(origin_issue) .. "/comments?per_page=100'",
+    }) do
+      t.mock_command(command, { stdout = comments, stderr = "", exit_code = 0 })
+    end
+
+    local trace = graph.require_quiescent(graph.run({
+      queue = "github-proxy.github_issue_label_request",
+      payload = stale_request,
+      source_ref = { kind = "external", reference = repo .. "#issue/" .. tostring(origin_issue) },
+    }, { max_steps = 2 }))
+    local label_step = graph.require_delivery(trace, {
+      queue = "github-proxy.github_issue_label_request",
+      consumer = "github-proxy.github_issue_label",
+    })
+    t.eq(label_step.exit_code, 0)
+    local edit_calls = 0
+    for _, call in ipairs(t.command_calls()) do
+      if gh_argv.call_contains(call, "gh issue edit") then
+        edit_calls = edit_calls + 1
+      end
+    end
+    t.eq(edit_calls, 0)
+  end,
+
+  test_run_graph_terminalizes_parent_from_impl_failure_while_child_label_is_stale = function()
+    local child_stdout = stale_label_impl_failed_child_history()
+    mock_env()
+    mock_write_mode("", 4)
+    mock_materialization_cycle(workflow_history(true), "OPEN", nil, false, child_stdout)
+
+    local terminal_trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/stale-child-label-terminal" },
+    }, { max_steps = 4 }))
+    local terminal = graph.require_raise(terminal_trace, "github-proxy.github_issue_comment_request")
+    t.is_true(terminal.payload.body:find('state="blocked"', 1, true) ~= nil)
+    t.is_true(terminal.payload.body:find('reason_code="child-fatal-behavior-preserving-restructure-no-changes"', 1, true) ~= nil)
+
+    local terminal_history = workflow_history(true, terminal.payload.body)
+    mock_env()
+    mock_write_mode("", 4)
+    mock_materialization_cycle(terminal_history, "OPEN", nil, false, child_stdout)
+    local projection_trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/stale-child-label-projection" },
+    }, { max_steps = 4 }))
+    local projection = graph.require_raise(projection_trace, "github-proxy.github_issue_comment_request")
+    local projection_fact = core.marker.parse_label_projection_marker(projection.payload.body, origin)
+    t.eq(projection_fact.state, "blocked")
+    t.eq(projection_fact.generation, 1)
+
+    terminal_history[#terminal_history + 1] = {
+      body = projection.payload.body,
+      created_at = "2026-07-10T20:44:00Z",
+    }
+    mock_env()
+    mock_write_mode("", 5)
+    mock_materialization_cycle(terminal_history, "OPEN", nil, false, child_stdout)
+    local label_trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/stale-child-label-repair" },
+    }, { max_steps = 4 }))
+    graph.assert_covers(label_trace, {
+      "github-devloop-workflow.workflow_materialization_tick -> github-devloop-workflow.workflow_materialize_next",
+      "github-proxy.github_issue_label_request -> github-proxy.github_issue_label",
+    })
+    local label = graph.require_raise(label_trace, "github-proxy.github_issue_label_request")
+    t.eq(label.payload.add_labels[1], "fkst-dev:blocked")
+    t.eq(label.payload.marker_guard.expected.state, "blocked")
+    t.eq(label.payload.marker_guard.expected.generation, "1")
   end,
 
   test_run_graph_rederives_revived_merged_child_after_child_fatal = function()

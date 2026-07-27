@@ -144,7 +144,7 @@ function C.replay(caps, dept, issue, state, row, facts, log_skip, log_defer, rai
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "applied(replay)", "replaying consensus proposal from trusted state facts")
   return raise_effects(dept, proposal_id, "thinking", proposal.dedup_key, { add = {}, remove = {} }, {
-    { queue = "consensus.proposal", payload = proposal },
+    { queue = "devloop_consensus_request", payload = proposal },
   })
 end
 

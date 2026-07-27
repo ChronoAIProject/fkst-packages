@@ -39,17 +39,16 @@ local function issue(extra)
   return value
 end
 
-local function consensus_reached(extra)
+local function judgment(extra)
+  local source_issue = issue()
+  local proposal = propose_mapping.build_proposal(source_issue)
   local value = {
-    schema = "consensus.consensus_reached.v1",
-    proposal_id = "autochrono/issue/owner/repo/42",
-    decision = "approve",
-    body = "Thanks for opening this. I will review the details and follow up with the next concrete step.",
-    dedup_key = "consensus:autochrono/issue/owner/repo/42/2026-06-03T01-02-03Z",
-    source_ref = {
-      kind = "external",
-      ref = "owner/repo#issue/42",
-    },
+    schema = "autochrono.judge_issue.v1",
+    repo = source_issue.repo,
+    issue_number = source_issue.issue_number,
+    proposal = proposal,
+    dedup_key = proposal.dedup_key,
+    source_ref = source_issue.source_ref,
   }
   for key, field in pairs(extra or {}) do
     value[key] = field
@@ -59,9 +58,25 @@ end
 
 local function run_reply(event_payload, run_opts)
   return t.run_department("departments/reply/main.lua", {
-    queue = "consensus.consensus_reached",
+    queue = "judge_issue",
     payload = event_payload,
   }, run_opts)
+end
+
+local function mock_consensus_approval()
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/autochrono/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  for _, angle in ipairs({ "teleology", "parsimony", "fidelity", "natural-ownership", "proportional-containment" }) do
+    t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("consensus-angle-" .. angle, {
+      stdout = "⟦FKST:VERDICT⟧ approve\n⟦FKST:REPLY⟧ " .. angle .. " approves.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function run_propose(event_payload, run_opts)
@@ -87,10 +102,10 @@ return {
 
     local payload = propose_mapping.build_proposal(issue())
     t.eq(payload.schema, "consensus.proposal.v1")
-    t.eq(payload.proposal_id, "autochrono/issue/owner/repo/42")
+    t.is_nil(payload.proposal_id)
     t.eq(payload.dedup_key, "autochrono/issue/owner/repo/42/2026-06-03T01-02-03Z")
-    t.eq(payload.proposal_id:find(":", 1, true), nil)
-    t.eq(payload.proposal_id:find("@", 1, true), nil)
+    t.eq(payload.dedup_key:find(":", 1, true), nil)
+    t.eq(payload.dedup_key:find("@", 1, true), nil)
     t.eq(payload.source_ref.kind, "external")
     t.eq(payload.source_ref.ref, "owner/repo#issue/42")
     t.is_true(#payload.content_fetch <= 4000)
@@ -126,26 +141,24 @@ return {
     t.eq(#codex_calls(), 0)
   end,
 
-  test_propose_open_issue_records_consensus_proposal = function()
+  test_propose_open_issue_records_local_judgment_intent = function()
     t.mock_command("codex exec", { stdout = "should not be used", exit_code = 0 })
 
     local result = run_propose(issue(), opts("propose-open"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "consensus.proposal")
+    t.eq(result.raises[1].queue, "judge_issue")
 
-    local payload = result.raises[1].payload
-    local proposal_id = "autochrono/issue/owner/repo/42"
-    t.eq(payload.schema, "consensus.proposal.v1")
-    t.eq(payload.proposal_id, proposal_id)
-    t.is_true(payload.dedup_key:find(proposal_id, 1, true) == 1)
-    t.eq(payload.source_ref.kind, "external")
-    t.eq(payload.source_ref.ref, "owner/repo#issue/42")
-    t.is_true(#payload.content_fetch <= 4000)
-    t.is_true(payload.content_fetch:find("source_ref owner/repo#issue/42", 1, true) ~= nil)
-    t.is_true(payload.content_fetch:find("full issue body", 1, true) ~= nil)
-    t.is_true(payload.content_fetch:find("ALL comments", 1, true) ~= nil)
-    t.is_true(payload.content_fetch:find("Body above is only a brief", 1, true) ~= nil)
+    local intent = result.raises[1].payload
+    t.eq(intent.schema, "autochrono.judge_issue.v1")
+    t.eq(intent.repo, "owner/repo")
+    t.eq(intent.issue_number, "42")
+    t.eq(intent.source_ref.ref, "owner/repo#issue/42")
+    t.eq(intent.proposal.schema, "consensus.proposal.v1")
+    t.is_nil(intent.proposal.proposal_id)
+    t.is_true(intent.proposal.dedup_key:find("autochrono/issue/owner/repo/42", 1, true) == 1)
+    t.is_true(#intent.proposal.content_fetch <= 4000)
+    t.is_true(intent.proposal.content_fetch:find("source_ref owner/repo#issue/42", 1, true) ~= nil)
     t.eq(#codex_calls(), 0)
   end,
 
@@ -208,10 +221,9 @@ return {
   end,
 
   test_reply_approve_raises_autochrono_reply = function()
-    t.mock_command("codex exec", { stdout = "should not be used", exit_code = 0 })
+    mock_consensus_approval()
 
-    local reached = consensus_reached()
-    local result = run_reply(reached, opts("reply-approve"))
+    local result = run_reply(judgment(), opts("reply-approve"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "reply")
@@ -220,57 +232,49 @@ return {
     t.eq(payload.schema, "autochrono.reply.v1")
     t.eq(payload.repo, "owner/repo")
     t.eq(payload.issue_number, "42")
-    t.eq(payload.body, reached.body)
+    t.is_true(payload.body:find("teleology approves.", 1, true) ~= nil)
     t.eq(payload.dedup_key, "autochrono:owner/repo#issue/42")
     t.eq(payload.source_ref.kind, "external")
     t.eq(payload.source_ref.ref, "owner/repo#issue/42")
-    t.eq(#codex_calls(), 0)
+    t.eq(#codex_calls(), 5)
   end,
 
-  test_reply_skips_reject_and_foreign_proposal = function()
-    local rejected = run_reply(consensus_reached({ decision = "reject" }), opts("reply-reject"))
-    t.eq(rejected.exit_code, 0)
-    t.eq(#rejected.raises, 0)
-
-    local foreign = run_reply(consensus_reached({ proposal_id = "other/issue/owner/repo/42" }), opts("reply-foreign"))
-    t.eq(foreign.exit_code, 0)
-    t.eq(#foreign.raises, 0)
+  test_reply_skips_foreign_judgment = function()
+    local malformed = run_reply(judgment({ schema = "other.judgment.v1" }), opts("reply-malformed-intent"))
+    t.eq(malformed.exit_code, 0)
+    t.eq(#malformed.raises, 0)
     t.eq(#codex_calls(), 0)
   end,
 
   test_reply_cache_skips_second_approve_for_issue = function()
-    t.mock_command("codex exec", { stdout = "should not be used", exit_code = 0 })
+    mock_consensus_approval()
     local run_opts = opts("reply-cache")
 
-    local first = run_reply(consensus_reached(), run_opts)
+    local first = run_reply(judgment(), run_opts)
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 1)
 
-    local second = run_reply(consensus_reached({ body = "Different approved body." }), run_opts)
+    local second = run_reply(judgment(), run_opts)
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 0)
-    t.eq(#codex_calls(), 0)
+    t.eq(#codex_calls(), 5)
   end,
 
-  test_reply_fails_loud_for_owned_malformed_reached_without_marking_replied = function()
+  test_reply_fails_loud_for_source_mismatch_without_marking_replied = function()
     local run_opts = opts("reply-malformed")
 
-    local bad = run_reply(consensus_reached({ body = "" }), run_opts)
-    t.eq(bad.exit_code, 1)
-    t.is_true(tostring(bad.error):find("consensus-result-invalid", 1, true) ~= nil)
-    t.eq(#bad.raises, 0)
-
-    local mismatch = run_reply(consensus_reached({
+    local bad = run_reply(judgment({
       source_ref = { kind = "external", ref = "owner/repo#issue/43" },
     }), run_opts)
-    t.eq(mismatch.exit_code, 1)
-    t.is_true(tostring(mismatch.error):find("consensus-result-invalid", 1, true) ~= nil)
-    t.eq(#mismatch.raises, 0)
+    t.eq(bad.exit_code, 1)
+    t.is_true(tostring(bad.error):find("judgment-invalid", 1, true) ~= nil)
+    t.eq(#bad.raises, 0)
 
-    local good = run_reply(consensus_reached(), run_opts)
+    mock_consensus_approval()
+    local good = run_reply(judgment(), run_opts)
     t.eq(good.exit_code, 0)
     t.eq(#good.raises, 1)
-    t.eq(good.raises[1].payload.body, consensus_reached().body)
-    t.eq(#codex_calls(), 0)
+    t.is_true(good.raises[1].payload.body:find("teleology approves.", 1, true) ~= nil)
+    t.eq(#codex_calls(), 5)
   end,
 }

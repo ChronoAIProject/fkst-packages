@@ -49,11 +49,6 @@ source = "workspace"
 version = "workspace"
 
 [[package]]
-name = "consensus"
-source = "workspace"
-version = "workspace"
-
-[[package]]
 name = "github-external-pr-intake"
 source = "workspace"
 version = "workspace"

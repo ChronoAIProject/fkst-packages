@@ -63,7 +63,7 @@ local function review_proposal_from_dedup(dedup_key)
   return devloop_base.pr_review_proposal_id_from_consensus_dedup_key(dedup_key)
 end
 
-function C.intake_decision_fact(comments, issue_proposal_id)
+function C.intake_decision_fact(comments, issue_proposal_id, expected_dedup_key)
   if type(comments) ~= "table" then
     return nil
   end
@@ -75,6 +75,7 @@ function C.intake_decision_fact(comments, issue_proposal_id)
       local service_class = marker:match('class="([^"]+)"')
       local dedup = marker:match('dedup="([^"]*)"')
       if marker_issue == tostring(issue_proposal_id)
+        and (expected_dedup_key == nil or dedup == tostring(expected_dedup_key))
         and (decision == "enable" or decision == "track" or decision == "decline" or decision == "escalate-to-class")
         and shared.is_intake_service_class(service_class)
         and strings.is_bounded_string(dedup, devloop_base._max_dedup_len) then

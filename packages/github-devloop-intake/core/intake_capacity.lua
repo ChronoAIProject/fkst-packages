@@ -1,11 +1,14 @@
 local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
 local claims = require("devloop.claims")
 local commands = require("devloop.commands")
 local config = require("devloop.config")
 local contract_error_facts = require("contract.error_facts")
+local contract_strings = require("contract.strings")
 local devloop_logging = require("devloop.logging")
 local forge_validators = require("devloop.forge_validators")
 local marker_facts = require("devloop.markers.facts")
+local operator_commands = require("devloop.operator_commands")
 local parsers_issue = require("devloop.parsers.issue")
 local devloop_state = require("devloop.state")
 
@@ -37,12 +40,22 @@ local function encode_grant(record)
   for _, holder in ipairs(record.holders or {}) do
     table.insert(holders, tostring(tonumber(holder)))
   end
+  local reservations = {}
+  for _, reservation in ipairs(record.reintake_reservations or {}) do
+    table.insert(reservations, "{"
+      .. '"issue_number":' .. tostring(tonumber(reservation.issue_number))
+      .. ',"command_key":' .. json_string(reservation.command_key)
+      .. ',"effect_updated_at":' .. json_string(reservation.effect_updated_at)
+      .. ',"successor_version":' .. json_string(reservation.successor_version)
+      .. "}")
+  end
   return "{"
     .. '"schema":' .. json_string(schema)
     .. ',"repo":' .. json_string(record.repo)
     .. ',"owner":' .. json_string(record.owner)
     .. ',"capacity":' .. tostring(tonumber(record.capacity))
     .. ',"holders":[' .. table.concat(holders, ",") .. "]"
+    .. ',"reintake_reservations":[' .. table.concat(reservations, ",") .. "]"
     .. "}"
 end
 
@@ -74,12 +87,41 @@ local function normalize_grant(record, repo, owner, sha)
     seen[number] = true
     table.insert(holders, number)
   end
+  local reservations = {}
+  local reserved = {}
+  local raw_reservations = record.reintake_reservations or {}
+  if type(raw_reservations) ~= "table" or #raw_reservations > capacity then
+    error("github-devloop-intake: capacity-grant-invalid: reintake reservations are invalid")
+  end
+  for _, reservation in ipairs(raw_reservations) do
+    local number = type(reservation) == "table" and tonumber(reservation.issue_number) or nil
+    local command_key = type(reservation) == "table" and reservation.command_key or nil
+    local effect_updated_at = type(reservation) == "table" and reservation.effect_updated_at or nil
+    local successor_version = type(reservation) == "table" and reservation.successor_version or nil
+    if number == nil
+      or number ~= math.floor(number)
+      or not seen[number]
+      or reserved[number]
+      or not contract_strings.is_path_safe_key(command_key, devloop_base._max_dedup_len)
+      or not contract_strings.is_bounded_string(effect_updated_at, 128)
+      or not contract_strings.is_path_safe_key(successor_version, devloop_base._max_dedup_len) then
+      error("github-devloop-intake: capacity-grant-invalid: reintake reservation is invalid")
+    end
+    reserved[number] = true
+    table.insert(reservations, {
+      issue_number = number,
+      command_key = command_key,
+      effect_updated_at = effect_updated_at,
+      successor_version = successor_version,
+    })
+  end
   return {
     schema = schema,
     repo = repo,
     owner = owner,
     capacity = capacity,
     holders = holders,
+    reintake_reservations = reservations,
     sha = sha,
   }
 end
@@ -110,6 +152,19 @@ local function copy_array(values)
   return result
 end
 
+local function copy_reservations(values)
+  local result = {}
+  for _, reservation in ipairs(values or {}) do
+    table.insert(result, {
+      issue_number = tonumber(reservation.issue_number),
+      command_key = tostring(reservation.command_key),
+      effect_updated_at = tostring(reservation.effect_updated_at),
+      successor_version = tostring(reservation.successor_version),
+    })
+  end
+  return result
+end
+
 local function contains(values, expected)
   for _, value in ipairs(values or {}) do
     if tonumber(value) == tonumber(expected) then
@@ -119,7 +174,7 @@ local function contains(values, expected)
   return false
 end
 
-local function issue_is_active(repo, current)
+local function issue_occupies_capacity(repo, current)
   if type(current) ~= "table" or tostring(current.state or ""):upper() ~= "OPEN" then
     return false
   end
@@ -129,21 +184,46 @@ local function issue_is_active(repo, current)
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local decision = marker_facts.intake_decision_fact(current.comments, proposal_id)
+  local has_active_state = not marker_facts.has_state_marker(current.comments, proposal_id)
+    or devloop_state.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id)
   return (decision == nil or decision.decision == "enable")
+    and has_active_state
     and not devloop_state.current_issue_observation_is_terminal(current.comments, proposal_id)
 end
 
-local function grant_matches(grant, repo, owner, max_inflight, holders)
+local function reservation_equal(left, right)
+  return tonumber(left and left.issue_number) == tonumber(right and right.issue_number)
+    and tostring(left and left.command_key) == tostring(right and right.command_key)
+    and tostring(left and left.effect_updated_at) == tostring(right and right.effect_updated_at)
+    and tostring(left and left.successor_version) == tostring(right and right.successor_version)
+end
+
+local function contains_reservation(reservations, expected)
+  for _, reservation in ipairs(reservations or {}) do
+    if reservation_equal(reservation, expected) then
+      return true
+    end
+  end
+  return false
+end
+
+local function grant_matches(grant, repo, owner, max_inflight, holders, reservations)
   if type(grant) ~= "table"
     or grant.schema ~= schema
     or grant.repo ~= repo
     or grant.owner ~= owner
     or tonumber(grant.capacity) ~= tonumber(max_inflight)
-    or #(grant.holders or {}) ~= #holders then
+    or #(grant.holders or {}) ~= #holders
+    or #(grant.reintake_reservations or {}) ~= #reservations then
     return false
   end
   for index, holder in ipairs(holders) do
     if tonumber(grant.holders[index]) ~= tonumber(holder) then
+      return false
+    end
+  end
+  for index, reservation in ipairs(reservations) do
+    if not reservation_equal(grant.reintake_reservations[index], reservation) then
       return false
     end
   end
@@ -182,20 +262,121 @@ local function build_snapshot(ports, repo, owner, grant, candidate_number, candi
   return snapshot
 end
 
-local function desired_holders(repo, owner, max_inflight, grant, snapshot, candidate_number)
+local function reservation_by_issue(grant)
+  local result = {}
+  for _, reservation in ipairs(grant and grant.reintake_reservations or {}) do
+    result[tonumber(reservation.issue_number)] = reservation
+  end
+  return result
+end
+
+local function reintake_reservation_is_live(repo, current, reservation)
+  if type(current) ~= "table" or tostring(current.state or ""):upper() ~= "OPEN" then
+    return false
+  end
+  local number = tonumber(current.number)
+  if number == nil or number ~= tonumber(reservation and reservation.issue_number) then
+    return false
+  end
+  local proposal_id = base_ids.proposal_id(repo, number)
+  local command = operator_commands.operator_command_fact(
+    current.comments,
+    "reintake",
+    reservation.command_key
+  )
+  if command == nil then
+    return false
+  end
+  local response = operator_commands.operator_command_response_fact(current.comments, {
+    command = "reintake",
+    key = reservation.command_key,
+  })
+  if response ~= nil and response.outcome ~= "applied" then
+    return false
+  end
+  if devloop_state.reached(current.comments, proposal_id, "thinking", {
+    domain = "github-devloop-issue",
+    lineage_base = reservation.successor_version,
+  }) then
+    return false
+  end
+  local successor_decision = marker_facts.intake_decision_fact(
+    current.comments,
+    proposal_id,
+    reservation.successor_version
+  )
+  if successor_decision ~= nil and successor_decision.decision ~= "enable" then
+    return false
+  end
+  local effect_updated_at = operator_commands.reintake_effect_updated_at(
+    current,
+    command,
+    current.comments,
+    proposal_id
+  )
+  return tostring(effect_updated_at or "") <= tostring(reservation.effect_updated_at or "")
+end
+
+local function build_reintake_reservation(repo, current, proposal_id)
+  if type(current) ~= "table" or tostring(current.state or ""):upper() ~= "OPEN" then
+    return nil, "reintake-not-open"
+  end
+  local number = tonumber(current.number)
+  if number == nil or proposal_id ~= base_ids.proposal_id(repo, number) then
+    return nil, "reintake-identity-mismatch"
+  end
+  local command = operator_commands.operator_command_fact(current.comments, "reintake")
+  if command == nil or operator_commands.has_operator_command_response(current.comments, command) then
+    return nil, "reintake-command-not-pending"
+  end
+  if not marker_facts.has_intake_decision_marker(current.comments, proposal_id) then
+    return nil, "reintake-intake-decision-absent"
+  end
+  if devloop_base.is_intake_held(current.labels)
+    or devloop_state.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id) then
+    return nil, "reintake-state-not-eligible"
+  end
+  local effective_updated_at = operator_commands.reintake_effect_updated_at(
+    current,
+    command,
+    current.comments,
+    proposal_id
+  )
+  return {
+    issue_number = number,
+    command_key = command.key,
+    effect_updated_at = tostring(effective_updated_at),
+    successor_version = devloop_base.intake_decision_dedup_key(
+      proposal_id,
+      current,
+      command,
+      effective_updated_at
+    ),
+  }, nil
+end
+
+local function desired_allocation(repo, owner, max_inflight, grant, snapshot, candidate_number, requested_reservation)
   local holders = {}
+  local reservations = {}
   local selected = {}
+  local existing_reservations = reservation_by_issue(grant)
 
   for _, number in ipairs(grant and grant.holders or {}) do
     local normalized = tonumber(number)
     local current = normalized and snapshot[normalized] or nil
     local ownership = current and claims.issue_claim_state(current.assignees, owner, current.labels) or "other"
+    local reservation = existing_reservations[normalized]
+    local reservation_live = reservation ~= nil
+      and reintake_reservation_is_live(repo, current, reservation)
     if #holders < max_inflight
       and current ~= nil
       and ownership ~= "other"
-      and issue_is_active(repo, current)
+      and (issue_occupies_capacity(repo, current) or reservation_live)
       and not selected[normalized] then
       table.insert(holders, normalized)
+      if reservation_live then
+        table.insert(reservations, reservation)
+      end
       selected[normalized] = true
     end
   end
@@ -204,21 +385,28 @@ local function desired_holders(repo, owner, max_inflight, grant, snapshot, candi
   for number, current in pairs(snapshot) do
     local ownership = claims.issue_claim_state(current.assignees, owner, current.labels)
     local is_current_candidate = tonumber(candidate_number) == number
+    local reservation = is_current_candidate and requested_reservation or nil
     if not selected[number]
-      and issue_is_active(repo, current)
+      and (issue_occupies_capacity(repo, current) or reservation ~= nil)
       and (ownership == "self" or (is_current_candidate and ownership == "unassigned")) then
-      table.insert(candidates, number)
+      table.insert(candidates, {
+        number = number,
+        reservation = reservation,
+      })
     end
   end
-  table.sort(candidates)
-  for _, number in ipairs(candidates) do
+  table.sort(candidates, function(left, right) return left.number < right.number end)
+  for _, candidate in ipairs(candidates) do
     if #holders >= max_inflight then
       break
     end
-    table.insert(holders, number)
-    selected[number] = true
+    table.insert(holders, candidate.number)
+    if candidate.reservation ~= nil then
+      table.insert(reservations, candidate.reservation)
+    end
+    selected[candidate.number] = true
   end
-  return holders
+  return holders, reservations
 end
 
 local function converge_claims(ports, repo, owner, holders, snapshot)
@@ -228,7 +416,7 @@ local function converge_claims(ports, repo, owner, holders, snapshot)
       and claims.issue_claim_state(current.assignees, owner, current.labels) == "self" then
       table.insert(releases, {
         number = number,
-        active = issue_is_active(repo, current),
+        active = issue_occupies_capacity(repo, current),
       })
     end
   end
@@ -268,7 +456,7 @@ end
 function C.new(ports)
   validate_ports(ports)
 
-  local function decide(repo, candidate_number, candidate_current, proposal_id)
+  local function decide(repo, candidate_number, candidate_current, proposal_id, requested_reservation)
     local max_inflight = ports.max_inflight()
     if max_inflight == nil or not ports.write_enabled() then
       return true, max_inflight == nil and "wip-cap-disabled" or "wip-cap-dry-run"
@@ -276,15 +464,24 @@ function C.new(ports)
     local owner = ports.owner()
     local grant = ports.read_grant(repo, owner)
     local snapshot = build_snapshot(ports, repo, owner, grant, candidate_number, candidate_current)
-    local holders = desired_holders(repo, owner, max_inflight, grant, snapshot, candidate_number)
+    local holders, reservations = desired_allocation(
+      repo,
+      owner,
+      max_inflight,
+      grant,
+      snapshot,
+      candidate_number,
+      requested_reservation
+    )
 
-    if not grant_matches(grant, repo, owner, max_inflight, holders) then
+    if not grant_matches(grant, repo, owner, max_inflight, holders, reservations) then
       local record = {
         schema = schema,
         repo = repo,
         owner = owner,
         capacity = max_inflight,
         holders = copy_array(holders),
+        reintake_reservations = copy_reservations(reservations),
       }
       local expected_sha = grant and grant.sha or nil
       local updated, _, push_error = ports.compare_and_swap_grant(repo, owner, expected_sha, record)
@@ -301,6 +498,7 @@ function C.new(ports)
           error("github-devloop-intake: capacity-cas-lost: capacity grant disappeared after CAS contention")
         end
         holders = copy_array(grant.holders)
+        reservations = copy_reservations(grant.reintake_reservations)
       end
     else
       holders = copy_array(grant.holders)
@@ -310,16 +508,25 @@ function C.new(ports)
     if candidate_number == nil then
       return true, "wip-cap-reconciled"
     end
-    if contains(holders, candidate_number) then
+    local holder_granted = contains(holders, candidate_number)
+    local reservation_granted = requested_reservation == nil
+      or contains_reservation(reservations, requested_reservation)
+    if holder_granted and reservation_granted then
       if type(ports.log_decision) == "function" then
         ports.log_decision(proposal_id, grant, "granted", "remote capacity grant contains candidate")
       end
       return true, "wip-cap-granted"
     end
+    local held_reason = holder_granted and requested_reservation ~= nil
+      and "remote capacity grant does not contain the command-bound reintake reservation"
+      or "remote capacity grant is full"
+    local outcome = holder_granted and requested_reservation ~= nil
+      and "wip-cap-reservation-mismatch"
+      or "wip-cap-reached"
     if type(ports.log_decision) == "function" then
-      ports.log_decision(proposal_id, grant, "held", "remote capacity grant is full")
+      ports.log_decision(proposal_id, grant, "held", held_reason)
     end
-    return false, "wip-cap-reached"
+    return false, outcome
   end
 
   local function relinquish(repo, issue_number, proposal_id)
@@ -344,7 +551,13 @@ function C.new(ports)
       owner = owner,
       capacity = max_inflight,
       holders = holders,
+      reintake_reservations = {},
     }
+    for _, reservation in ipairs(grant.reintake_reservations or {}) do
+      if tonumber(reservation.issue_number) ~= tonumber(issue_number) then
+        table.insert(record.reintake_reservations, reservation)
+      end
+    end
     local updated, _, push_error = ports.compare_and_swap_grant(repo, owner, grant.sha, record)
     if not updated then
       local latest = ports.read_grant(repo, owner)
@@ -364,10 +577,17 @@ function C.new(ports)
 
   return {
     authorize = function(repo, issue_number, current, proposal_id)
-      return decide(repo, tonumber(issue_number), current, proposal_id)
+      return decide(repo, tonumber(issue_number), current, proposal_id, nil)
+    end,
+    authorize_reintake = function(repo, issue_number, current, proposal_id)
+      local reservation, reason = build_reintake_reservation(repo, current, proposal_id)
+      if reservation == nil then
+        return false, reason
+      end
+      return decide(repo, tonumber(issue_number), current, proposal_id, reservation)
     end,
     reconcile = function(repo, proposal_id)
-      return decide(repo, nil, nil, proposal_id)
+      return decide(repo, nil, nil, proposal_id, nil)
     end,
     relinquish = relinquish,
   }
@@ -515,7 +735,7 @@ function C.production(_M)
 end
 
 C.schema = schema
-C.issue_is_active = issue_is_active
+C.issue_occupies_capacity = issue_occupies_capacity
 C.grant_ref = grant_ref
 
 return C

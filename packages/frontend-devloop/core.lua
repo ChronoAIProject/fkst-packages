@@ -2,7 +2,6 @@ local M = {}
 
 local required_platform_packages = {
   "github-proxy",
-  "consensus",
   "github-devloop-intake",
   "github-devloop-intake-default",
   "github-devloop-decompose",
@@ -340,7 +339,6 @@ function M.host_package_roots_contract()
     compose_file = ".fkst/compose/package-roots",
     required_entries = {
       "fkst-packages:packages/github-proxy",
-      "fkst-packages:packages/consensus",
       "fkst-packages:packages/github-devloop-intake",
       "fkst-packages:packages/github-devloop-intake-default",
       "fkst-packages:packages/github-devloop-decompose",

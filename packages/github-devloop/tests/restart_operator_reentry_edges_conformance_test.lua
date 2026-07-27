@@ -465,7 +465,7 @@ local function observe_rereview_row_replay()
   local result = h.run_observe(event, h.opts("restart-operator-negative-rereview"))
   assert_department_ok(result, "negative-rereview")
 
-  local proposal = h.find_raise(result.raises, "consensus.proposal")
+  local proposal = h.find_raise(result.raises, "devloop_consensus_request")
   local response = find_issue_comment(result.raises, "operator command accepted: rereview")
   t.is_true(proposal ~= nil, "negative rereview: consensus proposal was not replayed")
   t.is_true(response ~= nil, "negative rereview: applied response was not emitted")

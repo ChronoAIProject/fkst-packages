@@ -40,15 +40,14 @@ return {
 
     local packages = profile.platform_packages
     t.eq(packages[1], "github-proxy")
-    t.eq(packages[2], "consensus")
-    t.eq(packages[3], "github-devloop-intake")
-    t.eq(packages[4], "github-devloop-intake-default")
-    t.eq(packages[5], "github-devloop-decompose")
-    t.eq(packages[6], "github-devloop")
-    t.eq(packages[7], "github-devloop-pr")
-    t.eq(packages[8], "github-devloop-ops")
-    t.eq(packages[9], "github-devloop-integration")
-    t.eq(packages[10], "frontend-devloop")
+    t.eq(packages[2], "github-devloop-intake")
+    t.eq(packages[3], "github-devloop-intake-default")
+    t.eq(packages[4], "github-devloop-decompose")
+    t.eq(packages[5], "github-devloop")
+    t.eq(packages[6], "github-devloop-pr")
+    t.eq(packages[7], "github-devloop-ops")
+    t.eq(packages[8], "github-devloop-integration")
+    t.eq(packages[9], "frontend-devloop")
 
     t.is_true(list_contains(profile.host_capabilities.required_commands, "install"))
     t.is_true(list_contains(profile.host_capabilities.required_commands, "lint"))

@@ -44,7 +44,7 @@ end
 
 local function initial_event(issue_number)
   return {
-    queue = "issue",
+    queue = "autochrono.issue",
     payload = issue(issue_number),
     source_ref = {
       kind = "external",
@@ -56,11 +56,6 @@ end
 local function run_smoke(issue_number)
   mock_consensus_approval()
   local trace = graph.require_quiescent(graph.run(initial_event(issue_number), { max_steps = 8 }))
-  graph.assert_covers(trace, {
-    "autochrono.issue -> autochrono.propose",
-    "consensus.proposal -> consensus.decide",
-    "consensus.consensus_reached -> autochrono.reply",
-  })
   return trace
 end
 
@@ -68,10 +63,9 @@ return {
   test_run_graph_drives_autochrono_issue_through_consensus_to_reply = function()
     local trace = run_smoke(42)
 
-    graph.require_delivery(trace, { queue = "autochrono.issue", consumer = "autochrono.propose" })
-    graph.require_delivery(trace, { queue = "consensus.proposal", consumer = "consensus.decide" })
-    graph.require_delivery(trace, { queue = "consensus.consensus_reached", consumer = "autochrono.reply" })
-    graph.require_raise(trace, "autochrono.reply", function(raised)
+    graph.require_delivery(trace, { queue = "issue", consumer = "propose" })
+    graph.require_delivery(trace, { queue = "judge_issue", consumer = "reply" })
+    graph.require_raise(trace, "reply", function(raised)
       return raised.payload.schema == "autochrono.reply.v1"
         and raised.payload.repo == "owner/repo"
         and raised.payload.issue_number == "42"

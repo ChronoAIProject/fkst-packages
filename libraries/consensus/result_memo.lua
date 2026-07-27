@@ -85,6 +85,7 @@ function M.load(key, expected_dedup_key)
   end
   payload = plain_data(payload)
   if payload.schema ~= "consensus.consensus_reached.v1"
+    or payload.status ~= "reached"
     or payload.dedup_key ~= "consensus:" .. tostring(expected_dedup_key) then
     error("consensus: result-memo-invalid: memo payload identity mismatch")
   end

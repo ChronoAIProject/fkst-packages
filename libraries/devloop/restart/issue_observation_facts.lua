@@ -1,7 +1,7 @@
 local F = {
   schema = "restart-owner-observation-facts.v1",
   owner = "github-devloop",
-  source_rows_fingerprint = "71f027dc",
+  source_rows_fingerprint = "7c084b64",
   states = {
     ["awaiting-pr"] = {
       from_state = "awaiting-pr",
@@ -54,7 +54,7 @@ local F = {
     thinking = {
       from_state = "thinking",
       terminal = false,
-      driving_queue = "consensus.proposal",
+      driving_queue = "devloop_consensus_request",
       budget_minutes = 150,
     },
   },

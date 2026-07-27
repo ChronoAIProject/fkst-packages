@@ -524,7 +524,7 @@ return {
   test_replay_timeout_classification_uses_typed_defer_not_outcome_text = function()
     local previous = replayer.replay_from_table
     replayer.replay_from_table = function()
-        replayer.replay_log_decline(core, "deferred", "test", nil, { state = "thinking" }, "thinking", "consensus.proposal", "arbitrary-observability-text", "deferred")
+        replayer.replay_log_decline(core, "deferred", "test", nil, { state = "thinking" }, "thinking", "devloop_consensus_request", "arbitrary-observability-text", "deferred")
       return false
     end
     local ok, classified = pcall(function()

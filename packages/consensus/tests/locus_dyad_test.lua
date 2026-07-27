@@ -4,8 +4,8 @@
 -- part in Phase R rebuttal alongside the existing seats. This is the additive "altitude"
 -- adversarial dimension: ownership pulls the fix toward the layer that owns the invariant,
 -- containment resists over-reaching past the natural owner layer; the two clash in rebuttal.
-local core = require("core")
-local rebuttal = require("departments.decide.rebuttal")
+local core = require("consensus.core")
+local rebuttal = require("consensus.rebuttal")
 local t = fkst.test
 
 local function proposal(extra)

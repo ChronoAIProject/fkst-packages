@@ -30,10 +30,10 @@ return function(M, h)
     },
     terminal = false,
     to_states = { "ready", "dependency_wait", "declined", "blocked" },
-    driving_queue = "consensus.proposal",
+    driving_queue = "devloop_consensus_request",
     observe_surfaces = { issue = true, liveness_scan = true },
     timeout_surfaces = { issue = true, issue_liveness_scan = true, liveness_scan = true },
-    output_obligation = obligation({ "consensus.consensus_reached", "consensus.consensus_converge" }, { "ready", "dependency_wait", "declined", "blocked", "thinking" }),
+    output_obligation = obligation({ "call:consensus.reach", "devloop_consensus_continue" }, { "ready", "dependency_wait", "declined", "blocked", "thinking" }),
     temporal_obligations = {
       {
         obligation_id = "github-devloop/issue/thinking/response-with-deadline",
@@ -60,7 +60,7 @@ return function(M, h)
         indeterminate_timeout = "row-budget",
       },
     }),
-    on_timeout = timeout("consensus.proposal"),
+    on_timeout = timeout("devloop_consensus_request"),
     receiver_activations = {
       {
         kind = "entry",
@@ -87,7 +87,7 @@ return function(M, h)
     },
     responsibility_signature = responsibility_signature({
       receiver_kind = "consensus-worker",
-      driving_queue = "consensus.proposal",
+      driving_queue = "devloop_consensus_request",
       state_kind = "worker",
       liveness_class = "thinking.active",
       input_fact_family = "issue-proposal",
@@ -213,15 +213,15 @@ return function(M, h)
       source_ref = "source_ref:issue",
     },
     version_identity = "strip_transition_version_suffixes(state.version)",
-    effects = effect({ "consensus.proposal" }, "consensus proposal dedup is derived from state.version or next complete converge-round"),
+    effects = effect({ "devloop_consensus_request" }, "consensus proposal dedup is derived from state.version or next complete converge-round"),
     marker_facts = "active run uses state:v1 thinking plus fkst.codex_runs real execution; converge-round:v1 remains an audit/progress fact, not a heartbeat",
-    kickoff = "consensus.proposal",
+    kickoff = "devloop_consensus_request",
     replay = "Initial thinking reuses the state version as proposal dedup; convergence replays the next /loop/N from the latest complete converge-round marker.",
     span_contract = span_contract({
       department = "external:consensus",
       durable_start_marker = "state:v1 thinking",
-      spawn_predecessor = "consensus.proposal",
-      spawn_function = "consensus.decide",
+      spawn_predecessor = "devloop_consensus_request",
+      spawn_function = "consensus_call.reach",
     }),
   }
 end

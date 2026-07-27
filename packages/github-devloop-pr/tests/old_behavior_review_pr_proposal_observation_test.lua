@@ -237,7 +237,7 @@ local function capture_runtime(fixture)
   t.eq(#decisions, 1, fixture.name .. ": real dispatch reaches the applied review branch")
   local proposal_raises = json_array()
   for _, raised in ipairs(result.raises) do
-    if raised.queue == "consensus.proposal" then
+    if raised.queue == "devloop_review_request" then
       table.insert(proposal_raises, copy_value(raised))
     end
   end
@@ -274,7 +274,7 @@ local function build_record(fixture)
       kind = "direct_constructor",
       source_state = "reviewing",
       source_boundary = event.queue,
-      target = "consensus.proposal",
+      target = "devloop_review_request",
       cause_schema_id = event.payload.schema,
       generation_epoch = {
         current_version = decision.current.version,
@@ -309,7 +309,7 @@ local function build_record(fixture)
       cas_outcome = "not-applicable-direct-constructor",
       emitted_effects = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop-pr.devloop_review_request",
           sink_kind = "queue",
           authority_class = "lifecycle-authoritative",
           ordinal = 1,
@@ -317,7 +317,7 @@ local function build_record(fixture)
       }),
       observable_writes = json_array({
         {
-          effect_id = "queue:consensus.proposal",
+          effect_id = "queue:github-devloop-pr.devloop_review_request",
           queue = proposal_raise.queue,
           payload = copy_value(proposal_raise.payload),
         },
@@ -394,14 +394,10 @@ return {
     end
     t.eq(#first, #FIXTURES, "every production payload branch has one observation")
     local expected = committed_records()
-    local inventory_difference = first_difference(first, expected, "old_behavior_observations[review-pr-proposal]")
-    if inventory_difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error(
-        "runtime-bound OLD direct-constructor observation differs at "
-          .. tostring(inventory_difference or "canonical-json")
-          .. "; runtime_records=" .. canonical_json(first),
-        0
-      )
-    end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "runtime-bound OLD review proposal observation"
+    )
   end,
 }

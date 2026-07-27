@@ -1,11 +1,9 @@
-local core = require("core")
-local angle_answers = require("angle_answers")
-local convergence_identity = require("contract.convergence_identity")
-local rebuttal = require("departments.decide.rebuttal")
-local result_memo = require("departments.decide.result_memo")
-local synthesis = require("departments.decide.synthesis")
+local core = require("consensus.core")
+local angle_answers = require("consensus.angle_answers")
+local rebuttal = require("consensus.rebuttal")
+local result_memo = require("consensus.result_memo")
+local synthesis = require("consensus.synthesis")
 local workflow_codex = require("workflow_internal.codex")
-local saga = require("workflow.saga")
 
 local aggregate = core.aggregate
 local build_reached_payload = core.build_reached_payload
@@ -13,12 +11,7 @@ local judgment_scratch_worktree = core.judgment_scratch_worktree
 local parse_angle_output = core.parse_angle_output
 local result_memo_key = core.result_memo_key
 
-local spec = {
-  consumes = { "proposal" },
-  published_seam = { "proposal" },
-  produces = { "consensus_reached", "consensus_converge" },
-  stall_window = "2m",
-}
+local M = {}
 
 local function read_runtime_root()
   local result = exec_sync({ cmd = core.read_runtime_root_cmd(), timeout = 30 })
@@ -58,22 +51,39 @@ local function codex_opts(proposal, prompt, worktree, role)
   return core.judgment_codex_opts(prompt, worktree)
 end
 
-local function codex_identity(proposal, role, angle_lane)
-  return convergence_identity.from_proposal(role or "consensus", proposal, {
-    angle_lane = angle_lane,
-  })
+local function codex_identity(proposal, role, angle_lane, invocation_id)
+  local run_role = role or "consensus"
+  local invocation_key = tostring(invocation_id or proposal.dedup_key)
+  local generation = proposal.generation
+  local round = proposal.round
+  local lane = tostring(angle_lane)
+  return {
+    process = {
+      role = run_role,
+      invocation_id = invocation_key,
+    },
+    role = run_role,
+    invocation_id = invocation_key,
+    generation = generation or 0,
+    round = round or 0,
+    angle_lane = lane,
+    dedup_key = "convergence:" .. run_role .. ":" .. invocation_key
+      .. ":g" .. tostring(generation or 0)
+      .. ":r" .. tostring(round or 0)
+      .. ":" .. lane,
+  }
 end
 
 local function defer_live_run(identity)
   error(
     "consensus: live-run-active: role=" .. tostring(identity.role)
-      .. " proposal_id=" .. tostring(identity.proposal_id)
+      .. " proposal_id=" .. tostring(identity.invocation_id)
       .. " dedup_key=" .. tostring(identity.dedup_key)
   )
 end
 
-local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts)
-  local run_identity = codex_identity(proposal, role, angle_lane)
+local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts, invocation_id)
+  local run_identity = codex_identity(proposal, role, angle_lane, invocation_id)
   local dispatch_opts = codex_opts(proposal, prompt, worktree, run_identity.role)
   for key, value in pairs(opts or {}) do
     dispatch_opts[key] = value
@@ -85,30 +95,21 @@ local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts
   return result
 end
 
-local function spawn_angle(proposal, angle, runtime_root)
+local function spawn_angle(proposal, angle, runtime_root, invocation_id)
   local prompt = core.build_angle_prompt(proposal, angle)
   local worktree = prepare_seat_worktree(proposal,
     judgment_scratch_worktree(runtime_root, "angle-" .. tostring(angle), proposal.dedup_key)
   )
-  return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle))
+  return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle), nil, invocation_id)
 end
 
-local function raise_converge(proposal, angle_results, narrowed_question, findings_record, essence_stall)
-  raise(
-    "consensus_converge",
-    core.build_converge_payload(proposal, narrowed_question, angle_results, findings_record, {
-      essence_stall = essence_stall,
-    })
-  )
-end
-
-local function decide(proposal)
+local function decide(proposal, invocation_id)
   local angle_results = {}
   local handles = {}
   local angles = core.angles(proposal)
   local verdict_mode = core.verdict_mode(proposal)
   for _, angle in ipairs(angles) do
-    local run_identity = codex_identity(proposal, "consensus", tostring(angle))
+    local run_identity = codex_identity(proposal, "consensus", tostring(angle), invocation_id)
     if workflow_codex.live_run_active(run_identity) then
       defer_live_run(run_identity)
     end
@@ -116,7 +117,7 @@ local function decide(proposal)
 
   local runtime_root = read_runtime_root()
   for _, angle in ipairs(angles) do
-    table.insert(handles, spawn_angle(proposal, angle, runtime_root))
+    table.insert(handles, spawn_angle(proposal, angle, runtime_root, invocation_id))
   end
 
   local results = await_all(handles)
@@ -142,8 +143,8 @@ local function decide(proposal)
   local decision = aggregate(angle_results, verdict_mode)
   if decision ~= nil then
     return {
-      queue = "consensus_reached",
-      payload = build_reached_payload(proposal, decision, angle_results),
+      kind = "reached",
+      value = build_reached_payload(proposal, decision, angle_results),
     }
   end
 
@@ -164,7 +165,7 @@ local function decide(proposal)
         return judgment_scratch_worktree(root, kind, identity)
       end,
       dispatch_codex = function(target_proposal, prompt, worktree, role, angle_lane)
-        return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane)
+        return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane, nil, invocation_id)
       end,
     })
     local rebuttal_outputs = await_all(rebuttal_handles)
@@ -207,7 +208,7 @@ local function decide(proposal)
       )
       return dispatch_codex(proposal, prompt, worktree, "consensus", repair and "synthesis-repair" or "synthesis", {
         sync = true,
-      })
+      }, invocation_id)
     end,
   })
   return synthesis.to_decision_result(proposal, angle_results, rebuttal_results, parsed, {
@@ -220,62 +221,67 @@ local function decide(proposal)
   })
 end
 
-local function decision_done(event)
-  local proposal = event.payload or {}
-  if proposal.schema ~= "consensus.proposal.v1" then
-    log.warn("consensus: unsupported proposal schema")
-    return true
+local function with_status(status, value)
+  local result = {}
+  for key, field in pairs(value or {}) do
+    result[key] = field
   end
-  if not core.is_eligible(proposal) then
-    return true
-  end
-  return false
+  result.status = status
+  return result
 end
 
-local function act_decide(event)
-  local proposal = event.payload or {}
+function M.reach(proposal, options)
+  if type(proposal) ~= "table" or proposal.schema ~= "consensus.proposal.v1" then
+    log.warn("consensus: unsupported proposal schema")
+    return nil
+  end
+  if not core.is_eligible(proposal) then
+    return nil
+  end
+  local invocation_id = type(options) == "table" and options.invocation_id or proposal.dedup_key
+
   local cache_key = result_memo_key(proposal.dedup_key)
-  local memoized_payload = result_memo.load(cache_key, proposal.dedup_key)
-  if memoized_payload ~= nil then
-    raise("consensus_reached", memoized_payload)
-    return
+  local memoized = result_memo.load(cache_key, proposal.dedup_key)
+  if memoized ~= nil then
+    return memoized
   end
 
-  local ok, result = pcall(decide, proposal)
+  local ok, result = pcall(decide, proposal, invocation_id)
   if not ok then
     if core.is_stale_generation_context_error(result) then
       log.warn(
         "consensus dept=decide tag=STALE_GENERATION_CONTEXT"
-          .. " proposal_id=" .. tostring(proposal.proposal_id)
+          .. " proposal_id=" .. tostring(invocation_id)
           .. " dedup_key=" .. tostring(proposal.dedup_key)
           .. " error_class=" .. core.stale_generation_context_error_class()
       )
-      return
+      return nil
     end
     error(result)
   end
 
   with_lock(cache_key, function()
-    memoized_payload = result_memo.load(cache_key, proposal.dedup_key)
-    if memoized_payload == nil and result.queue == "consensus_reached" then
-      result_memo.save(cache_key, result.payload)
-      memoized_payload = result.payload
+    memoized = result_memo.load(cache_key, proposal.dedup_key)
+    if memoized == nil and result.kind == "reached" then
+      memoized = with_status("reached", result.value)
+      result_memo.save(cache_key, memoized)
     end
   end)
-  if memoized_payload ~= nil then
-    raise("consensus_reached", memoized_payload)
-    return
+  if memoized ~= nil then
+    return memoized
   end
-  if result.queue == "consensus_converge" then
-    raise_converge(proposal, result.angle_results, result.narrowed_question, result.findings_record, result.essence_stall)
-    return
+  if result.kind == "converge" then
+    return with_status("converge", core.build_converge_payload(
+      proposal,
+      result.narrowed_question,
+      result.angle_results,
+      result.findings_record,
+      { essence_stall = result.essence_stall }
+    ))
   end
   error("consensus: decision-result-invalid: unknown decision result")
 end
 
-return saga.department(spec, {
-  done = decision_done,
-  act = act_decide,
-  wrap = core.wrap_pipeline_failure,
-  name = "decide",
-})
+M.core = core
+
+return M

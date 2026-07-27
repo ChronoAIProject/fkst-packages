@@ -5,7 +5,7 @@ local function initial_event()
     queue = "dead_letter",
     payload = {
       delivery_id = "delivery/v3/raised/queue/consensus.consensus_reached/dept/github-devloop-pr.review_result/01HY",
-      queue = "consensus.consensus_reached",
+      queue = "devloop_review_decision",
       dept = "github-devloop-pr.review_result",
       error_class = "review-result-failed",
       dedup_key = "consensus:github-devloop/pr/owner/repo/7/review",

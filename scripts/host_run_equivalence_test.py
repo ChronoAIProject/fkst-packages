@@ -29,7 +29,6 @@ WEBSITE_PLATFORM_PACKAGES = " ".join(
         "github-devloop-decompose",
         "github-devloop-ops",
         "github-proxy",
-        "consensus",
         "github-external-pr-intake",
         "github-ratchet-migration-slicer",
         "idle-detector",
@@ -864,13 +863,12 @@ class HostRunEquivalenceTest(unittest.TestCase):
             packages = [
               "github-devloop",
               "github-proxy",
-              "consensus",
             ]
             """
         )
 
     def _generated_workspace_text(self, platform: Path, packages: list[str] | None = None) -> str:
-        packages = packages or ["github-devloop", "github-proxy", "consensus"]
+        packages = packages or ["github-devloop", "github-proxy"]
         return textwrap.dedent(
             f"""\
             [workspace]
@@ -895,7 +893,6 @@ class HostRunEquivalenceTest(unittest.TestCase):
             packages = [
               "github-devloop",
               "github-proxy",
-              "consensus",
             ]
             """
         )

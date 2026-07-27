@@ -127,7 +127,7 @@ return {
     local result = run_observe(event, opts("operator-issue-rereview-thinking-converge"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local proposal_raise = find_raise(result.raises, "consensus.proposal")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:operator-command:v1", 1, true) ~= nil)
     t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
@@ -144,7 +144,7 @@ return {
 
     local result = run_observe(event, opts("operator-issue-rereview-round-7"))
     t.eq(result.exit_code, 0)
-    local proposal_raise = find_raise(result.raises, "consensus.proposal")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
     t.eq(proposal_raise.payload.dedup_key, base_version .. "/loop/8")
     t.eq(proposal_raise.payload.round, 8)
     t.eq(proposal_raise.payload.convergence_question, "Narrowed question 7")
@@ -166,7 +166,7 @@ return {
     local result = run_observe(event, opts("operator-issue-rereview-plain-stalled"))
     t.eq(result.exit_code, 0)
     local comment_raise = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    local proposal_raise = find_raise(result.raises, "consensus.proposal")
+    local proposal_raise = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(comment_raise.payload.body:find("operator command accepted: rereview", 1, true) ~= nil)
     t.eq(proposal_raise.payload.dedup_key, base_version)
     t.eq(proposal_raise.payload.round, nil)
@@ -191,7 +191,7 @@ return {
     t.is_true(comment_raise.payload.body:find("operator command refused", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find("stalled thinking state", 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('outcome="refused"', 1, true) ~= nil)
-    t.eq(find_raise(result.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
 
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
@@ -203,7 +203,7 @@ return {
     })
     local replay = run_observe(event, opts("operator-issue-rereview-active-replay"))
     t.eq(replay.exit_code, 0)
-    t.eq(find_raise(replay.raises, "consensus.proposal"), nil)
+    t.eq(find_raise(replay.raises, "devloop_consensus_request"), nil)
     local replay_comment = find_raise(replay.raises, "github-proxy.github_issue_comment_request")
     t.is_true(replay_comment ~= nil)
     t.is_true(replay_comment.payload.body:find("operator command refused", 1, true) ~= nil)

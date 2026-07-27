@@ -1,13 +1,17 @@
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local consensus_core = require("consensus.core")
 
 local t = h.t
 local core = h.core
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
-local consensus_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local proposal_version = "github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local consensus_version = "consensus:" .. proposal_version
 local ready_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local verdict_label = "⟦FKST:VERDICT⟧"
+local reply_label = "⟦FKST:REPLY⟧"
 
 local function source_ref()
   return {
@@ -32,26 +36,51 @@ local function mock_empty_dependencies()
   })
 end
 
-local function reached()
+local function proposal()
   return {
-    schema = "consensus.consensus_reached.v1",
+    schema = "consensus.proposal.v1",
+    verdict_mode = "converge",
     proposal_id = proposal_id,
-    decision = "approve",
-    body = "All angles approve.",
-    dedup_key = consensus_version,
+    title = "Implement decision recorder",
+    body = "Judge the current GitHub issue from the full source content.",
+    content_fetch = "Issue owner/repo#42 requests a decision recorder.",
+    worktree = ".",
+    dedup_key = proposal_version,
     source_ref = source_ref(),
   }
 end
 
 local function initial_event()
   return {
-    queue = "consensus.consensus_reached",
-    payload = reached(),
+    queue = "devloop_consensus_request",
+    payload = proposal(),
     source_ref = {
       kind = "external",
       reference = "owner/repo#issue/42",
     },
   }
+end
+
+local function mock_consensus_approval()
+  for _ = 1, 5 do
+    t.mock_command(consensus_core.checkout_root_exists_cmd("."), {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 5 do
+    t.mock_command("mkdir -p", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("codex exec", {
+      stdout = verdict_label .. " approve\n" .. reply_label .. " ready handoff approves.\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function mock_runtime_and_context()
@@ -156,6 +185,7 @@ end
 return {
   test_run_graph_consensus_reached_handoffs_ready_to_implement = function()
     mock_runtime_and_context()
+    mock_consensus_approval()
     mock_empty_dependencies()
     mock_consensus_result_issue_read()
     mock_github_proxy_comment_write()
@@ -164,13 +194,13 @@ return {
 
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 8 }))
     graph.assert_covers(trace, {
-      "consensus.consensus_reached -> github-devloop.consensus_result",
+      "github-devloop.devloop_consensus_request -> github-devloop.consensus_result",
       "github-proxy.github_issue_comment_request -> github-proxy.github_comment",
       "github-proxy.github_comment_written -> github-devloop.comment_handoff",
     })
 
     local result_step, result_index = graph.require_delivery(trace, {
-      queue = "consensus.consensus_reached",
+      queue = "github-devloop.devloop_consensus_request",
       consumer = "github-devloop.consensus_result",
     })
     t.eq(result_step.exit_code, 0)

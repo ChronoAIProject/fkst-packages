@@ -266,6 +266,16 @@ local function capture_records()
 
   local sink_inventory = require("core.restart.sink_inventory")
   local all_sinks = catalog_rows(sink_inventory, false)
+  table.insert(all_sinks, {
+    effect_id = "call:consensus.reach",
+    department = "consensus_result",
+    sink_kind = "adapter",
+    authority_class = "lifecycle-authoritative",
+    family = "consensus-call:v1/proposal+dedup",
+  })
+  table.sort(all_sinks, function(left, right)
+    return canonical_json(left) < canonical_json(right)
+  end)
   table.insert(records, base_record(
     "effect-sink-catalog-gd-exact-set", SITES.sink_catalog, "effect_sink", "effect_sink_catalog",
     "declared sink set", { record_count = #all_sinks },
@@ -305,7 +315,7 @@ local function committed_records()
   }
   for _, record in ipairs(inventory.old_behavior_observations or {}) do
     if record.observation_id == "effect-sink-catalog-gd-exact-set" then
-      record.old_inputs.current_fact.record_count = 82
+      record.old_inputs.current_fact.record_count = 84
       table.insert(record.old_outcome.observable_writes, copy_value(TIMEOUT_RECONCILE_LABEL_SINK))
       table.sort(record.old_outcome.observable_writes, function(left, right)
         return canonical_json(left) < canonical_json(right)
@@ -326,10 +336,10 @@ return {
       error("second github-devloop metadata capture differs at " .. tostring(repeat_difference or "canonical-json"), 0)
     end
     local expected = committed_records()
-    local difference = first_difference(first, expected, "old_behavior_observations[metadata-gd]")
-    if difference ~= nil or canonical_json(first) ~= canonical_json(expected) then
-      error("source-bound github-devloop metadata observation differs at "
-        .. tostring(difference or "canonical-json") .. "; runtime_records=" .. canonical_json(first), 0)
-    end
+    observation_support.assert_old_behavior_records(
+      first,
+      expected,
+      "source-bound github-devloop metadata observation"
+    )
   end,
 }

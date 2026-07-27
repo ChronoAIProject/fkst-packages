@@ -92,23 +92,23 @@ local FIXTURES = ra.json_array({
   },
   {
     disposition = "admitted-visible-marker", status = "admitted", reason = "admitted-proceed",
-    cas = "applied", target = "consensus.proposal", source_line = 187,
+    cas = "applied", target = "devloop_review_request", source_line = 187,
     current_state = "reviewing", current_version = VERSION,
-    effects = ra.json_array({ "queue:consensus.proposal" }),
+    effects = ra.json_array({ "queue:github-devloop-pr.devloop_review_request" }),
   },
   {
     disposition = "admitted-verified-handoff-from-version-mismatch", status = "admitted",
     reason = "verified-own-reviewing-hand-off", cas = "apply(verified-own-reviewing-hand-off)",
-    target = "consensus.proposal", source_line = 102,
+    target = "devloop_review_request", source_line = 102,
     current_state = "reviewing", current_version = VERSION, event_version = OTHER_VERSION, handoff = "valid",
-    handoff_lookup_count = 1, effects = ra.json_array({ "queue:consensus.proposal" }),
+    handoff_lookup_count = 1, effects = ra.json_array({ "queue:github-devloop-pr.devloop_review_request" }),
   },
   {
     disposition = "admitted-verified-handoff-from-earlier-state", status = "admitted",
     reason = "verified-own-reviewing-hand-off-earlier-state", cas = "apply(verified-own-reviewing-hand-off)",
-    target = "consensus.proposal", source_line = 102,
+    target = "devloop_review_request", source_line = 102,
     current_state = "pr-open", current_version = VERSION, handoff = "valid",
-    handoff_lookup_count = 1, effects = ra.json_array({ "queue:consensus.proposal" }),
+    handoff_lookup_count = 1, effects = ra.json_array({ "queue:github-devloop-pr.devloop_review_request" }),
   },
 })
 
