@@ -1,5 +1,6 @@
 local strings = require("contract.strings")
 local C = {}
+local premise_correction = require("devloop.premise_correction")
 local devloop_base = require("devloop.base")
 local forge_validators = require("devloop.forge_validators")
 local autonomy_ledger = require("devloop.autonomy_ledger")
@@ -341,7 +342,7 @@ function C.merging_marker(issue_proposal_id, pr_number, version, head_sha)
     .. '" -->'
 end
 
-function C.intake_decision_marker(issue_proposal_id, decision, dedup_key, service_class)
+function C.intake_decision_marker(issue_proposal_id, decision, dedup_key, service_class, premise_fingerprint)
   if decision ~= "enable" and decision ~= "track" and decision ~= "decline" and decision ~= "escalate-to-class" then
     error("github-devloop: invalid intake decision")
   end
@@ -351,12 +352,19 @@ function C.intake_decision_marker(issue_proposal_id, decision, dedup_key, servic
   if not shared.is_intake_service_class(service_class) then
     error("github-devloop: invalid intake service class")
   end
+  if premise_fingerprint ~= nil
+    and (decision ~= "decline" or not premise_correction.is_premise_fingerprint(premise_fingerprint)) then
+    error("github-devloop: invalid intake premise fingerprint")
+  end
   local normalized_class = shared.normalize_intake_service_class(service_class)
+  local premise_attr = premise_fingerprint ~= nil
+    and ' premise="' .. tostring(premise_fingerprint) .. '"'
+    or ""
   return '<!-- fkst:github-devloop:intake-decision:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" decision="' .. tostring(decision)
     .. '" class="' .. normalized_class
     .. '" dedup="' .. tostring(dedup_key)
-    .. '" -->'
+    .. '"' .. premise_attr .. ' -->'
 end
 
 function C.orphan_reaped_marker(proposal_id, pr_number, reason)

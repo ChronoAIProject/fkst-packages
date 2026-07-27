@@ -90,6 +90,7 @@ public = [
   "devloop.payloads.shared",
   "devloop.payload_registry",
   "devloop.pr_safety",
+  "devloop.premise_correction",
   "devloop.prompts",
   "devloop.queue",
   "devloop.queue_starvation",

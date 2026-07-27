@@ -15,6 +15,7 @@ local requests_lifecycle = require("devloop.requests.lifecycle")
 local v_execution_request = require("devloop.validators.execution_request")
 local v_intake_candidate = require("devloop.validators.intake_candidate")
 local workflow_codex = require("workflow_internal.codex")
+local premise_correction = require("devloop.premise_correction")
 
 local M = {}
 
@@ -141,7 +142,35 @@ function M.read_current_for_candidate(package_core, dept, repo, issue_number, ca
     return nil
   end
 
-  local decision_dedup_key = devloop_base.intake_decision_dedup_key(candidate.proposal_id, current, has_pending_reintake and reintake_command or nil, effective_updated_at)
+  local correction_pair = nil
+  if candidate.premise_fingerprint ~= nil and candidate.correction_fingerprint ~= nil then
+    local latest_decline = m_facts.intake_decision_fact(current.comments, candidate.proposal_id)
+    local current_correction = premise_correction.matching_correction_fact(current.comments, latest_decline)
+    if current_correction == nil
+      or current_correction.premise_fingerprint ~= candidate.premise_fingerprint
+      or current_correction.correction_fingerprint ~= candidate.correction_fingerprint then
+      devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-stale(premise-correction-changed)", "premise correction candidate must match the latest trusted decline and source comment")
+      return nil
+    end
+    correction_pair = {
+      premise_fingerprint = current_correction.premise_fingerprint,
+      correction_fingerprint = current_correction.correction_fingerprint,
+    }
+  end
+
+  local decision_dedup_key = devloop_base.intake_decision_dedup_key(
+    candidate.proposal_id,
+    current,
+    has_pending_reintake and reintake_command or nil,
+    effective_updated_at
+  )
+  if correction_pair ~= nil then
+    decision_dedup_key = premise_correction.decision_dedup_key(decision_dedup_key, correction_pair)
+  end
+  if correction_pair ~= nil and tostring(candidate.effect_id or "") ~= tostring(decision_dedup_key) then
+    devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-stale(premise-correction-dedup-changed)", "premise correction candidate effect identity no longer matches source facts")
+    return nil
+  end
   if expected_decision_dedup_key ~= nil and tostring(decision_dedup_key or "") ~= tostring(expected_decision_dedup_key or "") then
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline|escalate-to-class", "skip-stale(decision-dedup-changed)", "issue intake inputs changed while codex was running")
     return nil
