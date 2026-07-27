@@ -290,6 +290,20 @@ return {
     t.eq(close_write(model.writes), nil)
   end,
 
+  test_observe_tick_dry_run_emits_receipt_intent_without_direct_write = function()
+    mock_env("")
+    mock_census({})
+    local department, model = fake_department()
+
+    local result = run_tick(department)
+
+    local receipt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(receipt ~= nil)
+    t.eq(receipt.payload.issue_number, escalation_issue_number)
+    t.eq(#model.writes, 0)
+    t.eq(close_write(model.writes), nil)
+  end,
+
   test_partial_rotating_census_still_resolves_selected_hold_issue = function()
     mock_env("1")
     mock_census({}, { over_cap = true })
