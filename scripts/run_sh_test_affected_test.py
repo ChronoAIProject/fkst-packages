@@ -76,7 +76,7 @@ class TestAffectedHarness:
             self.runner.write_text(
                 "#!/bin/sh\n"
                 "printf '%s\\n' \"$*\" >> \"$FKST_TEST_AFFECTED_LOG\"\n"
-                "exit 0\n",
+                "exit \"${FKST_TEST_AFFECTED_RUNNER_EXIT:-0}\"\n",
                 encoding="utf-8",
             )
             self.runner.chmod(self.runner.stat().st_mode | stat.S_IXUSR)
@@ -129,7 +129,11 @@ class TestAffectedHarness:
         self._git("commit", "-m", "integration ahead")
         self._git("checkout", "-b", "feature")
 
-    def run(self, with_branch_env: bool = True) -> subprocess.CompletedProcess[str]:
+    def run(
+        self,
+        with_branch_env: bool = True,
+        runner_exit: int = 0,
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         # Scope derives from the worktree's own uncommitted edits, so these env
         # vars must NOT be required; spawned implement/fix codex environments do
@@ -141,6 +145,7 @@ class TestAffectedHarness:
             env["FKST_DEVLOOP_INTEGRATION_BRANCH"] = "integration"
         env["FKST_TEST_AFFECTED_RUNNER"] = str(self.runner)
         env["FKST_TEST_AFFECTED_LOG"] = str(self.log)
+        env["FKST_TEST_AFFECTED_RUNNER_EXIT"] = str(runner_exit)
         return subprocess.run(
             ["/bin/bash", "scripts/run.sh", "test-affected"],
             cwd=self.root,
@@ -166,6 +171,22 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run()
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(h.runner_args(), ["test github-devloop"])
+        finally:
+            h.close()
+
+    def test_declares_semantic_failure_when_affected_tests_fail(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+
+            result = h.run(runner_exit=1)
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertIn(
+                "FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL\n",
+                result.stderr,
+            )
             self.assertEqual(h.runner_args(), ["test github-devloop"])
         finally:
             h.close()

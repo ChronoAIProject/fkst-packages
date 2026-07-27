@@ -73,13 +73,20 @@ cmd_test_affected() {
   rm -f "$changed_file"
 
   if [ "$full" -eq 1 ] || [ -z "${packages# }" ]; then
-    test_affected_run_test test
-    return $?
-  fi
-  for package in $packages; do
-    if ! test_affected_run_test test "$package"; then
-      status=1
+    if test_affected_run_test test; then
+      status=0
+    else
+      status=$?
     fi
-  done
+  else
+    for package in $packages; do
+      if ! test_affected_run_test test "$package"; then
+        status=1
+      fi
+    done
+  fi
+  if [ "$status" -ne 0 ]; then
+    printf '%s\n' 'FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL' >&2
+  fi
   return "$status"
 }
