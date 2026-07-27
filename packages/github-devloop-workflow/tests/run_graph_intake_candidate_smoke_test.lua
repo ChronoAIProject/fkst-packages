@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
 local graph = require("testkit.graph")
+local marker_facts = require("devloop.markers.facts")
 local payloads_builders = require("devloop.payloads.builders")
 local t = fkst.test
 local core = require("core")
@@ -173,5 +174,14 @@ return {
     t.eq(step.raises[2].queue, "github-proxy.github_issue_label_request")
     t.eq(step.raises[2].payload.add_labels[1], "fkst-class:standard")
     t.eq(step.raises[1].payload.source_ref.ref, source_ref().ref)
+    local fact = marker_facts.intake_decision_fact({
+      {
+        body = step.raises[1].payload.body,
+        author_login = devloop_base._test_bot_login,
+        created_at = "2026-06-03T01:03:00Z",
+      },
+    }, candidate().proposal_id)
+    t.is_true(fact ~= nil)
+    t.is_true(fact.premise_fingerprint ~= nil)
   end,
 }
