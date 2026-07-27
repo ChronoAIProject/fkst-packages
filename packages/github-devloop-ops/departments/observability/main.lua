@@ -27,6 +27,7 @@ local spec = {
   },
   produces = {
     "github-proxy.github_issue_comment_request",
+    "github-proxy.github_pr_comment_request",
     "github-proxy.github_issue_create_request",
   },
   graph_json = true,

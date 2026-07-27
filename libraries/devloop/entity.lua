@@ -61,8 +61,8 @@ local function command_indicates_not_found(result)
     or stderr:find("not found", 1, true) ~= nil
 end
 
-local function linked_pr_numbers(M, issue_comments, proposal_id)
-  local numbers = {}
+local function linked_pr_links(M, issue_comments, proposal_id)
+  local links = {}
   local seen = {}
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue_comments)) do
@@ -79,11 +79,16 @@ local function linked_pr_numbers(M, issue_comments, proposal_id)
         and forge_validators.is_git_ref_safe(marker_base_branch)
         and not seen[tostring(marker_pr)] then
         seen[tostring(marker_pr)] = true
-        table.insert(numbers, tonumber(marker_pr))
+        table.insert(links, {
+          pr_number = tonumber(marker_pr),
+          branch = marker_branch,
+          impl_version = marker_impl_version,
+          base_branch = marker_base_branch,
+        })
       end
     end
   end
-  return numbers
+  return links
 end
 
 function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts)
@@ -95,7 +100,8 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
     deferred = false,
     defer_reason = nil,
   }
-  for _, pr_number in ipairs(linked_pr_numbers(M, issue_comments, proposal_id)) do
+  for _, link in ipairs(linked_pr_links(M, issue_comments, proposal_id)) do
+    local pr_number = link.pr_number
     local pr_view
     if options.cache_only == true then
       pr_view = M.cached_entity_view(repo, "pr", pr_number)
@@ -104,6 +110,13 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
         snapshot.defer_reason = "pr-surface-not-cached"
         return snapshot
       end
+    elseif options.github ~= nil then
+      pr_view = M.gh_pr_view_freshness(
+        repo,
+        pr_number,
+        tonumber(options.timeout) or 30,
+        options.github
+      )
     else
       pr_view = M.gh_pr_view_observe(repo, pr_number, 30)
     end
@@ -120,6 +133,7 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
       end
       table.insert(snapshot.prs, {
         number = pr_number,
+        link = link,
         current = current_pr,
       })
     end
