@@ -638,6 +638,11 @@ cmd_test() {
     fi
   fi
   if [ "$fail" -ne 0 ]; then
+    if test_reports_establish_semantic_failure "$report_dir" "$fail"; then
+      printf '%s\n' 'FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL' >&2
+    else
+      printf '%s\n' 'FKST_LOCAL_ITERATION_RESULT:v1:UNKNOWN' >&2
+    fi
     rm -rf "$report_dir"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
   fi

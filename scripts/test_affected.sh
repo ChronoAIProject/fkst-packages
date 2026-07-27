@@ -85,8 +85,5 @@ cmd_test_affected() {
       fi
     done
   fi
-  if [ "$status" -ne 0 ]; then
-    printf '%s\n' 'FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL' >&2
-  fi
   return "$status"
 }

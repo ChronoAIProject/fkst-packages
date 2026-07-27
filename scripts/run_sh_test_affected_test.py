@@ -54,6 +54,7 @@ class TestAffectedHarness:
             self.scripts = self.root / "scripts"
             self.log = Path(self.tmp) / "runner.log"
             self.runner = Path(self.tmp) / "runner.sh"
+            self.engine = Path(self.tmp) / "fkst-framework"
             self.root.mkdir()
             self.scripts.mkdir()
             for name in (
@@ -76,10 +77,81 @@ class TestAffectedHarness:
             self.runner.write_text(
                 "#!/bin/sh\n"
                 "printf '%s\\n' \"$*\" >> \"$FKST_TEST_AFFECTED_LOG\"\n"
+                "if [ -n \"${FKST_TEST_AFFECTED_RUNNER_RESULT:-}\" ]; then\n"
+                "  printf 'FKST_LOCAL_ITERATION_RESULT:v1:%s\\n' \"$FKST_TEST_AFFECTED_RUNNER_RESULT\" >&2\n"
+                "fi\n"
                 "exit \"${FKST_TEST_AFFECTED_RUNNER_EXIT:-0}\"\n",
                 encoding="utf-8",
             )
             self.runner.chmod(self.runner.stat().st_mode | stat.S_IXUSR)
+            self.engine.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -eu
+
+                    write_report() {
+                      local path="$1" failed="$2"
+                      mkdir -p "$(dirname "$path")"
+                      printf '{"schema":"fkst.test.report.v1","summary":{"failed":%s},"tests":[]}\n' "$failed" > "$path"
+                    }
+
+                    command="${1:-}"
+                    shift || true
+                    case "$command" in
+                      manifest) exit 10 ;;
+                      conformance) exit 0 ;;
+                      --self-test)
+                        while [ "$#" -gt 0 ]; do
+                          if [ "$1" = "--coverage" ]; then
+                            shift
+                            mkdir -p "$1"
+                            printf '{}\n' > "$1/coverage.json"
+                          fi
+                          shift
+                        done
+                        exit 0
+                        ;;
+                      test)
+                        report="" coverage="" project_root=""
+                        while [ "$#" -gt 0 ]; do
+                          case "$1" in
+                            --report-json) shift; report="$1" ;;
+                            --coverage) shift; coverage="$1" ;;
+                            --project-root) shift; project_root="$1" ;;
+                          esac
+                          shift
+                        done
+                        case "$project_root" in
+                          *fkst-sdk-probe*)
+                            [ -z "$report" ] || write_report "$report" 0
+                            exit 0
+                            ;;
+                        esac
+                        case "${FKST_TEST_ENGINE_RESULT:-pass}" in
+                          semantic-fail)
+                            write_report "$report" 1
+                            exit 1
+                            ;;
+                          infrastructure-fail)
+                            printf '%s\n' 'engine dependency unavailable' >&2
+                            exit 2
+                            ;;
+                          pass)
+                            write_report "$report" 0
+                            mkdir -p "$coverage"
+                            printf '{}\n' > "$coverage/coverage.json"
+                            exit 0
+                            ;;
+                        esac
+                        ;;
+                    esac
+                    exit 0
+                    """
+                ),
+                encoding="utf-8",
+            )
+            self.engine.chmod(self.engine.stat().st_mode | stat.S_IXUSR)
             self._init_repo()
         except BaseException:
             _robust_rmtree(self.tmp)
@@ -133,6 +205,7 @@ class TestAffectedHarness:
         self,
         with_branch_env: bool = True,
         runner_exit: int = 0,
+        runner_result: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         # Scope derives from the worktree's own uncommitted edits, so these env
@@ -146,8 +219,31 @@ class TestAffectedHarness:
         env["FKST_TEST_AFFECTED_RUNNER"] = str(self.runner)
         env["FKST_TEST_AFFECTED_LOG"] = str(self.log)
         env["FKST_TEST_AFFECTED_RUNNER_EXIT"] = str(runner_exit)
+        if runner_result is None:
+            env.pop("FKST_TEST_AFFECTED_RUNNER_RESULT", None)
+        else:
+            env["FKST_TEST_AFFECTED_RUNNER_RESULT"] = runner_result
         return subprocess.run(
             ["/bin/bash", "scripts/run.sh", "test-affected"],
+            cwd=self.root,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+    def run_default_test(self, engine_result: str) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["BIN"] = str(self.engine)
+        env["FKST_NO_AUTOBUILD"] = "1"
+        env["FKST_TEST_ENGINE_RESULT"] = engine_result
+        return subprocess.run(
+            [
+                "/bin/bash",
+                "-c",
+                ". scripts/run.sh; resolve_bin; cmd_test github-devloop",
+            ],
             cwd=self.root,
             env=env,
             text=True,
@@ -175,12 +271,12 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_declares_semantic_failure_when_affected_tests_fail(self) -> None:
+    def test_preserves_producer_declared_semantic_failure(self) -> None:
         h = TestAffectedHarness()
         try:
             h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
 
-            result = h.run(runner_exit=1)
+            result = h.run(runner_exit=1, runner_result="SEMANTIC_FAIL")
 
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
             self.assertIn(
@@ -188,6 +284,43 @@ class RunShTestAffectedTest(unittest.TestCase):
                 result.stderr,
             )
             self.assertEqual(h.runner_args(), ["test github-devloop"])
+        finally:
+            h.close()
+
+    def test_untyped_affected_runner_failure_remains_unknown(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+
+            result = h.run(runner_exit=2)
+
+            self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertNotIn("FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL", result.stderr)
+            self.assertEqual(h.runner_args(), ["test github-devloop"])
+        finally:
+            h.close()
+
+    def test_default_test_declares_failed_report_as_semantic_failure(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_default_test("semantic-fail")
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertIn(
+                "FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL\n",
+                result.stderr,
+            )
+        finally:
+            h.close()
+
+    def test_default_test_leaves_unreported_engine_failure_unknown(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_default_test("infrastructure-fail")
+
+            self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertNotIn("FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL", result.stderr)
+            self.assertIn("FKST_LOCAL_ITERATION_RESULT:v1:UNKNOWN\n", result.stderr)
         finally:
             h.close()
 
