@@ -2,6 +2,7 @@ local contract_time = require("contract.time")
 local base_ids = require("devloop.base_ids")
 local error_facts = require("contract.error_facts")
 local parsers_misc = require("devloop.parsers.misc")
+local sha256 = require("contract.sha256")
 
 local C = {}
 
@@ -26,10 +27,11 @@ function C.premise_fingerprint(proposal_id, decision_dedup_key, decline_reason)
 end
 
 function C.correction_fingerprint(comment_id, evidence)
-  return fingerprint("correction", {
+  local content = table.concat({
     "comment=" .. tostring(comment_id or ""),
     "evidence=" .. C.normalize_evidence(evidence),
-  })
+  }, "\0")
+  return "correction-sha256-" .. sha256.hex(content)
 end
 
 function C.decision_dedup_key(base_decision_dedup_key, correction_pair)
@@ -57,7 +59,11 @@ function C.is_premise_fingerprint(value)
 end
 
 function C.is_correction_fingerprint(value)
-  return is_fingerprint(value, "correction")
+  if type(value) ~= "string" or #value > base_ids.max_key_len then
+    return false
+  end
+  local digest = value:match("^correction%-sha256%-([0-9a-f]+)$")
+  return digest ~= nil and #digest == 64
 end
 
 function C.correction_comment_fact(comment)

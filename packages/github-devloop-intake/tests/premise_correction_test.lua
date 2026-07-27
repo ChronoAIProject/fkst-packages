@@ -82,6 +82,21 @@ return {
     t.is_true(correction ~= premise_correction.correction_fingerprint("IC_correction_1", fact.evidence .. " Updated."))
   end,
 
+  test_correction_fingerprint_uses_sha256_for_collision_resistance = function()
+    local first = premise_correction.correction_fingerprint(
+      "IC_correction_collision",
+      "Premise corrected: Aa"
+    )
+    local second = premise_correction.correction_fingerprint(
+      "IC_correction_collision",
+      "Premise corrected: B@"
+    )
+
+    t.eq(first, "correction-sha256-9204fac964c90fad886beacfea8a26788a43a6147cf76afaf11147e49d2ef5d1")
+    t.eq(second, "correction-sha256-942abec6e24671ad31076cbd94f6e287459297b914ba99e702152d1f32defddf")
+    t.is_true(first ~= second)
+  end,
+
   test_correction_parser_rejects_malformed_mismatched_and_trusted_comments = function()
     local _, premise = decline_comment(decline_dedup, decline_reason)
     local mismatched = correction_comment(premise, "IC_bad", "Evidence.", nil, "correction-fp-1")
