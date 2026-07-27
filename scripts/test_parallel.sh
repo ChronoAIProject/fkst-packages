@@ -33,6 +33,7 @@ detect_pool_size() {
 run_units_parallel() {
   local pool="$1"; shift
   local -a cmds=("$@")
+  local -a unit_pids=()
   local n=${#cmds[@]}
   [ "$n" -gt 0 ] || return 0
   # Fail CLOSED on setup failure: run under `set +e` / left-of-|| where errexit is
@@ -53,8 +54,12 @@ run_units_parallel() {
       sleep 0.05
     done
     ( set +e; eval "${cmds[$i]}" >"$dir/$i.out" 2>&1; printf '%s' "$?" >"$dir/$i.rc" ) &
+    unit_pids+=("$!")
   done
-  wait
+  local unit_pid
+  for unit_pid in "${unit_pids[@]}"; do
+    wait "$unit_pid" || true
+  done
   for (( j=0; j<n; j++ )); do
     cat "$dir/$j.out" 2>/dev/null || true
     rc="$(cat "$dir/$j.rc" 2>/dev/null || printf '1')"

@@ -3,6 +3,7 @@ local devloop_state = require("devloop.state")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
+local premise_correction = require("devloop.premise_correction")
 local C = {}
 local forge_validators = require("devloop.forge_validators")
 local comment_strings = require("devloop.strings")
@@ -166,7 +167,16 @@ function C.build_intake_decision_comment_request(M, repo, issue_number, candidat
     error("github-devloop: invalid intake service class")
   end
   local normalized_class = m_shared.normalize_intake_service_class(service_class)
-  local marker = m_builders.intake_decision_marker(candidate.proposal_id, decision, candidate.dedup_key, normalized_class)
+  local premise_fingerprint = decision == "decline"
+    and premise_correction.premise_fingerprint(candidate.proposal_id, candidate.dedup_key, reason)
+    or nil
+  local marker = m_builders.intake_decision_marker(
+    candidate.proposal_id,
+    decision,
+    candidate.dedup_key,
+    normalized_class,
+    premise_fingerprint
+  )
   local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "")
   if safe_reason == "" then
     safe_reason = comment_strings.comment_string(M, "no_reason_provided")

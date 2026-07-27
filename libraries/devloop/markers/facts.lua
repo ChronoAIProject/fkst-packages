@@ -12,6 +12,7 @@ local autonomy_ledger = require("devloop.autonomy_ledger")
 local shared = require("devloop.markers.shared")
 local m_builders = require("devloop.markers.builders")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local premise_correction = require("devloop.premise_correction")
 
 local valid_round = shared.valid_round
 local marker_attr = shared.marker_attr
@@ -68,28 +69,33 @@ function C.intake_decision_fact(comments, issue_proposal_id, expected_dedup_key)
     return nil
   end
   local marker_pattern = "<!%-%- fkst:github%-devloop:intake%-decision:v1.-%-%->"
+  local latest = nil
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local marker_issue = marker:match('proposal="([^"]+)"')
       local decision = marker:match('decision="([^"]+)"')
       local service_class = marker:match('class="([^"]+)"')
       local dedup = marker:match('dedup="([^"]*)"')
+      local premise = marker:match('premise="([^"]+)"')
       if marker_issue == tostring(issue_proposal_id)
         and (expected_dedup_key == nil or dedup == tostring(expected_dedup_key))
         and (decision == "enable" or decision == "track" or decision == "decline" or decision == "escalate-to-class")
         and shared.is_intake_service_class(service_class)
-        and strings.is_bounded_string(dedup, devloop_base._max_dedup_len) then
-        return {
+        and strings.is_bounded_string(dedup, devloop_base._max_dedup_len)
+        and ((decision == "decline" and (premise == nil or premise_correction.is_premise_fingerprint(premise)))
+          or (decision ~= "decline" and premise == nil)) then
+        latest = {
           proposal_id = marker_issue,
           decision = decision,
           service_class = shared.normalize_intake_service_class(service_class),
           dedup_key = dedup,
+          premise_fingerprint = premise,
           comment_created_at = parsers_misc._comment_created_at(comment),
         }
       end
     end
   end
-  return nil
+  return latest
 end
 
 function C.has_intake_decision_marker(comments, issue_proposal_id)
