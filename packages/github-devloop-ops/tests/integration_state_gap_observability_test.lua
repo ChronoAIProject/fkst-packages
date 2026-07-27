@@ -88,6 +88,11 @@ local function mock_all_issue_lists(numbers)
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", core._hold_label, 1, true), {
+    stdout = "[]\n",
+    stderr = "",
+    exit_code = 0,
+  })
   for _, state in ipairs(core.state_order()) do
     t.mock_command(core.gh_issue_list_observe_cmd("owner/repo", core.state_label(state), 1, true), {
       stdout = "[]\n",
@@ -125,7 +130,7 @@ local function mock_issue_view(comments, number)
     title = "Observed issue",
     state = "OPEN",
     comments = comments,
-  }, "title,body,comments,state,stateReason,assignees,author")
+  }, "title,body,comments,labels,state,stateReason,assignees,author")
 end
 
 local function mock_pr_view(comments)

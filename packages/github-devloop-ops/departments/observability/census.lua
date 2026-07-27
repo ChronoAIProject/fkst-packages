@@ -259,7 +259,7 @@ function core.observe_entity_log_line(proposal_id, fields)
 end
 
 function core.collect_observability_entities(event, repo, limits, deadline)
-  local labels = { devloop_base._enabled_label }
+  local labels = { devloop_base._enabled_label, devloop_base._hold_label }
   for _, state in ipairs(devloop_state.issue_state_order()) do
     table.insert(labels, devloop_state.state_label(state))
   end

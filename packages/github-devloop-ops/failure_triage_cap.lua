@@ -7,6 +7,7 @@
 local base = require("devloop.base")
 
 local cap = {
+  _max_dedup_len = base._max_dedup_len,
   _max_key_len = base._max_key_len,
   _max_title_len = base._max_title_len,
   _max_body_len = base._max_body_len,
@@ -17,5 +18,7 @@ require("core.failure_triage").install(cap)
 
 return {
   blocked_obligation_patrol_once = cap.blocked_obligation_patrol_once,
+  classify_output_obligation_escalation_issue = cap.classify_output_obligation_escalation_issue,
   decide = cap.failure_triage_decision,
+  output_obligation_resolution_decision = cap.output_obligation_resolution_decision,
 }
