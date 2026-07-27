@@ -39,6 +39,28 @@ def _inline_branches_for_event(workflow: str, event: str) -> list[str]:
     raise AssertionError(f"could not find inline branches for workflow event {event!r}")
 
 
+def _top_level_mapping(workflow: str, key: str) -> dict[str, str]:
+    in_mapping = False
+    values: dict[str, str] = {}
+    for raw in workflow.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if indent == 0:
+            if in_mapping:
+                break
+            in_mapping = stripped == f"{key}:"
+            continue
+        if in_mapping and indent == 2:
+            name, sep, value = stripped.partition(":")
+            if sep:
+                values[name.strip()] = value.strip()
+    if not values:
+        raise AssertionError(f"could not find top-level mapping for workflow key {key!r}")
+    return values
+
+
 class CiWorkflowTest(unittest.TestCase):
     def read_workflow(self) -> str:
         return (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
@@ -48,6 +70,11 @@ class CiWorkflowTest(unittest.TestCase):
 
         self.assertIn("fkst-hosted", _inline_branches_for_event(workflow, "pull_request"))
         self.assertIn("scripts/run.sh test", workflow)
+
+    def test_pull_request_workflow_uses_least_privilege_token_permissions(self) -> None:
+        workflow = self.read_workflow()
+
+        self.assertEqual({"contents": "read"}, _top_level_mapping(workflow, "permissions"))
 
 
 if __name__ == "__main__":
