@@ -6,6 +6,8 @@ local avm_scoreboard = require("departments.observability.avm_scoreboard")
 local census = require("departments.observability.census")
 local dashboard = require("departments.observability.dashboard")
 local failure_triage_cap = require("failure_triage_cap")
+local output_obligation_resolution = require("departments.observability.output_obligation_resolution")
+local ports = require("forge.ports")
 local queue_starvation = require("devloop.queue_starvation")
 local reaper = require("departments.observability.reaper")
 local topology = require("departments.observability.topology")
@@ -23,7 +25,10 @@ local spec = {
     "github-devloop-pr.restart_transition_anomaly",
     "github-devloop.restart_transition_anomaly",
   },
-  produces = { "github-proxy.github_issue_create_request" },
+  produces = {
+    "github-proxy.github_issue_comment_request",
+    "github-proxy.github_issue_create_request",
+  },
   graph_json = true,
   retry = false,
   stall_window = "2m",
@@ -87,7 +92,7 @@ local function skipped_control_result(reason)
   }
 end
 
-function core.observe_devloop_entities(event)
+function core.observe_devloop_entities(event, github)
   common.require_observe_bot(core)
   local repo = common.require_observe_repo(core)
   local limits = core.observability_limits()
@@ -99,6 +104,24 @@ function core.observe_devloop_entities(event)
   local partial_reason = partial_observation_reason(observed)
   local queue_starvation_result = skipped_control_result("partial-observations")
   local conflict_hotspot = { facts = 0, hotspots = 0, raised = 0, action = "skipped", reason = "partial-observations" }
+  for _, entity in ipairs(observed.list or {}) do
+    local resolution = output_obligation_resolution.reconcile(
+      core,
+      github,
+      repo,
+      entity,
+      limits,
+      deadline
+    )
+    if resolution ~= nil then
+      devloop_logging.log_raise(
+        "output_obligation_resolution",
+        resolution.fact.proposal_id,
+        resolution.queue,
+        resolution.payload
+      )
+    end
+  end
   if partial_reason == nil then
     core.reap_orphan_prs(repo, observed.list)
     queue_starvation_result = queue_starvation.observe_queue_starvation(core, repo, observed.list, limits, deadline, observed.now_seconds)
@@ -138,16 +161,24 @@ function core.observe_devloop_entities(event)
   }
 end
 
-local department = saga.department(spec, { done = function() return false end, act = function(event)
-  queue.dispatch_consumed_queue("observability", spec, event, {
-    devloop_observe_tick = function(tick)
-      devloop_logging.log_entry("observability", tick, "github-devloop/observability", "tick")
-      core.observe_devloop_entities(tick)
-    end,
-    ["github-devloop-pr.restart_transition_anomaly"] = ingest_restart_transition_anomaly,
-    ["github-devloop.restart_transition_anomaly"] = ingest_restart_transition_anomaly,
-  }, "github-devloop-ops")
-end, wrap = devloop_logging.wrap_pipeline_failure, name = "observability" })
-department.spec.graph_json = true
+local function make_department(handles)
+  local department = saga.department(spec, { done = function() return false end, act = function(event)
+    queue.dispatch_consumed_queue("observability", spec, event, {
+      devloop_observe_tick = function(tick)
+        devloop_logging.log_entry("observability", tick, "github-devloop/observability", "tick")
+        core.observe_devloop_entities(tick, handles.github)
+      end,
+      ["github-devloop-pr.restart_transition_anomaly"] = ingest_restart_transition_anomaly,
+      ["github-devloop.restart_transition_anomaly"] = ingest_restart_transition_anomaly,
+    }, "github-devloop-ops")
+  end, wrap = devloop_logging.wrap_pipeline_failure, name = "observability" })
+  department.spec.graph_json = true
+  department.ports = handles
+  return department
+end
 
-return department
+return ports.install(make_department, ports.github_author_options(
+  devloop_base.read_env,
+  "github-devloop-ops.observability",
+  { bot_login_env = "FKST_GITHUB_BOT_LOGIN" }
+))

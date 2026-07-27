@@ -100,6 +100,11 @@ local function mock_all_issue_lists(items)
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command(observe_issue_list_first_command(core._hold_label), {
+    stdout = "[]\n",
+    stderr = "",
+    exit_code = 0,
+  })
   if #rendered >= 100 then
     t.mock_command(observe_issue_list_command(core._enabled_label, 2), {
       stdout = "[]\n",
@@ -150,7 +155,7 @@ local function mock_issue_view(comments, state, extra)
     comments = comments,
     assignees = extra.assignees or {},
     author_login = extra.author or "fkst-test-bot",
-  }, "title,body,comments,state,stateReason,assignees,author")
+  }, "title,body,comments,labels,state,stateReason,assignees,author")
 end
 
 local function mock_pr_view(comments, extra)

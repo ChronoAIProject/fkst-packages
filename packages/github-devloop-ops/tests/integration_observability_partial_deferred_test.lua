@@ -51,6 +51,7 @@ return {
   test_display_read_timeout_renders_partial_observability_dashboard = function()
     mock_env()
     t.mock_command(issue_list_first(core._enabled_label), { stdout = "", stderr = "timed out", exit_code = 124 })
+    t.mock_command(issue_list_first(core._hold_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
     for _, state in ipairs(core.issue_state_order()) do
       t.mock_command(issue_list_first(core.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
     end
@@ -259,7 +260,7 @@ return {
     -- Direct reproduction of the fidelity blocker: without the fix, a per-issue view
     -- timeout mid-scan returns a PARTIAL (non-nil) recent-merged list, which drives the
     -- drain-edge patrol on incomplete data. The fix returns nil on an incomplete scan.
-    local selector = "title,body,comments,state,stateReason,assignees,author"
+    local selector = "title,body,comments,labels,state,stateReason,assignees,author"
     entity_read_mocks.mock_issue_list_command(t, core.gh_issue_list_recent_closed_cmd("owner/repo", core.observability_limits().entity_cap), {
       { number = 1001, title = "merged A", closed_at = "2026-06-29T03:44:36Z", labels = { "fkst-dev:enabled", "fkst-dev:merged" } },
       { number = 1002, title = "merged B", closed_at = "2026-06-29T03:45:00Z", labels = { "fkst-dev:enabled", "fkst-dev:merged" } },
