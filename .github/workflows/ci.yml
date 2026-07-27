@@ -4,13 +4,16 @@ on:
   push:
     branches: [main, dev, integration, "integration-*"]
   pull_request:
-    branches: [main, dev, integration, "integration-*"]
+    branches: [main, dev, integration, "integration-*", fkst-hosted]
   workflow_dispatch:
     inputs:
       substrate_ref:
         description: "fkst-substrate ref to build fkst-framework from"
         default: ""
         required: false
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
