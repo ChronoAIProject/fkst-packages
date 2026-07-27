@@ -244,6 +244,7 @@ cmd_check() {
   # only wall-clock, not which checks run or their pass/fail. Keep the FULL set.
   local -a units=(
     'python3 -B "$ROOT/scripts/check_repo.py"'
+    'python3 -B "$ROOT/scripts/ci_workflow_test.py"'
     'python3 -B "$ROOT/scripts/ratchet_base_test.py"'
     'python3 -B "$ROOT/scripts/check_repo_fkst_layout.py"'
     'python3 -B "$ROOT/scripts/check_repo_dedup_test.py"'
