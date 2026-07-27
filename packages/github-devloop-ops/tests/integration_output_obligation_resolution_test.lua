@@ -608,6 +608,18 @@ return {
       )
     ))
     mock_census({})
+    local decision_only = run_tick(department)
+    t.eq(find_target_raise(
+      decision_only.raises,
+      "github-proxy.github_issue_comment_request",
+      "issue_number",
+      escalation_issue_number
+    ), nil)
+
+    source.comments = append_comment(source.comments, bot_comment(
+      core.state_marker(proposal_id, "thinking", expected_intake_dedup)
+    ))
+    mock_census({})
     local receipt_tick = run_tick(department)
     local receipt = find_target_raise(
       receipt_tick.raises,

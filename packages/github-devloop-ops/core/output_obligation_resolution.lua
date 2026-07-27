@@ -386,7 +386,23 @@ local function decide_existing_reintake(M, fact, escalation_issue, source_issue,
     existing.command,
     effective_updated_at
   )
-  if marker_facts.intake_decision_fact(source_issue.comments, fact.proposal_id, expected_dedup) == nil then
+  local successor_decision = marker_facts.intake_decision_fact(
+    source_issue.comments,
+    fact.proposal_id,
+    expected_dedup
+  )
+  if successor_decision == nil then
+    return { action = "wait", reason = "reintake-generation-pending" }
+  end
+  if successor_decision.decision == "enable" and not devloop_state.reached(
+    source_issue.comments,
+    fact.proposal_id,
+    "thinking",
+    {
+      domain = "github-devloop-issue",
+      lineage_base = expected_dedup,
+    }
+  ) then
     return { action = "wait", reason = "reintake-generation-pending" }
   end
   local quiescent, quiescence_reason = same_lineage_prs_quiescent(

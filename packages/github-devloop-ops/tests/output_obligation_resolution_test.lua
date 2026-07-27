@@ -567,6 +567,10 @@ return {
         "standard"
       )
     ))
+    local decision_only = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
+    t.eq(decision_only.action, "wait")
+    t.eq(decision_only.reason, "reintake-generation-pending")
+
     source.comments = append_comment(source.comments, bot_comment(
       core.state_marker(proposal_id, "thinking", expected_intake_dedup)
     ))
@@ -614,6 +618,9 @@ return {
         expected_intake_dedup,
         "standard"
       )
+    ))
+    source.comments = append_comment(source.comments, bot_comment(
+      core.state_marker(proposal_id, "thinking", expected_intake_dedup)
     ))
 
     local drifted = core.output_obligation_resolution_decision(
