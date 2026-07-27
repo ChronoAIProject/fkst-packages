@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, dev, integration, "integration-*"]
   pull_request:
-    branches: [main, dev, integration, "integration-*"]
+    branches: [main, dev, integration, "integration-*", fkst-hosted]
   workflow_dispatch:
     inputs:
       substrate_ref:
