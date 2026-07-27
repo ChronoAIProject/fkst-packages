@@ -19,6 +19,10 @@ local find_raise = h.find_raise
 local current_base_pin = "2222222222222222222222222222222222222222"
 local stale_queue_pin = "1111111111111111111111111111111111111111"
 
+local function local_iteration_marker(outcome)
+  return "FKST_LOCAL_ITERATION_RESULT:v1:" .. outcome .. "\n"
+end
+
 local function shell_quote(value)
   return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
@@ -77,7 +81,7 @@ end
 local function mock_candidate_local_red(_worktree, detail)
   t.mock_command("scripts/run.sh test-affected", {
     stdout = "",
-    stderr = detail or "candidate local iteration failed\n",
+    stderr = local_iteration_marker("SEMANTIC_FAIL") .. (detail or "candidate local iteration failed\n"),
     exit_code = 1,
   })
 end
@@ -296,7 +300,7 @@ return {
     t.eq(branch, deterministic_branch_for(event))
   end,
 
-  test_implement_local_gate_base_missing_target_is_attributed_to_base = function()
+  test_implement_local_gate_typed_base_failure_is_attributed_to_base = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
@@ -306,7 +310,8 @@ return {
     mock_base_probe(worktree, {
       check = {
         stdout = "",
-        stderr = "make: *** No rule to make target 'preflight'. Stop.\n",
+        stderr = local_iteration_marker("SEMANTIC_FAIL")
+          .. "make: *** No rule to make target 'preflight'. Stop.\n",
         exit_code = 2,
       },
     })
@@ -331,6 +336,31 @@ return {
     t.eq(pinned_add, true)
   end,
 
+  test_implement_local_gate_unknown_base_probe_recovers_without_rerunning_codex = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree, "candidate failed\n")
+    mock_base_probe(worktree, {
+      check = {
+        stdout = "",
+        stderr = "report-supervisor: timed out waiting for a Lean slot\n",
+        exit_code = 2,
+      },
+    })
+    mock_base_probe(worktree)
+
+    local result = run_implement(event, opts("implement-base-probe-unknown-recovers"))
+
+    local failure = assert_impl_failure_without_publication(result, "local-iteration-failed")
+    t.is_true(failure.payload.body:find("candidate failed", 1, true) ~= nil)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("scripts/run.sh test-affected"), 3)
+    t.eq(count_calls("git worktree add --detach"), 2)
+  end,
+
   test_implement_local_gate_probe_checkout_failure_is_indeterminate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
@@ -341,13 +371,17 @@ return {
     mock_base_probe(worktree, {
       checkout = { stdout = "", stderr = "fatal: invalid reference: abc123\n", exit_code = 128 },
     })
+    mock_base_probe(worktree, {
+      checkout = { stdout = "", stderr = "fatal: invalid reference: abc123\n", exit_code = 128 },
+    })
 
     local result = run_implement(event, opts("implement-base-probe-checkout-failure"))
 
     assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    t.eq(count_calls("git worktree add --detach"), 2)
   end,
 
-  test_implement_local_gate_probe_timeout_is_indeterminate = function()
+  test_implement_local_gate_untyped_exit_two_probe_exhausts_indeterminate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
     local worktree = mock_fresh_implement_worktree()
@@ -355,12 +389,22 @@ return {
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_candidate_local_red(worktree)
     mock_base_probe(worktree, {
-      check = { stdout = "", stderr = "", exit_code = 124 },
+      check = {
+        stdout = "",
+        stderr = "report-supervisor: timed out waiting for a Lean slot\n",
+        exit_code = 2,
+      },
+    })
+    mock_base_probe(worktree, {
+      check = { stdout = "", stderr = "second slot timeout\n", exit_code = 2 },
     })
 
-    local result = run_implement(event, opts("implement-base-probe-timeout"))
+    local result = run_implement(event, opts("implement-base-probe-untyped-exit-two"))
 
-    assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    local failure = assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    t.is_true(failure.payload.body:find("verification_attempt=2/2", 1, true) ~= nil)
+    t.is_true(failure.payload.body:find("second slot timeout", 1, true) ~= nil)
+    t.eq(count_calls("scripts/run.sh test-affected"), 3)
   end,
 
   test_implement_local_gate_probe_head_mismatch_is_indeterminate = function()
@@ -377,11 +421,19 @@ return {
         exit_code = 0,
       },
     })
+    mock_base_probe(worktree, {
+      head = {
+        stdout = "def456def456def456def456def456def456def4\n",
+        stderr = "",
+        exit_code = 0,
+      },
+    })
 
     local result = run_implement(event, opts("implement-base-probe-head-mismatch"))
 
     assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
     t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(count_calls("git worktree add --detach"), 2)
   end,
 
   test_implement_missing_substrate_ref_still_spawns_codex = function()
