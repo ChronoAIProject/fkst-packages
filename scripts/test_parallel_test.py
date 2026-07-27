@@ -75,6 +75,26 @@ class RunUnitsParallelTest(unittest.TestCase):
         lines = [ln for ln in result.stdout.splitlines() if ln.startswith("U")]
         self.assertEqual(lines, ["U0", "U1", "U2", "U3", "U4"])
 
+    def test_waits_only_for_unit_jobs(self) -> None:
+        # run.sh arms its deadline watchdog before entering the pool. That watchdog is
+        # a sibling background job, not a verification unit, so the pool must not join
+        # it. The fixture records if it had to self-expire before the pool returned;
+        # after a scoped wait, the release file lets it exit immediately.
+        result = _run(
+            "fixture=$(mktemp -d); "
+            "( touch \"$fixture/ready\"; "
+            "for (( n=0; n<20; n++ )); do "
+            "[ -e \"$fixture/release\" ] && exit 0; sleep 0.05; done; "
+            "touch \"$fixture/expired\" ) >/dev/null 2>&1 & unrelated=$!; "
+            "while [ ! -e \"$fixture/ready\" ]; do sleep 0.01; done; "
+            "run_units_parallel 2 'echo unit'; rc=$?; "
+            "[ ! -e \"$fixture/expired\" ] && echo ignored-unrelated-job; "
+            "touch \"$fixture/release\"; wait \"$unrelated\"; rm -rf \"$fixture\"; "
+            "echo \"rc=$rc\""
+        )
+        self.assertIn("ignored-unrelated-job", result.stdout)
+        self.assertIn("rc=0", result.stdout)
+
     def test_work_dir_setup_failure_fails_closed(self) -> None:
         # If run_units_parallel cannot create its work directory (mktemp fails), it must
         # FAIL CLOSED — return nonzero with a diagnostic — never silently route unit
