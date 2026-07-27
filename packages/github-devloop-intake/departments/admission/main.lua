@@ -14,6 +14,7 @@ local entity_lib = require("devloop.entity")
 local admission_core = require("core.admission")
 local intake_capacity = require("core.intake_capacity")
 local replay_authorization = require("core.replay_authorization")
+local premise_correction = require("devloop.premise_correction")
 
 local spec = {
   consumes = { "github-proxy.github_entity_changed", "github-proxy.github_issue_observed" },
@@ -208,7 +209,9 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-known-state", "fresh issue labels show an active devloop state")
     return
   end
-  if m_facts.has_intake_decision_marker(current.comments, proposal_id) then
+  local intake_fact = m_facts.intake_decision_fact(current.comments, proposal_id)
+  local correction = premise_correction.matching_correction_fact(current.comments, intake_fact)
+  if intake_fact ~= nil and correction == nil then
     reconcile_capacity(context, repo, proposal_id)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
@@ -232,7 +235,9 @@ local function admit_issue_event(context, event, entity)
     return
   end
 
-  local payload = core.build_intake_admission_candidate(repo, issue, nil, now())
+  local payload = correction ~= nil
+    and admission_core.build_premise_correction_candidate(repo, issue, correction)
+    or core.build_intake_admission_candidate(repo, issue, nil, now())
   devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
     "devloop_intake_candidate",
   })

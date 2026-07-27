@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local payloads_builders = require("devloop.payloads.builders")
 local replay_authorization = require("core.replay_authorization")
+local premise_correction = require("devloop.premise_correction")
 local S = {}
 local operator_commands = require("devloop.operator_commands")
 
@@ -15,6 +16,21 @@ function S.build_intake_replay_candidate(repo, issue, terminal)
   return payloads_builders.build_devloop_intake_candidate_payload(repo, tostring(issue.number), issue.updated_at, {
     effect_id = effect_id,
     dedup_key = successor_key,
+  })
+end
+
+function S.build_premise_correction_candidate(repo, issue, correction)
+  local proposal_id = base_ids.proposal_id(repo, tostring(issue.number))
+  local base_effect_id = devloop_base.intake_decision_dedup_key(proposal_id, {
+    title = issue.title,
+    body = issue.body,
+  }, nil, nil)
+  local effect_id = premise_correction.decision_dedup_key(base_effect_id, correction)
+  return payloads_builders.build_devloop_intake_candidate_payload(repo, tostring(issue.number), issue.updated_at, {
+    effect_id = effect_id,
+    dedup_key = effect_id,
+    premise_fingerprint = correction.premise_fingerprint,
+    correction_fingerprint = correction.correction_fingerprint,
   })
 end
 
