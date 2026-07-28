@@ -20,7 +20,7 @@ local function last_command_call_index(needle)
 end
 
 return {
-  test_dirty_failed_attempt_is_committed_as_checkpoint = function()
+  test_dirty_failed_attempt_is_committed_before_verification_as_checkpoint = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
@@ -63,7 +63,7 @@ return {
     local add_call = last_command_call_index("add -A")
     local commit_call = last_command_call_index("commit -m")
     t.is_true(verification_call ~= nil)
-    t.is_true(add_call ~= nil and verification_call < add_call)
-    t.is_true(commit_call ~= nil and add_call < commit_call)
+    t.is_true(add_call ~= nil and add_call < commit_call)
+    t.is_true(commit_call ~= nil and commit_call < verification_call)
   end,
 }

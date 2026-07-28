@@ -327,13 +327,13 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   end
   local dirty = tostring(status.stdout or "") ~= ""
   local existing_head = M.clean_branch_head(base_head, branch)
-  local green = false
-  local verify_detail = ""
-  if dirty or existing_head ~= nil then
-    green, verify_detail = run_local_iteration_check(ready, worktree)
-  end
   local progress_head = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
     or existing_head
+  local green = false
+  local verify_detail = ""
+  if progress_head ~= nil then
+    green, verify_detail = run_local_iteration_check(ready, worktree)
+  end
   if green and progress_head ~= nil then
     return implementation_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref)
   end
