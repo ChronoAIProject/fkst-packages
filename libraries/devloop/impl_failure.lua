@@ -9,6 +9,7 @@ M.MAX_RETRY_ATTEMPTS = 100000
 
 local auto_retryable_reasons = {
   ["codex-failed"] = true,
+  ["local-iteration-failed"] = true,
   ["non-descendant-head"] = true,
 }
 
@@ -86,6 +87,10 @@ function M.next_retry_attempt(fact)
     return nil
   end
   return tonumber(fact.attempt or 1) + 1
+end
+
+function M.retry_resets_candidate(fact)
+  return M.retry_allowed(fact) and fact.reason == "local-iteration-failed"
 end
 
 return M

@@ -200,7 +200,7 @@ function M.new(deps)
       exit_code = 0,
     })
     t.mock_command("git worktree list --porcelain", {
-      stdout = "",
+      stdout = external.worktree_list_stdout or "",
       stderr = "",
       exit_code = 0,
     })

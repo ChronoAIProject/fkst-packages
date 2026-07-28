@@ -265,8 +265,8 @@ local function merge_integration_for_implementation(worktree, integration_branch
   return false
 end
 
-local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, receiver_state, snapshot, decision, lock_key)
-  local worktree = bridge_marker ~= nil
+local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, reset_candidate, checkpoint, receiver_state, snapshot, decision, lock_key)
+  local worktree = (bridge_marker ~= nil or reset_candidate)
     and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
     or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
   local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
@@ -813,6 +813,7 @@ local function process_ready_event(event)
       expected_from_states = expected_states,
       accepted_ready_hand_off = accepted_ready_hand_off,
       bridge_marker = external_pr_bridge.detect(current, repo, managed),
+      reset_candidate = retry_failure ~= nil and core.impl_failure_retry_resets_candidate(retry_failure),
     }
   end)
   if attempt_plan == nil then
@@ -853,7 +854,7 @@ local function process_ready_event(event)
       worktree, codex_started_at, exec_ref, receiver_authorization = prepare_attempt(
         repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
         attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
-        attempt_plan.bridge_marker, attempt_plan.checkpoint, pre_spawn_state,
+        attempt_plan.bridge_marker, attempt_plan.reset_candidate, attempt_plan.checkpoint, pre_spawn_state,
         activation_snapshot, activation_decision, lock_key)
     end
   end)
