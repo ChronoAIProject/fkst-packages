@@ -43,6 +43,11 @@ local assert_observed_issue = h.assert_observed_issue
 local issue_comment_create = "gh api --method POST repos/owner/x/issues/42/comments"
 
 local function mock_poll_env(replay_budget)
+  t.mock_observe({
+    truncated = { deliveries = false, dead_letters = false },
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
+  })
   mock_repo_env()
   mock_poll_label_prefix_env("adapter-")
   if replay_budget ~= nil then

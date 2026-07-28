@@ -1,4 +1,5 @@
 local core = require("core")
+local intake_replay_activation = require("devloop.intake_replay_activation")
 local saga = require("workflow.saga")
 
 local spec = {
@@ -135,31 +136,24 @@ local function raise_changed_item(repo, item, poll_token)
   end)
 end
 
-local function observed_dedup_key(repo, item, poll_token)
-  local entity = item.entity
-  return "github-issue-observed/"
-    .. tostring(repo)
-    .. "/"
-    .. tostring(entity.number)
-    .. "/"
-    .. tostring(entity.updated_at)
-    .. "/"
-    .. tostring(poll_token or now())
-end
-
-local function raise_observed_item(repo, item, poll_token)
+local function raise_observed_item(repo, item, observe_snapshot)
   with_lock(item.key, function()
     local entity = item.entity
     if cache_get(item.key) == entity.updated_at then
+      local source_ref = core.entity_source_ref(repo, "issue", entity.number)
+      local dedup_key, reason = intake_replay_activation.observation_key(observe_snapshot, source_ref)
+      if dedup_key == nil then
+        error("github-proxy: intake-replay-observation-invalid: " .. tostring(reason))
+      end
       raise("github_issue_observed", {
         schema = "github-proxy.issue-observed.v1",
         type = "issue",
         repo = repo,
         number = entity.number,
         updated_at = entity.updated_at,
-        dedup_key = observed_dedup_key(repo, item, poll_token),
+        dedup_key = dedup_key,
         source = "gh",
-        source_ref = core.entity_source_ref(repo, "issue", entity.number),
+        source_ref = source_ref,
       })
     end
   end)
@@ -172,8 +166,18 @@ local function raise_changed(repo, fresh_changes, replay_changes, observed_issue
   for _, item in ipairs(replay_changes or {}) do
     raise_changed_item(repo, item, poll_token)
   end
+  if #(observed_issues or {}) == 0 then
+    return
+  end
+  local observe_snapshot, observe_reason = intake_replay_activation.read_observe_snapshot()
+  if observe_snapshot == nil then
+    core.log_error_fact("warn", "github_poll", "FAILURE", "intake-replay-observe-unavailable", "github_issue_observed", observe_reason, {
+      terminal = false,
+    })
+    return
+  end
   for _, item in ipairs(observed_issues or {}) do
-    raise_observed_item(repo, item, poll_token)
+    raise_observed_item(repo, item, observe_snapshot)
   end
 end
 

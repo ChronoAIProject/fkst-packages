@@ -127,6 +127,11 @@ local function mock_pr_list(stdout, exit_code, stderr)
 end
 
 local function mock_poll(issue_stdout, pr_stdout)
+  t.mock_observe({
+    truncated = { deliveries = false, dead_letters = false },
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
+  })
   mock_repo_env()
   mock_poll_label_prefix_env()
   mock_issue_list(issue_stdout)
