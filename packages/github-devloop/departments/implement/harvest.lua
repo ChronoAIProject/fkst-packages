@@ -4,12 +4,16 @@ local config = require("devloop.config")
 local payloads_builders = require("devloop.payloads.builders")
 local branch_progress = require("departments.implement.branch_progress")
 local substrate_pin = require("departments.implement.substrate_pin")
+local local_iteration_result = require("departments.implement.local_iteration_result")
 local local_iteration_verdict = require("departments.implement.local_iteration_verdict")
 local devloop_logging = require("devloop.logging")
 
 local exec_sync = exec_sync
 
 local M = {}
+
+-- One recovery follows the initial observation; the second UNKNOWN exhausts fail-closed.
+local MAX_BASE_VERIFICATION_ATTEMPTS = 2
 
 local function implementation_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   return {
@@ -122,8 +126,14 @@ local function run_base_probe(worktree, base_sha)
 
   local check = M.local_iteration_check(plan.worktree)
   local exit_code = type(check) == "table" and tonumber(check.exit_code) or nil
+  local result = local_iteration_result.from_command(check)
   if exit_code == nil then
-    return { status = "command-failed", head_readback = head_readback, detail = command_detail(check) }
+    return {
+      status = "command-failed",
+      head_readback = head_readback,
+      result = result,
+      detail = command_detail(check),
+    }
   end
   if command_timed_out(check) then
     return {
@@ -131,6 +141,7 @@ local function run_base_probe(worktree, base_sha)
       exit = exit_code,
       head_readback = head_readback,
       timed_out = true,
+      result = result,
       detail = command_detail(check),
     }
   end
@@ -139,6 +150,7 @@ local function run_base_probe(worktree, base_sha)
     exit = exit_code,
     head_readback = head_readback,
     timed_out = check.timed_out,
+    result = result,
     detail = command_detail(check),
   }
 end
@@ -184,11 +196,14 @@ end
 
 local function run_local_iteration_check(ready, worktree)
   local check = M.local_iteration_check(worktree)
-  devloop_logging.log_line(check.exit_code == 0 and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
+  local result = local_iteration_result.from_command(check)
+  devloop_logging.log_line(result.kind == "PASS" and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
     "exit_code=" .. tostring(check.exit_code),
+    "result=" .. tostring(result.kind),
+    "result_reason=" .. tostring(result.reason),
     "reason=pre-handoff-local-iteration",
   })
-  return check.exit_code == 0, command_detail(check), check
+  return result.kind == "PASS", command_detail(check), result
 end
 
 local function base_probe_detail(probe)
@@ -198,6 +213,14 @@ local function base_probe_detail(probe)
   }
   if probe and probe.exit ~= nil then
     table.insert(fields, "base_exit=" .. tostring(probe.exit))
+  end
+  if probe and probe.result ~= nil then
+    table.insert(fields, "base_result=" .. tostring(probe.result.kind))
+    table.insert(fields, "base_result_reason=" .. tostring(probe.result.reason))
+  end
+  if probe and probe.verification_attempt ~= nil then
+    table.insert(fields, "verification_attempt=" .. tostring(probe.verification_attempt)
+      .. "/" .. tostring(MAX_BASE_VERIFICATION_ATTEMPTS))
   end
   if probe and probe.head_readback ~= nil then
     table.insert(fields, "head_readback=" .. tostring(probe.head_readback))
@@ -254,17 +277,37 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
-  local green, verify_detail, candidate_check = run_local_iteration_check(ready, worktree)
+  local green, verify_detail, candidate_result = run_local_iteration_check(ready, worktree)
   if not green then
-    local base_probe = M.base_local_iteration_probe(worktree, base_head, attempt)
-    local verdict = local_iteration_verdict.classify(candidate_check.exit_code, base_probe)
-    devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT_VERIFY_BASE", {
-      "base_sha=" .. tostring(base_head),
-      "base_exit=" .. tostring(base_probe.exit),
-      "head_readback=" .. tostring(base_probe.head_readback),
-      "status=" .. tostring(base_probe.status),
-      "verdict=" .. tostring(verdict),
-    })
+    if candidate_result.kind ~= "SEMANTIC_FAIL" then
+      return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
+        "candidate_result=" .. tostring(candidate_result.kind)
+          .. "\ncandidate_result_reason=" .. tostring(candidate_result.reason)
+          .. "\n" .. tostring(verify_detail),
+        attempt, started_at, exec_ref, base_head)
+    end
+
+    local base_probe = nil
+    local verdict = "INDETERMINATE"
+    for verification_attempt = 1, MAX_BASE_VERIFICATION_ATTEMPTS do
+      local probe_tag = tostring(attempt) .. "-verification-" .. tostring(verification_attempt)
+      base_probe = M.base_local_iteration_probe(worktree, base_head, probe_tag)
+      base_probe.verification_attempt = verification_attempt
+      verdict = local_iteration_verdict.classify(candidate_result, base_probe)
+      devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT_VERIFY_BASE", {
+        "base_sha=" .. tostring(base_head),
+        "base_exit=" .. tostring(base_probe.exit),
+        "base_result=" .. tostring(base_probe.result and base_probe.result.kind),
+        "base_result_reason=" .. tostring(base_probe.result and base_probe.result.reason),
+        "head_readback=" .. tostring(base_probe.head_readback),
+        "status=" .. tostring(base_probe.status),
+        "verification_attempt=" .. tostring(verification_attempt),
+        "verdict=" .. tostring(verdict),
+      })
+      if verdict ~= "INDETERMINATE" then
+        break
+      end
+    end
     if verdict == "OWN_LOCAL_RED" then
       return impl_failed_outcome(ready, "local-iteration-failed", verify_detail, attempt, started_at, exec_ref, base_head)
     end

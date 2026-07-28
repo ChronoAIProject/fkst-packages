@@ -12,15 +12,9 @@ local github_view = require("forge.github_view")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local marker_shared = require("devloop.markers.shared")
-local forks_handle = nil
-local devloop_state_handle = nil
-
-local function forks()
-  if forks_handle == nil then
-    forks_handle = require("devloop.forks")
-  end
-  return forks_handle
-end
+local parsers_shared = require("devloop.parsers.shared")
+local forks = require("devloop.forks")
+local restart_metadata = require("devloop.restart_metadata")
 
 local function github()
   if type(fkst) == "table" and type(fkst.test) == "table" then
@@ -38,84 +32,11 @@ local function github()
   return github_handle
 end
 
-local function devloop_state()
-  if devloop_state_handle == nil then
-    devloop_state_handle = require("devloop.state")
-  end
-  return devloop_state_handle
-end
-
-local function assignee_login(assignee)
-  if type(assignee) == "table" then
-    if assignee.login ~= nil then
-      return tostring(assignee.login)
-    end
-    if assignee.name ~= nil then
-      return tostring(assignee.name)
-    end
-  elseif assignee ~= nil then
-    return tostring(assignee)
-  end
-  return nil
-end
-
-local function issue_author_login(issue)
-  if type(issue) ~= "table" then
-    return nil
-  end
-  if issue.author_login ~= nil and tostring(issue.author_login) ~= "" then
-    return tostring(issue.author_login)
-  end
-  if type(issue.author) == "table" and issue.author.login ~= nil and tostring(issue.author.login) ~= "" then
-    return tostring(issue.author.login)
-  end
-  if type(issue.user) == "table" and issue.user.login ~= nil and tostring(issue.user.login) ~= "" then
-    return tostring(issue.user.login)
-  end
-  return nil
-end
-
-function C.issue_author_login(issue)
-  return issue_author_login(issue)
-end
-
-function C.assignee_logins(value)
-  local logins = {}
-  if type(value) ~= "table" then
-    return logins
-  end
-  for _, assignee in ipairs(value) do
-    local login = assignee_login(assignee)
-    if login ~= nil and login ~= "" then
-      table.insert(logins, login)
-    end
-  end
-  return logins
-end
-
--- Single source for the claim owner: normalize the configured bot login so all
--- downstream comparisons get the bare slug regardless of whether the deployment
--- configured "<slug>" or "<slug>[bot]". No-op for ordinary user logins.
-function C.claim_owner()
-  return devloop_base.strip_bot_login_suffix(devloop_base.assert_trusted_bot_configured() or devloop_base.trusted_bot_login())
-end
-
-function C.managed_bot_logins(exec)
-  local raw = devloop_base.read_env("FKST_DEVLOOP_MANAGED_BOT_LOGINS", exec)
-  local logins = {}
-  for entry in tostring(raw or ""):gmatch("[^,%s]+") do
-    local login = devloop_base.strip_bot_login_suffix(strings.trim(entry))
-    if login ~= nil and login ~= "" then
-      logins[login] = true
-    end
-  end
-  return logins
-end
-
-function C.is_managed_bot_login(login, managed)
-  local normalized = devloop_base.strip_bot_login_suffix(login)
-  return normalized ~= nil and normalized ~= "" and type(managed) == "table" and managed[normalized] == true
-end
+C.issue_author_login = parsers_shared.issue_author_login
+C.assignee_logins = parsers_shared.assignee_logins
+C.claim_owner = github_author_policy.claim_owner
+C.managed_bot_logins = github_author_policy.managed_bot_logins
+C.is_managed_bot_login = github_author_policy.is_managed_bot_login
 
 local claimed_label = "fkst-dev:claimed"
 local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
@@ -181,7 +102,7 @@ local function has_state_marker_comment(body)
   end
   for marker in body:gmatch(state_marker_pattern) do
     if marker_attr(marker, "proposal") ~= nil
-      and devloop_state().is_state(marker_attr(marker, "state"))
+      and restart_metadata.is_state(marker_attr(marker, "state"))
       and marker_attr(marker, "version") ~= nil then
       return true
     end
@@ -318,7 +239,7 @@ end
 -- callers keep byte-for-byte behavior.
 function C.issue_claim_state(assignees, owner, labels)
   if config.claim_mode() == "label" then
-    if devloop_state().has_label(labels, claimed_label) then
+    if restart_metadata.has_label(labels, claimed_label) then
       return "self"
     end
     return "unassigned"
@@ -598,8 +519,8 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   -- (matching the label-claim fork). Assignee-mode isolates only authors admitted
   -- by the canonical GitHub content policy.
   if claim_mode ~= "label" and author ~= owner then
-    local dedup_key = forks().fork_issue_dedup_key(repo, issue_number)
-    if forks().has_trusted_issue_create_parent_marker(M, current and current.comments, dedup_key, owner, managed) then
+    local dedup_key = forks.fork_issue_dedup_key(repo, issue_number)
+    if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
@@ -613,13 +534,13 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
       log_claim(dept, proposal_id, "skip-fork-grace", reason)
       return false
     end
-    current = forks().rederive_issue_state(M, repo, issue_number)
-    local request, request_reason = forks().build_fork_issue_create_request(M, repo, issue_number, current, require("devloop.entity").issue_source_ref(repo, issue_number))
+    current = forks.rederive_issue_state(M, repo, issue_number)
+    local request, request_reason = forks.build_fork_issue_create_request(M, repo, issue_number, current, base_ids.issue_source_ref(repo, issue_number))
     if request == nil then
       log_claim(dept, proposal_id, "skip-fork-" .. tostring(request_reason or "invalid"), "fork request could not be built from current issue")
       return false
     end
-    if forks().has_trusted_issue_create_parent_marker(M, current and current.comments, request.dedup_key, owner, managed) then
+    if forks.has_trusted_issue_create_parent_marker(M, current and current.comments, request.dedup_key, owner, managed) then
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end

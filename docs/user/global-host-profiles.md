@@ -76,6 +76,22 @@ freshness or conflict checks required for a born-green pull request. It must be 
 invocation. Put multiple steps in a repository-owned executable, Make target, or task-runner target
 instead of shell control operators in the environment value.
 
+The gate owns the meaning of a nonzero result. When tests ran and established a semantic failure, it
+must print this exact line to stdout or stderr before exiting nonzero:
+
+```text
+FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL
+```
+
+When the gate could not determine test health, it may print
+`FKST_LOCAL_ITERATION_RESULT:v1:UNKNOWN`. Exit zero is `PASS`; the optional explicit form is
+`FKST_LOCAL_ITERATION_RESULT:v1:PASS`. A timeout, an untyped nonzero exit, malformed or conflicting
+declarations, and a declaration inconsistent with the exit status are all `UNKNOWN`. The platform
+never assigns domain meaning to a raw nonzero code. It retries only an unknown base verification once,
+then fails closed without publishing or attributing the candidate. Repository-owned wrappers must
+translate underlying tool-specific statuses into this contract and leave their diagnostic output
+visible so an exhausted `UNKNOWN` retains its reason.
+
 Host activation validates the command from `FKST_HOST_ROOT` before replacing an existing supervisor.
 Activation fails closed when the direct executable is missing, non-executable, or the command shape is
 not safely preflightable; it does not execute the test suite during activation.

@@ -20,10 +20,7 @@ function C.pr_source_ref(repo, pr_number)
 end
 
 function C.issue_source_ref(repo, issue_number)
-  return {
-    kind = "external",
-    ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
-  }
+  return base_ids.issue_source_ref(repo, issue_number)
 end
 
 function C.build_entity_comment_request(target, body, dedup_key, source_ref, opts)
