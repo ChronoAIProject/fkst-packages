@@ -33,6 +33,7 @@ detect_pool_size() {
 run_units_parallel() {
   local pool="$1"; shift
   local -a cmds=("$@")
+  local -a unit_pids=()
   local n=${#cmds[@]}
   [ "$n" -gt 0 ] || return 0
   # Fail CLOSED on setup failure: run under `set +e` / left-of-|| where errexit is
@@ -53,8 +54,12 @@ run_units_parallel() {
       sleep 0.05
     done
     ( set +e; eval "${cmds[$i]}" >"$dir/$i.out" 2>&1; printf '%s' "$?" >"$dir/$i.rc" ) &
+    unit_pids+=("$!")
   done
-  wait
+  local unit_pid
+  for unit_pid in "${unit_pids[@]}"; do
+    wait "$unit_pid" || true
+  done
   for (( j=0; j<n; j++ )); do
     cat "$dir/$j.out" 2>/dev/null || true
     rc="$(cat "$dir/$j.rc" 2>/dev/null || printf '1')"
@@ -62,6 +67,33 @@ run_units_parallel() {
   done
   rm -rf "$dir"
   return "$fails"
+}
+
+test_reports_establish_semantic_failure() {
+  local report_dir="$1" expected_failures="$2"
+  python3 -B - "$report_dir" "$expected_failures" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report_dir = Path(sys.argv[1])
+expected_failures = int(sys.argv[2])
+semantic_failures = 0
+try:
+    for report_path in sorted(report_dir.glob("*.json")):
+        with report_path.open(encoding="utf-8") as handle:
+            report = json.load(handle)
+        if report.get("schema") != "fkst.test.report.v1":
+            raise ValueError("unexpected test report schema")
+        summary = report.get("summary")
+        if not isinstance(summary, dict):
+            raise ValueError("missing test report summary")
+        if int(summary.get("failed", 0)) > 0:
+            semantic_failures += 1
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if semantic_failures > 0 and semantic_failures == expected_failures else 1)
+PY
 }
 
 # Run one package's conformance + test(s) with its OWN ephemeral runtime/durable roots,

@@ -11,6 +11,7 @@ local marker_facts = require("devloop.markers.facts")
 local operator_commands = require("devloop.operator_commands")
 local parsers_issue = require("devloop.parsers.issue")
 local devloop_state = require("devloop.state")
+local premise_correction = require("devloop.premise_correction")
 
 local C = {}
 
@@ -184,9 +185,10 @@ local function issue_occupies_capacity(repo, current)
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local decision = marker_facts.intake_decision_fact(current.comments, proposal_id)
+  local pending_correction = premise_correction.matching_correction_fact(current.comments, decision)
   local has_active_state = not marker_facts.has_state_marker(current.comments, proposal_id)
     or devloop_state.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id)
-  return (decision == nil or decision.decision == "enable")
+  return (decision == nil or decision.decision == "enable" or pending_correction ~= nil)
     and has_active_state
     and not devloop_state.current_issue_observation_is_terminal(current.comments, proposal_id)
 end

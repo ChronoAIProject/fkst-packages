@@ -13,6 +13,7 @@ local board = require("devloop.payloads.board")
 local transition_version = require("contract.transition_version")
 local ci_failure_keys = require("devloop.ci_failure_keys")
 local payload_registry = require("devloop.payload_registry")
+local premise_correction = require("devloop.premise_correction")
 
 local function resolve_payload_token(token, context)
   local value, failure = payload_registry.resolve(token, context)
@@ -387,6 +388,13 @@ end
 
 function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at, options)
   local opts = options or {}
+  local has_premise = opts.premise_fingerprint ~= nil
+  local has_correction = opts.correction_fingerprint ~= nil
+  if has_premise ~= has_correction
+    or (has_premise and not premise_correction.is_premise_fingerprint(opts.premise_fingerprint))
+    or (has_correction and not premise_correction.is_correction_fingerprint(opts.correction_fingerprint)) then
+    error("github-devloop: invalid premise correction candidate identity")
+  end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
   local source_ref = {
     kind = "external",
@@ -405,6 +413,8 @@ function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
     effect_id = effect_id,
     reintake_command_created_at = opts.reintake_command_created_at,
     reintake_effect_updated_at = opts.reintake_effect_updated_at,
+    premise_fingerprint = opts.premise_fingerprint,
+    correction_fingerprint = opts.correction_fingerprint,
     source_ref = source_ref,
   }
 end

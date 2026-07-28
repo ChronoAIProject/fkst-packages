@@ -1,20 +1,19 @@
 local M = {}
 
-function M.classify(candidate_exit, base_probe)
-  local candidate = tonumber(candidate_exit)
-  if candidate == 0 then
+function M.classify(candidate_result, base_probe)
+  local candidate_kind = type(candidate_result) == "table" and candidate_result.kind or nil
+  if candidate_kind == "PASS" then
     return "GREEN"
   end
-  if candidate == nil or type(base_probe) ~= "table" then
+  if candidate_kind ~= "SEMANTIC_FAIL" or type(base_probe) ~= "table" then
     return "INDETERMINATE"
   end
 
-  local base_exit = tonumber(base_probe.exit)
   local base_sha = tostring(base_probe.base_sha or "")
   if base_probe.status ~= "completed"
-    or base_exit == nil
     or base_sha == ""
-    or tostring(base_probe.head_readback or "") ~= base_sha then
+    or tostring(base_probe.head_readback or "") ~= base_sha
+    or type(base_probe.result) ~= "table" then
     return "INDETERMINATE"
   end
   -- KNOWN v1 LIMITATION (three-point control deferred to a follow-up): OWN_LOCAL_RED
@@ -26,10 +25,13 @@ function M.classify(candidate_exit, base_probe)
   -- improvement over the prior behavior (which attributed *every* red to the candidate)
   -- and never regresses it; a pre-Codex "prepared" third control point that would split
   -- out PREPARATION_RED is left open for a follow-up change.
-  if base_exit == 0 then
+  if base_probe.result.kind == "PASS" then
     return "OWN_LOCAL_RED"
   end
-  return "BASE_RED"
+  if base_probe.result.kind == "SEMANTIC_FAIL" then
+    return "BASE_RED"
+  end
+  return "INDETERMINATE"
 end
 
 return M
