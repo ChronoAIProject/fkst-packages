@@ -306,7 +306,10 @@ end
 local function existing_rereview_command(snapshot, fact)
   local found = nil
   for _, row in ipairs(snapshot and snapshot.prs or {}) do
-    local command = correlated_command(row.current and row.current.comments, fact, "rereview")
+    local command, reason = correlated_command(row.current and row.current.comments, fact, "rereview")
+    if reason == "ambiguous-command" then
+      return nil, reason
+    end
     if command ~= nil then
       if found ~= nil then
         return nil, "ambiguous-command"

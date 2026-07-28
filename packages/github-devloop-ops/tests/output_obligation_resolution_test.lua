@@ -492,6 +492,34 @@ return {
     t.eq(close.action, "close")
   end,
 
+  test_multiple_correlated_rereview_commands_wait_without_another_effect = function()
+    local issue = escalation_issue()
+    local fact = classify(issue)
+    local source = source_with_pr_link()
+    local snapshot = linked_pr_snapshot("blocked", pr_blocked_version)
+    local first = core.output_obligation_resolution_decision(fact, issue, source, snapshot)
+    local comments = append_comment(
+      snapshot.prs[1].current.comments,
+      command_comment(first.request, "IC_rereview_ambiguous_a")
+    )
+    comments = append_comment(
+      comments,
+      command_comment(first.request, "IC_rereview_ambiguous_b")
+    )
+
+    local decision = core.output_obligation_resolution_decision(
+      fact,
+      issue,
+      source,
+      linked_pr_snapshot("blocked", pr_blocked_version, { comments = comments })
+    )
+
+    t.eq(decision.decision, nil)
+    t.eq(decision.action, "wait")
+    t.eq(decision.reason, "ambiguous-command")
+    t.eq(decision.request, nil)
+  end,
+
   test_existing_rereview_revalidates_other_same_lineage_pr_quiescence = function()
     local issue = escalation_issue()
     local fact = classify(issue)
