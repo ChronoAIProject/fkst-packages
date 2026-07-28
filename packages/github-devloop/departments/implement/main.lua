@@ -24,6 +24,7 @@ local config = require("devloop.config")
 local fork_gate = require("departments.implement.fork_gate")
 local m_mq = require("devloop.merge_queue")
 local external_pr_bridge = require("departments.implement.external_pr_bridge")
+local implement_profile = require("departments.implement.profile")
 local implement_caps = require("implement_department_caps")
 local restart_sink_grants = require("restart_sink_grants")
 
@@ -296,10 +297,11 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
   })
   restart_sink_grants.consume(implement_caps, receiver_authorization, "codex.dispatch:implement",
     "github-devloop: implement codex dispatch grant")
+  local profile = implement_profile.resolve(core.git, branch, ready.framing)
   local result = workflow_codex.dispatch(convergence_identity.from_parts("implement", ready.proposal_id, ready.dedup_key, {
     angle_lane = "worker",
   }), {
-    prompt = core.build_implement_prompt(ready.proposal_id, current, ready.framing, content_fetch),
+    prompt = core.build_implement_prompt(ready.proposal_id, current, ready.framing, content_fetch, profile),
     worktree = worktree,
     sync = true,
   })

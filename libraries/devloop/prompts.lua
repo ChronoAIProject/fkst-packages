@@ -161,15 +161,27 @@ end
 
 local function install_implement(M, resolved)
   local load_prompt = prompt_loader(resolved)
-function M.build_implement_prompt(proposal_id, current, framing, content_manifest)
+function M.build_implement_prompt(proposal_id, current, framing, content_manifest, profile)
   local prompt = load_prompt("implement")
-  return M.render_prompt_template(prompt.template, {
+  local local_test_command = config.local_iteration_test_command()
+  local rendered = M.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(proposal_id),
     framing = bounded_framing(M, framing),
     title = devloop_base.neutralize_untrusted_prompt_text(current.title),
-    local_test_command = config.local_iteration_test_command(),
+    local_test_command = local_test_command,
     content_fetch_block = local_context_block(M, content_manifest),
   }, nil, { role = "actor", entity_history = true })
+  local selected = profile or "generic"
+  if selected == "generic" then
+    return rendered
+  end
+  local profile_template = type(prompt.profiles) == "table" and prompt.profiles[selected] or nil
+  if type(profile_template) ~= "string" then
+    error("devloop_prompts: unsupported implement profile " .. tostring(selected))
+  end
+  return rendered .. "\n\n" .. devloop_base.render_template(profile_template, {
+    local_test_command = local_test_command,
+  })
 end
 end
 

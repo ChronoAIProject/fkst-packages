@@ -75,6 +75,9 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
       marker_version = tostring(reached.effect_version or reached.dedup_key),
       source_ref = base_ids.normalize_source_ref(reached.source_ref),
     }
+    if reached.framing ~= nil then
+      request.handoff.framing = reached.framing
+    end
   end
   return request
 end
