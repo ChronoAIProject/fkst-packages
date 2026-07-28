@@ -3,9 +3,10 @@ local parsers_misc = require("devloop.parsers.misc")
 local C = {}
 local shared = require("devloop.payloads.shared")
 local devloop_base = require("devloop.base")
+local restart_metadata = require("devloop.restart_metadata")
 
 local function stage_rank(state)
-  return require("devloop.state").stage_rank(state)
+  return restart_metadata.stage_rank(state)
 end
 
 local gate_owned_gap_patterns = {
