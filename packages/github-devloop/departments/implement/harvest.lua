@@ -332,15 +332,13 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   if dirty or existing_head ~= nil then
     green, verify_detail = run_local_iteration_check(ready, worktree)
   end
-  if green then
-    local head_sha = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
-      or existing_head
-    if head_sha ~= nil then
-      return implementation_outcome(ready, worktree, branch, head_sha, integration_branch, base_head, attempt, started_at, exec_ref)
-    end
+  local progress_head = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
+    or existing_head
+  if green and progress_head ~= nil then
+    return implementation_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref)
   end
-  if existing_head ~= nil then
-    return checkpoint_outcome(ready, worktree, branch, existing_head, integration_branch, base_head, attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr)
+  if progress_head ~= nil then
+    return checkpoint_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr)
   end
   return impl_failed_outcome(ready, "codex-failed", stderr, attempt, started_at, exec_ref, base_head)
 end
