@@ -208,14 +208,14 @@ local function blocker_merged(repo, blocker_number)
   if not ok or type(current) ~= "table" then
     return nil, "malformed-json"
   end
-  local state = require("devloop.entity").current_entity_state(current.comments, blocker_proposal_id)
-  if type(state) == "table" and state.state == "merged" then
+  if devloop_state.reached(current.comments, blocker_proposal_id, "merged") then
     return true, nil
   end
 
   local link = m_facts.pr_link_fact(current.comments, blocker_proposal_id)
   if link == nil then
-    return core.delegated_blocker_merged(repo, blocker_number, blocker_proposal_id, current, state)
+    local delegation = m_facts.pr_delegation_fact(current.comments, blocker_proposal_id)
+    return core.delegated_blocker_merged(repo, blocker_number, blocker_proposal_id, current, delegation)
   end
 
   local pr_result = devloop_commands.gh_pr_view_observe(repo, link.pr_number, 30)
@@ -239,12 +239,13 @@ local function blocker_merged(repo, blocker_number)
     return nil, "pr-origin-mismatch"
   end
 
-  local pr_state = require("devloop.entity").current_entity_state(pr_current.comments, blocker_proposal_id)
-  if type(pr_state) ~= "table" or pr_state.state ~= "merged" then
+  local merged = m_facts.merged_fact(pr_current.comments, blocker_proposal_id, link.pr_number)
+  if merged == nil or not devloop_state.reached(pr_current.comments, blocker_proposal_id, "merged", {
+    lineage_base = merged.version,
+  }) then
     return false, nil
   end
-  local merged = m_facts.merged_fact(pr_current.comments, blocker_proposal_id, link.pr_number, pr_state.version)
-  return merged ~= nil, nil
+  return true, nil
 end
 
 local function prove_blocker_merged(repo, blocker_number)
