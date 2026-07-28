@@ -365,8 +365,8 @@ return {
       runtime = runtime_root,
       impl_version = lean_ready_version,
     })
-    t.mock_command("git show " .. branch .. ":lean-toolchain", {
-      stdout = "leanprover/lean4:v4.19.0\n",
+    t.mock_command("git cat-file -t " .. branch .. ":lean-toolchain", {
+      stdout = "blob\n",
       stderr = "",
       exit_code = 0,
     })

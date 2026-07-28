@@ -39,17 +39,18 @@ function M.resolve(git, target_ref, framing)
   if not framing_names_lean_deliverable(framing) then
     return generic_profile
   end
-  if type(git) ~= "table" or type(git.show_file) ~= "function" then
-    error("github-devloop: implement-profile-git-adapter-unavailable: show_file is required")
+  if type(git) ~= "table" or type(git.object_type) ~= "function" then
+    error("github-devloop: implement-profile-git-adapter-unavailable: object_type is required")
   end
-  local result = git.show_file(target_ref, lean_toolchain_path, 30)
+  local result = git.object_type(target_ref, lean_toolchain_path, 30)
   if type(result) == "table" and result.exit_code == 0 then
-    return lean_profile
+    local object_type = tostring(result.stdout or ""):gsub("%s+$", "")
+    return object_type == "blob" and lean_profile or generic_profile
   end
   if is_missing_toolchain(result) then
     return generic_profile
   end
-  error("github-devloop: implement-profile-source-read-failed: "
+  error("github-devloop: implement-profile-source-type-read-failed: "
     .. tostring(result and result.stderr or "nil git result"))
 end
 

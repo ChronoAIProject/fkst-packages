@@ -13,7 +13,7 @@ local function recording_git(result)
   local calls = {}
   return {
     calls = calls,
-    show_file = function(ref, path, timeout)
+    object_type = function(ref, path, timeout)
       table.insert(calls, {
         ref = ref,
         path = path,
@@ -33,7 +33,7 @@ end
 return {
   test_lean_toolchain_and_explicit_lean_deliverable_select_lean_proof = function()
     local profile = load_profile()
-    local git = recording_git({ stdout = "leanprover/lean4:v4.19.0\n", stderr = "", exit_code = 0 })
+    local git = recording_git({ stdout = "blob\n", stderr = "", exit_code = 0 })
 
     local selected = profile.resolve(git, "refs/heads/proof-task", "Change `Proofs/Target.lean` only.")
 
@@ -46,7 +46,7 @@ return {
 
   test_profile_stays_generic_unless_both_dispatch_facts_agree = function()
     local profile = load_profile()
-    local lean_git = recording_git({ stdout = "leanprover/lean4:v4.19.0\n", stderr = "", exit_code = 0 })
+    local lean_git = recording_git({ stdout = "blob\n", stderr = "", exit_code = 0 })
 
     t.eq(profile.resolve(lean_git, "refs/heads/docs-task", "Update the release notes."), "generic")
     t.eq(#lean_git.calls, 0)
@@ -58,6 +58,14 @@ return {
     })
     t.eq(profile.resolve(non_lean_git, "refs/heads/proof-task", "Change Proofs/Target.lean only."), "generic")
     t.eq(#non_lean_git.calls, 1)
+
+    local directory_git = recording_git({
+      stdout = "tree\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.eq(profile.resolve(directory_git, "refs/heads/proof-task", "Change Proofs/Target.lean only."), "generic")
+    t.eq(#directory_git.calls, 1)
   end,
 
   test_lean_proof_prompt_requires_elaborator_first_bounded_edit_check_loop = function()
