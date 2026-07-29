@@ -1,4 +1,6 @@
 local h = require("tests.devloop_helpers")
+local payloads_builders = require("devloop.payloads.builders")
+local requests_lifecycle = require("devloop.requests.lifecycle")
 
 local t = h.t
 local core = h.core
@@ -84,5 +86,24 @@ return {
     t.is_true(proof:find("smallest bounded proof change", 1, true) ~= nil)
     t.is_true(proof:find("Rerun the same Lean checker", 1, true) ~= nil)
     t.is_true(proof:find("`scripts/run.sh test-affected`", 1, true) ~= nil)
+  end,
+
+  test_accepted_framing_rederives_from_durable_result_fact = function()
+    local profile = load_profile()
+    local framing = "Change `Proofs/Target.lean` only."
+    local accepted = h.reached({ framing = framing })
+    local request = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", accepted)
+    local ready = payloads_builders.build_devloop_ready_payload(core, accepted)
+    ready.framing = nil
+
+    local resolved = profile.accepted_framing(ready, {
+      {
+        body = request.body,
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:02:03Z",
+      },
+    })
+
+    t.eq(resolved, framing)
   end,
 }

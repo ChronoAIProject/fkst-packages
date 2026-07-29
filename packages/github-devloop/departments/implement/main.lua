@@ -297,11 +297,12 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
   })
   restart_sink_grants.consume(implement_caps, receiver_authorization, "codex.dispatch:implement",
     "github-devloop: implement codex dispatch grant")
-  local profile = implement_profile.resolve(core.git, branch, ready.framing)
+  local framing = implement_profile.accepted_framing(ready, current.comments)
+  local profile = implement_profile.resolve(core.git, branch, framing)
   local result = workflow_codex.dispatch(convergence_identity.from_parts("implement", ready.proposal_id, ready.dedup_key, {
     angle_lane = "worker",
   }), {
-    prompt = core.build_implement_prompt(ready.proposal_id, current, ready.framing, content_fetch, profile),
+    prompt = core.build_implement_prompt(ready.proposal_id, current, framing, content_fetch, profile),
     worktree = worktree,
     sync = true,
   })

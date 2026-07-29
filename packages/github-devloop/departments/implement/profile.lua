@@ -1,3 +1,4 @@
+local result_facts = require("devloop.markers.result_facts")
 local M = {}
 
 local generic_profile = "generic"
@@ -33,6 +34,20 @@ local function is_missing_toolchain(result)
   local absent_but_on_disk = "fatal: path '" .. lean_toolchain_path .. "' exists on disk, but not in '"
   return stderr:find(absent, 1, true) ~= nil
     or stderr:find(absent_but_on_disk, 1, true) ~= nil
+end
+
+function M.accepted_framing(ready, comments)
+  if type(ready) ~= "table" then
+    return nil
+  end
+  if ready.framing ~= nil then
+    return ready.framing
+  end
+  local fact = result_facts.current_result_fact(comments, ready.proposal_id, ready.dedup_key)
+  if fact ~= nil and fact.decision == "approve" then
+    return fact.framing
+  end
+  return nil
 end
 
 function M.resolve(git, target_ref, framing)
