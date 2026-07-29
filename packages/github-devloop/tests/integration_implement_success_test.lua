@@ -300,6 +300,68 @@ return {
     t.eq(branch, deterministic_branch_for(event))
   end,
 
+  test_implement_local_gate_unknown_retries_unchanged_candidate_once = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = "report-supervisor: timed out waiting for a slot\n",
+      exit_code = 2,
+    })
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_git_commit("def456", branch)
+
+    local result = run_implement(event, opts("implement-candidate-unknown-recovers"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("scripts/run.sh test-affected"), 2)
+    t.eq(count_calls("git worktree add --detach"), 0)
+    t.eq(count_calls("git worktree add -B"), 0)
+    for _, call in ipairs(t.command_calls()) do
+      if call.rendered:find("scripts/run.sh test-affected", 1, true) ~= nil then
+        t.is_true(call.rendered:find(worktree, 1, true) ~= nil)
+      end
+    end
+    t.is_true(find_comment_with(result.raises, "github-devloop implementation output published") ~= nil)
+    t.eq(find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1"), nil)
+  end,
+
+  test_implement_local_gate_unknown_retry_exhausts_indeterminate = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = "first untyped nonzero\n",
+      exit_code = 2,
+    })
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = "second untyped nonzero\n",
+      exit_code = 2,
+    })
+
+    local result = run_implement(event, opts("implement-candidate-unknown-exhausts"))
+
+    local failure = assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    t.is_true(failure.payload.body:find("candidate_verification_attempt=2/2", 1, true) ~= nil)
+    t.is_true(failure.payload.body:find("second untyped nonzero", 1, true) ~= nil)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("scripts/run.sh test-affected"), 2)
+    t.eq(count_calls("git worktree add --detach"), 0)
+  end,
+
   test_implement_local_gate_typed_base_failure_is_attributed_to_base = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
