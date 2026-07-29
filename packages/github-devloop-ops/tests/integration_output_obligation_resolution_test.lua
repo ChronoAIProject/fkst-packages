@@ -6,9 +6,13 @@ local github_fake = require("forge.github_fake")
 local queue_starvation = require("devloop.queue_starvation")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local conv_rounds = require("devloop.convergence.rounds")
+local convergence_shared = require("devloop.convergence.shared")
 local devloop_base = require("devloop.base")
+local entity_lib = require("devloop.entity")
 local marker_builders = require("devloop.markers.builders")
 local operator_commands = require("devloop.operator_commands")
+local transition_version = require("contract.transition_version")
 
 local repo = "owner/repo"
 local source_issue_number = 42
@@ -22,6 +26,16 @@ local pr_branch = "devloop-owner-repo-42-live-recovery"
 local pr_head_sha = "abcdef1234567890abcdef1234567890abcdef12"
 local pr_blocked_version = "implement/2026-07-27T12-00-00Z/review-loop/3"
 local prior_intake_dedup = "intake/github-devloop/issue/owner/repo/42/original"
+
+local marker_core = {
+  liveness_heartbeat_version = function(version)
+    return transition_version.safe_version_segment(version)
+  end,
+  liveness_signal_producer_contract = function(family)
+    t.eq(family, "review-converge-round")
+    return { version_form = "safe_version_segment" }
+  end,
+}
 
 local function escalation_fact()
   return {
@@ -139,6 +153,34 @@ local function pr_fixture(state, version)
       bot_comment(core.state_marker(proposal_id, state, version)),
     },
   }
+end
+
+local function add_stalled_review_markers(pr)
+  local review_proposal = devloop_base.pr_review_proposal_id(
+    repo,
+    pr_number,
+    pr_blocked_version,
+    pr_head_sha
+  )
+  local review_version = transition_version.safe_version_segment(pr_blocked_version)
+  local source_digest = convergence_shared.source_ref_digest(entity_lib.pr_source_ref(repo, pr_number))
+  local angles = {
+    { angle = "fidelity", verdict = "abstain", digest = "same-review-digest" },
+  }
+  for round = 1, 3 do
+    pr.comments = append_comment(pr.comments, bot_comment(conv_rounds.review_converge_round_marker(
+      marker_core,
+      review_proposal,
+      proposal_id,
+      review_version,
+      pr_head_sha,
+      source_digest,
+      round,
+      "review-loop/" .. tostring(round),
+      "Same review question",
+      angles
+    )))
+  end
 end
 
 local function mock_env(write_mode)
@@ -654,6 +696,29 @@ return {
         t.eq(close_write(model.writes), nil)
       end
     end
+  end,
+
+  test_stalled_reviewing_pr_emits_rereview_command_on_observe_tick = function()
+    mock_env("1")
+    local source = live_source_fixture(true)
+    local pr = pr_fixture("reviewing", pr_blocked_version)
+    add_stalled_review_markers(pr)
+    local department = fake_department({
+      source_issue = source,
+      prs = { ["owner/repo#pr/77"] = pr },
+    })
+    mock_census({})
+
+    local result = run_tick(department)
+
+    local command = find_target_raise(
+      result.raises,
+      "github-proxy.github_pr_comment_request",
+      "pr_number",
+      pr_number
+    )
+    t.is_true(command ~= nil)
+    t.is_true(command.payload.body:find("fkst: rereview", 1, true) == 1)
   end,
 
   test_live_recovery_dry_run_emits_intent_without_direct_write = function()

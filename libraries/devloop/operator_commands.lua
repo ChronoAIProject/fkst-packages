@@ -107,7 +107,7 @@ function C.operator_rereview_version(current_version, head_sha)
   return transition_version.next_rereview(current_version, head_sha)
 end
 
-local function is_stalled_reviewing(core, current_pr, origin, pr_number, state)
+local function is_stalled_reviewing(current_pr, origin, pr_number, state)
   if state.state ~= "reviewing" or not forge_validators.is_git_sha(current_pr.head_sha) then
     return false
   end
@@ -119,8 +119,7 @@ local function is_stalled_reviewing(core, current_pr, origin, pr_number, state)
   )
   local review_version = transition_version.safe_version_segment(state.version)
   local sr_digest = convergence_shared.source_ref_digest(entity_lib.pr_source_ref(origin.repo, pr_number))
-  local facts = conv_rounds.review_converge_round_facts(
-    core,
+  local facts = conv_rounds.review_converge_round_facts_for_heartbeat(
     current_pr.comments,
     review_proposal_id,
     origin.proposal_id,
@@ -132,7 +131,7 @@ local function is_stalled_reviewing(core, current_pr, origin, pr_number, state)
   return conv_rounds.is_true_stall(facts, round)
 end
 
-function C.rereview_precondition(core, current_pr, origin, pr_number, state)
+function C.rereview_precondition(_core, current_pr, origin, pr_number, state)
   if type(current_pr) ~= "table" or type(origin) ~= "table" or type(state) ~= "table" then
     return false, "invalid-state"
   end
@@ -141,7 +140,7 @@ function C.rereview_precondition(core, current_pr, origin, pr_number, state)
     return false, "invalid-state"
   end
   if state_mode == "stall-required"
-    and not is_stalled_reviewing(core, current_pr, origin, pr_number, state) then
+    and not is_stalled_reviewing(current_pr, origin, pr_number, state) then
     return false, "active-reviewing"
   end
   if tostring(current_pr.state or ""):lower() ~= "open" then

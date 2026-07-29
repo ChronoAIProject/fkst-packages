@@ -40,6 +40,7 @@ local function build_pr_state_routes()
   end
   routes.blocked.recovery = "rereview"
   routes["review-meta"].recovery = "rereview"
+  routes.reviewing.recovery = "rereview"
   return routes
 end
 
