@@ -406,10 +406,10 @@ function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logi
   local reason_attr = decision_reason and ('" reason="' .. decision_reason) or ""
   local framing_attr = ""
   if framing ~= nil then
-    local safe_framing = safe_marker_attr(framing, devloop_base._max_framing_len)
-    if safe_framing ~= "" then
-      framing_attr = '" framing="' .. safe_framing
+    if not shared.strings.is_bounded_string(framing, devloop_base._max_framing_len) then
+      error("github-devloop: invalid result framing")
     end
+    framing_attr = '" framing="' .. shared.encode_exact_marker_attr(framing)
   end
   return '<!-- fkst:github-devloop:result:v1 proposal="' .. tostring(proposal_id)
     .. '" decision="' .. decision

@@ -16,7 +16,7 @@ local function result_fact(marker, proposal_id)
     return nil
   end
   local raw_framing = marker_attr(marker, "framing")
-  local framing = shared.decode_marker_attr(raw_framing)
+  local framing = shared.decode_exact_marker_attr(raw_framing)
   if raw_framing ~= nil
     and (framing == nil or not shared.strings.is_bounded_string(framing, devloop_base._max_framing_len)) then
     return nil

@@ -88,9 +88,9 @@ return {
     t.is_true(proof:find("`scripts/run.sh test-affected`", 1, true) ~= nil)
   end,
 
-  test_accepted_framing_rederives_from_durable_result_fact = function()
+  test_accepted_framing_rederives_exactly_from_durable_result_fact = function()
     local profile = load_profile()
-    local framing = "Change `Proofs/Target.lean` only."
+    local framing = "Prove x < y in \"Proofs/Target.lean\".\nKeep 100% of the accepted scope."
     local accepted = h.reached({ framing = framing })
     local request = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", accepted)
     local ready = payloads_builders.build_devloop_ready_payload(core, accepted)

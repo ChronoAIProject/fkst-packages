@@ -40,6 +40,37 @@ function S.safe_marker_attr(value, limit)
   return text
 end
 
+function S.encode_exact_marker_attr(value)
+  return (tostring(value or ""):gsub("([^%w%-%._~])", function(char)
+    return string.format("%%%02X", string.byte(char))
+  end))
+end
+
+function S.decode_exact_marker_attr(value)
+  if type(value) ~= "string" or value == "" then
+    return nil
+  end
+  local decoded = {}
+  local offset = 1
+  while offset <= #value do
+    local char = value:sub(offset, offset)
+    if char == "%" then
+      local byte = value:sub(offset + 1, offset + 2)
+      if #byte ~= 2 or byte:find("^%x%x$") == nil then
+        return nil
+      end
+      table.insert(decoded, string.char(tonumber(byte, 16)))
+      offset = offset + 3
+    elseif char:find("^[%w%-%._~]$") ~= nil then
+      table.insert(decoded, char)
+      offset = offset + 1
+    else
+      return nil
+    end
+  end
+  return table.concat(decoded)
+end
+
 function S.decode_marker_attr(value)
   if type(value) ~= "string" or value == "" then
     return nil
