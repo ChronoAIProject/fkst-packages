@@ -1,0 +1,13 @@
+# Declarative conformance pack OWNED BY github-auto-twitter-marketing.
+schema = 1
+runner_protocol = "fkst-declarative-rulepack@1"
+owner_package = "github-auto-twitter-marketing"
+
+[[rules]]
+id = "source.max-lines"
+severity = "error"
+kind = "max_line_count"
+include = ["**/*.lua"]
+exclude = ["tests/**", "**/*_test.lua"]
+max = 1000
+message = "github-auto-twitter-marketing source files must stay under the 1000-line limit"

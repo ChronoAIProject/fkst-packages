@@ -1,0 +1,18 @@
+kind = "package.composed"
+name = "marketing-radar"
+persistence_class = "saga"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "testkit", "forge"]
+
+[event_deps]
+packages = ["github-proxy"]
+
+[conformance]
+function = "core.saga_conformance_errors"
+
+[github]
+work_labels = ["auto-twitter-marketing"]

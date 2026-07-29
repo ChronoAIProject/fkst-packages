@@ -1,0 +1,15 @@
+# Declarative conformance pack OWNED BY marketing-radar.
+# Interpreted by the engine's generic DeclarativeRulePack. Scope is fenced
+# to this package's own tree; it cannot read host or sibling files.
+schema = 1
+runner_protocol = "fkst-declarative-rulepack@1"
+owner_package = "marketing-radar"
+
+[[rules]]
+id = "source.max-lines"
+severity = "error"
+kind = "max_line_count"
+include = ["**/*.lua"]
+exclude = ["tests/**", "**/*_test.lua"]
+max = 1000
+message = "marketing-radar source files must stay under the 1000-line limit"

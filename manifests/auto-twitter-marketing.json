@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "name": "auto-twitter-marketing",
+  "description": "GitHub issue driven Auto Twitter marketing workflow. Shadow mode previews by default; live text-only X publishing is gated by the user's Environment Profile and brokered by NyxID.",
+  "packages": [
+    "ChronoAIProject/fkst-packages@fkst-hosted:packages/github-proxy",
+    "ChronoAIProject/fkst-packages@fkst-hosted:packages/marketing-radar",
+    "ChronoAIProject/fkst-packages@fkst-hosted:packages/github-auto-twitter-marketing",
+    "ChronoAIProject/fkst-packages@fkst-hosted:packages/x-publisher"
+  ],
+  "github": {
+    "workLabels": [
+      "auto-twitter-marketing"
+    ]
+  },
+  "nyxid": {
+    "xPublishCredential": "user-environment-profile",
+    "xPublishRuntimeDependency": "nyxid-cli-on-path",
+    "xPublishAccessTokenEnv": "NYXID_ACCESS_TOKEN",
+    "xPublishBaseUrlEnv": "NYXID_URL",
+    "xPublishServiceEnv": "NYXID_X_SERVICE_SLUG",
+    "xPublishWriteSwitchEnv": "X_PUBLISH_WRITE",
+    "xPublishExpectedUsernameEnv": "X_PUBLISH_EXPECTED_USERNAME",
+    "rawTokenPolicy": "forbidden-in-repo-manifest-issue-payload"
+  },
+  "workflow": {
+    "strategyIssueType": "strategy",
+    "weeklyContentIssueType": "weekly-content",
+    "schedulePublishIssueType": "schedule-publish",
+    "recurringSchedulePublishIssueType": "recurring-schedule-publish",
+    "radarConfigIssueType": "radar-config",
+    "radarSignalIssueType": "radar-signal",
+    "radarRunIssueType": "radar-run",
+    "radarGeneratedWeeklyContent": true,
+    "radarGeneratedScheduleWhenCalendarRefKnown": true,
+    "radarGeneratedIssueNumberReturn": false,
+    "recurrenceField": "recurrence",
+    "intervalMinutesField": "interval-minutes",
+    "intervalRecurringScheduleType": "every-minutes",
+    "dailyPublishTimeField": "time",
+    "timezoneField": "timezone",
+    "livePublishMode": "live",
+    "contentRefField": "calendar-ref",
+    "mvpPublishSurface": "text-only-tweet",
+    "scheduleDispatch": "github-observed-resync"
+  }
+}

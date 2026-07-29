@@ -1,0 +1,18 @@
+kind = "package.composed"
+name = "github-auto-twitter-marketing"
+persistence_class = "saga"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "testkit", "forge"]
+
+[event_deps]
+packages = ["github-proxy", "x-publisher"]
+
+[conformance]
+function = "core.saga_conformance_errors"
+
+[github]
+work_labels = ["auto-twitter-marketing"]
