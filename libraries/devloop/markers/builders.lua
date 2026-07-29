@@ -393,7 +393,7 @@ function C.pr_base_unmanaged_marker(proposal_id, pr_number, pr_base, integration
     .. '" -->'
 end
 
-function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logical_identity)
+function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logical_identity, framing)
   if decision ~= "approve" and decision ~= "reject" then
     error("github-devloop: invalid decision")
   end
@@ -404,11 +404,19 @@ function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logi
     error("github-devloop: unexpected approve decision reason")
   end
   local reason_attr = decision_reason and ('" reason="' .. decision_reason) or ""
+  local framing_attr = ""
+  if framing ~= nil then
+    if not shared.strings.is_bounded_string(framing, devloop_base._max_framing_len) then
+      error("github-devloop: invalid result framing")
+    end
+    framing_attr = '" framing="' .. shared.encode_exact_marker_attr(framing)
+  end
   return '<!-- fkst:github-devloop:result:v1 proposal="' .. tostring(proposal_id)
     .. '" decision="' .. decision
     .. reason_attr
     .. '" dedup="' .. tostring(dedup_key)
     .. (logical_identity and '" lineage="' .. tostring(logical_identity) or "")
+    .. framing_attr
     .. '" -->'
 end
 
