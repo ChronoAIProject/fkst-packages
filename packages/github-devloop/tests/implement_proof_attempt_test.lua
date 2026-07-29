@@ -9,7 +9,7 @@ local core = h.core
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local implementation_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
 local target = "Proofs/Target.lean"
-local checker_command = "lake env lean --no-sorries Proofs/Target.lean"
+local checker_command = "lake env lean -E hasSorry Proofs/Target.lean"
 
 local function load_proof_attempt()
   local ok, proof_attempt = pcall(require, "departments.implement.proof_attempt")

@@ -147,7 +147,7 @@ return {
         timeout_seconds = 7200,
         prior_receipt = {
           declaration = "target_theorem",
-          checker_command = "lake env lean --no-sorries Proofs/Target.lean",
+          checker_command = "lake env lean -E hasSorry Proofs/Target.lean",
           last_obligation = "target_theorem: unsolved goals\ncase h => False",
           attempted_approaches = { "simp", "exact helper_lemma" },
           search_summary = "performed: Nat.succ_eq_add_one",

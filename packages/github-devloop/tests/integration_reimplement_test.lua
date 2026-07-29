@@ -35,7 +35,7 @@ local function lean_receipt(event, version, status, phase, attempt)
     '"attempt":' .. tostring(attempt),
     '"target":"Proofs/Target.lean"',
     '"declaration":"target_theorem"',
-    '"checker_command":"lake env lean --no-sorries Proofs/Target.lean"',
+    '"checker_command":"lake env lean -E hasSorry Proofs/Target.lean"',
   }
   if status == "repair-needed" then
     table.insert(fields, '"last_obligation":"case h => False"')
@@ -271,7 +271,7 @@ return {
     mock_implement_codex(0, lean_receipt(event, ready.dedup_key .. "/reimplement/2",
       "complete", "strong-repair", 2))
     mock_git_status(" M Proofs/Target.lean\n")
-    t.mock_command("lake env lean --no-sorries Proofs/Target.lean", {
+    t.mock_command("lake env lean -E hasSorry Proofs/Target.lean", {
       stdout = "",
       stderr = "",
       exit_code = 0,

@@ -217,7 +217,7 @@ function M.build_implement_prompt(proposal_id, current, framing, content_manifes
     or (context.phase ~= "construction" and context.phase ~= "strong-repair") then
     error("devloop_prompts: invalid lean-proof profile context")
   end
-  local checker_command = "lake env lean --no-sorries " .. context.target
+  local checker_command = "lake env lean -E hasSorry " .. context.target
   return rendered .. "\n\n" .. devloop_base.render_template(profile_template, {
     local_test_command = local_test_command,
     target = context.target,

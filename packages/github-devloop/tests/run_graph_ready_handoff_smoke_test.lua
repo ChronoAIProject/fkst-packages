@@ -17,7 +17,7 @@ local runtime_root = "/tmp/fkst-packages-test/github-devloop-run-graph-ready/run
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 local lean_framing = "Change `Proofs/Target.lean` only."
-local lean_checker_command = "lake env lean --no-sorries Proofs/Target.lean"
+local lean_checker_command = "lake env lean -E hasSorry Proofs/Target.lean"
 
 local function lean_complete_receipt()
   return '{"schema":"github-devloop.lean-proof-result.v1"'

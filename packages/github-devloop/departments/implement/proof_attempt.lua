@@ -94,7 +94,7 @@ local function search_summary(value)
 end
 
 function M.checker_command(target)
-  return "lake env lean --no-sorries " .. tostring(target or "")
+  return "lake env lean -E hasSorry " .. tostring(target or "")
 end
 
 function M.decode(raw, expected)
@@ -237,7 +237,7 @@ function M.verify_candidate(worktree, target, timeout, run)
     return { ok = false, reason = "lean-proof-checker-failed", detail = "exec_argv is unavailable" }
   end
   local result = execute({
-    argv = { "lake", "env", "lean", "--no-sorries", target },
+    argv = { "lake", "env", "lean", "-E", "hasSorry", target },
     cwd = worktree,
     timeout = timeout,
   })

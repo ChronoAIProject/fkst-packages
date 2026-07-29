@@ -8,7 +8,7 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local t = h.t
 local core = h.core
 local target = "Proofs/Target.lean"
-local checker_command = "lake env lean --no-sorries " .. target
+local checker_command = "lake env lean -E hasSorry " .. target
 
 local function find_comment(raises, text)
   return h.find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
