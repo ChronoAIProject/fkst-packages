@@ -1,0 +1,12 @@
+kind = "package.composed"
+name = "marketing-radar"
+persistence_class = "composed_judgment_pipeline"
+
+[code]
+root = "."
+
+[lib_deps]
+libraries = ["contract", "workflow", "testkit", "testkit_internal", "forge"]
+
+[event_deps]
+packages = ["github-proxy"]
