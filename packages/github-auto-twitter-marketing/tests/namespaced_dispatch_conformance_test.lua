@@ -1,4 +1,4 @@
-local conformance = require("testkit.namespaced_dispatch_conformance")
+local conformance = require("testkit_internal.namespaced_dispatch_conformance")
 local github_fake = require("forge.github_fake")
 local t = fkst.test
 

@@ -3,7 +3,7 @@
 local publish_caps = require("publish_x_caps")
 local ports_lib = require("forge.ports")
 local saga = require("workflow.saga")
-local env = require("workflow.env")
+local env = require("workflow_internal.env")
 local strings = require("contract.strings")
 
 local spec = {

@@ -6,7 +6,7 @@ persistence_class = "saga"
 root = "."
 
 [lib_deps]
-libraries = ["contract", "forge", "workflow", "testkit"]
+libraries = ["contract", "forge", "workflow", "workflow_internal"]
 
 # Package-owned conformance — travels with the package; the engine runs it whenever x-publisher
 # is an active package root (fkst-packages self-conformance AND any host repo that composes it).

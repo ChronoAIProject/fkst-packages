@@ -6,7 +6,7 @@ persistence_class = "saga"
 root = "."
 
 [lib_deps]
-libraries = ["contract", "workflow", "testkit", "forge"]
+libraries = ["contract", "workflow", "workflow_internal", "testkit", "testkit_internal", "forge"]
 
 [event_deps]
 packages = ["github-proxy"]

@@ -1,7 +1,7 @@
 local caps = require("import_issue_caps")
 local ports_lib = require("forge.ports")
 local saga = require("workflow.saga")
-local env = require("workflow.env")
+local env = require("workflow_internal.env")
 
 local spec = {
   consumes = { "github-proxy.github_issue_changed", "github-proxy.github_issue_observed" },
