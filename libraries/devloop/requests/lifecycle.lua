@@ -39,7 +39,7 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
     and tostring(reached.effect_version) ~= tostring(reached.dedup_key)
     and logical_identity
     or nil
-  local marker = m_builders.result_marker(reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason, marker_lineage)
+  local marker = m_builders.result_marker(reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason, marker_lineage, reached.framing)
   local canonical_state = state_name or "ready"
   local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready"
     or canonical_state == "declined" and "result-marker,declined-label,premise-refuted"
@@ -75,6 +75,9 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
       marker_version = tostring(reached.effect_version or reached.dedup_key),
       source_ref = base_ids.normalize_source_ref(reached.source_ref),
     }
+    if reached.framing ~= nil then
+      request.handoff.framing = reached.framing
+    end
   end
   return request
 end

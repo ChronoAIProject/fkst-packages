@@ -1,6 +1,7 @@
 local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
+local requests_lifecycle = require("devloop.requests.lifecycle")
 local m_facts = require("devloop.markers.facts")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local t = h.t
@@ -216,6 +217,51 @@ return {
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find(core.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
     t.eq(m_facts.implementing_fact({ comment.payload.body }, event.proposal_id, ready.dedup_key .. "/reimplement/2"), nil)
+  end,
+
+  test_replayed_ready_rederives_proof_profile_from_accepted_result = function()
+    local framing = "Change `Proofs/Target.lean` only."
+    local event = reached({
+      title = "Complete Proofs/Target.lean",
+      framing = framing,
+    })
+    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    ready.framing = nil
+    ready.impl_retry_attempt = 2
+    local result_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", event).body
+    local comments = {
+      result_comment,
+      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
+      core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
+    }
+    local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
+    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+    mock_existing_empty_implement_worktree({
+      impl_version = ready.dedup_key .. "/reimplement/2",
+    })
+    t.mock_command("git cat-file -t " .. branch .. ":lean-toolchain", {
+      stdout = "blob\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_implement_codex(0, "implemented bounded proof")
+    mock_git_status(" M Proofs/Target.lean\n")
+    mock_git_commit(nil, branch)
+    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+
+    local result = run_implement(ready, opts("implement-replay-lean-proof"))
+
+    t.eq(result.exit_code, 0)
+    local prompt = nil
+    for _, call in ipairs(t.command_calls()) do
+      if tostring(call.rendered or ""):find("codex exec", 1, true) ~= nil then
+        prompt = call.stdin
+      end
+    end
+    t.is_true(prompt ~= nil)
+    t.is_true(prompt:find("Implementation profile: `lean-proof`", 1, true) ~= nil)
+    t.is_true(prompt:find(framing, 1, true) ~= nil)
   end,
 
   test_blocked_reimplement_receiver_writes_fresh_attempt_version = function()

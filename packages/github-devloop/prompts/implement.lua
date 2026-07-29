@@ -1,4 +1,12 @@
 return {
+  profiles = {
+    ["lean-proof"] = [[## Implementation profile: `lean-proof`
+- Inspect the target `.lean` source and the local declarations it depends on before changing code.
+- Before editing, locate and run the repository's existing Lean checker on the target source to obtain the actual goal or error state before editing. Treat that elaborator output as the proof-state authority.
+- Make the smallest bounded proof change that satisfies the accepted framing; do not broaden the theorem or refactor unrelated proof code.
+- Rerun the same Lean checker after editing, then run the configured local verification command from the repository root: `{{local_test_command}}`.
+- Do not hand off with a failing Lean checker or local verification command.]],
+  },
   template = [[You are implementing a GitHub issue for github-devloop.
 
 Repository state:

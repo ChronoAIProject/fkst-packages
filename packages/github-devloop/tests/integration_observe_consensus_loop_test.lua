@@ -416,7 +416,7 @@ return {
     local declined_state = core.current_state({ comment.payload.body }, event.proposal_id)
     t.eq(declined_state.state, "declined")
     t.eq(declined_state.version, event.dedup_key)
-    t.is_true(comment.payload.body:find(m_builders.result_marker(event.proposal_id, "reject", event.dedup_key, "premise-refuted"), 1, true) ~= nil)
+    t.is_true(comment.payload.body:find(m_builders.result_marker(event.proposal_id, "reject", event.dedup_key, "premise-refuted", nil, event.framing), 1, true) ~= nil)
     t.eq(label.payload.add_labels[1], "fkst-dev:declined")
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
