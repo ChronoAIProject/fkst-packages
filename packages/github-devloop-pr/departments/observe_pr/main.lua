@@ -193,7 +193,6 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     return false
   end
   local admissible, precondition_reason = operator_commands.rereview_precondition(
-    core,
     current_pr,
     origin,
     pr_number,

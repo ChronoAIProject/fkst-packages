@@ -131,7 +131,7 @@ local function is_stalled_reviewing(current_pr, origin, pr_number, state)
   return conv_rounds.is_true_stall(facts, round)
 end
 
-function C.rereview_precondition(_core, current_pr, origin, pr_number, state)
+function C.rereview_precondition(current_pr, origin, pr_number, state)
   if type(current_pr) ~= "table" or type(origin) ~= "table" or type(state) ~= "table" then
     return false, "invalid-state"
   end

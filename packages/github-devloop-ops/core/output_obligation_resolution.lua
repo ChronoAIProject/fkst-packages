@@ -470,7 +470,6 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
       local admissible = false
       if coherent.route.recovery == "rereview" then
         admissible = operator_commands.rereview_precondition(
-          M,
           coherent.current_pr,
           coherent.origin,
           row.number,
