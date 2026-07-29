@@ -150,9 +150,6 @@ local function read_env_command(name)
   if name ~= "FKST_GITHUB_BOT_LOGIN"
     and name ~= "FKST_DEVLOOP_MANAGED_BOT_LOGINS"
     and name ~= "FKST_GITHUB_AUTHORIZED_LOGINS"
-    and name ~= "FKST_NYXID_X_SERVICE_SLUG"
-    and name ~= "FKST_X_PUBLISH_EXPECTED_USERNAME"
-    and name ~= "FKST_X_PUBLISH_WRITE"
     and name ~= "NYXID_X_SERVICE_SLUG"
     and name ~= "X_PUBLISH_EXPECTED_USERNAME"
     and name ~= "X_PUBLISH_WRITE" then
@@ -162,22 +159,13 @@ local function read_env_command(name)
 end
 
 local read_env = env.read_env(read_env_command, { propagate_exec_errors = true })
-local function first_non_empty_env(names)
-  for _, name in ipairs(names) do
-    local value = strings.trim(read_env(name) or "")
-    if value ~= "" then
-      return value
-    end
-  end
-  return ""
-end
 
 live_options = function()
-  local write_gate = first_non_empty_env({ "X_PUBLISH_WRITE", "FKST_X_PUBLISH_WRITE" })
+  local write_gate = strings.trim(read_env("X_PUBLISH_WRITE") or "")
   return {
     live_write_enabled = write_gate == "1",
-    nyxid_x_service = first_non_empty_env({ "NYXID_X_SERVICE_SLUG", "FKST_NYXID_X_SERVICE_SLUG" }),
-    expected_username = first_non_empty_env({ "X_PUBLISH_EXPECTED_USERNAME", "FKST_X_PUBLISH_EXPECTED_USERNAME" }),
+    nyxid_x_service = strings.trim(read_env("NYXID_X_SERVICE_SLUG") or ""),
+    expected_username = strings.trim(read_env("X_PUBLISH_EXPECTED_USERNAME") or ""),
   }
 end
 

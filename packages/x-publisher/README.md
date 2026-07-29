@@ -39,11 +39,6 @@ NYXID_ACCESS_TOKEN=<secret-user-owned-nyxid-agent-key>
 log, persist, or include the token in receipts. The `nyxid` CLI consumes it from
 the environment when making proxy requests.
 
-Legacy `FKST_X_PUBLISH_WRITE` / `FKST_NYXID_X_SERVICE_SLUG` /
-`FKST_X_PUBLISH_EXPECTED_USERNAME` names are still accepted for older non-hosted runners. Hosted
-Environment profiles reserve the `FKST_*` prefix, so hosted installs should use the non-reserved
-names above.
-
 If a live request is missing the access token or cannot execute `nyxid --version`, the package emits
 an `x_published` receipt with `status = "blocked"` and does not call the X API.
 

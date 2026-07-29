@@ -19,9 +19,6 @@ local VALUE_ENV = {
   FKST_DEVLOOP_MANAGED_BOT_LOGINS = true,
   FKST_GITHUB_AUTHORIZED_LOGINS = true,
   FKST_GITHUB_BOT_LOGIN = true,
-  FKST_NYXID_X_SERVICE_SLUG = true,
-  FKST_X_PUBLISH_EXPECTED_USERNAME = true,
-  FKST_X_PUBLISH_WRITE = true,
   NYXID_X_SERVICE_SLUG = true,
   X_PUBLISH_EXPECTED_USERNAME = true,
   X_PUBLISH_WRITE = true,
@@ -53,22 +50,12 @@ end
 
 local read_env_presence = env.read_env(read_env_presence_command, { propagate_exec_errors = true })
 
-local function first_non_empty_env(names)
-  for _, name in ipairs(names) do
-    local value = strings.trim(read_env(name) or "")
-    if value ~= "" then
-      return value
-    end
-  end
-  return ""
-end
-
 local function live_options()
-  local write_gate = first_non_empty_env({ "X_PUBLISH_WRITE", "FKST_X_PUBLISH_WRITE" })
+  local write_gate = strings.trim(read_env("X_PUBLISH_WRITE") or "")
   return {
     live_write_enabled = write_gate == "1",
-    nyxid_x_service = first_non_empty_env({ "NYXID_X_SERVICE_SLUG", "FKST_NYXID_X_SERVICE_SLUG" }),
-    expected_username = first_non_empty_env({ "X_PUBLISH_EXPECTED_USERNAME", "FKST_X_PUBLISH_EXPECTED_USERNAME" }),
+    nyxid_x_service = strings.trim(read_env("NYXID_X_SERVICE_SLUG") or ""),
+    expected_username = strings.trim(read_env("X_PUBLISH_EXPECTED_USERNAME") or ""),
     nyxid_access_token_present = strings.trim(read_env_presence("NYXID_ACCESS_TOKEN") or "") == "1",
   }
 end

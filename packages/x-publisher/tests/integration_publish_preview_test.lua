@@ -23,28 +23,13 @@ local function run_publish(payload, env)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command('printf %s "$FKST_X_PUBLISH_WRITE"', {
-    stdout = env_values.FKST_X_PUBLISH_WRITE or "",
-    stderr = "",
-    exit_code = 0,
-  })
   t.mock_command('printf %s "$NYXID_X_SERVICE_SLUG"', {
     stdout = env_values.NYXID_X_SERVICE_SLUG or "",
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command('printf %s "$FKST_NYXID_X_SERVICE_SLUG"', {
-    stdout = env_values.FKST_NYXID_X_SERVICE_SLUG or "",
-    stderr = "",
-    exit_code = 0,
-  })
   t.mock_command('printf %s "$X_PUBLISH_EXPECTED_USERNAME"', {
     stdout = env_values.X_PUBLISH_EXPECTED_USERNAME or "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command('printf %s "$FKST_X_PUBLISH_EXPECTED_USERNAME"', {
-    stdout = env_values.FKST_X_PUBLISH_EXPECTED_USERNAME or "",
     stderr = "",
     exit_code = 0,
   })
@@ -187,9 +172,8 @@ return {
       dedup_key = "dedup-live-missing-gate",
       trace_id = "trace-1",
     }, {
-      FKST_X_PUBLISH_WRITE = "",
-      FKST_NYXID_X_SERVICE_SLUG = "api-twitter-2-media",
-      FKST_X_PUBLISH_EXPECTED_USERNAME = "example_user",
+      NYXID_X_SERVICE_SLUG = "api-twitter-2-media",
+      X_PUBLISH_EXPECTED_USERNAME = "example_user",
     })
 
     t.eq(result.exit_code, 0)
@@ -333,9 +317,9 @@ FKST live publish verification for example_user via NyxID. Test post.
       dedup_key = "dedup-live-calendar",
       trace_id = "trace-1",
     }, {
-      FKST_X_PUBLISH_WRITE = "1",
-      FKST_NYXID_X_SERVICE_SLUG = "api-twitter-2-media",
-      FKST_X_PUBLISH_EXPECTED_USERNAME = "example_user",
+      X_PUBLISH_WRITE = "1",
+      NYXID_X_SERVICE_SLUG = "api-twitter-2-media",
+      X_PUBLISH_EXPECTED_USERNAME = "example_user",
       ["NYXID_ACCESS_TOKEN"] = "test-agent-key",
     })
 
@@ -378,17 +362,14 @@ FKST live publish verification for example_user via NyxID. Test post.
         exit_code = 0,
       })
       local env_values = {
-        FKST_X_PUBLISH_WRITE = "1",
-        FKST_NYXID_X_SERVICE_SLUG = "api-twitter-2-media",
-        FKST_X_PUBLISH_EXPECTED_USERNAME = "example_user",
+        X_PUBLISH_WRITE = "1",
+        NYXID_X_SERVICE_SLUG = "api-twitter-2-media",
+        X_PUBLISH_EXPECTED_USERNAME = "example_user",
         ["NYXID_ACCESS_TOKEN"] = "test-agent-key",
       }
-      t.mock_command('printf %s "$X_PUBLISH_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
-      t.mock_command('printf %s "$FKST_X_PUBLISH_WRITE"', { stdout = env_values.FKST_X_PUBLISH_WRITE, stderr = "", exit_code = 0 })
-      t.mock_command('printf %s "$NYXID_X_SERVICE_SLUG"', { stdout = "", stderr = "", exit_code = 0 })
-      t.mock_command('printf %s "$FKST_NYXID_X_SERVICE_SLUG"', { stdout = env_values.FKST_NYXID_X_SERVICE_SLUG, stderr = "", exit_code = 0 })
-      t.mock_command('printf %s "$X_PUBLISH_EXPECTED_USERNAME"', { stdout = "", stderr = "", exit_code = 0 })
-      t.mock_command('printf %s "$FKST_X_PUBLISH_EXPECTED_USERNAME"', { stdout = env_values.FKST_X_PUBLISH_EXPECTED_USERNAME, stderr = "", exit_code = 0 })
+      t.mock_command('printf %s "$X_PUBLISH_WRITE"', { stdout = env_values.X_PUBLISH_WRITE, stderr = "", exit_code = 0 })
+      t.mock_command('printf %s "$NYXID_X_SERVICE_SLUG"', { stdout = env_values.NYXID_X_SERVICE_SLUG, stderr = "", exit_code = 0 })
+      t.mock_command('printf %s "$X_PUBLISH_EXPECTED_USERNAME"', { stdout = env_values.X_PUBLISH_EXPECTED_USERNAME, stderr = "", exit_code = 0 })
       t.mock_command('if [ -n "$NYXID_ACCESS_TOKEN" ]; then printf 1; else printf 0; fi', { stdout = "1", stderr = "", exit_code = 0 })
       return t.run_department("departments/publish_x/main.lua", event({
         artifact_id = "artifact-once",
