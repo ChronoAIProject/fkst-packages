@@ -483,19 +483,36 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   [ -n "$LOCAL_PKGS" ] && args+=(--host-packages "$LOCAL_PKGS")
   [ "$restart" = "1" ] && args+=(--restart)
 
+  # Own-session launch: make the supervise its OWN session/process-group leader. CONFIRMED (ps): the
+  # plain `nohup "${args[@]}" &` launch left the supervise in the LAUNCHER's process group (PGID = the
+  # launching shell's, not its own pid) — vulnerable to any group-directed signal to that pgroup
+  # (`kill -- -<pgid>`). Closing that confirmed foreign-pgroup membership is the point of this change.
+  # [ASSUMED-UNVERIFIED: the recurring out-of-band SIGTERM that forced manual restarts ~every few hours
+  # is *inferred* to be such a group signal on launcher/session/background-task teardown — it was not
+  # caught live. This hardens the confirmed vulnerability; it does NOT prove recurrence-elimination,
+  # which must be observed after this lands.] `nohup` only blocks SIGHUP, not group signals. macOS has
+  # no setsid(1), so wrap in python3 (already required by scripts/run.sh; perl was rejected — it panics
+  # under the automation env's LC_ALL=C.UTF-8 locale). `os.setsid()`+`os.execvp` is IN-PLACE, so $!
+  # below stays the REAL supervise pid and the env-prefix stays scoped to the launch; a failed setsid
+  # raises OSError → nonzero exit → the readiness wait reports the launch failure loud (self-verifying).
   BIN="$BIN" FKST_GITHUB_REPO="$REPO" FKST_GITHUB_WRITE=1 FKST_GITHUB_BOT_LOGIN="$BOT" \
     FKST_GITHUB_PROXY_POLL_LABEL_PREFIX="$GITHUB_PROXY_POLL_LABEL_PREFIX" \
     FKST_DEVLOOP_UPSTREAM_BRANCH="$UPSTREAM_BRANCH" FKST_DEVLOOP_INTEGRATION_BRANCH="$INTEGRATION_BRANCH" \
     FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$MANAGED_BOT_LOGINS" \
     FKST_GITHUB_AUTHORIZE_ORG_MEMBERS="$AUTHORIZE_ORG_MEMBERS" \
     FKST_RATE_POOL_ROOT="$RATE_POOL" \
-    nohup "${args[@]}" > "$log" 2>&1 &
+    nohup python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "${args[@]}" > "$log" 2>&1 &
   local pid=$!
   ln -sf "$log" "$LOGDIR/${name}-sv.log"
   wait_supervise_ready "$pid" "$log"
   local ready_status=$?
   if [ "$ready_status" -eq 0 ]; then
-    echo "[$name] started pid $pid  panic=$(engine_panic_count "$log")  log=$log"
+    # Committed per-launch verification that the own-session daemonization took effect: a session
+    # leader has PGID == PID. If not, setsid silently did not apply and the supervise is back in a
+    # foreign pgroup (the bug this launch fixes) — surface it loud rather than pass a false green.
+    local svpgid; svpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+    local own="own-pgroup=yes"; [ "$svpgid" = "$pid" ] || own="own-pgroup=NO(WARN: setsid not in effect, pgid=$svpgid — supervise is signal-group-vulnerable)"
+    echo "[$name] started pid $pid  $own  panic=$(engine_panic_count "$log")  log=$log"
   else
     if [ "$ready_status" -eq 1 ]; then
       echo "[$name] FAILED to start; supervise pid $pid exited before readiness; tail:"
