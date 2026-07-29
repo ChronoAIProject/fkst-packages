@@ -182,7 +182,7 @@ function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_he
     devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
       "branch=" .. tostring(branch),
       "worktree=" .. tostring(stale_worktree),
-      "reason=removing existing deterministic worktree before fresh base provisioning",
+      "reason=removing existing deterministic worktree before external PR provisioning",
     })
     M.remove_stale_worktree(stale_worktree)
   end

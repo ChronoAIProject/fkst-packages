@@ -13,7 +13,6 @@ local run_implement = h.run_implement
 local mock_issue_state = h.mock_issue_state
 local mock_issue_implement_raw = h.mock_issue_implement_raw
 local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
-local mock_fresh_implement_worktree_from_base = h.mock_fresh_external_pr_implement_worktree
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_git_commit = h.mock_git_commit
@@ -97,88 +96,6 @@ return {
     t.eq(ready.payload.dedup_key, payloads_builders.build_devloop_ready_payload(core, event).dedup_key)
     t.eq(ready.payload.impl_retry_attempt, 2)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
-  end,
-
-  test_local_iteration_failure_retry_restarts_candidate_from_pinned_base = function()
-    local event = reached()
-    local failure_comments = impl_failed_comments(event, "local-iteration-failed", 1)
-    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", failure_comments)
-
-    local observed = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }), opts("observe-local-iteration-failed-retry"))
-    local retry = find_raise(observed.raises, "devloop_ready")
-    t.is_true(retry ~= nil)
-    t.eq(retry.payload.impl_retry_attempt, 2)
-
-    local branch = devloop_base.implement_branch("owner/repo", "42", retry.payload.dedup_key)
-    local attempt_one_worktree = "/tmp/fkst-packages-test/github-devloop/attempt-1-worktree"
-    t.mock_command("[ -d '" .. attempt_one_worktree .. "' ]", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, failure_comments)
-    local retry_worktree = mock_fresh_implement_worktree_from_base({
-      impl_version = retry.payload.dedup_key .. "/reimplement/2",
-    }, {
-      worktree_list_stdout = "worktree " .. attempt_one_worktree
-        .. "\nHEAD def456\nbranch refs/heads/" .. branch .. "\n\n",
-    })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    mock_implement_codex(0, "implemented")
-    mock_git_status(" M packages/github-devloop/core.lua\n")
-    mock_git_commit(nil, branch)
-    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, failure_comments)
-    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, failure_comments)
-
-    local implemented = run_implement(retry.payload, opts("implement-local-iteration-failed-retry"))
-    t.eq(implemented.exit_code, 0)
-    t.eq(count_calls("codex exec"), 1)
-    t.eq(count_calls("scripts/run.sh test-affected"), 1)
-    local stale_remove_index, retry_remove_index, prune_index, reset_to_base_index, codex_index, local_gate_index
-    for index, call in ipairs(t.command_calls()) do
-      if call.rendered:find("git worktree remove --force", 1, true) ~= nil
-        and call.rendered:find(attempt_one_worktree, 1, true) ~= nil then
-        stale_remove_index = index
-      end
-      if call.rendered:find("git worktree remove --force", 1, true) ~= nil
-        and call.rendered:find(retry_worktree, 1, true) ~= nil then
-        retry_remove_index = index
-      end
-      if call.rendered:find("git worktree prune", 1, true) ~= nil then prune_index = index end
-      if call.rendered:find("git worktree add -B", 1, true) ~= nil
-        and call.rendered:find(branch, 1, true) ~= nil
-        and call.rendered:find("abc123", 1, true) ~= nil then
-        reset_to_base_index = index
-      end
-      if call.rendered:find("codex exec", 1, true) ~= nil then codex_index = index end
-      if call.rendered:find("scripts/run.sh test-affected", 1, true) ~= nil then local_gate_index = index end
-    end
-    local ordered = stale_remove_index ~= nil
-      and retry_remove_index ~= nil
-      and prune_index ~= nil
-      and reset_to_base_index ~= nil
-      and codex_index ~= nil
-      and local_gate_index ~= nil
-      and stale_remove_index < retry_remove_index
-      and retry_remove_index < prune_index
-      and prune_index < reset_to_base_index
-      and reset_to_base_index < codex_index
-      and codex_index < local_gate_index
-    if not ordered then
-      local rendered = {}
-      for index, call in ipairs(t.command_calls()) do rendered[index] = call.rendered end
-      error("unexpected local retry command order: stale_remove=" .. tostring(stale_remove_index)
-        .. " retry_remove=" .. tostring(retry_remove_index)
-        .. " prune=" .. tostring(prune_index)
-        .. " reset_to_base=" .. tostring(reset_to_base_index)
-        .. " codex=" .. tostring(codex_index)
-        .. " local_gate=" .. tostring(local_gate_index)
-        .. " calls=" .. table.concat(rendered, " || "))
-    end
   end,
 
   test_observe_stops_after_bounded_codex_failed_retry = function()

@@ -43,10 +43,6 @@ function M.next_impl_retry_attempt(fact)
   return impl_failure.next_retry_attempt(fact)
 end
 
-function M.impl_failure_retry_resets_candidate(fact)
-  return impl_failure.retry_resets_candidate(fact)
-end
-
 function M.implementation_base_version(version)
   return transition_version.strip_trailing_reimplement(version)
 end

@@ -13,7 +13,7 @@ local exec_sync = exec_sync
 local M = {}
 
 -- One recovery follows the initial observation; the second UNKNOWN exhausts fail-closed.
-local MAX_BASE_VERIFICATION_ATTEMPTS = 2
+local MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS = 2
 
 local function implementation_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   return {
@@ -206,6 +206,17 @@ local function run_local_iteration_check(ready, worktree)
   return result.kind == "PASS", command_detail(check), result
 end
 
+local function run_candidate_local_iteration_check(ready, worktree)
+  local green, detail, result
+  for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
+    green, detail, result = run_local_iteration_check(ready, worktree)
+    if result.kind ~= "UNKNOWN" then
+      return green, detail, result, verification_attempt
+    end
+  end
+  return green, detail, result, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS
+end
+
 local function base_probe_detail(probe)
   local fields = {
     "base_sha=" .. tostring(probe and probe.base_sha or ""),
@@ -220,7 +231,7 @@ local function base_probe_detail(probe)
   end
   if probe and probe.verification_attempt ~= nil then
     table.insert(fields, "verification_attempt=" .. tostring(probe.verification_attempt)
-      .. "/" .. tostring(MAX_BASE_VERIFICATION_ATTEMPTS))
+      .. "/" .. tostring(MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS))
   end
   if probe and probe.head_readback ~= nil then
     table.insert(fields, "head_readback=" .. tostring(probe.head_readback))
@@ -277,19 +288,22 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
-  local green, verify_detail, candidate_result = run_local_iteration_check(ready, worktree)
+  local green, verify_detail, candidate_result, candidate_verification_attempt =
+    run_candidate_local_iteration_check(ready, worktree)
   if not green then
     if candidate_result.kind ~= "SEMANTIC_FAIL" then
       return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
         "candidate_result=" .. tostring(candidate_result.kind)
           .. "\ncandidate_result_reason=" .. tostring(candidate_result.reason)
+          .. "\ncandidate_verification_attempt=" .. tostring(candidate_verification_attempt)
+          .. "/" .. tostring(MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS)
           .. "\n" .. tostring(verify_detail),
         attempt, started_at, exec_ref, base_head)
     end
 
     local base_probe = nil
     local verdict = "INDETERMINATE"
-    for verification_attempt = 1, MAX_BASE_VERIFICATION_ATTEMPTS do
+    for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
       local probe_tag = tostring(attempt) .. "-verification-" .. tostring(verification_attempt)
       base_probe = M.base_local_iteration_probe(worktree, base_head, probe_tag)
       base_probe.verification_attempt = verification_attempt
