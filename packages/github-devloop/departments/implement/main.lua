@@ -16,15 +16,13 @@ local slice_gate = require("departments.implement.slice_gate")
 local substrate_pin = require("departments.implement.substrate_pin")
 local transitions = require("departments.implement.transitions")
 local worktree_lifecycle = require("departments.implement.worktree")
-local harvest = require("departments.implement.harvest")
+local attempt_runner = require("departments.implement.attempt")
 local branch_progress = require("departments.implement.branch_progress")
 local dispatch_live_run = require("devloop.dispatch_live_run")
-local context_bundle = require("devloop.context_bundle")
 local config = require("devloop.config")
 local fork_gate = require("departments.implement.fork_gate")
 local m_mq = require("devloop.merge_queue")
 local external_pr_bridge = require("departments.implement.external_pr_bridge")
-local implement_profile = require("departments.implement.profile")
 local implement_caps = require("implement_department_caps")
 local restart_sink_grants = require("restart_sink_grants")
 
@@ -285,72 +283,30 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
   return worktree, codex_started_at, exec_ref, receiver_authorization
 end
 
-local function run_attempt(repo, issue_number, ready, current, branches, branch, base_head, worktree, codex_started_at, exec_ref, receiver_authorization, attempt, event_ts, event_queue)
-  devloop_logging.log_codex_start("implement", ready.proposal_id, "implement")
-  local content_fetch = context_bundle.context_fetch_from_bundle(core, {
-    dept = "implement",
+local function run_attempt(repo, issue_number, ready, current, branches, branch, base_head, worktree,
+    codex_started_at, exec_ref, receiver_authorization, attempt, event_ts, event_queue)
+  return attempt_runner.run({
     repo = repo,
     issue_number = issue_number,
-    proposal_id = ready.proposal_id,
-    version = ready.dedup_key,
-    tick = event_ts,
-  })
-  restart_sink_grants.consume(implement_caps, receiver_authorization, "codex.dispatch:implement",
-    "github-devloop: implement codex dispatch grant")
-  local framing = implement_profile.accepted_framing(ready, current.comments)
-  local profile = implement_profile.resolve(core.git, branch, framing)
-  local result = workflow_codex.dispatch(convergence_identity.from_parts("implement", ready.proposal_id, ready.dedup_key, {
-    angle_lane = "worker",
-  }), {
-    prompt = core.build_implement_prompt(ready.proposal_id, current, framing, content_fetch, profile),
+    ready = ready,
+    current = current,
+    branches = branches,
+    branch = branch,
+    base_head = base_head,
     worktree = worktree,
-    sync = true,
+    codex_started_at = codex_started_at,
+    exec_ref = exec_ref,
+    receiver_authorization = receiver_authorization,
+    attempt = attempt,
+    event_ts = event_ts,
+    event_queue = event_queue,
+    codex_dispatch = function(identity, opts)
+      return workflow_codex.dispatch(identity, opts)
+    end,
+    codex_identity = convergence_identity.from_parts("implement", ready.proposal_id, ready.dedup_key, {
+      angle_lane = "worker",
+    }),
   })
-
-  if type(result) == "table" and result.deferred then
-    devloop_logging.log_codex_result("implement", ready.proposal_id, "implement", result, "result=deferred", nil)
-    return nil
-  end
-  if type(result) ~= "table" or result.exit_code ~= 0 then
-    local stderr = type(result) == "table" and result.stderr or "nil result"
-    devloop_logging.log_codex_result("implement", ready.proposal_id, "implement", result, nil, stderr, {
-      queue = event_queue,
-      source_ref = ready.source_ref,
-      terminal = false,
-    })
-    return harvest.after_codex_failure(repo, issue_number, ready, branches.integration, branch, base_head, worktree, attempt, codex_started_at, exec_ref, stderr)
-  end
-  devloop_logging.log_codex_result("implement", ready.proposal_id, "implement", result, "result=completed", nil)
-
-  local status = devloop_commands.git_status(worktree, 30)
-  if status.exit_code ~= 0 then
-    error("github-devloop: git-status-failed: git status failed: " .. tostring(status.stderr))
-  end
-
-  if tostring(status.stdout or "") == "" then
-    local head_sha = branch_progress.implemented_branch_head(base_head, branch)
-    if head_sha ~= nil and not substrate_pin.is_only_pin_delta(base_head, branch) then
-      devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
-        "branch=" .. tostring(branch),
-        "head_sha=" .. tostring(head_sha),
-        "reason=reusing clean ahead implementation branch",
-      })
-      return harvest.after_codex_success(repo, issue_number, ready, branches.integration, branch, base_head, worktree, attempt, codex_started_at, exec_ref, head_sha)
-    end
-
-    local detail = tostring(result.stdout or "")
-    if detail == "" then
-      detail = tostring(result.stderr or "")
-    end
-    devloop_logging.log_codex_result("implement", ready.proposal_id, "implement", result, nil, "no-changes", {
-      queue = event_queue,
-      source_ref = ready.source_ref,
-      terminal = false,
-    })
-    return harvest.impl_failed_outcome(ready, "no-changes", detail, attempt, codex_started_at, exec_ref, base_head)
-  end
-
-  return harvest.after_codex_success(repo, issue_number, ready, branches.integration, branch, base_head, worktree, attempt, codex_started_at, exec_ref)
 end
 
 local function raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)

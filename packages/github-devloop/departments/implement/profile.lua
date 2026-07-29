@@ -1,23 +1,33 @@
 local result_facts = require("devloop.markers.result_facts")
+local devloop_base = require("devloop.base")
+local strings = require("contract.strings")
 local M = {}
 
 local generic_profile = "generic"
 local lean_profile = "lean-proof"
 local lean_toolchain_path = "lean-toolchain"
 
-local function framing_names_lean_deliverable(framing)
+local function normalized_lean_target(framing)
   if type(framing) ~= "string" then
-    return false
+    return nil
   end
+  local selected = nil
   local offset = 1
   while true do
-    local first, last = framing:find("%.lean", offset)
+    local first, last, candidate = framing:find("([%w%._%-%/#]+%.lean)", offset)
     if first == nil then
-      return false
+      return selected
     end
     local following = framing:sub(last + 1, last + 1)
-    if following == "" or following:find("[%w_./%-]") == nil then
-      return true
+    local normalized = strings.is_path_safe_key(candidate, devloop_base._max_key_len)
+      and candidate:find("//", 1, true) == nil
+      and candidate:match("[^/]+%.lean$") ~= nil
+      and (following == "" or following:find("[%w_./%-]") == nil)
+    if normalized then
+      if selected ~= nil and selected ~= candidate then
+        return nil
+      end
+      selected = candidate
     end
     offset = last + 1
   end
@@ -51,7 +61,8 @@ function M.accepted_framing(ready, comments)
 end
 
 function M.resolve(git, target_ref, framing)
-  if not framing_names_lean_deliverable(framing) then
+  local target = normalized_lean_target(framing)
+  if target == nil then
     return generic_profile
   end
   if type(git) ~= "table" or type(git.object_type) ~= "function" then
@@ -60,7 +71,10 @@ function M.resolve(git, target_ref, framing)
   local result = git.object_type(target_ref, lean_toolchain_path, 30)
   if type(result) == "table" and result.exit_code == 0 then
     local object_type = tostring(result.stdout or ""):gsub("%s+$", "")
-    return object_type == "blob" and lean_profile or generic_profile
+    if object_type == "blob" then
+      return lean_profile, target
+    end
+    return generic_profile
   end
   if is_missing_toolchain(result) then
     return generic_profile

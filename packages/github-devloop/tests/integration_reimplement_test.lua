@@ -23,6 +23,28 @@ local find_raise = h.find_raise
 local count_calls = h.count_calls
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local strings = require("contract.strings")
+
+local function lean_receipt(event, version, status, phase, attempt)
+  local fields = {
+    '"schema":"github-devloop.lean-proof-result.v1"',
+    '"status":' .. strings.json_string(status),
+    '"phase":' .. strings.json_string(phase),
+    '"proposal_id":' .. strings.json_string(event.proposal_id),
+    '"implementation_version":' .. strings.json_string(version),
+    '"attempt":' .. tostring(attempt),
+    '"target":"Proofs/Target.lean"',
+    '"declaration":"target_theorem"',
+    '"checker_command":"lake env lean -E hasSorry Proofs/Target.lean"',
+  }
+  if status == "repair-needed" then
+    table.insert(fields, '"last_obligation":"case h => False"')
+    table.insert(fields, '"attempted_approaches":["simp"]')
+    table.insert(fields, '"search_evidence":{"status":"performed","queries":["Nat.succ_eq_add_one"]}')
+    table.insert(fields, '"remaining_blocker":"missing monotonicity premise"')
+  end
+  return "{" .. table.concat(fields, ",") .. "}"
+end
 
 local function mock_linked_pr_state(comments, state)
   local rendered_comments = {}
@@ -229,10 +251,12 @@ return {
     ready.framing = nil
     ready.impl_retry_attempt = 2
     local result_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", event).body
+    local prior_receipt = lean_receipt(event, ready.dedup_key, "repair-needed", "construction", 1)
+    local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready,
+      "lean-proof-repair-needed", prior_receipt, 1).body
     local comments = {
       result_comment,
-      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
-      core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
+      failure_comment,
     }
     local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
@@ -244,8 +268,14 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    mock_implement_codex(0, "implemented bounded proof")
+    mock_implement_codex(0, lean_receipt(event, ready.dedup_key .. "/reimplement/2",
+      "complete", "strong-repair", 2))
     mock_git_status(" M Proofs/Target.lean\n")
+    t.mock_command("lake env lean -E hasSorry Proofs/Target.lean", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     mock_git_commit(nil, branch)
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
