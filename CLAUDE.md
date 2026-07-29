@@ -295,6 +295,20 @@ Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree pare
 
 禁令：热路径不得 spawn codex；任何 catch 不得吞原始错误、不得改运行源码树、不得绕过 PR 门控、不得做 reconcile/CAS 级决策。「func1 与 codex 都是函数」的准确含义——`func1: event→effects`（快、确定、可重放）；`codex: facts→issue`（慢、只读输入、受控输出）。
 
+## codex 未知错误：回原始 codex 日志查根因（marker/DLQ excerpt 是有损投影，非 ground truth·实事求是的落地）
+
+**遇到 codex 的未知 / 不透明失败——`untyped-nonzero`、`local-iteration-attribution-indeterminate`、dept-child `exit=1` crash、opaque impl-failed、任何「说不清为什么」的 codex 终态——诊断根因必须回到那次 codex 运行的原始日志，绝不停在 GitHub marker / DLQ `error_excerpt` 上下结论。** 这是「实事求是·回源核实」在 codex 失败上的直接落地：marker 与 DLQ `error_excerpt` 是 codex 真实输出的**有损截断投影**（GitHub comment 截断、`error_excerpt` 只留前 N 字节、typed marker 丢了细节），把该区分的信号吞掉——照着它归因就是拿「有损投影」当「实事」，必被骗（接「误解/受骗账本·根子多在原材料，不在读者」：坏原材料是 marker/excerpt，真源是 codex 日志）。
+
+**原始 codex 日志在两处（跨 restart 存活的持久层 + 当前 runtime）：**
+- **持久层（survives restart）**：`~/Library/Logs/fkst/codex/devloop-<owner>-<repo>-<issue>-<...>.log`（codex worker 全量 LLM 交互 + 它自己跑的验证输出）+ 同名 `.tail`（末尾摘要，含 codex 的自验结论与产出的 diff）。跨 restart 保留，是复查旧失败的主源。
+- **当前 runtime（restart 后 fresh、会被 prune）**：`<RT>/logs/codex-adoption/<dedup-key>/{stdout.txt,stderr.txt,result.json,status.json,effect.json}`（codex worker 结构化输入输出）+ `<RT>/logs/framework-child/<dept>-<ts>.log`（dept 的 Lua pipeline 日志；dept-child `exit=1` crash 的 Lua `error()`/traceback 在此，DLQ 记录的 `log_path` 字段直指它）。
+
+**机械动作**：① DLQ 的 `error_excerpt` 只是线索，据其 `log_path` / `dept` / `proposal_id` 去读上面的原始日志**全文**，不据截断片段下结论；② impl-failed 的 opaque marker，去读那次 implement/fix codex 的 `.log`/`.tail`——**特别看 codex 自己跑的验证结论**（它常已把真相写在那里）；③ dept crash，读 `framework-child/<dept>.log` 的 Lua traceback 定位 `error()` 行与真因。
+
+**实证（2026-07-29，#2804 untyped-nonzero）**：marker 只说 `candidate_result_reason=untyped-nonzero / local-iteration-attribution-indeterminate`，看着像「#2804 代码坏了、该 impl-failed」。回读其 codex `.tail`（`~/Library/Logs/fkst/codex/devloop-…-2804-…`）——**codex 自己的验证全绿**：`scripts/run.sh test-affected: exit 0, all 21 affected packages passed`、`test-composed: 31/31 checks passed`、各包 test 全 passed，diff 也已产出。真根因由此一眼可判：**代码是对的；impl-failed 是 harvest 侧独立 re-run 验证（`departments/implement/harvest.lua:197 run_local_iteration_check`，与 codex 同跑 `scripts/run.sh test-affected`）撞了 untyped-nonzero 的 infra false-negative**——marker 把「验证器 infra 打嗝」冒充成「代码语义失败」。只看 marker 会把一个正确实现当坏代码反复 reimplement（band-aid，实证栽过）；回原始 codex 日志 30 秒定性为 false-negative（接 competence 轴「审证据不审叙事」、BEAUTY GATE「代理补丁」——untyped-nonzero 是替身信号，codex 自验结论才是真值）。
+
+**边界**：这条治「诊断」——先据原始日志核实真根，再决定动作；不改「修复只经 issue→PR→review→merge」（L2）与「永不手改程序状态」。原始 codex 日志是**只读证据面**，不是手动重跑 / 改 marker / 越过门控的授权。⟦AI:FKST⟧
+
 ## 活性 ⟂ 安全双检测（错误网抓不到「该发生而没发生」）
 
 错误处理三级模型是**安全（safety）**侧——它抓「发生了坏事」：失败产生结构化错误事实（throw → fail-closed → retry → DLQ → L2 triage 消费）。但它对**活性（liveness）**违例**结构性失明**：「该发生的好事没发生」——一个本该 raise 的事件从未 raise、一个本该跑的 scan 从未跑——**不产生任何错误事实**，日志里没有「一个从未发生的动作」的行号。自驱系统必须**同时**检测两者（Lamport：safety = 坏事永不发生；liveness = 好事终将发生）。错误聚合检测「发生的坏事」、对「没发生的好事」失明；后者只能靠**正向进度断言**，不能靠错误捕获。
