@@ -17,6 +17,19 @@ local runtime_root = "/tmp/fkst-packages-test/github-devloop-run-graph-ready/run
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 local lean_framing = "Change `Proofs/Target.lean` only."
+local lean_checker_command = "lake env lean --no-sorries Proofs/Target.lean"
+
+local function lean_complete_receipt()
+  return '{"schema":"github-devloop.lean-proof-result.v1"'
+    .. ',"status":"complete"'
+    .. ',"phase":"construction"'
+    .. ',"proposal_id":"' .. proposal_id .. '"'
+    .. ',"implementation_version":"' .. lean_ready_version .. '"'
+    .. ',"attempt":1'
+    .. ',"target":"Proofs/Target.lean"'
+    .. ',"declaration":"target_theorem"'
+    .. ',"checker_command":"' .. lean_checker_command .. '"}'
+end
 
 local function source_ref()
   return {
@@ -370,7 +383,12 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    h.mock_implement_codex(0, "implemented bounded proof")
+    h.mock_implement_codex(0, lean_complete_receipt())
+    t.mock_command(lean_checker_command, {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     h.mock_git_status(" M Proofs/Target.lean\n")
     h.mock_git_commit("def456", branch)
     h.mock_git_push(branch)

@@ -37,9 +37,10 @@ return {
     local profile = load_profile()
     local git = recording_git({ stdout = "blob\n", stderr = "", exit_code = 0 })
 
-    local selected = profile.resolve(git, "refs/heads/proof-task", "Change `Proofs/Target.lean` only.")
+    local selected, target = profile.resolve(git, "refs/heads/proof-task", "Change `Proofs/Target.lean` only.")
 
     t.eq(selected, "lean-proof")
+    t.eq(target, "Proofs/Target.lean")
     t.eq(#git.calls, 1)
     t.eq(git.calls[1].ref, "refs/heads/proof-task")
     t.eq(git.calls[1].path, "lean-toolchain")
@@ -70,13 +71,52 @@ return {
     t.eq(#directory_git.calls, 1)
   end,
 
+  test_lean_target_resolver_rejects_non_actionable_path_mentions = function()
+    local profile = load_profile()
+    local cases = {
+      "Document the `.lean` extension.",
+      "Change Proofs/Target.lean.bak only.",
+      "Change https://example.com/Proofs/Target.lean only.",
+      "Change ../Proofs/Target.lean only.",
+      "Change /Proofs/Target.lean only.",
+      "Change Proofs/Target.leanSuffix only.",
+    }
+
+    for _, framing in ipairs(cases) do
+      local git = recording_git({ stdout = "blob\n", stderr = "", exit_code = 0 })
+      local selected, target = profile.resolve(git, "refs/heads/proof-task", framing)
+      t.eq(selected, "generic", framing)
+      t.eq(target, nil, framing)
+      t.eq(#git.calls, 0, framing)
+    end
+  end,
+
+  test_lean_target_resolver_requires_framing_and_fails_loud_on_unexpected_git_error = function()
+    local profile = load_profile()
+    local absent = recording_git({ stdout = "blob\n", stderr = "", exit_code = 0 })
+    local selected, target = profile.resolve(absent, "refs/heads/proof-task", nil)
+    t.eq(selected, "generic")
+    t.eq(target, nil)
+    t.eq(#absent.calls, 0)
+
+    local failed = recording_git({ stdout = "", stderr = "fatal: object database unavailable\n", exit_code = 128 })
+    local ok, err = pcall(profile.resolve, failed, "refs/heads/proof-task", "Change Proofs/Target.lean only.")
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("implement-profile-source-type-read-failed", 1, true) ~= nil)
+  end,
+
   test_lean_proof_prompt_requires_elaborator_first_bounded_edit_check_loop = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local framing = "Change `Proofs/Target.lean` only."
     local manifest = "UNTRUSTED-NOTICE.txt\nissue.json\nboard.txt"
     local generic = core.build_implement_prompt(proposal_id, issue(), framing, manifest)
     local explicit_generic = core.build_implement_prompt(proposal_id, issue(), framing, manifest, "generic")
-    local proof = core.build_implement_prompt(proposal_id, issue(), framing, manifest, "lean-proof")
+    local proof = core.build_implement_prompt(proposal_id, issue(), framing, manifest, "lean-proof", {
+      target = "Proofs/Target.lean",
+      phase = "construction",
+      attempt = 1,
+      timeout_seconds = 7200,
+    })
 
     t.eq(explicit_generic, generic)
     t.is_nil(generic:find("Implementation profile: `lean-proof`", 1, true))
@@ -84,8 +124,43 @@ return {
     t.is_true(proof:find("Inspect the target `.lean` source", 1, true) ~= nil)
     t.is_true(proof:find("actual goal or error state before editing", 1, true) ~= nil)
     t.is_true(proof:find("smallest bounded proof change", 1, true) ~= nil)
+    t.is_true(proof:find("Target: `Proofs/Target.lean`", 1, true) ~= nil)
+    t.is_true(proof:find("Construction phase", 1, true) ~= nil)
+    t.is_true(proof:find("helper-lemma plan", 1, true) ~= nil)
+    t.is_true(proof:find("one named unresolved lemma at a time", 1, true) ~= nil)
+    t.is_true(proof:find("mathlib search", 1, true) ~= nil)
+    t.is_true(proof:find("coherent checkpoint", 1, true) ~= nil)
+    t.is_true(proof:find("`sorry` or `admit`", 1, true) ~= nil)
+    t.is_true(proof:find("github-devloop.lean-proof-result.v1", 1, true) ~= nil)
+    t.is_true(proof:find("7200 seconds", 1, true) ~= nil)
     t.is_true(proof:find("Rerun the same Lean checker", 1, true) ~= nil)
     t.is_true(proof:find("`scripts/run.sh test-affected`", 1, true) ~= nil)
+  end,
+
+  test_strong_repair_prompt_uses_prior_exact_obligation_and_evidence = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local proof = core.build_implement_prompt(proposal_id, issue(), "Change Proofs/Target.lean only.",
+      "UNTRUSTED-NOTICE.txt\nissue.json\nboard.txt", "lean-proof", {
+        target = "Proofs/Target.lean",
+        phase = "strong-repair",
+        attempt = 2,
+        timeout_seconds = 7200,
+        prior_receipt = {
+          declaration = "target_theorem",
+          checker_command = "lake env lean --no-sorries Proofs/Target.lean",
+          last_obligation = "target_theorem: unsolved goals\ncase h => False",
+          attempted_approaches = { "simp", "exact helper_lemma" },
+          search_summary = "performed: Nat.succ_eq_add_one",
+          remaining_blocker = "helper_lemma still needs the monotonicity premise",
+        },
+      })
+
+    t.is_true(proof:find("Strong repair phase", 1, true) ~= nil)
+    t.is_true(proof:find("target_theorem: unsolved goals\ncase h => False", 1, true) ~= nil)
+    t.is_true(proof:find("simp; exact helper_lemma", 1, true) ~= nil)
+    t.is_true(proof:find("performed: Nat.succ_eq_add_one", 1, true) ~= nil)
+    t.is_true(proof:find("helper_lemma still needs the monotonicity premise", 1, true) ~= nil)
+    t.is_true(proof:find("Do not restart from the whole theorem", 1, true) ~= nil)
   end,
 
   test_accepted_framing_rederives_exactly_from_durable_result_fact = function()
