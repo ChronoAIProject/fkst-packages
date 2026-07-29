@@ -212,16 +212,17 @@ local function run_with(fakes)
         end
         return result
       end,
-      load_blueprint = function(_ctx, workflow_id)
+      load_blueprints = function()
         if fake.workflow_missing then
-          return nil
-        end
-        if tostring(workflow_id) ~= "workflow-one" then
-          return nil
+          return { valid = {} }
         end
         return {
-          path = "test-workflow.json",
-          blueprint = fake.blueprint or blueprint(),
+          valid = {
+            ["workflow-one"] = {
+              path = "test-workflow.json",
+              blueprint = fake.blueprint or blueprint(),
+            },
+          },
         }
       end,
       spawn_codex = fake.spawn_codex,

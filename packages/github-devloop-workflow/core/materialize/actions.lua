@@ -483,7 +483,7 @@ local function generated_fact_for_child(facts, child_dedup)
   return nil
 end
 
-function M.record_existing_child_or_created_marker(core, deps, repo, issue_number, origin, blueprint_digest, slot, predecessor_ref_digest, child_dedup, facts, current, trusted_comments, log_decision)
+function M.record_existing_child_or_created_marker(core, deps, repo, issue_number, origin, blueprint_digest, slot, predecessor_ref_digest, child_dedup, facts, current, trusted_comments, log_decision, raise_request)
   local child_issue = M.trusted_issue_created_number(core, current, child_dedup, trusted_comments)
   local generated_fact = generated_fact_for_child(facts, child_dedup)
   local found = nil
@@ -535,7 +535,7 @@ function M.record_existing_child_or_created_marker(core, deps, repo, issue_numbe
     and "trusted github-proxy issue-created marker is visible"
     or "trusted github-proxy issue-create marker is visible on child"
   log_decision(origin, "materialization", "created", outcome, reason)
-  M.raise_request(
+  raise_request(
     origin,
     "github-proxy.github_issue_comment_request",
     M.materialization_comment_request(repo, issue_number, origin, created_entry, "created", created_entry.child_issue)
@@ -543,7 +543,7 @@ function M.record_existing_child_or_created_marker(core, deps, repo, issue_numbe
   return true, nil
 end
 
-function M.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, trusted_comments, log_decision)
+function M.maybe_write_created_from_existing_child(core, deps, repo, issue_number, origin, blueprint_fact, record, facts, current, trusted_comments, log_decision, raise_request)
   -- A slot whose "created" ledger fact already exists must NOT be re-derived from
   -- its "generated" fact on every tick: the generated marker stays visible next to
   -- the created marker, so re-writing "created" and returning true here forever
@@ -573,7 +573,8 @@ function M.maybe_write_created_from_existing_child(core, deps, repo, issue_numbe
         facts,
         current,
         trusted_comments,
-        log_decision
+        log_decision,
+        raise_request
       )
       if wrote == "wait" then
         return "wait"
@@ -589,7 +590,7 @@ function M.maybe_write_created_from_existing_child(core, deps, repo, issue_numbe
   return false
 end
 
-function M.record_created_or_raise_create(core, deps, repo, issue_number, origin, blueprint_fact, current, trusted_comments, facts, blueprint_digest, slot, predecessor_ref_digest, generated_spec, log_decision)
+function M.record_created_or_raise_create(core, deps, repo, issue_number, origin, blueprint_fact, current, trusted_comments, facts, blueprint_digest, slot, predecessor_ref_digest, generated_spec, log_decision, raise_request)
   local entry = materialization.write_generated_entry(origin, blueprint_digest, slot, predecessor_ref_digest, generated_spec)
   if entry == nil then
     return nil, "invalid-materialization-entry"
@@ -607,7 +608,8 @@ function M.record_created_or_raise_create(core, deps, repo, issue_number, origin
     facts,
     current,
     trusted_comments,
-    log_decision
+    log_decision,
+    raise_request
   )
   if wrote == "wait" then
     return "wait", nil
@@ -619,7 +621,7 @@ function M.record_created_or_raise_create(core, deps, repo, issue_number, origin
     return true, nil
   end
   log_decision(origin, "materialization", "create", "applied(proceed-create)", "generated spec digest is ready and no child ledger is visible")
-  M.raise_request(
+  raise_request(
     origin,
     "github-proxy.github_issue_create_request",
     M.issue_create_request(repo, issue_number, origin, blueprint_digest, slot.id, entry, generated_spec)
