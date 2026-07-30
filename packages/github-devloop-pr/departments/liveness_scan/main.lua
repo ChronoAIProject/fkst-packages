@@ -140,7 +140,14 @@ local function act_liveness_scan(event)
     liveness_scan.liveness_scan_log_deferred("deadline", { entity_cap = limits.entity_cap })
     return
   end
-  local prs = liveness_scan.liveness_scan_list_open_prs(core, repo, timeout, entity_list_cache.entity_list_poll_key(event))
+  local prs, list_deferred = liveness_scan.liveness_scan_list_open_prs(core, repo, timeout, entity_list_cache.entity_list_poll_key(event))
+  if list_deferred ~= nil then
+    liveness_scan.liveness_scan_log_deferred(list_deferred.reason, {
+      error_class = list_deferred.error_class,
+      entity_cap = limits.entity_cap,
+    })
+    return
+  end
   local activations, deferred_by_cap, cursor_key, cursor, total = liveness_scan.liveness_scan_activation_slice(repo, "pr", prs, LIVENESS_SCAN_CURSOR_PREFIX)
   local processed = 0
   local attempted = 0

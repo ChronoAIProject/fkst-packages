@@ -644,7 +644,12 @@ doctor_one() {
 # entry's dead_at_ms) exactly like pending: a redb dead-letter is a permanent audit record that never
 # drains, so flagging ⚠ on the cumulative count degrades the first-line health signal forever (#2517;
 # same anti-pattern fixed for the rollup runtime-health gate). The total is still shown for the audit
-# trail. Reads a live supervise's redb via a single read transaction (no lock fight).
+# trail. The total is rendered from `.dead_letters|length`, which the engine CAPS at
+# `limits.max_dead_letters` (500) and flags via `.truncated.dead_letters` — so once saturated the array
+# length is the CAP, not a total, and printing it bare makes a still-growing DLQ read as frozen
+# (observed 2026-07-31: three consecutive wakes reported "(500 total)" while 39 more died in 4h).
+# Render "≥N TRUNCATED" in that case: an operator must never read a cap as a total.
+# Reads a live supervise's redb via a single read transaction (no lock fight).
 durable_health_one() {
   cfg "$1" || return 0
   if [ ! -e "$DUR/delivery.redb" ]; then echo "  $1: no durable store"; return 0; fi
@@ -653,9 +658,11 @@ durable_health_one() {
   summary=$("$BIN" observe --json --durable-root "$DUR" 2>/dev/null | jq -r --argjson now "$now_ms" '
     ([.queues[].pending]|add // 0) as $p |
     (([.queues[].oldest_pending_age_ms]|max // 0)/3600000|floor) as $oh |
-    (.dead_letters|length) as $dl_total |
+    (.dead_letters|length) as $dl_seen |
+    ((.truncated.dead_letters // false)) as $dl_capped |
+    (if $dl_capped then "\u2265\($dl_seen) TRUNCATED" else "\($dl_seen) total" end) as $dl_total |
     ([.dead_letters[] | select(($now - (.dead_at_ms // 0)) <= 21600000)] | length) as $dl_recent |
-    "\(.queues|length) queues, \($p) pending (oldest \($oh)h), \($dl_recent) dead-letters<6h (\($dl_total) total)"
+    "\(.queues|length) queues, \($p) pending (oldest \($oh)h), \($dl_recent) dead-letters<6h (\($dl_total))"
       + (if ($dl_recent>0 or $oh>6) then " ⚠" else "" end)' 2>/dev/null)
   echo "  $1: ${summary:-observe unavailable}"
 }
