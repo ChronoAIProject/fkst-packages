@@ -119,15 +119,14 @@ function M.issue_ref_from_branch(branch)
   }
 end
 
--- classify(worktrees, live, current_runtime_root) -> { removable = {<path>,...}, skipped = {{path,branch,reason},...} }.
+-- classify(worktrees, live, opts) -> { removable = {<path>,...}, skipped = {{path,branch,reason},...} }.
 -- A worktree is REMOVABLE iff ALL hold:
 --   (1) the live set is complete (else fail-open: skip everything);
 --   (2) it is attached to a deterministic devloop implement/fix branch (round-trips through the prefix);
 --   (3) that branch is ABSENT from the live-branch set;
---   (4) it is either under an old runtime root, or a trusted terminal issue marker proves
---       the current-runtime worktree has reached a terminal lifecycle row.
+--   (4) a trusted terminal issue marker proves the worktree has reached a terminal lifecycle row.
 -- Everything else is skipped with a positive reason and never force-removed.
-function M.classify(worktrees, live, current_runtime_root, opts)
+function M.classify(worktrees, live, opts)
   local removable, skipped = {}, {}
   local terminal_issues = opts and opts.terminal_issues or nil
   local function skip(w, reason)
@@ -148,15 +147,13 @@ function M.classify(worktrees, live, current_runtime_root, opts)
       skip(w, "non-deterministic-branch")
     elseif live.set[w.branch] then
       skip(w, "live-branch")
-    elseif base.path_under_runtime_root(current_runtime_root, w.path) then
+    else
       local issue_ref = M.issue_ref_from_branch(w.branch)
       if issue_ref ~= nil and terminal_issues ~= nil and terminal_issues[issue_ref.proposal_id] == true then
         removable[#removable + 1] = { path = w.path, branch = w.branch, issue_ref = issue_ref }
       else
-        skip(w, terminal_issues ~= nil and "current-runtime-terminal-unverified" or "current-runtime-root")
+        skip(w, "terminal-unverified")
       end
-    else
-      removable[#removable + 1] = { path = w.path, branch = w.branch }
     end
   end
   return { removable = removable, skipped = skipped }

@@ -138,6 +138,11 @@ function M.new(deps)
         stderr = "",
         exit_code = 0,
       })
+      helpers.t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
+        stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+        stderr = "",
+        exit_code = 0,
+      })
     end
     for _ = 1, 3 do
       helpers.t.mock_command("test -d", {

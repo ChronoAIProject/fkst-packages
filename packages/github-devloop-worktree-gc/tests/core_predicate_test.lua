@@ -63,6 +63,7 @@ local MAIN_PATH = "/home/dev/fkst-packages"
 local ORPHAN_PATH = OLD_RT .. "/worktrees/devloop-orphan-111"
 local TERMINAL_PATH = OLD_RT .. "/worktrees/devloop-terminal-222"
 local CURRENT_PATH = CUR_RT .. "/worktrees/devloop-current-333"
+local STABLE_PATH = "/runtime/dogfood-durable-packages-worktrees/worktrees/devloop-current-333"
 local DETACHED_PATH = OLD_RT .. "/worktrees/devloop-detached-444"
 local FOREIGN_PATH = OLD_RT .. "/worktrees/some-other-555"
 
@@ -82,26 +83,28 @@ return {
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
     t.eq(live.complete, true)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live)
     t.eq(removable_has(result, ORPHAN_PATH), false)
     t.eq(skip_reason(result, ORPHAN_PATH), "live-branch")
   end,
 
-  -- Terminal old-RT deterministic worktree with NO live row is the removable target.
+  -- Terminal deterministic worktree with NO live row is the removable target.
   test_terminal_old_rt_is_removable = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, {
+      terminal_issues = { ["github-devloop/issue/" .. REPO .. "/222"] = true },
+    })
     t.eq(removable_has(result, TERMINAL_PATH), true)
+    t.eq(result.removable[1].issue_ref.proposal_id, "github-devloop/issue/" .. REPO .. "/222")
   end,
 
-  -- v1 containment: a deterministic worktree under the CURRENT runtime root is skipped.
-  test_current_rt_is_skipped = function()
+  test_inactive_worktree_without_terminal_proof_is_skipped = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live)
     t.eq(removable_has(result, CURRENT_PATH), false)
-    t.eq(skip_reason(result, CURRENT_PATH), "current-runtime-root")
+    t.eq(skip_reason(result, CURRENT_PATH), "terminal-unverified")
   end,
 
   test_branch_issue_ref_parses_normal_github_issue_branch = function()
@@ -116,7 +119,7 @@ return {
   test_current_rt_terminal_issue_is_removable = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, {
+    local result = core.classify(worktrees, live, {
       terminal_issues = {
         ["github-devloop/issue/" .. REPO .. "/333"] = true,
       },
@@ -127,16 +130,40 @@ return {
   test_current_rt_without_terminal_proof_is_skipped = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, { terminal_issues = {} })
+    local result = core.classify(worktrees, live, { terminal_issues = {} })
     t.eq(removable_has(result, CURRENT_PATH), false)
-    t.eq(skip_reason(result, CURRENT_PATH), "current-runtime-terminal-unverified")
+    t.eq(skip_reason(result, CURRENT_PATH), "terminal-unverified")
+  end,
+
+  test_stable_worktree_without_terminal_proof_is_skipped = function()
+    local worktrees = core.parse_worktrees(porcelain({
+      { path = STABLE_PATH, branch = CURRENT_BRANCH },
+    }))
+    local live = core.live_branches({}, NOW_MS)
+    local result = core.classify(worktrees, live, { terminal_issues = {} })
+    t.eq(removable_has(result, STABLE_PATH), false)
+    t.eq(skip_reason(result, STABLE_PATH), "terminal-unverified")
+  end,
+
+  test_stable_terminal_worktree_carries_issue_ref_for_fresh_recheck = function()
+    local worktrees = core.parse_worktrees(porcelain({
+      { path = STABLE_PATH, branch = CURRENT_BRANCH },
+    }))
+    local live = core.live_branches({}, NOW_MS)
+    local result = core.classify(worktrees, live, {
+      terminal_issues = {
+        ["github-devloop/issue/" .. REPO .. "/333"] = true,
+      },
+    })
+    t.eq(removable_has(result, STABLE_PATH), true)
+    t.eq(result.removable[1].issue_ref.proposal_id, "github-devloop/issue/" .. REPO .. "/333")
   end,
 
   -- Detached, foreign, and main-checkout worktrees are never removable.
   test_detached_foreign_main_skipped = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({}, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live)
     t.eq(skip_reason(result, DETACHED_PATH), "detached-or-non-branch")
     t.eq(skip_reason(result, FOREIGN_PATH), "non-deterministic-branch")
     t.eq(skip_reason(result, MAIN_PATH), "non-deterministic-branch")
@@ -155,7 +182,7 @@ return {
     }
     local live = core.live_branches(rows, NOW_MS)
     t.eq(live.complete, false)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live)
     t.eq(#result.removable, 0)
     t.eq(skip_reason(result, TERMINAL_PATH), "fail-open-incomplete-live-set")
   end,
@@ -168,7 +195,9 @@ return {
     }))
     local live = core.live_branches({ running_row(111, "dedup-orphan", -1) }, NOW_MS) -- lease already past
     t.eq(live.complete, true)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live, {
+      terminal_issues = { ["github-devloop/issue/" .. REPO .. "/111"] = true },
+    })
     t.eq(removable_has(result, ORPHAN_PATH), true)
   end,
 
@@ -180,7 +209,7 @@ return {
     local row = running_row(111, "dedup-orphan")
     row.lease_expires_at_ms = nil
     local live = core.live_branches({ row }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT)
+    local result = core.classify(worktrees, live)
     t.eq(removable_has(result, ORPHAN_PATH), false)
     t.eq(skip_reason(result, ORPHAN_PATH), "live-branch")
   end,

@@ -14,7 +14,7 @@ local mock_git_status = h.mock_git_status
 local mock_git_commit = h.mock_git_commit
 local mock_git_push = h.mock_git_push
 local mock_missing_fix_worktree = h.mock_missing_fix_worktree
-local mock_outside_runtime_fix_worktree = h.mock_outside_runtime_fix_worktree
+local mock_outside_stable_root_fix_worktree = h.mock_outside_stable_root_fix_worktree
 local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
@@ -29,7 +29,6 @@ local function mock_fix_recovery_context(event, branch, origin_marker, reject_co
     reject_comment,
   }, branch, event.version)
   mock_pr_fix({ origin_marker }, branch, "def456")
-  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
 end
 
 local function mock_fix_writeback(event, branch, origin_marker)
@@ -60,7 +59,7 @@ local function mock_fix_writeback(event, branch, origin_marker)
 end
 
 return {
-  test_fix_rebuilds_missing_recorded_worktree_under_current_runtime_root = function()
+  test_fix_rebuilds_missing_recorded_worktree_under_stable_root = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local reject_comment = requests_review.build_review_result_comment_request(core,
@@ -93,17 +92,17 @@ return {
     t.eq(count_calls("git worktree add --force -B"), 1)
     t.eq(count_calls("refs/remotes/'origin'/'" .. branch .. "'"), 1)
 
-    local found_current_root_worktree = false
+    local found_stable_root_worktree = false
     for _, call in ipairs(t.command_calls()) do
       if call.rendered:find("codex exec", 1, true) ~= nil
-        and call.rendered:find("/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
-        found_current_root_worktree = true
+        and call.rendered:find("/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
+        found_stable_root_worktree = true
       end
     end
-    t.eq(found_current_root_worktree, true)
+    t.eq(found_stable_root_worktree, true)
   end,
 
-  test_fix_removes_existing_outside_runtime_worktree_before_rebuild = function()
+  test_fix_removes_existing_outside_stable_root_worktree_before_rebuild = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
     local reject_comment = requests_review.build_review_result_comment_request(core,
@@ -123,10 +122,10 @@ return {
     ).body
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
     mock_fix_recovery_context(event, branch, origin_marker, reject_comment)
-    mock_outside_runtime_fix_worktree(branch, "def456")
+    mock_outside_stable_root_fix_worktree(branch, "def456")
     mock_fix_writeback(event, branch, origin_marker)
 
-    local result = run_fix(event, opts("fix-rebuild-outside-runtime-worktree", { FKST_GITHUB_WRITE = "1" }))
+    local result = run_fix(event, opts("fix-rebuild-outside-stable-root-worktree", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(count_calls("git worktree remove --force"), 1)
@@ -134,13 +133,13 @@ return {
     t.eq(count_calls("git fetch 'origin' '" .. branch .. "'"), 1)
     t.eq(count_calls("git worktree add --force -B"), 1)
 
-    local found_current_root_worktree = false
+    local found_stable_root_worktree = false
     for _, call in ipairs(t.command_calls()) do
       if call.rendered:find("codex exec", 1, true) ~= nil
-        and call.rendered:find("/tmp/fkst-packages-test/github-devloop/runtime/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
-        found_current_root_worktree = true
+        and call.rendered:find("/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
+        found_stable_root_worktree = true
       end
     end
-    t.eq(found_current_root_worktree, true)
+    t.eq(found_stable_root_worktree, true)
   end,
 }

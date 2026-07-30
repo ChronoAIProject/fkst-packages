@@ -28,6 +28,11 @@ return {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
     })
     mock_git_status(" M packages/github-devloop/core.lua\n")
+    t.mock_command("[ -d '/tmp/fkst-packages-test/github-devloop/runtime/worktrees/dirty-timeout' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("rev-list --count", {
       stdout = "0\n",
       stderr = "",

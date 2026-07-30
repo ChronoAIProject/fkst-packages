@@ -7,6 +7,14 @@ local exec_sync = exec_sync
 
 local M = {}
 
+local function implementation_root()
+  local durable_result = exec_sync({ cmd = devloop_commands.read_durable_root_cmd(), timeout = 30 })
+  if durable_result.exit_code ~= 0 then
+    error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: " .. tostring(durable_result.stderr))
+  end
+  return devloop_base.implementation_worktree_root(durable_result.stdout)
+end
+
 function M.prepare_base(branches)
   local fetch_result = devloop_commands.git_fetch_branch("origin", branches.integration, 60)
   if fetch_result.exit_code ~= 0 then
@@ -93,11 +101,8 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     error("github-devloop: branch-ref-check-failed: git branch ref check failed: " .. tostring(branch_ref.stderr))
   end
 
-  local runtime_result = exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
-  if runtime_result.exit_code ~= 0 then
-    error("github-devloop: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
-  end
-  local worktree = devloop_base.implement_worktree_path(runtime_result.stdout, repo, issue_number, ready.dedup_key)
+  local stable_root = implementation_root()
+  local worktree = devloop_base.implement_worktree_path(stable_root, repo, issue_number, ready.dedup_key)
   if checkpoint_head ~= nil then
     if branch_exists then
       local list_result = devloop_commands.git_worktree_list(30)
@@ -125,13 +130,13 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     if list_result.exit_code ~= 0 then
       error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
     end
-    local existing_worktree = devloop_commands.find_worktree_for_branch_under_runtime(list_result.stdout, branch, runtime_result.stdout)
+    local existing_worktree = devloop_commands.find_worktree_for_branch_under_root(list_result.stdout, branch, stable_root)
     for _, stale_worktree in ipairs(devloop_commands.find_worktrees_for_branch(list_result.stdout, branch)) do
-      if not devloop_base.path_under_runtime_root(runtime_result.stdout, stale_worktree) then
+      if not devloop_base.path_under_root(stable_root, stale_worktree) then
         devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
           "branch=" .. tostring(branch),
           "worktree=" .. tostring(stale_worktree),
-          "reason=removing non-current-runtime deterministic worktree",
+          "reason=removing non-canonical deterministic worktree",
         })
         M.remove_stale_worktree(stale_worktree)
       end
@@ -141,7 +146,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
       devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
         "branch=" .. tostring(branch),
         "worktree=" .. tostring(worktree),
-        "reason=reusing current-runtime deterministic worktree",
+        "reason=reusing canonical deterministic worktree",
       })
     else
       local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
@@ -168,12 +173,8 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
 end
 
 function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-  local runtime_result = exec_sync({ cmd = devloop_commands.read_runtime_root_cmd(), timeout = 30 })
-  if runtime_result.exit_code ~= 0 then
-    error("github-devloop: runtime-root-read-failed: FKST_RUNTIME_ROOT read failed: " .. tostring(runtime_result.stderr))
-  end
-  local runtime_root = runtime_result.stdout
-  local worktree = devloop_base.implement_worktree_path(runtime_root, repo, issue_number, ready.dedup_key)
+  local stable_root = implementation_root()
+  local worktree = devloop_base.implement_worktree_path(stable_root, repo, issue_number, ready.dedup_key)
   local list_result = devloop_commands.git_worktree_list(30)
   if list_result.exit_code ~= 0 then
     error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))

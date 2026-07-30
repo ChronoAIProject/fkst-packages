@@ -653,21 +653,29 @@ function C.implement_branch(repo, issue_number, impl_version)
   return branch
 end
 
-function C.implement_worktree_path(runtime_root, repo, issue_number, impl_version)
-  local root = trim(runtime_root)
+function C.implementation_worktree_root(durable_root)
+  local root = trim(durable_root)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: invalid FKST_DURABLE_ROOT")
+  end
+  return root:gsub("/+$", "") .. "-worktrees"
+end
+
+function C.implement_worktree_path(implementation_root, repo, issue_number, impl_version)
+  local root = trim(implementation_root)
+  if root == "" or root:find("[\r\n]") ~= nil then
+    error("github-devloop: invalid implementation worktree root")
   end
   local slug = C.safe_issue_slug(repo, issue_number)
   local suffix = decimal_checksum(tostring(repo) .. "#" .. tostring(issue_number) .. "#" .. tostring(impl_version))
   return root:gsub("/+$", "") .. "/worktrees/devloop-" .. slug .. "-" .. suffix
 end
 
-function C.path_under_runtime_root(runtime_root, path)
-  local root = trim(runtime_root)
+function C.path_under_root(root_path, path)
+  local root = trim(root_path)
   local target = trim(path)
   if root == "" or root:find("[\r\n]") ~= nil then
-    error("github-devloop: invalid FKST_RUNTIME_ROOT")
+    error("github-devloop: invalid root path")
   end
   if target == "" or target:find("[\r\n]") ~= nil then
     return false
@@ -679,6 +687,10 @@ end
 
 function C.read_runtime_root_cmd()
   return 'printf %s "$FKST_RUNTIME_ROOT"'
+end
+
+function C.read_durable_root_cmd()
+  return 'printf %s "$FKST_DURABLE_ROOT"'
 end
 
 function C.mkdir_p_cmd(path)

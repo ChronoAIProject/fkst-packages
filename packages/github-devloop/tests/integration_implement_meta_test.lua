@@ -1,4 +1,5 @@
 local entity_lib = require("devloop.entity")
+local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
 local forks = require("devloop.forks")
 local payloads_builders = require("devloop.payloads.builders")
@@ -69,8 +70,8 @@ local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
 local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
 local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_implement_worktree_reuse
 local mock_existing_dirty_implement_worktree_reuse = h.mock_existing_dirty_implement_worktree_reuse
-local mock_outside_runtime_implement_worktree_rebuild = h.mock_outside_runtime_implement_worktree_rebuild
-local mock_multiple_outside_runtime_implement_worktrees_rebuild = h.mock_multiple_outside_runtime_implement_worktrees_rebuild
+local mock_outside_stable_root_implement_worktree_rebuild = h.mock_outside_stable_root_implement_worktree_rebuild
+local mock_multiple_outside_stable_root_implement_worktrees_rebuild = h.mock_multiple_outside_stable_root_implement_worktrees_rebuild
 local mock_existing_implement_branch = h.mock_existing_implement_branch
 local mock_git_commit = h.mock_git_commit
 local mock_git_push = h.mock_git_push
@@ -291,11 +292,6 @@ return {
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
     mock_existing_implement_branch("def456")
-    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
-      stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
-      stderr = "",
-      exit_code = 0,
-    })
     mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
     mock_implement_codex()
     mock_git_status("")
@@ -511,12 +507,13 @@ return {
     t.eq(reset_before_merge, true)
   end,
 
-  test_implement_ignores_existing_worktree_outside_current_runtime_root = function()
+  test_implement_rebuilds_existing_worktree_outside_stable_root = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
-    local runtime = "/tmp/fkst-packages-test/github-devloop/runtime"
+    local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
+    local stable_root = devloop_base.implementation_worktree_root(durable_root)
     mock_issue_implement({ "fkst-dev:ready" })
-    mock_outside_runtime_implement_worktree_rebuild(runtime, branch)
+    mock_outside_stable_root_implement_worktree_rebuild(durable_root, branch)
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
@@ -531,33 +528,33 @@ return {
       exit_code = 0,
     })
 
-    local result = run_implement(event, opts("implement-ignore-outside-runtime-worktree"))
+    local result = run_implement(event, opts("implement-rebuild-outside-stable-root-worktree"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
     t.eq(count_calls("git worktree add"), 1)
-    -- 2 = removing the one non-current-runtime stale worktree, plus the idempotent
+    -- 2 = removing the non-canonical worktree, plus the idempotent
     -- force-clean of the target path before `git worktree add` (#677).
     t.eq(count_calls("git worktree remove --force"), 2)
     t.eq(count_calls("reset --hard"), 1)
     t.eq(count_calls("clean -fd"), 1)
 
-    local codex_used_current_runtime = false
+    local codex_used_stable_root = false
     for _, call in ipairs(t.command_calls()) do
       if call.rendered:find("codex exec", 1, true) ~= nil
-        and call.rendered:find(runtime .. "/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
-        codex_used_current_runtime = true
+        and call.rendered:find(stable_root .. "/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
+        codex_used_stable_root = true
       end
     end
-    t.eq(codex_used_current_runtime, true)
+    t.eq(codex_used_stable_root, true)
   end,
 
-  test_implement_removes_all_existing_worktrees_outside_current_runtime_root = function()
+  test_implement_removes_all_existing_worktrees_outside_stable_root = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
-    mock_multiple_outside_runtime_implement_worktrees_rebuild("/tmp/fkst-packages-test/github-devloop/runtime", branch)
+    mock_multiple_outside_stable_root_implement_worktrees_rebuild("/tmp/fkst-packages-test/github-devloop/durable", branch)
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")
@@ -572,12 +569,12 @@ return {
       exit_code = 0,
     })
 
-    local result = run_implement(event, opts("implement-remove-all-outside-runtime-worktrees"))
+    local result = run_implement(event, opts("implement-remove-all-outside-stable-root-worktrees"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
-    -- 3 = removing the two non-current-runtime stale worktrees, plus the idempotent
+    -- 3 = removing the two non-canonical worktrees, plus the idempotent
     -- force-clean of the target path before `git worktree add` (#677).
     t.eq(count_calls("git worktree remove --force"), 3)
     t.eq(count_calls("git worktree add"), 1)

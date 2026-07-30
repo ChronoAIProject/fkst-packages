@@ -67,6 +67,31 @@ end
 
 M.impl_failed_outcome = impl_failed_outcome
 
+local function worktree_missing_outcome(ready, worktree, attempt, started_at, exec_ref, base_sha)
+  return {
+    kind = "worktree-missing",
+    ready = ready,
+    worktree = worktree,
+    reason = "worktree-missing",
+    terminal = false,
+    attempt = attempt,
+    started_at = started_at,
+    exec_ref = exec_ref,
+    finished_at = now(),
+    base_sha = base_sha,
+    outcome = "retry: worktree-missing",
+  }
+end
+
+local function worktree_exists(worktree)
+  local result = exec_sync({ cmd = devloop_commands.path_is_directory_cmd(worktree), timeout = 30 })
+  if result.exit_code ~= 0 and result.exit_code ~= 1 then
+    error("github-devloop: worktree-path-check-failed: implementation worktree path check failed: "
+      .. tostring(result.stderr))
+  end
+  return result.exit_code == 0
+end
+
 function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, exec_ref, base_sha)
   return {
     kind = "implementation-refusal",
@@ -304,6 +329,9 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
+  if not worktree_exists(worktree) then
+    return worktree_missing_outcome(ready, worktree, attempt, started_at, exec_ref, base_head)
+  end
   local green, verify_detail, candidate_result, candidate_verification_attempt =
     run_candidate_local_iteration_check(ready, worktree)
   if not green then
@@ -351,6 +379,9 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
 end
 
 function M.after_codex_failure(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, stderr)
+  if not worktree_exists(worktree) then
+    return worktree_missing_outcome(ready, worktree, attempt, started_at, exec_ref, base_head)
+  end
   local status = devloop_commands.git_status(worktree, 30)
   if status.exit_code ~= 0 then
     error("github-devloop: git-status-failed: git status failed: " .. tostring(status.stderr))

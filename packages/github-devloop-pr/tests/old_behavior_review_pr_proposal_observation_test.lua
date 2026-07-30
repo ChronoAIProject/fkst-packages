@@ -156,12 +156,14 @@ local function prepare_fixture(fixture, event)
   h.mock_bot_env()
   local expected_worktree = "."
   if fixture.existing_worktree then
+    local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
     expected_worktree = devloop_base.implement_worktree_path(
-      "/tmp/fkst-packages-test/github-devloop/runtime",
+      devloop_base.implementation_worktree_root(durable_root),
       REPO,
       ISSUE_NUMBER,
       fixture.version
     )
+    t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
     t.mock_command(core.path_is_directory_cmd(expected_worktree), {
       stdout = "",
       stderr = "",

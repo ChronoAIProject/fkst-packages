@@ -1,11 +1,11 @@
 -- worktree_gc: level-triggered, stateless, fail-open sweep that removes EXPIRED
 -- deterministic github-devloop worktrees. "Expired" = proven not-live by the
--- ground-truth codex-run -> implement_branch join (never age). Current-runtime
--- deterministic worktrees additionally require a fresh trusted terminal issue marker.
+-- ground-truth codex-run -> implement_branch join (never age) plus a fresh trusted
+-- terminal issue marker.
 --
 -- Safety: nothing is removed unless core.classify proves it, and each candidate is
 -- re-validated against a FRESH codex_runs snapshot immediately before removal
--- (TOCTOU guard). Any error, empty runtime root, incomplete live set, or unverified
+-- (TOCTOU guard). Any error, incomplete live set, or unverified
 -- terminal issue fact fails OPEN (skip this tick, retry next). Non-deterministic and
 -- detached worktrees are skipped and never force-removed.
 
@@ -14,7 +14,6 @@ local error_facts = require("contract.error_facts")
 local ports_lib = require("forge.ports")
 local saga = require("workflow.saga")
 local caps = require("worktree_gc_caps")
-local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local github_factory = require("devloop.github_factory")
 
@@ -25,7 +24,6 @@ local spec = {
 }
 
 local allowed_env = {
-  FKST_RUNTIME_ROOT = true,
   -- Dangerous-posture host fact (same shape as FKST_GITHUB_WRITE): real worktree
   -- removal only happens when this is "1". Unset/anything-else = DRY-RUN: the sweep
   -- logs each `would-remove` it identified but mutates nothing. This lets the GC run
@@ -131,7 +129,7 @@ local function make_department(ports)
     return devloop_state.current_issue_observation_is_terminal(issue.comments, issue_ref.proposal_id)
   end
 
-  local function current_runtime_terminal_issues(worktrees, live, current_rt)
+  local function inactive_terminal_issues(worktrees, live)
     local terminal = {}
     if not (live and live.complete) then
       return terminal
@@ -141,8 +139,7 @@ local function make_department(ports)
         and caps.is_deterministic_devloop_branch(w.branch)
         and not live.set[w.branch] then
         local issue_ref = caps.issue_ref_from_branch(w.branch)
-        if issue_ref ~= nil
-          and devloop_base.path_under_runtime_root(current_rt, w.path) then
+        if issue_ref ~= nil then
           if issue_is_terminal(issue_ref) then
             terminal[issue_ref.proposal_id] = true
           end
@@ -160,14 +157,7 @@ local function make_department(ports)
     -- Dangerous-posture host fact: real removal only when FKST_WORKTREE_GC_REMOVE=1.
     local remove_enabled = tostring(read_env("FKST_WORKTREE_GC_REMOVE") or "") == "1"
 
-    -- (1) current runtime root — required to distinguish old-RT (removable) from current-RT (kept).
-    local current_rt = tostring(read_env("FKST_RUNTIME_ROOT") or "")
-    if current_rt == "" then
-      gc_log("skip-no-runtime-root", {})
-      return
-    end
-
-    -- (2) enumerate every registered worktree (all runtime roots, this clone only).
+    -- (1) enumerate every registered worktree (this clone only).
     local list = git.worktree_list(30)
     if type(list) ~= "table" or list.exit_code ~= 0 then
       gc_log("skip-worktree-list-failed", { "exit_code=" .. tostring(list and list.exit_code) })
@@ -175,17 +165,17 @@ local function make_department(ports)
     end
     local worktrees = caps.parse_worktrees(list.stdout)
 
-    -- (3) live set from ground-truth codex_runs; fail-open on any read error.
+    -- (2) live set from ground-truth codex_runs; fail-open on any read error.
     local live = snapshot_live()
     if live == nil then
       gc_log("skip-codex-runs-failed", {})
       return
     end
 
-    -- (4) classify. Removable = deterministic devloop branch, not live, and either
-    -- old-RT or current-RT with a fresh trusted terminal issue marker.
-    local terminal_issues = current_runtime_terminal_issues(worktrees, live, current_rt)
-    local result = caps.classify(worktrees, live, current_rt, { terminal_issues = terminal_issues })
+    -- (3) classify. Every inactive deterministic worktree requires a fresh trusted
+    -- terminal issue marker; its filesystem generation is not lifecycle evidence.
+    local terminal_issues = inactive_terminal_issues(worktrees, live)
+    local result = caps.classify(worktrees, live, { terminal_issues = terminal_issues })
     gc_log("scanned", {
       "worktrees=" .. tostring(#worktrees),
       "removable=" .. tostring(#result.removable),
@@ -193,7 +183,7 @@ local function make_department(ports)
       "live_complete=" .. tostring(live.complete),
     })
 
-    -- (5) remove each candidate, re-validating against a FRESH codex_runs snapshot
+    -- (4) remove each candidate, re-validating against a FRESH codex_runs snapshot
     --     immediately before the destructive op (TOCTOU guard). Fail-open per item.
     for _, candidate in ipairs(result.removable) do
       local recheck = snapshot_live()
@@ -201,7 +191,7 @@ local function make_department(ports)
         gc_log("skip-recheck-indeterminate", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
       elseif recheck.set[candidate.branch] then
         gc_log("skip-raced-now-live", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
-      elseif candidate.issue_ref ~= nil and not issue_is_terminal(candidate.issue_ref) then
+      elseif not issue_is_terminal(candidate.issue_ref) then
         gc_log("skip-raced-terminal-unverified", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
       elseif not remove_enabled then
         gc_log("would-remove-dry-run", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
@@ -221,7 +211,7 @@ local function make_department(ports)
       end
     end
 
-    -- (6) prune registry-dangling entries (worktree dirs already gone). Best-effort.
+    -- (5) prune registry-dangling entries (worktree dirs already gone). Best-effort.
     local pruned_ok = pcall(function()
       return git.worktree_prune(30)
     end)

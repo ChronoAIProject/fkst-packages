@@ -1,7 +1,7 @@
 -- End-to-end safety integration: drive the REAL worktree_gc department through its
 -- full act path (list -> classify -> pre-remove recheck -> remove) with injected fakes,
--- and prove it removes ONLY the terminal old-RT deterministic worktree while keeping the
--- orphan-after-restart worktree and skipping current-RT / detached / foreign ones.
+-- and prove it removes ONLY terminal deterministic worktrees while keeping the
+-- orphan-after-restart worktree and skipping nonterminal / detached / foreign ones.
 
 local testing = require("testkit_internal.testing")
 local git_fake = require("forge.git_fake")
@@ -13,17 +13,17 @@ local t = fkst.test
 
 local REPO = "ChronoAIProject/fkst-packages"
 local OLD_RT = "/runtime/dogfood-rt-packages.1111"
-local CUR_RT = "/runtime/dogfood-rt-packages.2222"
+local STABLE_ROOT = "/runtime/dogfood-durable-packages-worktrees"
 local NOW_S = 1000000
 
 local ORPHAN_BRANCH = base.implement_branch(REPO, 111, "dedup-orphan")
 local TERMINAL_BRANCH = base.implement_branch(REPO, 222, "dedup-terminal")
-local CURRENT_BRANCH = base.implement_branch(REPO, 333, "dedup-current")
+local STABLE_BRANCH = base.implement_branch(REPO, 333, "dedup-current")
 
 local MAIN_PATH = "/home/dev/fkst-packages"
 local ORPHAN_PATH = OLD_RT .. "/worktrees/devloop-orphan-111"
 local TERMINAL_PATH = OLD_RT .. "/worktrees/devloop-terminal-222"
-local CURRENT_PATH = CUR_RT .. "/worktrees/devloop-current-333"
+local STABLE_PATH = STABLE_ROOT .. "/worktrees/devloop-current-333"
 local DETACHED_PATH = OLD_RT .. "/worktrees/devloop-detached-444"
 local FOREIGN_PATH = OLD_RT .. "/worktrees/some-other-555"
 
@@ -46,7 +46,7 @@ local FULL = porcelain({
   { path = MAIN_PATH, branch = "integration" },
   { path = ORPHAN_PATH, branch = ORPHAN_BRANCH },
   { path = TERMINAL_PATH, branch = TERMINAL_BRANCH },
-  { path = CURRENT_PATH, branch = CURRENT_BRANCH },
+  { path = STABLE_PATH, branch = STABLE_BRANCH },
   { path = DETACHED_PATH, detached = true },
   { path = FOREIGN_PATH, branch = "feature/some-external-branch" },
 })
@@ -99,7 +99,9 @@ local function issue_fixture(issue_number, state_name)
 end
 
 local function fake_github(issue_state)
-  local issues = {}
+  local issues = {
+    [REPO .. "#issue/222"] = issue_fixture(222, "merged"),
+  }
   if issue_state ~= nil then
     issues[REPO .. "#issue/333"] = issue_fixture(333, issue_state)
   end
@@ -111,9 +113,7 @@ local function department_with(removed, running_rows, remove_env, issue_state)
     git = fake_git(removed),
     github = fake_github(issue_state),
     read_env = function(name)
-      if name == "FKST_RUNTIME_ROOT" then
-        return CUR_RT
-      elseif name == "FKST_WORKTREE_GC_REMOVE" then
+      if name == "FKST_WORKTREE_GC_REMOVE" then
         return remove_env
       end
       return nil
@@ -149,7 +149,7 @@ end
 
 return {
   -- The orphan (live codex row) is kept; the terminal old-RT worktree is removed;
-  -- current-RT, detached, foreign, and the main checkout are never removed.
+  -- the nonterminal stable worktree, detached, foreign, and main checkout are never removed.
   test_removes_only_terminal_old_rt_worktree = function()
     local removed = {}
     local dept = department_with(removed, { running_row(111, "dedup-orphan") }, "1", "ready")
@@ -158,7 +158,7 @@ return {
     t.eq(#removed, 1)
     t.eq(removed[1], TERMINAL_PATH)
     t.eq(contains(removed, ORPHAN_PATH), false)
-    t.eq(contains(removed, CURRENT_PATH), false)
+    t.eq(contains(removed, STABLE_PATH), false)
     t.eq(contains(removed, DETACHED_PATH), false)
     t.eq(contains(removed, FOREIGN_PATH), false)
     t.eq(contains(removed, MAIN_PATH), false)
@@ -186,28 +186,28 @@ return {
     t.eq(#removed, 0)
   end,
 
-  -- A current-runtime deterministic worktree is removed only when the issue stream has
+  -- A stable deterministic worktree is removed only when the issue stream has
   -- a fresh trusted terminal marker and codex_runs proves the branch is not live.
-  test_removes_current_rt_terminal_worktree = function()
+  test_removes_stable_terminal_worktree = function()
     local removed = {}
     local dept = department_with(removed, { running_row(111, "dedup-orphan") }, "1", "merged")
     testing.run_fake(dept, tick())
 
     t.eq(#removed, 2)
     t.eq(contains(removed, TERMINAL_PATH), true)
-    t.eq(contains(removed, CURRENT_PATH), true)
+    t.eq(contains(removed, STABLE_PATH), true)
     t.eq(contains(removed, ORPHAN_PATH), false)
   end,
 
-  -- A current-runtime deterministic worktree with a nonterminal trusted marker is kept
+  -- A stable deterministic worktree with a nonterminal trusted marker is kept
   -- even when no codex row is live; this preserves retryable rows such as impl-failed.
-  test_keeps_current_rt_nonterminal_worktree = function()
+  test_keeps_stable_nonterminal_worktree = function()
     local removed = {}
     local dept = department_with(removed, { running_row(111, "dedup-orphan") }, "1", "impl-failed")
     testing.run_fake(dept, tick())
 
     t.eq(#removed, 1)
     t.eq(removed[1], TERMINAL_PATH)
-    t.eq(contains(removed, CURRENT_PATH), false)
+    t.eq(contains(removed, STABLE_PATH), false)
   end,
 }

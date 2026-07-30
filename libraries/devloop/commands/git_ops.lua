@@ -247,6 +247,7 @@ end
   end
 
   C.read_runtime_root_cmd = devloop_base.read_runtime_root_cmd
+  C.read_durable_root_cmd = devloop_base.read_durable_root_cmd
   C.mkdir_p_cmd = devloop_base.mkdir_p_cmd
 
   function C.path_is_directory_cmd(path)
@@ -261,11 +262,12 @@ end
     if issue_number == nil or impl_version == nil then
       return nil
     end
-    local runtime = exec_sync({ cmd = C.read_runtime_root_cmd(), timeout = 30 })
-    if type(runtime) ~= "table" or runtime.exit_code ~= 0 or tostring(runtime.stdout or "") == "" then
+    local durable = exec_sync({ cmd = C.read_durable_root_cmd(), timeout = 30 })
+    if type(durable) ~= "table" or durable.exit_code ~= 0 or tostring(durable.stdout or "") == "" then
       return nil
     end
-    local worktree = devloop_base.implement_worktree_path(runtime.stdout, repo, issue_number, impl_version)
+    local implementation_root = devloop_base.implementation_worktree_root(durable.stdout)
+    local worktree = devloop_base.implement_worktree_path(implementation_root, repo, issue_number, impl_version)
     local directory = exec_sync({ cmd = C.path_is_directory_cmd(worktree), timeout = 30 })
     if type(directory) == "table" and directory.exit_code == 0 then
       return worktree
@@ -303,7 +305,7 @@ end
     return nil
   end
 
-  function C.find_worktree_for_branch_under_runtime(stdout, branch, runtime_root)
+  function C.find_worktree_for_branch_under_root(stdout, branch, root)
     if not forge_validators.is_git_ref_safe(branch) then
       error("github-devloop: invalid branch")
     end
@@ -319,7 +321,7 @@ end
         elseif line == "branch " .. wanted
           and path ~= nil
           and path ~= ""
-          and devloop_base.path_under_runtime_root(runtime_root, path) then
+          and devloop_base.path_under_root(root, path) then
           return path
         end
       end
@@ -328,7 +330,7 @@ end
   end
 
 function S.install(M)
-  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_runtime", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_remove_if_present", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
+  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_root", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_remove_if_present", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_durable_root_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
 end
 C.install = S.install
 
