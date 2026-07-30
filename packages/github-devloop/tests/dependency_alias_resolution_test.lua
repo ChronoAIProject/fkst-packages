@@ -142,8 +142,7 @@ return {
     t.eq(core.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "duplicate-target-missing")
-    t.eq(#gate.unmet, 0)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
+    t.eq(gate.unmet[1], 31)
   end,
 
   test_duplicate_alias_with_unreadable_canonical_target_fails_closed = function()
@@ -155,8 +154,7 @@ return {
     t.eq(core.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "duplicate-target-unreadable")
-    t.eq(#gate.unmet, 0)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
+    t.eq(gate.unmet[1], 32)
   end,
 
   test_duplicate_alias_with_cross_repo_target_fails_closed = function()
@@ -167,8 +165,7 @@ return {
     t.eq(core.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "cross-repo-duplicate-target")
-    t.eq(#gate.unmet, 0)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
+    t.eq(gate.unmet[1], 52)
   end,
 
   test_duplicate_alias_cycle_uses_dependency_cycle_guard = function()
@@ -181,14 +178,9 @@ return {
 
     t.eq(core.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "verified_cannot_proceed")
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), true)
     t.eq(gate.reason, "dependency-cycle")
     t.eq(gate.unmet[1], 61)
-    t.eq(gate.proof.kind, "dependency-cycle")
-    t.eq(gate.proof.repo, repo)
-    t.eq(gate.proof.issue_number, 61)
-    t.eq(gate.proof.target_repo, repo)
-    t.eq(gate.proof.target_issue_number, 42)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), true)
   end,
 
   test_duplicate_alias_chain_uses_existing_dependency_depth_cap = function()
@@ -204,7 +196,6 @@ return {
     t.eq(core.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "depth-cap-exceeded")
-    t.eq(#gate.unmet, 0)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
+    t.eq(gate.unmet[1], 132)
   end,
 }

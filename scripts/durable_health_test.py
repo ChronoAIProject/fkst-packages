@@ -44,6 +44,7 @@ def _run_durable_health(
     *,
     fact_lines: list[str] | None = None,
     truncated: bool = False,
+    cleanup_before_health: bool = False,
 ) -> str:
     """Run the real durable_health_one against a fake observe snapshot and child logs."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -78,8 +79,13 @@ def _run_durable_health(
             f'cfg() {{ DUR="{durable_root}"; return 0; }}\n'
             f'BIN="{fake_bin}"\n'
             f'LOGDIR="{log_root}"\n'
-            "durable_health_one packages\n"
         )
+        if cleanup_before_health:
+            script += (
+                f'PKGSRC="{root / "not-a-checkout"}"\n'
+                f'clean_stale_runtime_worktrees packages "{log_root / "dogfood-rt-packages.current"}"\n'
+            )
+        script += "durable_health_one packages\n"
         result = subprocess.run(
             ["/bin/bash", "-c", script],
             cwd=str(REPO_ROOT),
@@ -112,6 +118,21 @@ class DurableHealthTest(unittest.TestCase):
         self.assertIn(
             "dead-letter cause (top): error_class=quota-exhausted "
             "fingerprint=fp-quota 2x depts=dept-a,dept-b",
+            out,
+        )
+
+    def test_restart_cleanup_retains_structured_cause_fact(self) -> None:
+        now_ms = int(time.time() * 1000)
+
+        out = _run_durable_health(
+            [_dead_letter("delivery-1", now_ms, "dept-a")],
+            fact_lines=[_cause_fact("delivery-1", "quota-exhausted", "fp-quota")],
+            cleanup_before_health=True,
+        )
+
+        self.assertIn(
+            "dead-letter cause (top): error_class=quota-exhausted "
+            "fingerprint=fp-quota 1x dept=dept-a",
             out,
         )
 

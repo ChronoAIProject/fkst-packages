@@ -44,15 +44,18 @@ def read_cause_facts(
     delivery_ids: set[str],
 ) -> dict[str, set[tuple[str, str]]]:
     facts: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    pattern = str(
+    runtime_pattern = str(
         log_root
         / f"dogfood-rt-{glob.escape(run_name)}.*"
         / "logs"
         / "framework-child"
         / "*.log"
     )
-    for log_path_text in sorted(glob.glob(pattern)):
-        log_path = Path(log_path_text)
+    log_paths = [Path(path) for path in glob.glob(runtime_pattern)]
+    retained_log = log_root / f"{run_name}-dead-letter-facts.log"
+    if retained_log.is_file():
+        log_paths.append(retained_log)
+    for log_path in sorted(log_paths):
         try:
             with log_path.open(encoding="utf-8", errors="replace") as handle:
                 for line in handle:
@@ -67,6 +70,34 @@ def read_cause_facts(
         except OSError as exc:
             raise RuntimeError(f"could not read structured fact log {log_path}: {exc}") from exc
     return facts
+
+
+def archive_cause_facts(runtime_root: Path, output: Path) -> None:
+    pattern = str(runtime_root / "logs" / "framework-child" / "*.log")
+    retained: set[str] = set()
+    for log_path_text in sorted(glob.glob(pattern)):
+        log_path = Path(log_path_text)
+        try:
+            with log_path.open(encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    match = DEAD_LETTER_FACT.search(line)
+                    if match is None:
+                        continue
+                    retained.add(
+                        "dept=dead_letter tag=DEAD_LETTER "
+                        f"error_class={match.group('error_class')} "
+                        f"fingerprint={match.group('fingerprint')} "
+                        f"delivery_id={match.group('delivery_id')}\n"
+                    )
+        except OSError as exc:
+            raise RuntimeError(f"could not archive structured fact log {log_path}: {exc}") from exc
+    if not retained:
+        return
+    try:
+        with output.open("a", encoding="utf-8") as handle:
+            handle.writelines(sorted(retained))
+    except OSError as exc:
+        raise RuntimeError(f"could not write retained structured fact log {output}: {exc}") from exc
 
 
 def dept_text(depts: set[str]) -> str:
@@ -124,15 +155,23 @@ def render(snapshot: dict[str, Any], now_ms: int, log_root: Path, run_name: str)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--now-ms", required=True, type=int)
-    parser.add_argument("--log-root", required=True, type=Path)
-    parser.add_argument("--run-name", required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
+    render_parser = commands.add_parser("render")
+    render_parser.add_argument("--now-ms", required=True, type=int)
+    render_parser.add_argument("--log-root", required=True, type=Path)
+    render_parser.add_argument("--run-name", required=True)
+    archive_parser = commands.add_parser("archive")
+    archive_parser.add_argument("--runtime-root", required=True, type=Path)
+    archive_parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
+        if args.command == "archive":
+            archive_cause_facts(args.runtime_root, args.output)
+            return 0
         snapshot = json.load(sys.stdin)
         if not isinstance(snapshot, dict):
             raise ValueError("observe snapshot must be an object")

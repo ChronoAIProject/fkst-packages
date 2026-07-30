@@ -309,6 +309,13 @@ bin_ensure_fresh() {
 # restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
 clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
   local name="$1" keep="$2" wt d
+  for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
+    if [ -d "$d" ] && [ "$d" != "$keep" ]; then
+      python3 "$_self_dir/dead_letter_causes.py" archive \
+        --runtime-root "$d" --output "$LOGDIR/${name}-dead-letter-facts.log" \
+        || { echo "[$name] could not retain dead-letter cause facts from $d" >&2; return 1; }
+    fi
+  done
   git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
     | grep -F "/dogfood-rt-${name}." | grep -vF "$keep" \
     | while read -r wt; do git -C "$PKGSRC" worktree remove --force "$wt" 2>/dev/null; done
@@ -493,7 +500,7 @@ durable_health_one() {
       + (if ($dl_recent>0 or $oh>6 or $dl_truncated) then " ⚠" else "" end)' 2>/dev/null)
   echo "  $1: ${summary:-observe unavailable}"
   [ -n "$summary" ] || return 0
-  if causes=$(printf '%s' "$snapshot" | python3 "$_self_dir/dead_letter_causes.py" \
+  if causes=$(printf '%s' "$snapshot" | python3 "$_self_dir/dead_letter_causes.py" render \
     --now-ms "$now_ms" --log-root "$LOGDIR" --run-name "$1" 2>/dev/null); then
     [ -n "$causes" ] && printf '%s\n' "$causes"
   else
