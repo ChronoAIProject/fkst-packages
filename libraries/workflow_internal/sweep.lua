@@ -33,12 +33,8 @@ function S.cursor_batch(items, cursor, cap, default_cap)
   local source = items or {}
   local count = #source
   local bounded_cap = S.positive_integer(cap, default_cap or 25, 1, 1000)
-  if count <= bounded_cap then
-    local all_items = {}
-    for _, item in ipairs(source) do
-      table.insert(all_items, item)
-    end
-    return all_items, 0, 0
+  if count == 0 then
+    return {}, 0, 0
   end
 
   local start = tonumber(cursor) or 0
@@ -48,7 +44,7 @@ function S.cursor_batch(items, cursor, cap, default_cap)
   start = start % count
 
   local selected = {}
-  for i = 1, bounded_cap do
+  for i = 1, math.min(count, bounded_cap) do
     local index = ((start + i - 1) % count) + 1
     table.insert(selected, source[index])
   end

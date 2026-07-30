@@ -42,6 +42,13 @@ return {
     t.eq(nxt, 1)
   end,
 
+  test_cursor_batch_rotates_under_cap_lists = function()
+    local selected, deferred, next_cursor = sweep.cursor_batch({ 1, 2, 3 }, 1, 5, 25)
+    eq_list(selected, { 2, 3, 1 })
+    t.eq(deferred, 0)
+    t.eq(next_cursor, 1)
+  end,
+
   test_cursor_advance = function()
     t.eq(sweep.cursor_advance(4, 5, 2), 1) -- (4+2) % 5
     t.eq(sweep.cursor_advance(0, 0, 3), 0) -- non-positive total

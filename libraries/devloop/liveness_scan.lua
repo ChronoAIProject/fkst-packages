@@ -207,20 +207,18 @@ function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
     table.insert(activations, { kind = kind, entity = entity })
   end
   local total = #activations
-  if total > LIVENESS_SCAN_MAX_PER_TICK then
-    local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
-    local cursor = cache_get(cursor_key)
-    local bounded, deferred = sweep_bounds.sweep_cursor_batch(
-      activations,
-      cursor,
-      LIVENESS_SCAN_MAX_PER_TICK,
-      LIVENESS_SCAN_MAX_PER_TICK
-    )
+  local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
+  local cursor = cache_get(cursor_key)
+  local bounded, deferred = sweep_bounds.sweep_cursor_batch(
+    activations,
+    cursor,
+    LIVENESS_SCAN_MAX_PER_TICK,
+    LIVENESS_SCAN_MAX_PER_TICK
+  )
+  if deferred > 0 then
     devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(total - LIVENESS_SCAN_MAX_PER_TICK) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
-    return bounded, deferred, cursor_key, cursor, total
   end
-  cache_set(C.liveness_scan_cursor_key(repo, cursor_prefix), "0")
-  return activations, 0, nil, nil, total
+  return bounded, deferred, cursor_key, cursor, total
 end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)
