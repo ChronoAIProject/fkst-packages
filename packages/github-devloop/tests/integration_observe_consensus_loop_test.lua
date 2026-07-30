@@ -183,6 +183,26 @@ return {
   test_observe_authorized_other_author_after_grace_raises_fork_request_only = function()
     local run_opts = opts("observe-authorized-other-author-fork")
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "trusted-human", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1))
+    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+      stdout = "[]",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), {
+      stdout = "dev",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_INTEGRATION_BRANCH"), {
+      stdout = "integration-fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+      stdout = "[]",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
       stdout = '{"title":"Issue title","createdAt":"' .. os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1) .. '","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[],"assignees":[],"author":{"login":"trusted-human"}}\n',
       stderr = "",

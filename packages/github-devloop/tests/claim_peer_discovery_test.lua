@@ -2,9 +2,22 @@ local m_claims = require("devloop.claims")
 local h = require("tests.devloop_core_helpers")
 local t = h.t
 local author_policy = require("testkit_internal.github_author_policy")
+local gh_argv = require("testkit_internal.gh_argv_mock")
 local strings = require("contract.strings")
 
 local repo = "owner/repo"
+local issue_peer_command = "gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author"
+local pr_peer_command = "gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author"
+
+local function count_calls(command)
+  local count = 0
+  for _, call in ipairs(t.command_calls()) do
+    if gh_argv.call_contains(call, command) then
+      count = count + 1
+    end
+  end
+  return count
+end
 
 local function mock_bot(login)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -241,6 +254,39 @@ return {
     t.eq(admission, "denied")
     t.eq(detail.action, "skip-non-whitelisted-author")
     t.eq(m_claims.is_managed_bot_login("drive-by", inputs.managed), false)
+    t.eq(count_calls(issue_peer_command), 0)
+    t.eq(count_calls(pr_peer_command), 0)
+  end,
+
+  test_self_claim_skips_outcome_neutral_repo_peer_discovery = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("trusted-human")
+    local current = current_issue("trusted-human", {})
+    current.assignees = { { login = "fkst-test-bot" } }
+
+    local admission = admission_for(current, repo)
+
+    t.eq(admission, "held")
+    t.eq(count_calls(issue_peer_command), 0)
+    t.eq(count_calls(pr_peer_command), 0)
+  end,
+
+  test_repo_peer_discovery_failure_is_not_an_empty_peer_set = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("peer-bot")
+    t.mock_command(issue_peer_command, {
+      stdout = "",
+      stderr = "rate limited",
+      exit_code = 1,
+    })
+
+    local admission, detail = admission_for(current_issue("peer-bot", {}), repo)
+
+    t.eq(admission, "denied")
+    t.eq(detail.action, "skip-peer-discovery-unavailable")
+    t.eq(detail.reason, "issue-peer-activity-unavailable")
+    t.eq(count_calls(issue_peer_command), 1)
+    t.eq(count_calls(pr_peer_command), 0)
   end,
 
   test_self_authored_repo_activity_is_ignored_as_peer_source = function()
@@ -261,7 +307,7 @@ return {
     t.eq(m_claims.is_managed_bot_login("peer-bot", inputs.managed), false)
   end,
 
-  test_repo_peer_set_is_rederived_from_current_scan_results = function()
+  test_repo_peer_set_is_rederived_from_successful_current_scan_results = function()
     mock_bot("fkst-test-bot")
     mock_authorized_login("peer-bot")
     mock_repo_peer_scan({

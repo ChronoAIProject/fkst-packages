@@ -75,6 +75,13 @@ local function mock_org_member_authorization(stdout)
   })
 end
 
+local function mock_complete_peer_discovery()
+  t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", { stdout = "[]", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', { stdout = "dev", stderr = "", exit_code = 0 })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', { stdout = "integration-fkst-test-bot", stderr = "", exit_code = 0 })
+  t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", { stdout = "[]", stderr = "", exit_code = 0 })
+end
+
 local function count_calls(needle)
   local count = 0
   for _, call in ipairs(t.command_calls()) do
@@ -379,6 +386,7 @@ return {
   test_other_author_unassigned_issue_inside_grace_skips_without_forking = function()
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("human")
+    mock_complete_peer_discovery()
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 44), {
       stdout = issue_state_json({ author_login = "human", created_at = created_inside_grace() }),
       stderr = "",
@@ -447,6 +455,7 @@ return {
   test_other_author_unassigned_issue_after_grace_raises_self_assigned_fork = function()
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("human")
+    mock_complete_peer_discovery()
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 43), {
       stdout = issue_state_json({ author_login = "human", created_at = created_after_grace() }),
       stderr = "",
@@ -478,6 +487,7 @@ return {
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("")
     mock_repo_collaborator_authorization()
+    mock_complete_peer_discovery()
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 43), {
       stdout = issue_state_json({ author_login = "write-collab", created_at = created_after_grace() }),
       stderr = "",
@@ -505,6 +515,7 @@ return {
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("")
     mock_org_member_authorization()
+    mock_complete_peer_discovery()
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 43), {
       stdout = issue_state_json({ author_login = "org-member", created_at = created_after_grace() }),
       stderr = "",
@@ -554,6 +565,7 @@ return {
   test_other_author_fork_revalidates_closed_issue_before_raise = function()
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("human")
+    mock_complete_peer_discovery()
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 43), {
       stdout = issue_state_json({ state = "CLOSED", author_login = "human", created_at = created_after_grace() }),
       stderr = "",
@@ -596,6 +608,7 @@ return {
   test_existing_fork_parent_ledger_skips_duplicate_fork = function()
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("human")
+    mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
       stdout = issue_state_json({
@@ -645,6 +658,7 @@ return {
     }, {
       configure_trusted_bot_login = h.mock_author_policy_configure,
     })
+    mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
       stdout = issue_state_json({
@@ -688,6 +702,7 @@ return {
   test_existing_fork_parent_intent_skips_duplicate_fork = function()
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("human")
+    mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
       stdout = issue_state_json({
@@ -729,6 +744,7 @@ return {
   test_forged_fork_parent_intent_does_not_suppress_fork = function()
     mock_bot("fkst-test-bot", "1")
     mock_authorized_login("human")
+    mock_complete_peer_discovery()
     local dedup_key = forks.fork_issue_dedup_key("owner/repo", 42)
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 42), {
       stdout = issue_state_json({

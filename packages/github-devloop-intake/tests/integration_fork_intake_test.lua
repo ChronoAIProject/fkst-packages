@@ -19,6 +19,16 @@ local function mock_repo_env()
   t.mock_command('printf %s "$FKST_GITHUB_REPO"', { stdout = "owner/repo", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_GITHUB_WRITE"', { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command('printf %s "$FKST_DEVLOOP_FORK_GRACE_HOURS"', { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+    stdout = "[]",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+    stdout = "[]",
+    stderr = "",
+    exit_code = 0,
+  })
 end
 
 local function source_ref()

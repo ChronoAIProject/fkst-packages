@@ -11,6 +11,7 @@ local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local config = require("devloop.config")
 local entity_lib = require("devloop.entity")
+local entity_list_cache = require("devloop.entity_list_cache")
 local admission_core = require("core.admission")
 local intake_capacity = require("core.intake_capacity")
 local replay_authorization = require("core.replay_authorization")
@@ -168,10 +169,10 @@ local function issue_from_current(issue_number, current)
   }
 end
 
-local function initial_claim_is_in_milestone_scope(context, repo, current)
+local function initial_claim_is_in_milestone_scope(context, repo, current, poll_key)
   local admission, detail = context.claims.claim_admission_precheck(
     current,
-    context.claims.claim_admission_inputs(current, repo)
+    context.claims.claim_admission_inputs(current, repo, poll_key)
   )
   if admission ~= "needs-claim" then
     return true, admission, detail
@@ -216,7 +217,13 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
   end
-  local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(context, repo, current)
+  local poll_key = entity_list_cache.entity_list_poll_key(event)
+  local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(
+    context,
+    repo,
+    current,
+    poll_key
+  )
   if not in_milestone_scope then
     reconcile_capacity(context, repo, proposal_id)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")

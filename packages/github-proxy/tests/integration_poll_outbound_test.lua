@@ -58,7 +58,7 @@ end
 
 return {
   test_inbound_poll_raises_issue_and_pr_then_cache_hit = function()
-    local event = { queue = "github_poll_tick", payload = {} }
+    local event = { queue = "github_poll_tick", ts = "2026-07-30T01:02:03Z", payload = {} }
     local run_opts = opts("inbound-cache-hit")
 
     mock_poll()
@@ -74,6 +74,7 @@ return {
     t.eq(first.raises[1].payload.labels[2], "bug")
     t.is_nil(first.raises[1].payload.view_cache_key)
     t.eq(first.raises[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:03Z")
+    t.eq(first.raises[1].payload.poll_token, event.ts)
     t.eq(first.raises[1].payload.source_ref.kind, "external")
     t.eq(first.raises[1].payload.source_ref.ref, "owner/x#issue/42")
     t.eq(first.raises[2].queue, "github_entity_changed")
@@ -87,6 +88,7 @@ return {
     t.eq(first.raises[2].payload.updated_at, "2026-06-03T02:03:04Z")
     t.is_nil(first.raises[2].payload.view_cache_key)
     t.eq(first.raises[2].payload.dedup_key, "owner/x#pr#7@2026-06-03T02:03:04Z")
+    t.eq(first.raises[2].payload.poll_token, event.ts)
     t.eq(first.raises[2].payload.source_ref.kind, "external")
     t.eq(first.raises[2].payload.source_ref.ref, "owner/x#pr/7")
     t.is_nil(first.raises[3])
@@ -96,6 +98,7 @@ return {
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 1)
     assert_observed_issue(second.raises[1], 42, "2026-06-03T01:02:03Z")
+    t.eq(second.raises[1].payload.poll_token, event.ts)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues?state=open&per_page=100"), 2)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/pulls?state=open&per_page=100"), 2)
   end,

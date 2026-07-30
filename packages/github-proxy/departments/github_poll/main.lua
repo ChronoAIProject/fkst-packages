@@ -122,6 +122,7 @@ local function raise_changed_item(repo, item, poll_token)
         labels = entity.labels,
         updated_at = entity.updated_at,
         dedup_key = dedup_key,
+        poll_token = poll_token,
         source = "gh",
         -- Durable-delivery: stable pointer so a reliable consumer can
         -- re-derive the current entity (also required by the engine when
@@ -158,6 +159,7 @@ local function raise_observed_item(repo, item, poll_token)
         number = entity.number,
         updated_at = entity.updated_at,
         dedup_key = observed_dedup_key(repo, item, poll_token),
+        poll_token = poll_token,
         source = "gh",
         source_ref = core.entity_source_ref(repo, "issue", entity.number),
       })
@@ -209,8 +211,9 @@ local function act(event)
   local fresh_changes = {}
   local replay_candidates = {}
   local observed_issues = {}
+  local poll_token = event and event.ts or now()
   poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues, poll_label_prefixes)
-  raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, event and event.ts)
+  raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, poll_token)
 end
 
 return saga.department(spec, {

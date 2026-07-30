@@ -4,6 +4,7 @@ local github_view = require("forge.github_view")
 
 local C = {}
 local json_string = github_view.json_string
+local peer_activity_scan_limit = 100
 
 local function normalize_poll_key(value)
   local text = tostring(value or "")
@@ -58,11 +59,17 @@ local function fetch_shared_list(repo, kind, scope, poll_key, exec_spec)
     return cached
   end
 
-  local result = exec_spec()
-  if type(result) == "table" and result.exit_code == 0 then
-    cache_set(key, encode_cached_list(result.stdout or ""))
-  end
-  return result
+  return with_lock(key, function()
+    local locked_cached = decode_cached_list(cache_get(key))
+    if locked_cached ~= nil then
+      return locked_cached
+    end
+    local result = exec_spec()
+    if type(result) == "table" and result.exit_code == 0 then
+      cache_set(key, encode_cached_list(result.stdout or ""))
+    end
+    return result
+  end)
 end
 
 function C.entity_list_cache_key(repo, kind, scope, poll_key)
@@ -71,10 +78,15 @@ end
 
 function C.entity_list_poll_key(event)
   if type(event) == "table" then
+    local payload = event.payload
+    if type(payload) == "table" then
+      if payload.poll_token ~= nil then
+        return tostring(payload.poll_token)
+      end
+    end
     if event.ts ~= nil then
       return tostring(event.ts)
     end
-    local payload = event.payload
     if type(payload) == "table" then
       for _, key in ipairs({ "tick", "generated_at", "ts" }) do
         if payload[key] ~= nil then
@@ -101,6 +113,28 @@ function C.fetch_shared_pr_observe_list(M, repo, opts)
   exec_opts.timeout = options.timeout or exec_opts.timeout
   return fetch_shared_list(repo, "pr", "open", options.poll_key, function()
     return exec_opts.run(exec_opts.timeout)
+  end)
+end
+
+function C.fetch_shared_issue_peer_activity_list(M, repo, opts)
+  local options = opts or {}
+  local timeout = options.timeout or 30
+  return fetch_shared_list(repo, "issue", "peer-activity", options.poll_key, function()
+    return M.issue_list_cli(repo, "all", peer_activity_scan_limit, "number,comments,author", timeout)
+  end)
+end
+
+function C.fetch_shared_pr_peer_activity_list(M, repo, opts)
+  local options = opts or {}
+  local timeout = options.timeout or 30
+  return fetch_shared_list(repo, "pr", "peer-activity", options.poll_key, function()
+    return M.pr_list_cli(
+      repo,
+      "all",
+      peer_activity_scan_limit,
+      "number,headRefName,baseRefName,comments,author",
+      timeout
+    )
   end)
 end
 

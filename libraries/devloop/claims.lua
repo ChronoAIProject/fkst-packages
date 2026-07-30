@@ -7,6 +7,7 @@ local github_factory = require("devloop.github_factory")
 local error_facts = require("contract.error_facts")
 local contract_time = require("contract.time")
 local config = require("devloop.config")
+local entity_list_cache = require("devloop.entity_list_cache")
 local github_author_policy = require("devloop.github_author_policy")
 local github_view = require("forge.github_view")
 local github_proxy_entity_view = require("devloop.github_proxy_entity_view")
@@ -40,7 +41,6 @@ C.is_managed_bot_login = github_author_policy.is_managed_bot_login
 
 local claimed_label = "fkst-dev:claimed"
 local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
-local peer_activity_scan_limit = 100
 local marker_attr = marker_shared.marker_attr
 
 local function decode_json_array(result)
@@ -184,34 +184,39 @@ local function pr_base_branch(row)
   return nil
 end
 
-function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle)
+function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle, poll_key)
   local logins = {}
   if type(trusted_author_policy) ~= "table" or repo == nil or tostring(repo) == "" then
     return logins
   end
   local handle = github_handle or github()
-  local ok_issues, issues = pcall(function()
-    return handle.issue_list_cli(repo, "all", peer_activity_scan_limit, "number,comments,author", 30)
-  end)
-  if ok_issues then
-    for _, row in ipairs(decode_json_array(issues) or {}) do
-      add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
-    end
+  local ok_issues, issues = pcall(entity_list_cache.fetch_shared_issue_peer_activity_list, handle, repo, {
+    poll_key = poll_key,
+    timeout = 30,
+  })
+  local issue_rows = ok_issues and decode_json_array(issues) or nil
+  if issue_rows == nil then
+    return nil, "issue-peer-activity-unavailable"
+  end
+  for _, row in ipairs(issue_rows) do
+    add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
   end
 
   local ok_config, branches = pcall(config.branch_config)
   local upstream = ok_config and branches and branches.upstream or nil
   local integration = ok_config and branches and branches.integration or nil
   if upstream == nil or tostring(upstream) == "" or integration == nil or tostring(integration) == "" then
-    return logins
+    return nil, "peer-activity-branch-config-unavailable"
   end
-  local ok_prs, prs = pcall(function()
-    return handle.pr_list_cli(repo, "all", peer_activity_scan_limit, "number,headRefName,baseRefName,comments,author", 30)
-  end)
-  if not ok_prs then
-    return logins
+  local ok_prs, prs = pcall(entity_list_cache.fetch_shared_pr_peer_activity_list, handle, repo, {
+    poll_key = poll_key,
+    timeout = 30,
+  })
+  local pr_rows = ok_prs and decode_json_array(prs) or nil
+  if pr_rows == nil then
+    return nil, "pr-peer-activity-unavailable"
   end
-  for _, row in ipairs(decode_json_array(prs) or {}) do
+  for _, row in ipairs(pr_rows) do
     add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
     if pr_base_branch(row) == tostring(upstream) and pr_head_branch(row) == tostring(integration) then
       add_authorized_candidate(logins, github_actor_login(row), trusted_author_policy, owner)
@@ -220,12 +225,23 @@ function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, 
   return logins
 end
 
-local function add_repo_scoped_observed_managed_bot_logins(managed, repo, trusted_author_policy, owner, github_handle)
-  for login, allowed in pairs(C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle)) do
+local function add_repo_scoped_observed_managed_bot_logins(managed, repo, trusted_author_policy, owner, github_handle, poll_key)
+  local observed, unavailable_reason = C.repo_scoped_observed_managed_bot_logins(
+    repo,
+    trusted_author_policy,
+    owner,
+    github_handle,
+    poll_key
+  )
+  if observed == nil then
+    return false, unavailable_reason
+  end
+  for login, allowed in pairs(observed) do
     if allowed == true then
       managed[login] = true
     end
   end
+  return true, nil
 end
 
 -- assignee (default) ⇒ exactly today's behavior. label ⇒ opt-in GitHub App mode.
@@ -397,7 +413,7 @@ function C.fork_grace_elapsed(repo, issue_number, current, now_seconds, grace_se
   return true, "fork-grace-elapsed", age_seconds
 end
 
-function C.claim_admission_inputs(current, repo)
+function C.claim_admission_inputs(current, repo, poll_key)
   local owner = C.claim_owner()
   local status = C.issue_claim_state(current and current.assignees, owner, current and current.labels)
   if status == "other" then
@@ -414,14 +430,27 @@ function C.claim_admission_inputs(current, repo)
   end
   local managed = nil
   local trusted_author_policy = nil
+  local peer_discovery_error = nil
   if claim_mode ~= "label" and author ~= nil and author ~= "" and author ~= owner then
     managed = C.managed_bot_logins()
     if not C.is_managed_bot_login(author, managed) then
       local github_handle = github()
       trusted_author_policy = github_author_policy.from_handle_policy(github_handle)
       add_observed_state_marker_managed_bot_logins(managed, current, trusted_author_policy, owner)
-      if not C.is_managed_bot_login(author, managed) then
-        add_repo_scoped_observed_managed_bot_logins(managed, repo or (current and current.repo), trusted_author_policy, owner, github_handle)
+      if not C.is_managed_bot_login(author, managed)
+        and github_author_policy.is_authorized(trusted_author_policy, author)
+        and status ~= "self" then
+        local available, unavailable_reason = add_repo_scoped_observed_managed_bot_logins(
+          managed,
+          repo or (current and current.repo),
+          trusted_author_policy,
+          owner,
+          github_handle,
+          poll_key
+        )
+        if not available then
+          peer_discovery_error = unavailable_reason or "peer-activity-unavailable"
+        end
       end
     end
   end
@@ -431,6 +460,7 @@ function C.claim_admission_inputs(current, repo)
     claim_mode = claim_mode,
     managed = managed,
     trusted_author_policy = trusted_author_policy,
+    peer_discovery_error = peer_discovery_error,
   }
 end
 
@@ -461,6 +491,12 @@ function C.claim_admission_precheck(current, inputs)
       }
     end
     if author ~= inputs.owner then
+      if inputs.peer_discovery_error ~= nil then
+        return "denied", {
+          action = "skip-peer-discovery-unavailable",
+          reason = tostring(inputs.peer_discovery_error),
+        }
+      end
       if C.is_managed_bot_login(author, inputs.managed) then
         if inputs.status == "self" then
           return "held", detail
