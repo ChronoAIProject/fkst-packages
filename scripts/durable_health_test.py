@@ -46,6 +46,7 @@ def _run_durable_health(
     fact_lines: list[str] | None = None,
     truncated: bool = False,
     cleanup_before_health: bool = False,
+    census_failure: bool = False,
 ) -> str:
     """Run the real durable_health_one against a fake observe snapshot and child logs."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -66,6 +67,18 @@ def _run_durable_health(
         )
         fake_bin.chmod(fake_bin.stat().st_mode | stat.S_IXUSR)
 
+        command_path = os.environ["PATH"]
+        if census_failure:
+            fake_commands = root / "bin"
+            fake_commands.mkdir()
+            fake_lsof = fake_commands / "lsof"
+            fake_lsof.write_text(
+                "#!/bin/sh\necho 'fixture census failure' >&2\nexit 1\n",
+                encoding="utf-8",
+            )
+            fake_lsof.chmod(fake_lsof.stat().st_mode | stat.S_IXUSR)
+            command_path = f"{fake_commands}:{command_path}"
+
         log_root = root / "logs"
         child_logs = log_root / "dogfood-rt-packages.1" / "logs" / "framework-child"
         child_logs.mkdir(parents=True)
@@ -80,11 +93,13 @@ def _run_durable_health(
             f'cfg() {{ DUR="{durable_root}"; return 0; }}\n'
             f'BIN="{fake_bin}"\n'
             f'LOGDIR="{log_root}"\n'
+            f'PATH="{command_path}"\n'
         )
         if cleanup_before_health:
             script += (
                 f'PKGSRC="{root / "not-a-checkout"}"\n'
                 f'clean_stale_runtime_worktrees packages "{log_root / "dogfood-rt-packages.current"}"\n'
+                f'[ -d "{child_logs.parent.parent}" ] && echo "runtime-retained" || echo "runtime-removed"\n'
             )
         script += "durable_health_one packages\n"
         result = subprocess.run(
@@ -287,6 +302,20 @@ class DurableHealthTest(unittest.TestCase):
             "fingerprint=fp-quota 1x dept=dept-a",
             out,
         )
+
+    def test_restart_cleanup_retains_runtime_when_writer_census_fails(self) -> None:
+        now_ms = int(time.time() * 1000)
+
+        out = _run_durable_health(
+            [_dead_letter("delivery-1", now_ms, "dept-a")],
+            fact_lines=[_cause_fact("delivery-1", "quota-exhausted", "fp-quota")],
+            cleanup_before_health=True,
+            census_failure=True,
+        )
+
+        self.assertIn("runtime-retained", out)
+        self.assertNotIn("runtime-removed", out)
+        self.assertIn("fixture census failure", out)
 
     def test_restart_retains_old_runtime_until_orphaned_writer_finishes(self) -> None:
         now_ms = int(time.time() * 1000)

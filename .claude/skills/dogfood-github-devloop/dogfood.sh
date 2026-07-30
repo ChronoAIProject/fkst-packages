@@ -308,7 +308,7 @@ bin_ensure_fresh() {
 # depts create worktrees under the launch runtime scratch, registered in the shared .git; each
 # restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
 clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
-  local name="$1" keep="$2" wt d
+  local name="$1" keep="$2" wt d writer_census writer_census_status
   if ! command -v lsof >/dev/null 2>&1; then
     echo "[$name] cannot prove stale runtime writer quiescence: lsof unavailable; retaining old runtimes" >&2
     return 0
@@ -317,8 +317,16 @@ clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
     if [ -d "$d" ] && [ "$d" != "$keep" ]; then
       # The killed supervisor cannot spawn new writers. Existing orphaned children only shrink this
       # holder set, so an empty kernel open-file census is the deletion barrier for the old runtime.
-      if [ -n "$(lsof +D "$d" 2>/dev/null || true)" ]; then
+      writer_census_status=0
+      writer_census=$(lsof +D "$d" 2>&1) || writer_census_status=$?
+      if [ "$writer_census_status" -eq 0 ] && [ -n "$writer_census" ]; then
         echo "[$name] retaining stale runtime with active writers: $d" >&2
+        continue
+      fi
+      # lsof reports no matches as exit 1 with no output; every other result is inconclusive.
+      if [ "$writer_census_status" -ne 1 ] || [ -n "$writer_census" ]; then
+        echo "[$name] cannot prove stale runtime writer quiescence: lsof exit $writer_census_status; retaining $d" >&2
+        [ -n "$writer_census" ] && printf '%s\n' "$writer_census" >&2
         continue
       fi
       python3 "$_self_dir/dead_letter_causes.py" archive \
