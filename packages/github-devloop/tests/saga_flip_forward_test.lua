@@ -353,7 +353,6 @@ return {
       end
     end
     local captures_by_kind = {}
-    local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push" }
     for ordinal, capture in ipairs(captures) do
       captures_by_kind[capture.sink_kind] = capture
       local inventory = inventory_by_kind[capture.sink_kind]
@@ -368,9 +367,6 @@ return {
         t.eq(#entitlement.effect_ids, 1)
         t.eq(entitlement.effect_ids[1], capture.effect_id)
       end
-      local path = capture.old_callsite:match("^([^:]+):%d+$")
-      t.is_true(path ~= nil
-        and file.read(path):find(call_tokens[capture.sink_kind], 1, true) ~= nil)
     end
     for _, probe in ipairs(probes) do
       for sink_kind, entitlement_ids in pairs(probe.entitlements) do

@@ -332,7 +332,6 @@ class AdmissionTraceShapeTest(unittest.TestCase):
         artifact["captured_sink_effects"] = [
             {
                 "effect_id": "codex.dispatch:fix",
-                "old_callsite": "packages/github-devloop-pr/departments/fix/main.lua:248",
                 "old_probe_ids": ["entry-fix-new-fix-push-routes-reviewing"],
                 "ordinal": Decimal(1),
                 "owning_effect_entitlement_ids": [
@@ -345,6 +344,32 @@ class AdmissionTraceShapeTest(unittest.TestCase):
         self.assertNotEqual(active_hash, shadow_hash)
         artifact["artifact_sha256"] = active_hash
         self.assertEqual(self.messages(artifact), [])
+
+    def test_captured_sink_effect_schema_excludes_source_line_coordinates(self) -> None:
+        artifact = self.artifact("pending", [], [], entitlement_id=None)
+        artifact["captured_sink_effects"] = [
+            {
+                "effect_id": "codex.dispatch:fix",
+                "old_probe_ids": ["entry-fix-new-fix-push-routes-reviewing"],
+                "ordinal": Decimal(1),
+                "owning_effect_entitlement_ids": [
+                    "github-devloop-pr/fixing/autonomous/revision_published/apply"
+                ],
+                "sink_kind": "codex",
+            }
+        ]
+        artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+        self.assertEqual(self.messages(artifact), [])
+
+        artifact["captured_sink_effects"][0]["old_callsite"] = (
+            "packages/github-devloop-pr/departments/fix/main.lua:248"
+        )
+        artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
+
+        self.assertTrue(any(
+            "unexpected fields: old_callsite" in message
+            for message in self.messages(artifact)
+        ))
 
     def test_idempotent_writes_may_exactly_equal_declared_entitlement(self) -> None:
         effect_ids = ["queue.one", "queue.two"]

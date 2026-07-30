@@ -143,7 +143,6 @@ def _exact_fields_messages(
 
 CAPTURED_SINK_EFFECT_FIELDS = {
     "effect_id",
-    "old_callsite",
     "old_probe_ids",
     "ordinal",
     "owning_effect_entitlement_ids",
@@ -171,7 +170,7 @@ def _captured_sink_effect_messages(
         messages.extend(_exact_fields_messages(capture, CAPTURED_SINK_EFFECT_FIELDS, label))
         if not _positive_integer(capture.get("ordinal")) or int(capture["ordinal"]) != index:
             messages.append(f"{label} ordinal must match its one-based capture order")
-        for field in ("effect_id", "old_callsite", "sink_kind"):
+        for field in ("effect_id", "sink_kind"):
             if not _nonempty_string(capture.get(field)):
                 messages.append(f"{label} field {field} must be a non-empty string")
         probe_ids = capture.get("old_probe_ids")

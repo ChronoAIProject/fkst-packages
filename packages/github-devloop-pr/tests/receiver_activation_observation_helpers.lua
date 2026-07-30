@@ -354,7 +354,6 @@ local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
   local inventory_by_id = {}
   local runtime_by_id = {}
   local entitlement_index = entitlements_by_id()
-  local call_tokens = { codex = "workflow_codex.dispatch", git = "git_push", merge = "gh_pr_merge" }
   for _, record in ipairs(sink_inventory) do inventory_by_id[record.id] = record end
   for _, record in ipairs(runtime_records) do runtime_by_id[record.observation_id] = record end
   for _, capture in ipairs(captures) do
@@ -378,10 +377,6 @@ local function assert_shadow_sink_captures(t, runtime_records, corpus_path)
       t.eq(entitlement.effect_ids[1], capture.effect_id,
         corpus_path .. ": receiver dispatch entitlement owns only the codex sink")
     end
-    local path = tostring(capture.old_callsite):match("^([^:]+):%d+$")
-    t.is_true(path ~= nil, corpus_path .. ": OLD callsite is file:line")
-    t.is_true(file.read(path):find(call_tokens[capture.sink_kind], 1, true) ~= nil,
-      corpus_path .. ": OLD callsite executes the captured sink kind")
     for _, probe_id in ipairs(capture.old_probe_ids or {}) do
       local runtime = runtime_by_id[probe_id]
       t.is_true(runtime ~= nil, corpus_path .. ": OLD probe was executed")
