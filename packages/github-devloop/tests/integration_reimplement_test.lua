@@ -12,8 +12,10 @@ local reached = h.reached
 local run_observe = h.run_observe
 local run_implement = h.run_implement
 local mock_issue_state = h.mock_issue_state
+local mock_issue_implement = h.mock_issue_implement
 local mock_issue_implement_raw = h.mock_issue_implement_raw
 local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
+local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_git_commit = h.mock_git_commit
@@ -21,6 +23,7 @@ local render_comment = h.render_comment
 local json_string = h.json_string
 local find_raise = h.find_raise
 local count_calls = h.count_calls
+local deterministic_branch_for = h.deterministic_branch_for
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local strings = require("contract.strings")
@@ -122,16 +125,36 @@ local function find_worktree_ready_comment(raises)
   end)
 end
 
-local function run_refusal_reimplementation_case(reason, evidence)
+local function run_refusal_reimplementation_case(reason, evidence, initial_attempt, stop_after_refusal)
+  initial_attempt = initial_attempt or 1
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+    core.state_marker(event.proposal_id,
+      initial_attempt == 1 and "ready" or "implementing", ready.dedup_key),
   }
-  mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
-  mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
+  if initial_attempt == 1 then
+    mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
+    mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
+  else
+    table.insert(ready_comments, core.implement_attempt_marker(
+      event.proposal_id, ready.dedup_key, initial_attempt - 1, tostring(now() - 7201)))
+    mock_issue_implement({ "fkst-dev:implementing" }, ready_comments)
+    local branch = deterministic_branch_for(ready)
+    t.mock_command("git fetch 'origin' '" .. tostring(branch) .. "'", {
+      stdout = "",
+      stderr = "fatal: couldn't find remote ref",
+      exit_code = 128,
+    })
+    t.mock_command("show-ref --verify --quiet", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
+    mock_fresh_implement_worktree({ impl_version = ready.dedup_key })
+  end
   mock_implement_codex(0, implementation_receipt(
-    event, ready.dedup_key, "cannot-implement-here", 1, reason, evidence))
+    event, ready.dedup_key, "cannot-implement-here", initial_attempt, reason, evidence))
   mock_git_status("")
   t.mock_command("rev-list --count", {
     stdout = "0\n",
@@ -165,14 +188,26 @@ local function run_refusal_reimplementation_case(reason, evidence)
     return payload.add_labels[1] == "fkst-dev:impl-failed"
   end), nil)
 
+  local attempt_comment = find_raise(refused.raises, "github-proxy.github_issue_comment_request", function(payload)
+    return tostring(payload.body or ""):find("fkst:github-devloop:implement-attempt:v1", 1, true) ~= nil
+  end)
+  t.is_true(attempt_comment ~= nil, reason .. ": trusted implementation attempt was not published")
+  t.is_true(attempt_comment.payload.body:find('attempt="' .. tostring(initial_attempt) .. '"', 1, true) ~= nil,
+    reason .. ": implementation attempt marker used the wrong attempt")
+
   local command = trusted_command("IC_reimplement_" .. reason:gsub("%-", "_"))
-  local blocked_comments = { refusal_comment.payload.body, command }
+  local blocked_comments = { attempt_comment.payload.body, refusal_comment.payload.body, command }
   local published_refusal = core.implementation_refusal_fact(
     blocked_comments, event.proposal_id, ready.dedup_key)
   t.is_true(published_refusal ~= nil,
     reason .. ": published refusal did not round-trip as a trusted current fact")
   t.eq(published_refusal.reason, reason)
   t.eq(published_refusal.evidence, evidence)
+  t.eq(published_refusal.implementation_version, ready.dedup_key)
+  t.eq(published_refusal.attempt, initial_attempt)
+  if stop_after_refusal then
+    return
+  end
   mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", blocked_comments)
 
   local observed = run_observe(
@@ -188,17 +223,18 @@ local function run_refusal_reimplementation_case(reason, evidence)
   t.is_true(retry ~= nil,
     reason .. ": trusted typed refusal did not authorize reimplementation; emitted="
       .. table.concat(emitted, " | "))
-  t.eq(retry.payload.impl_retry_attempt, 2)
+  local retry_attempt = initial_attempt + 1
+  t.eq(retry.payload.impl_retry_attempt, retry_attempt)
   t.eq(retry.payload.operator_reentry.terminal_reason, "implementation-refusal")
   t.eq(retry.payload.operator_reentry.impl_version, ready.dedup_key)
 
-  local retry_version = core.implementation_attempt_version(ready.dedup_key, 2)
+  local retry_version = core.implementation_attempt_version(ready.dedup_key, retry_attempt)
   for _ = 1, 3 do
     mock_issue_implement_raw({ "fkst-dev:blocked" }, blocked_comments)
   end
   mock_existing_empty_implement_worktree({ impl_version = retry_version })
   mock_implement_codex(0, implementation_receipt(
-    event, retry_version, "changes-produced", 2))
+    event, retry_version, "changes-produced", retry_attempt))
   mock_git_status(" M packages/github-devloop/core.lua\n")
   mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", ready.dedup_key))
 
@@ -487,6 +523,14 @@ return {
     run_refusal_reimplementation_case(
       "precursor-missing",
       "The required generated parser is absent from packages/parser.")
+  end,
+
+  test_same_version_second_attempt_refusal_uses_trusted_attempt_fact = function()
+    run_refusal_reimplementation_case(
+      "precursor-missing",
+      "The required generated parser is absent from packages/parser.",
+      2,
+      true)
   end,
 
   test_wrong_layer_refusal_blocks_then_reimplements_from_trusted_fact = function()

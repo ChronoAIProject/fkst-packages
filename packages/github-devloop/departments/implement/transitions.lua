@@ -2,7 +2,6 @@ local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_base = require("devloop.base")
 local m_facts = require("devloop.markers.facts")
 local operator_commands = require("devloop.operator_commands")
-local implementation_refusal = require("core.implementation_refusal")
 
 local M = {}
 
@@ -80,7 +79,7 @@ function M.expected_states_include(expected_states, state_name)
   return false
 end
 
-function M.operator_blocked_reimplement_allowed(ready, current, state)
+function M.operator_blocked_reimplement_allowed(core, ready, current, state)
   local reentry = ready and ready.operator_reentry
   if type(reentry) ~= "table"
     or reentry.command ~= "reimplement"
@@ -104,7 +103,7 @@ function M.operator_blocked_reimplement_allowed(ready, current, state)
   end
   if reentry.terminal_reason == "implementation-refusal" then
     if m_facts.pr_link_fact(current.comments, ready.proposal_id) ~= nil then return false end
-    local fact = implementation_refusal.fact(
+    local fact = core.implementation_refusal_fact(
       current.comments, ready.proposal_id, state.version)
     return fact ~= nil
       and tostring(fact.implementation_version or "") == tostring(reentry.impl_version or "")

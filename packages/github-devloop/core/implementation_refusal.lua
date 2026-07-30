@@ -4,7 +4,6 @@ local impl_failure = require("devloop.impl_failure")
 local marker_shared = require("devloop.markers.shared")
 local parsers_misc = require("devloop.parsers.misc")
 local strings = require("contract.strings")
-local transition_version = require("contract.transition_version")
 
 local M = {}
 
@@ -65,21 +64,12 @@ function M.prompt_contract()
   return table.concat(lines, "\n")
 end
 
-local function attempt_matches_version(implementation_version, attempt)
-  local version_attempt = transition_version.trailing_reimplement_round(implementation_version)
-  if version_attempt == 0 then
-    version_attempt = 1
-  end
-  return impl_failure.valid_attempt(version_attempt) == attempt
-end
-
 function M.marker(proposal_id, implementation_version, reason, evidence, attempt)
   local n = impl_failure.valid_attempt(attempt)
   if not strings.is_path_safe_key(proposal_id, devloop_base._max_key_len)
     or not strings.is_bounded_string(implementation_version, devloop_base._max_dedup_len)
     or not M.is_supported_reason(reason)
     or n == nil
-    or not attempt_matches_version(implementation_version, n)
     or not strings.is_bounded_string(evidence, devloop_base._max_blocking_gap_len)
     or strings.trim(evidence) == "" then
     error("github-devloop: invalid-implementation-refusal-marker: invalid implementation refusal marker")
@@ -92,7 +82,7 @@ function M.marker(proposal_id, implementation_version, reason, evidence, attempt
     .. '" -->'
 end
 
-local function fact_from_marker(marker, comment, proposal_id, implementation_version)
+local function fact_from_marker(marker, comment, proposal_id, implementation_version, expected_attempt)
   local marker_proposal = marker_shared.marker_attr(marker, "proposal")
   local marker_version = marker_shared.marker_attr(marker, "dedup")
   local reason = marker_shared.marker_attr(marker, "reason")
@@ -102,7 +92,7 @@ local function fact_from_marker(marker, comment, proposal_id, implementation_ver
     or marker_version ~= tostring(implementation_version)
     or not M.is_supported_reason(reason)
     or attempt == nil
-    or not attempt_matches_version(marker_version, attempt)
+    or attempt ~= expected_attempt
     or not strings.is_bounded_string(marker_version, devloop_base._max_dedup_len)
     or not strings.is_bounded_string(evidence, devloop_base._max_blocking_gap_len)
     or strings.trim(evidence) == "" then
@@ -121,8 +111,12 @@ local function fact_from_marker(marker, comment, proposal_id, implementation_ver
   }
 end
 
-function M.fact(comments, proposal_id, implementation_version)
+function M.fact(comments, proposal_id, implementation_version, implement_attempt_fact)
+  local expected_attempt = type(implement_attempt_fact) == "table"
+    and impl_failure.valid_attempt(implement_attempt_fact.attempt)
+    or nil
   if type(comments) ~= "table"
+    or expected_attempt == nil
     or not devloop_state.is_current_state(
       comments, proposal_id, "blocked", implementation_version) then
     return nil
@@ -132,7 +126,7 @@ function M.fact(comments, proposal_id, implementation_version)
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = fact_from_marker(
-        marker, comment, proposal_id, implementation_version)
+        marker, comment, proposal_id, implementation_version, expected_attempt)
       if candidate ~= nil and (best == nil or candidate.attempt > best.attempt) then
         best = candidate
       end
@@ -147,7 +141,11 @@ function M.install(core)
   core.is_supported_implementation_refusal_reason = M.is_supported_reason
   core.require_supported_implementation_refusal_reason = M.require_supported_reason
   core.implementation_refusal_marker = M.marker
-  core.implementation_refusal_fact = M.fact
+  core.implementation_refusal_fact = function(comments, proposal_id, implementation_version)
+    local attempt_fact = core.latest_implement_attempt_fact(
+      comments, proposal_id, implementation_version)
+    return M.fact(comments, proposal_id, implementation_version, attempt_fact)
+  end
 end
 
 return M

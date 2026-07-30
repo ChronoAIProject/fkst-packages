@@ -1,5 +1,4 @@
 local h = require("tests.devloop_helpers")
-local transition_version = require("contract.transition_version")
 
 local t = h.t
 local core = h.core
@@ -20,12 +19,14 @@ local function trusted_comment(body)
   }
 end
 
-local function refusal_comments(version, reason, attempt, author_login)
+local function refusal_comments(version, reason, refusal_attempt, author_login, implement_attempt)
   return {
     trusted_comment(core.state_marker(proposal_id, "blocked", version)),
+    trusted_comment(core.implement_attempt_marker(
+      proposal_id, version, implement_attempt or refusal_attempt, "100")),
     {
       body = core.implementation_refusal_marker(
-        proposal_id, version, reason, "Worker-reported evidence.", attempt),
+        proposal_id, version, reason, "Worker-reported evidence.", refusal_attempt),
       author_login = author_login or core._test_bot_login,
       created_at = "2026-06-03T01:02:04Z",
     },
@@ -57,25 +58,30 @@ return {
     end
   end,
 
+  test_same_version_second_attempt_refusal_uses_trusted_attempt_fact = function()
+    local fact = core.implementation_refusal_fact(
+      refusal_comments(base_version, "precursor-missing", 2), proposal_id, base_version)
+    t.is_true(fact ~= nil)
+    t.eq(fact.attempt, 2)
+  end,
+
   test_refusal_fact_rejects_untrusted_malformed_stale_and_wrong_identity_markers = function()
-    local retry_version = transition_version.reimplement_at(base_version, 2)
-    local valid = refusal_comments(retry_version, "wrong-layer", 2)
-    t.eq(core.implementation_refusal_fact(valid, proposal_id .. "/other", retry_version), nil)
-    t.eq(core.implementation_refusal_fact(valid, proposal_id, base_version), nil)
+    local valid = refusal_comments(base_version, "wrong-layer", 2)
+    t.eq(core.implementation_refusal_fact(valid, proposal_id .. "/other", base_version), nil)
+    t.eq(core.implementation_refusal_fact(valid, proposal_id, base_version .. "/other"), nil)
 
-    local untrusted = refusal_comments(retry_version, "wrong-layer", 2, "mallory")
-    t.eq(core.implementation_refusal_fact(untrusted, proposal_id, retry_version), nil)
+    local untrusted = refusal_comments(base_version, "wrong-layer", 2, "mallory")
+    t.eq(core.implementation_refusal_fact(untrusted, proposal_id, base_version), nil)
 
-    local stale = refusal_comments(retry_version, "wrong-layer", 2)
+    local stale = refusal_comments(base_version, "wrong-layer", 2)
     stale[1] = trusted_comment(core.state_marker(proposal_id, "blocked", base_version))
-    t.eq(core.implementation_refusal_fact(stale, proposal_id, retry_version), nil)
+    t.eq(core.implementation_refusal_fact(stale, proposal_id, base_version .. "/other"), nil)
 
-    local wrong_attempt = refusal_comments(retry_version, "wrong-layer", 2)
-    wrong_attempt[2].body = wrong_attempt[2].body:gsub('attempt="2"', 'attempt="1"')
-    t.eq(core.implementation_refusal_fact(wrong_attempt, proposal_id, retry_version), nil)
+    local wrong_attempt = refusal_comments(base_version, "wrong-layer", 1, nil, 2)
+    t.eq(core.implementation_refusal_fact(wrong_attempt, proposal_id, base_version), nil)
 
-    local malformed = refusal_comments(retry_version, "wrong-layer", 2)
-    malformed[2].body = malformed[2].body:gsub('reason="wrong%-layer"', 'reason="Wrong-Layer"')
-    t.eq(core.implementation_refusal_fact(malformed, proposal_id, retry_version), nil)
+    local malformed = refusal_comments(base_version, "wrong-layer", 2)
+    malformed[3].body = malformed[3].body:gsub('reason="wrong%-layer"', 'reason="Wrong-Layer"')
+    t.eq(core.implementation_refusal_fact(malformed, proposal_id, base_version), nil)
   end,
 }
