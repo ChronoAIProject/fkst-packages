@@ -346,7 +346,7 @@ local function mock_native_merge_observation()
   t.mock_command("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha, {
     stdout = "", stderr = "", exit_code = 0,
   })
-  t.mock_command(core.gh_issue_close_cmd(repo, revived_child_issue), {
+  t.mock_command(core.gh_issue_close_cmd(repo, revived_child_issue, { kind = "completed" }), {
     stdout = "closed\n", stderr = "", exit_code = 0,
   })
 end
