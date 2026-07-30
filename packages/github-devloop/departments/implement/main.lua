@@ -726,7 +726,7 @@ local function process_ready_event(event)
         return
       end
     elseif state.state == "blocked" and ready.impl_retry_attempt ~= nil
-      and transitions.operator_blocked_reimplement_allowed(ready, current, state) then
+      and transitions.operator_blocked_reimplement_allowed(core, ready, current, state) then
       blocked_reentry = true
     elseif state.state == "implementing" or state.state == "impl-failed" then
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-idempotent(already at to_state)", "implementation fact marker already visible")

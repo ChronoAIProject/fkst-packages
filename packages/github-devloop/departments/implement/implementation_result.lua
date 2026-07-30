@@ -1,6 +1,7 @@
 local devloop_base = require("devloop.base")
 local impl_failure = require("devloop.impl_failure")
 local strings = require("contract.strings")
+local implementation_refusal = require("core.implementation_refusal")
 
 local json = json
 local M = {}
@@ -91,8 +92,8 @@ function M.decode(raw, expected)
     raw = text,
   }
   if refusal then
-    if value.reason ~= "precursor-missing" then
-      return nil, "reason must be precursor-missing"
+    if not implementation_refusal.is_supported_reason(value.reason) then
+      return nil, "reason must be one of " .. implementation_refusal.reasons_text()
     end
     if not strings.is_bounded_string(value.evidence, devloop_base._max_blocking_gap_len)
       or trim(value.evidence) == "" then
