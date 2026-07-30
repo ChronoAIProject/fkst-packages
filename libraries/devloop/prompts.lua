@@ -192,6 +192,14 @@ local function install_implement(M, resolved)
 function M.build_implement_prompt(proposal_id, current, framing, content_manifest, profile, profile_context)
   local prompt = load_prompt("implement")
   local local_test_command = config.local_iteration_test_command()
+  local selected = profile or "generic"
+  local context = profile_context or {}
+  local attempt = tonumber(context.attempt)
+  if not strings.is_bounded_string(context.implementation_version, M._max_dedup_len)
+    or attempt == nil or attempt < 1 or attempt ~= math.floor(attempt)
+    or attempt > M._max_impl_retry_attempts then
+    error("devloop_prompts: invalid implementation result context")
+  end
   local rendered = M.render_prompt_template(prompt.template, {
     proposal_id = devloop_base.neutralize_untrusted_prompt_text(proposal_id),
     framing = bounded_framing(M, framing),
@@ -199,17 +207,18 @@ function M.build_implement_prompt(proposal_id, current, framing, content_manifes
     local_test_command = local_test_command,
     content_fetch_block = local_context_block(M, content_manifest),
   }, nil, { role = "actor", entity_history = true })
-  local selected = profile or "generic"
-  if selected == "generic" then
-    return rendered
-  end
   local profile_template = type(prompt.profiles) == "table" and prompt.profiles[selected] or nil
   if type(profile_template) ~= "string" then
     error("devloop_prompts: unsupported implement profile " .. tostring(selected))
   end
-  local context = profile_context or {}
+  if selected == "generic" then
+    return rendered .. "\n\n" .. devloop_base.render_template(profile_template, {
+      proposal_id = devloop_base.neutralize_untrusted_prompt_text(proposal_id),
+      implementation_version = devloop_base.neutralize_untrusted_prompt_text(context.implementation_version),
+      attempt = tostring(attempt),
+    })
+  end
   local timeout_seconds = tonumber(context.timeout_seconds)
-  local attempt = tonumber(context.attempt)
   if not devloop_base._is_path_safe_key(context.target, M._max_key_len)
     or context.target:match("[^/]+%.lean$") == nil
     or timeout_seconds == nil or timeout_seconds <= 0 or timeout_seconds ~= math.floor(timeout_seconds)

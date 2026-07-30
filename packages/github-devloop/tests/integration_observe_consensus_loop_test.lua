@@ -377,7 +377,10 @@ return {
     local prompt = core.build_implement_prompt(reached().proposal_id, {
       title = "Fix parser",
       body = "Expected behavior",
-    }, "DO X ONLY")
+    }, "DO X ONLY", nil, nil, {
+      implementation_version = "ready/observe-consensus-loop",
+      attempt = 1,
+    })
     t.is_true(prompt:find("Agreed consensus framing", 1, true) ~= nil)
     t.is_true(prompt:find("Implement EXACTLY within this", 1, true) ~= nil)
     t.is_true(prompt:find("DO X ONLY", 1, true) ~= nil)
