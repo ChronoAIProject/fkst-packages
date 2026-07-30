@@ -13,7 +13,7 @@ local function encode_json_string(value)
 end
 
 local function issue_projection_json(issue, include_duplicate)
-  local duplicate = ""
+  local duplicate = include_duplicate and ',"duplicateOf":null' or ""
   if include_duplicate and type(issue.duplicate_of) == "table" then
     duplicate = ',"duplicateOf":' .. issue_projection_json(issue.duplicate_of, false)
   end

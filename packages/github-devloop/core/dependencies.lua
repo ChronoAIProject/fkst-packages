@@ -117,11 +117,13 @@ local function parse_dependency_issue(node, include_duplicate)
     duplicate_projection_complete = include_duplicate == true,
   }
   local duplicate_of = node.duplicateOf or node.duplicate_of
-  if include_duplicate and duplicate_of ~= nil then
+  if include_duplicate and type(duplicate_of) == "table" then
     issue.duplicate_of = parse_dependency_issue(duplicate_of, false)
     if issue.duplicate_of == nil then
       return nil
     end
+  elseif include_duplicate and duplicate_of ~= nil and type(duplicate_of) ~= "userdata" then
+    return nil
   end
   return issue
 end
