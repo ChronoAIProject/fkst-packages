@@ -84,6 +84,34 @@ return {
     end)
   end,
 
+  test_malformed_retry_lineage_records_visible_failure_instead_of_crashing = function()
+    local event = reached()
+    local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local first_replacement_version = base_version .. "/reimplement/1"
+    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    ready.dedup_key = first_replacement_version
+    ready.impl_retry_attempt = 3
+    local comments = {
+      core.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
+      core.impl_failure_marker(event.proposal_id, first_replacement_version, "codex-failed", 1),
+    }
+    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+
+    local result = run_implement(ready, opts("implement-malformed-retry-lineage"))
+
+    t.eq(result.exit_code, 0)
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
+    t.is_true(comment ~= nil)
+    t.is_true(comment.payload.body:find("invalid-version-lineage", 1, true) ~= nil)
+    t.is_true(comment.payload.body:find(
+      core.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
+      1,
+      true
+    ) ~= nil)
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.eq(label.payload.add_labels[1], "fkst-dev:impl-failed")
+  end,
+
   test_second_operator_reimplement_raises_next_attempt = function()
     local event = reached()
     local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
