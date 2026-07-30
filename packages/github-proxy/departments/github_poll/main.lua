@@ -1,5 +1,6 @@
 local core = require("core")
 local saga = require("workflow.saga")
+local entity_list_cache = require("devloop.entity_list_cache")
 
 local spec = {
   consumes = { "github_poll_tick" },
@@ -213,6 +214,7 @@ local function act(event)
   local observed_issues = {}
   local poll_token = event and event.ts or now()
   poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues, poll_label_prefixes)
+  entity_list_cache.record_poll_epoch(repo, poll_token)
   raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, poll_token)
 end
 

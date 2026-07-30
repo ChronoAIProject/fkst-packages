@@ -42,16 +42,103 @@ C.is_managed_bot_login = github_author_policy.is_managed_bot_login
 local claimed_label = "fkst-dev:claimed"
 local state_marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
 local marker_attr = marker_shared.marker_attr
+local json_array_tag = nil
+local json_object_tag = nil
+local json_tags_initialized = false
+local peer_activity_scan_limit = 100
+local peer_activity_queries = {
+  issue = {
+    scope = "peer-activity-v1-all-limit-100-number-comments-author",
+    fields = "number,comments,author",
+  },
+  pr = {
+    scope = "peer-activity-v1-all-limit-100-number-headRefName-baseRefName-comments-author",
+    fields = "number,headRefName,baseRefName,comments,author",
+  },
+}
 
-local function decode_json_array(result)
+local function initialize_json_tags()
+  if not json_tags_initialized then
+    json_array_tag = getmetatable(json.decode("[]"))
+    json_object_tag = getmetatable(json.decode("{}"))
+    json_tags_initialized = true
+  end
+end
+
+local function is_dense_json_array(value)
+  initialize_json_tags()
+  if type(value) ~= "table" or getmetatable(value) ~= json_array_tag then
+    return false
+  end
+  local count = 0
+  local maximum = 0
+  for key in pairs(value) do
+    if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+      return false
+    end
+    count = count + 1
+    maximum = math.max(maximum, key)
+  end
+  return count == maximum
+end
+
+local function is_json_object(value)
+  initialize_json_tags()
+  return type(value) == "table" and getmetatable(value) == json_object_tag
+end
+
+local function is_positive_integer(value)
+  return type(value) == "number" and value >= 1 and value % 1 == 0
+end
+
+local function valid_actor(value)
+  return is_json_object(value) and type(value.login) == "string" and value.login ~= ""
+end
+
+local function valid_comments(value)
+  if not is_dense_json_array(value) then
+    return false
+  end
+  for _, comment in ipairs(value) do
+    if not is_json_object(comment) or type(comment.body) ~= "string" or not valid_actor(comment.author) then
+      return false
+    end
+  end
+  return true
+end
+
+local function valid_peer_activity_row(row, kind)
+  if not is_json_object(row) or not is_positive_integer(row.number)
+    or not valid_comments(row.comments) or not valid_actor(row.author) then
+    return false
+  end
+  if kind == "pr" then
+    return type(row.headRefName) == "string" and row.headRefName ~= ""
+      and type(row.baseRefName) == "string" and row.baseRefName ~= ""
+  end
+  return kind == "issue"
+end
+
+local function decode_json_array(result, kind)
   if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
-    return nil
+    return nil, "command-result-unavailable"
   end
-  local ok, decoded = pcall(json.decode, result.stdout or "[]")
-  if not ok or type(decoded) ~= "table" then
-    return nil
+  if type(result.stdout) ~= "string" then
+    return nil, "stdout-not-string"
   end
-  return decoded
+  local ok, decoded = pcall(json.decode, result.stdout)
+  if not ok then
+    return nil, "malformed-json"
+  end
+  if not is_dense_json_array(decoded) then
+    return nil, "top-level-not-dense-array"
+  end
+  for _, row in ipairs(decoded) do
+    if not valid_peer_activity_row(row, kind) then
+      return nil, "invalid-" .. tostring(kind) .. "-row"
+    end
+  end
+  return decoded, nil
 end
 
 function C.claimed_label()
@@ -190,13 +277,32 @@ function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, 
     return logins
   end
   local handle = github_handle or github()
-  local ok_issues, issues = pcall(entity_list_cache.fetch_shared_issue_peer_activity_list, handle, repo, {
-    poll_key = poll_key,
-    timeout = 30,
-  })
-  local issue_rows = ok_issues and decode_json_array(issues) or nil
+  if not entity_list_cache.poll_epoch_is_current(repo, poll_key) then
+    return nil, "peer-activity-stale-poll-epoch"
+  end
+  local issue_query = peer_activity_queries.issue
+  local issues = entity_list_cache.fetch_shared_settled_list(
+    repo,
+    "issue",
+    issue_query.scope,
+    poll_key,
+    function()
+      return handle.issue_list_cli(repo, "all", peer_activity_scan_limit, issue_query.fields, 30)
+    end,
+    function(result)
+      local rows, reason = decode_json_array(result, "issue")
+      return rows ~= nil, reason
+    end
+  )
+  local issue_rows = issues.tag == "available" and decode_json_array({
+    stdout = issues.stdout,
+    exit_code = 0,
+  }, "issue") or nil
   if issue_rows == nil then
     return nil, "issue-peer-activity-unavailable"
+  end
+  if not entity_list_cache.poll_epoch_is_current(repo, poll_key) then
+    return nil, "peer-activity-stale-poll-epoch"
   end
   for _, row in ipairs(issue_rows) do
     add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
@@ -206,15 +312,31 @@ function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, 
   local upstream = ok_config and branches and branches.upstream or nil
   local integration = ok_config and branches and branches.integration or nil
   if upstream == nil or tostring(upstream) == "" or integration == nil or tostring(integration) == "" then
-    return nil, "peer-activity-branch-config-unavailable"
+    return logins
   end
-  local ok_prs, prs = pcall(entity_list_cache.fetch_shared_pr_peer_activity_list, handle, repo, {
-    poll_key = poll_key,
-    timeout = 30,
-  })
-  local pr_rows = ok_prs and decode_json_array(prs) or nil
+  local pr_query = peer_activity_queries.pr
+  local prs = entity_list_cache.fetch_shared_settled_list(
+    repo,
+    "pr",
+    pr_query.scope,
+    poll_key,
+    function()
+      return handle.pr_list_cli(repo, "all", peer_activity_scan_limit, pr_query.fields, 30)
+    end,
+    function(result)
+      local rows, reason = decode_json_array(result, "pr")
+      return rows ~= nil, reason
+    end
+  )
+  local pr_rows = prs.tag == "available" and decode_json_array({
+    stdout = prs.stdout,
+    exit_code = 0,
+  }, "pr") or nil
   if pr_rows == nil then
     return nil, "pr-peer-activity-unavailable"
+  end
+  if not entity_list_cache.poll_epoch_is_current(repo, poll_key) then
+    return nil, "peer-activity-stale-poll-epoch"
   end
   for _, row in ipairs(pr_rows) do
     add_state_marker_comment_candidates(logins, issue_row_comments(row), trusted_author_policy, owner)
@@ -431,6 +553,8 @@ function C.claim_admission_inputs(current, repo, poll_key)
   local managed = nil
   local trusted_author_policy = nil
   local peer_discovery_error = nil
+  local peer_discovery_poll_key = nil
+  local peer_discovery_repo = nil
   if claim_mode ~= "label" and author ~= nil and author ~= "" and author ~= owner then
     managed = C.managed_bot_logins()
     if not C.is_managed_bot_login(author, managed) then
@@ -440,9 +564,11 @@ function C.claim_admission_inputs(current, repo, poll_key)
       if not C.is_managed_bot_login(author, managed)
         and github_author_policy.is_authorized(trusted_author_policy, author)
         and status ~= "self" then
+        peer_discovery_poll_key = poll_key
+        peer_discovery_repo = repo or (current and current.repo)
         local available, unavailable_reason = add_repo_scoped_observed_managed_bot_logins(
           managed,
-          repo or (current and current.repo),
+          peer_discovery_repo,
           trusted_author_policy,
           owner,
           github_handle,
@@ -461,7 +587,19 @@ function C.claim_admission_inputs(current, repo, poll_key)
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
+    peer_discovery_poll_key = peer_discovery_poll_key,
+    peer_discovery_repo = peer_discovery_repo,
   }
+end
+
+function C.claim_admission_epoch_is_current(detail, repo)
+  if type(detail) ~= "table" then
+    return true
+  end
+  return entity_list_cache.poll_epoch_is_current(
+    detail.peer_discovery_repo or repo,
+    detail.peer_discovery_poll_key
+  )
 end
 
 function C.claim_admission_precheck(current, inputs)
@@ -475,6 +613,8 @@ function C.claim_admission_precheck(current, inputs)
     claim_mode = inputs.claim_mode,
     author = author,
     managed = inputs.managed,
+    peer_discovery_poll_key = inputs.peer_discovery_poll_key,
+    peer_discovery_repo = inputs.peer_discovery_repo,
   }
   if inputs.status == "other" then
     return "other", {
@@ -491,6 +631,12 @@ function C.claim_admission_precheck(current, inputs)
       }
     end
     if author ~= inputs.owner then
+      if not C.claim_admission_epoch_is_current(inputs) then
+        return "denied", {
+          action = "skip-peer-discovery-stale-epoch",
+          reason = "peer activity authorization epoch is stale",
+        }
+      end
       if inputs.peer_discovery_error ~= nil then
         return "denied", {
           action = "skip-peer-discovery-unavailable",
@@ -544,6 +690,10 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   if admission ~= "needs-claim" then
     error("github-devloop: invalid claim admission decision")
   end
+  if not C.claim_admission_epoch_is_current(detail, repo) then
+    log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
+    return false
+  end
   local owner = detail.owner
   local claim_mode = detail.claim_mode
   local author = detail.author
@@ -580,6 +730,10 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
+    if not C.claim_admission_epoch_is_current(detail, repo) then
+      log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch became stale before fork")
+      return false
+    end
     log_claim(dept, proposal_id, "fork-raised", "other-authored unassigned issue is forked before management")
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_create_request", request)
     return false
@@ -588,6 +742,11 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   if devloop_base.read_env("FKST_GITHUB_WRITE") ~= "1" then
     log_claim(dept, proposal_id, "dry-run-claim", "FKST_GITHUB_WRITE!=1")
     return true
+  end
+
+  if not C.claim_admission_epoch_is_current(detail, repo) then
+    log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch became stale before claim")
+    return false
   end
 
   if config.claim_mode() == "label" then

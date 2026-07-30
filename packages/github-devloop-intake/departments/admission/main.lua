@@ -217,7 +217,7 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
   end
-  local poll_key = entity_list_cache.entity_list_poll_key(event)
+  local poll_key = entity_list_cache.entity_list_poll_epoch(event)
   local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(
     context,
     repo,
@@ -229,26 +229,41 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
     return
   end
-  if not claim_with_capacity(
-    context,
-    context.capacity.authorize,
-    repo,
-    issue_number,
-    current,
-    proposal_id,
-    claim_admission,
-    claim_detail
-  ) then
-    return
-  end
+  local peer_epoch_repo = type(claim_detail) == "table" and claim_detail.peer_discovery_repo or repo
+  local peer_epoch = type(claim_detail) == "table" and claim_detail.peer_discovery_poll_key or nil
+  local epoch_current = entity_list_cache.with_current_poll_epoch(peer_epoch_repo, peer_epoch, function()
+    if not claim_with_capacity(
+      context,
+      context.capacity.authorize,
+      repo,
+      issue_number,
+      current,
+      proposal_id,
+      claim_admission,
+      claim_detail
+    ) then
+      return
+    end
 
-  local payload = correction ~= nil
-    and admission_core.build_premise_correction_candidate(repo, issue, correction)
-    or core.build_intake_admission_candidate(repo, issue, nil, now())
-  devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
-    "devloop_intake_candidate",
-  })
-  devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
+    local payload = correction ~= nil
+      and admission_core.build_premise_correction_candidate(repo, issue, correction)
+      or core.build_intake_admission_candidate(repo, issue, nil, now())
+    devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
+      "devloop_intake_candidate",
+    })
+    devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
+  end)
+  if not epoch_current then
+    devloop_logging.log_cas_decision(
+      "admission",
+      proposal_id,
+      { state = nil, version = nil },
+      "peer-activity-epoch",
+      "candidate",
+      "skip-stale",
+      "peer activity authorization epoch is stale before admission effects"
+    )
+  end
 end
 
 local function act_issue_observed(context, event)

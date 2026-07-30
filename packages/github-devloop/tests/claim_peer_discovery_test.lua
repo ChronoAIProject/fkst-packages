@@ -4,6 +4,8 @@ local t = h.t
 local author_policy = require("testkit_internal.github_author_policy")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local strings = require("contract.strings")
+local github_author_policy = require("devloop.github_author_policy")
+local entity_list_cache = require("devloop.entity_list_cache")
 
 local repo = "owner/repo"
 local issue_peer_command = "gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author"
@@ -65,6 +67,39 @@ local function admission_for(current, repo_name)
   local inputs = m_claims.claim_admission_inputs(current, repo_name)
   local admission, detail = m_claims.claim_admission_precheck(current, inputs)
   return admission, detail, inputs
+end
+
+local function direct_discovery_admission(handle, policy, poll_key)
+  local observed, unavailable_reason = m_claims.repo_scoped_observed_managed_bot_logins(
+    repo,
+    policy,
+    "fkst-test-bot",
+    handle,
+    poll_key
+  )
+  return m_claims.claim_admission_precheck(current_issue("trusted-human", {}), {
+    owner = "fkst-test-bot",
+    status = "unassigned",
+    claim_mode = "assignee",
+    managed = observed or {},
+    trusted_author_policy = policy,
+    peer_discovery_error = observed == nil and unavailable_reason or nil,
+  })
+end
+
+local function mock_peer_branch_config(times)
+  for _ = 1, times or 1 do
+    t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+      stdout = "dev",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+      stdout = "integration-fkst-test-bot",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function json_comments(comments)
@@ -289,6 +324,98 @@ return {
     t.eq(count_calls(pr_peer_command), 0)
   end,
 
+  test_nonzero_issue_discovery_settles_once_and_denies_admission = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("trusted-human")
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "trusted-human" })
+    local issue_calls = 0
+    local handle = {
+      issue_list_cli = function()
+        issue_calls = issue_calls + 1
+        return { stdout = "", stderr = "rate limited", exit_code = 1 }
+      end,
+    }
+    entity_list_cache.record_poll_epoch(repo, "poll-nonzero")
+
+    for _ = 1, 2 do
+      local admission = direct_discovery_admission(handle, policy, "poll-nonzero")
+      t.eq(admission, "denied")
+    end
+
+    t.eq(issue_calls, 1, "nonzero issue source settles once")
+  end,
+
+  test_exit_zero_object_peer_scan_settles_unavailable_and_denies = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("trusted-human")
+    mock_peer_branch_config()
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "trusted-human" })
+    local handle = {
+      issue_list_cli = function()
+        return { stdout = "{}", stderr = "", exit_code = 0 }
+      end,
+      pr_list_cli = function()
+        return { stdout = "[]", stderr = "", exit_code = 0 }
+      end,
+    }
+    entity_list_cache.record_poll_epoch(repo, "poll-object")
+
+    local admission = direct_discovery_admission(handle, policy, "poll-object")
+
+    t.eq(admission, "denied")
+  end,
+
+  test_exit_zero_sparse_row_peer_scan_settles_unavailable_and_denies = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("trusted-human")
+    mock_peer_branch_config()
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "trusted-human" })
+    local handle = {
+      issue_list_cli = function()
+        return {
+          stdout = '[{"number":7,"comments":[],"author":{"login":"trusted-human"}},null]',
+          stderr = "",
+          exit_code = 0,
+        }
+      end,
+      pr_list_cli = function()
+        return { stdout = "[]", stderr = "", exit_code = 0 }
+      end,
+    }
+    entity_list_cache.record_poll_epoch(repo, "poll-sparse")
+
+    local admission = direct_discovery_admission(handle, policy, "poll-sparse")
+
+    t.eq(admission, "denied")
+  end,
+
+  test_missing_branch_config_preserves_issue_derived_peer_admission = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("peer-bot")
+    t.mock_command(issue_peer_command, {
+      stdout = "[" .. issue_row(7, { state_marker_comment("peer-bot") }) .. "]",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local admission, detail = admission_for(current_issue("peer-bot", {}), repo)
+
+    t.eq(admission, "denied")
+    t.eq(detail.action, "skip-fork-peer-bot")
+    t.eq(count_calls(issue_peer_command), 1)
+    t.eq(count_calls(pr_peer_command), 0)
+  end,
+
   test_self_authored_repo_activity_is_ignored_as_peer_source = function()
     mock_bot("fkst-test-bot")
     mock_authorized_login("peer-bot")
@@ -332,22 +459,18 @@ return {
     t.eq(m_claims.is_managed_bot_login("peer-bot", second_inputs.managed), false)
   end,
 
-  test_malformed_or_mismatched_repo_activity_does_not_discover_peer = function()
+  test_valid_mismatched_repo_activity_does_not_discover_peer = function()
     mock_bot("fkst-test-bot")
     mock_authorized_login("peer-bot")
     mock_repo_peer_scan({
       issue_row(7, {
         { author_login = "peer-bot", body = '<!-- fkst:github-devloop:state:v1 -->' },
         { author_login = "peer-bot", body = 'fkst:github-devloop:state:v1 proposal="x" state="thinking"' },
-        { author_login = "peer-bot", user_login = "other-bot", body = '<!-- fkst:github-devloop:state:v1 proposal="x" state="thinking" -->' },
-        { author_login = false, body = '<!-- fkst:github-devloop:state:v1 proposal="x" state="thinking" -->' },
       }),
     }, {
       pr_row({ author_login = "peer-bot", head = "integration-peer-bot", base = "release" }),
       pr_row({ author_login = "peer-bot", head = "integration-peer-bot", base = "dev" }),
       pr_row({ author_login = "peer-bot", head = "feature/peer-bot", base = "dev" }),
-      pr_row({ author_login = false, head = "integration-peer-bot", base = "dev" }),
-      pr_row({ author_login = "peer-bot", user_login = "other-bot", head = "integration-peer-bot", base = "dev" }),
     })
 
     local admission, detail, inputs = admission_for(current_issue("peer-bot", {}), repo)

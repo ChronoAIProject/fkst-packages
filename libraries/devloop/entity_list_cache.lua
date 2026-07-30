@@ -4,7 +4,6 @@ local github_view = require("forge.github_view")
 
 local C = {}
 local json_string = github_view.json_string
-local peer_activity_scan_limit = 100
 
 local function normalize_poll_key(value)
   local text = tostring(value or "")
@@ -49,6 +48,41 @@ local function encode_cached_list(stdout)
   return '{"stdout":' .. json_string(stdout or "") .. "}"
 end
 
+local function available_outcome(stdout)
+  return {
+    tag = "available",
+    stdout = tostring(stdout or ""),
+  }
+end
+
+local function unavailable_outcome(reason)
+  return {
+    tag = "unavailable",
+    reason = tostring(reason or "unknown"),
+  }
+end
+
+local function decode_settled_outcome(encoded)
+  local ok, decoded = pcall(json.decode, encoded or "")
+  if not ok or type(decoded) ~= "table" then
+    return nil
+  end
+  if decoded.tag == "available" and type(decoded.stdout) == "string" then
+    return available_outcome(decoded.stdout)
+  end
+  if decoded.tag == "unavailable" and type(decoded.reason) == "string" then
+    return unavailable_outcome(decoded.reason)
+  end
+  return nil
+end
+
+local function encode_settled_outcome(outcome)
+  if outcome.tag == "available" then
+    return '{"tag":"available","stdout":' .. json_string(outcome.stdout) .. "}"
+  end
+  return '{"tag":"unavailable","reason":' .. json_string(outcome.reason) .. "}"
+end
+
 local function fetch_shared_list(repo, kind, scope, poll_key, exec_spec)
   local key = list_cache_key(repo, kind, scope, poll_key)
   if key == nil then
@@ -72,8 +106,100 @@ local function fetch_shared_list(repo, kind, scope, poll_key, exec_spec)
   end)
 end
 
+local function execute_settled(exec_spec, validate_spec)
+  local ok_result, result = pcall(exec_spec)
+  if not ok_result then
+    return unavailable_outcome("fetch-threw")
+  end
+  if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
+    return unavailable_outcome("fetch-nonzero")
+  end
+  local ok_validation, valid, reason = pcall(validate_spec, result)
+  if not ok_validation then
+    return unavailable_outcome("validation-threw")
+  end
+  if valid ~= true then
+    return unavailable_outcome(reason or "validation-failed")
+  end
+  return available_outcome(result.stdout)
+end
+
+local function fetch_shared_settled_list(repo, kind, scope, poll_key, exec_spec, validate_spec)
+  local key = list_cache_key(repo, kind, scope, poll_key)
+  if key == nil then
+    return execute_settled(exec_spec, validate_spec)
+  end
+  local cached = decode_settled_outcome(cache_get(key))
+  if cached ~= nil then
+    return cached
+  end
+
+  return with_lock(key, function()
+    local locked_cached = decode_settled_outcome(cache_get(key))
+    if locked_cached ~= nil then
+      return locked_cached
+    end
+    local outcome = execute_settled(exec_spec, validate_spec)
+    cache_set(key, encode_settled_outcome(outcome))
+    return outcome
+  end)
+end
+
+local function poll_epoch_cache_key(repo)
+  return table.concat({
+    "github-proxy",
+    "poll-epoch-v1",
+    base_ids.safe_repo(repo),
+  }, "/")
+end
+
 function C.entity_list_cache_key(repo, kind, scope, poll_key)
   return list_cache_key(repo, kind, scope, poll_key)
+end
+
+function C.fetch_shared_settled_list(repo, kind, scope, poll_key, exec_spec, validate_spec)
+  if type(exec_spec) ~= "function" or type(validate_spec) ~= "function" then
+    error("github-devloop: settled entity list fetch requires exec and validation functions")
+  end
+  return fetch_shared_settled_list(repo, kind, scope, poll_key, exec_spec, validate_spec)
+end
+
+function C.poll_epoch_cache_key(repo)
+  return poll_epoch_cache_key(repo)
+end
+
+function C.record_poll_epoch(repo, poll_key)
+  local epoch = tostring(poll_key or "")
+  if epoch == "" then
+    error("github-devloop: poll epoch must be non-empty")
+  end
+  local key = poll_epoch_cache_key(repo)
+  with_lock(key, function()
+    cache_set(key, epoch)
+  end)
+  return epoch
+end
+
+function C.poll_epoch_is_current(repo, poll_key)
+  if poll_key == nil or tostring(poll_key) == "" then
+    return true
+  end
+  return tostring(cache_get(poll_epoch_cache_key(repo)) or "") == tostring(poll_key)
+end
+
+function C.with_current_poll_epoch(repo, poll_key, fn)
+  if type(fn) ~= "function" then
+    error("github-devloop: poll epoch guard requires a function")
+  end
+  if poll_key == nil or tostring(poll_key) == "" then
+    return true, fn()
+  end
+  return with_lock(poll_epoch_cache_key(repo), function()
+    if not C.poll_epoch_is_current(repo, poll_key) then
+      return false, nil
+    end
+    return true, fn()
+  end)
 end
 
 function C.entity_list_poll_key(event)
@@ -98,6 +224,14 @@ function C.entity_list_poll_key(event)
   return nil
 end
 
+function C.entity_list_poll_epoch(event)
+  local payload = type(event) == "table" and event.payload or nil
+  if type(payload) == "table" and payload.poll_token ~= nil and tostring(payload.poll_token) ~= "" then
+    return tostring(payload.poll_token)
+  end
+  return nil
+end
+
 function C.fetch_shared_issue_observe_list(M, repo, opts)
   local options = opts or {}
   local exec_opts = M.gh_issue_list_observe_opts(repo)
@@ -113,28 +247,6 @@ function C.fetch_shared_pr_observe_list(M, repo, opts)
   exec_opts.timeout = options.timeout or exec_opts.timeout
   return fetch_shared_list(repo, "pr", "open", options.poll_key, function()
     return exec_opts.run(exec_opts.timeout)
-  end)
-end
-
-function C.fetch_shared_issue_peer_activity_list(M, repo, opts)
-  local options = opts or {}
-  local timeout = options.timeout or 30
-  return fetch_shared_list(repo, "issue", "peer-activity", options.poll_key, function()
-    return M.issue_list_cli(repo, "all", peer_activity_scan_limit, "number,comments,author", timeout)
-  end)
-end
-
-function C.fetch_shared_pr_peer_activity_list(M, repo, opts)
-  local options = opts or {}
-  local timeout = options.timeout or 30
-  return fetch_shared_list(repo, "pr", "peer-activity", options.poll_key, function()
-    return M.pr_list_cli(
-      repo,
-      "all",
-      peer_activity_scan_limit,
-      "number,headRefName,baseRefName,comments,author",
-      timeout
-    )
   end)
 end
 

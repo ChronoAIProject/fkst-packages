@@ -1,8 +1,13 @@
 local entity_lib = require("devloop.entity")
+local entity_list_cache = require("devloop.entity_list_cache")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local h = require("tests.devloop_helpers")
+local testing = require("testkit_internal.testing")
+local admission_department = require("departments.admission.main")
 local author_policy = require("testkit_internal.github_author_policy")
+local github_author_policy = require("devloop.github_author_policy")
+local github_factory = require("devloop.github_factory")
 local t = h.t
 local core = h.core
 
@@ -96,10 +101,37 @@ local function count_peer_calls(command)
   return count
 end
 
-local function run_admission(run_opts, number, poll_token, created_at)
+local function set_current_poll_epoch(poll_token)
+  if poll_token ~= nil then
+    entity_list_cache.record_poll_epoch(repo, poll_token)
+    t.is_true(entity_list_cache.poll_epoch_is_current(repo, poll_token))
+  end
+end
+
+local test_capacity = {
+  authorize = function()
+    return true, "peer scan test capacity"
+  end,
+  authorize_reintake = function()
+    return true, "peer scan test capacity"
+  end,
+  relinquish = function()
+    return true, "peer scan test capacity"
+  end,
+  reconcile = function()
+    return true, "peer scan test capacity"
+  end,
+}
+
+local function run_admission(_run_opts, number, poll_token, created_at, opts)
+  local options = opts or {}
+  if options.preserve_current_epoch ~= true then
+    set_current_poll_epoch(poll_token)
+  end
   mock_event_env()
   mock_admission_view(number, created_at)
-  return h.run_department("departments/admission/main.lua", entity_changed(number, poll_token), run_opts)
+  local department = admission_department.make_department({ capacity = test_capacity })
+  return testing.run_fake_outcome(department, entity_changed(number, poll_token))
 end
 
 local function assert_no_admission_effect(result)
@@ -150,6 +182,93 @@ return {
     assert_no_admission_effect(run_admission(run_opts, number, "poll-batch-unavailable", created_at))
   end,
 
+  test_issue_scan_failure_settles_once_for_all_same_batch_admissions = function()
+    local run_opts = h.opts("peer-issue-scan-failure-settled")
+    mock_peer_result(issue_peer_command, { stdout = "", stderr = "rate limited", exit_code = 1 }, 2)
+
+    for number = 61, 62 do
+      assert_no_admission_effect(run_admission(run_opts, number, "poll-batch-issue-failure"))
+    end
+
+    t.eq(count_peer_calls(issue_peer_command), 1, "issue scan cost does not grow with batch size")
+    t.eq(count_peer_calls(pr_peer_command), 0, "PR discovery does not run after unavailable issue discovery")
+  end,
+
+  test_pr_scan_failure_settles_once_for_all_same_batch_admissions = function()
+    local run_opts = h.opts("peer-pr-scan-failure-settled")
+    mock_peer_result(issue_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 }, 2)
+    mock_peer_result(pr_peer_command, { stdout = "", stderr = "rate limited", exit_code = 1 }, 2)
+
+    for number = 63, 64 do
+      assert_no_admission_effect(run_admission(run_opts, number, "poll-batch-pr-failure"))
+    end
+
+    t.eq(count_peer_calls(issue_peer_command), 1, "issue scan remains one per batch")
+    t.eq(count_peer_calls(pr_peer_command), 1, "PR scan cost does not grow with batch size")
+  end,
+
+  test_thrown_peer_discovery_settles_once_per_source_without_admission_effects = function()
+    local run_opts = h.opts("peer-thrown-scan-failure-settled")
+    local issue_calls = 0
+    local pr_calls = 0
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "trusted-human" })
+    local handle = {
+      _trusted_author_policy = function()
+        return policy
+      end,
+      issue_list_cli = function()
+        issue_calls = issue_calls + 1
+        return { stdout = "[]", stderr = "", exit_code = 0 }
+      end,
+      pr_list_cli = function()
+        pr_calls = pr_calls + 1
+        error("simulated PR discovery throw")
+      end,
+    }
+    local original_production_handle = github_factory.production_handle
+    github_factory.production_handle = function()
+      return handle
+    end
+    local ok, err = pcall(function()
+      for number = 65, 66 do
+        assert_no_admission_effect(run_admission(run_opts, number, "poll-batch-thrown-failure"))
+      end
+    end)
+    github_factory.production_handle = original_production_handle
+    if not ok then
+      error(err, 0)
+    end
+
+    t.eq(issue_calls, 1, "issue source settles once")
+    t.eq(pr_calls, 1, "thrown PR source settles once")
+  end,
+
+  test_delayed_stale_poll_epoch_has_no_admission_effect_or_scan = function()
+    local run_opts = h.opts("peer-scan-stale-poll-epoch")
+    local created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1)
+    local peer_marker_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]'
+
+    mock_peer_result(issue_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
+    mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
+    mock_fork_state_view(71, created_at)
+    run_admission(run_opts, 71, "poll-stale-a", created_at)
+
+    mock_peer_result(issue_peer_command, { stdout = peer_marker_rows, stderr = "", exit_code = 0 })
+    mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
+    assert_no_admission_effect(run_admission(run_opts, 72, "poll-stale-b", created_at))
+
+    local issue_scans = count_peer_calls(issue_peer_command)
+    local pr_scans = count_peer_calls(pr_peer_command)
+    mock_fork_state_view(71, created_at)
+    local delayed = run_admission(run_opts, 71, "poll-stale-a", created_at, {
+      preserve_current_epoch = true,
+    })
+
+    assert_no_admission_effect(delayed)
+    t.eq(count_peer_calls(issue_peer_command), issue_scans, "stale epoch performs no issue scan")
+    t.eq(count_peer_calls(pr_peer_command), pr_scans, "stale epoch performs no PR scan")
+  end,
+
   test_malformed_peer_activity_scan_fails_closed_before_fork = function()
     local number = 52
     local created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1)
@@ -160,4 +279,5 @@ return {
 
     assert_no_admission_effect(run_admission(run_opts, number, "poll-batch-malformed", created_at))
   end,
+
 }
