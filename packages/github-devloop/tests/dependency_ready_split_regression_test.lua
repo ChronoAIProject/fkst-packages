@@ -185,10 +185,7 @@ local function run_observe_with_issue(event)
 end
 
 local function run_implement(payload)
-  return h.run_department("departments/implement/main.lua", {
-    queue = "devloop_ready",
-    payload = payload,
-  }, h.opts("ready-split-regression-implement"))
+  return h.run_implement(payload, h.opts("ready-split-regression-implement"))
 end
 
 local function find_raise(raises, queue, predicate)

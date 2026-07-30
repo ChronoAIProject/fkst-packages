@@ -38,6 +38,20 @@ function M.new(deps)
   copy_into(helpers, pr)
   copy_into(helpers, worktree)
 
+  helpers.mock_prepare_base = function(branch)
+    local integration_branch = branch or "dev"
+    helpers.t.mock_command("git fetch 'origin' '" .. integration_branch .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    helpers.t.mock_command("refs/remotes/'origin'/'" .. integration_branch .. "'^{commit}", {
+      stdout = "abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+
   local function issue_identity_from_payload(payload)
     local entity = entity_lib.parse_entity_proposal_id(payload and payload.proposal_id)
     local source_ref = payload and payload.source_ref and payload.source_ref.ref
@@ -220,6 +234,7 @@ function M.new(deps)
   end
 
   helpers.run_implement = function(...)
+    helpers.mock_prepare_base()
     mock_empty_dependencies()
     local payload, run_opts = ...
     mock_context_bundle(payload, run_opts)

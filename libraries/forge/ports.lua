@@ -38,6 +38,7 @@ local function github_from_options(run, github_options)
   end
   return require("forge.github").new(run, {
     trusted_author_policy = github_options.trusted_author_policy,
+    credential_scope = github_options.credential_scope,
   })
 end
 

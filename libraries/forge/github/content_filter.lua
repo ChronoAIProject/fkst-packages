@@ -584,14 +584,27 @@ local function append_logins(target, source)
   end
 end
 
+local function bot_login_from_options_or_nil(options)
+  local read_env = options.read_env
+  local bot_login_env = options.bot_login_env or "FKST_GITHUB_BOT_LOGIN"
+  local bot_login = strings.trim(options.bot_login or read_env_or_nil(read_env, bot_login_env) or "")
+  return bot_login ~= "" and bot_login or nil
+end
+
+local function bot_login_from_options(options)
+  local bot_login = bot_login_from_options_or_nil(options)
+  if bot_login ~= nil then
+    return bot_login
+  end
+  local bot_login_env = options.bot_login_env or "FKST_GITHUB_BOT_LOGIN"
+  error(tostring(options.owner or "forge.github.content_filter") .. ": missing-github-bot-login: "
+    .. tostring(bot_login_env) .. " is required for authored GitHub reads")
+end
+
 function M.author_policy_from_options(opts)
   local options = opts or {}
   local read_env = options.read_env
-  local bot_login = strings.trim(options.bot_login or read_env_or_nil(read_env, options.bot_login_env or "FKST_GITHUB_BOT_LOGIN") or "")
-  if bot_login == "" then
-    error(tostring(options.owner or "forge.github.content_filter") .. ": missing-github-bot-login: "
-      .. tostring(options.bot_login_env or "FKST_GITHUB_BOT_LOGIN") .. " is required for authored GitHub reads")
-  end
+  local bot_login = bot_login_from_options(options)
   local logins = { bot_login }
   for _, env_name in ipairs(options.extra_login_envs or {}) do
     append_csv_logins(logins, read_env_or_nil(read_env, env_name))
@@ -615,19 +628,48 @@ end
 function M.github_author_options(read_env, owner, opts)
   local options = opts or {}
   local policy = nil
+  local credential_scope = nil
+  local credential_resolved = false
+  local function resolve_bot_login(required)
+    if not credential_resolved then
+      credential_scope = M.canon_login(bot_login_from_options_or_nil({
+        read_env = read_env,
+        bot_login = options.bot_login,
+        bot_login_env = options.bot_login_env,
+      }))
+      credential_resolved = true
+    end
+    if required and credential_scope == nil then
+      return bot_login_from_options({
+        owner = owner,
+        read_env = read_env,
+        bot_login = options.bot_login,
+        bot_login_env = options.bot_login_env,
+      })
+    end
+    return credential_scope
+  end
+  local function build_options(require_bot_login)
+    local build = {}
+    for key, value in pairs(options) do
+      build[key] = value
+    end
+    build.read_env = read_env
+    build.owner = owner
+    build.bot_login = resolve_bot_login(require_bot_login)
+    return build
+  end
   return {
     trusted_author_policy = function(github_handle)
       if policy == nil then
-        local build_options = {}
-        for key, value in pairs(options) do
-          build_options[key] = value
-        end
-        build_options.read_env = read_env
-        build_options.owner = owner
+        local build_options = build_options(true)
         build_options.github_handle = github_handle
         policy = M.author_policy_from_options(build_options)
       end
       return policy
+    end,
+    credential_scope = function()
+      return resolve_bot_login(false)
     end,
   }
 end

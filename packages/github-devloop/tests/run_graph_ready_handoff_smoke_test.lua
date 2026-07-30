@@ -291,6 +291,7 @@ return {
     mock_runtime_and_context()
     mock_consensus_approval()
     mock_empty_dependencies()
+    h.mock_prepare_base()
     mock_consensus_result_issue_read()
     mock_github_proxy_comment_write()
     mock_label_write()

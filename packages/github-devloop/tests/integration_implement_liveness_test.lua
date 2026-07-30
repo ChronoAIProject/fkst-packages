@@ -167,7 +167,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)
-    t.eq(count_calls("git fetch"), 0)
+    t.eq(count_calls("git fetch"), 1)
     t.eq(count_calls("git worktree add"), 0)
   end,
 

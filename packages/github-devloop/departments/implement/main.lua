@@ -372,7 +372,7 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
 end
 
 local function recheck_implementation_write_gate(repo, issue_number, lock_key, marker_ready, expected_from_states, accepted_ready_hand_off, allow_same_version_implementing)
-  local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
+  local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30, { force_fresh = true })
   if view.exit_code ~= 0 then
     error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
@@ -434,7 +434,7 @@ local function recheck_implementation_write_gate(repo, issue_number, lock_key, m
 end
 
 local function precheck_implementation_write_gate(repo, issue_number, lock_key, marker_ready, expected_from_states, accepted_ready_hand_off)
-  local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
+  local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30, { force_fresh = true })
   if view.exit_code ~= 0 then
     error("github-devloop: issue-recheck-failed: gh issue implement recheck failed: " .. tostring(view.stderr))
   end
@@ -540,11 +540,13 @@ local function process_ready_event(event)
     return
   end
 
+  local branches = config.branch_config()
+  local base_head = worktree_lifecycle.prepare_base(branches)
   local attempt_plan = nil
   with_lock(lock_key, function()
     devloop_base.assert_trusted_bot_configured()
 
-    local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30)
+    local view = devloop_commands.gh_issue_view_implement(repo, issue_number, 30, { force_fresh = true })
     if view.exit_code ~= 0 then
       error("github-devloop: issue-read-failed: gh issue implement view failed: " .. tostring(view.stderr))
     end
@@ -603,7 +605,6 @@ local function process_ready_event(event)
       return
     end
 
-    local branches = config.branch_config()
     local lineage_ok, implementation_version, branch_version = pcall(function()
       return core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt),
         core.implementation_branch_version(ready.dedup_key, ready.impl_retry_attempt)
@@ -678,7 +679,6 @@ local function process_ready_event(event)
           devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "skip-unmarked-progress(remote-progress)", "remote branch progress has no durable implementing fact; retrying implementation attempt")
         end
       end
-      local base_head = worktree_lifecycle.prepare_base(branches)
       if resume_checkpoint == nil then
         local local_progress = branch_progress.local_branch_fact(base_head, branch, branches.integration, marker_ready.dedup_key)
         if local_progress ~= nil then
@@ -788,6 +788,7 @@ local function process_ready_event(event)
       current = current,
       branches = branches,
       branch = branch,
+      base_head = base_head,
       attempt = ready.impl_retry_attempt or 1,
       expected_from_states = expected_states,
       accepted_ready_hand_off = accepted_ready_hand_off,
@@ -825,9 +826,6 @@ local function process_ready_event(event)
           "matching implementation codex run is still live"
         )
         return
-      end
-      if attempt_plan.base_head == nil then
-        attempt_plan.base_head = worktree_lifecycle.prepare_base(attempt_plan.branches)
       end
       worktree, codex_started_at, exec_ref, receiver_authorization = prepare_attempt(
         repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,

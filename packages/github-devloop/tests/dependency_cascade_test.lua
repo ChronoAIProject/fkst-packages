@@ -302,12 +302,8 @@ local function run_liveness_scan()
 end
 
 local function run_implement()
-  return h.run_department("departments/implement/main.lua", {
-    queue = "devloop_ready",
-    payload = h.ready(),
-  }, h.opts("dependency-implement"))
+  return h.run_implement(h.ready(), h.opts("dependency-implement"))
 end
-
 local function find_raise(raises, queue, predicate)
   for _, item in ipairs(raises or {}) do
     if item.queue == queue and (predicate == nil or predicate(item.payload)) then

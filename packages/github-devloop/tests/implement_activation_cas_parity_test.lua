@@ -416,6 +416,7 @@ end
 local function mock_case(fixture, event)
   h.mock_bot_env()
   h.mock_write_env("")
+  h.mock_prepare_base()
   t.mock_command("gh api graphql", {
     stdout = '{"data":{"repository":{"issue":{"blockedBy":{"nodes":[]}}}}}\n',
     stderr = "",

@@ -159,7 +159,7 @@ return {
 
   test_commands_helpers_execute_github_via_argv_adapter = function()
     local calls = with_exec_argv(function()
-      core.gh_issue_view_implement("owner/repo", 42, 31)
+      core.gh_issue_view_implement("owner/repo", 42, 31, { force_fresh = true })
       core.gh_issue_view("owner/repo", 43, "meta", 34)
       core.gh_issue_view("owner/repo", 44, "title,state", 35)
       core.gh_issue_view("owner/repo", 45, "state", 36)
@@ -236,6 +236,15 @@ return {
     t.eq(calls[4].timeout, 36)
     t.eq(calls[5].timeout, 32)
     t.eq(calls[6].timeout, 33)
+  end,
+
+  test_implement_issue_read_requires_explicit_fresh_authority = function()
+    local ok, err = pcall(function()
+      core.gh_issue_view_implement("owner/repo", 42, 31)
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("implement issue read requires force_fresh authority", 1, true) ~= nil)
   end,
 
   test_commands_helpers_execute_git_via_argv_adapter = function()

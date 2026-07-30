@@ -69,13 +69,21 @@ local function filter_stdout(result, context, policy, author_policy)
   return content_filter.apply_gh_content_filter(result, context, policy, author_policy, stdout_policy)
 end
 
-function M.run(exec, argv, timeout, context, policy, author_policy)
+function M.run(exec, argv, timeout, context, policy, author_policy, rate_limiter)
   if type(argv) ~= "table" or #argv < 1 or argv[1] ~= "gh" then
     misuse_error(argv, context)
+  end
+  if type(rate_limiter) == "table" and type(rate_limiter.before) == "function" then
+    rate_limiter.before(argv, context)
   end
   local result = exec({ argv = argv, timeout = timeout })
   if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
     local class = M.error_class(result, context)
+    local rate_fact = nil
+    if class == "gh-rate-limited" and type(rate_limiter) == "table"
+      and type(rate_limiter.observe_failure) == "function" then
+      rate_fact = rate_limiter.observe_failure(exec, argv, timeout)
+    end
     local message = "forge.github: " .. tostring(context) .. " failed: " .. class .. ": " .. stderr_of(result)
     error(setmetatable({
       class = class,
@@ -83,6 +91,9 @@ function M.run(exec, argv, timeout, context, policy, author_policy)
       permanent = class == "gh-issue-assign-permission-denied",
       result = result,
       context = context,
+      credential_scope = rate_fact and rate_fact.credential_scope or nil,
+      resource = rate_fact and rate_fact.resource or nil,
+      reset_at = rate_fact and rate_fact.reset_at or nil,
       message = message,
     }, {
       __tostring = function(err)

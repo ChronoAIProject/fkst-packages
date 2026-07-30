@@ -330,6 +330,7 @@ local function prepare_implement_fixture(fixture, payload)
   if fixture.disposition == "skip-foreign-payload" then
     return
   end
+  h.mock_prepare_base("integration-test")
   local comments = {
     core.state_marker(PROPOSAL_ID, "ready", payload.dedup_key),
   }

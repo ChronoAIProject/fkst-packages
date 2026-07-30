@@ -100,7 +100,10 @@ end
     return C.gh_issue_view(repo, issue_number, "meta", timeout)
   end
 
-  function C.gh_issue_view_implement(repo, issue_number, timeout)
+  function C.gh_issue_view_implement(repo, issue_number, timeout, options)
+    if type(options) ~= "table" or options.force_fresh ~= true then
+      error("github-devloop: implement issue read requires force_fresh authority")
+    end
     return C.gh_issue_view(repo, issue_number, "implement", timeout)
   end
 
