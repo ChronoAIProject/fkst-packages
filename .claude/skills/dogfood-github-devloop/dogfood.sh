@@ -307,39 +307,60 @@ bin_ensure_fresh() {
 # Prune worktrees + scratch dirs from OLD runtime roots of this dogfood (implement/fix
 # depts create worktrees under the launch runtime scratch, registered in the shared .git; each
 # restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
+#
+# PRESERVE STILL-REGISTERED GENERATIONS (#2925). A restart SIGKILLs only the supervise; an
+# in-flight codex is ORPHANED and keeps running against its worktree (crash-only contract). This
+# cleaner used to remove the registration and rm -rf the directory anyway, so the orphan kept
+# writing into a deleted path and recreated a partial, UNREGISTERED husk. Harvest then ran `cd`
+# into it, exited nonzero WITHOUT a typed marker, and the run was recorded as a false
+# `impl-failed / local-iteration-attribution-indeterminate` (observed on #2919, and on #2925's own
+# implementation twice). A registered worktree is the ground truth for "someone still owns this",
+# so a generation that still has one is skipped entirely and reported — it is reclaimed on a later
+# pass once its registration is gone. This is the operator-side containment that the #2925 fix
+# (moving implementation worktrees to a stable root) requires to land first; without it, deploying
+# that fix would itself destroy the pre-fix work still in flight.
 clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
-  local name="$1" keep="$2" wt d writer_census writer_census_status
+  local name="$1" keep="$2" d held writer_census writer_census_status
+  held=$(git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep")
+  if [ -n "$held" ]; then
+    echo "  ! preserving $(printf '%s\n' "$held" | wc -l | tr -d ' ') still-registered worktree(s) from older runtime roots (#2925):"
+    printf '%s\n' "$held" | sed 's|^|      |'
+  fi
   if ! command -v lsof >/dev/null 2>&1; then
     echo "[$name] cannot prove stale runtime writer quiescence: lsof unavailable; retaining old runtimes" >&2
     return 0
   fi
-  for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
-    if [ -d "$d" ] && [ "$d" != "$keep" ]; then
-      # The killed supervisor cannot spawn new writers. Existing orphaned children only shrink this
-      # holder set, so an empty kernel open-file census is the deletion barrier for the old runtime.
-      writer_census_status=0
-      writer_census=$(lsof +D "$d" 2>&1) || writer_census_status=$?
-      if [ "$writer_census_status" -eq 0 ] && [ -n "$writer_census" ]; then
-        echo "[$name] retaining stale runtime with active writers: $d" >&2
-        continue
-      fi
-      # lsof reports no matches as exit 1 with no output; every other result is inconclusive.
-      if [ "$writer_census_status" -ne 1 ] || [ -n "$writer_census" ]; then
-        echo "[$name] cannot prove stale runtime writer quiescence: lsof exit $writer_census_status; retaining $d" >&2
-        [ -n "$writer_census" ] && printf '%s\n' "$writer_census" >&2
-        continue
-      fi
-      python3 "$_self_dir/dead_letter_causes.py" archive \
-        --runtime-root "$d" --output "$LOGDIR/${name}-dead-letter-facts.log" \
-        || { echo "[$name] could not retain dead-letter cause facts from $d" >&2; return 1; }
-      git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
-        | while read -r wt; do
-            case "$wt/" in "$d/"*) git -C "$PKGSRC" worktree remove --force "$wt" 2>/dev/null;; esac
-          done
-      rm -rf "$d" 2>/dev/null
-    fi
-  done
   git -C "$PKGSRC" worktree prune 2>/dev/null
+  for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
+    [ -d "$d" ] && [ "$d" != "$keep" ] || continue
+    # Skip any generation that still holds a registered worktree; removing it is what
+    # manufactures the husk. Re-read the registry each iteration: `worktree prune` above may
+    # have dropped registrations whose directories are already gone.
+    if git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+        | grep -qF "$d/"; then
+      continue
+    fi
+
+    # The killed supervisor cannot spawn new writers. Existing orphaned children only shrink this
+    # holder set, so an empty kernel open-file census is the deletion barrier for the old runtime.
+    writer_census_status=0
+    writer_census=$(lsof +D "$d" 2>&1) || writer_census_status=$?
+    if [ "$writer_census_status" -eq 0 ] && [ -n "$writer_census" ]; then
+      echo "[$name] retaining stale runtime with active writers: $d" >&2
+      continue
+    fi
+    # lsof reports no matches as exit 1 with no output; every other result is inconclusive.
+    if [ "$writer_census_status" -ne 1 ] || [ -n "$writer_census" ]; then
+      echo "[$name] cannot prove stale runtime writer quiescence: lsof exit $writer_census_status; retaining $d" >&2
+      [ -n "$writer_census" ] && printf '%s\n' "$writer_census" >&2
+      continue
+    fi
+    python3 "$_self_dir/dead_letter_causes.py" archive \
+      --runtime-root "$d" --output "$LOGDIR/${name}-dead-letter-facts.log" \
+      || { echo "[$name] could not retain dead-letter cause facts from $d" >&2; return 1; }
+    rm -rf "$d" 2>/dev/null
+  done
 }
 
 launch_one() { # $1 name, $2 restart flag (0|1)
