@@ -190,7 +190,7 @@ return {
     local unmanaged = core.dependency_gate(repo, 42)
     t.eq(core.dependency_gate_is_satisfied(unmanaged), false)
     t.eq(unmanaged.kind, "verified_cannot_proceed")
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(unmanaged), true)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(unmanaged, repo, 42), true)
     t.eq(unmanaged.reason, "cross-repo-blocker")
   end,
 
@@ -200,7 +200,7 @@ return {
     local different_owner = core.dependency_gate(repo, 42)
     t.eq(core.dependency_gate_is_satisfied(different_owner), false)
     t.eq(different_owner.kind, "verified_cannot_proceed")
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(different_owner), true)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(different_owner, repo, 42), true)
     t.eq(different_owner.reason, "cross-repo-blocker")
   end,
 

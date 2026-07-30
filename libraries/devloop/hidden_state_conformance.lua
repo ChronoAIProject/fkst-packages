@@ -246,6 +246,8 @@ local function fact_value(core, row, state, family, successor)
           issue_number = ISSUE_NUMBER,
           blocker_repo = "other/repo",
           blocker_number = 99,
+          target_repo = REPO,
+          target_issue_number = ISSUE_NUMBER,
         },
       }
     end

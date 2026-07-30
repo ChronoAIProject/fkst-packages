@@ -128,11 +128,13 @@ local function has_marker(raises, marker)
   return false
 end
 
-local function cycle_proof(issue_number)
+local function cycle_proof(issue_number, target_issue_number)
   return {
     kind = "dependency-cycle",
     repo = REPO,
     issue_number = issue_number,
+    target_repo = REPO,
+    target_issue_number = target_issue_number or issue_number,
   }
 end
 
@@ -161,7 +163,25 @@ return {
     t.eq(gate.proof.kind, "dependency-cycle")
     t.eq(gate.proof.repo, REPO)
     t.eq(gate.proof.issue_number, 42)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate), true)
+    t.eq(gate.proof.target_repo, REPO)
+    t.eq(gate.proof.target_issue_number, 42)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 42), true)
+  end,
+
+  test_nested_cycle_proof_is_bound_to_the_root_dependency_target = function()
+    mock_managed_repos("")
+    mock_blocked_by(REPO, 44, { { number = 45 } })
+    mock_blocked_by(REPO, 45, { { number = 46 } })
+    mock_blocked_by(REPO, 46, { { number = 45 } })
+
+    local gate = core.dependency_gate(REPO, 44)
+
+    t.eq(gate.kind, "verified_cannot_proceed")
+    t.eq(gate.proof.issue_number, 45)
+    t.eq(gate.proof.target_repo, REPO)
+    t.eq(gate.proof.target_issue_number, 44)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 44), true)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 45), false)
   end,
 
   test_unmanaged_cross_repo_blocker_carries_validated_terminal_proof = function()
@@ -177,7 +197,9 @@ return {
     t.eq(gate.proof.issue_number, 42)
     t.eq(gate.proof.blocker_repo, OTHER_REPO)
     t.eq(gate.proof.blocker_number, 77)
-    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate), true)
+    t.eq(gate.proof.target_repo, REPO)
+    t.eq(gate.proof.target_issue_number, 42)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, REPO, 42), true)
   end,
 
   test_depth_cap_is_unavailable_without_fabricated_unmet_dependency = function()
@@ -204,16 +226,25 @@ return {
     t.eq(first.kind, "unavailable")
     t.eq(first.reason, "gh-failed")
     t.eq(#first.unmet, 0)
+    local first_held = capture_replay(first)
+    t.eq(has_marker(first_held, "fkst:github-devloop:dependency-unresolvable:v1"), true)
+    t.eq(has_marker(first_held, 'state="blocked"'), false)
 
     mock_blocked_by_failure(REPO, 42)
     local second = core.dependency_gate(REPO, 42)
     t.eq(second.kind, "unavailable")
     t.eq(second.reason, "gh-failed")
+    local second_held = capture_replay(second)
+    t.eq(has_marker(second_held, "fkst:github-devloop:dependency-unresolvable:v1"), true)
+    t.eq(has_marker(second_held, 'state="blocked"'), false)
 
     mock_blocked_by(REPO, 42, {})
     local recovered = core.dependency_gate(REPO, 42)
     t.eq(recovered.kind, "satisfied")
     t.eq(core.dependency_gate_is_satisfied(recovered), true)
+    local released = capture_replay(recovered)
+    t.eq(has_marker(released, 'state="ready"'), true)
+    t.eq(has_marker(released, 'state="blocked"'), false)
   end,
 
   test_invalid_unknown_and_exception_observations_are_unavailable = function()
@@ -291,6 +322,24 @@ return {
       },
     })
     t.eq(has_marker(mismatched_proof, 'state="blocked"'), false)
+
+    local wrong_target = capture_replay({
+      kind = "verified_cannot_proceed",
+      hold_kind = "cycle",
+      reason = "dependency-cycle",
+      unmet = { 42 },
+      proof = cycle_proof(42, 99),
+    })
+    t.eq(has_marker(wrong_target, 'state="blocked"'), false)
+
+    local unknown = capture_replay({
+      kind = "future-status",
+      hold_kind = "unresolvable",
+      reason = "unproven-future-observation",
+      unmet = {},
+    })
+    t.eq(has_marker(unknown, "fkst:github-devloop:dependency-unresolvable:v1"), true)
+    t.eq(has_marker(unknown, 'state="blocked"'), false)
 
     local verified = capture_replay({
       kind = "verified_cannot_proceed",

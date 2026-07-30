@@ -131,7 +131,13 @@ local function gate_for(fixture)
       reason = "dependency-cycle",
       unmet = { 42, 53 },
       notes = {},
-      proof = { kind = "dependency-cycle", repo = REPO, issue_number = ISSUE_NUMBER },
+      proof = {
+        kind = "dependency-cycle",
+        repo = REPO,
+        issue_number = ISSUE_NUMBER,
+        target_repo = REPO,
+        target_issue_number = ISSUE_NUMBER,
+      },
     }
   elseif fixture.gate_kind == "unresolvable" then
     return { kind = "unavailable", hold_kind = "unresolvable", reason = "dependency-read-failed", unmet = {}, notes = {} }

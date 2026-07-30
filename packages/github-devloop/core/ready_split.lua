@@ -250,7 +250,7 @@ function M.replay_dependency_wait_state(dept, issue, state, row, facts)
   if gate == nil then
     return false
   end
-  if M.dependency_gate_is_verified_cannot_proceed(gate) then
+  if M.dependency_gate_is_verified_cannot_proceed(gate, issue.repo, issue.number) then
     return raise_dependency_gate_blocked(M, dept, issue, proposal_id, state, gate)
   end
   if not M.dependency_gate_is_satisfied(gate) then
