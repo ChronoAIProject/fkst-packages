@@ -575,7 +575,7 @@ local function process_ready_event(event)
       version = core.ready_payload_inner_version(ready.dedup_key),
       comments = current.comments,
     })
-    if not gate.ok then
+    if not core.dependency_gate_is_satisfied(gate) then
       local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
       local dep_version = core.ready_split_version(inner_ready_version)
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
@@ -597,7 +597,7 @@ local function process_ready_event(event)
         issue_number,
         { devloop_base._blocked_on_dependency_label },
         {},
-        base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }),
+        base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.hold_kind) }),
         ready.source_ref
       ))
       return

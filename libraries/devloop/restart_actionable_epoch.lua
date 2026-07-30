@@ -214,7 +214,7 @@ local function resolve_live_defer_epoch(M, row, state, facts, now_seconds)
     if type(gate) ~= "table" then
       return invalid("live-defer-never-deferred-proof-missing:" .. tostring(gate_error or "dependency-gate-missing"))
     end
-    if gate.ok == true then
+    if M.dependency_gate_is_satisfied(gate) then
       return resolve_state_entry(M, row, state)
     end
     return invalid("live-defer-clear-absent-after-dependency-gate:" .. tostring(gate.reason or gate.kind or "dependency-held"))

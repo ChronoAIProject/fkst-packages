@@ -29,13 +29,46 @@ local function managed_sibling_repo(current_repo, blocker_repo, managed_repos)
   return type(managed_repos) == "table" and managed_repos[tostring(blocker_repo)] == true
 end
 
-local function gate(kind, reason, unmet)
-  return {
-    ok = kind == "satisfied",
+local function gate(kind, reason, unmet, proof)
+  local result = {
     kind = kind,
     unmet = unmet or {},
     reason = reason,
   }
+  if kind == "waiting" then
+    result.hold_kind = "waiting"
+  elseif kind == "unavailable" then
+    result.hold_kind = "unresolvable"
+  elseif kind == "verified_cannot_proceed" then
+    result.hold_kind = proof and proof.kind == "dependency-cycle" and "cycle" or "unresolvable"
+    result.proof = proof
+  end
+  return result
+end
+
+function M.dependency_gate_is_satisfied(result)
+  return type(result) == "table" and result.kind == "satisfied"
+end
+
+function M.dependency_gate_is_verified_cannot_proceed(result)
+  if type(result) ~= "table" or result.kind ~= "verified_cannot_proceed" or type(result.proof) ~= "table" then
+    return false
+  end
+  local proof = result.proof
+  if proof.kind == "dependency-cycle" then
+    return result.reason == "dependency-cycle"
+      and strings.split_repo(proof.repo) ~= nil
+      and forge_validators.is_positive_pr_number(proof.issue_number)
+  end
+  if proof.kind == "cross-repo-blocker" then
+    return result.reason == "cross-repo-blocker"
+      and strings.split_repo(proof.repo) ~= nil
+      and forge_validators.is_positive_pr_number(proof.issue_number)
+      and strings.split_repo(proof.blocker_repo) ~= nil
+      and tostring(proof.blocker_repo) ~= tostring(proof.repo)
+      and forge_validators.is_positive_pr_number(proof.blocker_number)
+  end
+  return false
 end
 
 local function add_gate_note(notes, note)
@@ -137,7 +170,7 @@ local function parse_blocked_by(stdout)
   end
 
   -- Fail-closed on a truncated blockedBy list: an unseen 51st+ unmet blocker must
-  -- never be read as absent (that would let dependency_gate return ok=true falsely).
+  -- never be read as absent (that would falsely classify the gate as satisfied).
   local truncated = false
   local total = blocked_by.totalCount
   local page = blocked_by.pageInfo
@@ -346,14 +379,17 @@ end
 local visit
 visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, context, notes)
   if depth > max_dependency_depth then
-    add_unmet(unmet, unmet_seen, issue_number)
-    return gate("unresolvable", "depth-cap-exceeded", unmet)
+    return gate("unavailable", "depth-cap-exceeded", unmet)
   end
 
   local key = tostring(repo) .. "#" .. tostring(issue_number)
   if stack[key] then
     add_unmet(unmet, unmet_seen, issue_number)
-    return gate("cycle", "dependency-cycle", unmet)
+    return gate("verified_cannot_proceed", "dependency-cycle", unmet, {
+      kind = "dependency-cycle",
+      repo = repo,
+      issue_number = issue_number,
+    })
   end
   if visited[key] then
     return gate("satisfied", "satisfied", unmet)
@@ -363,8 +399,7 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
   local blockers, fetch_reason = fetch_blocked_by(repo, issue_number)
   if blockers == nil then
     stack[key] = nil
-    add_unmet(unmet, unmet_seen, issue_number)
-    return gate("unresolvable", fetch_reason or "gh-failed", unmet)
+    return gate("unavailable", fetch_reason or "gh-failed", unmet)
   end
 
   for _, blocker in ipairs(blockers) do
@@ -372,13 +407,18 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
       if not managed_sibling_repo(repo, blocker.repo, context and context.managed_sibling_repos) then
         stack[key] = nil
         add_unmet(unmet, unmet_seen, blocker.number)
-        return gate("unresolvable", "cross-repo-blocker", unmet)
+        return gate("verified_cannot_proceed", "cross-repo-blocker", unmet, {
+          kind = "cross-repo-blocker",
+          repo = repo,
+          issue_number = issue_number,
+          blocker_repo = blocker.repo,
+          blocker_number = blocker.number,
+        })
       end
       local satisfied, reason = evaluate_managed_sibling_blocker(blocker.repo, blocker)
       if satisfied == nil then
         stack[key] = nil
-        add_unmet(unmet, unmet_seen, blocker.number)
-        return gate("unresolvable", reason or "unknown-blocker", unmet)
+        return gate("unavailable", reason or "unknown-blocker", unmet)
       end
       if not satisfied then
         add_unmet(unmet, unmet_seen, blocker.number)
@@ -394,7 +434,7 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
 
       if not prefer_terminal_proof or (satisfied == false and satisfied_reason ~= "dependency-waiver-required") then
         local nested = visit(repo, blocker.number, stack, visited, unmet, unmet_seen, depth + 1, context, notes)
-        if nested.kind == "cycle" or nested.kind == "unresolvable" then
+        if nested.kind == "verified_cannot_proceed" or nested.kind == "unavailable" then
           stack[key] = nil
           return nested
         end
@@ -406,8 +446,7 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
 
       if satisfied == nil then
         stack[key] = nil
-        add_unmet(unmet, unmet_seen, blocker.number)
-        return gate("unresolvable", satisfied_reason or "unknown-blocker", unmet)
+        return gate("unavailable", satisfied_reason or "unknown-blocker", unmet)
       end
       if not satisfied then
         add_unmet(unmet, unmet_seen, blocker.number)
@@ -448,7 +487,7 @@ end
 function M.dependency_gate(repo, issue_number, context)
   local core = root()
   if strings.split_repo(repo) == nil or not forge_validators.is_positive_pr_number(issue_number) then
-    return gate("unresolvable", "invalid-target", {})
+    return gate("unavailable", "invalid-target", {})
   end
   local gate_context = context
   if type(gate_context) ~= "table" then
@@ -457,9 +496,8 @@ function M.dependency_gate(repo, issue_number, context)
   gate_context.managed_sibling_repos = config.managed_sibling_repos()
   local ok, result = pcall(visit, repo, issue_number, {}, {}, {}, {}, 0, gate_context, {})
   if not ok or type(result) ~= "table" then
-    return gate("unresolvable", "dependency-gate-exception", {})
+    return gate("unavailable", "dependency-gate-exception", {})
   end
-  result.ok = result.kind == "satisfied"
   return result
 end
 
