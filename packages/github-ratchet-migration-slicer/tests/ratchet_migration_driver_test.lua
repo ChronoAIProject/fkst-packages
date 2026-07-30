@@ -157,8 +157,8 @@ local function new_fake_github(opts)
     table.insert(model.writes, { kind = "issue_add_sub_issue", repo = repo, parent_issue_number = parent_issue_number, sub_issue_number = sub_issue_number, timeout = timeout })
     return { stdout = "", stderr = "", exit_code = 0 }
   end
-  function handle.issue_close(repo, issue_number, timeout)
-    table.insert(model.writes, { kind = "issue_close", repo = repo, issue_number = issue_number, timeout = timeout })
+  function handle.issue_close(repo, issue_number, disposition, timeout)
+    table.insert(model.writes, { kind = "issue_close", repo = repo, issue_number = issue_number, disposition = disposition, timeout = timeout })
     return { stdout = "", stderr = "", exit_code = 0 }
   end
   return handle
@@ -574,6 +574,7 @@ return {
     })
 
     t.eq(count_kind(result.github._model.writes, "issue_close"), 1)
+    t.eq(write_of_kind(result.github._model.writes, "issue_close").disposition.kind, "completed")
     t.eq(count_kind(result.github._model.writes, "issue_create"), 0)
     t.eq(count_kind(result.github._model.writes, "issue_add_sub_issue"), 0)
   end,

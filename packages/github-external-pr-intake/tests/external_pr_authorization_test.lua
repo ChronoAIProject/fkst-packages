@@ -106,11 +106,12 @@ local function fake_github(opts)
     return { stdout = "", stderr = "", exit_code = 0 }
   end
 
-  function handle.issue_close(repo, issue_number, timeout)
+  function handle.issue_close(repo, issue_number, disposition, timeout)
     table.insert(model.writes, {
       kind = "issue_close",
       repo = repo,
       issue_number = issue_number,
+      disposition = disposition,
       timeout = timeout,
     })
     return { stdout = "", stderr = "", exit_code = 0 }

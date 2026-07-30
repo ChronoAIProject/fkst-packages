@@ -109,7 +109,12 @@ function M.reconcile(core, github, repo, entity, limits, deadline)
   end
   fact = current_fact
   decision = current_decision
-  local closed = github.issue_close(fact.escalation_repo, fact.escalation_issue_number, timeout)
+  local closed = github.issue_close(
+    fact.escalation_repo,
+    fact.escalation_issue_number,
+    { kind = "completed" },
+    timeout
+  )
   if type(closed) ~= "table" or closed.exit_code ~= 0 then
     error("github-devloop-ops: output-obligation-close-failed: escalation issue close failed: "
       .. tostring(closed and closed.stderr or "missing result"))
