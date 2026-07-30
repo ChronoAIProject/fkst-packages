@@ -9,7 +9,9 @@ local M = {}
 local production_handle = nil
 
 function M.github_options(exec)
-  return github_author_policy.github_options(exec)
+  local options = github_author_policy.github_options(exec)
+  options.quota_admission = true
+  return options
 end
 
 function M.new(exec, env_exec)

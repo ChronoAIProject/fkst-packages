@@ -69,9 +69,12 @@ local function filter_stdout(result, context, policy, author_policy)
   return content_filter.apply_gh_content_filter(result, context, policy, author_policy, stdout_policy)
 end
 
-function M.run(exec, argv, timeout, context, policy, author_policy)
+function M.run(exec, argv, timeout, context, policy, author_policy, quota_limiter)
   if type(argv) ~= "table" or #argv < 1 or argv[1] ~= "gh" then
     misuse_error(argv, context)
+  end
+  if type(quota_limiter) == "table" and type(quota_limiter.before) == "function" then
+    quota_limiter.before(exec, argv, timeout, context)
   end
   local result = exec({ argv = argv, timeout = timeout })
   if type(result) ~= "table" or tonumber(result.exit_code) ~= 0 then
