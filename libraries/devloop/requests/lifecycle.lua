@@ -401,15 +401,16 @@ end
 
 function C.build_implementation_refusal_comment_request(
     M, repo, issue_number, ready, reason, evidence, attempt)
+  local rendered_reason = M.require_supported_implementation_refusal_reason(reason)
   local marker = M.implementation_refusal_marker(
-    ready.proposal_id, ready.dedup_key, reason, evidence, attempt)
+    ready.proposal_id, ready.dedup_key, rendered_reason, evidence, attempt)
   local state_marker = M.state_marker(ready.proposal_id, "blocked", ready.dedup_key)
   local safe_evidence = devloop_base.neutralize_untrusted_comment_text(evidence)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = "github-devloop implementation blocked: precursor-missing"
+    body = "github-devloop implementation blocked: " .. rendered_reason
       .. "\n\nEvidence:\n" .. safe_evidence
       .. "\n\n" .. state_marker
       .. "\n" .. marker,
@@ -417,7 +418,7 @@ function C.build_implementation_refusal_comment_request(
       "implement",
       "comment",
       "implementation-refusal",
-      tostring(reason),
+      tostring(rendered_reason),
       tostring(attempt),
       tostring(ready.dedup_key),
     }),
