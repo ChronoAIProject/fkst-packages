@@ -268,6 +268,42 @@ return {
     t.eq(m_facts.implementing_fact({ comment.payload.body }, event.proposal_id, ready.dedup_key .. "/reimplement/2"), nil)
   end,
 
+  test_completed_codex_with_vanished_worktree_returns_typed_retry = function()
+    local event = reached()
+    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    ready.impl_retry_attempt = 2
+    local comments = {
+      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
+      core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
+    }
+    for _ = 1, 3 do
+      mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+    end
+    mock_existing_empty_implement_worktree({
+      impl_version = ready.dedup_key .. "/reimplement/2",
+      harvest = false,
+    })
+    mock_implement_codex(0, "implemented")
+    local stable_root = devloop_base.implementation_worktree_root(
+      "/tmp/fkst-packages-test/github-devloop/durable")
+    local worktree = devloop_base.implement_worktree_path(
+      stable_root, "owner/repo", 42, ready.dedup_key)
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 1,
+    })
+    mock_git_status("", 128, "fatal: cannot change to missing worktree")
+
+    local result = run_implement(ready, opts("implement-worktree-vanished-after-codex"))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("status --porcelain"), 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:impl-failure:v1", 1, true) ~= nil
+    end), nil)
+  end,
+
   test_replayed_ready_rederives_proof_profile_from_accepted_result = function()
     local framing = "Change `Proofs/Target.lean` only."
     local event = reached({
@@ -463,7 +499,9 @@ return {
     for _ = 1, 3 do
       mock_issue_implement_raw({ "fkst-dev:blocked" }, blocked_comments)
     end
-    mock_existing_empty_implement_worktree({ impl_version = retry_version })
+    mock_existing_empty_implement_worktree({
+      impl_version = retry_version,
+    })
     mock_implement_codex(0, implementation_receipt(
       event, retry_version, "changes-produced", 2))
     mock_git_status(" M packages/github-devloop/core.lua\n")

@@ -88,6 +88,25 @@ return {
     t.eq(skip_reason(result, ORPHAN_PATH), "live-branch")
   end,
 
+  test_live_retry_row_keeps_base_branch_worktree = function()
+    local branch = base.implement_branch(REPO, 333, "dedup-retry")
+    local path = STABLE_PATH .. "-retry"
+    local worktrees = core.parse_worktrees(porcelain({
+      { path = path, branch = branch },
+    }))
+    local live = core.live_branches({
+      running_row(333, "dedup-retry/reimplement/2"),
+    }, NOW_MS)
+    local result = core.classify(worktrees, live, {
+      terminal_issues = {
+        ["github-devloop/issue/" .. REPO .. "/333"] = true,
+      },
+    })
+
+    t.eq(removable_has(result, path), false)
+    t.eq(skip_reason(result, path), "live-branch")
+  end,
+
   -- Terminal deterministic worktree with NO live row is the removable target.
   test_terminal_old_rt_is_removable = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)

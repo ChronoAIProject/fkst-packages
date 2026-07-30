@@ -654,8 +654,12 @@ function C.implement_branch(repo, issue_number, impl_version)
 end
 
 function C.implementation_worktree_root(durable_root)
-  local root = trim(durable_root)
-  if root == "" or root:find("[\r\n]") ~= nil then
+  local raw = tostring(durable_root or "")
+  if raw == "" or raw:find("[\r\n]") ~= nil then
+    error("github-devloop: invalid FKST_DURABLE_ROOT")
+  end
+  local root = trim(raw)
+  if root == "" then
     error("github-devloop: invalid FKST_DURABLE_ROOT")
   end
   return root:gsub("/+$", "") .. "-worktrees"

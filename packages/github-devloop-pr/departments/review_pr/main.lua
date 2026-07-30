@@ -194,7 +194,12 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     -- Fall back to the read-only project checkout (".") if the stable impl worktree is unavailable;
     -- see review_loop -- the review codex reads the PR diff from context, so cwd just needs to be a git repo.
-    local worktree = devloop_commands.existing_implementation_worktree(repo, issue_number, origin and origin.impl_version or reviewing.version)
+    local worktree = devloop_commands.existing_implementation_worktree(
+      repo,
+      issue_number,
+      origin and origin.impl_version or reviewing.version,
+      origin and origin.branch or current_pr.head_ref_name
+    )
     proposal.worktree = worktree or "."
     if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=review_pr proposal_id=" .. tostring(reviewing.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-proposal")

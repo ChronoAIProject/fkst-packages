@@ -11,6 +11,7 @@
 
 local base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local impl_failure = require("devloop.impl_failure")
 
 local M = {}
 
@@ -82,7 +83,10 @@ function M.live_branches(running_rows, now_ms)
       local repo, issue = M.parse_proposal_repo_issue(row.proposal_id)
       local dedup = row.dedup_key
       if repo and issue and dedup ~= nil and tostring(dedup) ~= "" then
-        local ok, branch = pcall(base.implement_branch, repo, issue, dedup)
+        local ok, branch = pcall(function()
+          local branch_version = impl_failure.implementation_branch_version(dedup)
+          return base.implement_branch(repo, issue, branch_version)
+        end)
         if ok and type(branch) == "string" then
           set[branch] = true
         else

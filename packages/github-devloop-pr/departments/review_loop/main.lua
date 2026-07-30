@@ -257,7 +257,12 @@ return saga.department(spec, { done = function() return false end, act = functio
     -- review-consensus angle codex does not land in a non-git scratch dir and refuse to start ("Not inside
     -- a trusted directory"). The codex reads the PR diff from source_ref/content_fetch, not from cwd, so
     -- cwd only has to be a git repo. Makes PR review crash-only-robust across restarts.
-    local worktree = devloop_commands.existing_implementation_worktree(repo, origin.issue_number, origin.impl_version)
+    local worktree = devloop_commands.existing_implementation_worktree(
+      repo,
+      origin.issue_number,
+      origin.impl_version,
+      origin.branch
+    )
     proposal.worktree = worktree or "."
     if not v_validate_proposal.validate_proposal(proposal) then
       log.warn("github-devloop dept=review_loop proposal_id=" .. tostring(origin.proposal_id) .. " tag=SKIP reason=cannot-build-valid-review-loop-proposal")

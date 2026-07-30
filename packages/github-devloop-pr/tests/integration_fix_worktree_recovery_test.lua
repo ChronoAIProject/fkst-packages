@@ -21,17 +21,17 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
-local function mock_fix_recovery_context(event, branch, origin_marker, reject_comment)
+local function mock_fix_recovery_context(event, branch, origin_marker, reject_comment, impl_version)
   mock_bot_env()
   mock_write_env("1")
   mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
     core.state_marker(event.proposal_id, "fixing", event.version),
     reject_comment,
-  }, branch, event.version)
+  }, branch, impl_version or event.version)
   mock_pr_fix({ origin_marker }, branch, "def456")
 end
 
-local function mock_fix_writeback(event, branch, origin_marker)
+local function mock_fix_writeback(event, branch, origin_marker, impl_version)
   mock_implement_codex(0, "fixed after rebuilding worktree")
   mock_git_status(" M packages/github-devloop/core.lua\n")
   mock_git_commit("feedface", branch)
@@ -53,12 +53,61 @@ local function mock_fix_writeback(event, branch, origin_marker)
       },
       event.source_ref
     ).body,
-  }, branch, event.version)
+  }, branch, impl_version or event.version)
   mock_git_push(branch)
   mock_pr_fix({ origin_marker }, branch, "feedface")
 end
 
 return {
+  test_fix_uses_immutable_pr_origin_version_for_canonical_worktree = function()
+    local event = fixing()
+    local origin_impl_version = core._strip_latest_fix_version_suffix(event.version)
+    t.is_true(origin_impl_version ~= event.version)
+    local branch = devloop_base.implement_branch("owner/repo", "42", origin_impl_version)
+    local reject_comment = requests_review.build_review_result_comment_request(core,
+      "owner/repo",
+      "42",
+      event.proposal_id,
+      event.version,
+      {
+        proposal_id = event.review_proposal_id,
+        decision = "reject",
+        body = "Reject because parser must fail closed.",
+        blocking_gap = "missing regression guard",
+        dedup_key = event.review_dedup_key,
+        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
+      },
+      event.source_ref
+    ).body
+    local origin_marker = m_builders.pr_origin_marker(
+      event.proposal_id, "42", branch, origin_impl_version, "dev")
+    mock_fix_recovery_context(
+      event, branch, origin_marker, reject_comment, origin_impl_version)
+    mock_missing_fix_worktree(branch, "def456")
+    mock_fix_writeback(event, branch, origin_marker, origin_impl_version)
+
+    local result = run_fix(event, opts("fix-origin-implementation-worktree", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    local stable_root = devloop_base.implementation_worktree_root(
+      "/tmp/fkst-packages-test/github-devloop/durable")
+    local expected = devloop_base.implement_worktree_path(
+      stable_root, "owner/repo", "42", origin_impl_version)
+    local fix_round_path = devloop_base.implement_worktree_path(
+      stable_root, "owner/repo", "42", event.version)
+    local codex_call = nil
+    for _, call in ipairs(t.command_calls()) do
+      if tostring(call.rendered or ""):find("codex exec", 1, true) ~= nil then
+        codex_call = tostring(call.rendered)
+      end
+    end
+    t.is_true(codex_call ~= nil)
+    t.is_true(codex_call:find(expected, 1, true) ~= nil)
+    t.eq(codex_call:find(fix_round_path, 1, true), nil)
+  end,
+
   test_fix_rebuilds_missing_recorded_worktree_under_stable_root = function()
     local event = fixing()
     local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
@@ -141,5 +190,49 @@ return {
       end
     end
     t.eq(found_stable_root_worktree, true)
+  end,
+
+  test_fix_removes_noncanonical_worktree_inside_stable_root_before_rebuild = function()
+    local event = fixing()
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+    local reject_comment = requests_review.build_review_result_comment_request(core,
+      "owner/repo",
+      "42",
+      event.proposal_id,
+      event.version,
+      {
+        proposal_id = event.review_proposal_id,
+        decision = "reject",
+        body = "Reject because parser must fail closed.",
+        blocking_gap = "missing regression guard",
+        dedup_key = event.review_dedup_key,
+        source_ref = { kind = "external", ref = "owner/repo#pr/7" },
+      },
+      event.source_ref
+    ).body
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    mock_fix_recovery_context(event, branch, origin_marker, reject_comment)
+    mock_outside_stable_root_fix_worktree(
+      branch,
+      "def456",
+      "/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/noncanonical-fix-worktree"
+    )
+    mock_fix_writeback(event, branch, origin_marker)
+
+    local result = run_fix(event, opts("fix-rebuild-noncanonical-stable-worktree", { FKST_GITHUB_WRITE = "1" }))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    t.eq(count_calls("git worktree remove --force"), 1)
+    t.eq(count_calls("git fetch 'origin' '" .. branch .. "'"), 1)
+    t.eq(count_calls("git worktree add --force -B"), 1)
+
+    local used_canonical_worktree = false
+    for _, call in ipairs(t.command_calls()) do
+      if call.rendered:find("codex exec", 1, true) ~= nil
+        and call.rendered:find("/tmp/fkst-packages-test/github-devloop/durable-worktrees/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
+        used_canonical_worktree = true
+      end
+    end
+    t.eq(used_canonical_worktree, true)
   end,
 }

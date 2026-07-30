@@ -160,10 +160,10 @@ local function retry_from_failure(ready, accepted, failure_body, raw, id, checke
   t.eq(replay.payload.impl_retry_attempt, 2)
 
   mock_implementation_issue_reads({ "fkst-dev:impl-failed" }, comments)
+  local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
   h.mock_existing_empty_implement_worktree({
     impl_version = ready.dedup_key .. "/reimplement/2",
   })
-  local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
   mock_toolchain(branch)
   h.mock_implement_codex(0, raw)
   h.mock_git_status(" M " .. target .. "\n")

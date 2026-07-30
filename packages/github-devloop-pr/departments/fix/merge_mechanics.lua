@@ -25,7 +25,7 @@ function M.make(core)
       if dir_result.exit_code ~= 0 and dir_result.exit_code ~= 1 then
         error("github-devloop: worktree-path-check-failed: git worktree path check failed: " .. tostring(dir_result.stderr))
       end
-      if dir_result.exit_code == 0 and devloop_base.path_under_root(stable_root, existing) then
+      if dir_result.exit_code == 0 and existing == worktree then
         return existing
       end
       if dir_result.exit_code == 1 then

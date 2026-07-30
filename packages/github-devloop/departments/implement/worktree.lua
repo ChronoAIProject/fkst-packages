@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local impl_failure = require("devloop.impl_failure")
 local forge_git = require("forge.git").new(function(...) return exec_argv(...) end)
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
@@ -21,6 +22,11 @@ local function assert_canonical_registration(porcelain, branch, worktree)
       error("github-devloop: worktree-registration-conflict: deterministic branch is registered at "
         .. tostring(registered))
     end
+  end
+  if devloop_commands.worktree_registered(porcelain, worktree)
+    and not devloop_commands.worktree_registered_for_branch(porcelain, worktree, branch) then
+    error("github-devloop: worktree-registration-conflict: deterministic worktree is registered to another branch at "
+      .. tostring(worktree))
   end
 end
 
@@ -111,26 +117,24 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
   end
 
   local stable_root = implementation_root()
-  local worktree = devloop_base.implement_worktree_path(stable_root, repo, issue_number, ready.dedup_key)
+  local worktree_version = impl_failure.implementation_branch_version(
+    ready.dedup_key,
+    ready.impl_retry_attempt
+  )
+  local worktree = devloop_base.implement_worktree_path(
+    stable_root, repo, issue_number, worktree_version)
+  local list_result = devloop_commands.git_worktree_list(30)
+  if list_result.exit_code ~= 0 then
+    error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
+  end
+  assert_canonical_registration(list_result.stdout, branch, worktree)
   if checkpoint_head ~= nil then
-    if branch_exists then
-      local list_result = devloop_commands.git_worktree_list(30)
-      if list_result.exit_code ~= 0 then
-        error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
-      end
-      assert_canonical_registration(list_result.stdout, branch, worktree)
-    end
     local clean_result = devloop_commands.git_worktree_force_clean(worktree, 60)
     if clean_result.exit_code ~= 0 then
       error("github-devloop: worktree-cleanup-failed: git worktree cleanup failed: " .. tostring(clean_result.stderr))
     end
     restore_remote_checkpoint_worktree(worktree, branch, checkpoint_head)
   elseif branch_exists then
-    local list_result = devloop_commands.git_worktree_list(30)
-    if list_result.exit_code ~= 0 then
-      error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
-    end
-    assert_canonical_registration(list_result.stdout, branch, worktree)
     local existing_worktree = devloop_commands.worktree_registered_for_branch(
       list_result.stdout,
       worktree,
@@ -169,7 +173,12 @@ end
 
 function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
   local stable_root = implementation_root()
-  local worktree = devloop_base.implement_worktree_path(stable_root, repo, issue_number, ready.dedup_key)
+  local worktree_version = impl_failure.implementation_branch_version(
+    ready.dedup_key,
+    ready.impl_retry_attempt
+  )
+  local worktree = devloop_base.implement_worktree_path(
+    stable_root, repo, issue_number, worktree_version)
   local list_result = devloop_commands.git_worktree_list(30)
   if list_result.exit_code ~= 0 then
     error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))

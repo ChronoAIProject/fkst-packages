@@ -16,6 +16,7 @@ function M.new(deps)
   local enable_substrate_pin_refresh = deps.enable_substrate_pin_refresh == true
   local include_head_ref_push = deps.include_head_ref_push == true
   local include_branch_diff_paths = deps.include_branch_diff_paths == true
+  local implementation_lineage = deps.implementation_lineage
 
   gh_argv.install(t, base.core)
 
@@ -30,19 +31,36 @@ function M.new(deps)
 
   local function implement_worktree_for(durable, opts)
     local stable_root = devloop_base.implementation_worktree_root(durable)
+    local worktree_version = opts.impl_version or default_ready_version
+    if implementation_lineage ~= nil then
+      worktree_version = implementation_lineage.implementation_branch_version(
+        worktree_version,
+        opts.impl_retry_attempt
+      )
+    end
     return devloop_base.implement_worktree_path(
       stable_root,
       opts.repo or default_repo,
       opts.issue_number or opts.issue or default_issue_number,
-      opts.impl_version or default_ready_version
+      worktree_version
     )
   end
 
   local function implement_branch_for(opts)
+    if opts.branch ~= nil then
+      return opts.branch
+    end
+    local branch_version = opts.impl_version or default_ready_version
+    if implementation_lineage ~= nil then
+      branch_version = implementation_lineage.implementation_branch_version(
+        branch_version,
+        opts.impl_retry_attempt
+      )
+    end
     return devloop_base.implement_branch(
       opts.repo or default_repo,
       opts.issue_number or opts.issue or default_issue_number,
-      opts.impl_version or default_ready_version
+      branch_version
     )
   end
 
@@ -547,7 +565,12 @@ function M.new(deps)
 
   local function mock_existing_fix_worktree(branch, head, path, merge)
     local stable_root = devloop_base.implementation_worktree_root(default_durable_root)
-    local worktree = path or stable_root .. "/worktrees/fix-worktree"
+    local worktree = path or devloop_base.implement_worktree_path(
+      stable_root,
+      default_repo,
+      default_issue_number,
+      default_ready_version
+    )
     mock_durable_root(default_durable_root)
     t.mock_command("git worktree list --porcelain", {
       stdout = "worktree " .. worktree .. "\nHEAD " .. tostring(head or "def456")

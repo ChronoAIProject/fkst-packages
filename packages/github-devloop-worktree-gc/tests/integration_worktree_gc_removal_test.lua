@@ -210,4 +210,14 @@ return {
     t.eq(removed[1], TERMINAL_PATH)
     t.eq(contains(removed, STABLE_PATH), false)
   end,
+
+  test_live_retry_worktree_survives_terminal_marker_race = function()
+    local removed = {}
+    local dept = department_with(removed, {
+      running_row(333, "dedup-current/reimplement/2"),
+    }, "1", "merged")
+    testing.run_fake(dept, tick())
+
+    t.eq(contains(removed, STABLE_PATH), false)
+  end,
 }

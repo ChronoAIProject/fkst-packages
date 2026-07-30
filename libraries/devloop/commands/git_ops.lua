@@ -258,25 +258,32 @@ end
     return "[ -d " .. devloop_base._shell_single_quote(value) .. " ]"
   end
 
-  function C.existing_implementation_worktree(repo, issue_number, impl_version)
+  function C.existing_implementation_worktree(repo, issue_number, impl_version, expected_branch)
     if issue_number == nil or impl_version == nil then
       return nil
     end
     local durable = exec_sync({ cmd = C.read_durable_root_cmd(), timeout = 30 })
-    if type(durable) ~= "table" or durable.exit_code ~= 0 or tostring(durable.stdout or "") == "" then
-      return nil
+    if type(durable) ~= "table" or durable.exit_code ~= 0 then
+      error("github-devloop: durable-root-read-failed: FKST_DURABLE_ROOT read failed: "
+        .. tostring(type(durable) == "table" and durable.stderr or "missing command result"))
     end
     local implementation_root = devloop_base.implementation_worktree_root(durable.stdout)
     local worktree = devloop_base.implement_worktree_path(implementation_root, repo, issue_number, impl_version)
     local list = C.git_worktree_list(30)
-    if type(list) ~= "table"
-      or list.exit_code ~= 0
-      or not C.worktree_registered(list.stdout, worktree) then
+    if type(list) ~= "table" or list.exit_code ~= 0 then
+      error("github-devloop: worktree-list-failed: git worktree list failed: "
+        .. tostring(type(list) == "table" and list.stderr or "missing command result"))
+    end
+    if not C.worktree_registered_for_branch(list.stdout, worktree, expected_branch) then
       return nil
     end
     local directory = exec_sync({ cmd = C.path_is_directory_cmd(worktree), timeout = 30 })
     if type(directory) == "table" and directory.exit_code == 0 then
       return worktree
+    end
+    if type(directory) ~= "table" or directory.exit_code ~= 1 then
+      error("github-devloop: worktree-path-check-failed: implementation worktree path check failed: "
+        .. tostring(type(directory) == "table" and directory.stderr or "missing command result"))
     end
     return nil
   end
