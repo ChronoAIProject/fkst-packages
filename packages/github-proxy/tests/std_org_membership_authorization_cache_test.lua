@@ -19,11 +19,11 @@ local function reset_org(org)
   cache_set(authorization_cache.cache_key(org), "")
 end
 
-local function build_policy(org, fetch)
+local function build_policy(org, fetch, repo_name)
   local env = {
     FKST_GITHUB_AUTHORIZE_ORG_MEMBERS = "1",
     FKST_GITHUB_AUTHORIZE_REPO_COLLABORATORS = "",
-    FKST_GITHUB_REPO = org .. "/repo",
+    FKST_GITHUB_REPO = org .. "/" .. tostring(repo_name or "repo"),
   }
   return content_filter.author_policy_from_options({
     bot_login = "fkst-test-bot",
@@ -68,8 +68,8 @@ return {
     reset_org(org)
 
     with_now(clock, function()
-      local first = build_policy(org, successful_member_fetch(counter, "first-member"))
-      local second = build_policy(org, successful_member_fetch(counter, "second-member"))
+      local first = build_policy(org, successful_member_fetch(counter, "first-member"), "first-repo")
+      local second = build_policy(org, successful_member_fetch(counter, "second-member"), "second-repo")
 
       t.eq(authorized(first, "first-member"), true)
       t.eq(authorized(second, "first-member"), true)
@@ -123,6 +123,31 @@ return {
     local encoded = tostring(cache_get(authorization_cache.cache_key(org)) or "")
     t.is_true(encoded:find('"tag":"available"', 1, true) ~= nil)
     t.is_true(encoded:find('"tag":"unavailable"', 1, true) == nil)
+  end,
+
+  test_unavailable_outcome_is_refetched_in_the_next_epoch = function()
+    local org = "cache-unavailable-refresh-org"
+    local bound = authorization_cache.REVOCATION_BOUND_SECONDS
+    local clock = { value = (bound * 35) + bound - 1 }
+    local calls = 0
+    reset_org(org)
+
+    with_now(clock, function()
+      local first = build_policy(org, function()
+        calls = calls + 1
+        return { stdout = "", stderr = "rate limited", exit_code = 1 }
+      end)
+      t.eq(authorized(first, "restored-member"), false)
+
+      clock.value = clock.value + 1
+      local second = build_policy(org, function()
+        calls = calls + 1
+        return { stdout = '[[{"login":"restored-member"}]]', stderr = "", exit_code = 0 }
+      end)
+      t.eq(authorized(second, "restored-member"), true)
+    end)
+
+    t.eq(calls, 2)
   end,
 
   test_next_authorization_epoch_refetches_membership = function()
