@@ -126,6 +126,11 @@ local function add_unmet(unmet, seen, number)
   table.insert(unmet, value)
 end
 
+local function dependency_cycle_gate(repo, issue_number, unmet, unmet_seen, target_repo, target_issue_number)
+  add_unmet(unmet, unmet_seen, issue_number)
+  return gate("verified_cannot_proceed", "dependency-cycle", unmet, { kind = "dependency-cycle", repo = repo, issue_number = issue_number, target_repo = target_repo, target_issue_number = target_issue_number })
+end
+
 local function dependency_unmet_field(unmet_numbers)
   local core = root()
   local parts = {}
@@ -370,12 +375,12 @@ local function resolve_duplicate(repo, blocker, context, notes, traversal)
   local stack = traversal and traversal.stack or {}
   local depth = traversal and traversal.depth or 0
   if depth > max_dependency_depth then
-    return nil, "depth-cap-exceeded", blocker.number, "unresolvable"
+    return nil, "depth-cap-exceeded", blocker.number, "unavailable"
   end
 
   local key = tostring(repo) .. "#" .. tostring(blocker.number)
   if stack[key] then
-    return nil, "dependency-cycle", blocker.number, "cycle"
+    return nil, "dependency-cycle", blocker.number, "verified_cannot_proceed"
   end
   stack[key] = true
 
@@ -387,7 +392,7 @@ local function resolve_duplicate(repo, blocker, context, notes, traversal)
       local reason = fetch_reason == "missing-issue"
         and "duplicate-target-missing"
         or "duplicate-target-unreadable"
-      return nil, reason, current.number, "unresolvable"
+      return nil, reason, current.number, "unavailable"
     end
     current = projected
   end
@@ -395,17 +400,17 @@ local function resolve_duplicate(repo, blocker, context, notes, traversal)
   local target = current.duplicate_of
   if type(target) ~= "table" or not forge_validators.is_positive_pr_number(target.number) then
     stack[key] = nil
-    return nil, "duplicate-target-missing", current.number, "unresolvable"
+    return nil, "duplicate-target-missing", current.number, "unavailable"
   end
   if tostring(target.repo or "") ~= tostring(repo) then
     stack[key] = nil
-    return nil, "cross-repo-duplicate-target", target.number, "unresolvable"
+    return nil, "cross-repo-duplicate-target", target.number, "unavailable"
   end
 
   local target_key = tostring(repo) .. "#" .. tostring(target.number)
   if stack[target_key] then
     stack[key] = nil
-    return nil, "dependency-cycle", target.number, "cycle"
+    return nil, "dependency-cycle", target.number, "verified_cannot_proceed"
   end
 
   local satisfied, reason, unmet_number, kind = evaluate_terminal_blocker(
@@ -417,7 +422,7 @@ local function resolve_duplicate(repo, blocker, context, notes, traversal)
   )
   stack[key] = nil
   if satisfied == nil and kind == nil then
-    return nil, "duplicate-target-unreadable", unmet_number or target.number, "unresolvable"
+    return nil, "duplicate-target-unreadable", unmet_number or target.number, "unavailable"
   end
   return satisfied, reason, unmet_number or target.number, kind
 end
@@ -514,14 +519,7 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
 
   local key = tostring(repo) .. "#" .. tostring(issue_number)
   if stack[key] then
-    add_unmet(unmet, unmet_seen, issue_number)
-    return gate("verified_cannot_proceed", "dependency-cycle", unmet, {
-      kind = "dependency-cycle",
-      repo = repo,
-      issue_number = issue_number,
-      target_repo = target_repo,
-      target_issue_number = target_issue_number,
-    })
+    return dependency_cycle_gate(repo, issue_number, unmet, unmet_seen, target_repo, target_issue_number)
   end
   if visited[key] then
     return gate("satisfied", "satisfied", unmet)
@@ -567,8 +565,10 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
       )
       if satisfied == nil then
         stack[key] = nil
-        add_unmet(unmet, unmet_seen, canonical_number or blocker.number)
-        return gate(result_kind or "unresolvable", satisfied_reason or "duplicate-target-unreadable", unmet)
+        if result_kind == "verified_cannot_proceed" then
+          return dependency_cycle_gate(repo, canonical_number or blocker.number, unmet, unmet_seen, target_repo, target_issue_number)
+        end
+        return gate("unavailable", satisfied_reason or "duplicate-target-unreadable", unmet)
       end
       if not satisfied then
         add_unmet(unmet, unmet_seen, canonical_number or blocker.number)

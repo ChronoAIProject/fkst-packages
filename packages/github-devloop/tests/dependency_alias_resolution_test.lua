@@ -113,7 +113,7 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(gate.ok, false)
+    t.eq(core.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "waiting")
     t.eq(gate.reason, "waiting-on-dependency")
     t.eq(gate.unmet[1], 12)
@@ -123,14 +123,14 @@ return {
     mock_dependency_graph(42, { duplicate(21, open_issue(22)) })
     mock_canonical_issue(22, "ready")
     local waiting = core.dependency_gate(repo, 42)
-    t.eq(waiting.ok, false)
+    t.eq(core.dependency_gate_is_satisfied(waiting), false)
     t.eq(waiting.unmet[1], 22)
 
     mock_dependency_graph(42, { duplicate(21, completed_issue(22)) })
     mock_canonical_issue(22, "merged")
     local satisfied = core.dependency_gate(repo, 42)
 
-    t.eq(satisfied.ok, true)
+    t.eq(core.dependency_gate_is_satisfied(satisfied), true)
     t.eq(satisfied.kind, "satisfied")
   end,
 
@@ -139,10 +139,11 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "duplicate-target-missing")
-    t.eq(gate.unmet[1], 31)
+    t.eq(#gate.unmet, 0)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
   end,
 
   test_duplicate_alias_with_unreadable_canonical_target_fails_closed = function()
@@ -151,10 +152,11 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "duplicate-target-unreadable")
-    t.eq(gate.unmet[1], 32)
+    t.eq(#gate.unmet, 0)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
   end,
 
   test_duplicate_alias_with_cross_repo_target_fails_closed = function()
@@ -162,10 +164,11 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "cross-repo-duplicate-target")
-    t.eq(gate.unmet[1], 52)
+    t.eq(#gate.unmet, 0)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
   end,
 
   test_duplicate_alias_cycle_uses_dependency_cycle_guard = function()
@@ -176,10 +179,16 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "cycle")
+    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "verified_cannot_proceed")
     t.eq(gate.reason, "dependency-cycle")
     t.eq(gate.unmet[1], 61)
+    t.eq(gate.proof.kind, "dependency-cycle")
+    t.eq(gate.proof.repo, repo)
+    t.eq(gate.proof.issue_number, 61)
+    t.eq(gate.proof.target_repo, repo)
+    t.eq(gate.proof.target_issue_number, 42)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), true)
   end,
 
   test_duplicate_alias_chain_uses_existing_dependency_depth_cap = function()
@@ -192,9 +201,10 @@ return {
 
     local gate = core.dependency_gate(repo, 42)
 
-    t.eq(gate.ok, false)
-    t.eq(gate.kind, "unresolvable")
+    t.eq(core.dependency_gate_is_satisfied(gate), false)
+    t.eq(gate.kind, "unavailable")
     t.eq(gate.reason, "depth-cap-exceeded")
-    t.eq(gate.unmet[1], 132)
+    t.eq(#gate.unmet, 0)
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(gate, repo, 42), false)
   end,
 }
