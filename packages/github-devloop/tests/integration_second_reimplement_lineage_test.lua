@@ -63,7 +63,16 @@ return {
   test_retry_lineage_accepts_only_the_current_or_immediate_next_attempt = function()
     local event = reached()
     local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    local first_replacement_version = base_version .. "/reimplement/1"
     local replacement_version = base_version .. "/reimplement/2"
+
+    t.eq(core.implementation_branch_version(first_replacement_version, 1), first_replacement_version)
+    t.eq(core.implementation_attempt_version(first_replacement_version, 1), first_replacement_version)
+    t.eq(core.implementation_branch_version(first_replacement_version, 2), base_version)
+    t.eq(core.implementation_attempt_version(first_replacement_version, 2), replacement_version)
+    assert_invalid_lineage(function()
+      core.implementation_attempt_version(first_replacement_version, 3)
+    end)
 
     t.eq(core.implementation_branch_version(replacement_version, 2), base_version)
     t.eq(core.implementation_attempt_version(replacement_version, 2), replacement_version)
