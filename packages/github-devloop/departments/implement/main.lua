@@ -604,8 +604,28 @@ local function process_ready_event(event)
     end
 
     local branches = config.branch_config()
-    local implementation_version = core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt)
-    local branch_version = core.implementation_branch_version(ready.dedup_key, ready.impl_retry_attempt)
+    local lineage_ok, implementation_version, branch_version = pcall(function()
+      return core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt),
+        core.implementation_branch_version(ready.dedup_key, ready.impl_retry_attempt)
+    end)
+    if not lineage_ok then
+      local lineage_error = tostring(implementation_version)
+      if not lineage_error:find("github-devloop: invalid-version-lineage:", 1, true) then
+        error(implementation_version, 0)
+      end
+      devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "INVALID_VERSION_LINEAGE",
+        "invalid-version-lineage", "devloop_ready", lineage_error, {
+          source_ref = ready.source_ref,
+          attempt = ready.impl_retry_attempt,
+          terminal = true,
+        })
+      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "impl-failed",
+        "fail-closed(invalid-version-lineage)", "implementation retry lineage is malformed")
+      raise_impl_failed(repo, issue_number, ready, "invalid-version-lineage",
+        "Implementation retry lineage was rejected because its version suffix does not match the current or immediate-next structured attempt.",
+        ready.impl_retry_attempt)
+      return
+    end
     local marker_ready = ready_for_implementation_version(ready, implementation_version)
     local branch = devloop_base.implement_branch(repo, issue_number, branch_version)
 
