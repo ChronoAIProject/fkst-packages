@@ -1,5 +1,12 @@
 return {
   profiles = {
+    generic = [[## Implementation result
+Result identity: proposal `{{proposal_id}}`, implementation version `{{implementation_version}}`, attempt `{{attempt}}`.
+
+Your final stdout must be exactly one JSON object with schema `github-devloop.implementation-result.v1`; do not wrap it in Markdown or add prose. Always include exactly `schema`, `outcome`, `proposal_id`, `implementation_version`, and `attempt`.
+- Use `outcome="changes-produced"` after producing repository changes.
+- If and only if implementation cannot proceed because a required precursor is missing, use `outcome="cannot-implement-here"` and also include exactly the reason `precursor-missing` as `reason="precursor-missing"` plus a non-empty bounded `evidence` string identifying the missing precursor.
+- Do not use `cannot-implement-here` for any other reason and do not add unsupported fields.]],
     ["lean-proof"] = [[## Implementation profile: `lean-proof`
 Target: `{{target}}`
 This attempt has {{attempt_timeout_seconds}} seconds from the existing `FKST_CODEX_TIMEOUT_IMPLEMENT` authority.
