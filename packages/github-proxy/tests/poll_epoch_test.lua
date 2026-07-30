@@ -16,6 +16,7 @@ return {
     h.mock_poll_label_prefix_env("adapter-")
     author_policy.mock_env(t, h.opts("poll-authorization-epoch"))
     h.mock_poll()
+    cache_set(entity_list_cache.poll_epoch_cache_key("owner/x"), "")
 
     local recorded_repo = nil
     local recorded_epoch = nil
@@ -23,7 +24,7 @@ return {
     entity_list_cache.record_poll_epoch = function(repo, epoch)
       recorded_repo = repo
       recorded_epoch = epoch
-      return epoch
+      return original_record(repo, epoch)
     end
     local ok, result = pcall(testing.run_fake, github_poll, event)
     entity_list_cache.record_poll_epoch = original_record
@@ -34,5 +35,26 @@ return {
     t.eq(recorded_repo, "owner/x")
     t.eq(recorded_epoch, event.ts)
     t.eq(result.raises[1].payload.poll_token, recorded_epoch)
+  end,
+
+  test_github_poll_suppresses_emissions_from_an_older_replayed_tick = function()
+    local older = "2026-07-30T01:02:03Z"
+    local newer = "2026-07-30T01:02:04Z"
+    cache_set(entity_list_cache.poll_epoch_cache_key("owner/x"), "")
+    entity_list_cache.record_poll_epoch("owner/x", older)
+    entity_list_cache.record_poll_epoch("owner/x", newer)
+    h.mock_repo_env()
+    h.mock_poll_label_prefix_env("adapter-")
+    author_policy.mock_env(t, h.opts("poll-authorization-epoch-replay"))
+    h.mock_poll()
+
+    local result = testing.run_fake(github_poll, {
+      queue = "github_poll_tick",
+      ts = older,
+      payload = {},
+    })
+
+    t.eq(#result.raises, 0)
+    t.is_true(entity_list_cache.poll_epoch_is_current("owner/x", newer))
   end,
 }

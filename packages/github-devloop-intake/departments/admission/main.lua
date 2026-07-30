@@ -85,7 +85,14 @@ local function claim_with_capacity(context, authorize, repo, issue_number, curre
   return false
 end
 
-local function handle_pending_reintake(context, repo, issue, current, proposal_id, source_ref)
+local function settled_claim_admission(context, repo, current, poll_key)
+  return context.claims.claim_admission_precheck(
+    current,
+    context.claims.claim_admission_inputs(current, repo, poll_key)
+  )
+end
+
+local function handle_pending_reintake(context, repo, issue, current, proposal_id, source_ref, poll_key)
   local command = core.pending_reintake_command(current.comments)
   if command == nil then
     return false
@@ -110,21 +117,37 @@ local function handle_pending_reintake(context, repo, issue, current, proposal_i
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states", source_ref)
     return true
   end
-  if not claim_with_capacity(
-    context,
-    context.capacity.authorize_reintake,
-    repo,
-    issue.number,
-    current,
-    proposal_id
-  ) then
-    return true
+  local claim_admission, claim_detail = settled_claim_admission(context, repo, current, poll_key)
+  local epoch_current = entity_list_cache.with_current_poll_epoch(repo, poll_key, function()
+    if not claim_with_capacity(
+      context,
+      context.capacity.authorize_reintake,
+      repo,
+      issue.number,
+      current,
+      proposal_id,
+      claim_admission,
+      claim_detail
+    ) then
+      return
+    end
+    local payload = core.build_intake_admission_candidate(repo, issue, command, now(), current.comments)
+    devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
+      "devloop_intake_candidate",
+    })
+    devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
+  end)
+  if not epoch_current then
+    devloop_logging.log_cas_decision(
+      "admission",
+      proposal_id,
+      { state = nil, version = nil },
+      "peer-activity-epoch",
+      "reintake-candidate",
+      "skip-stale",
+      "peer activity authorization epoch is stale before reintake effects"
+    )
   end
-  local payload = core.build_intake_admission_candidate(repo, issue, command, now(), current.comments)
-  devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
-    "devloop_intake_candidate",
-  })
-  devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
   return true
 end
 
@@ -170,10 +193,7 @@ local function issue_from_current(issue_number, current)
 end
 
 local function initial_claim_is_in_milestone_scope(context, repo, current, poll_key)
-  local admission, detail = context.claims.claim_admission_precheck(
-    current,
-    context.claims.claim_admission_inputs(current, repo, poll_key)
-  )
+  local admission, detail = settled_claim_admission(context, repo, current, poll_key)
   if admission ~= "needs-claim" then
     return true, admission, detail
   end
@@ -196,8 +216,9 @@ local function admit_issue_event(context, event, entity)
 
   devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
   local issue = issue_from_current(issue_number, current)
+  local poll_key = entity_list_cache.entity_list_poll_epoch(event)
 
-  if handle_pending_reintake(context, repo, issue, current, proposal_id, entity.source_ref) then
+  if handle_pending_reintake(context, repo, issue, current, proposal_id, entity.source_ref, poll_key) then
     return
   end
   if current.state ~= "OPEN" then
@@ -217,7 +238,6 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-intake-decision", "trusted intake decision marker is already visible")
     return
   end
-  local poll_key = entity_list_cache.entity_list_poll_epoch(event)
   local in_milestone_scope, claim_admission, claim_detail = initial_claim_is_in_milestone_scope(
     context,
     repo,

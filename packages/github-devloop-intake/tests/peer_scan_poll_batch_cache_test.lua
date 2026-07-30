@@ -8,6 +8,7 @@ local admission_department = require("departments.admission.main")
 local author_policy = require("testkit_internal.github_author_policy")
 local github_author_policy = require("devloop.github_author_policy")
 local github_factory = require("devloop.github_factory")
+local marker_builders = require("devloop.markers.builders")
 local t = h.t
 local core = h.core
 
@@ -61,7 +62,8 @@ local function mock_event_env()
   t.mock_command('printf %s "$FKST_DEVLOOP_FORK_GRACE_HOURS"', { stdout = "", stderr = "", exit_code = 0 })
 end
 
-local function mock_admission_view(number, created_at)
+local function mock_admission_view(number, created_at, fields)
+  local selected = fields or {}
   entity_read_mocks.mock_issue_view_selector(t, {
     number = number,
     title = "External issue " .. tostring(number),
@@ -70,9 +72,9 @@ local function mock_admission_view(number, created_at)
     updated_at = "2026-07-30T01:02:03Z",
     state = "OPEN",
     labels = {},
-    comments = {},
+    comments = selected.comments or {},
     assignees = {},
-    author_login = "trusted-human",
+    author_login = selected.author_login or "trusted-human",
   }, intake_fields)
 end
 
@@ -101,12 +103,19 @@ local function count_peer_calls(command)
   return count
 end
 
-local function set_current_poll_epoch(poll_token)
+local function set_current_poll_epoch(poll_token, expect_stale)
   if poll_token ~= nil then
-    entity_list_cache.record_poll_epoch(repo, poll_token)
-    t.is_true(entity_list_cache.poll_epoch_is_current(repo, poll_token))
+    local recorded = entity_list_cache.record_poll_epoch(repo, poll_token)
+    if expect_stale then
+      t.eq(recorded, false)
+    else
+      t.is_true(recorded)
+      t.is_true(entity_list_cache.poll_epoch_is_current(repo, poll_token))
+    end
   end
 end
+
+local active_run_opts = nil
 
 local test_capacity = {
   authorize = function()
@@ -123,15 +132,37 @@ local test_capacity = {
   end,
 }
 
-local function run_admission(_run_opts, number, poll_token, created_at, opts)
+local function run_admission(run_opts, number, poll_token, created_at, opts)
   local options = opts or {}
+  if active_run_opts ~= run_opts then
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+    active_run_opts = run_opts
+  end
   if options.preserve_current_epoch ~= true then
-    set_current_poll_epoch(poll_token)
+    set_current_poll_epoch(poll_token, options.expect_stale_epoch == true)
   end
   mock_event_env()
-  mock_admission_view(number, created_at)
+  mock_admission_view(number, created_at, options.current)
   local department = admission_department.make_department({ capacity = test_capacity })
   return testing.run_fake_outcome(department, entity_changed(number, poll_token))
+end
+
+local function reintake_comments(number)
+  local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
+  return {
+    marker_builders.intake_decision_marker(
+      proposal_id,
+      "enable",
+      "intake/" .. proposal_id .. "/v1",
+      "standard"
+    ),
+    {
+      id = "IC_reintake_" .. tostring(number),
+      body = "fkst: reintake",
+      author_login = "fkst-test-bot",
+      created_at = "2026-07-30T01:03:00Z",
+    },
+  }
 end
 
 local function assert_no_admission_effect(result)
@@ -243,28 +274,84 @@ return {
     t.eq(pr_calls, 1, "thrown PR source settles once")
   end,
 
-  test_delayed_stale_poll_epoch_has_no_admission_effect_or_scan = function()
+  test_thrown_issue_discovery_settles_once_without_running_pr_source = function()
+    local run_opts = h.opts("peer-thrown-issue-scan-failure-settled")
+    local issue_calls = 0
+    local pr_calls = 0
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "trusted-human" })
+    local handle = {
+      _trusted_author_policy = function()
+        return policy
+      end,
+      issue_list_cli = function()
+        issue_calls = issue_calls + 1
+        error("simulated issue discovery throw")
+      end,
+      pr_list_cli = function()
+        pr_calls = pr_calls + 1
+        return { stdout = "[]", stderr = "", exit_code = 0 }
+      end,
+    }
+    local original_production_handle = github_factory.production_handle
+    github_factory.production_handle = function()
+      return handle
+    end
+    local ok, err = pcall(function()
+      for number = 69, 70 do
+        assert_no_admission_effect(run_admission(run_opts, number, "poll-batch-thrown-issue-failure"))
+      end
+    end)
+    github_factory.production_handle = original_production_handle
+    if not ok then
+      error(err, 0)
+    end
+
+    t.eq(issue_calls, 1, "thrown issue source settles once")
+    t.eq(pr_calls, 0, "PR discovery does not run after unavailable issue discovery")
+  end,
+
+  test_same_poll_reintake_admissions_share_each_peer_source_snapshot = function()
+    local run_opts = h.opts("peer-scan-reintake-poll-batch")
+    local poll_token = "2026-07-30T01:04:00Z"
+    mock_peer_result(issue_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 }, 2)
+    mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 }, 2)
+
+    for number = 67, 68 do
+      local result = run_admission(run_opts, number, poll_token, nil, {
+        current = { comments = reintake_comments(number) },
+      })
+      t.eq(result.exit_code, 0)
+    end
+
+    t.eq(count_peer_calls(issue_peer_command), 1, "reintake issue scan cost does not grow with batch size")
+    t.eq(count_peer_calls(pr_peer_command), 1, "reintake PR scan cost does not grow with batch size")
+  end,
+
+  test_replayed_older_poll_epoch_stays_stale_without_admission_effect_or_scan = function()
     local run_opts = h.opts("peer-scan-stale-poll-epoch")
     local created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1)
     local peer_marker_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]'
+    local poll_a = "2026-07-30T01:02:03Z"
+    local poll_b = "2026-07-30T01:02:04Z"
 
     mock_peer_result(issue_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
     mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
     mock_fork_state_view(71, created_at)
-    run_admission(run_opts, 71, "poll-stale-a", created_at)
+    run_admission(run_opts, 71, poll_a, created_at)
 
     mock_peer_result(issue_peer_command, { stdout = peer_marker_rows, stderr = "", exit_code = 0 })
     mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
-    assert_no_admission_effect(run_admission(run_opts, 72, "poll-stale-b", created_at))
+    assert_no_admission_effect(run_admission(run_opts, 72, poll_b, created_at))
 
     local issue_scans = count_peer_calls(issue_peer_command)
     local pr_scans = count_peer_calls(pr_peer_command)
     mock_fork_state_view(71, created_at)
-    local delayed = run_admission(run_opts, 71, "poll-stale-a", created_at, {
-      preserve_current_epoch = true,
+    local delayed = run_admission(run_opts, 71, poll_a, created_at, {
+      expect_stale_epoch = true,
     })
 
     assert_no_admission_effect(delayed)
+    t.is_true(entity_list_cache.poll_epoch_is_current(repo, poll_b), "newer poll epoch remains current")
     t.eq(count_peer_calls(issue_peer_command), issue_scans, "stale epoch performs no issue scan")
     t.eq(count_peer_calls(pr_peer_command), pr_scans, "stale epoch performs no PR scan")
   end,

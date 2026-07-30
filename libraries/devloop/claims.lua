@@ -95,12 +95,16 @@ local function valid_actor(value)
   return is_json_object(value) and type(value.login) == "string" and value.login ~= ""
 end
 
+local function valid_optional_actor(value)
+  return value == nil or type(value) == "userdata" or valid_actor(value)
+end
+
 local function valid_comments(value)
   if not is_dense_json_array(value) then
     return false
   end
   for _, comment in ipairs(value) do
-    if not is_json_object(comment) or type(comment.body) ~= "string" or not valid_actor(comment.author) then
+    if not is_json_object(comment) or type(comment.body) ~= "string" or not valid_optional_actor(comment.author) then
       return false
     end
   end
@@ -109,7 +113,7 @@ end
 
 local function valid_peer_activity_row(row, kind)
   if not is_json_object(row) or not is_positive_integer(row.number)
-    or not valid_comments(row.comments) or not valid_actor(row.author) then
+    or not valid_comments(row.comments) or not valid_optional_actor(row.author) then
     return false
   end
   if kind == "pr" then

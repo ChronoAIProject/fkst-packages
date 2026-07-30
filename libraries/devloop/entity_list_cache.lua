@@ -153,6 +153,15 @@ local function poll_epoch_cache_key(repo)
   }, "/")
 end
 
+local function poll_epoch_at_least(candidate, current)
+  local candidate_number = tonumber(candidate)
+  local current_number = tonumber(current)
+  if candidate_number ~= nil and current_number ~= nil then
+    return candidate_number >= current_number
+  end
+  return tostring(candidate) >= tostring(current)
+end
+
 function C.entity_list_cache_key(repo, kind, scope, poll_key)
   return list_cache_key(repo, kind, scope, poll_key)
 end
@@ -174,10 +183,19 @@ function C.record_poll_epoch(repo, poll_key)
     error("github-devloop: poll epoch must be non-empty")
   end
   local key = poll_epoch_cache_key(repo)
+  local recorded = false
+  local current = nil
   with_lock(key, function()
-    cache_set(key, epoch)
+    current = tostring(cache_get(key) or "")
+    if current == "" or poll_epoch_at_least(epoch, current) then
+      if current ~= epoch then
+        cache_set(key, epoch)
+      end
+      current = epoch
+      recorded = true
+    end
   end)
-  return epoch
+  return recorded, current
 end
 
 function C.poll_epoch_is_current(repo, poll_key)

@@ -102,6 +102,12 @@ local function mock_peer_branch_config(times)
   end
 end
 
+local function record_test_poll_epoch(poll_key)
+  cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+  local recorded = entity_list_cache.record_poll_epoch(repo, poll_key)
+  t.is_true(recorded)
+end
+
 local function json_comments(comments)
   local rendered = {}
   for _, comment in ipairs(comments or {}) do
@@ -335,7 +341,7 @@ return {
         return { stdout = "", stderr = "rate limited", exit_code = 1 }
       end,
     }
-    entity_list_cache.record_poll_epoch(repo, "poll-nonzero")
+    record_test_poll_epoch("poll-nonzero")
 
     for _ = 1, 2 do
       local admission = direct_discovery_admission(handle, policy, "poll-nonzero")
@@ -358,7 +364,7 @@ return {
         return { stdout = "[]", stderr = "", exit_code = 0 }
       end,
     }
-    entity_list_cache.record_poll_epoch(repo, "poll-object")
+    record_test_poll_epoch("poll-object")
 
     local admission = direct_discovery_admission(handle, policy, "poll-object")
 
@@ -382,11 +388,61 @@ return {
         return { stdout = "[]", stderr = "", exit_code = 0 }
       end,
     }
-    entity_list_cache.record_poll_epoch(repo, "poll-sparse")
+    record_test_poll_epoch("poll-sparse")
 
     local admission = direct_discovery_admission(handle, policy, "poll-sparse")
 
     t.eq(admission, "denied")
+  end,
+
+  test_null_actor_rows_and_comments_are_skipped_without_invalidating_peer_scan = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("ghost-peer")
+    mock_peer_branch_config()
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "ghost-peer", "peer-bot" })
+    local marker = '<!-- fkst:github-devloop:state:v1 proposal="x" state="thinking" version="v" -->'
+    local handle = {
+      issue_list_cli = function()
+        return {
+          stdout = '[{"number":7,"comments":[],"author":null},'
+            .. '{"number":8,"comments":[{"body":' .. strings.json_string(marker) .. ',"author":null}],"author":{"login":"issue-author"}},'
+            .. '{"number":9,"comments":[{"body":' .. strings.json_string(marker) .. ',"author":{"login":"peer-bot"}}],"author":{"login":"issue-author"}}]',
+          stderr = "",
+          exit_code = 0,
+        }
+      end,
+      pr_list_cli = function()
+        return {
+          stdout = '[{"number":10,"headRefName":"integration-fkst-test-bot","baseRefName":"dev","comments":[],"author":null}]',
+          stderr = "",
+          exit_code = 0,
+        }
+      end,
+    }
+    local poll_key = "2026-07-30T01:05:00Z"
+    record_test_poll_epoch(poll_key)
+
+    local observed, unavailable_reason = m_claims.repo_scoped_observed_managed_bot_logins(
+      repo,
+      policy,
+      "fkst-test-bot",
+      handle,
+      poll_key
+    )
+    local admission, detail = m_claims.claim_admission_precheck(current_issue("ghost-peer", {}), {
+      owner = "fkst-test-bot",
+      status = "unassigned",
+      claim_mode = "assignee",
+      managed = observed or {},
+      trusted_author_policy = policy,
+      peer_discovery_error = observed == nil and unavailable_reason or nil,
+    })
+
+    t.is_nil(unavailable_reason)
+    t.is_true(observed["peer-bot"])
+    t.eq(observed["ghost-peer"], nil)
+    t.eq(admission, "needs-claim")
+    t.eq(detail.author, "ghost-peer")
   end,
 
   test_missing_branch_config_preserves_issue_derived_peer_admission = function()

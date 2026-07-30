@@ -5,6 +5,7 @@ local graph = require("testkit.graph")
 local t = fkst.test
 local core = require("core")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local entity_list_cache = require("devloop.entity_list_cache")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -57,6 +58,7 @@ end
 
 return {
   test_run_graph_github_poll_reaches_intake_admission_candidate_without_intake_poll = function()
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
     mock_env()
     mock_proxy_poll_lists()
     mock_admission_issue_view()
