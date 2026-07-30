@@ -1,4 +1,5 @@
 local strings = require("contract.strings")
+local authorization_cache = require("forge.github.authorization_cache")
 
 local M = {}
 
@@ -569,13 +570,19 @@ local function org_member_logins(read_env, github_handle, opts)
   if org == nil then
     return false, {}
   end
-  local rows = fetch_paginated_json(github_handle, "orgs/" .. org .. "/members?per_page=100")
-  if rows == nil then
+  local outcome = authorization_cache.get(org, function()
+    local rows = fetch_paginated_json(github_handle, "orgs/" .. org .. "/members?per_page=100")
+    if rows == nil then
+      return nil
+    end
+    local logins = {}
+    collect_member_logins(rows, logins)
+    return logins
+  end)
+  if outcome.tag ~= "available" then
     return false, {}
   end
-  local logins = {}
-  collect_member_logins(rows, logins)
-  return true, logins
+  return true, outcome.logins
 end
 
 local function append_logins(target, source)

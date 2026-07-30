@@ -1,9 +1,11 @@
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
+local authorization_cache = require("forge.github.authorization_cache")
 
 return {
   test_loop_post_intake_gate_accepts_org_member_policy = function()
+    cache_set(authorization_cache.cache_key("owner"), "")
     local event = h.unresolved({
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/intake/1",
       round = 0,

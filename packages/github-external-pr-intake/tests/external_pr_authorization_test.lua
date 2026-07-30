@@ -1,4 +1,5 @@
 local content_filter = require("forge.github.content_filter")
+local authorization_cache = require("forge.github.authorization_cache")
 local core = require("core")
 local strings = require("contract.strings")
 local t = fkst.test
@@ -336,6 +337,7 @@ return {
   end,
 
   test_org_member_is_admitted_through_production_policy_wiring = function()
+    cache_set(authorization_cache.cache_key("owner"), "")
     mock_command_times('printf %s "$FKST_GITHUB_REPO"', "owner/repo", 2)
     mock_command_times('printf %s "$FKST_GITHUB_WRITE"', "")
     mock_command_times('printf %s "$FKST_GITHUB_BOT_LOGIN"', "fkst-test-bot", 2)

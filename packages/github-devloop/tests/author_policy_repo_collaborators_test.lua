@@ -2,6 +2,7 @@ local h = require("tests.devloop_core_helpers")
 local t = h.t
 local github_factory = require("devloop.github_factory")
 local github_author_policy = require("devloop.github_author_policy")
+local authorization_cache = require("forge.github.authorization_cache")
 
 local collaborator_path = "repos/owner/repo/collaborators?permission=push&per_page=" .. "100"
 local org_members_path = "orgs/owner/members?per_page=" .. "100"
@@ -58,6 +59,7 @@ end
 
 local function make_handle(env, stdout, opts)
   h.mock_author_policy_configure("fkst-test-bot")
+  cache_set(authorization_cache.cache_key("owner"), "")
   local run, calls = github_exec(stdout or "[]", opts)
   return github_factory.new(run, env_exec(env)), calls
 end

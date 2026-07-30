@@ -7,6 +7,7 @@ local t = h.t
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local author_policy = require("testkit_internal.github_author_policy")
 local claim_with_poll_epoch = require("tests.claim_test_helpers").claim_with_poll_epoch
+local authorization_cache = require("forge.github.authorization_cache")
 
 local function mock_bot(login, write_mode, write_reads)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -59,6 +60,7 @@ local function mock_repo_collaborator_authorization(stdout)
 end
 
 local function mock_org_member_authorization(stdout)
+  cache_set(authorization_cache.cache_key("owner"), "")
   t.mock_command('printf %s "$FKST_GITHUB_AUTHORIZE_ORG_MEMBERS"', {
     stdout = "1",
     stderr = "",
