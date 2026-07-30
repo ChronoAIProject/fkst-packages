@@ -39,6 +39,11 @@ local function mock_existing_review_worktree(impl_version)
     impl_version
   )
   t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/devloop-owner-repo-42-01HY\n\n",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command(core.path_is_directory_cmd(worktree), {
     stdout = "",
     stderr = "",

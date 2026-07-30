@@ -242,6 +242,7 @@ return {
       h.reviewing().version
     )
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+    t.mock_command("git worktree list --porcelain", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command(core.path_is_directory_cmd(implementation_worktree), {
       stdout = "",
       stderr = "",

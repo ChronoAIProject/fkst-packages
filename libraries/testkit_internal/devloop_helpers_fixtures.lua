@@ -257,10 +257,10 @@ function M.new(deps)
       mock_context_bundle(payload, run_opts)
       mock_default_issue_claim(repo, issue_number)
       if add_missing_review_worktree then
-        helpers.t.mock_command("/worktrees/devloop-", {
+        helpers.t.mock_command("git worktree list --porcelain", {
           stdout = "",
           stderr = "",
-          exit_code = 1,
+          exit_code = 0,
         })
       end
       return base_run(...)

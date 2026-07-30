@@ -380,10 +380,10 @@ local function assert_review_loop_admission_case(fixture)
   if fixture.mock_context_bundle then
     h.mock_context_bundle(event)
     h.mock_issue_review({ "fkst-dev:reviewing" }, comments)
-    t.mock_command("/worktrees/devloop-", {
+    t.mock_command("git worktree list --porcelain", {
       stdout = "",
       stderr = "",
-      exit_code = 1,
+      exit_code = 0,
     })
   end
 

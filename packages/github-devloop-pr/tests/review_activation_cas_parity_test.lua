@@ -295,10 +295,10 @@ local function mock_case(fixture, event)
     state = "OPEN",
     base_branch = BASE_BRANCH,
   })
-  t.mock_command("/worktrees/devloop-", {
+  t.mock_command("git worktree list --porcelain", {
     stdout = "",
     stderr = "",
-    exit_code = 1,
+    exit_code = 0,
   })
   if fixture.valid_handoff then
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/" .. HANDOFF_COMMENT_ID .. "'", {

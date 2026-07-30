@@ -164,16 +164,21 @@ local function prepare_fixture(fixture, event)
       fixture.version
     )
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', { stdout = durable_root, stderr = "", exit_code = 0 })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. expected_worktree .. "\nHEAD abc123\nbranch refs/heads/" .. BRANCH .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command(core.path_is_directory_cmd(expected_worktree), {
       stdout = "",
       stderr = "",
       exit_code = 0,
     })
   else
-    t.mock_command("/worktrees/devloop-", {
+    t.mock_command("git worktree list --porcelain", {
       stdout = "",
       stderr = "",
-      exit_code = 1,
+      exit_code = 0,
     })
   end
   h.mock_context_bundle(event.payload)
