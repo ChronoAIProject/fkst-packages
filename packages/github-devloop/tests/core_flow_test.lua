@@ -310,7 +310,7 @@ return {
     local version = "ready/base/fix/1/review-loop/2/fix/3"
     t.eq(core.version_fix_round(version), 3)
     t.eq(core.version_fix_round("ready/base"), 0)
-    t.eq(core.next_fix_version(version), version .. "/fix/4")
+    t.eq(h.next_fix_version(version), version .. "/fix/4")
   end,
 
   test_review_converge_round_comment_display_keeps_marker_parseable = function()

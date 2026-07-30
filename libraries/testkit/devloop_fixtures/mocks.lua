@@ -225,6 +225,9 @@ function M.new(ctx, funcs)
       labels = pending and pending.labels or {},
     }
     entity_read_mocks.mock_pr_view_selector(t, view_fields, entity_read_mocks.pr_origin_selector, ctx.pr_origin_view_times_enabled and times or nil)
+    if ctx.pr_fix_precheck_from_cached then
+      entity_read_mocks.mock_pr_view_selector(t, view_fields, entity_read_mocks.pr_fix_precheck_selector, ctx.pr_origin_view_times_enabled and times or nil)
+    end
     return repo, pr_number
   end
 

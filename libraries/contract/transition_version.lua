@@ -582,11 +582,6 @@ function V.loop_at(version, round)
   return tostring(version or "") .. "/loop/" .. tostring(round)
 end
 
-function V.next_fix(version)
-  local base = tostring(version or "")
-  return base .. "/fix/" .. tostring(V.fix_round(base) + 1)
-end
-
 function V.next_review_loop(version)
   local base = tostring(version or "")
   return base .. "/review-loop/" .. tostring(V.review_loop_round(base) + 1)

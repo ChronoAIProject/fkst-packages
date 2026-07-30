@@ -88,7 +88,7 @@ return {
     t.is_true(comment_body:find("gate_baseline_sha", 1, true) ~= nil)
     t.is_true(comment_body:find("own-ci-red", 1, true) ~= nil)
     t.is_true(comment_body:find("Reproduce locally with `scripts/run.sh test`", 1, true) ~= nil)
-    local fix_fact = m_facts.merge_gate_fix_fact({ comment_body }, event.proposal_id, core.fix_version_from_review_version(event.version))
+    local fix_fact = m_facts.merge_gate_fix_fact({ comment_body }, event.proposal_id, h.next_fix_version(event.version))
     t.is_true(fix_fact.review_reason:find("own-ci-red", 1, true) ~= nil)
     t.eq(fix_fact.gate_baseline_sha, "ba5e9999")
     t.eq(count_calls("git fetch 'origin' 'dev'"), 0)
@@ -99,7 +99,7 @@ return {
 
   test_merge_gate_marker_without_baseline_round_trips_nil = function()
     local event = merge_ready()
-    local fix_version = core.fix_version_from_review_version(event.version)
+    local fix_version = h.next_fix_version(event.version)
     local request = requests_review.build_merge_gate_fix_comment_request(core,
       "owner/repo",
       "42",
@@ -213,7 +213,7 @@ return {
 
     local result = run_fix(event, opts("fix-same-version-merge-gate-baseline", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, h.next_fix_version(event.version))
     t.eq(count_calls("merge --no-edit '" .. event.gate_baseline_sha .. "'"), 1)
     t.eq(count_calls("git fetch 'origin' 'refs/pull/7/merge'"), 0)
   end,
@@ -293,7 +293,7 @@ return {
 
     local result = run_fix(corrected, opts("fix-corrected-replay-after-nil-baseline", { FKST_GITHUB_WRITE = "1" }))
     t.eq(result.exit_code, 0)
-    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(corrected.version))
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, h.next_fix_version(corrected.version))
     t.eq(count_calls("merge --no-edit '" .. corrected.gate_baseline_sha .. "'"), 1)
     t.eq(count_calls("git fetch 'origin' 'refs/pull/7/merge'"), 0)
   end,

@@ -16,10 +16,16 @@ local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local workflow_codex = require("workflow.codex")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
+local terminal_guard = require("devloop.terminal_guard")
 
 local spec = {
   consumes = { "devloop_decompose" }, published_seam = { "devloop_decompose" },
-  produces = { "github-proxy.github_issue_create_request", "github-proxy.github_pr_comment_request" },
+  produces = {
+    "github-proxy.github_issue_create_request",
+    "github-proxy.github_pr_comment_request",
+    "devloop_terminal_refused",
+  },
+  fanout = { "devloop_terminal_refused" },
   stall_window = "2m",
   retry = { max_attempts = 2, base = "5s", cap = "10s" },
 }
@@ -69,11 +75,56 @@ local function decompose_plan(decompose, current_issue, content_fetch)
 end
 
 local function read_current_pr(repo, pr_number)
-  local pr_view = devloop_commands.gh_pr_view_origin(repo, pr_number, 30)
+  local pr_view = devloop_commands.gh_pr_view_fix_precheck(repo, pr_number, 30)
   if pr_view.exit_code ~= 0 then
     error("github-devloop: gh-pr-view-failed: gh pr decompose view failed: " .. tostring(pr_view.stderr))
   end
   return parsers_pr.parse_pr_view_origin(pr_view.stdout)
+end
+
+local function terminal_decision(repo, decompose, current_pr)
+  return terminal_guard.evaluate(
+    terminal_guard.for_decompose(decompose),
+    repo,
+    current_pr,
+    current_pr.comments,
+    nil,
+    "terminal"
+  )
+end
+
+local function raise_terminal_refused(repo, decompose, current_pr, state, reason)
+  local refusal = terminal_guard.refusal_payload(
+    terminal_guard.for_decompose(decompose),
+    repo,
+    decompose.pr_number,
+    current_pr,
+    state,
+    reason,
+    decompose.source_ref,
+    "decompose",
+    decompose.dedup_key
+  )
+  devloop_logging.log_cas_decision(
+    "decompose",
+    decompose.proposal_id,
+    state,
+    "blocked",
+    "decomposed",
+    "refused(" .. tostring(reason) .. ")",
+    "terminal decision no longer matches the current PR"
+  )
+  devloop_logging.log_raise("decompose", decompose.proposal_id, "devloop_terminal_refused", refusal)
+end
+
+local function terminal_write_allowed(repo, decompose)
+  local current_pr = read_current_pr(repo, decompose.pr_number)
+  local ok, reason, state = terminal_decision(repo, decompose, current_pr)
+  if not ok then
+    raise_terminal_refused(repo, decompose, current_pr, state, reason)
+    return false, current_pr
+  end
+  return true, current_pr
 end
 
 local function read_decompose_issue(repo, issue_number)
@@ -201,6 +252,10 @@ local function heal_missing_children(event, repo, issue_number, decompose, state
     return
   end
 
+  if not terminal_write_allowed(repo, decompose) then
+    return
+  end
+
   devloop_logging.log_apply("decompose", decompose.proposal_id, nil, nil, { add = {}, remove = {} }, {
     "github-proxy.github_issue_create_request",
   })
@@ -214,6 +269,9 @@ local function heal_missing_children(event, repo, issue_number, decompose, state
 end
 
 local function write_decomposed_marker(repo, decompose, count)
+  if not terminal_write_allowed(repo, decompose) then
+    return nil
+  end
   local path = marker_body_file(repo, decompose.pr_number)
   local body = core.with_github_debug_stamp(core.decomposed_comment_body(decompose, count), {
     emitter = "github-devloop.decompose",
@@ -229,6 +287,11 @@ local function write_decomposed_marker(repo, decompose, count)
   devloop_entity_view.invalidate_entity_after_write(repo, "pr", decompose.pr_number)
 
   local confirmed_pr = read_current_pr(repo, decompose.pr_number)
+  local confirmed, reason, state = terminal_decision(repo, decompose, confirmed_pr)
+  if not confirmed then
+    raise_terminal_refused(repo, decompose, confirmed_pr, state, reason)
+    return nil
+  end
   if not decompose_lib.has_decomposed_marker(confirmed_pr.comments, decompose.proposal_id, decompose.version, decompose.pr_number) then
     error("github-devloop: marker-pending: decomposed marker not yet visible after write; retrying")
   end
@@ -323,7 +386,9 @@ local function decomposed_done(event)
       context.decompose.proposal_id,
       current_pr.comments)
     local state = require("devloop.entity").current_entity_state(current_pr.comments, context.decompose.proposal_id)
-    if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version)
+    local terminal_ok = terminal_decision(context.repo, context.decompose, current_pr)
+    if not terminal_ok
+      or not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, context.decompose.proposal_id, context.decompose.version)
       or state.state ~= "blocked"
       or tostring(state.version or "") ~= tostring(context.decompose.version) then
       return
@@ -367,10 +432,12 @@ local function act_decompose(event)
     local current_pr = read_current_pr(repo, decompose.pr_number)
     devloop_logging.log_forged_markers("decompose", decompose.proposal_id, current_pr.comments)
 
-    local state = require("devloop.entity").current_entity_state(current_pr.comments, decompose.proposal_id)
-    if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, decompose.proposal_id, decompose.version)
-      or state.state ~= "blocked"
-      or tostring(state.version or "") ~= tostring(decompose.version) then
+    local terminal_ok, terminal_reason, state = terminal_decision(repo, decompose, current_pr)
+    if not terminal_ok then
+      raise_terminal_refused(repo, decompose, current_pr, state, terminal_reason)
+      return
+    end
+    if not conv_reconcile.has_fix_reconcile_marker(core, current_pr.comments, decompose.proposal_id, decompose.version) then
       devloop_logging.log_cas_decision("decompose", decompose.proposal_id, state, "blocked", "decomposed", "retry-pending(blocked-fix-reconcile-not-visible)", "blocked/fix-reconcile marker is not yet visible")
       error("github-devloop: marker-pending: blocked fix reconcile marker not yet visible for decompose; retrying")
     end
@@ -392,12 +459,14 @@ local function act_decompose(event)
       devloop_logging.log_apply("decompose", decompose.proposal_id, nil, nil, { add = {}, remove = {} }, {
         "github-proxy.github_pr_comment_request",
       })
-      devloop_logging.log_raise("decompose", decompose.proposal_id, "github-proxy.github_pr_comment_request", conv_attempts.build_decompose_exhausted_comment_request({ kind = "pr", repo = repo, number = decompose.pr_number },
+      local exhausted_request = conv_attempts.build_decompose_exhausted_comment_request({ kind = "pr", repo = repo, number = decompose.pr_number },
         decompose.proposal_id,
         state,
         decompose.source_ref,
         1
-      ))
+      )
+      exhausted_request.terminal_guard = terminal_guard.for_decompose(decompose)
+      devloop_logging.log_raise("decompose", decompose.proposal_id, "github-proxy.github_pr_comment_request", exhausted_request)
       return
     end
     local count = math.min(#issues, decompose_lib.max_decompose_issues())
@@ -410,7 +479,9 @@ local function act_decompose(event)
       devloop_logging.log_cas_decision("decompose", decompose.proposal_id, state, "blocked", "decomposed", "dry-run(marker-write-required)", "FKST_GITHUB_WRITE=1 is required before issue create requests")
       return
     end
-    write_decomposed_marker(repo, decompose, count)
+    if write_decomposed_marker(repo, decompose, count) == nil then
+      return
+    end
     local child_issues = read_decompose_child_issues(repo, decompose.proposal_id)
 
     devloop_logging.log_apply("decompose", decompose.proposal_id, nil, nil, { add = {}, remove = {} }, {

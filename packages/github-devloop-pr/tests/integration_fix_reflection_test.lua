@@ -20,14 +20,14 @@ local find_raise = h.find_raise
 local find_causal_raise = h.find_causal_raise
 
 local function reflection_review_version()
-  return core.next_fix_version(core.next_fix_version(reviewing().version))
+  return h.next_fix_version(h.next_fix_version(reviewing().version))
 end
 
 local function reflection_meta_event()
   return review_meta_event({
     mode = "fix-reflection",
     fix_round = 3,
-    version = core.fix_version_from_review_version(core.next_fix_version(reviewing().version)),
+    version = h.next_fix_version(h.next_fix_version(reviewing().version)),
     blocking_gap = "missing regression guard",
   })
 end
@@ -58,7 +58,7 @@ return {
       body = "Review consensus rejects the diff.",
       blocking_gap = "missing regression guard",
     })
-    local reflection_version = core.fix_version_from_review_version(review_version)
+    local reflection_version = h.next_fix_version(review_version)
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", review_version, "dev"),
     })
@@ -106,7 +106,7 @@ return {
   end,
 
   test_fix_reflection_replay_fact_restores_blocking_gap = function()
-    local issue_version = core.fix_version_from_review_version(reflection_review_version())
+    local issue_version = h.next_fix_version(reflection_review_version())
     local review_version = core._strip_latest_fix_version_suffix(issue_version)
     local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, review_version, "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
@@ -147,7 +147,7 @@ return {
   test_pr_review_replay_facts_installed_ops_preserve_golden_facts = function()
     local issue_proposal_id = "github-devloop/issue/owner/repo/42"
     local review_version = reflection_review_version()
-    local issue_version = core.fix_version_from_review_version(review_version)
+    local issue_version = h.next_fix_version(review_version)
     local review_proposal = devloop_base.pr_review_proposal_id("owner/repo", 7, review_version, "def456")
     local review_dedup = "consensus:" .. review_proposal .. "/review"
     local ops = require("devloop.restart.pr_review_replay_facts").install(core)

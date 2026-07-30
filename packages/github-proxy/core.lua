@@ -65,14 +65,15 @@ function M.write_with_outbound_log(payload, target, log_outbound)
   end
 
   local written = nil
+  local disposition = nil
   local ok, err = pcall(function()
-    written = M.write_comment_request(payload, target)
+    written, disposition = M.write_comment_request(payload, target)
   end)
   M.read_env = read_env
   if not ok then
     error(err)
   end
-  return written, repo
+  return written, repo, disposition
 end
 
 function M.github_proxy_replay_budget(exec)

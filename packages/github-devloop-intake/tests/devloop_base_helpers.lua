@@ -6,4 +6,5 @@ return require("testkit.devloop_fixtures").new({
   conv_reconcile = require("devloop.convergence.reconcile"),
   m_builders = require("devloop.markers.builders"),
   pr_safety = require("devloop.pr_safety"),
+  fix_round_authority = require("devloop.fix_round_authority"),
 })

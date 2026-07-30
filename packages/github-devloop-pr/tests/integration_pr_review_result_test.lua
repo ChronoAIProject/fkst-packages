@@ -96,7 +96,7 @@ return {
   test_review_result_reject_marks_issue_fixing = function()
     local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version
-    local fix_version = core.fix_version_from_review_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
@@ -127,7 +127,7 @@ return {
     local canonical_review_dedup = event.dedup_key
     event.dedup_key = canonical_review_dedup .. "/loop/2"
     local impl_version = reviewing().version
-    local fix_version = core.fix_version_from_review_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
@@ -227,7 +227,7 @@ return {
   test_review_result_reject_new_fix_round_converges_over_same_review_version_merge_ready = function()
     local event = review_reached({ decision = "reject", body = "Review consensus rejects the diff.", blocking_gap = "missing regression guard" })
     local impl_version = reviewing().version
-    local fix_version = core.fix_version_from_review_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
@@ -253,7 +253,7 @@ return {
 
   test_review_result_fix_round_approve_uses_safe_review_version_consistently = function()
     local old_version = reviewing().version
-    local fix_round_version = core.next_fix_version(old_version)
+    local fix_round_version = h.next_fix_version(old_version)
     local event = review_reached({
       proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, fix_round_version, "feedface"),
       dedup_key = "consensus:" .. devloop_base.pr_review_proposal_id("owner/repo", 7, fix_round_version, "feedface") .. "/review",
@@ -310,7 +310,7 @@ return {
   test_review_result_same_version_approve_after_reject_stale_skips = function()
     local event = review_reached()
     local impl_version = reviewing().version
-    local fix_version = core.fix_version_from_review_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
@@ -340,7 +340,7 @@ return {
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
     mock_issue_result({ "fkst-dev:reviewing" }, {
-      core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", core.next_fix_version(impl_version)),
+      core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", h.next_fix_version(impl_version)),
     })
     local stale = run_review_result(event, opts("review-result-version-mismatch"))
     t.eq(stale.exit_code, 0)

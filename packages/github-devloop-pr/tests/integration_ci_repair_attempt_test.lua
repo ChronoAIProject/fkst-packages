@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local payloads_builders = require("devloop.payloads.builders")
 local ci_repair_attempts = require("departments.fix.ci_repair_attempts")
+local config = require("devloop.config")
 local h = require("tests.devloop_helpers")
 local t = h.t
 local core = h.core
@@ -88,7 +89,87 @@ local function mock_merge_queue_pr(pr_number, issue_number, version, head_sha)
   })
 end
 
+local function max_fix_round_version()
+  local version = h.reviewing().version
+  for _ = 1, config.max_fix_rounds() do
+    version = h.next_fix_version(version)
+  end
+  return version
+end
+
 return {
+  test_speculative_refix_at_cap_escalates_without_minting_fix = function()
+    local ci_failure_key = "head:def456/checks:digest-0000000101"
+    local event = fixing({
+      version = max_fix_round_version(),
+      repair_input = "ci-failure",
+      ci_failure_key = ci_failure_key,
+      predecessor_set = "none",
+      gate_failure_excerpt = "own-ci-red",
+    })
+    event.work_unit_key = payloads_builders.fixing_work_unit_key(event)
+    local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+    local merge_ready_version = core._strip_latest_fix_version_suffix(event.version)
+    local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", branch, event.version, "dev")
+    local merge_gate_marker = m_builders.merge_gate_marker(event.proposal_id,
+      event.pr_number,
+      event.version,
+      event.review_proposal_id,
+      event.review_dedup_key,
+      event.reviewed_head_sha,
+      nil,
+      "own-ci-red",
+      "none",
+      ci_failure_key
+    )
+    local current_pr_comments = {
+      origin_marker,
+      core.state_marker(event.proposal_id, "merge-ready", merge_ready_version),
+      m_builders.merge_ready_marker(event.proposal_id,
+        event.pr_number,
+        merge_ready_version,
+        event.review_proposal_id,
+        event.review_dedup_key,
+        event.reviewed_head_sha
+      ),
+      m_builders.review_result_marker(event.review_proposal_id, event.proposal_id, "approve", event.review_dedup_key),
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      merge_gate_marker,
+    }
+    mock_bot_env()
+    mock_real_write_env_reads()
+    mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, {
+      core.state_marker(event.proposal_id, "fixing", event.version),
+      merge_gate_marker,
+    }, branch, event.version)
+    mock_pr_fix(current_pr_comments, branch, "def456")
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+      stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_existing_fix_worktree(branch, "def456")
+    mock_merge_queue_list({ 6 })
+    mock_merge_queue_pr(6,
+      41,
+      "ready/consensus-github-devloop/issue/owner/repo/41/2026-06-03T00-00-00Z",
+      "abc999"
+    )
+    local result
+    with_codex_runs({}, function()
+      result = run_fix(event, opts("fix-ci-refix-at-cap", { FKST_GITHUB_WRITE = "1" }))
+    end)
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("codex"), 0)
+    t.eq(find_raise(result.raises, "devloop_fixing"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_pr_comment_request"), nil)
+    local reconcile = find_raise(result.raises, "devloop_fix_reconcile")
+    t.is_true(reconcile ~= nil)
+    t.eq(reconcile.payload.issue_version, event.version)
+    t.eq(reconcile.payload.round, config.max_fix_rounds())
+  end,
+
   test_completed_ci_repair_attempt_blocks_duplicate_delivery_without_spawning = function()
     local ci_failure_key = "head:def456/checks:digest-0000000101"
     local event = fixing({

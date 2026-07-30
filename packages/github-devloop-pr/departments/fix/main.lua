@@ -649,23 +649,30 @@ local function act_fix(event)
     end
     local current_pr = parsers_pr.parse_pr_view_fix(pr_view.stdout)
     devloop_logging.log_forged_markers("fix", fix.proposal_id, current_pr.comments)
-    local reviewing_version = devloop_state.next_fix_version(fix.version)
-    if devloop_state.has_state_marker(current_pr.comments, fix.proposal_id, "reviewing", reviewing_version) then
+    local round_transition = fix_round_transition.next_or_decompose(fix.version)
+    local reviewing_version = round_transition.kind == "advance" and round_transition.version or nil
+    if reviewing_version ~= nil
+      and devloop_state.has_state_marker(current_pr.comments, fix.proposal_id, "reviewing", reviewing_version) then
       devloop_logging.log_cas_decision("fix", fix.proposal_id, { state = "reviewing", version = reviewing_version }, "fixing", "reviewing", "skip-idempotent(already at to_state)", "reviewing state marker for fix already visible")
       return
     end
     local state = require("devloop.entity").current_entity_state(current_pr.comments, fix.proposal_id)
-    local transition = devloop_state.cyclic_transition_status(state, { "fixing" }, "reviewing", fix.version, reviewing_version)
-    if transition == "pending" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "fixing state marker not yet visible")
-      error("github-devloop: fixing-marker-missing: fixing state marker not yet visible for fix; retrying")
-    end
-    if transition == "idempotent" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "reviewing state marker for fix already visible")
-      return
-    end
-    if state.state ~= "fixing" or transition == "stale" then
-      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "issue is not currently fixing")
+    if reviewing_version ~= nil then
+      local transition = devloop_state.cyclic_transition_status(state, { "fixing" }, "reviewing", fix.version, reviewing_version)
+      if transition == "pending" then
+        devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "fixing state marker not yet visible")
+        error("github-devloop: fixing-marker-missing: fixing state marker not yet visible for fix; retrying")
+      end
+      if transition == "idempotent" then
+        devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "reviewing state marker for fix already visible")
+        return
+      end
+      if state.state ~= "fixing" or transition == "stale" then
+        devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "reviewing", devloop_state.cas_outcome(state, transition, fix.version), "issue is not currently fixing")
+        return
+      end
+    elseif state.state ~= "fixing" then
+      devloop_logging.log_cas_decision("fix", fix.proposal_id, state, "fixing", "blocked", "skip-stale(fix-loop-max-rounds)", "issue is not currently fixing at the capped version")
       return
     end
     if tostring(state.version or "") ~= tostring(fix.version) then

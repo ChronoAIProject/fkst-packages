@@ -6,6 +6,7 @@ return require("testkit.devloop_fixtures").new({
   conv_reconcile = require("devloop.convergence.reconcile"),
   m_builders = require("devloop.markers.builders"),
   pr_safety = require("devloop.pr_safety"),
+  fix_round_authority = require("devloop.fix_round_authority"),
   decompose_queue = "github-devloop-decompose.devloop_decompose",
   mock_merge_pr_diff_name_only = true,
 })

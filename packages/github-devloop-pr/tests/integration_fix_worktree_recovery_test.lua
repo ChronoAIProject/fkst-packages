@@ -88,7 +88,7 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:reviewing")
-    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, core.next_fix_version(event.version))
+    t.eq(find_causal_raise(result, "devloop_reviewing").payload.version, h.next_fix_version(event.version))
     t.eq(count_calls("git worktree prune"), 1)
     t.eq(count_calls("git fetch 'origin' '" .. branch .. "'"), 1)
     t.eq(count_calls("git worktree add --force -B"), 1)

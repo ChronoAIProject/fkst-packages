@@ -1,4 +1,3 @@
-local config = require("devloop.config")
 local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local core = require("core")
@@ -8,26 +7,11 @@ local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local fix_round_authority = require("devloop.fix_round_authority")
 
 local M = {}
 
-function M.next_or_decompose(version)
-  local current_version = tostring(version or "")
-  local current_round = devloop_state.version_fix_round(current_version)
-  if current_round >= config.max_fix_rounds() then
-    return {
-      kind = "decompose",
-      version = current_version,
-      round = current_round,
-    }
-  end
-  local next_version = devloop_state.next_fix_version(current_version)
-  return {
-    kind = "advance",
-    version = next_version,
-    round = devloop_state.version_fix_round(next_version),
-  }
-end
+M.next_or_decompose = fix_round_authority.next_or_decompose
 
 function M.raise_decompose(transition, opts)
   if transition == nil or transition.kind ~= "decompose" then
@@ -42,11 +26,12 @@ function M.raise_decompose(transition, opts)
     review.review_dedup_key,
     review.review_proposal_id
   ) or review.review_dedup_key
+  local terminal_head_sha = opts.current_head_sha or review.reviewed_head_sha
   local fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
     proposal_id = review.proposal_id,
     review_proposal_id = review.review_proposal_id,
     review_dedup_key = review_dedup_key,
-    reviewed_head_sha = review.reviewed_head_sha,
+    reviewed_head_sha = terminal_head_sha,
     pr_number = review.pr_number,
     source_ref = opts.source_ref or review.source_ref,
   }, transition.version)
@@ -145,6 +130,18 @@ local function bounded_fix_summary(value)
 end
 
 function M.raise_reviewing(repo, issue_number, fix, old_head_sha, new_head_sha, reason, summary)
+  local transition = M.next_or_decompose(fix.version)
+  if transition.kind == "decompose" then
+    M.raise_decompose(transition, {
+      dept = "fix",
+      current_state = { state = "fixing", version = fix.version },
+      from_state = "fixing",
+      reason = reason,
+      review = fix,
+      current_head_sha = new_head_sha,
+    })
+    return
+  end
   requests_review.raise_fix_reviewing(core, {
     dept = "fix",
     repo = repo,
@@ -152,6 +149,7 @@ function M.raise_reviewing(repo, issue_number, fix, old_head_sha, new_head_sha, 
     fix = fix,
     old_head_sha = old_head_sha,
     new_head_sha = new_head_sha,
+    new_version = transition.version,
     reason = reason,
     fix_summary = bounded_fix_summary(summary),
     clear_fix_summary = true,
@@ -159,7 +157,18 @@ function M.raise_reviewing(repo, issue_number, fix, old_head_sha, new_head_sha, 
 end
 
 function M.raise_stale_speculation_refix(repo, issue_number, fix, current_state, current_predecessor_set, reason)
-  local next_version = devloop_state.next_fix_version(fix.version)
+  local transition = M.next_or_decompose(current_state.version)
+  if transition.kind == "decompose" then
+    M.raise_decompose(transition, {
+      dept = "fix",
+      current_state = current_state,
+      from_state = "fixing",
+      reason = reason,
+      review = fix,
+    })
+    return
+  end
+  local next_version = transition.version
   local merge_ready = {
     proposal_id = fix.proposal_id,
     pr_number = fix.pr_number,

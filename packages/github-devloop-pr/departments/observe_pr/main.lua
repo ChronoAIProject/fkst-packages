@@ -7,6 +7,7 @@ local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
 local convergence_shared = require("devloop.convergence.shared")
 local check_runs = require("forge.github.check_runs")
+local merge_shared = require("forge.merge.shared")
 local queue = require("devloop.queue")
 local transition_version = require("contract.transition_version")
 local m_facts = require("devloop.markers.facts")
@@ -22,6 +23,8 @@ local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local fix_round_authority = require("devloop.fix_round_authority")
+local replayer_fix_round = require("devloop.replayer_fix_round")
 
 local M = {}
 
@@ -31,6 +34,7 @@ local spec = {
     "github-proxy.github_issue_label_request",
     "github-proxy.github_pr_comment_request",
     "github-devloop-decompose.devloop_decompose",
+    "devloop_fix_reconcile",
     -- devloop_reviewing is emitted only after github_comment_written via comment_handoff.
     "devloop_fixing",
     "devloop_review_meta",
@@ -258,6 +262,69 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
   return true
 end
 
+local terminal_recovery_states = {
+  blocked = true,
+  reviewing = true,
+  fixing = true,
+  ["merge-ready"] = true,
+  merging = true,
+}
+
+local function maybe_recover_refused_terminal(origin, pr_number, current_pr, state, source_ref, raw)
+  if raw.source ~= "terminal-refused"
+    or terminal_recovery_states[state.state] ~= true
+    or tostring(state.version or "") ~= tostring(raw.bound_version or "") then
+    return false
+  end
+  if tostring(current_pr.state or ""):lower() ~= "open"
+    or not merge_shared.is_same_repo_pr_head(current_pr, origin.repo)
+    or not forge_validators.is_git_sha(current_pr.head_sha) then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, "reviewing", "refused(pr-ineligible)", "terminal refusal recovery requires an open same-repository PR head")
+    return true
+  end
+  if tostring(current_pr.head_sha):lower() == tostring(raw.bound_head_sha or ""):lower() then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, "reviewing", "skip-stale(head-not-advanced)", "terminal refusal no longer identifies a changed PR head")
+    return true
+  end
+  local new_version = devloop_state.next_review_loop_version(state.version)
+  if devloop_state.has_state_marker(current_pr.comments, origin.proposal_id, "reviewing", new_version) then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, "reviewing", "skip-idempotent(already at to_state)", "head-advanced terminal recovery marker is already visible")
+    return true
+  end
+  local recovery = {
+    proposal_id = origin.proposal_id,
+    pr_number = pr_number,
+    reviewed_head_sha = raw.bound_head_sha,
+  }
+  local comment_request = requests_review.build_merge_head_reviewing_comment_request(core,
+    origin.repo,
+    origin.issue_number,
+    recovery,
+    raw.bound_head_sha,
+    current_pr.head_sha,
+    new_version,
+    source_ref
+  )
+  local label_request = origin.issue_number ~= nil and requests_labels.build_merge_head_reviewing_label_request(
+    origin.repo,
+    origin.issue_number,
+    recovery,
+    current_pr.head_sha,
+    new_version,
+    entity_lib.issue_source_ref(origin.repo, origin.issue_number)
+  ) or nil
+  devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, "reviewing", "applied(terminal-refused-head-advanced)", "current PR head must be reviewed instead of terminalized")
+  devloop_logging.log_apply("observe_pr", origin.proposal_id, "reviewing", new_version, { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:blocked" } }, {
+    "github-proxy.github_pr_comment_request",
+    "github-proxy.github_issue_label_request",
+  })
+  devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
+  if label_request ~= nil then
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_issue_label_request", label_request)
+  end
+  return true
+end
+
 local function maybe_liveness_timeout(origin, pr_number, current_pr, state, source_ref, issue_current)
   local row = replay_fields.restart_transition_row(core.restart_transition_table(), state and state.state)
   if not core.restart_row_observable_on(row, "pr") then
@@ -316,20 +383,19 @@ local function maybe_redrive_not_mergeable_pr(origin, pr_number, current_pr, sta
   if mergeable or not check_runs.is_not_mergeable_reason(reason) then
     return false
   end
-  if devloop_state.version_fix_round(state.version) >= config.max_fix_rounds() then
-    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, recovery.to_state, "skip-idempotent(fix-loop-max-rounds)", reason)
-    return false
-  end
-  local fix_version = devloop_state.next_fix_version(state.version)
-  local visible_state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
-  if visible_state.state == "fixing" and tostring(visible_state.version or "") == tostring(fix_version) then
-    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, recovery.to_state, "skip-idempotent(already at to_state)", reason)
-    return true
-  end
   local review_fact, fact_reason = build_conflict_review_fact(origin, pr_number, current_pr, state.version, reason)
   if review_fact == nil then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, recovery.to_state, "retry-pending(" .. fact_reason .. ")", reason)
     return false
+  end
+  local fix_version = replayer_fix_round.next_version_or_reconcile("observe_pr", {
+    repo = origin.repo,
+  }, state, origin.proposal_id, pr_number, review_fact, current_pr.head_sha, source_ref, reason)
+  if fix_version == nil then return true end
+  local visible_state = require("devloop.entity").current_entity_state(current_pr.comments, origin.proposal_id)
+  if visible_state.state == "fixing" and tostring(visible_state.version or "") == tostring(fix_version) then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, state.state, recovery.to_state, "skip-idempotent(already at to_state)", reason)
+    return true
   end
   review_fact.fix_version = fix_version
   local comment_origin = {
@@ -499,7 +565,9 @@ local function process_pr_event(event)
   devloop_logging.log_entry("observe_pr", event, "unknown", pr.dedup_key)
   devloop_base.assert_trusted_bot_configured()
   local branches = config.branch_config()
-  local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at)
+  local pr_view = devloop_entity_view.fetch_pr_view_origin(pr.repo, pr.number, pr.updated_at, {
+    force_fresh = raw.source == "terminal-refused",
+  })
   if pr_view.exit_code ~= 0 then
     error("github-devloop: gh-pr-origin-view-failed: gh pr origin view failed: " .. tostring(pr_view.stderr))
   end
@@ -540,9 +608,15 @@ local function process_pr_event(event)
     if not m_claims.verify_pr_review_issue_claim("observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id) then
       return
     end
+    if maybe_recover_refused_terminal(origin, pr.number, current_pr, state, source_ref, raw) then
+      return
+    end
     local merge_gate_feedback = nil
     if state.state == "reviewing" and origin.issue_number ~= nil then
-      merge_gate_feedback = m_facts.merge_gate_fix_fact(current_pr.comments, origin.proposal_id, devloop_state.next_fix_version(state.version))
+      local round_transition = fix_round_authority.next_or_decompose(state.version)
+      if round_transition.kind == "advance" then
+        merge_gate_feedback = m_facts.merge_gate_fix_fact(current_pr.comments, origin.proposal_id, round_transition.version)
+      end
     end
     if merge_gate_feedback ~= nil then
       if issue_current == nil or issue_current.comments == nil then

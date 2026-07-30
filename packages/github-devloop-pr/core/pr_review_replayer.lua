@@ -18,6 +18,7 @@ local transition_version = require("contract.transition_version")
 local comment_strings = require("devloop.strings")
 local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
+local replayer_fix_round = require("devloop.replayer_fix_round")
 
 function S.install(M)
 local function linked_pr_state(pr)
@@ -306,7 +307,8 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
     if intended_head_sha ~= nil and tostring(current_pr.head_sha or "") ~= intended_head_sha then
       return tools.log_skip(dept, proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
     end
-    local new_version = devloop_state.next_fix_version(state.version)
+    local new_version = replayer_fix_round.next_version_or_reconcile(dept, issue, state, proposal_id, link.pr_number, feedback, current_pr.head_sha, entity_lib.pr_source_ref(issue.repo, link.pr_number), "fixing restart replay reached the fix-round cap")
+    if new_version == nil then return true end
     local fix = {
       proposal_id = proposal_id,
       pr_number = link.pr_number,
@@ -551,8 +553,9 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
     })
   end
   if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
-    local fix_version = devloop_state.fix_version_from_review_version(state.version)
     local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+    local fix_version = replayer_fix_round.next_version_or_reconcile(dept, issue, state, proposal_id, link.pr_number, merge_ready, current_pr.head_sha, source_ref, mergeable_reason)
+    if fix_version == nil then return true end
     local request = requests_review.build_merge_gate_fix_comment_request(M, issue.repo, issue.number, merge_ready, fix_version, mergeable_reason, current_pr.base_ref_oid, source_ref)
     local effects = {
       { queue = "github-proxy.github_pr_comment_request", payload = request },
@@ -587,8 +590,9 @@ local function replay_merging_state(dept, issue, state, row, facts, tools)
       devloop_logging.log_cas_decision(dept, proposal_id, state, "merging", "blocked", "applied(replay)", classification.reason)
       return tools.raise_effects(dept, proposal_id, "blocked", state.version, { add = { "fkst-dev:blocked" }, remove = { "fkst-dev:merging" } }, {})
     end
-    local fix_version = devloop_state.fix_version_from_review_version(state.version)
     local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+    local fix_version = replayer_fix_round.next_version_or_reconcile(dept, issue, state, proposal_id, link.pr_number, merge_ready, current_pr.head_sha, source_ref, classification.reason)
+    if fix_version == nil then return true end
     local request = requests_review.build_merge_gate_fix_comment_request(M, issue.repo, issue.number, merge_ready, fix_version, classification.reason, current_pr.base_ref_oid, source_ref, nil, {
       ci_failure_key = classification.ci_failure_key,
     })
@@ -728,7 +732,6 @@ local function replay_pr_open(dept, issue, state, row, facts, tools)
       end
       local mergeable, mergeable_reason = check_runs.pr_mergeable(pr)
       if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
-        local fix_version = devloop_state.next_fix_version(state.version)
         local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
         local review_fact = {
           proposal_id = proposal_id,
@@ -738,6 +741,8 @@ local function replay_pr_open(dept, issue, state, row, facts, tools)
           blocking_gap = mergeable_reason,
           review_reason = mergeable_reason,
         }
+        local fix_version = replayer_fix_round.next_version_or_reconcile(dept, issue, state, proposal_id, link.pr_number, review_fact, pr.head_sha, source_ref, mergeable_reason)
+        if fix_version == nil then return true end
         local comment_request = fix_comment_from_feedback(issue, link.pr_number, fix_version, review_fact, source_ref)
         devloop_logging.log_cas_decision(dept, proposal_id, state, "pr-open", "fixing", "applied(replay)", "linked PR is not mergeable")
         return tools.raise_effects(dept, proposal_id, "fixing", fix_version, { add = { "fkst-dev:fixing" }, remove = { "fkst-dev:pr-open" } }, {

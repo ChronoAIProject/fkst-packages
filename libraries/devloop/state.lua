@@ -113,14 +113,6 @@ function C.version_ready_split_round(version)
   return transition_version.ready_split_round(version)
 end
 
-function C.next_fix_version(version)
-  return transition_version.next_fix(version)
-end
-
-function C.fix_version_from_review_version(version)
-  return C.next_fix_version(version)
-end
-
 function C.next_review_meta_action_version(version)
   return transition_version.next_review_meta_action(version)
 end
@@ -295,14 +287,14 @@ function C.comment_bodies(comments)
   return bodies
 end
 
-local function derive_current_marker(comments, proposal_id)
+local function derive_current_marker(comments, proposal_id, trust_set)
   if type(comments) ~= "table" then
     return nil
   end
 
   local current = nil
   local marker_pattern = "<!%-%- fkst:github%-devloop:state:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments, trust_set)) do
     for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
       local candidate = state_marker_fact(marker, comment)
       if candidate ~= nil and candidate.proposal_id == proposal_id then
@@ -325,8 +317,12 @@ local function derive_current_marker(comments, proposal_id)
   }
 end
 
-function C.current_state(comments, proposal_id)
-  return derive_current_marker(comments, proposal_id)
+function C.current_state(comments, proposal_id, trust_set)
+  return derive_current_marker(comments, proposal_id, trust_set)
+end
+
+function C.terminal_guard_state(comments, proposal_id, trust_set)
+  return derive_current_marker(comments, proposal_id, trust_set)
 end
 
 local function current_marker_state(comments, proposal_id)
@@ -785,7 +781,7 @@ C._strip_latest_fix_version_suffix = strip_latest_fix_version_suffix
 C._compare_transition_versions = compare_transition_versions
 
 function S.install(M)
-  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "cyclic_transition_status", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "transition_status", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at", "versioned_transition_status"}) do M[n] = C[n] end
+  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "cyclic_transition_status", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "transition_status", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at", "versioned_transition_status"}) do M[n] = C[n] end
 end
 C.install = S.install
 

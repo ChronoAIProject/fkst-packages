@@ -41,7 +41,7 @@ return {
       head_sha = "def456",
       base_branch = "dev",
       state = "OPEN",
-    }, entity_read_mocks.pr_origin_selector, 2)
+    }, entity_read_mocks.pr_fix_precheck_selector, 2)
     local result = h.run_department("departments/decompose/main.lua", {
       queue = "github-devloop-decompose.devloop_decompose",
       payload = payload,

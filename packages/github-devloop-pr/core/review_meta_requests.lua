@@ -5,6 +5,7 @@ local requests_labels = require("devloop.requests.labels")
 local requests_review = require("devloop.requests.review")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_state = require("devloop.state")
+local terminal_guard = require("devloop.terminal_guard")
 local S = {}
 local comment_strings = require("devloop.strings")
 
@@ -175,7 +176,10 @@ function M.build_fix_reconcile_label_request(repo, issue_number, fix_reconcile)
   )
 end
 
-function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcile, action, reason)
+function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcile, action, reason, source_state)
+  if source_state == nil then
+    error("github-devloop: fix-reconcile-source-state-missing: terminal request requires its exact source state")
+  end
   local version = conv_reconcile.fix_reconcile_state_version(fix_reconcile.issue_version)
   local marker = conv_reconcile.fix_reconcile_marker(fix_reconcile.proposal_id, fix_reconcile.issue_version, action)
   local state_marker = devloop_state.state_marker(fix_reconcile.proposal_id, "blocked", version)
@@ -209,6 +213,13 @@ function M.build_fix_reconcile_comment_request(repo, _issue_number, fix_reconcil
       source_ref = fix_reconcile.source_ref,
     }, fix_reconcile.issue_version),
   }
+  request.terminal_guard = terminal_guard.build({
+    proposal_id = fix_reconcile.proposal_id,
+    source_state = source_state,
+    source_version = fix_reconcile.issue_version,
+    terminal_version = version,
+    head_sha = fix_reconcile.head_sha,
+  })
   return request
 end
 

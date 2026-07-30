@@ -427,7 +427,10 @@ function C.raise_fix_reviewing(M, opts)
   local fix = opts.fix or {}
   local old_head_sha = opts.old_head_sha
   local new_head_sha = opts.new_head_sha
-  local new_version = opts.new_version or M.next_fix_version(fix.version)
+  local new_version = opts.new_version
+  if new_version == nil or tostring(new_version) == "" then
+    error("github-devloop: fix-reviewing-version-missing: cap-checked reviewing version is required")
+  end
   local reason = opts.reason
   local current_state = opts.current_state or { state = "fixing", version = fix.version }
   if opts.fix_summary ~= nil or opts.clear_fix_summary == true then

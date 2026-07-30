@@ -4,6 +4,7 @@ function S.install(M, deps)
 local shared = deps or M
 local strings = require("contract.strings")
 local forge_strings = require("forge.strings")
+local terminal_guard = require("devloop.terminal_guard")
 local max_runtime_id_len = 180
 local stale_comment_target_error_class = "stale-comment-target"
 
@@ -207,6 +208,40 @@ local function confirmed_existing_handoff_comment(M, repo, target, dedup_key, bo
   return trusted_rest_comment_with_fragment(M, repo, target, M.comment_marker(dedup_key), bot_login)
 end
 
+local function terminal_guard_decision(M, payload, target, repo, comments, bot_login, phase)
+  local guard = payload.terminal_guard
+  if guard == nil then
+    return true, nil
+  end
+  if target.kind ~= "pr" then
+    local refusal = terminal_guard.refusal_payload(guard, repo, target.number, {}, {}, "guard-invalid", payload.source_ref, "comment-writer", payload.dedup_key)
+    return false, refusal
+  end
+  local view = M.gh_exec(function(timeout)
+    return M.github_pr_view_head_oid(repo, target.number, timeout)
+  end, 30, "GitHub PR terminal guard")
+  local current_pr = M.parse_pr_view_head_state(view.stdout, repo) or {}
+  local trusted_login = shared.strip_bot_login_suffix(bot_login)
+  local ok, reason, current = terminal_guard.evaluate(guard, repo, current_pr, comments, {
+    [trusted_login] = true,
+  }, phase)
+  if ok then
+    return true, nil
+  end
+  log.info("github-proxy: terminal comment refused: reason=" .. tostring(reason))
+  return false, terminal_guard.refusal_payload(
+    guard,
+    repo,
+    target.number,
+    current_pr,
+    current,
+    reason,
+    payload.source_ref,
+    "comment-writer",
+    payload.dedup_key
+  )
+end
+
 local function marker_attr(marker, name)
   return tostring(marker or ""):match(name .. '="([^"]*)"')
 end
@@ -393,6 +428,7 @@ function M.write_comment_request(payload, target)
 
   local runtime_id = comment_runtime_identity(repo, target.kind, target.number)
   local written_comment = nil
+  local disposition = nil
   with_lock("github-proxy/" .. runtime_id, function()
     local comments = load_comments(M, target, repo)
     local replace_marker = payload.replace_marker
@@ -400,6 +436,11 @@ function M.write_comment_request(payload, target)
     if replace_marker ~= nil and tostring(replace_marker) ~= "" then
       existing = M.trusted_comment_with_fragment(comments, tostring(replace_marker), bot_login)
     elseif M.has_trusted_marker(comments, payload.dedup_key, bot_login) then
+      local guard_ok, refusal = terminal_guard_decision(M, payload, target, repo, comments, bot_login, "terminal")
+      if not guard_ok then
+        disposition = refusal
+        return
+      end
       log.info("github-proxy: comment marker already present")
       written_comment = confirmed_existing_handoff_comment(M, repo, target, payload.dedup_key, bot_login, payload.handoff)
       return
@@ -407,6 +448,11 @@ function M.write_comment_request(payload, target)
     local claim_issue_number = target.kind == "issue" and target.number or payload.issue_number
     if claim_issue_number ~= nil
       and not M.verify_issue_claim_before_write(payload, repo, claim_issue_number, target.kind == "pr" and "github_pr_comment" or "github_comment") then
+      return
+    end
+    local guard_ok, refusal = terminal_guard_decision(M, payload, target, repo, comments, bot_login, "source")
+    if not guard_ok then
+      disposition = refusal
       return
     end
 
@@ -443,7 +489,7 @@ function M.write_comment_request(payload, target)
     written_comment = written
     M.invalidate_entity_after_write(repo, target.kind, target.number)
   end)
-  return written_comment
+  return written_comment, disposition
 end
 
 end

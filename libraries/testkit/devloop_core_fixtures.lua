@@ -28,6 +28,8 @@ end
 function M.new(deps)
   deps = deps or {}
   local core = deps.core or error("testkit.devloop_core_fixtures: deps.core is required")
+  local fix_round_authority = deps.fix_round_authority
+    or error("testkit.devloop_core_fixtures: deps.fix_round_authority is required")
   local t = deps.t or fkst.test
 
   gh_argv.install(t, core)
@@ -39,6 +41,14 @@ function M.new(deps)
       kind = "external",
       ref = "owner/repo#issue/42",
     }
+  end
+
+  local function next_fix_version(version)
+    local transition = fix_round_authority.next_or_decompose(version)
+    if transition.kind ~= "advance" then
+      error("testkit.devloop_core_fixtures: fixture attempted to advance a capped fix round")
+    end
+    return transition.version
   end
 
   local function issue(extra)
@@ -96,6 +106,7 @@ function M.new(deps)
     t = t,
     has_value = has_value,
     source_ref = source_ref,
+    next_fix_version = next_fix_version,
     issue = issue,
     reached = reached,
     unresolved = unresolved,

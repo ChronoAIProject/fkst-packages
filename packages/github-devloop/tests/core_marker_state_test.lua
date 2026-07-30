@@ -204,7 +204,7 @@ return {
     t.eq(core.cyclic_transition_status({
       state = "reviewing",
       version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
-    }, { "fixing" }, "reviewing", core.fix_version_from_review_version("ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/2"), "pending")
+    }, { "fixing" }, "reviewing", h.next_fix_version("ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"), "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/2"), "pending")
     t.eq(core.cyclic_transition_status({
       state = "reviewing",
       version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1",
@@ -679,7 +679,7 @@ return {
   test_successful_fix_version_orders_after_fixing_for_any_sha = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
-    local new_version = core.next_fix_version(version)
+    local new_version = h.next_fix_version(version)
     local sha_like_lower_version = "0000000000000000000000000000000000000000"
 
     local current = core.current_state({
@@ -729,7 +729,7 @@ return {
   test_fixing_after_no_consensus_loop_outranks_reviewing = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local reviewing_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z/loop/2"
-    local fixing_version = core.next_fix_version(reviewing_version)
+    local fixing_version = h.next_fix_version(reviewing_version)
 
     local current = core.current_state({
       core.state_marker(proposal_id, "reviewing", reviewing_version),

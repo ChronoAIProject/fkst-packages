@@ -90,7 +90,7 @@ local function mock_pr_view(event, comments)
     head_sha = "def456",
     base_branch = "dev",
     state = "OPEN",
-  }, entity_read_mocks.pr_origin_selector)
+  }, entity_read_mocks.pr_fix_precheck_selector)
 end
 
 local function pr_comment_body_path()
@@ -188,6 +188,7 @@ local function mock_first_delivery(event)
     title = "Original large issue",
     body = "Original body that describes too much scope.",
   })
+  mock_pr_view(event, blocked_comments(event))
   mock_pr_view(event, blocked_comments(event))
   mock_pr_view(event, blocked_comments(event))
   mock_decompose_codex(two_issue_json)

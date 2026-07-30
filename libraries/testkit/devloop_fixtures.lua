@@ -36,6 +36,8 @@ function M.new(deps)
     or error("testkit.devloop_fixtures: deps.conv_reconcile is required")
   local m_builders = deps.m_builders or error("testkit.devloop_fixtures: deps.m_builders is required")
   local pr_safety = deps.pr_safety or error("testkit.devloop_fixtures: deps.pr_safety is required")
+  local fix_round_authority = deps.fix_round_authority
+    or error("testkit.devloop_fixtures: deps.fix_round_authority is required")
   local consensus_result_department = deps.consensus_result_department
   local decompose_queue = deps.decompose_queue or "devloop_decompose"
   local runtime_package_name = deps.runtime_package_name or "github-devloop"
@@ -53,6 +55,7 @@ function M.new(deps)
     has_value = has_value,
     default_pr_origin_times = deps.default_pr_origin_times,
     pr_origin_view_times_enabled = deps.pr_origin_view_times_enabled == true,
+    pr_fix_precheck_from_cached = deps.pr_fix_precheck_from_cached == true,
     pending_result_issue = nil,
     pending_result_read_failure = nil,
     pr_phase_comments = nil,
@@ -93,6 +96,14 @@ function M.new(deps)
       kind = "external",
       ref = "owner/repo#pr/7",
     }
+  end
+
+  local function next_fix_version(version)
+    local transition = fix_round_authority.next_or_decompose(version)
+    if transition.kind ~= "advance" then
+      error("testkit.devloop_fixtures: fixture attempted to advance a capped fix round")
+    end
+    return transition.version
   end
 
   local function issue(extra)
@@ -225,7 +236,7 @@ function M.new(deps)
     local review_version = reviewing().version
     local value = payloads_builders.build_devloop_fixing_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
-      impl_version = core.fix_version_from_review_version(review_version),
+      impl_version = next_fix_version(review_version),
     }, 7, {
       review_proposal_id = event.proposal_id,
       review_dedup_key = event.dedup_key,
@@ -268,7 +279,7 @@ function M.new(deps)
   end
 
   local function fix_reconcile(extra)
-    local issue_version = core.next_fix_version(core.next_fix_version(core.next_fix_version(reviewing().version)))
+    local issue_version = next_fix_version(next_fix_version(next_fix_version(reviewing().version)))
     local value = conv_reconcile.build_devloop_fix_reconcile_payload({
       proposal_id = "github-devloop/issue/owner/repo/42",
       review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, issue_version, "def456"),
@@ -580,6 +591,7 @@ function M.new(deps)
     opts = opts,
     source_ref = source_ref,
     pr_source_ref = pr_source_ref,
+    next_fix_version = next_fix_version,
     issue = issue,
     reached = reached,
     unresolved = unresolved,

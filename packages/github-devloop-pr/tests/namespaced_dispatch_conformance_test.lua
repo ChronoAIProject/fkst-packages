@@ -5,6 +5,7 @@ local t = h.t
 local core = h.core
 local conformance = require("testkit.namespaced_dispatch_conformance")
 local m_mq = require("devloop.merge_queue")
+local terminal_guard = require("devloop.terminal_guard")
 
 local function load_department(path, module_name)
   local old_pipeline = pipeline
@@ -25,6 +26,7 @@ local departments = conformance.loaded_departments({
   load_department("departments/review_meta/main.lua", "departments.review_meta.main"),
   load_department("departments/review_pr/main.lua", "departments.review_pr.main"),
   load_department("departments/review_result/main.lua", "departments.review_result.main"),
+  load_department("departments/terminal_recovery/main.lua", "departments.terminal_recovery.main"),
 })
 
 local function review_proposal_id(version, head_sha)
@@ -59,6 +61,32 @@ local function timeout_reconcile()
   }, "github-devloop/issue/owner/repo/42", { kind = "external", ref = "owner/repo#pr/7" }, 1)
 end
 
+local function terminal_refusal(origin)
+  local reconcile = h.fix_reconcile()
+  local guard = terminal_guard.build({
+    proposal_id = reconcile.proposal_id,
+    source_state = "merging",
+    source_version = reconcile.issue_version,
+    terminal_version = reconcile.issue_version,
+    head_sha = reconcile.head_sha,
+  })
+  return terminal_guard.refusal_payload(guard,
+    "owner/repo",
+    7,
+    {
+      state = "OPEN",
+      head_sha = "feedface",
+      head_repository = "owner/repo",
+      is_cross_repository = false,
+    },
+    { state = "merging", version = reconcile.issue_version },
+    "head-advanced",
+    reconcile.source_ref,
+    origin,
+    reconcile.dedup_key
+  )
+end
+
 local function payload_for_queue(_path, queue)
   local payloads = {
     ["consensus.consensus_converge"] = review_unresolved(),
@@ -91,6 +119,8 @@ local function payload_for_queue(_path, queue)
       dedup_key = "owner/repo#pr#7@2026-06-03T01:02:03Z",
       source_ref = { kind = "external", ref = "owner/repo#pr/7" },
     },
+    ["github-proxy.github_comment_refused"] = terminal_refusal("comment-writer"),
+    ["github-devloop-decompose.devloop_terminal_refused"] = terminal_refusal("decompose"),
     devloop_pr_observe_redrive = {
       schema = "github-proxy.v1",
       type = "pr",

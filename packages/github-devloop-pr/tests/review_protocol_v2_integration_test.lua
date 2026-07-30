@@ -263,7 +263,7 @@ return {
 
   test_observe_pr_fixing_self_heal_recovers_structured_gap = function()
     local impl_version = reviewing().version
-    local fix_version = core.next_fix_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, impl_version, "def456")
     local review_dedup_key = "consensus:" .. review_id .. "/review"
     local expected = payloads_builders.build_replayed_fixing_payload({
@@ -343,7 +343,7 @@ return {
 
   test_observe_pr_fixing_self_heal_fails_closed_without_reject_fact = function()
     local impl_version = reviewing().version
-    local fix_version = core.next_fix_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     h.mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "fixing", fix_version),
@@ -359,7 +359,7 @@ return {
 
   test_observe_pr_fixing_self_heal_fails_closed_when_head_advanced = function()
     local impl_version = reviewing().version
-    local fix_version = core.next_fix_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, impl_version, "def456")
     h.mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
@@ -387,7 +387,7 @@ return {
 
   test_observe_pr_fixing_self_heal_redrives_ready_when_pr_closed = function()
     local impl_version = reviewing().version
-    local fix_version = core.next_fix_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     h.mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "fixing", fix_version),

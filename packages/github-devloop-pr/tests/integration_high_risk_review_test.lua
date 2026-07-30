@@ -76,7 +76,7 @@ local function assert_high_risk_non_approve_routes_to_fixing(name, high_risk_ver
   mock_high_risk_name_only()
 
   local result = run_review_result(event, opts(name))
-  local fix_version = core.fix_version_from_review_version(reviewing_event.version)
+  local fix_version = h.next_fix_version(reviewing_event.version)
   t.eq(result.exit_code, 0)
   t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
   t.eq(high_risk_evidence_raise(result), nil)
@@ -117,7 +117,7 @@ local function assert_high_risk_advisory_reject_stays_fixing(name, blocking_gap)
   mock_high_risk_name_only()
 
   local result = run_review_result(event, opts(name))
-  local fix_version = core.fix_version_from_review_version(reviewing_event.version)
+  local fix_version = h.next_fix_version(reviewing_event.version)
   t.eq(result.exit_code, 0)
   t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
   t.eq(high_risk_evidence_raise(result), nil)

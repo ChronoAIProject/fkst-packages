@@ -17,7 +17,7 @@ local pr_source_ref = { kind = "external", ref = "owner/repo#pr/7" }
 local function fix_version(round)
   local version = h.reviewing().version
   for _ = 1, round do
-    version = core.next_fix_version(version)
+    version = h.next_fix_version(version)
   end
   return version
 end
@@ -125,6 +125,60 @@ local function run_no_new_head(event, feedback_comment, id, post_state)
   return h.run_fix(event, h.opts(id, { FKST_GITHUB_WRITE = "1" }))
 end
 
+local function run_successful_fix_at_cap(event, feedback_comment)
+  local branch = devloop_base.implement_branch("owner/repo", "42", event.version)
+  local origin_marker = m_builders.pr_origin_marker(
+    event.proposal_id,
+    "42",
+    branch,
+    event.version,
+    "dev"
+  )
+  local fixing_comments = {
+    core.state_marker(event.proposal_id, "fixing", event.version),
+    feedback_comment,
+  }
+
+  h.mock_bot_env()
+  h.mock_write_env("1")
+  h.mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, fixing_comments, branch, event.version)
+  h.mock_pr_fix({ origin_marker }, branch, "def456")
+  t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+    stdout = "/tmp/fkst-packages-test/github-devloop/runtime",
+    stderr = "",
+    exit_code = 0,
+  })
+  h.mock_existing_fix_worktree(branch, "def456")
+  h.mock_implement_codex(0, "fixed review feedback at the final allowed round")
+  h.mock_git_status(" M packages/github-devloop-pr/departments/fix/main.lua\n")
+  h.mock_git_commit("feedface", branch)
+  h.mock_write_env("1")
+  h.mock_issue_fix_for_event(event, { "fkst-dev:fixing" }, fixing_comments, branch, event.version)
+  local post_codex_comments = { origin_marker }
+  for _, comment in ipairs(fixing_comments) do
+    table.insert(post_codex_comments, comment)
+  end
+  entity_read_mocks.mock_pr_view_selector(t, {
+    comments = post_codex_comments,
+    head = branch,
+    head_sha = "def456",
+    state = "OPEN",
+    head_repo = "owner/repo",
+    cross_repo = false,
+  }, entity_read_mocks.pr_fix_selector, 1)
+  h.mock_git_push(branch)
+  entity_read_mocks.mock_pr_view_selector(t, {
+    comments = post_codex_comments,
+    head = branch,
+    head_sha = "feedface",
+    state = "OPEN",
+    head_repo = "owner/repo",
+    cross_repo = false,
+  }, entity_read_mocks.pr_fix_selector, 1)
+
+  return h.run_fix(event, h.opts("successful-fix-at-cap", { FKST_GITHUB_WRITE = "1" }))
+end
+
 local function decompose_pr_comments(event, blocked_comment, extra)
   local comments = {
     m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
@@ -144,7 +198,7 @@ local function mock_decompose_pr(event, comments)
     base_branch = "dev",
     state = "OPEN",
     updated_at = "2026-06-03T02:03:04Z",
-  }, entity_read_mocks.pr_origin_selector, 1)
+  }, entity_read_mocks.pr_fix_precheck_selector, 1)
 end
 
 local function mock_decompose_environment()
@@ -190,6 +244,7 @@ local function mock_decompose_execution(event, blocked_comment)
     state = "OPEN",
     updated_at = "2026-06-03T01:02:03Z",
   }, "title,body,labels,comments,author", 1)
+  mock_decompose_pr(event, blocked_comments)
   mock_decompose_pr(event, blocked_comments)
   mock_decompose_pr(event, blocked_comments)
   mock_decompose_pr(event, decomposed_comments)
@@ -277,7 +332,7 @@ end
 local function max_fix_round_merge_ready()
   local version = h.reviewing().version
   for _ = 1, config.max_fix_rounds() do
-    version = core.next_fix_version(version)
+    version = h.next_fix_version(version)
   end
   local review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, version, "def456")
   return h.merge_ready({
@@ -285,6 +340,68 @@ local function max_fix_round_merge_ready()
     review_proposal_id = review_proposal_id,
     review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
   })
+end
+
+local function entity_changed_event()
+  return {
+    queue = "github-devloop-pr.devloop_observe_pr",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "pr",
+      repo = "owner/repo",
+      number = 7,
+      state = "OPEN",
+      updated_at = "2026-06-03T02:03:04Z",
+      dedup_key = "owner/repo#pr#7@2026-06-03T02:03:04Z",
+      source_ref = pr_source_ref,
+    },
+    source_ref = {
+      kind = "external",
+      reference = "owner/repo#pr/7",
+    },
+  }
+end
+
+local function mock_merging_restart_at_cap(event)
+  local comments = h.merge_comments_with_merging(event)
+  h.mock_bot_env()
+  t.mock_command(core.gh_issue_view_claim_cmd("owner/repo", 42), {
+    stdout = '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(core.gh_issue_view_result_cmd("owner/repo", 42), {
+    stdout = '{"labels":[{"name":"fkst-dev:merging"}],"comments":[]}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  entity_read_mocks.mock_pr_view_selector(t, {
+    repo = "owner/repo",
+    number = 7,
+    comments = comments,
+    head = "devloop-owner-repo-42-01HY",
+    head_sha = event.reviewed_head_sha,
+    base_branch = "dev",
+    base_sha = "abc123",
+    state = "OPEN",
+    head_repo = "owner/repo",
+    cross_repo = false,
+    labels = { "fkst-dev:merging" },
+    mergeable = "CONFLICTING",
+    merge_state = "DIRTY",
+  }, entity_read_mocks.pr_origin_selector, 1)
+  h.mock_default_issue_claim("owner/repo", 42)
+  entity_read_mocks.mock_pr_view_selector(t, {
+    repo = "owner/repo",
+    number = 7,
+    comments = comments,
+    head = "devloop-owner-repo-42-01HY",
+    head_sha = "feedface",
+    base_branch = "dev",
+    state = "OPEN",
+    head_repo = "owner/repo",
+    cross_repo = false,
+  }, entity_read_mocks.pr_fix_precheck_selector, 1)
 end
 
 local function run_merge_ci_failure_at_cap(event)
@@ -340,13 +457,35 @@ local function require_raise(result, queue, context)
 end
 
 return {
+  test_restart_replay_merging_at_fix_cap_escalates_without_minting_fix = function()
+    local event = max_fix_round_merge_ready()
+    mock_merging_restart_at_cap(event)
+
+    local trace = graph.require_quiescent(graph.run(entity_changed_event(), { max_steps = 3 }))
+    graph.assert_covers(trace, {
+      "github-devloop-pr.devloop_observe_pr -> github-devloop-pr.observe_pr",
+      "github-devloop-pr.devloop_fix_reconcile -> github-devloop-pr.reconcile",
+    })
+    local step = graph.require_delivery(trace, {
+      queue = "github-devloop-pr.devloop_observe_pr",
+      consumer = "github-devloop-pr.observe_pr",
+    })
+    t.eq(step.exit_code, 0)
+    t.eq(find_raise(step, "devloop_fixing"), nil)
+    t.eq(find_raise(step, "github-proxy.github_pr_comment_request"), nil)
+    local reconcile = require_raise(step, "devloop_fix_reconcile", "merging restart at cap").payload
+    t.eq(reconcile.issue_version, event.version)
+    t.eq(reconcile.round, config.max_fix_rounds())
+    t.eq(reconcile.head_sha, event.reviewed_head_sha)
+  end,
+
   test_no_new_head_attempt_advances_fix_round_below_cap = function()
     local below_cap = rejected_fixing_event(fix_version(config.max_fix_rounds() - 1))
     local first = run_no_new_head(below_cap, reject_comment(below_cap), "no-new-head-below-cap")
 
     t.eq(first.exit_code, 0)
     local advanced = require_raise(first, "devloop_review_meta", "below-cap fix").payload
-    t.eq(advanced.version, core.next_fix_version(below_cap.version))
+    t.eq(advanced.version, h.next_fix_version(below_cap.version))
     t.eq(core.version_fix_round(advanced.version), config.max_fix_rounds())
     t.eq(advanced.review_dedup_key, below_cap.review_dedup_key)
     t.is_true(advanced.dedup_key ~= below_cap.dedup_key)
@@ -438,6 +577,62 @@ return {
     t.eq(step.raises[2].payload.title, "Wire retry helper into one call site")
   end,
 
+  test_successful_fix_at_cap_reconciles_and_decomposes_the_pushed_head = function()
+    local at_cap = rejected_fixing_event(fix_version(config.max_fix_rounds()))
+    local fixed = run_successful_fix_at_cap(at_cap, reject_comment(at_cap))
+
+    t.eq(fixed.exit_code, 0)
+    t.eq(find_raise(fixed, "devloop_reviewing"), nil)
+    local reconcile = require_raise(fixed, "devloop_fix_reconcile", "successful fix at cap").payload
+    t.eq(reconcile.issue_version, at_cap.version)
+    t.eq(reconcile.round, config.max_fix_rounds())
+    t.eq(reconcile.head_sha, "feedface")
+
+    local reconciled = run_fix_reconcile_exact(reconcile, "fixing")
+    t.eq(reconciled.exit_code, 0)
+    local blocked_request = require_raise(
+      reconciled,
+      "github-proxy.github_pr_comment_request",
+      "successful fix reconcile"
+    ).payload
+    t.eq(blocked_request.handoff.kind, "github-devloop.fix_reconcile")
+    t.eq(blocked_request.handoff.fix_reconcile.head_sha, "feedface")
+
+    local handed_off = h.run_comment_handoff_from_request(
+      blocked_request,
+      "IC_successful_fix_at_cap_reconcile_1",
+      "successful-fix-at-cap-decompose-handoff"
+    )
+    t.eq(handed_off.exit_code, 0)
+    local decompose = require_raise(
+      handed_off,
+      "github-devloop-decompose.devloop_decompose",
+      "successful fix at cap handoff"
+    ).payload
+    t.eq(decompose.head_sha, "feedface")
+    t.eq(decompose.version, at_cap.version)
+
+    mock_decompose_environment()
+    mock_decompose_execution(decompose, blocked_request.body)
+    local trace = graph.require_quiescent(graph.run({
+      queue = "github-devloop-decompose.devloop_decompose",
+      payload = decompose,
+      source_ref = { kind = "external", reference = "owner/repo#pr/7" },
+    }, { max_steps = 3 }))
+    graph.assert_covers(trace, {
+      "github-devloop-decompose.devloop_decompose -> github-devloop-decompose.decompose",
+      "github-proxy.github_issue_create_request -> github-proxy.github_issue_create",
+    })
+    local child_deliveries = 0
+    for _, delivery in ipairs(trace.steps) do
+      if delivery.queue == "github-proxy.github_issue_create_request"
+        and delivery.consumer == "github-proxy.github_issue_create" then
+        child_deliveries = child_deliveries + 1
+      end
+    end
+    t.eq(child_deliveries, 2)
+  end,
+
   test_merge_ci_failure_at_fix_cap_reconciles_before_decompose_children = function()
     local merge_ready = max_fix_round_merge_ready()
     local merge_result = run_merge_ci_failure_at_cap(merge_ready)
@@ -493,7 +688,7 @@ return {
     local event = rejected_fixing_event(fix_version(1))
     local result = run_no_new_head(event, reject_comment(event), "no-new-head-post-codex-stale", {
       state = "reviewing",
-      version = core.next_fix_version(event.version),
+      version = h.next_fix_version(event.version),
     })
 
     t.eq(result.exit_code, 0)

@@ -244,8 +244,8 @@ return {
     local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local expected = {
       transition_version.next_loop(base),
-      transition_version.next_fix(base .. "/loop/2"),
-      transition_version.next_fix(base .. "/loop/2/fix/1"),
+      h.next_fix_version(base .. "/loop/2"),
+      h.next_fix_version(base .. "/loop/2/fix/1"),
       transition_version.next_review_loop(base .. "/fix/2"),
       transition_version.next_review_meta_action(base .. "/review-loop/3"),
       transition_version.next_ready_split(base .. "/loop/2/fix/1"),
@@ -297,8 +297,8 @@ return {
   test_devloop_state_builders_delegate_to_byte_exact_transition_constructors = function()
     local base = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 
-    t.eq(core.next_fix_version(base .. "/loop/2"), base .. "/loop/2/fix/1")
-    t.eq(core.next_fix_version(base .. "/loop/2/fix/1"), base .. "/loop/2/fix/1/fix/2")
+    t.eq(h.next_fix_version(base .. "/loop/2"), base .. "/loop/2/fix/1")
+    t.eq(h.next_fix_version(base .. "/loop/2/fix/1"), base .. "/loop/2/fix/1/fix/2")
     t.eq(core.next_review_loop_version(base .. "/fix/2"), base .. "/fix/2/review-loop/1")
     t.eq(core.next_review_meta_action_version(base .. "/review-loop/3"), base .. "/review-loop/3/review-meta-action/1")
   end,

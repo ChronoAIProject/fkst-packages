@@ -4,7 +4,7 @@ local saga = require("workflow.saga")
 local spec = {
   consumes = { "github_pr_comment_request" },
   published_seam = { "github_pr_comment_request" },
-  produces = { "github_comment_written" },
+  produces = { "github_comment_written", "github_comment_refused" },
   published_seam = { "github_pr_comment_request" },
   stall_window = "30s",
 }
@@ -37,7 +37,7 @@ end
 
 local function act(event)
   local payload = event.payload or {}
-  local written, repo = core.write_with_outbound_log(payload, {
+  local written, repo, disposition = core.write_with_outbound_log(payload, {
     kind = "pr",
     number = payload.pr_number,
     number_field = "pr_number",
@@ -63,6 +63,8 @@ local function act(event)
       handoff = payload.handoff,
       source_ref = payload.source_ref,
     })
+  elseif disposition ~= nil then
+    raise("github_comment_refused", disposition)
   end
 end
 

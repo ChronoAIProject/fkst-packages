@@ -317,7 +317,7 @@ local function advanced_fixing_fixture(extra)
   local event = fixing()
   local branch = "devloop-owner-repo-42-01HY"
   local previous_version = event.version
-  local version = core.next_fix_version(previous_version)
+  local version = h.next_fix_version(previous_version)
   local reviewed_head = "def456"
   local current_head = extra and extra.current_head or "feedface"
   local branch_head = extra and extra.branch_head or current_head
@@ -337,7 +337,7 @@ local function advanced_fixing_fixture(extra)
     feedback,
   }
   if extra and extra.reviewing_marker then
-    table.insert(comments, core.state_marker(event.proposal_id, "reviewing", core.next_fix_version(version)))
+    table.insert(comments, core.state_marker(event.proposal_id, "reviewing", h.next_fix_version(version)))
   end
   local issue_comments = {}
   for _, comment in ipairs(comments) do
@@ -376,11 +376,11 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
-    t.eq(reviewing_raise.payload.version, core.next_fix_version(fixture.version))
+    t.eq(reviewing_raise.payload.version, h.next_fix_version(fixture.version))
     t.eq(reviewing_raise.payload.pr_number, 7)
     t.eq(reviewing_raise.payload.source_ref.ref, "owner/repo#pr/7")
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
-    t.is_true(comment_raise.payload.body:find(core.state_marker(fixture.event.proposal_id, "reviewing", core.next_fix_version(fixture.version)), 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find(core.state_marker(fixture.event.proposal_id, "reviewing", h.next_fix_version(fixture.version)), 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('new_head_sha="' .. fixture.current_head .. '"', 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('review_proposal="' .. fixture.review_proposal .. '"', 1, true) ~= nil)
     t.is_true(comment_raise.payload.body:find('review_dedup="' .. fixture.review_dedup .. '"', 1, true) ~= nil)
@@ -393,7 +393,7 @@ return {
     local result = run_observe_pr_direct(opts("observe-pr-fixing-advanced-idempotent"))
     t.eq(result.exit_code, 0)
     local reviewing_raise = find_causal_raise(result, "devloop_reviewing")
-    t.eq(reviewing_raise.payload.version, core.next_fix_version(fixture.version) .. "/review-loop/1")
+    t.eq(reviewing_raise.payload.version, h.next_fix_version(fixture.version) .. "/review-loop/1")
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment_raise.payload.body:find(core.state_marker(fixture.event.proposal_id, "reviewing", reviewing_raise.payload.version), 1, true) ~= nil)
   end,

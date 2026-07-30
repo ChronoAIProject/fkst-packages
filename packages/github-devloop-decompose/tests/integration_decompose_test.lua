@@ -32,12 +32,13 @@ local function mock_pr_view(event, comments, updated_at)
     base_branch = "dev",
     state = "OPEN",
     updated_at = updated_at or "2026-06-03T02:03:04Z",
-  }, entity_read_mocks.pr_origin_selector, 1)
+  }, entity_read_mocks.pr_fix_precheck_selector, 1)
 end
 
 local function run_decompose_with_post_marker(event, run_opts, count)
   h.mock_default_issue_claim()
   h.take_pr_phase_comments()
+  mock_pr_view(event, blocked_comments(event), "2026-06-03T02:03:04Z")
   mock_pr_view(event, blocked_comments(event), "2026-06-03T02:03:04Z")
   mock_pr_view(event, blocked_comments(event), "2026-06-03T02:03:04Z")
   mock_pr_view(event, blocked_comments(event, {

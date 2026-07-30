@@ -1,6 +1,5 @@
 # Seeded inventory: every current transient lifecycle cursor read in github-devloop* production packages and shared std/devloop* lifecycle helpers.
 # Shrink-only after this ratchet lands; new entries are CI-red against the dev baseline.
-packages/github-devloop-decompose/departments/decompose/main.lua|act_decompose|cursor-read|current_entity_state(|line=355|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop-decompose/departments/decompose/main.lua|decomposed_done|cursor-read|current_entity_state(|line=310|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop-integration/departments/pr_freshness_scan/main.lua|candidate_reason|state-equality|fixing|line=110|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate
 packages/github-devloop-integration/departments/pr_freshness_scan/main.lua|candidate_reason|state-equality|merging|line=110|issue=#1310|why=classified current routing/decision read; migrate only when it is a monotone milestone gate

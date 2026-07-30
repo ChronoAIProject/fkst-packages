@@ -18,6 +18,7 @@ end
 
 local departments = conformance.loaded_departments({
   load_department("departments/decompose/main.lua", "departments.decompose.main"),
+  load_department("departments/terminal_refused/main.lua", "departments.terminal_refused.main"),
 })
 
 local function production_decompose_payload()
@@ -34,6 +35,25 @@ end
 local function payload_for_queue(_path, queue)
   if queue == "devloop_decompose" then
     return production_decompose_payload()
+  end
+  if queue == "devloop_terminal_refused" then
+    local payload = production_decompose_payload()
+    return require("devloop.terminal_guard").refusal_payload(
+      require("devloop.terminal_guard").for_decompose(payload),
+      "owner/repo",
+      7,
+      {
+        state = "OPEN",
+        head_sha = "feedface",
+        head_repository = "owner/repo",
+        is_cross_repository = false,
+      },
+      { state = "blocked", version = payload.version },
+      "head-advanced",
+      payload.source_ref,
+      "decompose",
+      payload.dedup_key
+    )
   end
   error("github-devloop-decompose: no production-shaped queue fixture for " .. tostring(queue))
 end
@@ -58,7 +78,7 @@ local function mock_decompose_reads(payload)
     head_sha = "def456",
     base_branch = "dev",
     state = "OPEN",
-  }, entity_read_mocks.pr_origin_selector, 2)
+  }, entity_read_mocks.pr_fix_precheck_selector, 2)
 end
 
 local function opts_for_case(_path, _queue, event)

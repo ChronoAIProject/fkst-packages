@@ -196,7 +196,7 @@ return {
   end,
   test_observe_pr_does_not_reconcile_issue_label_from_pr_fixing_state = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local fix_version = core.next_fix_version(impl_version)
+    local fix_version = h.next_fix_version(impl_version)
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
       core.state_marker("github-devloop/issue/owner/repo/42", "fixing", fix_version),
@@ -364,7 +364,7 @@ return {
 
   test_observe_pr_reviewing_self_heal_uses_canonical_fix_round_version = function()
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-    local fix_round_version = core.next_fix_version(impl_version)
+    local fix_round_version = h.next_fix_version(impl_version)
     mock_pr_origin({
       m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     }, "devloop-owner-repo-42-01HY", "feedface")
@@ -569,7 +569,7 @@ return {
     })
 
     local result = run_review_result(reached_payload, opts("review-pr-gate-reject-result"))
-    local fix_version = core.fix_version_from_review_version(event.version)
+    local fix_version = h.next_fix_version(event.version)
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)

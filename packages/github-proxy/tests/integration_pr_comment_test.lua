@@ -9,6 +9,7 @@ local mock_pr_comment_write = h.mock_pr_comment_write
 local json_string = h.json_string
 local count_calls = h.count_calls
 local capture_comment_department_logs = h.capture_comment_department_logs
+local devloop_state = require("devloop.state")
 local pr_comment_create = "gh api --method POST repos/owner/x/issues/7/comments"
 
 local function event(extra)
@@ -33,6 +34,50 @@ local function event(extra)
 end
 
 return {
+  test_terminal_comment_guard_refuses_advanced_head_without_post = function()
+    local proposal_id = "github-devloop/issue/owner/x/42"
+    local version = "ready/consensus-github-devloop/issue/owner/x/42/2026-06-03T01-02-03Z/fix/4"
+    mock_write_env("1")
+    mock_bot_env()
+    mock_pr_comment_view({
+      {
+        id = "IC_source_state",
+        body = devloop_state.state_marker(proposal_id, "merging", version),
+        author_login = "fkst-test-bot",
+      },
+    })
+    t.mock_command("gh api repos/owner/x/pulls/7", {
+      stdout = '{"number":7,"state":"open","head":{"ref":"devloop-owner-x-42","sha":"feedface","repo":{"full_name":"owner/x","owner":{"login":"owner"}}},"base":{"ref":"dev","sha":"abc123","repo":{"full_name":"owner/x","owner":{"login":"owner"}}}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_pr_comment_write()
+
+    local result = t.run_department("departments/github_pr_comment/main.lua", event({
+      body = "terminal block",
+      dedup_key = "fix-reconcile/comment/advanced-head",
+      terminal_guard = {
+        schema = "github-devloop.terminal-guard.v1",
+        proposal_id = proposal_id,
+        source_state = "merging",
+        source_version = version,
+        terminal_state = "blocked",
+        terminal_version = version,
+        head_sha = "def456",
+      },
+    }), opts("pr-comment-terminal-head-advanced", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls(pr_comment_create), 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "github_comment_refused")
+    t.eq(result.raises[1].payload.reason, "head-advanced")
+    t.eq(result.raises[1].payload.bound_head_sha, "def456")
+    t.eq(result.raises[1].payload.current_head_sha, "feedface")
+  end,
+
   test_pr_comment_request_dry_run_logs_structured_outbound = function()
     local logs, write_requests = capture_comment_department_logs(
       "departments/github_pr_comment/main.lua",

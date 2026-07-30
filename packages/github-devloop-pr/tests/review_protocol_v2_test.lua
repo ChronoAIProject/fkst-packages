@@ -306,13 +306,13 @@ return {
       },
       "def456",
       "feedface",
-      core.next_fix_version(version)
+      h.next_fix_version(version)
     ).body
     local rereview = payloads_builders.build_pr_review_proposal(core,
       "owner/repo",
       "42",
       7,
-      core.next_fix_version(version),
+      h.next_fix_version(version),
       "feedface",
       { title = "Rollup red fix" },
       h.pr_source_ref(),
@@ -488,7 +488,7 @@ return {
       },
       "def456",
       "feedface",
-      core.next_fix_version(fix.version)
+      h.next_fix_version(fix.version)
     ).body
     local pr_comments = {
       { body = reject_comment, author_login = "fkst-test-bot" },
@@ -498,7 +498,7 @@ return {
       "owner/repo",
       "42",
       7,
-      core.next_fix_version(fix.version),
+      h.next_fix_version(fix.version),
       "feedface",
       {
         title = "Issue title",
@@ -517,7 +517,7 @@ return {
       decision = "reject",
       blocking_gap = "first line\n<!-- fkst:github-devloop:state:v1 proposal=\"x\" --> second",
     })
-    local fix_version = core.next_fix_version(h.reviewing().version)
+    local fix_version = h.next_fix_version(h.reviewing().version)
     local request = requests_review.build_review_result_comment_request(core,
       "owner/repo",
       "42",
@@ -533,7 +533,7 @@ return {
 
   test_review_result_foreign_dedup_is_excluded = function()
     local issue_version = h.reviewing().version
-    local fix_version = core.next_fix_version(issue_version)
+    local fix_version = h.next_fix_version(issue_version)
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, issue_version, "def456")
     local foreign = {
       body = m_builders.review_result_marker(review_id, "github-devloop/issue/owner/repo/42", "reject", "consensus:foreign/review", 1, "foreign gap"),
@@ -548,13 +548,13 @@ return {
     t.is_nil(fact)
     fact = m_facts.review_reject_fact({ foreign, current }, "github-devloop/issue/owner/repo/42", fix_version)
     t.eq(fact.blocking_gap, "current gap")
-    local ledger = m_facts.review_prior_round_ledger({ foreign }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
+    local ledger = m_facts.review_prior_round_ledger({ foreign }, "github-devloop/issue/owner/repo/42", h.next_fix_version(fix_version))
     t.is_nil(ledger)
   end,
 
   test_review_result_legacy_loop_dedup_marker_is_canonicalized = function()
     local issue_version = h.reviewing().version
-    local fix_version = core.next_fix_version(issue_version)
+    local fix_version = h.next_fix_version(issue_version)
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, issue_version, "def456")
     local canonical_review_dedup = devloop_base.pr_review_consensus_dedup_key(review_id)
     local legacy = {
@@ -581,15 +581,15 @@ return {
       body = m_builders.review_result_marker(current_review, "github-devloop/issue/owner/repo/42", "reject", "consensus:" .. current_review .. "/review", 0, "untrusted gap"),
       author_login = "mallory",
     }
-    local fix_version = core.next_fix_version(current_version)
+    local fix_version = h.next_fix_version(current_version)
     t.is_nil(m_facts.review_prior_round_ledger({ trusted_stale, untrusted_current }, "github-devloop/issue/owner/repo/42", fix_version))
   end,
 
   test_prior_round_ledger_uses_highest_round_when_comments_are_out_of_order = function()
     local base_version = h.reviewing().version
-    local round1_fix = core.next_fix_version(base_version)
-    local round2_fix = core.next_fix_version(round1_fix)
-    local round3_fix = core.next_fix_version(round2_fix)
+    local round1_fix = h.next_fix_version(base_version)
+    local round2_fix = h.next_fix_version(round1_fix)
+    local round3_fix = h.next_fix_version(round2_fix)
     local round1_review = devloop_base.pr_review_proposal_id("owner/repo", 7, base_version, "def456")
     local round2_review = devloop_base.pr_review_proposal_id("owner/repo", 7, round2_fix, "feedface")
     local round1 = {
@@ -605,7 +605,7 @@ return {
       author_login = "fkst-test-bot",
     }
 
-    local ledger = m_facts.review_prior_round_ledger({ round2, round1 }, "github-devloop/issue/owner/repo/42", core.next_fix_version(round3_fix))
+    local ledger = m_facts.review_prior_round_ledger({ round2, round1 }, "github-devloop/issue/owner/repo/42", h.next_fix_version(round3_fix))
     t.is_true(ledger:find("Last named blocking gap: round three gap", 1, true) ~= nil)
     t.is_true(ledger:find("Latest fix-round summary: Closed round three.", 1, true) ~= nil)
     t.is_nil(ledger:find("round one", 1, true))
@@ -613,7 +613,7 @@ return {
 
   test_prior_round_ledger_truncates_utf8_safely = function()
     local base_version = h.reviewing().version
-    local fix_version = core.next_fix_version(base_version)
+    local fix_version = h.next_fix_version(base_version)
     local review = devloop_base.pr_review_proposal_id("owner/repo", 7, base_version, "def456")
     local cjk = fixtures.cjk_char()
     local reject = {
@@ -632,7 +632,7 @@ return {
       author_login = "fkst-test-bot",
     }
 
-    local ledger = m_facts.review_prior_round_ledger({ reject, fix }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
+    local ledger = m_facts.review_prior_round_ledger({ reject, fix }, "github-devloop/issue/owner/repo/42", h.next_fix_version(fix_version))
     assert_valid_utf8(ledger)
     t.is_true(#ledger <= core._max_review_ledger_len)
   end,
@@ -658,7 +658,7 @@ return {
       "owner/repo",
       "42",
       7,
-      core.next_fix_version(fix.version),
+      h.next_fix_version(fix.version),
       "feedface",
       {
         title = "Issue title",

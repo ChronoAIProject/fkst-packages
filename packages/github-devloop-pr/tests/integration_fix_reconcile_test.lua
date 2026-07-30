@@ -28,7 +28,7 @@ end
 local function fix_round_version(round)
   local version = reviewing().version
   for _ = 1, round do
-    version = core.next_fix_version(version)
+    version = h.next_fix_version(version)
   end
   return version
 end
@@ -88,7 +88,7 @@ return {
     local review_version = fix_round_version(config.max_fix_rounds() - 1)
     local event = reject_review_event(review_version)
     event.framing = "Raising bounds breaks the reliable payload proof."
-    local fix_version = core.fix_version_from_review_version(review_version)
+    local fix_version = h.next_fix_version(review_version)
     t.eq(core.version_fix_round(review_version), config.max_fix_rounds() - 1)
     mock_bot_env()
     mock_pr_origin({ origin_marker(reviewing().version) }, "devloop-owner-repo-42-01HY", "feedface")
@@ -205,7 +205,7 @@ return {
     local event = fix_reconcile()
     mock_bot_env()
     mock_issue_review({ "fkst-dev:blocked" }, {
-      core.build_fix_reconcile_comment_request("owner/repo", "42", event, "drop", "already done").body,
+      core.build_fix_reconcile_comment_request("owner/repo", "42", event, "drop", "already done", "fixing").body,
     })
 
     local result = run_fix_reconcile(event, opts("fix-reconcile-idempotent"))

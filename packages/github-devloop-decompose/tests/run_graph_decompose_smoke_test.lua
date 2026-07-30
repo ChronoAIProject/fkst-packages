@@ -66,7 +66,7 @@ local function mock_env()
   })
 end
 
-local function mock_claim_and_reads(payload)
+local function mock_claim_and_reads(payload, head_sha)
   h.mock_default_issue_claim("owner/repo", 42)
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = "owner/repo",
@@ -81,7 +81,7 @@ local function mock_claim_and_reads(payload)
     state = "OPEN",
     updated_at = "2026-06-03T01:02:03Z",
   }, "title,body,labels,comments,author")
-  entity_read_mocks.mock_pr_view_selector(t, {
+  local pr_fields = {
     repo = "owner/repo",
     number = 7,
     comments = {
@@ -90,11 +90,15 @@ local function mock_claim_and_reads(payload)
       conv_reconcile.fix_reconcile_marker(payload.proposal_id, payload.version, "drop"),
     },
     head = "devloop-owner-repo-42-01HY",
-    head_sha = "def456",
+    head_sha = head_sha or "def456",
     base_branch = "dev",
     state = "OPEN",
+    head_repo = "owner/repo",
+    cross_repo = false,
     updated_at = "2026-06-03T02:03:04Z",
-  }, entity_read_mocks.pr_origin_selector, 2)
+  }
+  entity_read_mocks.mock_pr_view_selector(t, pr_fields, entity_read_mocks.pr_origin_selector, 2)
+  entity_read_mocks.mock_pr_view_selector(t, pr_fields, entity_read_mocks.pr_fix_precheck_selector, 3)
   t.mock_command(core.gh_issue_list_decompose_children_cmd("owner/repo", payload.proposal_id), {
     stdout = "[]\n",
     stderr = "",
@@ -173,6 +177,21 @@ local function initial_event()
 end
 
 return {
+  test_run_graph_decompose_refuses_head_advanced_after_terminal_decision = function()
+    local payload = decompose_payload()
+    mock_env()
+    mock_claim_and_reads(payload, "feedface")
+    mock_decompose_codex()
+
+    local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 2 }))
+    local refused = graph.require_raise(trace, "github-devloop-decompose.devloop_terminal_refused")
+    t.eq(refused.payload.reason, "head-advanced")
+    t.eq(refused.payload.bound_head_sha, "def456")
+    t.eq(refused.payload.current_head_sha, "feedface")
+    t.eq(graph.find_raise(trace, "github-proxy.github_issue_create_request"), nil)
+    t.eq(graph.find_raise(trace, "github-proxy.github_pr_comment_request"), nil)
+  end,
+
   test_run_graph_decompose_routes_devloop_decompose_to_decompose = function()
     local payload = decompose_payload()
     mock_env()

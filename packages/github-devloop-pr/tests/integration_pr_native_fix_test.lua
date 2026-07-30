@@ -44,7 +44,7 @@ local function pr_native_fixing(extra)
   local proposal_id = entity_lib.pr_proposal_id("owner/repo", 7)
   local value = require("devloop.payloads.builders").build_devloop_fixing_payload({
     proposal_id = proposal_id,
-    impl_version = core.fix_version_from_review_version("pr-native-version"),
+    impl_version = h.next_fix_version("pr-native-version"),
   }, 7, {
     review_proposal_id = event.proposal_id,
     review_dedup_key = event.dedup_key,
@@ -97,7 +97,7 @@ return {
     local result = run_fix(event, opts("fix-pr-native-write", { FKST_GITHUB_WRITE = "1" }))
     local comment_raise = find_raise(result.raises, "github-proxy.github_pr_comment_request")
     local reviewing_raise = find_raise(result.raises, "devloop_reviewing")
-    local expected_version = core.next_fix_version(event.version)
+    local expected_version = h.next_fix_version(event.version)
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)

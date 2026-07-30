@@ -19,6 +19,7 @@ local decompose_lib = require("devloop.decompose")
 local devloop_logging = require("devloop.logging")
 local dispatch_live_run = require("devloop.dispatch_live_run")
 local config = require("devloop.config")
+local replayer_fix_round = require("devloop.replayer_fix_round")
 
 local skip_capture_by_core = setmetatable({}, { __mode = "k" })
 
@@ -554,7 +555,8 @@ local function replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, li
   if tostring(current_pr.head_sha or "") ~= intended_head_sha then
     return log_skip(M, dept, proposal_id, state, "fixing", "fixing", "skip-stale(head-advanced)", "PR head advanced since rejected review")
   end
-  local reviewing_version = M.next_fix_version(state.version)
+  local reviewing_version = replayer_fix_round.next_version_or_reconcile(dept, issue, state, proposal_id, link.pr_number, feedback, current_pr.head_sha, source_ref, "fixing replay reached the fix-round cap")
+  if reviewing_version == nil then return true end
   local comments = (issue._replay_issue_comments ~= nil and issue._replay_issue_comments) or {}
   if has_reviewing_marker_for_comments(M, comments, proposal_id, reviewing_version)
     or has_reviewing_marker_for_comments(M, current_pr.comments, proposal_id, reviewing_version) then
@@ -612,7 +614,8 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
     if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
       return replay_fixing_to_reviewing(M, dept, issue, state, proposal_id, link, current_pr, feedback, facts.source_ref or entity_lib.pr_source_ref(issue.repo, link.pr_number))
     end
-    local reviewing_version = M.next_fix_version(state.version)
+    local reviewing_version = replayer_fix_round.next_version_or_reconcile(dept, issue, state, proposal_id, link.pr_number, feedback, current_pr.head_sha, facts.source_ref, "fixing replay reached the fix-round cap")
+    if reviewing_version == nil then return true end
     if has_reviewing_marker_for_comments(M, facts.snapshot.comments, proposal_id, reviewing_version)
       or has_reviewing_marker_for_comments(M, current_pr.comments, proposal_id, reviewing_version) then
       return log_skip(M, dept, proposal_id, state, "fixing", "reviewing", "skip-idempotent(reviewing marker already visible)", "reviewing state marker for fix is already visible")
@@ -641,7 +644,8 @@ local function replay_fixing(M, tools, dept, issue, state, row, facts)
   end
 
   if dept ~= "observe_pr" then
-    local new_version = M.next_fix_version(state.version)
+    local new_version = replayer_fix_round.next_version_or_reconcile(dept, issue, state, proposal_id, link.pr_number, nil, current_pr.head_sha, facts.source_ref, "fixing replay renormalization reached the fix-round cap")
+    if new_version == nil then return true end
     local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
     local comment_request = requests_review.build_merge_head_reviewing_comment_request(M,
       issue.repo,
