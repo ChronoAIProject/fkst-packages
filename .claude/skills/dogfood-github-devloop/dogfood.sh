@@ -309,20 +309,29 @@ bin_ensure_fresh() {
 # restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
 clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
   local name="$1" keep="$2" wt d
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "[$name] cannot prove stale runtime writer quiescence: lsof unavailable; retaining old runtimes" >&2
+    return 0
+  fi
   for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
     if [ -d "$d" ] && [ "$d" != "$keep" ]; then
+      # The killed supervisor cannot spawn new writers. Existing orphaned children only shrink this
+      # holder set, so an empty kernel open-file census is the deletion barrier for the old runtime.
+      if [ -n "$(lsof +D "$d" 2>/dev/null || true)" ]; then
+        echo "[$name] retaining stale runtime with active writers: $d" >&2
+        continue
+      fi
       python3 "$_self_dir/dead_letter_causes.py" archive \
         --runtime-root "$d" --output "$LOGDIR/${name}-dead-letter-facts.log" \
         || { echo "[$name] could not retain dead-letter cause facts from $d" >&2; return 1; }
+      git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+        | while read -r wt; do
+            case "$wt/" in "$d/"*) git -C "$PKGSRC" worktree remove --force "$wt" 2>/dev/null;; esac
+          done
+      rm -rf "$d" 2>/dev/null
     fi
   done
-  git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
-    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep" \
-    | while read -r wt; do git -C "$PKGSRC" worktree remove --force "$wt" 2>/dev/null; done
   git -C "$PKGSRC" worktree prune 2>/dev/null
-  for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
-    [ -d "$d" ] && [ "$d" != "$keep" ] && rm -rf "$d" 2>/dev/null
-  done
 }
 
 launch_one() { # $1 name, $2 restart flag (0|1)
@@ -367,8 +376,7 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   wait_supervise_ready "$pid" "$log"
   local ready_status=$?
   if [ "$ready_status" -eq 0 ]; then
-    # On restart, host-run stops the prior supervisor before the new one can emit readiness.
-    # Archive mutable child logs only after that barrier so their final cause fact is retained.
+    # Cleanup separately proves that no orphaned old-runtime writer remains.
     clean_stale_runtime_worktrees "$name" "$rt"
     # Committed per-launch verification that the own-session daemonization took effect: a session
     # leader has PGID == PID. If not, setsid silently did not apply and the supervise is back in a

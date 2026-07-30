@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import stat
 import subprocess
 import tempfile
@@ -98,7 +99,7 @@ def _run_durable_health(
 
 
 def _run_restart_ordering_health(dead_letter: dict, late_fact: str) -> subprocess.CompletedProcess[str]:
-    """Restart a fake supervisor that emits one last cause before it quiesces."""
+    """Restart while an orphaned old-runtime writer emits a post-readiness cause."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         durable_root = root / "durable"
@@ -122,6 +123,10 @@ def _run_restart_ordering_health(dead_letter: dict, late_fact: str) -> subproces
             log_root / "dogfood-rt-packages.old" / "logs" / "framework-child"
         )
         old_child_logs.mkdir(parents=True)
+        old_writer_log = old_child_logs / "late-dead-letter.log"
+        old_writer_ready = root / "old-writer.ready"
+        old_writer_release = root / "old-writer.release"
+        old_writer_done = root / "old-writer.done"
         fake_pid_file = root / "fake-supervise.pid"
         package_root = root / "packages"
         (package_root / "scripts").mkdir(parents=True)
@@ -130,19 +135,52 @@ def _run_restart_ordering_health(dead_letter: dict, late_fact: str) -> subproces
             """#!/bin/bash
 set -eu
 printf '%s\n' "$$" > "$FAKE_SUPERVISE_PID_FILE"
-if [ ! -d "$OLD_CHILD_LOGS" ]; then
-  echo "old runtime removed before restart quiesced" >&2
-  exit 42
-fi
-printf '%s\n' "$LATE_CAUSE_FACT" > "$OLD_CHILD_LOGS/late-dead-letter.log"
 echo "EVENT=code_provenance source=fixture ENGINE_VER=fixture PKG_VERS=fixture"
 echo "MSG=event runtime running"
-echo "RESTART_QUIESCED=1"
+echo "REPLACEMENT_READY=1"
 sleep 30
 """,
             encoding="utf-8",
         )
         fake_host_run.chmod(fake_host_run.stat().st_mode | stat.S_IXUSR)
+
+        writer_env = {
+            **os.environ,
+            "LATE_CAUSE_FACT": late_fact,
+            "OLD_WRITER_LOG": str(old_writer_log),
+            "OLD_WRITER_READY": str(old_writer_ready),
+            "OLD_WRITER_RELEASE": str(old_writer_release),
+            "OLD_WRITER_DONE": str(old_writer_done),
+        }
+        old_supervisor = subprocess.Popen(
+            [
+                "/bin/bash",
+                "-c",
+                """
+(
+  exec 3>> "$OLD_WRITER_LOG"
+  : > "$OLD_WRITER_READY"
+  while [ ! -e "$OLD_WRITER_RELEASE" ]; do sleep 0.01; done
+  printf '%s\n' "$LATE_CAUSE_FACT" >&3
+  : > "$OLD_WRITER_DONE"
+) &
+wait
+""",
+            ],
+            env=writer_env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 5
+        while not old_writer_ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if not old_writer_ready.exists():
+            old_supervisor.kill()
+            old_supervisor.wait(timeout=5)
+            raise RuntimeError("old-runtime writer did not open its log")
+        old_supervisor.kill()
+        old_supervisor.wait(timeout=5)
 
         script = f'''source "{DOGFOOD}"
 cfg() {{ DUR="{durable_root}"; return 0; }}
@@ -150,7 +188,7 @@ derive_devloop_pkgs_from_workspace() {{ DEVLOOP_PKGS="github-proxy"; }}
 wait_supervise_ready() {{
   local pid="$1" log="$2" attempts=0
   while [ "$attempts" -lt 500 ]; do
-    grep -q "RESTART_QUIESCED=1" "$log" 2>/dev/null && return 0
+    grep -q "REPLACEMENT_READY=1" "$log" 2>/dev/null && return 0
     pid_alive_non_zombie "$pid" || return 1
     attempts=$((attempts + 1))
     sleep 0.01
@@ -167,6 +205,21 @@ BOT="fixture-bot"
 LOCAL_PKGS=""
 launch_one packages 1
 launch_status=$?
+if [ ! -d "{old_child_logs}" ]; then
+  echo "old runtime removed while its orphaned writer was active" >&2
+  launch_status=42
+else
+  : > "{old_writer_release}"
+  attempts=0
+  while [ ! -e "{old_writer_done}" ] && [ "$attempts" -lt 500 ]; do
+    attempts=$((attempts + 1))
+    sleep 0.01
+  done
+  if [ ! -e "{old_writer_done}" ]; then
+    echo "old-runtime writer did not emit its late cause" >&2
+    launch_status=43
+  fi
+fi
 if [ -f "{fake_pid_file}" ]; then
   fake_pid=$(sed -n '1p' "{fake_pid_file}")
   kill "$fake_pid" 2>/dev/null || true
@@ -175,20 +228,25 @@ fi
 durable_health_one packages
 exit "$launch_status"
 '''
-        return subprocess.run(
-            ["/bin/bash", "-c", script],
-            cwd=str(REPO_ROOT),
-            env={
-                **os.environ,
-                "DOGFOOD_REPOS": "packages",
-                "FAKE_SUPERVISE_PID_FILE": str(fake_pid_file),
-                "OLD_CHILD_LOGS": str(old_child_logs),
-                "LATE_CAUSE_FACT": late_fact,
-            },
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        try:
+            return subprocess.run(
+                ["/bin/bash", "-c", script],
+                cwd=str(REPO_ROOT),
+                env={
+                    **os.environ,
+                    "DOGFOOD_REPOS": "packages",
+                    "FAKE_SUPERVISE_PID_FILE": str(fake_pid_file),
+                },
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        finally:
+            old_writer_release.touch(exist_ok=True)
+            try:
+                os.killpg(old_supervisor.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 class DurableHealthTest(unittest.TestCase):
@@ -230,7 +288,7 @@ class DurableHealthTest(unittest.TestCase):
             out,
         )
 
-    def test_restart_quiesces_writer_before_archiving_cause_fact(self) -> None:
+    def test_restart_retains_old_runtime_until_orphaned_writer_finishes(self) -> None:
         now_ms = int(time.time() * 1000)
 
         result = _run_restart_ordering_health(
