@@ -67,29 +67,40 @@ end
 
 M.impl_failed_outcome = impl_failed_outcome
 
-local function worktree_missing_outcome(ready, worktree, attempt, started_at, exec_ref, base_sha)
+local function worktree_unavailable_outcome(ready, worktree, reason, attempt, started_at, exec_ref, base_sha)
   return {
-    kind = "worktree-missing",
+    kind = reason,
     ready = ready,
     worktree = worktree,
-    reason = "worktree-missing",
+    reason = reason,
     terminal = false,
     attempt = attempt,
     started_at = started_at,
     exec_ref = exec_ref,
     finished_at = now(),
     base_sha = base_sha,
-    outcome = "retry: worktree-missing",
+    outcome = "retry: " .. tostring(reason),
   }
 end
 
-local function worktree_exists(worktree)
+local function worktree_unavailable_reason(worktree, branch)
   local result = exec_sync({ cmd = devloop_commands.path_is_directory_cmd(worktree), timeout = 30 })
   if result.exit_code ~= 0 and result.exit_code ~= 1 then
     error("github-devloop: worktree-path-check-failed: implementation worktree path check failed: "
       .. tostring(result.stderr))
   end
-  return result.exit_code == 0
+  if result.exit_code == 1 then
+    return "worktree-missing"
+  end
+  local list = devloop_commands.git_worktree_list(30)
+  if list.exit_code ~= 0 then
+    error("github-devloop: worktree-list-failed: implementation worktree registration check failed: "
+      .. tostring(list.stderr))
+  end
+  if not devloop_commands.worktree_registered(list.stdout, worktree) then
+    return "worktree-unregistered"
+  end
+  return nil
 end
 
 function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, exec_ref, base_sha)
@@ -329,8 +340,10 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
-  if not worktree_exists(worktree) then
-    return worktree_missing_outcome(ready, worktree, attempt, started_at, exec_ref, base_head)
+  local unavailable_reason = worktree_unavailable_reason(worktree, branch)
+  if unavailable_reason ~= nil then
+    return worktree_unavailable_outcome(ready, worktree, unavailable_reason,
+      attempt, started_at, exec_ref, base_head)
   end
   local green, verify_detail, candidate_result, candidate_verification_attempt =
     run_candidate_local_iteration_check(ready, worktree)
@@ -379,8 +392,10 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
 end
 
 function M.after_codex_failure(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, stderr)
-  if not worktree_exists(worktree) then
-    return worktree_missing_outcome(ready, worktree, attempt, started_at, exec_ref, base_head)
+  local unavailable_reason = worktree_unavailable_reason(worktree, branch)
+  if unavailable_reason ~= nil then
+    return worktree_unavailable_outcome(ready, worktree, unavailable_reason,
+      attempt, started_at, exec_ref, base_head)
   end
   local status = devloop_commands.git_status(worktree, 30)
   if status.exit_code ~= 0 then

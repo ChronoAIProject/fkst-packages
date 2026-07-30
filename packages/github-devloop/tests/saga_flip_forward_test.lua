@@ -178,7 +178,9 @@ local function run_old_sink_probe(probe)
     })
     t.mock_command("show-ref --verify --quiet", { stdout = "", stderr = "", exit_code = 1 })
   end
-  mock_fresh_implement_worktree()
+  mock_fresh_implement_worktree({
+    impl_version = core.implementation_attempt_version(event.dedup_key, event.impl_retry_attempt),
+  })
   mock_implement_codex(0, "implemented")
   mock_git_status(" M packages/github-devloop/core.lua\n")
   mock_git_commit(head_sha, branch)

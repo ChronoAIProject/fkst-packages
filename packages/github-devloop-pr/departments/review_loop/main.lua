@@ -252,8 +252,8 @@ return saga.department(spec, { done = function() return false end, act = functio
       angle_digests = unresolved.angle_digests,
       findings_record = facts_with_current[#facts_with_current] and facts_with_current[#facts_with_current].findings_record,
     }, event.ts, current_pr.comments, content_fetch, high_risk, next_dedup)
-    -- The implementation worktree is per-launch runtime scratch that a restart wipes; when it is gone,
-    -- fall back to the read-only project checkout (".", a git repo the sandboxed codex accepts) so the
+    -- If the stable implementation worktree is absent or no longer registered, fall back to the
+    -- read-only project checkout (".", a git repo the sandboxed codex accepts) so the
     -- review-consensus angle codex does not land in a non-git scratch dir and refuse to start ("Not inside
     -- a trusted directory"). The codex reads the PR diff from source_ref/content_fetch, not from cwd, so
     -- cwd only has to be a git repo. Makes PR review crash-only-robust across restarts.

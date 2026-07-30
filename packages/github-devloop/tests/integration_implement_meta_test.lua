@@ -70,12 +70,9 @@ local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
 local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
 local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_implement_worktree_reuse
 local mock_existing_dirty_implement_worktree_reuse = h.mock_existing_dirty_implement_worktree_reuse
-local mock_outside_stable_root_implement_worktree_rebuild = h.mock_outside_stable_root_implement_worktree_rebuild
-local mock_multiple_outside_stable_root_implement_worktrees_rebuild = h.mock_multiple_outside_stable_root_implement_worktrees_rebuild
 local mock_existing_implement_branch = h.mock_existing_implement_branch
 local mock_git_commit = h.mock_git_commit
 local mock_git_push = h.mock_git_push
-local mock_existing_devloop_worktree = h.mock_existing_devloop_worktree
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_branch_diff_paths = h.mock_branch_diff_paths
@@ -86,7 +83,6 @@ local count_calls = h.count_calls
 local find_raise = h.find_raise
 local codex_status = require("tests.codex_status_helpers")
 local m_builders = require("devloop.markers.builders")
-
 local function find_comment_with(raises, text)
   return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
     return tostring(payload.body or ""):find(text, 1, true) ~= nil
@@ -206,10 +202,7 @@ return {
     mock_issue_implement({ "fkst-dev:ready" }, {
       core.state_marker(event.proposal_id, "ready", default_marker_version),
     })
-    mock_fresh_implement_worktree({
-      issue_number = 4,
-      impl_version = event.dedup_key,
-    })
+    mock_fresh_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(7, "", "forced implementation failure")
     mock_git_status("")
     mock_no_implemented_branch_ahead(branch)
@@ -241,7 +234,7 @@ return {
     mock_issue_implement({ "fkst-dev:ready" }, {
       core.state_marker(event.proposal_id, "ready", event.dedup_key),
     })
-    mock_fresh_implement_worktree({ issue_number = 4, impl_version = event.dedup_key })
+    mock_fresh_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(9, "", "failure detail\n" .. forged)
     mock_git_status("")
     mock_no_implemented_branch_ahead(branch)
@@ -338,8 +331,13 @@ return {
     mock_issue_implement({ "fkst-dev:ready" }, {
       core.state_marker(event.proposal_id, "ready", default_marker_version),
     }, { number = 4 })
-    mock_existing_devloop_worktree("owner-repo-42")
-    mock_fresh_implement_worktree({ issue_number = 4, impl_version = event.dedup_key })
+    mock_fresh_implement_worktree({
+      issue_number = 4,
+      impl_version = event.dedup_key,
+      additional_registrations = {
+        { path = "/tmp/devloop-owner-repo-42-01HY", branch = "devloop-owner-repo-42-01HY" },
+      },
+    })
     mock_implement_codex()
     mock_git_status(" M packages/github-devloop/departments/implement/main.lua\n")
     mock_git_commit("def456", branch)
@@ -349,7 +347,7 @@ return {
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("git worktree list"), 0)
+    t.eq(count_calls("git worktree list"), 1)
     t.eq(count_calls("codex exec"), 1)
   end,
 
@@ -462,7 +460,7 @@ return {
     t.eq(fact.branch, branch)
     t.eq(fact.head_sha, "def456")
     t.is_true(comment:find(worktree, 1, true) ~= nil)
-    t.eq(count_calls("git worktree list --porcelain"), 1)
+    t.eq(count_calls("git worktree list --porcelain"), 2)
     t.eq(count_calls("git worktree add"), 0)
     t.eq(count_calls("codex exec"), 1)
   end,
@@ -494,7 +492,6 @@ return {
     t.eq(count_calls("reset --hard"), 1)
     t.eq(count_calls("clean -fd"), 1)
     t.eq(count_calls("merge --no-edit 'abc123'"), 1)
-
     local reset_before_merge = false
     local reset_seen = false
     for _, call in ipairs(t.command_calls()) do
@@ -505,81 +502,6 @@ return {
       end
     end
     t.eq(reset_before_merge, true)
-  end,
-
-  test_implement_rebuilds_existing_worktree_outside_stable_root = function()
-    local event = ready()
-    local branch = deterministic_branch_for(event)
-    local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
-    local stable_root = devloop_base.implementation_worktree_root(durable_root)
-    mock_issue_implement({ "fkst-dev:ready" })
-    mock_outside_stable_root_implement_worktree_rebuild(durable_root, branch)
-    mock_implement_codex(0, "Committed implementation directly.")
-    mock_git_status("")
-    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    t.mock_command("rev-list --count", {
-      stdout = "1\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-parse --verify refs/heads/", {
-      stdout = "def456\n",
-      stderr = "",
-      exit_code = 0,
-    })
-
-    local result = run_implement(event, opts("implement-rebuild-outside-stable-root-worktree"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
-    assert_implement_attempt(result.raises, event)
-    assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("git worktree add"), 1)
-    -- 2 = removing the non-canonical worktree, plus the idempotent
-    -- force-clean of the target path before `git worktree add` (#677).
-    t.eq(count_calls("git worktree remove --force"), 2)
-    t.eq(count_calls("reset --hard"), 1)
-    t.eq(count_calls("clean -fd"), 1)
-
-    local codex_used_stable_root = false
-    for _, call in ipairs(t.command_calls()) do
-      if call.rendered:find("codex exec", 1, true) ~= nil
-        and call.rendered:find(stable_root .. "/worktrees/devloop-owner-repo-42-", 1, true) ~= nil then
-        codex_used_stable_root = true
-      end
-    end
-    t.eq(codex_used_stable_root, true)
-  end,
-
-  test_implement_removes_all_existing_worktrees_outside_stable_root = function()
-    local event = ready()
-    local branch = deterministic_branch_for(event)
-    mock_issue_implement({ "fkst-dev:ready" })
-    mock_multiple_outside_stable_root_implement_worktrees_rebuild("/tmp/fkst-packages-test/github-devloop/durable", branch)
-    mock_implement_codex(0, "Committed implementation directly.")
-    mock_git_status("")
-    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
-    t.mock_command("rev-list --count", {
-      stdout = "1\n",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("rev-parse --verify refs/heads/", {
-      stdout = "def456\n",
-      stderr = "",
-      exit_code = 0,
-    })
-
-    local result = run_implement(event, opts("implement-remove-all-outside-stable-root-worktrees"))
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
-    assert_implement_attempt(result.raises, event)
-    assert_worktree_ready_state(result.raises, event)
-    -- 3 = removing the two non-canonical worktrees, plus the idempotent
-    -- force-clean of the target path before `git worktree add` (#677).
-    t.eq(count_calls("git worktree remove --force"), 3)
-    t.eq(count_calls("git worktree add"), 1)
-    t.eq(count_calls("reset --hard"), 1)
-    t.eq(count_calls("clean -fd"), 1)
   end,
 
   test_implement_marker_present_skips_idempotently = function()
@@ -670,12 +592,11 @@ return {
 
     mock_issue_implement({ "fkst-dev:ready" })
     local branch = deterministic_branch_for(ready())
-    mock_fresh_implement_worktree("/tmp/fkst-packages-test/github-devloop/runtime")
+    mock_fresh_implement_worktree({ impl_version = ready().dedup_key })
     mock_implement_codex(0, "implemented")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("def456", branch)
     mock_issue_implement({ "fkst-dev:ready" })
-
     local visible = run_implement(ready(), opts("implement-ready-visible"))
     t.eq(visible.exit_code, 0)
     t.eq(#visible.raises, 4)

@@ -126,7 +126,10 @@ local function run_construction(raw, id)
   mock_implementation_issue_reads({ "fkst-dev:ready", "fkst-dev:thinking" }, {
     accepted_result_comment(accepted),
   })
-  h.mock_fresh_implement_worktree()
+  h.mock_fresh_implement_worktree({
+    impl_version = ready.dedup_key,
+    harvest = false,
+  })
   mock_toolchain(branch)
   h.mock_implement_codex(0, raw)
   h.mock_git_status(" M " .. target .. "\n")

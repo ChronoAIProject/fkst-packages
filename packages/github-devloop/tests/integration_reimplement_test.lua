@@ -400,7 +400,10 @@ return {
       core.state_marker(event.proposal_id, "ready", ready.dedup_key),
     }
     mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
-    mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
+    mock_existing_empty_implement_worktree({
+      impl_version = ready.dedup_key,
+      harvest = false,
+    })
     mock_implement_codex(0, implementation_receipt(
       event, ready.dedup_key, "cannot-implement-here", 1, evidence))
     mock_git_status("")

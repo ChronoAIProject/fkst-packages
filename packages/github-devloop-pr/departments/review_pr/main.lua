@@ -192,7 +192,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       end
       proposal.dedup_key = reviewing.review_delivery_dedup_key
     end
-    -- Fall back to the read-only project checkout (".") if the ephemeral impl worktree is gone (restart);
+    -- Fall back to the read-only project checkout (".") if the stable impl worktree is unavailable;
     -- see review_loop -- the review codex reads the PR diff from context, so cwd just needs to be a git repo.
     local worktree = devloop_commands.existing_implementation_worktree(repo, issue_number, origin and origin.impl_version or reviewing.version)
     proposal.worktree = worktree or "."

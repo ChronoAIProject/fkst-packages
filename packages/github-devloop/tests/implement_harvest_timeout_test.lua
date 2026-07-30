@@ -33,6 +33,12 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree /tmp/fkst-packages-test/github-devloop/runtime/worktrees/dirty-timeout"
+        .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("rev-list --count", {
       stdout = "0\n",
       stderr = "",
