@@ -31,7 +31,14 @@ local spec = {
   },
   graph_json = true,
   retry = false,
-  stall_window = "2m",
+  -- 2m does not scale with repository size: this department enumerates every open
+  -- fkst-dev:enabled issue through `gh api` (measured 289 KB / ~50 issues on
+  -- the-omega-institute/trureturing) and was killed at elapsed_ms=123741 > 120000 on
+  -- 11 consecutive ticks. Its death removes the only subscription of
+  -- {github-devloop,github-devloop-pr}.restart_transition_anomaly, so observe_issue's
+  -- grantless-telemetry raise then fails with "has no delivery subscriptions" and the
+  -- load-bearing issue delivery dead-letters -> the whole issue state machine stalls.
+  stall_window = "10m",
 }
 
 local function ingest_restart_transition_anomaly(event)

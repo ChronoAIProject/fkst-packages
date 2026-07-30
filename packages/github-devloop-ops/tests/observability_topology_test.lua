@@ -227,7 +227,7 @@ return {
     t.eq(module.spec.graph_json, true)
     t.eq(module.spec.consumes[1], "devloop_observe_tick")
     t.eq(module.spec.retry, false)
-    t.eq(module.spec.stall_window, "2m")
+    t.eq(module.spec.stall_window, "10m")
   end,
 
   test_topology_derives_unknown_department_lane_and_edges_from_graph = function()
