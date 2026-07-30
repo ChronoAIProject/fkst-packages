@@ -453,14 +453,37 @@ bin_ensure_fresh() {
 # Prune worktrees + scratch dirs from OLD runtime roots of this dogfood (implement/fix
 # depts create worktrees under the launch runtime scratch, registered in the shared .git; each
 # restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
+#
+# PRESERVE STILL-REGISTERED GENERATIONS (#2925). A restart SIGKILLs only the supervise; an
+# in-flight codex is ORPHANED and keeps running against its worktree (crash-only contract). This
+# cleaner used to remove the registration and rm -rf the directory anyway, so the orphan kept
+# writing into a deleted path and recreated a partial, UNREGISTERED husk. Harvest then ran `cd`
+# into it, exited nonzero WITHOUT a typed marker, and the run was recorded as a false
+# `impl-failed / local-iteration-attribution-indeterminate` (observed on #2919, and on #2925's own
+# implementation twice). A registered worktree is the ground truth for "someone still owns this",
+# so a generation that still has one is skipped entirely and reported — it is reclaimed on a later
+# pass once its registration is gone. This is the operator-side containment that the #2925 fix
+# (moving implementation worktrees to a stable root) requires to land first; without it, deploying
+# that fix would itself destroy the pre-fix work still in flight.
 clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
-  local name="$1" keep="$2" wt d
-  git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
-    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep" \
-    | while read -r wt; do git -C "$PKGSRC" worktree remove --force "$wt" 2>/dev/null; done
+  local name="$1" keep="$2" wt d held
+  held=$(git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep")
+  if [ -n "$held" ]; then
+    echo "  ! preserving $(printf '%s\n' "$held" | wc -l | tr -d ' ') still-registered worktree(s) from older runtime roots (#2925):"
+    printf '%s\n' "$held" | sed 's|^|      |'
+  fi
   git -C "$PKGSRC" worktree prune 2>/dev/null
   for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
-    [ -d "$d" ] && [ "$d" != "$keep" ] && rm -rf "$d" 2>/dev/null
+    [ -d "$d" ] && [ "$d" != "$keep" ] || continue
+    # Skip any generation that still holds a registered worktree; removing it is what
+    # manufactures the husk. Re-read the registry each iteration: `worktree prune` above may
+    # have dropped registrations whose directories are already gone.
+    if git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+        | grep -qF "$d/"; then
+      continue
+    fi
+    rm -rf "$d" 2>/dev/null
   done
 }
 
