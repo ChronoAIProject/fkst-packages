@@ -63,8 +63,20 @@ local function state_marker_comment(author_login)
   }
 end
 
-local function admission_for(current, repo_name)
-  local inputs = m_claims.claim_admission_inputs(current, repo_name)
+local admission_epoch_sequence = 0
+
+local function admission_for(current, repo_name, poll_key)
+  if repo_name ~= nil and poll_key == nil then
+    admission_epoch_sequence = admission_epoch_sequence + 1
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo_name), "")
+    local recorded, allocated_epoch = entity_list_cache.record_poll_epoch(
+      repo_name,
+      "claim-peer-discovery-" .. tostring(admission_epoch_sequence)
+    )
+    t.is_true(recorded)
+    poll_key = allocated_epoch
+  end
+  local inputs = m_claims.claim_admission_inputs(current, repo_name, poll_key)
   local admission, detail = m_claims.claim_admission_precheck(current, inputs)
   return admission, detail, inputs
 end
@@ -84,6 +96,10 @@ local function direct_discovery_admission(handle, policy, poll_key)
     managed = observed or {},
     trusted_author_policy = policy,
     peer_discovery_error = observed == nil and unavailable_reason or nil,
+    peer_snapshot_provenance = {
+      repo = repo,
+      poll_epoch = poll_key,
+    },
   })
 end
 
@@ -170,6 +186,45 @@ local function mock_repo_peer_scan(issue_rows, pr_rows, opts)
 end
 
 return {
+  test_repo_peer_snapshot_accessor_requires_a_nonempty_poll_epoch = function()
+    local calls = 0
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "trusted-human" })
+    local handle = {
+      issue_list_cli = function()
+        calls = calls + 1
+        return { stdout = "[]", stderr = "", exit_code = 0 }
+      end,
+    }
+
+    local ok, err = pcall(function()
+      m_claims.repo_scoped_observed_managed_bot_logins(
+        repo,
+        policy,
+        "fkst-test-bot",
+        handle,
+        nil
+      )
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("poll epoch must be non-empty", 1, true) ~= nil)
+    t.eq(calls, 0, "missing epoch is denied before either peer source is scanned")
+  end,
+
+  test_tokenless_dynamic_peer_admission_settles_unavailable_before_scan = function()
+    mock_bot("fkst-test-bot")
+    mock_authorized_login("trusted-human")
+
+    local inputs = m_claims.claim_admission_inputs(current_issue("trusted-human", {}), repo, nil)
+    local admission, detail = m_claims.claim_admission_precheck(current_issue("trusted-human", {}), inputs)
+
+    t.eq(admission, "denied")
+    t.eq(detail.action, "skip-peer-discovery-unavailable")
+    t.eq(detail.reason, "peer-activity-poll-epoch-unavailable")
+    t.eq(count_calls(issue_peer_command), 0)
+    t.eq(count_calls(pr_peer_command), 0)
+  end,
+
   test_authorized_state_marker_author_gets_managed_peer_admission = function()
     mock_bot("fkst-test-bot")
     mock_authorized_login("peer-bot")
@@ -214,12 +269,13 @@ return {
 
     local first_admission, first_detail, first_inputs = admission_for(current_issue("peer-bot", {
       state_marker_comment("peer-bot"),
-    }))
+    }), repo)
 
     mock_bot("fkst-test-bot")
     mock_authorized_login("peer-bot")
+    mock_repo_peer_scan({}, {})
 
-    local second_admission, second_detail, second_inputs = admission_for(current_issue("peer-bot", {}))
+    local second_admission, second_detail, second_inputs = admission_for(current_issue("peer-bot", {}), repo)
 
     t.eq(first_admission, "denied")
     t.eq(first_detail.action, "skip-fork-peer-bot")
@@ -476,6 +532,10 @@ return {
       managed = observed or {},
       trusted_author_policy = policy,
       peer_discovery_error = observed == nil and unavailable_reason or nil,
+      peer_snapshot_provenance = {
+        repo = repo,
+        poll_epoch = poll_key,
+      },
     })
 
     t.is_nil(unavailable_reason)

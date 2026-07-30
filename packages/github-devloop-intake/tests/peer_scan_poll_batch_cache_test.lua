@@ -8,6 +8,7 @@ local admission_department = require("departments.admission.main")
 local author_policy = require("testkit_internal.github_author_policy")
 local github_author_policy = require("devloop.github_author_policy")
 local github_factory = require("devloop.github_factory")
+local m_claims = require("devloop.claims")
 local marker_builders = require("devloop.markers.builders")
 local t = h.t
 local core = h.core
@@ -158,7 +159,10 @@ local function run_admission(run_opts, number, poll_token, created_at, opts)
   end
   mock_event_env()
   mock_admission_view(number, created_at, options.current)
-  local department = admission_department.make_department({ capacity = test_capacity })
+  local department = admission_department.make_department({
+    capacity = options.capacity or test_capacity,
+    claims = options.claims,
+  })
   return testing.run_fake_outcome(department, entity_changed(number, poll_token))
 end
 
@@ -198,6 +202,57 @@ local function assert_no_admission_effect(result)
   t.eq(h.find_raise(result.raises, "devloop_intake_candidate"), nil)
 end
 
+local function claims_advancing_epoch_after_precheck(next_epoch)
+  return {
+    claim_admission_inputs = m_claims.claim_admission_inputs,
+    claim_admission_precheck = function(current, inputs)
+      local admission, detail = m_claims.claim_admission_precheck(current, inputs)
+      local recorded = entity_list_cache.record_poll_epoch(repo, next_epoch)
+      t.is_true(recorded)
+      return admission, detail
+    end,
+    claim_issue_for_management = m_claims.claim_issue_for_management,
+    with_current_claim_admission_epoch = m_claims.with_current_claim_admission_epoch,
+  }
+end
+
+local function counting_capacity(counter)
+  return {
+    authorize = function()
+      counter.calls = counter.calls + 1
+      return true, "peer scan test capacity"
+    end,
+    authorize_reintake = test_capacity.authorize_reintake,
+    relinquish = test_capacity.relinquish,
+    reconcile = test_capacity.reconcile,
+  }
+end
+
+local function assert_peer_decision_is_rechecked(name, first_issue_rows, second_issue_rows)
+  local run_opts = h.opts("peer-scan-stale-decision-" .. name)
+  local counter = { calls = 0 }
+  local capacity = counting_capacity(counter)
+  local poll_a = "peer-scan-" .. name .. "-01"
+  local advanced = "peer-scan-" .. name .. "-02"
+  local poll_b = "peer-scan-" .. name .. "-03"
+
+  mock_peer_result(issue_peer_command, { stdout = first_issue_rows, stderr = "", exit_code = 0 })
+  mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
+  assert_no_admission_effect(run_admission(run_opts, 81, poll_a, nil, {
+    capacity = capacity,
+    claims = claims_advancing_epoch_after_precheck(advanced),
+  }))
+  t.eq(counter.calls, 0, "stale " .. name .. " decision is not consumed at the effect boundary")
+
+  mock_peer_result(issue_peer_command, { stdout = second_issue_rows, stderr = "", exit_code = 0 })
+  mock_peer_result(pr_peer_command, { stdout = "[]\n", stderr = "", exit_code = 0 })
+  assert_no_admission_effect(run_admission(run_opts, 81, poll_b, nil, {
+    capacity = capacity,
+  }))
+  t.eq(counter.calls, 1, "the next poll re-evaluates the " .. name .. " decision")
+  t.eq(count_peer_calls(issue_peer_command), 2)
+end
+
 return {
   test_peer_activity_scan_budget_is_constant_within_a_poll_batch = function()
     local run_opts = h.opts("peer-scan-poll-batch-budget")
@@ -222,10 +277,20 @@ return {
     t.eq(count_peer_calls(issue_peer_command), 2, "a new batch re-derives the issue peer scan")
     t.eq(count_peer_calls(pr_peer_command), 2, "a new batch re-derives the PR peer scan")
 
-    run_admission(run_opts, 46, nil)
-    run_admission(run_opts, 47, nil)
-    t.eq(count_peer_calls(issue_peer_command), 4, "missing batch keys perform fresh issue peer scans")
-    t.eq(count_peer_calls(pr_peer_command), 4, "missing batch keys perform fresh PR peer scans")
+    assert_no_admission_effect(run_admission(run_opts, 46, nil))
+    assert_no_admission_effect(run_admission(run_opts, 47, nil))
+    t.eq(count_peer_calls(issue_peer_command), 2, "tokenless admission performs no issue peer scan")
+    t.eq(count_peer_calls(pr_peer_command), 2, "tokenless admission performs no PR peer scan")
+  end,
+
+  test_positive_peer_bot_snapshot_is_rechecked_when_epoch_advances_after_precheck = function()
+    local peer_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n'
+    assert_peer_decision_is_rechecked("positive-peer-bot", peer_rows, "[]\n")
+  end,
+
+  test_negative_peer_bot_snapshot_is_rechecked_when_epoch_advances_after_precheck = function()
+    local peer_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]\n'
+    assert_peer_decision_is_rechecked("negative-peer-bot", "[]\n", peer_rows)
   end,
 
   test_unavailable_peer_activity_scan_fails_closed_before_fork = function()

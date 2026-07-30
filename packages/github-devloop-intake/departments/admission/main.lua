@@ -11,7 +11,6 @@ local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
 local config = require("devloop.config")
 local entity_lib = require("devloop.entity")
-local entity_list_cache = require("devloop.entity_list_cache")
 local admission_core = require("core.admission")
 local intake_capacity = require("core.intake_capacity")
 local replay_authorization = require("core.replay_authorization")
@@ -92,12 +91,6 @@ local function settled_claim_admission(context, repo, current, poll_key)
   )
 end
 
-local function with_current_claim_peer_epoch(repo, claim_detail, fn)
-  local peer_repo = type(claim_detail) == "table" and claim_detail.peer_discovery_repo or repo
-  local peer_epoch = type(claim_detail) == "table" and claim_detail.peer_discovery_poll_key or nil
-  return entity_list_cache.with_current_poll_epoch(peer_repo, peer_epoch, fn)
-end
-
 local function handle_pending_reintake(context, repo, issue, current, proposal_id, source_ref, poll_key)
   local command = core.pending_reintake_command(current.comments)
   if command == nil then
@@ -124,7 +117,7 @@ local function handle_pending_reintake(context, repo, issue, current, proposal_i
     return true
   end
   local claim_admission, claim_detail = settled_claim_admission(context, repo, current, poll_key)
-  local epoch_current = with_current_claim_peer_epoch(repo, claim_detail, function()
+  local epoch_current = context.claims.with_current_claim_admission_epoch(claim_detail, function()
     if not claim_with_capacity(
       context,
       context.capacity.authorize_reintake,
@@ -222,7 +215,7 @@ local function admit_issue_event(context, event, entity)
 
   devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
   local issue = issue_from_current(issue_number, current)
-  local poll_key = entity_list_cache.entity_list_poll_epoch(event)
+  local poll_key = m_claims.claim_admission_poll_epoch(event)
 
   if handle_pending_reintake(context, repo, issue, current, proposal_id, entity.source_ref, poll_key) then
     return
@@ -255,7 +248,7 @@ local function admit_issue_event(context, event, entity)
     devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "entity", "candidate", "skip-outside-intake-milestone", "fresh issue milestone=" .. tostring(current.milestone_number or "none") .. " is outside configured intake scope")
     return
   end
-  local epoch_current = with_current_claim_peer_epoch(repo, claim_detail, function()
+  local epoch_current = context.claims.with_current_claim_admission_epoch(claim_detail, function()
     if not claim_with_capacity(
       context,
       context.capacity.authorize,

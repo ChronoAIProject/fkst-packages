@@ -1,6 +1,5 @@
 local convergence_shared = require("devloop.convergence.shared")
 local h = require("tests.devloop_helpers")
-local forks = require("devloop.forks")
 local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local m_builders = require("devloop.markers.builders")
@@ -180,7 +179,7 @@ return {
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
   end,
 
-  test_observe_authorized_other_author_after_grace_raises_fork_request_only = function()
+  test_observe_tokenless_authorized_other_author_denies_before_peer_scan_or_fork = function()
     local run_opts = opts("observe-authorized-other-author-fork")
     mock_issue_state({ "fkst-dev:enabled" }, "OPEN", {}, {}, "trusted-human", os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1))
     t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
@@ -211,13 +210,11 @@ return {
 
     local result = run_observe(issue(), run_opts)
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    local request = find_raise(result.raises, "github-proxy.github_issue_create_request").payload
-    t.eq(request.schema, "github-proxy.issue-create.v1")
-    t.eq(request.assignees[1], "fkst-test-bot")
-    t.eq(request.dedup_key, forks.fork_issue_dedup_key("owner/repo", 42))
-    t.eq(request.post_create_blocked_by.blocked_issue_number, 42)
+    t.eq(#result.raises, 0)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_create_request"), nil)
     t.eq(find_raise(result.raises, "devloop_consensus_request"), nil)
+    t.eq(count_calls("gh issue list --repo owner/repo --state all"), 0)
+    t.eq(count_calls("gh pr list --repo owner/repo --state all"), 0)
   end,
 
   test_observe_skips_not_opt_in_and_already_stateful = function()

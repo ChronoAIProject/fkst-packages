@@ -6,6 +6,7 @@ local forks = require("devloop.forks")
 local t = h.t
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local author_policy = require("testkit_internal.github_author_policy")
+local claim_with_poll_epoch = require("tests.claim_test_helpers").claim_with_poll_epoch
 
 local function mock_bot(login, write_mode, write_reads)
   t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
@@ -247,7 +248,7 @@ return {
   test_dry_run_claim_proceeds_without_assigning = function()
     mock_bot("fkst-test-bot", "")
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = claim_with_poll_epoch(core,
       "claim_contract",
       "owner/repo",
       42,
@@ -272,7 +273,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = claim_with_poll_epoch(core,
       "claim_contract",
       "owner/repo",
       42,
@@ -294,7 +295,7 @@ return {
     })
 
     local ok, captured_logs = capture_warn_logs(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         42,
@@ -322,7 +323,7 @@ return {
     })
 
     local ok, err = pcall(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         42,
@@ -355,7 +356,7 @@ return {
       exit_code = 0,
     })
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = claim_with_poll_epoch(core,
       "claim_contract",
       "owner/repo",
       42,
@@ -371,7 +372,7 @@ return {
   test_non_self_assignee_is_never_touched = function()
     mock_bot("fkst-test-bot", "1")
 
-    local ok = m_claims.claim_issue_for_management(core,
+    local ok = claim_with_poll_epoch(core,
       "claim_contract",
       "owner/repo",
       42,
@@ -396,7 +397,7 @@ return {
     local ok, logs
     local _, raised = capture_raises(function()
       ok, logs = capture_info_logs(function()
-        return m_claims.claim_issue_for_management(core,
+        return claim_with_poll_epoch(core,
           "claim_contract",
           "owner/repo",
           44,
@@ -434,7 +435,7 @@ return {
 
     local ok, captured_logs = capture_info_logs(function()
       local result, raised = capture_raises(function()
-        return m_claims.claim_issue_for_management(core,
+        return claim_with_poll_epoch(core,
           "claim_contract",
           "owner/repo",
           45,
@@ -463,7 +464,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         43,
@@ -495,7 +496,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         43,
@@ -523,7 +524,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         43,
@@ -545,7 +546,7 @@ return {
 
     local ok, captured_logs = capture_info_logs(function()
       local result, raised = capture_raises(function()
-        return m_claims.claim_issue_for_management(core,
+        return claim_with_poll_epoch(core,
           "claim_contract",
           "owner/repo",
           43,
@@ -573,7 +574,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         43,
@@ -591,7 +592,7 @@ return {
     mock_bot("fkst-test-bot", "1")
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         42,
@@ -625,7 +626,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         42,
@@ -676,7 +677,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         42,
@@ -719,7 +720,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         42,
@@ -762,7 +763,7 @@ return {
     })
 
     local ok, raised = capture_raises(function()
-      return m_claims.claim_issue_for_management(core,
+      return claim_with_poll_epoch(core,
         "claim_contract",
         "owner/repo",
         42,

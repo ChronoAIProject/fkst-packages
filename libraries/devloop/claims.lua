@@ -276,6 +276,9 @@ local function pr_base_branch(row)
 end
 
 function C.repo_scoped_observed_managed_bot_logins(repo, trusted_author_policy, owner, github_handle, poll_key)
+  if poll_key == nil or tostring(poll_key) == "" then
+    error("github-devloop: peer snapshot poll epoch must be non-empty")
+  end
   local logins = {}
   if type(trusted_author_policy) ~= "table" or repo == nil or tostring(repo) == "" then
     return logins
@@ -557,8 +560,7 @@ function C.claim_admission_inputs(current, repo, poll_key)
   local managed = nil
   local trusted_author_policy = nil
   local peer_discovery_error = nil
-  local peer_discovery_poll_key = nil
-  local peer_discovery_repo = nil
+  local peer_snapshot_provenance = nil
   if claim_mode ~= "label" and author ~= nil and author ~= "" and author ~= owner then
     managed = C.managed_bot_logins()
     if not C.is_managed_bot_login(author, managed) then
@@ -568,18 +570,27 @@ function C.claim_admission_inputs(current, repo, poll_key)
       if not C.is_managed_bot_login(author, managed)
         and github_author_policy.is_authorized(trusted_author_policy, author)
         and status ~= "self" then
-        peer_discovery_poll_key = poll_key
-        peer_discovery_repo = repo or (current and current.repo)
-        local available, unavailable_reason = add_repo_scoped_observed_managed_bot_logins(
-          managed,
-          peer_discovery_repo,
-          trusted_author_policy,
-          owner,
-          github_handle,
-          poll_key
-        )
-        if not available then
-          peer_discovery_error = unavailable_reason or "peer-activity-unavailable"
+        local peer_repo = repo or (current and current.repo)
+        if poll_key == nil or tostring(poll_key) == "" then
+          peer_discovery_error = "peer-activity-poll-epoch-unavailable"
+        elseif peer_repo == nil or tostring(peer_repo) == "" then
+          peer_discovery_error = "peer-activity-repo-unavailable"
+        else
+          peer_snapshot_provenance = {
+            repo = peer_repo,
+            poll_epoch = tostring(poll_key),
+          }
+          local available, unavailable_reason = add_repo_scoped_observed_managed_bot_logins(
+            managed,
+            peer_snapshot_provenance.repo,
+            trusted_author_policy,
+            owner,
+            github_handle,
+            peer_snapshot_provenance.poll_epoch
+          )
+          if not available then
+            peer_discovery_error = unavailable_reason or "peer-activity-unavailable"
+          end
         end
       end
     end
@@ -591,18 +602,55 @@ function C.claim_admission_inputs(current, repo, poll_key)
     managed = managed,
     trusted_author_policy = trusted_author_policy,
     peer_discovery_error = peer_discovery_error,
-    peer_discovery_poll_key = peer_discovery_poll_key,
-    peer_discovery_repo = peer_discovery_repo,
+    peer_snapshot_provenance = peer_snapshot_provenance,
   }
 end
 
-function C.claim_admission_epoch_is_current(detail, repo)
+function C.claim_admission_poll_epoch(event)
+  return entity_list_cache.entity_list_poll_epoch(event)
+end
+
+local function claim_admission_peer_snapshot_provenance(detail)
   if type(detail) ~= "table" then
+    return nil
+  end
+  local provenance = detail.peer_snapshot_provenance
+  if provenance == nil then
+    return nil
+  end
+  if type(provenance) ~= "table"
+    or provenance.repo == nil
+    or tostring(provenance.repo) == ""
+    or provenance.poll_epoch == nil
+    or tostring(provenance.poll_epoch) == "" then
+    error("github-devloop: peer snapshot provenance requires repo and poll epoch")
+  end
+  return provenance
+end
+
+function C.claim_admission_epoch_is_current(detail)
+  local provenance = claim_admission_peer_snapshot_provenance(detail)
+  if provenance == nil then
     return true
   end
   return entity_list_cache.poll_epoch_is_current(
-    detail.peer_discovery_repo or repo,
-    detail.peer_discovery_poll_key
+    provenance.repo,
+    provenance.poll_epoch
+  )
+end
+
+function C.with_current_claim_admission_epoch(detail, fn)
+  if type(fn) ~= "function" then
+    error("github-devloop: claim admission epoch guard requires a function")
+  end
+  local provenance = claim_admission_peer_snapshot_provenance(detail)
+  if provenance == nil then
+    return true, fn()
+  end
+  return entity_list_cache.with_current_poll_epoch(
+    provenance.repo,
+    provenance.poll_epoch,
+    fn
   )
 end
 
@@ -617,50 +665,44 @@ function C.claim_admission_precheck(current, inputs)
     claim_mode = inputs.claim_mode,
     author = author,
     managed = inputs.managed,
-    peer_discovery_poll_key = inputs.peer_discovery_poll_key,
-    peer_discovery_repo = inputs.peer_discovery_repo,
+    peer_snapshot_provenance = inputs.peer_snapshot_provenance,
   }
+  local function settle(decision, action, reason)
+    detail.action = action
+    detail.reason = reason
+    return decision, detail
+  end
   if inputs.status == "other" then
-    return "other", {
-      action = "skip-claimed-by-other",
-      reason = "issue assignee claim is held by another login",
-    }
+    return settle("other", "skip-claimed-by-other", "issue assignee claim is held by another login")
   end
 
   if inputs.claim_mode ~= "label" then
     if author == nil or author == "" then
-      return "denied", {
-        action = "skip-fork-author-unknown",
-        reason = "issue author is missing or unknown",
-      }
+      return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
     end
     if author ~= inputs.owner then
       if not C.claim_admission_epoch_is_current(inputs) then
-        return "denied", {
-          action = "skip-peer-discovery-stale-epoch",
-          reason = "peer activity authorization epoch is stale",
-        }
+        return settle("denied", "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
       end
       if inputs.peer_discovery_error ~= nil then
-        return "denied", {
-          action = "skip-peer-discovery-unavailable",
-          reason = tostring(inputs.peer_discovery_error),
-        }
+        return settle("denied", "skip-peer-discovery-unavailable", tostring(inputs.peer_discovery_error))
       end
       if C.is_managed_bot_login(author, inputs.managed) then
         if inputs.status == "self" then
           return "held", detail
         end
-        return "denied", {
-          action = "skip-fork-peer-bot",
-          reason = "other-authored unassigned issue belongs to a managed bot login",
-        }
+        return settle(
+          "denied",
+          "skip-fork-peer-bot",
+          "other-authored unassigned issue belongs to a managed bot login"
+        )
       end
       if not github_author_policy.is_authorized(inputs.trusted_author_policy, author) then
-        return "denied", {
-          action = "skip-non-whitelisted-author",
-          reason = "other-authored issue author is not authorized for GitHub content",
-        }
+        return settle(
+          "denied",
+          "skip-non-whitelisted-author",
+          "other-authored issue author is not authorized for GitHub content"
+        )
       end
     end
   end
@@ -668,10 +710,7 @@ function C.claim_admission_precheck(current, inputs)
     return "held", detail
   end
   if author == nil or author == "" then
-    return "denied", {
-      action = "skip-fork-author-unknown",
-      reason = "issue author is missing or unknown",
-    }
+    return settle("denied", "skip-fork-author-unknown", "issue author is missing or unknown")
   end
   return "needs-claim", detail
 end
@@ -694,7 +733,7 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
   if admission ~= "needs-claim" then
     error("github-devloop: invalid claim admission decision")
   end
-  if not C.claim_admission_epoch_is_current(detail, repo) then
+  if not C.claim_admission_epoch_is_current(detail) then
     log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch is stale")
     return false
   end
@@ -734,7 +773,7 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
       log_claim(dept, proposal_id, "fork-present", "trusted fork issue-create ledger marker already exists")
       return false
     end
-    if not C.claim_admission_epoch_is_current(detail, repo) then
+    if not C.claim_admission_epoch_is_current(detail) then
       log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch became stale before fork")
       return false
     end
@@ -748,7 +787,7 @@ function C.claim_issue_for_management(M, dept, repo, issue_number, current, prop
     return true
   end
 
-  if not C.claim_admission_epoch_is_current(detail, repo) then
+  if not C.claim_admission_epoch_is_current(detail) then
     log_claim(dept, proposal_id, "skip-peer-discovery-stale-epoch", "peer activity authorization epoch became stale before claim")
     return false
   end
