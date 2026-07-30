@@ -75,26 +75,26 @@ end
 
 local rest_comments_json
 
-local function mock_child_issue_reads(title, body, labels, comments)
-  local stdout = issue_json(first_child_issue, title, labels, comments, "OPEN", body)
+local function mock_child_issue_reads(issue_number, title, body, labels, comments)
+  local stdout = issue_json(issue_number, title, labels, comments, "OPEN", body)
   for _ = 1, 8 do
     for _, command in ipairs({
-      core.gh_issue_view_state_cmd(repo, first_child_issue),
-      core.gh_issue_view_intake_judge_cmd(repo, first_child_issue),
-      core.gh_issue_view_implement_cmd(repo, first_child_issue),
-      core.gh_issue_view_claim_cmd(repo, first_child_issue),
-      core.gh_issue_view_commit_subject_cmd(repo, first_child_issue),
-      "gh issue view " .. tostring(first_child_issue) .. " --repo " .. repo
+      core.gh_issue_view_state_cmd(repo, issue_number),
+      core.gh_issue_view_intake_judge_cmd(repo, issue_number),
+      core.gh_issue_view_implement_cmd(repo, issue_number),
+      core.gh_issue_view_claim_cmd(repo, issue_number),
+      core.gh_issue_view_commit_subject_cmd(repo, issue_number),
+      "gh issue view " .. tostring(issue_number) .. " --repo " .. repo
         .. " --json 'title,body,updatedAt,labels,comments,state,author'",
     }) do
       t.mock_command(command, { stdout = stdout, stderr = "", exit_code = 0 })
     end
   end
 
-  local path = "repos/" .. repo .. "/issues/" .. tostring(first_child_issue)
+  local path = "repos/" .. repo .. "/issues/" .. tostring(issue_number)
   local rest = string.format(
     '{"number":%d,"title":"%s","body":"%s","state":"open","created_at":"2026-07-10T20:00:00Z","updated_at":"2026-07-12T00:25:03Z","labels":[{"name":"fkst-dev:enabled"},{"name":"fkst-dev:ready"}],"user":{"login":"fkst-test-bot"},"assignees":[{"login":"fkst-test-bot"}]}\n',
-    first_child_issue,
+    issue_number,
     json_escape(title),
     json_escape(body)
   )
@@ -776,11 +776,11 @@ return {
     local create = graph.require_raise(released, "github-proxy.github_issue_create_request")
     t.eq(create.payload.parent, origin_issue)
 
-    local ready_version = "consensus:" .. first_child .. "/materialized"
+    local ready_version = "consensus:" .. revived_child .. "/materialized"
     local ready_comment = {
       id = "IC_materialized_child_ready",
       body = core.state_marker(
-        first_child,
+        revived_child,
         "ready",
         ready_version,
         "result-marker,ready-label,devloop-ready"
@@ -790,10 +790,16 @@ return {
     local child_labels = { "fkst-dev:enabled", "fkst-dev:ready" }
     mock_env()
     mock_write_mode("", 18)
-    mock_child_issue_reads(create.payload.title, create.payload.body, child_labels, { ready_comment })
+    mock_child_issue_reads(
+      revived_child_issue,
+      create.payload.title,
+      create.payload.body,
+      child_labels,
+      { ready_comment }
+    )
     mock_child_implementation_context()
     for _ = 1, 3 do
-      t.mock_command(core.gh_blocked_by_cmd(repo, first_child_issue), {
+      t.mock_command(core.gh_blocked_by_cmd(repo, revived_child_issue), {
         stdout = blocked_by_json({}), stderr = "", exit_code = 0,
       })
     end
@@ -804,7 +810,7 @@ return {
     implement_fixtures.mock_fresh_implement_worktree({
       runtime = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child",
       repo = repo,
-      issue_number = first_child_issue,
+      issue_number = revived_child_issue,
       impl_version = implementation_version,
     })
     t.mock_command("git show abc123:.fkst/substrate-ref", {
@@ -818,21 +824,21 @@ return {
     )
     implement_fixtures.mock_git_commit(
       "def456",
-      devloop_base.implement_branch(repo, first_child_issue, implementation_version)
+      devloop_base.implement_branch(repo, revived_child_issue, implementation_version)
     )
 
-    local child_ref = repo .. "#issue/" .. tostring(first_child_issue)
+    local child_ref = repo .. "#issue/" .. tostring(revived_child_issue)
     local cascaded = graph.require_quiescent(graph.run({
       queue = "github-proxy.github_entity_changed",
       payload = {
         schema = "github-proxy.v1",
         type = "issue",
         repo = repo,
-        number = first_child_issue,
+        number = revived_child_issue,
         title = create.payload.title,
         state = "OPEN",
         updated_at = "2026-07-12T00:25:03Z",
-        dedup_key = repo .. "#issue#" .. tostring(first_child_issue) .. "@2026-07-12T00:25:03Z",
+        dedup_key = repo .. "#issue#" .. tostring(revived_child_issue) .. "@2026-07-12T00:25:03Z",
         source_ref = { kind = "external", ref = child_ref },
       },
       source_ref = { kind = "external", reference = child_ref },
@@ -845,13 +851,13 @@ return {
       cascaded,
       "github-proxy.github_issue_label_request",
       function(raised)
-        return tonumber(raised.payload.issue_number) == first_child_issue
+        return tonumber(raised.payload.issue_number) == revived_child_issue
           and raised.payload.add_labels ~= nil
           and raised.payload.add_labels[1] == "fkst-dev:implementing"
       end
     )
     t.is_true(implementing ~= nil)
-    t.eq(tonumber(implementing.payload.issue_number), first_child_issue)
+    t.eq(tonumber(implementing.payload.issue_number), revived_child_issue)
     t.eq(implementing.payload.add_labels[1], "fkst-dev:implementing")
   end,
 }
