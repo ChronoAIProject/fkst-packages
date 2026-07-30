@@ -237,7 +237,7 @@ local function workflow_history(include_revived_child, terminal_body)
   if terminal_body ~= nil then
     comments[#comments + 1] = { body = terminal_body, created_at = "2026-07-10T20:43:00Z" }
   end
-  return comments
+  return comments, core.materialization.child_dedup_key(origin, blueprint.steps[2].id, second_predecessor)
 end
 
 local function child_history(proposal_id, issue_number, pr_number, merged)
@@ -448,8 +448,8 @@ local function mock_write_mode(value, times)
   end
 end
 
-local function mock_child_materialization()
-  for _ = 1, 2 do
+local function mock_child_materialization(created_issue, child_dedup)
+  for _ = 1, 3 do
     t.mock_command("gh issue list", { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
   t.mock_command("codex exec", {
@@ -457,6 +457,26 @@ local function mock_child_materialization()
     stderr = "",
     exit_code = 0,
   })
+  if created_issue == nil then return end
+  local comments_cmd = "gh api --paginate --slurp 'repos/" .. repo .. "/issues/"
+    .. tostring(origin_issue) .. "/comments?per_page=100'"
+  t.mock_command(comments_cmd, { stdout = rest_comments_json({}), stderr = "", exit_code = 0 })
+  t.mock_command(comments_cmd, {
+    stdout = rest_comments_json({ { body = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="'
+      .. tostring(child_dedup) .. '" -->' } }), stderr = "", exit_code = 0,
+  })
+  for _, kind in ipairs({ "intent", "created" }) do
+    t.mock_command("gh issue comment " .. tostring(origin_issue) .. " --repo " .. repo
+      .. " --body-file /tmp/fkst-github-proxy-" .. kind .. "-", { stdout = "", stderr = "", exit_code = 0 })
+  end
+  t.mock_command("gh issue create", {
+    stdout = "https://github.example/" .. repo .. "/issues/" .. tostring(created_issue) .. "\n", stderr = "", exit_code = 0,
+  })
+  t.mock_command("gh api 'repos/" .. repo .. "/issues/" .. tostring(created_issue) .. "'", {
+    stdout = '{"id":987654321,"number":' .. tostring(created_issue) .. '}\n', stderr = "", exit_code = 0,
+  })
+  t.mock_command("gh api --method POST repos/" .. repo .. "/issues/" .. tostring(origin_issue)
+    .. "/sub_issues -F sub_issue_id=987654321", { stdout = "", stderr = "", exit_code = 0 })
 end
 
 local function mock_native_merge_observation()
@@ -751,8 +771,9 @@ return {
   test_run_graph_origin_dependency_holds_then_releases_materialization = function()
     mock_env()
     mock_write_mode("", 4)
-    mock_child_materialization()
-    mock_materialization_cycle(workflow_history(false), nil, nil, false, nil, "OPEN")
+    local release_history, released_child_dedup = workflow_history(false)
+    mock_child_materialization(revived_child_issue, released_child_dedup)
+    mock_materialization_cycle(release_history, nil, nil, false, nil, "OPEN")
 
     local held = graph.require_quiescent(graph.run({
       queue = "github-devloop-workflow.workflow_materialization_tick",
@@ -762,8 +783,8 @@ return {
     t.eq(graph.find_raise(held, "github-proxy.github_issue_create_request"), nil)
 
     mock_env()
-    mock_write_mode("", 4)
-    mock_materialization_cycle(workflow_history(false), nil, nil, false, nil, "CLOSED")
+    mock_write_mode("1", 4)
+    mock_materialization_cycle(release_history, nil, nil, false, nil, "CLOSED")
     local released = graph.require_quiescent(graph.run({
       queue = "github-devloop-workflow.workflow_materialization_tick",
       payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
@@ -776,11 +797,26 @@ return {
     local create = graph.require_raise(released, "github-proxy.github_issue_create_request")
     t.eq(create.payload.parent, origin_issue)
 
-    local ready_version = "consensus:" .. revived_child .. "/materialized"
+    local created_marker_path = nil
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = gh_argv.call_rendered(call)
+      if rendered:find("fkst-github-proxy-created-", 1, true) ~= nil then
+        created_marker_path = rendered:match("%-%-body%-file%s+(%S+)")
+      end
+    end
+    t.is_true(created_marker_path ~= nil)
+    local marker_dedup, child_issue = file.read(created_marker_path)
+      :match('issue%-created:v1 dedup="([^"]+)" issue="(%d+)"')
+    t.eq(marker_dedup, create.payload.dedup_key)
+    local created_child_issue = tonumber(child_issue)
+    t.is_true(created_child_issue ~= nil)
+    local created_child = base_ids.proposal_id(repo, created_child_issue)
+
+    local ready_version = "consensus:" .. created_child .. "/materialized"
     local ready_comment = {
       id = "IC_materialized_child_ready",
       body = core.state_marker(
-        revived_child,
+        created_child,
         "ready",
         ready_version,
         "result-marker,ready-label,devloop-ready"
@@ -791,7 +827,7 @@ return {
     mock_env()
     mock_write_mode("", 18)
     mock_child_issue_reads(
-      revived_child_issue,
+      created_child_issue,
       create.payload.title,
       create.payload.body,
       child_labels,
@@ -799,7 +835,7 @@ return {
     )
     mock_child_implementation_context()
     for _ = 1, 3 do
-      t.mock_command(core.gh_blocked_by_cmd(repo, revived_child_issue), {
+      t.mock_command(core.gh_blocked_by_cmd(repo, created_child_issue), {
         stdout = blocked_by_json({}), stderr = "", exit_code = 0,
       })
     end
@@ -810,7 +846,7 @@ return {
     implement_fixtures.mock_fresh_implement_worktree({
       runtime = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child",
       repo = repo,
-      issue_number = revived_child_issue,
+      issue_number = created_child_issue,
       impl_version = implementation_version,
     })
     t.mock_command("git show abc123:.fkst/substrate-ref", {
@@ -824,21 +860,21 @@ return {
     )
     implement_fixtures.mock_git_commit(
       "def456",
-      devloop_base.implement_branch(repo, revived_child_issue, implementation_version)
+      devloop_base.implement_branch(repo, created_child_issue, implementation_version)
     )
 
-    local child_ref = repo .. "#issue/" .. tostring(revived_child_issue)
+    local child_ref = repo .. "#issue/" .. tostring(created_child_issue)
     local cascaded = graph.require_quiescent(graph.run({
       queue = "github-proxy.github_entity_changed",
       payload = {
         schema = "github-proxy.v1",
         type = "issue",
         repo = repo,
-        number = revived_child_issue,
+        number = created_child_issue,
         title = create.payload.title,
         state = "OPEN",
         updated_at = "2026-07-12T00:25:03Z",
-        dedup_key = repo .. "#issue#" .. tostring(revived_child_issue) .. "@2026-07-12T00:25:03Z",
+        dedup_key = repo .. "#issue#" .. tostring(created_child_issue) .. "@2026-07-12T00:25:03Z",
         source_ref = { kind = "external", ref = child_ref },
       },
       source_ref = { kind = "external", reference = child_ref },
@@ -851,13 +887,13 @@ return {
       cascaded,
       "github-proxy.github_issue_label_request",
       function(raised)
-        return tonumber(raised.payload.issue_number) == revived_child_issue
+        return tonumber(raised.payload.issue_number) == created_child_issue
           and raised.payload.add_labels ~= nil
           and raised.payload.add_labels[1] == "fkst-dev:implementing"
       end
     )
     t.is_true(implementing ~= nil)
-    t.eq(tonumber(implementing.payload.issue_number), revived_child_issue)
+    t.eq(tonumber(implementing.payload.issue_number), created_child_issue)
     t.eq(implementing.payload.add_labels[1], "fkst-dev:implementing")
   end,
 }
