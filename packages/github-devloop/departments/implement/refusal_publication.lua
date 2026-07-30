@@ -14,7 +14,9 @@ function M.publish(core, repo, issue_number, outcome)
     outcome.ready,
     outcome.reason,
     outcome.evidence,
-    outcome.attempt
+    outcome.attempt,
+    outcome.started_at,
+    outcome.exec_ref
   )
   local label_request = requests_labels.build_state_label_request(
     repo,

@@ -178,6 +178,12 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
   t.is_true(refusal_comment.payload.body:find(
     core.state_marker(event.proposal_id, "blocked", ready.dedup_key), 1, true) ~= nil,
     reason .. ": typed refusal did not publish blocked state")
+  t.is_true(refusal_comment.payload.body:find(
+    "fkst:github-devloop:implement-attempt:v1", 1, true) ~= nil,
+    reason .. ": typed refusal did not atomically publish its attempt identity")
+  t.is_true(refusal_comment.payload.body:find(
+    'attempt="' .. tostring(initial_attempt) .. '"', 1, true) ~= nil,
+    reason .. ": typed refusal published the wrong attempt identity")
   t.eq(refusal_comment.payload.body:find("fkst:github-devloop:impl-failure:v1", 1, true), nil)
   t.eq(refusal_comment.payload.body:find('state="impl-failed"', 1, true), nil)
   local blocked_label = find_raise(refused.raises, "github-proxy.github_issue_label_request", function(payload)
@@ -196,7 +202,9 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
     reason .. ": implementation attempt marker used the wrong attempt")
 
   local command = trusted_command("IC_reimplement_" .. reason:gsub("%-", "_"))
-  local blocked_comments = { attempt_comment.payload.body, refusal_comment.payload.body, command }
+  -- The refusal fact must remain actionable when eventual consistency exposes
+  -- its comment before the separately published attempt comment.
+  local blocked_comments = { refusal_comment.payload.body, command }
   local published_refusal = core.implementation_refusal_fact(
     blocked_comments, event.proposal_id, ready.dedup_key)
   t.is_true(published_refusal ~= nil,
