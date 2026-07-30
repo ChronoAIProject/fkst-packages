@@ -97,6 +97,100 @@ def _run_durable_health(
         return result.stdout + result.stderr
 
 
+def _run_restart_ordering_health(dead_letter: dict, late_fact: str) -> subprocess.CompletedProcess[str]:
+    """Restart a fake supervisor that emits one last cause before it quiesces."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        durable_root = root / "durable"
+        durable_root.mkdir()
+        (durable_root / "delivery.redb").write_text("")
+        observe = {
+            "queues": [],
+            "dead_letters": [dead_letter],
+            "truncated": {"dead_letters": False},
+        }
+        (root / "observe.json").write_text(json.dumps(observe), encoding="utf-8")
+        fake_bin = root / "fkst-framework"
+        fake_bin.write_text(
+            f'#!/bin/sh\ncat "{root / "observe.json"}"\n',
+            encoding="utf-8",
+        )
+        fake_bin.chmod(fake_bin.stat().st_mode | stat.S_IXUSR)
+
+        log_root = root / "logs"
+        old_child_logs = (
+            log_root / "dogfood-rt-packages.old" / "logs" / "framework-child"
+        )
+        old_child_logs.mkdir(parents=True)
+        fake_pid_file = root / "fake-supervise.pid"
+        package_root = root / "packages"
+        (package_root / "scripts").mkdir(parents=True)
+        fake_host_run = package_root / "scripts" / "run.sh"
+        fake_host_run.write_text(
+            """#!/bin/bash
+set -eu
+printf '%s\n' "$$" > "$FAKE_SUPERVISE_PID_FILE"
+if [ ! -d "$OLD_CHILD_LOGS" ]; then
+  echo "old runtime removed before restart quiesced" >&2
+  exit 42
+fi
+printf '%s\n' "$LATE_CAUSE_FACT" > "$OLD_CHILD_LOGS/late-dead-letter.log"
+echo "EVENT=code_provenance source=fixture ENGINE_VER=fixture PKG_VERS=fixture"
+echo "MSG=event runtime running"
+echo "RESTART_QUIESCED=1"
+sleep 30
+""",
+            encoding="utf-8",
+        )
+        fake_host_run.chmod(fake_host_run.stat().st_mode | stat.S_IXUSR)
+
+        script = f'''source "{DOGFOOD}"
+cfg() {{ DUR="{durable_root}"; return 0; }}
+derive_devloop_pkgs_from_workspace() {{ DEVLOOP_PKGS="github-proxy"; }}
+wait_supervise_ready() {{
+  local pid="$1" log="$2" attempts=0
+  while [ "$attempts" -lt 500 ]; do
+    grep -q "RESTART_QUIESCED=1" "$log" 2>/dev/null && return 0
+    pid_alive_non_zombie "$pid" || return 1
+    attempts=$((attempts + 1))
+    sleep 0.01
+  done
+  return 2
+}}
+PKGSRC="{package_root}"
+HOST="{package_root}"
+DUR="{durable_root}"
+LOGDIR="{log_root}"
+BIN="{fake_bin}"
+REPO="ChronoAIProject/fkst-packages"
+BOT="fixture-bot"
+LOCAL_PKGS=""
+launch_one packages 1
+launch_status=$?
+if [ -f "{fake_pid_file}" ]; then
+  fake_pid=$(sed -n '1p' "{fake_pid_file}")
+  kill "$fake_pid" 2>/dev/null || true
+  wait "$fake_pid" 2>/dev/null || true
+fi
+durable_health_one packages
+exit "$launch_status"
+'''
+        return subprocess.run(
+            ["/bin/bash", "-c", script],
+            cwd=str(REPO_ROOT),
+            env={
+                **os.environ,
+                "DOGFOOD_REPOS": "packages",
+                "FAKE_SUPERVISE_PID_FILE": str(fake_pid_file),
+                "OLD_CHILD_LOGS": str(old_child_logs),
+                "LATE_CAUSE_FACT": late_fact,
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+
 class DurableHealthTest(unittest.TestCase):
     def test_recent_dead_letter_flags_warning_and_renders_dominant_cause(self) -> None:
         now_ms = int(time.time() * 1000)
@@ -134,6 +228,27 @@ class DurableHealthTest(unittest.TestCase):
             "dead-letter cause (top): error_class=quota-exhausted "
             "fingerprint=fp-quota 1x dept=dept-a",
             out,
+        )
+
+    def test_restart_quiesces_writer_before_archiving_cause_fact(self) -> None:
+        now_ms = int(time.time() * 1000)
+
+        result = _run_restart_ordering_health(
+            _dead_letter("delivery-late", now_ms, "dept-late"),
+            _cause_fact(
+                "delivery-late",
+                "late-terminal-failure",
+                "fp-late",
+                "dept-late",
+            ),
+        )
+        output = result.stdout + result.stderr
+
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn(
+            "dead-letter cause (top): error_class=late-terminal-failure "
+            "fingerprint=fp-late 1x dept=dept-late",
+            output,
         )
 
     def test_retry_only_and_stale_facts_do_not_affect_ranking(self) -> None:

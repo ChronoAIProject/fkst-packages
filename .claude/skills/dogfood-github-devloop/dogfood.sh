@@ -328,7 +328,6 @@ clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
 launch_one() { # $1 name, $2 restart flag (0|1)
   local name="$1" restart="${2:-0}" ts log rt args=()
   ts=$(date +%s); log="$LOGDIR/${name}-sv-${ts}.log"; rt="$LOGDIR/dogfood-rt-${name}.${ts}"
-  clean_stale_runtime_worktrees "$name" "$rt"
   derive_devloop_pkgs_from_workspace "$name" || return 1
   [ -n "$DEVLOOP_PKGS" ] || { echo "[$name] no platform packages declared in fkst.workspace.toml"; return 1; }
   [ -x "$PKGSRC/scripts/run.sh" ] || { echo "[$name] missing host-run contract: $PKGSRC/scripts/run.sh"; return 1; }
@@ -368,6 +367,9 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   wait_supervise_ready "$pid" "$log"
   local ready_status=$?
   if [ "$ready_status" -eq 0 ]; then
+    # On restart, host-run stops the prior supervisor before the new one can emit readiness.
+    # Archive mutable child logs only after that barrier so their final cause fact is retained.
+    clean_stale_runtime_worktrees "$name" "$rt"
     # Committed per-launch verification that the own-session daemonization took effect: a session
     # leader has PGID == PID. If not, setsid silently did not apply and the supervise is back in a
     # foreign pgroup (the bug this launch fixes) — surface it loud rather than pass a false green.
