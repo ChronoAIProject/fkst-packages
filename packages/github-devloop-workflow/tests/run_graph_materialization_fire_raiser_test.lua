@@ -12,6 +12,7 @@ gh_argv.install(t, core)
 
 local repo = "owner/repo"
 local origin_issue = 2133
+local origin_blocker_issue = 2132
 local first_child_issue = 2134
 local revived_child_issue = 2137
 local origin = base_ids.proposal_id(repo, origin_issue)
@@ -78,6 +79,24 @@ end
 
 local function ownership_json()
   return '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n'
+end
+
+local function blocked_by_json(nodes)
+  local rendered = {}
+  for index, node in ipairs(nodes or {}) do
+    rendered[index] = string.format(
+      '{"number":%d,"state":"%s","stateReason":"%s","repository":{"nameWithOwner":"%s"}}',
+      tonumber(node.number),
+      tostring(node.state or "OPEN"),
+      tostring(node.state_reason or ""),
+      tostring(node.repo or repo)
+    )
+  end
+  return '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":'
+    .. tostring(#rendered)
+    .. ',"pageInfo":{"hasNextPage":false},"nodes":['
+    .. table.concat(rendered, ",")
+    .. ']}}}}}\n'
 end
 
 local function created_materialization_marker(blueprint, slot, predecessor_digest, child_issue)
@@ -236,7 +255,50 @@ local function mock_pr_view(state)
   })
 end
 
-local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout)
+local function mock_origin_dependency(blocker_state)
+  t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_MANAGED_SIBLING_REPOS"), {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(core.gh_blocked_by_cmd(repo, origin_issue), {
+    stdout = blocked_by_json(blocker_state and {
+      {
+        number = origin_blocker_issue,
+        state = blocker_state,
+        state_reason = blocker_state == "CLOSED" and "COMPLETED" or "",
+      },
+    } or {}),
+    stderr = "",
+    exit_code = 0,
+  })
+  if blocker_state == nil then
+    return
+  end
+  if blocker_state ~= "CLOSED" then
+    t.mock_command(core.gh_blocked_by_cmd(repo, origin_blocker_issue), {
+      stdout = blocked_by_json({}),
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  local blocker_proposal = base_ids.proposal_id(repo, origin_blocker_issue)
+  local blocker_milestone = blocker_state == "CLOSED" and "merged" or "ready"
+  t.mock_command(core.gh_issue_view_observe_cmd(repo, origin_blocker_issue), {
+    stdout = issue_json(
+      origin_blocker_issue,
+      "Workflow origin blocker",
+      { "fkst-dev:" .. blocker_milestone },
+      { { body = core.state_marker(blocker_proposal, blocker_milestone, "blocker-version") } },
+      blocker_state
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout, blocker_state)
+  mock_origin_dependency(blocker_state)
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues?state=open&per_page=100'", {
     stdout = '[[{"number":' .. tostring(origin_issue) .. ',"title":"Workflow origin","state":"OPEN","updatedAt":"2026-07-12T00:25:02Z"}]]\n',
     stderr = "",
@@ -595,5 +657,34 @@ return {
     local done = graph.require_raise(recovered_trace, "github-proxy.github_issue_comment_request")
     t.is_true(done.payload.body:find('state="done"', 1, true) ~= nil)
     t.is_true(done.payload.body:find('reason_code="all-slots-result-ready"', 1, true) ~= nil)
+  end,
+
+  test_run_graph_origin_dependency_holds_then_releases_materialization = function()
+    mock_env()
+    mock_write_mode("", 4)
+    mock_child_materialization()
+    mock_materialization_cycle(workflow_history(false), nil, nil, false, nil, "OPEN")
+
+    local held = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/dependency-held" },
+    }, { max_steps = 4 }))
+    t.eq(graph.find_raise(held, "github-proxy.github_issue_create_request"), nil)
+
+    mock_env()
+    mock_write_mode("", 4)
+    mock_materialization_cycle(workflow_history(false), nil, nil, false, nil, "CLOSED")
+    local released = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/dependency-released" },
+    }, { max_steps = 4 }))
+    graph.assert_covers(released, {
+      "github-devloop-workflow.workflow_materialization_tick -> github-devloop-workflow.workflow_materialize_next",
+      "github-proxy.github_issue_create_request -> github-proxy.github_issue_create",
+    })
+    local create = graph.require_raise(released, "github-proxy.github_issue_create_request")
+    t.eq(create.payload.parent, origin_issue)
   end,
 }
