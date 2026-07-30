@@ -223,11 +223,12 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
       terminal = false,
     })
     devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-stale(version-mismatch)", message)
+    -- Persist the attempt marker so the mismatch budget still accrues across
+    -- redeliveries, then return cleanly. Raising here dead-letters the whole
+    -- pipeline dispatch (wrap_pipeline_failure re-raises), which crash-loops the
+    -- queue and starves every sibling implement (#2908).
     raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
-    error("github-devloop: fact-changed: implement-version-mismatch retrying: ready event version "
-      .. tostring(expected_version or "")
-      .. " does not match current implementing version "
-      .. tostring(state and state.version or ""))
+    return
   end
   devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
     source_ref = ready.source_ref,
@@ -235,10 +236,10 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
     terminal = true,
   })
   devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "fail-closed(version-mismatch-budget)", message)
-  error("github-devloop: fact-changed: implement-version-mismatch: ready event version "
-    .. tostring(expected_version or "")
-    .. " does not match current implementing version "
-    .. tostring(state and state.version or ""))
+  -- Budget exhausted: drop the diverged trigger permanently (#718 / #373) without
+  -- a fatal error. Authoritative state still governs; the liveness sweep redrives
+  -- from the current marker when that state is genuinely stuck.
+  return
 end
 
 local function implementing_mismatch_is_durable(current, proposal_id, state)
