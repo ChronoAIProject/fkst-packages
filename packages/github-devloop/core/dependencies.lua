@@ -169,6 +169,33 @@ local function decode_dependency_attr(value)
   return value
 end
 
+local function parse_dependency_issue(node, include_duplicate)
+  if type(node) ~= "table" or not forge_validators.is_positive_pr_number(node.number) then
+    return nil
+  end
+  local issue_repo = node.repository and node.repository.nameWithOwner
+  if type(issue_repo) ~= "string" or issue_repo == "" then
+    return nil
+  end
+  local issue = {
+    number = tonumber(node.number),
+    state = tostring(node.state or ""),
+    state_reason = tostring(node.stateReason or node.state_reason or ""),
+    repo = issue_repo,
+    duplicate_projection_complete = include_duplicate == true,
+  }
+  local duplicate_of = node.duplicateOf or node.duplicate_of
+  if include_duplicate and type(duplicate_of) == "table" then
+    issue.duplicate_of = parse_dependency_issue(duplicate_of, false)
+    if issue.duplicate_of == nil then
+      return nil
+    end
+  elseif include_duplicate and duplicate_of ~= nil and type(duplicate_of) ~= "userdata" then
+    return nil
+  end
+  return issue
+end
+
 local function parse_blocked_by(stdout)
   local core = root()
   local ok, decoded = pcall(json.decode, stdout or "")
@@ -178,6 +205,9 @@ local function parse_blocked_by(stdout)
   local issue = decoded.data
     and decoded.data.repository
     and decoded.data.repository.issue
+  if issue == nil then
+    return nil, nil, nil, "missing-issue"
+  end
   if type(issue) ~= "table" then
     return nil
   end
@@ -189,19 +219,19 @@ local function parse_blocked_by(stdout)
 
   local blockers = {}
   for _, node in ipairs(nodes) do
-    if type(node) ~= "table" or not forge_validators.is_positive_pr_number(node.number) then
+    local blocker = parse_dependency_issue(node, true)
+    if blocker == nil then
       return nil
     end
-    local blocker_repo = node.repository and node.repository.nameWithOwner
-    if type(blocker_repo) ~= "string" or blocker_repo == "" then
+    table.insert(blockers, blocker)
+  end
+
+  local issue_projection = nil
+  if issue.number ~= nil then
+    issue_projection = parse_dependency_issue(issue, true)
+    if issue_projection == nil then
       return nil
     end
-    table.insert(blockers, {
-      number = tonumber(node.number),
-      state = tostring(node.state or ""),
-      state_reason = tostring(node.stateReason or node.state_reason or ""),
-      repo = blocker_repo,
-    })
   end
 
   -- Fail-closed on a truncated blockedBy list: an unseen 51st+ unmet blocker must
@@ -213,7 +243,7 @@ local function parse_blocked_by(stdout)
     or (type(page) == "table" and page.hasNextPage == true) then
     truncated = true
   end
-  return blockers, truncated
+  return blockers, truncated, issue_projection, nil
 end
 
 local function normalized_state_reason(value)
@@ -228,14 +258,14 @@ local function fetch_blocked_by(repo, issue_number)
   if type(result) ~= "table" or result.exit_code ~= 0 then
     return nil, "gh-failed"
   end
-  local blockers, truncated = parse_blocked_by(result.stdout)
+  local blockers, truncated, issue, parse_reason = parse_blocked_by(result.stdout)
   if blockers == nil then
-    return nil, "malformed-json"
+    return nil, parse_reason or "malformed-json"
   end
   if truncated then
     return nil, "blockedby-truncated"
   end
-  return blockers, nil
+  return blockers, nil, issue
 end
 
 local function merged_blocker_cache_key(repo, blocker_number)
@@ -329,9 +359,74 @@ local function prove_blocker_merged(repo, blocker_number)
 end
 
 local has_dependency_waiver
+local evaluate_terminal_blocker
 
-local function evaluate_terminal_blocker(repo, blocker, context, notes)
+local function is_duplicate_blocker(blocker)
+  return blocker.state == "CLOSED"
+    and normalized_state_reason(blocker.state_reason) == "duplicate"
+end
+
+local function resolve_duplicate(repo, blocker, context, notes, traversal)
+  local stack = traversal and traversal.stack or {}
+  local depth = traversal and traversal.depth or 0
+  if depth > max_dependency_depth then
+    return nil, "depth-cap-exceeded", blocker.number, "unresolvable"
+  end
+
+  local key = tostring(repo) .. "#" .. tostring(blocker.number)
+  if stack[key] then
+    return nil, "dependency-cycle", blocker.number, "cycle"
+  end
+  stack[key] = true
+
+  local current = blocker
+  if current.duplicate_of == nil and current.duplicate_projection_complete ~= true then
+    local _, fetch_reason, projected = fetch_blocked_by(repo, current.number)
+    if projected == nil then
+      stack[key] = nil
+      local reason = fetch_reason == "missing-issue"
+        and "duplicate-target-missing"
+        or "duplicate-target-unreadable"
+      return nil, reason, current.number, "unresolvable"
+    end
+    current = projected
+  end
+
+  local target = current.duplicate_of
+  if type(target) ~= "table" or not forge_validators.is_positive_pr_number(target.number) then
+    stack[key] = nil
+    return nil, "duplicate-target-missing", current.number, "unresolvable"
+  end
+  if tostring(target.repo or "") ~= tostring(repo) then
+    stack[key] = nil
+    return nil, "cross-repo-duplicate-target", target.number, "unresolvable"
+  end
+
+  local target_key = tostring(repo) .. "#" .. tostring(target.number)
+  if stack[target_key] then
+    stack[key] = nil
+    return nil, "dependency-cycle", target.number, "cycle"
+  end
+
+  local satisfied, reason, unmet_number, kind = evaluate_terminal_blocker(
+    repo,
+    target,
+    context,
+    notes,
+    { stack = stack, depth = depth + 1 }
+  )
+  stack[key] = nil
+  if satisfied == nil and kind == nil then
+    return nil, "duplicate-target-unreadable", unmet_number or target.number, "unresolvable"
+  end
+  return satisfied, reason, unmet_number or target.number, kind
+end
+
+evaluate_terminal_blocker = function(repo, blocker, context, notes, traversal)
   local state_reason = normalized_state_reason(blocker.state_reason)
+  if is_duplicate_blocker(blocker) then
+    return resolve_duplicate(repo, blocker, context, notes, traversal)
+  end
   if blocker.state == "CLOSED" and state_reason == "not-planned" then
     add_gate_note(notes, {
       kind = "dependency-void",
@@ -461,6 +556,26 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
       end
       if not satisfied then
         add_unmet(unmet, unmet_seen, blocker.number)
+      end
+    elseif is_duplicate_blocker(blocker) then
+      local satisfied, satisfied_reason, canonical_number, result_kind = evaluate_terminal_blocker(
+        repo,
+        blocker,
+        context,
+        notes,
+        { stack = stack, depth = depth + 1 }
+      )
+      if satisfied == nil then
+        stack[key] = nil
+        add_unmet(unmet, unmet_seen, canonical_number or blocker.number)
+        return gate(result_kind or "unresolvable", satisfied_reason or "duplicate-target-unreadable", unmet)
+      end
+      if not satisfied then
+        add_unmet(unmet, unmet_seen, canonical_number or blocker.number)
+        if satisfied_reason == "dependency-waiver-required" then
+          stack[key] = nil
+          return gate("waiting", "dependency-waiver-required", unmet)
+        end
       end
     elseif not cached_blocker_merged(repo, blocker.number) then
       local prefer_terminal_proof = blocker.state == "CLOSED"

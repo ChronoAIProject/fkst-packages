@@ -80,8 +80,8 @@ local tests = {
       write_enabled = function()
         return true
       end,
-      issue_close = function(repo, issue_number, timeout)
-        closes[#closes + 1] = { repo = repo, issue_number = issue_number, timeout = timeout }
+      issue_close = function(repo, issue_number, disposition, timeout)
+        closes[#closes + 1] = { repo = repo, issue_number = issue_number, disposition = disposition, timeout = timeout }
         return { exit_code = 0 }
       end,
     }
@@ -90,6 +90,7 @@ local tests = {
     t.eq(#closes, 1)
     t.eq(closes[1].repo, "owner/repo")
     t.eq(closes[1].issue_number, 42)
+    t.eq(closes[1].disposition.kind, "completed")
   end,
 
   -- Dry-run posture: without FKST_GITHUB_WRITE the close is logged, not executed.
@@ -99,7 +100,7 @@ local tests = {
       write_enabled = function()
         return false
       end,
-      issue_close = function(repo, issue_number, timeout)
+      issue_close = function(repo, issue_number, disposition, timeout)
         closes[#closes + 1] = { repo = repo, issue_number = issue_number }
       end,
     }
