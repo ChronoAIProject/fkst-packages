@@ -424,6 +424,7 @@ local function assert_consensus_shadow_case(fixture)
   t.eq(evidence.incoming_version, fixture.incoming_version, fixture.name .. ": evidence incoming version")
   t.eq(evidence.target_version, nil, fixture.name .. ": evidence target version")
   t.eq(evidence.overlay_version, fixture.incoming_version, fixture.name .. ": evidence overlay version")
+  return production
 end
 
 local function assert_rejected_before_cas()
@@ -658,7 +659,7 @@ return {
   end,
 
   test_consensus_result_dependency_hold_source_equal_applies = function()
-    assert_consensus_shadow_case({
+    local production = assert_consensus_shadow_case({
       name = "consensus-result-source-equal-dependency-wait",
       current_state = "thinking",
       current_version = V_EQUAL,
@@ -672,6 +673,13 @@ return {
       legacy_log_outcome = "applied | hold-dependency",
       effect_state = "dependency_wait",
     })
+    local label_request = h.find_raise(production.result.raises, "github-proxy.github_issue_label_request",
+      function(payload)
+        return payload.require_marker_guard == true
+      end).payload
+    t.eq(label_request.expected_state, "dependency_wait")
+    t.eq(label_request.marker_guard.expected.state, "dependency_wait")
+    t.is_true(h.has_value(label_request.add_labels, "fkst-dev:ready"))
   end,
 
   test_consensus_result_declined_source_equal_applies = function()

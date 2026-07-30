@@ -189,7 +189,7 @@ return {
       '<!-- fkst:github-devloop:result:v1 proposal="github-devloop/issue/owner/repo/42" decision="approve" dedup="consensus:github-devloop/issue/owner/repo/42/v1" -->'
     )
 
-    local label = requests_labels.build_result_label_request("owner/repo", "42", reached())
+    local label = requests_labels.build_result_state_label_request("owner/repo", "42", reached(), "ready")
     t.eq(label.schema, "github-proxy.label.v1")
     t.eq(label.add_labels[1], "fkst-dev:ready")
     t.eq(label.label_colors["fkst-dev:ready"], "0E8A16")

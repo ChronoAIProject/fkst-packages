@@ -5,6 +5,7 @@ local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local payloads_builders = require("devloop.payloads.builders")
 local conv_attempts = require("devloop.convergence.attempts")
+local marker_shared = require("devloop.markers.shared")
 local devloop_state = require("devloop.state")
 local S = {}
 local operator_commands = require("devloop.operator_commands")
@@ -16,9 +17,18 @@ function S.install(M)
 
 local dependency_gate_rederive = true
 
+local function ready_split_canonicalized_marker(proposal_id, from_version, to_version, derived_state, reason)
+  return '<!-- fkst:github-devloop:ready-split-canonicalized:v1 proposal="' .. tostring(proposal_id)
+    .. '" from_version="' .. marker_shared.safe_marker_attr(from_version)
+    .. '" to_version="' .. marker_shared.safe_marker_attr(to_version)
+    .. '" derived_state="' .. marker_shared.safe_marker_attr(derived_state)
+    .. '" reason="' .. marker_shared.safe_marker_attr(reason or "ready_split_rederive")
+    .. '" -->'
+end
+
 local function build_ready_split_canonicalized_comment_request(M, repo, issue_number, proposal_id, from_version, to_state, to_version, gate, source_ref)
   local state_effects = to_state == "ready" and "result-marker,ready-label,devloop-ready" or "ready-split-canonicalized"
-  local markers = M.ready_split_canonicalized_marker(proposal_id, from_version, to_version, to_state, gate and gate.reason or "ready_split_rederive")
+  local markers = ready_split_canonicalized_marker(proposal_id, from_version, to_version, to_state, gate and gate.reason or "ready_split_rederive")
     .. "\n" .. devloop_state.state_marker(proposal_id, to_state, to_version, state_effects)
   if to_state == "dependency_wait" then
     markers = markers .. "\n" .. M.dependency_wait_marker(proposal_id, to_version, gate and gate.unmet or {}, gate and gate.kind or "waiting", gate and gate.reason or "waiting-on-dependency")

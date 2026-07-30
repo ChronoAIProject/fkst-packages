@@ -19,17 +19,33 @@ local function read_source(path)
   return body
 end
 
-local function count_occurrences(body, needle)
-  local count = 0
-  local start = 1
-  while true do
-    local found = body:find(needle, start, true)
-    if found == nil then
-      return count
-    end
-    count = count + 1
-    start = found + #needle
+local function read_repo_source(path)
+  local handle = assert(io.open(path, "r"))
+  local body = handle:read("*a")
+  handle:close()
+  return body
+end
+
+local function production_lua_paths()
+  local paths = {}
+  local find = assert(io.popen(
+    "find packages/github-devloop/core packages/github-devloop/departments packages/github-devloop/raisers libraries/devloop"
+      .. " -type f -name '*.lua' | sort"
+  ))
+  for path in find:lines() do
+    table.insert(paths, path)
   end
+  local ok = find:close()
+  if ok ~= true then
+    error("github-devloop: production source discovery failed")
+  end
+  return paths
+end
+
+local function writes_literal_ready_state_marker(body)
+  local compact = body:gsub("%s+", " ")
+  return compact:find('%.state_marker%([^%)]-,%s*"ready"', 1, false) ~= nil
+    or compact:find('%.state_marker%([^%)]-,%s*"dependency_wait"', 1, false) ~= nil
 end
 
 local function department_main_paths()
@@ -107,17 +123,32 @@ return {
   end,
 
 
-  test_ready_split_state_markers_have_one_guarded_label_projection_path = function()
+  test_ready_and_dependency_wait_marker_producers_use_guarded_projection_capabilities = function()
     local ready_split = read_source("core/ready_split.lua")
-    local implement = read_source("departments/implement/main.lua")
 
+    t.is_true(writes_literal_ready_state_marker(
+      'local marker = devloop_state.state_marker(proposal_id, "ready", version)'
+    ))
+    t.is_true(writes_literal_ready_state_marker(
+      'local marker = devloop_state.state_marker(\n  proposal_id,\n  "dependency_wait",\n  version\n)'
+    ))
+    t.is_true(ready_split:find("local function ready_split_canonicalized_marker", 1, true) ~= nil)
     t.is_true(ready_split:find("local function build_ready_split_canonicalized_comment_request", 1, true) ~= nil)
-    t.eq(count_occurrences(ready_split, "build_ready_split_canonicalized_comment_request("), 2)
     t.is_true(ready_split:find("function M.build_ready_split_transition_requests", 1, true) ~= nil)
     t.is_true(ready_split:find("requests_labels.build_state_label_request", 1, true) ~= nil)
     t.is_true(ready_split:find("M._blocked_on_dependency_label", 1, true) ~= nil)
-    t.eq(count_occurrences(ready_split, "M.build_ready_split_transition_requests("), 4)
-    t.eq(count_occurrences(implement, "core.build_ready_split_transition_requests("), 1)
-    t.eq(count_occurrences(implement, "core.build_ready_split_canonicalized_comment_request("), 0)
+
+    for _, path in ipairs(production_lua_paths()) do
+      local body = read_repo_source(path)
+      if path ~= package_root .. "/core/ready_split.lua" then
+        t.eq(body:find("ready_split_canonicalized_marker", 1, true), nil, path)
+        t.eq(body:find("return '<!-- fkst:github-devloop:ready-split-canonicalized:v1", 1, true), nil, path)
+      end
+      t.eq(body:find("build_result_label_request", 1, true), nil, path)
+      t.eq(writes_literal_ready_state_marker(body), false, path)
+      if body:find("requests_lifecycle.build_result_comment_request", 1, true) ~= nil then
+        t.is_true(body:find("requests_labels.build_result_state_label_request", 1, true) ~= nil, path)
+      end
+    end
   end,
 }

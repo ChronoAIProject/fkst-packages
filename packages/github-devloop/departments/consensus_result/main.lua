@@ -58,9 +58,7 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   local comment_request = granted_payloads and granted_payloads[COMMENT_EFFECT_ID]
     or requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
   local label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
-    or (declined
-      and requests_labels.build_result_state_label_request(repo, issue_number, reached, "declined")
-      or requests_labels.build_result_label_request(repo, issue_number, reached))
+    or requests_labels.build_result_state_label_request(repo, issue_number, reached, to_state)
   local dependency_comment_request = nil
   local dependency_label_request = nil
   local dependency_release_comment_request = nil
