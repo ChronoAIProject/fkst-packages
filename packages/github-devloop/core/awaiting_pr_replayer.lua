@@ -376,7 +376,7 @@ function M.close_canonically_merged_delegated_issue(dept, issue, state, facts)
     log_skip(dept, proposal_id, state, tostring(state and state.state or "unknown"), "closed", "skip-dry-run", "canonical merged delegated issue would close in real write mode")
     return false, current_pr
   end
-  local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, 60)
+  local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, { kind = "completed" }, 60)
   if close_result.exit_code ~= 0 then
     error("github-devloop: canonical-merged-issue-close-failed: " .. tostring(close_result.stderr))
   end
@@ -491,7 +491,7 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
   local add_labels, remove_labels = devloop_state.state_label_changes(next_state.to_state)
   devloop_logging.log_cas_decision(dept, proposal_id, state, "awaiting-pr", next_state.to_state, "applied(" .. next_state.reason .. ")", "delegated child terminal fact matched parent delegation")
   if next_state.to_state == "merged" and config.write_mode() == "real" then
-    local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, 60)
+    local close_result = devloop_commands.gh_issue_close(issue.repo, issue.number, { kind = "completed" }, 60)
     if close_result.exit_code ~= 0 then
       error("github-devloop: awaiting-pr-issue-close-failed: " .. tostring(close_result.stderr))
     end

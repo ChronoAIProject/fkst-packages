@@ -149,9 +149,9 @@ end
     end)
   end
 
-  function C.gh_issue_close(repo, issue_number, timeout)
+  function C.gh_issue_close(repo, issue_number, disposition, timeout)
     return support.gh_result(function()
-      return support.github().issue_close(repo, issue_number, timeout)
+      return support.github().issue_close(repo, issue_number, disposition, timeout)
     end)
   end
 
