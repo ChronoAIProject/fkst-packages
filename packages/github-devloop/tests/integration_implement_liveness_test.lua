@@ -517,7 +517,9 @@ return {
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
 
     local result = run_implement(double_wrapped, opts("implement-726-double-wrapped-redrive"))
-    t.eq(result.exit_code, 1)
+    -- #2908: a version mismatch must be skipped gracefully (exit 0), never error()
+    -- out of the pipeline, which dead-letters and crash-loops the queue.
+    t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 0)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.eq(comment ~= nil, true)
@@ -535,7 +537,9 @@ return {
     })
 
     local result = run_implement(event, opts("implement-721-version-mismatch-budget"))
-    t.eq(result.exit_code, 1)
+    -- #2908: budget exhausted -> fail-closed skip-stale, but return cleanly
+    -- (exit 0) with no further raises, never a fatal error() / dead-letter.
+    t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
   end,
 
@@ -548,7 +552,9 @@ return {
     })
 
     local result = run_implement(event, opts("implement-721-version-mismatch-persist"))
-    t.eq(result.exit_code, 1)
+    -- #2908: within budget -> persist the mismatch attempt marker and skip
+    -- gracefully (exit 0), never error() out of the pipeline.
+    t.eq(result.exit_code, 0)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.eq(comment ~= nil, true)
     t.eq(core.implement_version_mismatch_attempt_count({ comment.payload.body }, event.proposal_id, event.dedup_key, retry_version), 1)
