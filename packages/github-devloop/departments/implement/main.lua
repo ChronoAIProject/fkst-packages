@@ -18,6 +18,7 @@ local transitions = require("departments.implement.transitions")
 local worktree_lifecycle = require("departments.implement.worktree")
 local attempt_runner = require("departments.implement.attempt")
 local branch_progress = require("departments.implement.branch_progress")
+local version_mismatch = require("departments.implement.version_mismatch")
 local dispatch_live_run = require("devloop.dispatch_live_run")
 local config = require("devloop.config")
 local fork_gate = require("departments.implement.fork_gate")
@@ -43,7 +44,6 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local MAX_IMPLEMENT_ATTEMPTS = 2
-local MAX_VERSION_MISMATCH_DELIVERIES = 3
 local spec = {
   consumes = { "devloop_ready" },
   produces = {
@@ -194,56 +194,33 @@ local function implementation_outcome(ready, worktree, branch, head_sha, base_br
   }
 end
 
-local function raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
-  local request = requests_lifecycle.build_implement_version_mismatch_comment_request(core,
-    repo,
-    issue_number,
-    ready,
-    expected_version,
-    state and state.version,
-    attempt
-  )
-  devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", request)
-end
-
-local function handle_implementing_version_mismatch(repo, issue_number, current, ready, state, expected_version)
-  local prior_attempts = core.implement_version_mismatch_attempt_count(
-    current and current.comments,
-    ready.proposal_id,
-    expected_version,
-    state and state.version
-  )
-  local attempt = prior_attempts + 1
+local function handle_implementing_version_mismatch(ready, state, expected_version)
+  local current_version = state and state.version
+  local mismatch = version_mismatch.classify(expected_version, current_version)
   local message = "ready event does not match current implementing version"
-  if attempt < MAX_VERSION_MISMATCH_DELIVERIES then
-    devloop_logging.log_error_fact("warn", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
-      source_ref = ready.source_ref,
-      attempt = attempt,
-      terminal = false,
-    })
-    devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-stale(version-mismatch)", message)
-    raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
-    error("github-devloop: fact-changed: implement-version-mismatch retrying: ready event version "
-      .. tostring(expected_version or "")
-      .. " does not match current implementing version "
-      .. tostring(state and state.version or ""))
+  devloop_logging.log_cas_decision(
+    "implement",
+    ready.proposal_id,
+    state,
+    "ready",
+    "implementing",
+    mismatch.cas_outcome,
+    message
+  )
+  if mismatch.status == "stale" then
+    return
   end
-  devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
-    source_ref = ready.source_ref,
-    attempt = attempt,
-    terminal = true,
-  })
-  devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "fail-closed(version-mismatch-budget)", message)
-  error("github-devloop: fact-changed: implement-version-mismatch: ready event version "
+  if mismatch.status == "pending" then
+    error("github-devloop: state-marker-pending: ready event version "
+      .. tostring(expected_version or "")
+      .. " is newer than current implementing version "
+      .. tostring(current_version or "")
+      .. "; retrying")
+  end
+  error("github-devloop: invalid-version-lineage: ready event version "
     .. tostring(expected_version or "")
-    .. " does not match current implementing version "
-    .. tostring(state and state.version or ""))
-end
-
-local function implementing_mismatch_is_durable(current, proposal_id, state)
-  local version = state and state.version
-  return core.latest_implement_attempt_fact(current and current.comments, proposal_id, version) ~= nil
-    or m_facts.implementing_fact(current and current.comments, proposal_id, version) ~= nil
+    .. " is not comparable with current implementing version "
+    .. tostring(current_version or ""))
 end
 
 local function merge_integration_for_implementation(worktree, integration_branch, base_head)
@@ -558,6 +535,31 @@ local function process_ready_event(event)
       devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = ready.dedup_key }, "ready", "implementing", "skip-stale(original-closed)", "current issue is not open")
       return
     end
+    local state = devloop_state.current_state(current.comments, ready.proposal_id)
+    if not version_mismatch.is_canonical(ready.dedup_key) then
+      error("github-devloop: invalid-version-lineage: incoming implementation version is not canonical: "
+        .. tostring(ready.dedup_key or ""))
+    end
+    local implementation_version = core.implementation_attempt_version(
+      ready.dedup_key,
+      ready.impl_retry_attempt
+    )
+    local branch_version = core.implementation_branch_version(
+      ready.dedup_key,
+      ready.impl_retry_attempt
+    )
+    local marker_ready = ready_for_implementation_version(ready, implementation_version)
+    if not version_mismatch.is_canonical(marker_ready.dedup_key) then
+      error("github-devloop: invalid-version-lineage: implementation version is not canonical: "
+        .. tostring(marker_ready.dedup_key or ""))
+    end
+    local state_is_implementing = state.state == "implementing"
+    if state_is_implementing
+      and tostring(state.version or "") ~= tostring(marker_ready.dedup_key or "") then
+      handle_implementing_version_mismatch(ready, state, marker_ready.dedup_key)
+      return
+    end
+
     if slice_gate.check(repo, issue_number, ready, current) then
       return
     end
@@ -569,7 +571,6 @@ local function process_ready_event(event)
     if fork_gate.check(repo, issue_number, ready, origin, original, managed) then
       return
     end
-    local state = devloop_state.current_state(current.comments, ready.proposal_id)
     local gate = core.dependency_gate(repo, issue_number, {
       proposal_id = ready.proposal_id,
       version = core.ready_payload_inner_version(ready.dedup_key),
@@ -604,40 +605,9 @@ local function process_ready_event(event)
     end
 
     local branches = config.branch_config()
-    local lineage_ok, implementation_version, branch_version = pcall(function()
-      return core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt),
-        core.implementation_branch_version(ready.dedup_key, ready.impl_retry_attempt)
-    end)
-    if not lineage_ok then
-      local lineage_error = tostring(implementation_version)
-      if not lineage_error:find("github-devloop: invalid-version-lineage:", 1, true) then
-        error(implementation_version, 0)
-      end
-      devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "INVALID_VERSION_LINEAGE",
-        "invalid-version-lineage", "devloop_ready", lineage_error, {
-          source_ref = ready.source_ref,
-          attempt = ready.impl_retry_attempt,
-          terminal = true,
-        })
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "impl-failed",
-        "fail-closed(invalid-version-lineage)", "implementation retry lineage is malformed")
-      raise_impl_failed(repo, issue_number, ready, "invalid-version-lineage",
-        "Implementation retry lineage was rejected because its version suffix does not match the current or immediate-next structured attempt.",
-        ready.impl_retry_attempt)
-      return
-    end
-    local marker_ready = ready_for_implementation_version(ready, implementation_version)
     local branch = devloop_base.implement_branch(repo, issue_number, branch_version)
 
-    if state.state == "implementing" then
-      if tostring(state.version or "") ~= tostring(marker_ready.dedup_key or "") then
-        if not implementing_mismatch_is_durable(current, ready.proposal_id, state) then
-          devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "implementing", "skip-stale(version-mismatch)", "implementing state marker has no durable progress fact")
-          return
-        end
-        handle_implementing_version_mismatch(repo, issue_number, current, ready, state, marker_ready.dedup_key)
-        return
-      end
+    if state_is_implementing then
       local link = m_facts.pr_link_fact(current.comments, ready.proposal_id)
       if link ~= nil and tostring(link.impl_version or "") == tostring(marker_ready.dedup_key) then
         handoff_existing_pr_link(repo, issue_number, marker_ready, current, link, "linked PR fact is already visible")

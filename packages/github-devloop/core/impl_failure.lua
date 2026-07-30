@@ -84,8 +84,8 @@ end
 -- liveness re-drive that re-raises devloop_ready must therefore pass the INNER
 -- (unwrapped) version, so build_devloop_ready_payload reproduces exactly the
 -- frozen marker version on re-wrap. Passing the wrapped version double-wraps it
--- ("ready/ready/<inner>") and the implement receiver rejects it as
--- skip-stale(version-mismatch) forever (issue #718 / #373). Fail closed if the
+-- ("ready/ready/<inner>") and the implement receiver rejects it as typed
+-- invalid-version-lineage (issue #718 / #373). Fail closed if the
 -- expected prefix is absent, so a malformed marker surfaces rather than
 -- silently re-introducing a mismatch.
 function M.ready_payload_inner_version(version)

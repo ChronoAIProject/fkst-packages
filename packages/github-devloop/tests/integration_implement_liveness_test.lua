@@ -512,46 +512,80 @@ return {
     })
     local comments = {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_attempt_started_at()),
     }
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
 
-    local result = run_implement(double_wrapped, opts("implement-726-double-wrapped-redrive"))
+    local result = run_implement(
+      double_wrapped,
+      opts("implement-726-double-wrapped-redrive"),
+      "github-devloop.devloop_ready"
+    )
     t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error):find("invalid-version-lineage", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 0)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.eq(comment ~= nil, true)
-    t.eq(core.implement_version_mismatch_attempt_count({ comment.payload.body }, event.proposal_id, double_wrapped.dedup_key, event.dedup_key), 1)
-  end,
-
-  test_implementing_version_mismatch_fails_closed_after_delivery_budget = function()
-    local event = ready()
-    local retry_version = core.implementation_attempt_version(event.dedup_key, 2)
-    mock_issue_implement({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
-      core.implement_attempt_marker(event.proposal_id, retry_version, 2, stale_attempt_started_at()),
-      core.implement_version_mismatch_marker(event.proposal_id, event.dedup_key, retry_version, 1),
-      core.implement_version_mismatch_marker(event.proposal_id, event.dedup_key, retry_version, 2),
-    })
-
-    local result = run_implement(event, opts("implement-721-version-mismatch-budget"))
-    t.eq(result.exit_code, 1)
     t.eq(#result.raises, 0)
   end,
 
-  test_implementing_version_mismatch_persists_skip_stale_attempt = function()
-    local event = ready()
-    local retry_version = core.implementation_attempt_version(event.dedup_key, 2)
+  test_merged_but_open_older_redrive_is_acknowledged_without_effects = function()
+    local stale = ready()
+    stale.dedup_key = core.implementation_attempt_version(stale.dedup_key, 2)
+    stale.impl_retry_attempt = 2
+    local current_version = core.implementation_attempt_version(stale.dedup_key, 3)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
-      core.implement_attempt_marker(event.proposal_id, retry_version, 2, stale_attempt_started_at()),
+      core.state_marker(stale.proposal_id, "implementing", current_version),
+      core.implement_attempt_marker(stale.proposal_id, current_version, 3, stale_attempt_started_at()),
+      m_builders.pr_link_marker(stale.proposal_id, 7, "devloop-owner-repo-42-01HY", current_version, "dev"),
     })
 
-    local result = run_implement(event, opts("implement-721-version-mismatch-persist"))
+    local result = run_implement(
+      liveness_redrive_ready(stale),
+      opts("implement-2908-merged-open-stale-redrive"),
+      "github-devloop.devloop_ready"
+    )
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("codex exec"), 0)
+  end,
+
+  test_newer_same_lineage_version_mismatch_is_retry_pending = function()
+    local base_event = ready()
+    local current_version = core.implementation_attempt_version(base_event.dedup_key, 2)
+    local newer_version = core.implementation_attempt_version(current_version, 3)
+    local event = ready({
+      dedup_key = newer_version,
+      impl_retry_attempt = 3,
+    })
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", current_version),
+    })
+
+    local result = run_implement(
+      event,
+      opts("implement-2908-newer-retry-pending"),
+      "github-devloop.devloop_ready"
+    )
     t.eq(result.exit_code, 1)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.eq(comment ~= nil, true)
-    t.eq(core.implement_version_mismatch_attempt_count({ comment.payload.body }, event.proposal_id, event.dedup_key, retry_version), 1)
+    t.is_true(tostring(result.error):find("state-marker-pending", 1, true) ~= nil)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("codex exec"), 0)
+  end,
+
+  test_incomparable_canonical_version_mismatch_fails_closed = function()
+    local event = ready()
+    local current_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", current_version),
+    })
+
+    local result = run_implement(
+      event,
+      opts("implement-2908-incomparable-lineage"),
+      "github-devloop.devloop_ready"
+    )
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error):find("invalid-version-lineage", 1, true) ~= nil)
+    t.eq(#result.raises, 0)
+    t.eq(count_calls("codex exec"), 0)
   end,
 
   test_observe_skips_implementing_state_marker_without_progress_facts = function()

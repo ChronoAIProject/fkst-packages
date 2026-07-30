@@ -933,11 +933,15 @@ return {
     t.eq(count_calls("git -C"), 0)
   end,
 
-  test_implement_implementing_label_without_marker_reruns = function()
-    mock_issue_implement({ "fkst-dev:implementing" })
+  test_implement_incomparable_implementing_marker_fails_closed = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", default_marker_version),
+    })
 
-    local result = run_implement(ready(), opts("implement-label-without-marker"))
-    t.eq(result.exit_code, 0)
+    local result = run_implement(event, opts("implement-incomparable-implementing-marker"))
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error):find("invalid-version-lineage", 1, true) ~= nil)
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)
   end,

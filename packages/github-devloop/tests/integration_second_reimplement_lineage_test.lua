@@ -84,7 +84,7 @@ return {
     end)
   end,
 
-  test_malformed_retry_lineage_records_visible_failure_instead_of_crashing = function()
+  test_malformed_retry_lineage_fails_typed_closed_without_effects = function()
     local event = reached()
     local base_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
     local first_replacement_version = base_version .. "/reimplement/1"
@@ -97,19 +97,35 @@ return {
     }
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
 
-    local result = run_implement(ready, opts("implement-malformed-retry-lineage"))
+    local result = run_implement(
+      ready,
+      opts("implement-malformed-retry-lineage"),
+      "github-devloop.devloop_ready"
+    )
 
-    t.eq(result.exit_code, 0)
-    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(comment ~= nil)
-    t.is_true(comment.payload.body:find("invalid-version-lineage", 1, true) ~= nil)
-    t.is_true(comment.payload.body:find(
-      core.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
-      1,
-      true
-    ) ~= nil)
-    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
-    t.eq(label.payload.add_labels[1], "fkst-dev:impl-failed")
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error):find("invalid-version-lineage", 1, true) ~= nil)
+    t.eq(#result.raises, 0)
+  end,
+
+  test_malformed_retry_suffix_fails_before_normalization = function()
+    local event = reached()
+    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local canonical_version = ready.dedup_key
+    ready.dedup_key = canonical_version .. "/reimplement/0"
+    mock_issue_implement_raw({ "fkst-dev:ready" }, {
+      core.state_marker(event.proposal_id, "ready", canonical_version),
+    })
+
+    local result = run_implement(
+      ready,
+      opts("implement-malformed-retry-suffix"),
+      "github-devloop.devloop_ready"
+    )
+
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error):find("invalid-version-lineage", 1, true) ~= nil)
+    t.eq(#result.raises, 0)
   end,
 
   test_second_operator_reimplement_raises_next_attempt = function()

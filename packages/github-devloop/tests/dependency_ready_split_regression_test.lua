@@ -184,9 +184,9 @@ local function run_observe_with_issue(event)
   }, h.opts("ready-split-regression-observe-visible"))
 end
 
-local function run_implement(payload)
+local function run_implement(payload, queue)
   return h.run_department("departments/implement/main.lua", {
-    queue = "devloop_ready",
+    queue = queue or "devloop_ready",
     payload = payload,
   }, h.opts("ready-split-regression-implement"))
 end
@@ -457,6 +457,19 @@ return {
     t.is_true(body:find('to_version="' .. next_split_version .. '"', 1, true) ~= nil)
     t.is_true(body:find('to_version="ready/', 1, true) == nil)
     t.is_true(body:find('state="dependency_wait"', 1, true) ~= nil)
+  end,
+
+  test_older_implementing_delivery_precedes_dependency_backstop = function()
+    local stale = ready_at(version)
+    local current_version = core.implementation_attempt_version(stale.dedup_key, 2)
+    mock_blocked_by_failure(42)
+    mock_implement_issue({ "fkst-dev:implementing" }, {
+      core.state_marker(proposal_id, "implementing", current_version),
+    })
+
+    local result = run_implement(stale, "github-devloop.devloop_ready")
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 0)
   end,
 
   test_legacy_ready_unresolvable_hold_canonicalizes_to_dependency_wait = function()
