@@ -104,8 +104,9 @@ end
 
 local function record_test_poll_epoch(poll_key)
   cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
-  local recorded = entity_list_cache.record_poll_epoch(repo, poll_key)
+  local recorded, allocated_epoch = entity_list_cache.record_poll_epoch(repo, poll_key)
   t.is_true(recorded)
+  return allocated_epoch
 end
 
 local function json_comments(comments)
@@ -279,6 +280,46 @@ return {
     t.is_true(m_claims.is_managed_bot_login("rollup-peer", inputs.managed))
   end,
 
+  test_equal_epoch_repoll_uses_the_new_authorization_snapshot = function()
+    local token = "2026-07-30T01:02:03Z"
+    local policy = github_author_policy.from_logins({ "fkst-test-bot", "peer-bot" })
+    local function handle(issue_stdout)
+      return {
+        issue_list_cli = function()
+          return { stdout = issue_stdout, stderr = "", exit_code = 0 }
+        end,
+        pr_list_cli = function()
+          return { stdout = "[]", stderr = "", exit_code = 0 }
+        end,
+      }
+    end
+
+    local first_epoch = record_test_poll_epoch(token)
+    mock_peer_branch_config()
+    local first = m_claims.repo_scoped_observed_managed_bot_logins(
+      repo,
+      policy,
+      "fkst-test-bot",
+      handle("[]"),
+      first_epoch
+    )
+    t.eq(first["peer-bot"], nil)
+
+    local recorded, replayed_epoch = entity_list_cache.record_poll_epoch(repo, token)
+    t.is_true(recorded)
+    t.is_true(first_epoch ~= replayed_epoch, "equal timestamp replay receives a new execution epoch")
+    mock_peer_branch_config()
+    local replayed = m_claims.repo_scoped_observed_managed_bot_logins(
+      repo,
+      policy,
+      "fkst-test-bot",
+      handle("[" .. issue_row(7, { state_marker_comment("peer-bot") }) .. "]"),
+      replayed_epoch
+    )
+
+    t.is_true(replayed["peer-bot"], "a fresh execution of the poll must not reuse the older negative snapshot")
+  end,
+
   test_repo_peer_discovery_fails_closed_for_unauthorized_candidates = function()
     mock_bot("fkst-test-bot")
     mock_authorized_login("")
@@ -341,10 +382,10 @@ return {
         return { stdout = "", stderr = "rate limited", exit_code = 1 }
       end,
     }
-    record_test_poll_epoch("poll-nonzero")
+    local poll_key = record_test_poll_epoch("poll-nonzero")
 
     for _ = 1, 2 do
-      local admission = direct_discovery_admission(handle, policy, "poll-nonzero")
+      local admission = direct_discovery_admission(handle, policy, poll_key)
       t.eq(admission, "denied")
     end
 
@@ -364,9 +405,9 @@ return {
         return { stdout = "[]", stderr = "", exit_code = 0 }
       end,
     }
-    record_test_poll_epoch("poll-object")
+    local poll_key = record_test_poll_epoch("poll-object")
 
-    local admission = direct_discovery_admission(handle, policy, "poll-object")
+    local admission = direct_discovery_admission(handle, policy, poll_key)
 
     t.eq(admission, "denied")
   end,
@@ -388,9 +429,9 @@ return {
         return { stdout = "[]", stderr = "", exit_code = 0 }
       end,
     }
-    record_test_poll_epoch("poll-sparse")
+    local poll_key = record_test_poll_epoch("poll-sparse")
 
-    local admission = direct_discovery_admission(handle, policy, "poll-sparse")
+    local admission = direct_discovery_admission(handle, policy, poll_key)
 
     t.eq(admission, "denied")
   end,
@@ -419,8 +460,7 @@ return {
         }
       end,
     }
-    local poll_key = "2026-07-30T01:05:00Z"
-    record_test_poll_epoch(poll_key)
+    local poll_key = record_test_poll_epoch("2026-07-30T01:05:00Z")
 
     local observed, unavailable_reason = m_claims.repo_scoped_observed_managed_bot_logins(
       repo,

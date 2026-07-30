@@ -40,6 +40,10 @@ local observed_issue_raises = h.observed_issue_raises
 local changed_raises = h.changed_raises
 local find_entity_raise = h.find_entity_raise
 local assert_observed_issue = h.assert_observed_issue
+
+local function allocated_poll_epoch(timestamp, sub_epoch)
+  return tostring(timestamp) .. "/sub-epoch/" .. tostring(sub_epoch)
+end
 local issue_comment_create = "gh api --method POST repos/owner/x/issues/42/comments"
 
 local function mock_poll_env(replay_budget)
@@ -74,7 +78,7 @@ return {
     t.eq(first.raises[1].payload.labels[2], "bug")
     t.is_nil(first.raises[1].payload.view_cache_key)
     t.eq(first.raises[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:03Z")
-    t.eq(first.raises[1].payload.poll_token, event.ts)
+    t.eq(first.raises[1].payload.poll_token, allocated_poll_epoch(event.ts, 0))
     t.eq(first.raises[1].payload.source_ref.kind, "external")
     t.eq(first.raises[1].payload.source_ref.ref, "owner/x#issue/42")
     t.eq(first.raises[2].queue, "github_entity_changed")
@@ -88,7 +92,7 @@ return {
     t.eq(first.raises[2].payload.updated_at, "2026-06-03T02:03:04Z")
     t.is_nil(first.raises[2].payload.view_cache_key)
     t.eq(first.raises[2].payload.dedup_key, "owner/x#pr#7@2026-06-03T02:03:04Z")
-    t.eq(first.raises[2].payload.poll_token, event.ts)
+    t.eq(first.raises[2].payload.poll_token, allocated_poll_epoch(event.ts, 0))
     t.eq(first.raises[2].payload.source_ref.kind, "external")
     t.eq(first.raises[2].payload.source_ref.ref, "owner/x#pr/7")
     t.is_nil(first.raises[3])
@@ -98,7 +102,7 @@ return {
     t.eq(second.exit_code, 0)
     t.eq(#second.raises, 1)
     assert_observed_issue(second.raises[1], 42, "2026-06-03T01:02:03Z")
-    t.eq(second.raises[1].payload.poll_token, event.ts)
+    t.eq(second.raises[1].payload.poll_token, allocated_poll_epoch(event.ts, 1))
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues?state=open&per_page=100"), 2)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/pulls?state=open&per_page=100"), 2)
   end,
@@ -343,7 +347,7 @@ return {
     t.eq(result.raises[1].payload.number, 50)
     t.eq(result.raises[1].payload.state, "OPEN")
     t.eq(result.raises[1].payload.labels[1], "bug")
-    t.eq(result.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-cold")
+    t.eq(result.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-cold/sub-epoch/0")
     t.eq(result.raises[1].payload.source_ref.kind, "external")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/x#issue/50")
   end,
@@ -364,7 +368,7 @@ return {
     t.eq(first.exit_code, 0)
     t.eq(#first.raises, 2)
     t.eq(numbers(first.raises), "50,42")
-    t.eq(first.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-1")
+    t.eq(first.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-1/sub-epoch/0")
     t.eq(first.raises[2].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:00Z")
 
     mock_poll_env("1")
@@ -380,7 +384,7 @@ return {
     local second_changed = changed_raises(second.raises)
     t.eq(#second_changed, 1)
     t.eq(second_changed[1].payload.number, 50)
-    t.eq(second_changed[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-2")
+    t.eq(second_changed[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z/poll/poll-2/sub-epoch/0")
     t.eq(#observed_issue_raises(second.raises), 1)
 
     mock_poll_env("1")

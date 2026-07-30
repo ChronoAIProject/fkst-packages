@@ -214,19 +214,19 @@ local function act(event)
   local observed_issues = {}
   local poll_token = event and event.ts or now()
   poll_entities(repo, event, fresh_changes, replay_candidates, observed_issues, poll_label_prefixes)
-  local recorded, current_epoch = entity_list_cache.record_poll_epoch(repo, poll_token)
+  local recorded, allocated_epoch = entity_list_cache.record_poll_epoch(repo, poll_token)
   if not recorded then
     log.info("github-proxy: suppressing stale poll emissions repo=" .. tostring(repo)
       .. " poll_epoch=" .. tostring(poll_token)
-      .. " current_epoch=" .. tostring(current_epoch))
+      .. " current_epoch=" .. tostring(allocated_epoch))
     return
   end
-  local epoch_current = entity_list_cache.with_current_poll_epoch(repo, poll_token, function()
-    raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, poll_token)
+  local epoch_current = entity_list_cache.with_current_poll_epoch(repo, allocated_epoch, function()
+    raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, allocated_epoch)
   end)
   if not epoch_current then
     log.info("github-proxy: suppressing poll emissions after epoch advanced repo=" .. tostring(repo)
-      .. " poll_epoch=" .. tostring(poll_token))
+      .. " poll_epoch=" .. tostring(allocated_epoch))
   end
 end
 

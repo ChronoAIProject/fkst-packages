@@ -70,10 +70,10 @@ local function mock_admission_view(number, created_at, fields)
     body = "",
     created_at = created_at or os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
     updated_at = "2026-07-30T01:02:03Z",
-    state = "OPEN",
-    labels = {},
+    state = selected.state or "OPEN",
+    labels = selected.labels or {},
     comments = selected.comments or {},
-    assignees = {},
+    assignees = selected.assignees or {},
     author_login = selected.author_login or "trusted-human",
   }, intake_fields)
 end
@@ -103,15 +103,24 @@ local function count_peer_calls(command)
   return count
 end
 
+local allocated_poll_epochs = {}
+
 local function set_current_poll_epoch(poll_token, expect_stale)
   if poll_token ~= nil then
-    local recorded = entity_list_cache.record_poll_epoch(repo, poll_token)
+    local existing_epoch = allocated_poll_epochs[poll_token]
+    if not expect_stale and existing_epoch ~= nil then
+      return existing_epoch
+    end
+    local recorded, allocated_epoch = entity_list_cache.record_poll_epoch(repo, poll_token)
     if expect_stale then
       t.eq(recorded, false)
+      return existing_epoch, allocated_epoch
     else
       t.is_true(recorded)
-      t.is_true(entity_list_cache.poll_epoch_is_current(repo, poll_token))
+      t.is_true(entity_list_cache.poll_epoch_is_current(repo, allocated_epoch))
+      allocated_poll_epochs[poll_token] = allocated_epoch
     end
+    return allocated_epoch
   end
 end
 
@@ -137,9 +146,15 @@ local function run_admission(run_opts, number, poll_token, created_at, opts)
   if active_run_opts ~= run_opts then
     cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
     active_run_opts = run_opts
+    allocated_poll_epochs = {}
   end
-  if options.preserve_current_epoch ~= true then
-    set_current_poll_epoch(poll_token, options.expect_stale_epoch == true)
+  if options.current_epoch ~= nil then
+    set_current_poll_epoch(options.current_epoch)
+  elseif options.preserve_current_epoch ~= true then
+    local allocated_epoch = set_current_poll_epoch(poll_token, options.expect_stale_epoch == true)
+    if allocated_epoch ~= nil then
+      poll_token = allocated_epoch
+    end
   end
   mock_event_env()
   mock_admission_view(number, created_at, options.current)
@@ -163,6 +178,17 @@ local function reintake_comments(number)
       created_at = "2026-07-30T01:03:00Z",
     },
   }
+end
+
+local function blocked_reintake_comments(number)
+  local proposal_id = "github-devloop/issue/owner/repo/" .. tostring(number)
+  local comments = reintake_comments(number)
+  table.insert(comments, core.state_marker(
+    proposal_id,
+    "blocked",
+    proposal_id .. "/2026-07-30T01-00-00Z/intake/1"
+  ))
+  return comments
 end
 
 local function assert_no_admission_effect(result)
@@ -327,7 +353,27 @@ return {
     t.eq(count_peer_calls(pr_peer_command), 1, "reintake PR scan cost does not grow with batch size")
   end,
 
-  test_replayed_older_poll_epoch_stays_stale_without_admission_effect_or_scan = function()
+  test_stale_event_epoch_does_not_discard_self_owned_blocked_reintake_without_peer_snapshot = function()
+    local run_opts = h.opts("peer-scan-stale-self-owned-reintake")
+    local result = run_admission(run_opts, 73, "2026-07-30T01:02:03Z", nil, {
+      current_epoch = "2026-07-30T01:02:04Z",
+      current = {
+        labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+        comments = blocked_reintake_comments(73),
+        assignees = { "fkst-test-bot" },
+        author_login = "trusted-human",
+      },
+    })
+
+    t.eq(result.exit_code, 0)
+    local candidate = h.find_raise(result.raises, "devloop_intake_candidate")
+    t.is_true(candidate ~= nil, "a stale raw event token cannot discard reintake when no peer snapshot was consumed")
+    t.eq(candidate.payload.issue_number, "73")
+    t.eq(count_peer_calls(issue_peer_command), 0)
+    t.eq(count_peer_calls(pr_peer_command), 0)
+  end,
+
+  test_replayed_older_dynamic_peer_poll_epoch_stays_stale_without_admission_effect_or_scan = function()
     local run_opts = h.opts("peer-scan-stale-poll-epoch")
     local created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (3 * 60 * 60) - 1)
     local peer_marker_rows = '[{"number":7,"comments":[{"body":"<!-- fkst:github-devloop:state:v1 proposal=\\"x\\" state=\\"thinking\\" version=\\"v\\" -->","author":{"login":"trusted-human"}}],"author":{"login":"trusted-human"}}]'
@@ -351,7 +397,7 @@ return {
     })
 
     assert_no_admission_effect(delayed)
-    t.is_true(entity_list_cache.poll_epoch_is_current(repo, poll_b), "newer poll epoch remains current")
+    t.is_true(entity_list_cache.poll_epoch_is_current(repo, allocated_poll_epochs[poll_b]), "newer poll epoch remains current")
     t.eq(count_peer_calls(issue_peer_command), issue_scans, "stale epoch performs no issue scan")
     t.eq(count_peer_calls(pr_peer_command), pr_scans, "stale epoch performs no PR scan")
   end,

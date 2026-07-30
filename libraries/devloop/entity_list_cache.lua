@@ -153,13 +153,57 @@ local function poll_epoch_cache_key(repo)
   }, "/")
 end
 
-local function poll_epoch_at_least(candidate, current)
+local function compare_poll_timestamp(candidate, current)
   local candidate_number = tonumber(candidate)
   local current_number = tonumber(current)
   if candidate_number ~= nil and current_number ~= nil then
-    return candidate_number >= current_number
+    if candidate_number == current_number then
+      return 0
+    end
+    return candidate_number > current_number and 1 or -1
   end
-  return tostring(candidate) >= tostring(current)
+  if tostring(candidate) == tostring(current) then
+    return 0
+  end
+  return tostring(candidate) > tostring(current) and 1 or -1
+end
+
+local function poll_execution_epoch(timestamp, sub_epoch)
+  return tostring(timestamp) .. "/sub-epoch/" .. tostring(sub_epoch)
+end
+
+local function decode_poll_epoch_state(encoded)
+  local ok, state = pcall(json.decode, encoded or "")
+  if not ok or type(state) ~= "table" or type(state.timestamp) ~= "string" then
+    return nil
+  end
+  local sub_epoch = tonumber(state.sub_epoch)
+  if state.timestamp == "" or sub_epoch == nil or sub_epoch < 0 or sub_epoch % 1 ~= 0 then
+    return nil
+  end
+  return {
+    timestamp = state.timestamp,
+    sub_epoch = sub_epoch,
+    epoch = poll_execution_epoch(state.timestamp, sub_epoch),
+  }
+end
+
+local function encode_poll_epoch_state(timestamp, sub_epoch)
+  return '{"timestamp":' .. json_string(timestamp)
+    .. ',"sub_epoch":' .. tostring(sub_epoch)
+    .. "}"
+end
+
+local function current_poll_epoch_state(repo)
+  local encoded = tostring(cache_get(poll_epoch_cache_key(repo)) or "")
+  if encoded == "" then
+    return nil
+  end
+  local state = decode_poll_epoch_state(encoded)
+  if state == nil then
+    error("github-devloop: cached poll epoch state is malformed")
+  end
+  return state
 end
 
 function C.entity_list_cache_key(repo, kind, scope, poll_key)
@@ -178,31 +222,34 @@ function C.poll_epoch_cache_key(repo)
 end
 
 function C.record_poll_epoch(repo, poll_key)
-  local epoch = tostring(poll_key or "")
-  if epoch == "" then
+  local timestamp = tostring(poll_key or "")
+  if timestamp == "" then
     error("github-devloop: poll epoch must be non-empty")
   end
   local key = poll_epoch_cache_key(repo)
   local recorded = false
-  local current = nil
+  local current_epoch = nil
   with_lock(key, function()
-    current = tostring(cache_get(key) or "")
-    if current == "" or poll_epoch_at_least(epoch, current) then
-      if current ~= epoch then
-        cache_set(key, epoch)
-      end
-      current = epoch
-      recorded = true
+    local current = current_poll_epoch_state(repo)
+    local comparison = current == nil and 1 or compare_poll_timestamp(timestamp, current.timestamp)
+    if comparison < 0 then
+      current_epoch = current.epoch
+      return
     end
+    local sub_epoch = comparison == 0 and current.sub_epoch + 1 or 0
+    current_epoch = poll_execution_epoch(timestamp, sub_epoch)
+    cache_set(key, encode_poll_epoch_state(timestamp, sub_epoch))
+    recorded = true
   end)
-  return recorded, current
+  return recorded, current_epoch
 end
 
 function C.poll_epoch_is_current(repo, poll_key)
   if poll_key == nil or tostring(poll_key) == "" then
     return true
   end
-  return tostring(cache_get(poll_epoch_cache_key(repo)) or "") == tostring(poll_key)
+  local current = current_poll_epoch_state(repo)
+  return current ~= nil and current.epoch == tostring(poll_key)
 end
 
 function C.with_current_poll_epoch(repo, poll_key, fn)
