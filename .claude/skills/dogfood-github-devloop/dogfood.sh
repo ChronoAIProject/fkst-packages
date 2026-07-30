@@ -479,16 +479,26 @@ doctor_one() {
 durable_health_one() {
   cfg "$1" || return 0
   if [ ! -e "$DUR/delivery.redb" ]; then echo "  $1: no durable store"; return 0; fi
-  local summary now_ms
+  local snapshot summary causes now_ms
   now_ms=$(( $(date +%s) * 1000 ))
-  summary=$("$BIN" observe --json --durable-root "$DUR" 2>/dev/null | jq -r --argjson now "$now_ms" '
+  snapshot=$("$BIN" observe --json --durable-root "$DUR" 2>/dev/null)
+  summary=$(printf '%s' "$snapshot" | jq -r --argjson now "$now_ms" '
     ([.queues[].pending]|add // 0) as $p |
     (([.queues[].oldest_pending_age_ms]|max // 0)/3600000|floor) as $oh |
     (.dead_letters|length) as $dl_total |
     ([.dead_letters[] | select(($now - (.dead_at_ms // 0)) <= 21600000)] | length) as $dl_recent |
-    "\(.queues|length) queues, \($p) pending (oldest \($oh)h), \($dl_recent) dead-letters<6h (\($dl_total) total)"
-      + (if ($dl_recent>0 or $oh>6) then " ⚠" else "" end)' 2>/dev/null)
+    (.truncated.dead_letters // false) as $dl_truncated |
+    "\(.queues|length) queues, \($p) pending (oldest \($oh)h), \($dl_recent) dead-letters<6h "
+      + (if $dl_truncated then "(\($dl_total) shown, truncated)" else "(\($dl_total) total)" end)
+      + (if ($dl_recent>0 or $oh>6 or $dl_truncated) then " ⚠" else "" end)' 2>/dev/null)
   echo "  $1: ${summary:-observe unavailable}"
+  [ -n "$summary" ] || return 0
+  if causes=$(printf '%s' "$snapshot" | python3 "$_self_dir/dead_letter_causes.py" \
+    --now-ms "$now_ms" --log-root "$LOGDIR" --run-name "$1" 2>/dev/null); then
+    [ -n "$causes" ] && printf '%s\n' "$causes"
+  else
+    echo "    dead-letter cause: unavailable (structured cause correlation failed)"
+  fi
 }
 
 # stray_supervise_report: enumerate EVERY running framework supervise on this host and flag any whose
