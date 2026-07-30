@@ -115,8 +115,8 @@ local function state_label_event(state, version, extra)
   return label_event(add_labels, remove_labels, payload)
 end
 
-local function mock_label_apply()
-  mock_repo_label_list({
+local function mock_label_apply(labels)
+  mock_repo_label_list(labels or {
     "fkst-dev:awaiting-pr",
     "fkst-dev:blocked",
     "fkst-dev:thinking",
@@ -174,6 +174,27 @@ return {
     local result = run_label(state_label_event("blocked", fresh_version, {
       marker_guard = state_marker_guard("blocked", fresh_version),
     }), "issue-state-label-guard-current")
+
+    t.eq(result.exit_code, 0)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 1)
+    t.eq(count_calls("gh issue edit"), 1)
+  end,
+
+  test_issue_ready_projection_with_dependency_label_applies_when_guard_is_current = function()
+    mock_issue_comment_view({
+      devloop_state.state_marker(proposal_id, "dependency_wait", fresh_version),
+    })
+    mock_label_apply({
+      "fkst-dev:ready",
+      "fkst-dev:blocked-on-dependency",
+      "fkst-dev:impl-failed",
+    })
+    local event = state_label_event("dependency_wait", fresh_version, {
+      marker_guard = state_marker_guard("dependency_wait", fresh_version),
+    })
+    table.insert(event.payload.add_labels, "fkst-dev:blocked-on-dependency")
+
+    local result = run_label(event, "issue-ready-dependency-label-guard-current")
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 1)

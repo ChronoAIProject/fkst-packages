@@ -19,6 +19,19 @@ local function read_source(path)
   return body
 end
 
+local function count_occurrences(body, needle)
+  local count = 0
+  local start = 1
+  while true do
+    local found = body:find(needle, start, true)
+    if found == nil then
+      return count
+    end
+    count = count + 1
+    start = found + #needle
+  end
+end
+
 local function department_main_paths()
   local root = package_root
   local paths = {}
@@ -91,5 +104,20 @@ return {
     t.is_true(observe_body:find("linked_open_pr(snapshot, link.pr_number)", 1, true) ~= nil)
     t.is_true(observe_body:find("state_label_reconcile_changes", 1, true) ~= nil)
     t.is_true(observe_body:find("github-proxy.github_issue_label_request", 1, true) ~= nil)
+  end,
+
+
+  test_ready_split_state_markers_have_one_guarded_label_projection_path = function()
+    local ready_split = read_source("core/ready_split.lua")
+    local implement = read_source("departments/implement/main.lua")
+
+    t.is_true(ready_split:find("local function build_ready_split_canonicalized_comment_request", 1, true) ~= nil)
+    t.eq(count_occurrences(ready_split, "build_ready_split_canonicalized_comment_request("), 2)
+    t.is_true(ready_split:find("function M.build_ready_split_transition_requests", 1, true) ~= nil)
+    t.is_true(ready_split:find("requests_labels.build_state_label_request", 1, true) ~= nil)
+    t.is_true(ready_split:find("M._blocked_on_dependency_label", 1, true) ~= nil)
+    t.eq(count_occurrences(ready_split, "M.build_ready_split_transition_requests("), 4)
+    t.eq(count_occurrences(implement, "core.build_ready_split_transition_requests("), 1)
+    t.eq(count_occurrences(implement, "core.build_ready_split_canonicalized_comment_request("), 0)
   end,
 }
