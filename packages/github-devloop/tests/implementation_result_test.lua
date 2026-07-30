@@ -81,6 +81,10 @@ return {
     }))
   end,
 
+  test_receipt_rejects_string_attempt = function()
+    decode_fails((receipt("changes-produced"):gsub('"attempt":1', '"attempt":"1"')))
+  end,
+
   test_receipt_rejects_identity_and_attempt_mismatches = function()
     decode_fails(receipt("changes-produced"), expected({ proposal_id = proposal_id .. "/other" }))
     decode_fails(receipt("changes-produced"), expected({ implementation_version = implementation_version .. "/other" }))

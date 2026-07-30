@@ -58,6 +58,9 @@ function M.decode(raw, expected)
   if not keys_ok then
     return nil, keys_err
   end
+  if type(value.attempt) ~= "number" then
+    return nil, "attempt must be a positive bounded integer"
+  end
   local attempt = impl_failure.valid_attempt(value.attempt)
   if attempt == nil then
     return nil, "attempt must be a positive bounded integer"
