@@ -46,6 +46,33 @@ local function lean_receipt(event, version, status, phase, attempt)
   return "{" .. table.concat(fields, ",") .. "}"
 end
 
+local function implementation_receipt(event, version, outcome, attempt, evidence)
+  local fields = {
+    '"schema":"github-devloop.implementation-result.v1"',
+    '"outcome":' .. strings.json_string(outcome),
+    '"proposal_id":' .. strings.json_string(event.proposal_id),
+    '"implementation_version":' .. strings.json_string(version),
+    '"attempt":' .. tostring(attempt),
+  }
+  if outcome == "cannot-implement-here" then
+    table.insert(fields, '"reason":"precursor-missing"')
+    table.insert(fields, '"evidence":' .. strings.json_string(evidence))
+  end
+  return "{" .. table.concat(fields, ",") .. "}"
+end
+
+local function mock_issue_implement_view_only(labels, comments, times)
+  entity_read_mocks.mock_issue_view_raw_selector(t, {},
+    "title,body,labels,comments,state,author", {
+      stdout = entity_read_mocks.issue_view_stdout({
+        labels = labels,
+        comments = comments,
+      }),
+      stderr = "",
+      exit_code = 0,
+    }, times or 1)
+end
+
 local function mock_linked_pr_state(comments, state)
   local rendered_comments = {}
   for _, comment in ipairs(comments or {}) do
@@ -363,5 +390,90 @@ return {
     t.eq(#result.raises, 0)
     t.eq(count_calls("codex exec"), 0)
     t.eq(count_calls("git -C"), 0)
+  end,
+
+  test_precursor_missing_refusal_blocks_then_reimplements_from_trusted_fact = function()
+    local event = reached()
+    local ready = payloads_builders.build_devloop_ready_payload(core, event)
+    local evidence = "The required generated parser is absent from packages/parser."
+    local ready_comments = {
+      core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+    }
+    mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
+    mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
+    mock_implement_codex(0, implementation_receipt(
+      event, ready.dedup_key, "cannot-implement-here", 1, evidence))
+    mock_git_status("")
+    t.mock_command("rev-list --count", {
+      stdout = "0\n",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local refused = run_implement(ready, opts("implement-precursor-missing-refusal"))
+
+    t.eq(refused.exit_code, 0)
+    local refusal_comment = find_raise(refused.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementation-refusal:v1", 1, true) ~= nil
+    end)
+    t.is_true(refusal_comment ~= nil, "typed refusal comment was not published")
+    t.is_true(refusal_comment.payload.body:find(evidence, 1, true) ~= nil,
+      "typed refusal evidence was not preserved")
+    t.is_true(refusal_comment.payload.body:find(
+      core.state_marker(event.proposal_id, "blocked", ready.dedup_key), 1, true) ~= nil,
+      "typed refusal did not publish blocked state")
+    t.eq(refusal_comment.payload.body:find("fkst:github-devloop:impl-failure:v1", 1, true), nil)
+    local blocked_label = find_raise(refused.raises, "github-proxy.github_issue_label_request", function(payload)
+      return payload.add_labels[1] == "fkst-dev:blocked"
+    end)
+    t.is_true(blocked_label ~= nil, "typed refusal did not publish blocked label")
+    t.eq(find_raise(refused.raises, "github-proxy.github_issue_label_request", function(payload)
+      return payload.add_labels[1] == "fkst-dev:impl-failed"
+    end), nil)
+
+    local command = trusted_command("IC_reimplement_precursor_missing")
+    local blocked_comments = { refusal_comment.payload.body, command }
+    local published_refusal = core.implementation_refusal_fact(
+      blocked_comments, event.proposal_id, ready.dedup_key)
+    t.is_true(published_refusal ~= nil,
+      "published precursor-missing refusal did not round-trip as a trusted current fact")
+    mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", blocked_comments)
+
+    local observed = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+      opts("operator-reimplement-precursor-missing"))
+
+    t.eq(observed.exit_code, 0)
+    local retry = find_raise(observed.raises, "devloop_ready")
+    local emitted = {}
+    for _, raised in ipairs(observed.raises) do
+      table.insert(emitted, tostring(raised.queue) .. ":" .. tostring(raised.payload.body or ""))
+    end
+    t.is_true(retry ~= nil,
+      "trusted typed refusal did not authorize reimplementation; emitted="
+        .. table.concat(emitted, " | "))
+    t.eq(retry.payload.impl_retry_attempt, 2)
+    t.eq(retry.payload.operator_reentry.terminal_reason, "implementation-refusal")
+    t.eq(retry.payload.operator_reentry.impl_version, ready.dedup_key)
+
+    local retry_version = core.implementation_attempt_version(ready.dedup_key, 2)
+    for _ = 1, 3 do
+      mock_issue_implement_raw({ "fkst-dev:blocked" }, blocked_comments)
+    end
+    mock_existing_empty_implement_worktree({ impl_version = retry_version })
+    mock_implement_codex(0, implementation_receipt(
+      event, retry_version, "changes-produced", 2))
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", ready.dedup_key))
+
+    local implemented = run_implement(retry.payload, opts("implement-after-precursor-missing"))
+
+    t.eq(implemented.exit_code, 0)
+    local output = find_raise(implemented.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation output published", 1, true) ~= nil
+    end)
+    t.is_true(output ~= nil, "reimplementation did not publish normal implementation output")
+    t.is_true(output.payload.body:find('dedup="' .. retry_version .. '"', 1, true) ~= nil,
+      "reimplementation output did not use the fresh implementation version")
   end,
 }

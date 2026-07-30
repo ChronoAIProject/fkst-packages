@@ -7,7 +7,7 @@ local function command_resource(argv)
   if argv[2] == "api" then
     return argv[3] == "graphql" and "graphql" or "core"
   end
-  if (argv[2] == "issue" or argv[2] == "pr") and argv[3] == "view" then
+  if (argv[2] == "issue" or argv[2] == "pr") and (argv[3] == "view" or argv[3] == "list") then
     return "graphql"
   end
   return nil

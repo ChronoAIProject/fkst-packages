@@ -279,6 +279,9 @@ local function owner_department(world, controller)
         world:claim(number)
         return true
       end,
+      with_current_claim_admission_epoch = function(_detail, fn)
+        return true, fn()
+      end,
     },
     read_current_issue = function(source_ref)
       local number = tonumber(tostring(source_ref.ref):match("#issue/(%d+)$"))

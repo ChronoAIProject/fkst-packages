@@ -65,6 +65,19 @@ return {
     assert(blocked_err.reset_at == 200)
     assert(second_calls == 0, "same-credential GraphQL consumers must share the open breaker")
 
+    local issue_list_blocked, issue_list_err = call(second, {
+      "gh", "issue", "list", "--repo", "owner/repo", "--state", "open", "--json", "number",
+    })
+    assert(issue_list_blocked == false)
+    assert(issue_list_err.resource == "graphql")
+
+    local pr_list_blocked, pr_list_err = call(second, {
+      "gh", "pr", "list", "--repo", "owner/repo", "--state", "open", "--json", "number",
+    })
+    assert(pr_list_blocked == false)
+    assert(pr_list_err.resource == "graphql")
+    assert(second_calls == 0, "all GraphQL-backed list consumers must share the open breaker")
+
     local rest_ok = call(second, { "gh", "api", "repos/owner/repo/issues/42" })
     assert(rest_ok == true)
     assert(second_calls == 1, "GraphQL exhaustion must not suppress healthy REST")

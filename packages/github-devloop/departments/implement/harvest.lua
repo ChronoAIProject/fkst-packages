@@ -67,6 +67,22 @@ end
 
 M.impl_failed_outcome = impl_failed_outcome
 
+function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, exec_ref, base_sha)
+  return {
+    kind = "implementation-refusal",
+    ready = ready,
+    reason = receipt.reason,
+    evidence = receipt.evidence,
+    receipt = receipt,
+    attempt = attempt,
+    started_at = started_at,
+    exec_ref = exec_ref,
+    finished_at = now(),
+    base_sha = base_sha,
+    outcome = "refused: " .. tostring(receipt.reason),
+  }
+end
+
 function M.local_iteration_check(worktree)
   local command = "cd " .. devloop_base._shell_single_quote(worktree)
     .. " && " .. config.local_iteration_test_command()

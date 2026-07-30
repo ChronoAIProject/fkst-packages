@@ -16,6 +16,21 @@ local function count_calls(needle)
 end
 
 return {
+  test_entity_list_poll_key_prefers_explicit_token_and_preserves_fallbacks = function()
+    t.eq(entity_list_cache.entity_list_poll_key({
+      ts = "event-ts",
+      payload = { poll_token = "explicit-token", tick = "payload-tick" },
+    }), "explicit-token")
+    t.eq(entity_list_cache.entity_list_poll_key({
+      ts = "event-ts",
+      payload = { tick = "payload-tick" },
+    }), "event-ts")
+    t.eq(entity_list_cache.entity_list_poll_key({ payload = { tick = "payload-tick" } }), "payload-tick")
+    t.eq(entity_list_cache.entity_list_poll_key({ payload = { generated_at = "generated-at" } }), "generated-at")
+    t.eq(entity_list_cache.entity_list_poll_key({ payload = { ts = "payload-ts" } }), "payload-ts")
+    t.eq(entity_list_cache.entity_list_poll_key({ payload = {} }), nil)
+  end,
+
   test_entity_list_cache_key_is_readable_and_scoped_to_exact_poll_key = function()
     local first = entity_list_cache.entity_list_cache_key("owner/repo", "issue", "open", "2026-06-03T01:02:03Z")
     local second = entity_list_cache.entity_list_cache_key("owner/repo", "issue", "open", "2026-06-03T01:02:04Z")

@@ -5,6 +5,9 @@ local graph = require("testkit.graph")
 local t = fkst.test
 local core = require("core")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local entity_list_cache = require("devloop.entity_list_cache")
+local author_policy = require("testkit_internal.github_author_policy")
+local h = require("tests.devloop_helpers")
 
 local repo = "owner/repo"
 local issue_number = 42
@@ -55,8 +58,66 @@ local function mock_admission_issue_view()
   }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
 end
 
+local function trace_has_raise(trace, queue)
+  for _, step in ipairs(trace.steps or {}) do
+    for _, raised in ipairs(step.raises or {}) do
+      if raised.queue == queue then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function mock_transient_peer_replay_env()
+  author_policy.mock_env(t, nil, {
+    configure_trusted_bot_login = h.mock_author_policy_configure,
+    times = 12,
+  })
+  for _ = 1, 12 do
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), { stdout = repo, stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_WRITE"), { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_GITHUB_CLAIM_MODE"), { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_FORK_GRACE_HOURS"), { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_UPSTREAM_BRANCH"), { stdout = "dev", stderr = "", exit_code = 0 })
+    t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_INTEGRATION_BRANCH"), { stdout = "integration-fkst-test-bot", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_PROXY_POLL_LABEL_PREFIX"', { stdout = "fkst-class:", stderr = "", exit_code = 0 })
+    t.mock_command('printf %s "$FKST_GITHUB_PROXY_REPLAY_BUDGET"', { stdout = "1", stderr = "", exit_code = 0 })
+  end
+end
+
+local function mock_labelled_poll_snapshot()
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'", {
+    stdout = '[[{"number":42,"title":"Fresh unmanaged issue","html_url":"https://github.example/owner/repo/issues/42","updated_at":"2026-06-03T01:02:03Z","state":"open","labels":[{"name":"fkst-class:expedite"}],"assignees":[]}]]\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
+    stdout = "[[]]\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_other_authored_admission_view()
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = repo,
+    number = issue_number,
+    title = "Fresh unmanaged issue",
+    body = "",
+    created_at = "2026-06-03T01:00:00Z",
+    updated_at = "2026-06-03T01:02:03Z",
+    state = "OPEN",
+    labels = { "fkst-class:expedite" },
+    comments = {},
+    assignees = {},
+    author_login = "trusted-human",
+  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
+end
+
 return {
   test_run_graph_github_poll_reaches_intake_admission_candidate_without_intake_poll = function()
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
     mock_env()
     mock_proxy_poll_lists()
     mock_admission_issue_view()
@@ -90,5 +151,44 @@ return {
       t.is_true(step.consumer ~= "github-devloop-intake.intake_scan")
       t.is_true(step.consumer ~= "github-devloop-intake.intake_probe")
     end
+  end,
+
+  test_configured_prefix_issue_replays_after_transient_peer_failure_and_reaches_admission_effect = function()
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+    mock_transient_peer_replay_env()
+    mock_labelled_poll_snapshot()
+    mock_labelled_poll_snapshot()
+    mock_other_authored_admission_view()
+    mock_other_authored_admission_view()
+    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+      stdout = "",
+      stderr = "transient peer discovery failure",
+      exit_code = 1,
+    })
+    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+      stdout = "[]",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+      stdout = "[]",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command(core.gh_issue_view_state_cmd(repo, tostring(issue_number)), {
+      stdout = '{"title":"Fresh unmanaged issue","createdAt":"2026-06-03T01:00:00Z","updatedAt":"2026-06-03T01:02:03Z","state":"OPEN","labels":["fkst-class:expedite"],"comments":[],"assignees":[],"author":{"login":"trusted-human"}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local first = graph.run("github-proxy.github_poll", { max_steps = 4 })
+    t.eq(trace_has_raise(first, "github-proxy.github_issue_create_request"), false)
+    t.eq(trace_has_raise(first, "github-devloop-intake.devloop_intake_candidate"), false)
+
+    local second = graph.run("github-proxy.github_poll", { max_steps = 4 })
+    graph.require_raise(second, "github-proxy.github_issue_create_request", function(item)
+      return item.payload.external_effect_saga == "fork-and-block"
+        and tonumber(item.payload.parent_comment_target.issue_number) == issue_number
+    end)
   end,
 }
