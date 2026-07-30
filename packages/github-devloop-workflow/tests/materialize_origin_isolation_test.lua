@@ -122,7 +122,17 @@ local function department(options)
         if config.read_failures and config.read_failures[issue_number] then
           error("github-devloop-workflow: materialization-issue-view-failed: transient origin read")
         end
-        return ready_origin(issue_number)
+        local current = ready_origin(issue_number)
+        if config.done_origins and config.done_origins[issue_number] then
+          local origin = base_ids.proposal_id(repo, issue_number)
+          local terminal_body, terminal_err = marker.build_terminal_marker(origin, "done", "all-slots-merged")
+          t.is_nil(terminal_err)
+          current.comments[#current.comments + 1] = trusted_comment(terminal_body)
+        end
+        if config.merged_origins and config.merged_origins[issue_number] then
+          current.labels = { "fkst-dev:merged" }
+        end
+        return current
       end,
       verify_issue_claim = function()
         return true
@@ -147,6 +157,13 @@ local function department(options)
         if config.release_failures and config.release_failures[issue_number] then
           error("origin-release-failed")
         end
+        config.released_claims = config.released_claims or {}
+        config.released_claims[#config.released_claims + 1] = issue_number
+        return true
+      end,
+      close_done_origin = function(_core, _repo, issue_number)
+        config.closed_origins = config.closed_origins or {}
+        config.closed_origins[#config.closed_origins + 1] = issue_number
         return true
       end,
       search_created_issue = function()
@@ -254,7 +271,11 @@ return {
   end,
 
   test_origin_effects_are_discarded_when_later_claim_release_fails = function()
-    local result, logs = run_tick({ release_failures = { [42] = true } })
+    local result, logs = run_tick({
+      done_origins = { [42] = true },
+      merged_origins = { [42] = true },
+      release_failures = { [42] = true },
+    })
     t.eq(#result.raises, 1)
     t.eq(raised_issue_numbers(result.raises)[1], 43)
     t.eq(count_logs(logs, "tag=ORIGIN_FAILURE"), 1)
@@ -293,13 +314,26 @@ return {
   end,
 
   test_effect_commit_failure_remains_tick_fatal = function()
-    local result, logs = run_tick({ commit_failure = true }, true)
+    local config = { commit_failure = true, released_claims = {} }
+    local result, logs = run_tick(config, true)
     t.is_true(tostring(result.failure.error):find("shared-effect-commit-failed", 1, true) ~= nil)
     t.eq(count_logs(logs, "tag=ORIGIN_FAILURE"), 0)
     t.eq(count_logs(logs, "tag=FAILURE"), 1)
+    t.eq(#config.released_claims, 0)
     t.eq(count_logs_with_all(logs, {
       "proposal_id=" .. base_ids.proposal_id(repo, 42),
       "outcome=applied(done)",
     }), 0)
+  end,
+
+  test_effect_commit_failure_does_not_close_done_origin = function()
+    local config = {
+      commit_failure = true,
+      done_origins = { [42] = true },
+      closed_origins = {},
+    }
+    local result = run_tick(config, true)
+    t.is_true(tostring(result.failure.error):find("shared-effect-commit-failed", 1, true) ~= nil)
+    t.eq(#config.closed_origins, 0)
   end,
 }

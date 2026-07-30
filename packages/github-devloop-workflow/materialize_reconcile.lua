@@ -107,10 +107,8 @@ local function terminal(core, deps, repo, issue_number, origin, state, reason_co
     actions.terminal_request(repo, issue_number, origin, state, reason_code)
   )
   if state == "done" then
-    lease.release_done_claim(core, deps, repo, issue_number, origin)
-    -- The origin issue itself is closed level-triggered from process_origin's
-    -- terminal-marker branch (terminal=done + still OPEN -> close), so it fires on
-    -- any poll and needs no held claim, not only on this first transition.
+    -- Cleanup is level-triggered from process_origin only after the terminal marker
+    -- and its merged label projection are both visible on a later poll.
   else
     unit.log_decision(origin, "claim", "claim", "hold-terminal-claim", "terminal " .. tostring(state) .. " keeps the lease for follow-up ownership")
   end
@@ -163,10 +161,11 @@ local function reconcile_done_projection(repo, issue_number, origin, current_lab
   local request = actions.done_label_request(repo, issue_number, origin, current_labels)
   if request == nil then
     unit.log_decision(origin, "terminal", "terminal-label", "skip-idempotent(label-current)", "merged label projection already matches the trusted workflow terminal marker")
-    return
+    return true
   end
   unit.log_decision(origin, "terminal", "terminal-label", "applied(reconcile)", "merged label projection derived from the trusted workflow terminal marker")
   unit.raise_request(origin, "github-proxy.github_issue_label_request", request)
+  return false
 end
 
 local function reconcile_active_projection(repo, issue_number, origin, terminal_fact, current_labels, current_projection, unit)
@@ -373,8 +372,10 @@ local function process_origin(core, deps, repo, issue_number, event, catalog, un
     local label_projection = discovery.latest_label_projection(core, current, origin)
     if terminal_fact ~= nil and tostring(terminal_fact.state or "") ~= "blocked" then
       if tostring(terminal_fact.state or "") == "done" then
-        reconcile_done_projection(repo, issue_number, origin, current.labels, unit)
-        lease.close_done_origin(core, deps, repo, issue_number, origin)
+        if reconcile_done_projection(repo, issue_number, origin, current.labels, unit) then
+          lease.release_done_claim(core, deps, repo, issue_number, origin)
+          lease.close_done_origin(core, deps, repo, issue_number, origin)
+        end
       else
         reconcile_terminal_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
       end

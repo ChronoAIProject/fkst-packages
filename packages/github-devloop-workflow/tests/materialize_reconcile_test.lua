@@ -230,6 +230,9 @@ local function run_with(fakes)
       release_done_claim = fake.release_done_claim or function()
         return true
       end,
+      close_done_origin = fake.close_done_origin or function()
+        return true
+      end,
       read_created_issue = fake.read_created_issue,
       search_created_issue = fake.search_created_issue or function()
         return nil
@@ -763,12 +766,13 @@ local tests = {
     t.is_true(raised[1].payload.body:find('reason_code="impossible-ledger"', 1, true) ~= nil)
   end,
 
-  test_done_terminal_releases_self_only_claim = function()
+  test_done_terminal_releases_and_closes_only_after_marker_and_label_are_visible = function()
     local first_spec = generated_spec("first")
     local second_spec = generated_spec("second")
     local first_ref = { kind = "external", ref = repo .. "#issue/108" }
     local released = nil
-    local raised = run_with({
+    local closed = nil
+    local first = run_with({
       current = issue({
         comment(blueprint_marker()),
         created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
@@ -786,11 +790,63 @@ local tests = {
         }
         return true
       end,
+      close_done_origin = function()
+        closed = true
+        return true
+      end,
     })
-    t.eq(#raised, 1)
+    local terminal_comments = only_queue(first, "github-proxy.github_issue_comment_request")
+    t.eq(#terminal_comments, 1)
+    t.eq(released, nil)
+    t.eq(closed, nil)
+
+    local projection = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(terminal_comments[1].payload.body),
+      }),
+      release_done_claim = function()
+        released = true
+        return true
+      end,
+      close_done_origin = function()
+        closed = true
+        return true
+      end,
+    })
+    t.eq(#only_queue(projection, "github-proxy.github_issue_label_request"), 1)
+    t.eq(released, nil)
+    t.eq(closed, nil)
+
+    local completed = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(terminal_comments[1].payload.body),
+      }, { labels = { "fkst-dev:merged" } }),
+      release_done_claim = function(_core, release_repo, release_issue, release_origin)
+        released = {
+          repo = release_repo,
+          issue = release_issue,
+          origin = release_origin,
+        }
+        return true
+      end,
+      close_done_origin = function(_core, close_repo, close_issue, close_origin)
+        closed = {
+          repo = close_repo,
+          issue = close_issue,
+          origin = close_origin,
+        }
+        return true
+      end,
+    })
+    t.eq(#completed, 0)
     t.eq(released.repo, repo)
     t.eq(released.issue, origin_issue)
     t.eq(released.origin, origin)
+    t.eq(closed.repo, repo)
+    t.eq(closed.issue, origin_issue)
+    t.eq(closed.origin, origin)
   end,
 }
 
