@@ -191,6 +191,8 @@ local function run_scan(options)
       FKST_GITHUB_WRITE = "1",
       FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
       FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,other-bot",
+      FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+      FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
     })[name] or ""
   end
   local model = opts.model or {
@@ -336,6 +338,8 @@ return {
         FKST_GITHUB_WRITE = "",
         FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
         FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot",
+        FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+        FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
       },
     })
 

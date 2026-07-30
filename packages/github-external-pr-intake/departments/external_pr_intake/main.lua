@@ -37,14 +37,24 @@ local function read_pr(github, repo, pr_number)
   return core.normalize_pr(decoded, repo)
 end
 
-local function admit_external_candidate(github, pr, managed, now_seconds)
-  if not core.is_external_candidate(pr, managed, now_seconds) then
-    return false, "not-external"
+local function admit_bridge_candidate(github, pr, managed, branches, now_seconds, expected_owner_kind)
+  if tostring(pr and pr.state or ""):upper() ~= "OPEN" then
+    return false, "pr-not-open"
+  end
+  local owner = core.classify_pr_owner(pr, managed, branches)
+  if owner.disposition ~= "bridge" then
+    return false, "reserved-" .. tostring(owner.kind), owner
+  end
+  if expected_owner_kind ~= nil and owner.kind ~= expected_owner_kind then
+    return false, "owner-changed-to-" .. tostring(owner.kind), owner
+  end
+  if not core.is_bridge_age_eligible(pr, now_seconds) then
+    return false, "bridge-age-ineligible", owner
   end
   if not github.is_authorized_author(pr.author_login) then
-    return false, "non-authorized-author"
+    return false, "non-authorized-author", owner
   end
-  return true, nil
+  return true, nil, owner
 end
 
 local function log_action(dedup_key, action)
@@ -115,10 +125,10 @@ local function write_handled_comment(github, repo, pr, issue, signal)
   return github.pr_comment(repo, pr.number, path, 30)
 end
 
-local function create_bridge_issue(github, repo, pr)
+local function create_bridge_issue(github, repo, pr, owner_kind)
   local path = core.body_file_path(repo, pr.number, "issue")
-  file.write(path, core.bridge_issue_body(repo, pr))
-  local result = github.issue_create(repo, core.bridge_issue_title(pr), path, {}, {}, 30)
+  file.write(path, core.bridge_issue_body(repo, pr, owner_kind))
+  local result = github.issue_create(repo, core.bridge_issue_title(pr, owner_kind), path, {}, {}, 30)
   local issue_number = core.parse_created_issue_number(result and result.stdout)
   if issue_number == nil then
     error("github-external-pr-intake: missing-issue-number: bridge issue create did not return an issue number")
@@ -237,9 +247,9 @@ local function maybe_acknowledge_existing_bridge(github, repo, pr, bridge, manag
   return acknowledge_handled_bridge(github, repo, pr, issue, signal, managed)
 end
 
-local function maybe_acknowledge_bridge_from_scan(github, repo, pr, managed)
+local function maybe_acknowledge_bridge_from_scan(github, repo, pr, managed, branches, owner_kind)
   local fresh_pr = read_pr(github, repo, pr.number)
-  local admitted = admit_external_candidate(github, fresh_pr, managed, now())
+  local admitted = admit_bridge_candidate(github, fresh_pr, managed, branches, now(), owner_kind)
   if not admitted then
     return nil
   end
@@ -260,12 +270,24 @@ local function handle_candidate(github, payload)
   if repo ~= source_repo or pr_number ~= source_pr then
     error("github-external-pr-intake: source-ref-mismatch: candidate payload does not match source_ref")
   end
+  local expected_owner_kind = tostring(payload.owner_kind or "")
+  if expected_owner_kind == "" then
+    error("github-external-pr-intake: owner-kind-required: candidate payload must declare owner_kind")
+  end
 
   local action = "skipped"
   with_lock(core.bridge_lock_key(repo, pr_number), function()
     local managed = core.managed_bot_logins()
+    local branches = core.pr_owner_branches()
     local pr = read_pr(github, repo, pr_number)
-    local admitted, reason = admit_external_candidate(github, pr, managed, now())
+    local admitted, reason, owner = admit_bridge_candidate(
+      github,
+      pr,
+      managed,
+      branches,
+      now(),
+      expected_owner_kind
+    )
     if not admitted then
       action = "skip-" .. tostring(reason)
       return
@@ -291,7 +313,14 @@ local function handle_candidate(github, payload)
       return
     end
 
-    admitted, reason = admit_external_candidate(github, pr, managed, now())
+    admitted, reason, owner = admit_bridge_candidate(
+      github,
+      pr,
+      managed,
+      branches,
+      now(),
+      expected_owner_kind
+    )
     if not admitted then
       action = "skip-" .. tostring(reason) .. "-after-claim"
       return
@@ -308,7 +337,7 @@ local function handle_candidate(github, payload)
       action = "skip-lost-claim"
       return
     end
-    local issue_number = create_bridge_issue(github, repo, pr)
+    local issue_number = create_bridge_issue(github, repo, pr, owner.kind)
     local canonical_issue_number = reconcile_created_bridge_issue(github, repo, pr_number, managed, issue_number)
     pr = read_pr(github, repo, pr_number)
     if core.find_pr_bridge_marker(pr.comments, repo, pr_number, managed) ~= nil then
@@ -328,37 +357,52 @@ end
 local function handle_scan(github, event)
   local repo = core.required_repo()
   local managed = core.managed_bot_logins()
+  local branches = core.pr_owner_branches()
   local result = github.pr_list(repo, 30)
   for _, raw in ipairs(core.parse_pr_list(result and result.stdout or "[]")) do
-    local pr = core.normalize_pr(raw, repo)
-    local admitted, reason = admit_external_candidate(github, pr, managed, now())
-    local dedup_key = nil
-    if admitted or reason == "non-authorized-author" then
-      dedup_key = core.dedup_key(repo, pr.number)
-    end
-    if admitted then
-      local handled_action = nil
-      with_lock(core.bridge_lock_key(repo, pr.number), function()
-        handled_action = maybe_acknowledge_bridge_from_scan(github, repo, pr, managed)
-      end)
-      if handled_action ~= nil then
-        log_action(dedup_key, handled_action)
-      else
-        local payload = {
-          schema = "github-external-pr-intake.v1",
-          repo = repo,
-          number = pr.number,
-          updated_at = pr.updated_at,
-          dedup_key = dedup_key,
-          source_ref = core.source_ref(repo, pr.number),
-        }
-        core.log_line("info", "external_pr_intake", payload.dedup_key, "RAISE", {
-          "queue=external_pr_candidate",
-        })
-        raise("external_pr_candidate", payload)
+    local listed_pr = core.normalize_pr(raw, repo)
+    if tostring(listed_pr.state or ""):upper() == "OPEN" then
+      local pr = read_pr(github, repo, listed_pr.number)
+      if tostring(pr.state or ""):upper() == "OPEN" then
+        local admitted, reason, owner = admit_bridge_candidate(github, pr, managed, branches, now())
+        local dedup_key = nil
+        if admitted or reason == "non-authorized-author" then
+          dedup_key = core.dedup_key(repo, pr.number)
+        end
+        if admitted then
+          local handled_action = nil
+          with_lock(core.bridge_lock_key(repo, pr.number), function()
+            handled_action = maybe_acknowledge_bridge_from_scan(
+              github,
+              repo,
+              pr,
+              managed,
+              branches,
+              owner.kind
+            )
+          end)
+          if handled_action ~= nil then
+            log_action(dedup_key, handled_action)
+          else
+            local payload = {
+              schema = "github-external-pr-intake.v1",
+              repo = repo,
+              number = pr.number,
+              owner_kind = owner.kind,
+              updated_at = pr.updated_at,
+              dedup_key = dedup_key,
+              source_ref = core.source_ref(repo, pr.number),
+            }
+            core.log_line("info", "external_pr_intake", payload.dedup_key, "RAISE", {
+              "queue=external_pr_candidate",
+              "owner_kind=" .. tostring(owner.kind),
+            })
+            raise("external_pr_candidate", payload)
+          end
+        elseif reason == "non-authorized-author" then
+          log_action(dedup_key, "skip-non-authorized-author")
+        end
       end
-    elseif reason == "non-authorized-author" then
-      log_action(dedup_key, "skip-non-authorized-author")
     end
   end
 end

@@ -7,3 +7,6 @@ root = "."
 
 [lib_deps]
 libraries = ["contract", "workflow", "workflow_internal", "testkit_internal", "forge"]
+
+[conformance]
+function = "core.pr_owner_conformance_errors"

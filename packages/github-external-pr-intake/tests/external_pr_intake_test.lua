@@ -292,6 +292,8 @@ local function run_pipeline(opts)
     FKST_GITHUB_WRITE = "1",
     FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
     FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,other-bot",
+    FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+    FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
   }
   core.read_env = function(name)
     return env[name] or ""
@@ -342,6 +344,7 @@ local function candidate_event(number)
       schema = "github-external-pr-intake.v1",
       repo = "owner/repo",
       number = number,
+      owner_kind = "external-pr-bridge",
       dedup_key = "github-external-pr-intake/owner/repo/pr/" .. tostring(number),
       source_ref = {
         kind = "external",
@@ -451,7 +454,7 @@ return {
     t.is_true(external_intake:find('consumes = { "external_pr_scan", "external_pr_candidate" }', 1, true) ~= nil)
     t.is_true(external_intake:find('produces = { "external_pr_candidate" }', 1, true) ~= nil)
     t.is_true(external_intake:find("github.pr_list(repo, 30)", 1, true) ~= nil)
-    t.is_true(external_intake:find("core.is_external_candidate", 1, true) ~= nil)
+    t.is_true(external_intake:find("core.classify_pr_owner", 1, true) ~= nil)
     t.is_true(external_intake:find("with_lock(core.bridge_lock_key", 1, true) ~= nil)
     t.is_true(external_intake:find("external_pr_candidate", 1, true) ~= nil)
     t.is_true(external_intake:find("create_bridge_issue", 1, true) ~= nil)
@@ -531,8 +534,40 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
     end
   end,
 
-  test_scan_raises_only_external_candidates = function()
+  test_scan_raises_each_bridge_owned_candidate = function()
     local github = new_fake_github({
+      prs = {
+        [7] = {
+          number = 7,
+          title = "Contributor patch",
+          author_login = "contributor",
+          head_ref_name = "feature/contrib",
+          base_ref_name = "dev",
+          state = "OPEN",
+          comments = {},
+          assignees = {},
+        },
+        [8] = {
+          number = 8,
+          title = "Bot patch",
+          author_login = "fkst-test-bot[bot]",
+          head_ref_name = "feature/bot",
+          base_ref_name = "dev",
+          state = "OPEN",
+          comments = {},
+          assignees = {},
+        },
+        [9] = {
+          number = 9,
+          title = "Unmarked managed branch",
+          author_login = "contributor",
+          head_ref_name = "devloop/owner-repo-9",
+          base_ref_name = "dev",
+          state = "OPEN",
+          comments = {},
+          assignees = {},
+        },
+      },
       list = {
         {
           number = 7,
@@ -569,12 +604,17 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
       event = { queue = "external_pr_scan", payload = { schema = "github-external-pr-intake.v1" } },
     })
 
-    t.eq(#result.raises, 1)
+    t.eq(#result.raises, 3)
     t.eq(result.raises[1].queue, "external_pr_candidate")
     t.eq(result.raises[1].payload.repo, "owner/repo")
     t.eq(result.raises[1].payload.number, 7)
+    t.eq(result.raises[1].payload.owner_kind, "external-pr-bridge")
     t.eq(result.raises[1].payload.source_ref.kind, "external")
     t.eq(result.raises[1].payload.source_ref.ref, "owner/repo#pr/7")
+    t.eq(result.raises[2].payload.number, 8)
+    t.eq(result.raises[2].payload.owner_kind, "operator-hotfix-bridge")
+    t.eq(result.raises[3].payload.number, 9)
+    t.eq(result.raises[3].payload.owner_kind, "external-pr-bridge")
     t.eq(count_kind(github._model.writes, "pr_list"), 1)
   end,
 
@@ -762,6 +802,8 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
         FKST_GITHUB_WRITE = "1",
         FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
         FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,other-bot",
+        FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+        FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
       })[name] or ""
     end
 
@@ -836,7 +878,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
     t.eq(count_kind(github._model.writes, "issue_search"), 1)
   end,
 
-  test_bot_authored_pr_is_ignored = function()
+  test_candidate_is_rejected_when_owner_changes_to_operator_bridge = function()
     local github = new_fake_github({
       prs = {
         [7] = {
@@ -860,7 +902,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
     t.eq(count_kind(github._model.writes, "issue_search"), 0)
   end,
 
-  test_devloop_head_pr_is_ignored = function()
+  test_trusted_devloop_origin_pr_is_ignored = function()
     local github = new_fake_github({
       prs = {
         [7] = {
@@ -869,7 +911,12 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
           author_login = "contributor",
           head_ref_name = "devloop/owner-repo-7",
           state = "OPEN",
-          comments = {},
+          comments = {
+            {
+              author_login = "fkst-test-bot",
+              body = '<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/owner/repo/42" issue="42" branch="devloop/owner-repo-7" impl_version="ready/v1" base_branch="dev" -->',
+            },
+          },
           assignees = {},
         },
       },
@@ -917,6 +964,8 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
         FKST_GITHUB_WRITE = "",
         FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
         FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot",
+        FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+        FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
       },
       event = candidate_event(7),
     })

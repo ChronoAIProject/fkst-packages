@@ -18,6 +18,16 @@ local function mock_env_reads()
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', {
+    stdout = "dev",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', {
+    stdout = "integration-fkst-test-bot",
+    stderr = "",
+    exit_code = 0,
+  })
   for _ = 1, 2 do
     t.mock_command('printf %s "$FKST_EXTERNAL_PR_TRUSTED_CONTRIBUTOR_LOGINS"', {
       stdout = "",

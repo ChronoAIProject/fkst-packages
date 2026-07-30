@@ -3,6 +3,7 @@ local error_facts = require("contract.error_facts")
 local content_filter = require("forge.github.content_filter")
 local external_pr_bridge = require("contract.external_pr_bridge")
 local logging = require("workflow_internal.logging")
+local pr_owners = require("core.pr_owners")
 local strings = require("contract.strings")
 local forge_strings = require("forge.strings")
 
@@ -19,6 +20,8 @@ local allowed_env = {
   FKST_GITHUB_AUTHORIZE_ORG_MEMBERS = true,
   FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS = true,
   FKST_EXTERNAL_PR_TRUSTED_CONTRIBUTOR_LOGINS = true,
+  FKST_DEVLOOP_UPSTREAM_BRANCH = true,
+  FKST_DEVLOOP_INTEGRATION_BRANCH = true,
 }
 
 local function read_env_command(name)
@@ -69,6 +72,21 @@ function M.managed_bot_logins()
     end
   end
   return logins
+end
+
+local function required_branch_env(name)
+  local branch = M.trim(M.read_env(name) or "")
+  if not forge_strings.is_git_ref_safe(branch) then
+    error("github-external-pr-intake: branch-required: " .. tostring(name) .. " is required and must be a safe git ref")
+  end
+  return branch
+end
+
+function M.pr_owner_branches()
+  return {
+    upstream = required_branch_env("FKST_DEVLOOP_UPSTREAM_BRANCH"),
+    integration = required_branch_env("FKST_DEVLOOP_INTEGRATION_BRANCH"),
+  }
 end
 
 local function is_leap_year(year)
@@ -361,17 +379,83 @@ function M.normalize_issue(issue)
   }
 end
 
-function M.is_external_candidate(pr, managed, now_seconds)
+local function marker_attr(marker, name)
+  return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
+end
+
+function M.find_trusted_issue_pr_origin(comments, repo, managed)
+  local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-origin:v1.-%-%->"
+  for _, comment in ipairs(comments or {}) do
+    if M.trusted_author(comment, managed) then
+      for marker in tostring(comment.body or ""):gmatch(marker_pattern) do
+        local proposal = marker_attr(marker, "proposal")
+        local proposal_repo, proposal_issue = tostring(proposal or ""):match(
+          "^github%-devloop/issue/(.+)/(%d+)$"
+        )
+        local issue = marker_attr(marker, "issue")
+        local branch = marker_attr(marker, "branch")
+        local base_branch = marker_attr(marker, "base_branch")
+        local impl_version = marker_attr(marker, "impl_version")
+        if proposal_repo == tostring(repo)
+          and issue == proposal_issue
+          and tonumber(issue) ~= nil
+          and tonumber(issue) >= 1
+          and forge_strings.is_git_ref_safe(branch)
+          and forge_strings.is_git_ref_safe(base_branch)
+          and impl_version ~= nil then
+          return {
+            proposal_id = proposal,
+            repo = proposal_repo,
+            issue_number = tonumber(issue),
+            branch = branch,
+            base_branch = base_branch,
+            impl_version = impl_version,
+          }
+        end
+      end
+    end
+  end
+  return nil
+end
+
+function M.pr_owner_declarations()
+  return pr_owners.declarations()
+end
+
+function M.pr_owner_conformance_errors(declarations)
+  return pr_owners.conformance_errors(declarations)
+end
+
+function M.classify_pr_owner_facts(facts, declarations)
+  return pr_owners.classify_facts(facts, declarations)
+end
+
+function M.classify_pr_owner(pr, managed, branches)
+  if type(pr) ~= "table" or pr.number == nil then
+    error("github-external-pr-intake: pr-owner-pr-required: PR ownership requires a numbered PR")
+  end
+  if tostring(pr.state or ""):upper() ~= "OPEN" then
+    error("github-external-pr-intake: pr-owner-open-pr-required: PR ownership only applies to open PRs")
+  end
+  if type(branches) ~= "table"
+    or not forge_strings.is_git_ref_safe(branches.upstream)
+    or not forge_strings.is_git_ref_safe(branches.integration) then
+    error("github-external-pr-intake: pr-owner-branches-required: PR ownership requires configured safe branches")
+  end
+  local facts = {
+    is_integration_rollup = tostring(pr.head_ref_name or "") == branches.integration
+      and tostring(pr.base_ref_name or "") == branches.upstream,
+    has_trusted_issue_origin = M.find_trusted_issue_pr_origin(pr.comments, pr.repo, managed) ~= nil,
+    is_managed_author = M.is_managed_bot_login(pr.author_login, managed),
+  }
+  return pr_owners.classify_facts(facts), facts
+end
+
+function M.is_bridge_age_eligible(pr, now_seconds)
   if type(pr) ~= "table" or pr.number == nil then
     return false
   end
   if tostring(pr.state or "") ~= "" and tostring(pr.state):upper() ~= "OPEN" then
-    return false
-  end
-  if M.is_managed_bot_login(pr.author_login, managed) then
-    return false
-  end
-  if tostring(pr.head_ref_name or ""):match("^devloop/") ~= nil then
     return false
   end
   local created_seconds = M.iso_timestamp_epoch_seconds(pr.created_at)
@@ -385,10 +469,6 @@ end
 function M.bridge_marker_issue_number(body)
   local marker = external_pr_bridge.find_marker(body)
   return marker and marker.issue_number or nil
-end
-
-local function marker_attr(marker, name)
-  return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
 end
 
 function M.bridge_issue_proposal_id(repo, issue_number)
@@ -449,30 +529,43 @@ function M.find_pr_handled_marker(comments, repo, pr_number, issue_number, manag
   return nil
 end
 
-function M.bridge_issue_body(repo, pr)
+local function bridge_subject(owner_kind)
+  if owner_kind == "external-pr-bridge" then
+    return "external PR", "contributor change"
+  end
+  if owner_kind == "operator-hotfix-bridge" then
+    return "operator hotfix PR", "operator hotfix"
+  end
+  error("github-external-pr-intake: invalid-bridge-owner-kind: " .. tostring(owner_kind))
+end
+
+function M.bridge_issue_body(repo, pr, owner_kind)
   local number = M.safe_number(pr.number, "issue body pr")
   local source = "external:" .. tostring(repo) .. "#pr/" .. tostring(number)
+  local subject, change = bridge_subject(owner_kind)
   return table.concat({
     M.bridge_marker(repo, number),
     "",
-    "- Source: external PR #" .. tostring(number) .. ", author @"
+    "- Source: " .. subject .. " #" .. tostring(number) .. ", author @"
       .. tostring(pr.author_login or "unknown") .. ". source_ref: " .. source,
-    "- Task: implement/complete the change based on the contributor change already provisioned in your worktree. Complete or fix it there; do not rewrite from scratch.",
+    "- Task: implement/complete the change based on the " .. change
+      .. " already provisioned in your worktree. Complete or fix it there; do not rewrite from scratch.",
     "- MUST comply with project conventions (CLAUDE.md): file <= 1000 lines; source-internal text English; all gh/git via forge.github/forge.git adapters; saga-shaped departments; `scripts/run.sh test` green; ports/adapters; no compat/legacy shim; outward text English.",
     "- If PR #" .. tostring(number) .. "'s base is not a managed branch (current base: `"
       .. tostring(pr.base_ref_name or "") .. "`), implement against `dev`.",
-    "- On completion, the resulting devloop PR supersedes external PR #" .. tostring(number)
+    "- On completion, the resulting devloop PR supersedes " .. subject .. " #" .. tostring(number)
       .. "; close #" .. tostring(number) .. " with a link to this issue and the devloop PR.",
     "",
   }, "\n")
 end
 
-function M.bridge_issue_title(pr)
+function M.bridge_issue_title(pr, owner_kind)
   local author = content_filter.canon_login(type(pr) == "table" and pr.author_login or nil)
   if author == nil then
     error("github-external-pr-intake: bridge-title-author-required: bridge issue author is required")
   end
-  local title = "Integrate external PR #"
+  local subject = bridge_subject(owner_kind)
+  local title = "Integrate " .. subject .. " #"
     .. tostring(M.safe_number(pr.number, "issue title pr"))
     .. " from @"
     .. author

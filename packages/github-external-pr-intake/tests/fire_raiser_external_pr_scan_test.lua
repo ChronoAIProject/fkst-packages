@@ -12,6 +12,8 @@ local function mock_env()
     FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
     FKST_GITHUB_WRITE = "",
     FKST_DEVLOOP_MANAGED_BOT_LOGINS = "",
+    FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+    FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
     FKST_GITHUB_AUTHORIZED_LOGINS = "",
     FKST_EXTERNAL_PR_TRUSTED_CONTRIBUTOR_LOGINS = "contributor",
   }
@@ -39,6 +41,11 @@ return {
       stderr = "",
       exit_code = 0,
     })
+    t.mock_command("gh pr view '7' --repo 'owner/repo'", {
+      stdout = pr .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("gh issue list --repo 'owner/repo'", {
       stdout = "[]\n",
       stderr = "",
@@ -58,6 +65,7 @@ return {
     t.eq(trace.raised[1].payload.schema, "github-external-pr-intake.v1")
     t.eq(trace.raised[1].payload.repo, repo)
     t.eq(trace.raised[1].payload.number, 7)
+    t.eq(trace.raised[1].payload.owner_kind, "external-pr-bridge")
     t.eq(trace.raised[1].payload.updated_at, "2026-06-19T01:02:03Z")
     t.eq(trace.raised[1].payload.dedup_key, "github-external-pr-intake/owner/repo/pr/7")
     t.eq(trace.raised[1].payload.source_ref.kind, "external")

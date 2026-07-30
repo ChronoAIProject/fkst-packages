@@ -126,6 +126,7 @@ local function candidate_event()
       schema = "github-external-pr-intake.v1",
       repo = "owner/repo",
       number = 7,
+      owner_kind = "external-pr-bridge",
       dedup_key = "github-external-pr-intake/owner/repo/pr/7",
       source_ref = {
         kind = "external",
@@ -177,6 +178,8 @@ local function run_event(github, event)
       FKST_GITHUB_REPO = "owner/repo",
       FKST_GITHUB_WRITE = "1",
       FKST_DEVLOOP_MANAGED_BOT_LOGINS = "fkst-test-bot,other-bot",
+      FKST_DEVLOOP_UPSTREAM_BRANCH = "dev",
+      FKST_DEVLOOP_INTEGRATION_BRANCH = "integration-fkst-test-bot",
     })[name] or ""
   end
   with_lock = function(_key, fn)
@@ -257,8 +260,20 @@ return {
     mock_command_times('printf %s "$FKST_GITHUB_AUTHORIZED_LOGINS"', "")
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_TRUSTED_CONTRIBUTOR_LOGINS"', "trusted-contributor")
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS"', "", 2)
+    mock_command_times('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', "dev")
+    mock_command_times('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', "integration-fkst-test-bot")
     t.mock_command("gh api --paginate --slurp", {
       stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"trusted-contributor"},"head":{"ref":"feature/contrib"},"base":{"ref":"dev"}}]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr view", {
+      stdout = pr_json({
+        authors = { "trusted-contributor" },
+        claimed = false,
+        read_count = 0,
+        title = "Contributor patch",
+      }),
       stderr = "",
       exit_code = 0,
     })
@@ -298,6 +313,8 @@ return {
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_TRUSTED_CONTRIBUTOR_LOGINS"', "")
     mock_command_times('printf %s "$FKST_GITHUB_AUTHORIZE_REPO_COLLABORATORS"', "1")
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS"', "", 2)
+    mock_command_times('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', "dev")
+    mock_command_times('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', "integration-fkst-test-bot")
     t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
       stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"write-collab"},"head":{"ref":"feature/contrib"},"base":{"ref":"dev"}}]\n',
       stderr = "",
@@ -305,6 +322,16 @@ return {
     })
     t.mock_command("gh api --paginate --slurp 'repos/owner/repo/collaborators?permission=push&per_page=100'", {
       stdout = '[{"login":"write-collab","permissions":{"push":true}}]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr view", {
+      stdout = pr_json({
+        authors = { "write-collab" },
+        claimed = false,
+        read_count = 0,
+        title = "Contributor patch",
+      }),
       stderr = "",
       exit_code = 0,
     })
@@ -343,6 +370,8 @@ return {
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_TRUSTED_CONTRIBUTOR_LOGINS"', "")
     mock_command_times('printf %s "$FKST_GITHUB_AUTHORIZE_ORG_MEMBERS"', "1")
     mock_command_times('printf %s "$FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS"', "", 2)
+    mock_command_times('printf %s "$FKST_DEVLOOP_UPSTREAM_BRANCH"', "dev")
+    mock_command_times('printf %s "$FKST_DEVLOOP_INTEGRATION_BRANCH"', "integration-fkst-test-bot")
     t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
       stdout = '[{"number":7,"title":"Contributor patch","state":"open","created_at":"2026-06-03T01:02:03Z","updated_at":"2026-06-19T01:02:03Z","user":{"login":"org-member"},"head":{"ref":"feature/contrib"},"base":{"ref":"dev"}}]\n',
       stderr = "",
@@ -350,6 +379,16 @@ return {
     })
     t.mock_command("gh api --paginate --slurp 'orgs/owner/members?per_page=100'", {
       stdout = '[{"login":"org-member"}]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh pr view", {
+      stdout = pr_json({
+        authors = { "org-member" },
+        claimed = false,
+        read_count = 0,
+        title = "Contributor patch",
+      }),
       stderr = "",
       exit_code = 0,
     })
@@ -399,7 +438,7 @@ return {
 
     t.eq(#raises, 0)
     t.eq(count_kind(github._model.writes, "pr_list"), 1)
-    t.eq(count_kind(github._model.writes, "pr_cli_view"), 0)
+    t.eq(count_kind(github._model.writes, "pr_cli_view"), 1)
     t.is_true(logs_contain(logs, "action=skip-non-authorized-author"))
   end,
 
@@ -435,7 +474,7 @@ return {
       number = 7,
       author_login = "trusted-contributor",
       title = content_filter.redaction_marker("title", "trusted-contributor"),
-    })
+    }, "external-pr-bridge")
 
     t.eq(title, "Integrate external PR #7 from @trusted-contributor")
     t.is_true(title:find(content_filter.MARKER_PREFIX, 1, true) == nil)
@@ -446,7 +485,7 @@ return {
       number = 7,
       author_login = content_filter.redaction_marker("author", "untrusted-contributor"),
       title = "ignored prose",
-    })
+    }, "external-pr-bridge")
 
     t.eq(ok, false)
     t.is_true(tostring(err):find("bridge-title-marker-forbidden", 1, true) ~= nil)

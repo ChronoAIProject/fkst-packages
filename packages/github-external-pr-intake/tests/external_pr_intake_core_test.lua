@@ -47,9 +47,9 @@ local function merged_state_marker(issue_number)
     .. '" state="merged" version="v1" stage_rank="900" -->'
 end
 
-local function is_candidate_with_default_age(candidate)
+local function is_bridge_age_eligible_with_default_age(candidate)
   return with_env({ FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS = "" }, function()
-    return core.is_external_candidate(candidate, managed, fixed_now_seconds)
+    return core.is_bridge_age_eligible(candidate, fixed_now_seconds)
   end)
 end
 
@@ -99,17 +99,17 @@ return {
 
   test_external_candidate_skips_young_pr = function()
     local candidate = pr({ created_at = "2026-06-03T04:01:03Z" })
-    t.eq(is_candidate_with_default_age(candidate), false)
+    t.eq(is_bridge_age_eligible_with_default_age(candidate), false)
   end,
 
   test_external_candidate_accepts_exact_threshold_age = function()
     local candidate = pr({ created_at = "2026-06-03T01:02:03Z" })
-    t.eq(is_candidate_with_default_age(candidate), true)
+    t.eq(is_bridge_age_eligible_with_default_age(candidate), true)
   end,
 
   test_external_candidate_accepts_old_pr = function()
     local candidate = pr({ created_at = "2026-06-03T01:02:02Z" })
-    t.eq(is_candidate_with_default_age(candidate), true)
+    t.eq(is_bridge_age_eligible_with_default_age(candidate), true)
   end,
 
   test_external_candidate_uses_created_at_not_recent_updated_at = function()
@@ -117,12 +117,12 @@ return {
       created_at = "2026-06-03T01:02:02Z",
       updated_at = "2026-06-03T04:01:59Z",
     })
-    t.eq(is_candidate_with_default_age(candidate), true)
+    t.eq(is_bridge_age_eligible_with_default_age(candidate), true)
   end,
 
   test_external_candidate_skips_missing_or_unparseable_created_at = function()
-    t.eq(is_candidate_with_default_age(pr({ created_at = nil })), false)
-    t.eq(is_candidate_with_default_age(pr({ created_at = "not-a-time" })), false)
+    t.eq(is_bridge_age_eligible_with_default_age(pr({ created_at = nil })), false)
+    t.eq(is_bridge_age_eligible_with_default_age(pr({ created_at = "not-a-time" })), false)
   end,
 
   test_find_bridge_issue_merged_signal_ignores_untrusted_merged_marker = function()
