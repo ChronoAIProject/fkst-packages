@@ -325,6 +325,7 @@ return {
     t.eq(github._model.writes[1].kind, "issue_assign")
     t.eq(github._model.writes[2].kind, "issue_create")
     t.eq(github._model.writes[2].title, "Integrate operator hotfix PR #3 from @fkst-test-bot")
+    t.is_true(github._model.writes[2].body:find("operator hotfix", 1, true) ~= nil)
     t.eq(github._model.writes[3].kind, "pr_comment")
   end,
 }
