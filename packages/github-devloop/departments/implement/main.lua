@@ -575,7 +575,7 @@ local function process_ready_event(event)
       version = core.ready_payload_inner_version(ready.dedup_key),
       comments = current.comments,
     })
-    if not gate.ok then
+    if not core.dependency_gate_is_satisfied(gate) then
       local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
       local dep_version = core.ready_split_version(inner_ready_version)
       devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
@@ -597,15 +597,35 @@ local function process_ready_event(event)
         issue_number,
         { devloop_base._blocked_on_dependency_label },
         {},
-        base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }),
+        base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.hold_kind) }),
         ready.source_ref
       ))
       return
     end
 
     local branches = config.branch_config()
-    local implementation_version = core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt)
-    local branch_version = core.implementation_branch_version(ready.dedup_key, ready.impl_retry_attempt)
+    local lineage_ok, implementation_version, branch_version = pcall(function()
+      return core.implementation_attempt_version(ready.dedup_key, ready.impl_retry_attempt),
+        core.implementation_branch_version(ready.dedup_key, ready.impl_retry_attempt)
+    end)
+    if not lineage_ok then
+      local lineage_error = tostring(implementation_version)
+      if not lineage_error:find("github-devloop: invalid-version-lineage:", 1, true) then
+        error(implementation_version, 0)
+      end
+      devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "INVALID_VERSION_LINEAGE",
+        "invalid-version-lineage", "devloop_ready", lineage_error, {
+          source_ref = ready.source_ref,
+          attempt = ready.impl_retry_attempt,
+          terminal = true,
+        })
+      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "impl-failed",
+        "fail-closed(invalid-version-lineage)", "implementation retry lineage is malformed")
+      raise_impl_failed(repo, issue_number, ready, "invalid-version-lineage",
+        "Implementation retry lineage was rejected because its version suffix does not match the current or immediate-next structured attempt.",
+        ready.impl_retry_attempt)
+      return
+    end
     local marker_ready = ready_for_implementation_version(ready, implementation_version)
     local branch = devloop_base.implement_branch(repo, issue_number, branch_version)
 

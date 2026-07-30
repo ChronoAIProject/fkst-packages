@@ -413,6 +413,40 @@ return {
     assert(err.class == "gh-command-failed")
   end,
 
+  test_github_issue_close_requires_and_renders_explicit_disposition = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_close("owner/repo", 41, { kind = "completed" }, 31)
+    handle.issue_close("owner/repo", 42, { kind = "not_planned" }, 32)
+    handle.issue_close("owner/repo", 43, { kind = "duplicate", duplicate_of = 41 }, 33)
+
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "issue", "close", "41", "--repo", "owner/repo", "--reason", "completed" },
+      "issue_close completed"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "issue", "close", "42", "--repo", "owner/repo", "--reason", "not planned" },
+      "issue_close not planned"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "issue", "close", "43", "--repo", "owner/repo", "--duplicate-of", "41" },
+      "issue_close duplicate"
+    )
+
+    local ok, err = pcall(function()
+      handle.issue_close("owner/repo", 44, nil, 34)
+    end)
+    assert(ok == false)
+    assert(tostring(err):find("explicit issue close disposition is required", 1, true) ~= nil)
+  end,
+
   test_github_entity_methods_build_argv = function()
     local calls = {}
     local handle = gh.new(function(opts)

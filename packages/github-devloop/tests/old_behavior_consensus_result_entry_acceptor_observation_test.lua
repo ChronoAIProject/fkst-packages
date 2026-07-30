@@ -123,16 +123,29 @@ end
 
 local function gate_for(fixture)
   if fixture.gate_kind == "waiting" then
-    return { ok = false, kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
+    return { kind = "waiting", hold_kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
   elseif fixture.gate_kind == "cycle" then
-    return { ok = false, kind = "cycle", reason = "dependency-cycle", unmet = { 42, 53 }, notes = {} }
+    return {
+      kind = "verified_cannot_proceed",
+      hold_kind = "cycle",
+      reason = "dependency-cycle",
+      unmet = { 42, 53 },
+      notes = {},
+      proof = {
+        kind = "dependency-cycle",
+        repo = REPO,
+        issue_number = ISSUE_NUMBER,
+        target_repo = REPO,
+        target_issue_number = ISSUE_NUMBER,
+      },
+    }
   elseif fixture.gate_kind == "unresolvable" then
-    return { ok = false, kind = "unresolvable", reason = "dependency-read-failed", unmet = { 53 }, notes = {} }
+    return { kind = "unavailable", hold_kind = "unresolvable", reason = "dependency-read-failed", unmet = {}, notes = {} }
   elseif fixture.gate_kind == "release" then
-    return { ok = true, kind = "satisfied", reason = "dependency-void", unmet = {},
+    return { kind = "satisfied", reason = "dependency-void", unmet = {},
       notes = { { kind = "dependency-void", blocker_number = 53, reason = "blocker-closed-unmerged" } } }
   end
-  return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
+  return { kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
 end
 
 local function capture(fixture)

@@ -473,7 +473,7 @@ local function reconcile_one(github, git, repo, ratchet)
       return "parent-already-closed"
     end
     if write_enabled() then
-      github.issue_close(repo, ratchet.parent_issue, 30)
+      github.issue_close(repo, ratchet.parent_issue, { kind = "completed" }, 30)
       return "closed-parent"
     end
     return "would-close-parent"

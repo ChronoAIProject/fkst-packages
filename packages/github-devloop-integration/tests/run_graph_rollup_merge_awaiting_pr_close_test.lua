@@ -320,7 +320,7 @@ local function mock_observe_issue_inputs(child_state, landed, issue_lifecycle_st
   if effective_child_state == "merged" then
     mock_rollup_landing(landed == false and 1 or 0)
   end
-  t.mock_command("gh issue close " .. tostring(issue_number) .. " --repo " .. repo, {
+  t.mock_command("gh issue close " .. tostring(issue_number) .. " --repo " .. repo .. " --reason completed", {
     stdout = "closed\n",
     stderr = "",
     exit_code = 0,

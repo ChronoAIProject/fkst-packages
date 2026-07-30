@@ -461,7 +461,7 @@ local function capture_observe(fixture)
   local decisions = json_array()
   replace(core, "linked_pr_surface_snapshot", function() return { prs = {}, absent_prs = {} } end, restorations)
   replace(core, "dependency_gate", function()
-    return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
+    return { kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
   end, restorations)
   replace(replayer, "replay_from_table", function(_, dept, issue, state, row)
     table.insert(replay_calls, { dept = dept, issue = copy_value(issue), state = copy_value(state), row = row and row.from_state })
@@ -524,16 +524,16 @@ local function capture_implement(fixture)
     end
     return original_log_raise(dept, proposal_id, raised_queue, raised_payload)
   end, restorations)
-  replace(devloop_commands, "gh_issue_close", function(repo, issue_number, timeout)
-    local result = github.issue_close(repo, issue_number, timeout)
+  replace(devloop_commands, "gh_issue_close", function(repo, issue_number, disposition, timeout)
+    local result = github.issue_close(repo, issue_number, disposition, timeout)
     table.insert(effect_sequence, { kind = "adapter", effect_id = fixture.adapter_effect_id })
     return result
   end, restorations)
   replace(core, "dependency_gate", function()
     if fixture.dependency_held then
-      return { ok = false, kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
+      return { kind = "waiting", hold_kind = "waiting", reason = "waiting-on-dependency", unmet = { 53 }, notes = {} }
     end
-    return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
+    return { kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
   end, restorations)
   replace(m_mq, "wip_capacity_allows_start", function()
     if fixture.wip_held then return false, "wip-cap-reached", 1, 1 end
