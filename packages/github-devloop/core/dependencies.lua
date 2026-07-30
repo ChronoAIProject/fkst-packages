@@ -8,6 +8,7 @@ local parsers_issue = require("devloop.parsers.issue")
 local m_facts = require("devloop.markers.facts")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
+local devloop_logging = require("devloop.logging")
 local M = {}
 local root_ref = nil
 local strings = require("forge.strings")
@@ -101,15 +102,8 @@ local function decode_dependency_attr(value)
   return value
 end
 
-local function parse_blocked_by(stdout)
+local function parse_blocked_by_issue(issue)
   local core = root()
-  local ok, decoded = pcall(json.decode, stdout or "")
-  if not ok or type(decoded) ~= "table" then
-    return nil
-  end
-  local issue = decoded.data
-    and decoded.data.repository
-    and decoded.data.repository.issue
   if type(issue) ~= "table" then
     return nil
   end
@@ -148,26 +142,146 @@ local function parse_blocked_by(stdout)
   return blockers, truncated
 end
 
+local function parse_blocked_by(stdout)
+  local core = root()
+  local ok, decoded = pcall(json.decode, stdout or "")
+  if not ok or type(decoded) ~= "table" then
+    return nil
+  end
+  local issue = decoded.data
+    and decoded.data.repository
+    and decoded.data.repository.issue
+  return parse_blocked_by_issue(issue)
+end
+
+local function parse_blocked_by_batch(stdout, issue_numbers)
+  local core = root()
+  local ok, decoded = pcall(json.decode, stdout or "")
+  local repository = ok
+    and type(decoded) == "table"
+    and decoded.data
+    and decoded.data.repository
+  if type(repository) ~= "table" then
+    return nil
+  end
+
+  local entries = {}
+  for _, issue_number in ipairs(issue_numbers or {}) do
+    local key = "issue_" .. tostring(issue_number)
+    local blockers, truncated = parse_blocked_by_issue(repository[key])
+    if blockers == nil then
+      entries[tonumber(issue_number)] = { reason = "malformed-json" }
+    elseif truncated then
+      entries[tonumber(issue_number)] = { reason = "blockedby-truncated" }
+    else
+      entries[tonumber(issue_number)] = { blockers = blockers }
+    end
+  end
+  return entries
+end
+
 local function normalized_state_reason(value)
   local text = tostring(value or ""):lower():gsub("_", "-")
   text = text:gsub("^%s+", ""):gsub("%s+$", "")
   return text
 end
 
-local function fetch_blocked_by(repo, issue_number)
+local function dependency_query_key(repo, issue_number)
+  return tostring(repo) .. "#" .. tostring(issue_number)
+end
+
+local function log_dependency_query(resolver, repo, batch_size, outcome, reason)
+  local fields = {
+    "operation=dependency_blocked_by",
+    "repo=" .. tostring(repo or ""),
+    "batch_size=" .. tostring(batch_size or 0),
+    "outcome=" .. tostring(outcome or "failure"),
+  }
+  if reason ~= nil then
+    table.insert(fields, "reason=" .. tostring(reason))
+  end
+  devloop_logging.log_line(
+    outcome == "success" and "info" or "error",
+    "dependency_resolver",
+    resolver and resolver.proposal_id or "unknown",
+    "GITHUB_GRAPHQL",
+    fields
+  )
+end
+
+local function memo_blocked_by(resolver, repo, issue_number, blockers, reason)
+  resolver.blocked_by[dependency_query_key(repo, issue_number)] = {
+    blockers = blockers,
+    reason = reason,
+  }
+end
+
+local function fetch_blocked_by(resolver, repo, issue_number)
   local core = root()
+  local cached = resolver.blocked_by[dependency_query_key(repo, issue_number)]
+  if cached ~= nil then
+    return cached.blockers, cached.reason
+  end
+
   local result = core.gh_blocked_by(repo, issue_number, 30)
   if type(result) ~= "table" or result.exit_code ~= 0 then
+    memo_blocked_by(resolver, repo, issue_number, nil, "gh-failed")
+    log_dependency_query(resolver, repo, 1, "failure", "gh-failed")
     return nil, "gh-failed"
   end
   local blockers, truncated = parse_blocked_by(result.stdout)
   if blockers == nil then
+    memo_blocked_by(resolver, repo, issue_number, nil, "malformed-json")
+    log_dependency_query(resolver, repo, 1, "failure", "malformed-json")
     return nil, "malformed-json"
   end
   if truncated then
+    memo_blocked_by(resolver, repo, issue_number, nil, "blockedby-truncated")
+    log_dependency_query(resolver, repo, 1, "failure", "blockedby-truncated")
     return nil, "blockedby-truncated"
   end
+  memo_blocked_by(resolver, repo, issue_number, blockers, nil)
+  log_dependency_query(resolver, repo, 1, "success", nil)
   return blockers, nil
+end
+
+local function prefetch_blocked_by(resolver, repo, issue_numbers)
+  local core = root()
+  if #issue_numbers < 2 then
+    return
+  end
+
+  local result = core.gh_blocked_by_batch(repo, issue_numbers, 30)
+  if type(result) ~= "table" or result.exit_code ~= 0 then
+    for _, issue_number in ipairs(issue_numbers) do
+      memo_blocked_by(resolver, repo, issue_number, nil, "gh-failed")
+    end
+    log_dependency_query(resolver, repo, #issue_numbers, "failure", "gh-failed")
+    return
+  end
+
+  local entries = parse_blocked_by_batch(result.stdout, issue_numbers)
+  if entries == nil then
+    for _, issue_number in ipairs(issue_numbers) do
+      memo_blocked_by(resolver, repo, issue_number, nil, "malformed-json")
+    end
+    log_dependency_query(resolver, repo, #issue_numbers, "failure", "malformed-json")
+    return
+  end
+
+  local first_failure = nil
+  for _, issue_number in ipairs(issue_numbers) do
+    local entry = entries[tonumber(issue_number)] or { reason = "malformed-json" }
+    memo_blocked_by(resolver, repo, issue_number, entry.blockers, entry.reason)
+    first_failure = first_failure or entry.reason
+  end
+  log_dependency_query(
+    resolver,
+    repo,
+    #issue_numbers,
+    first_failure == nil and "success" or "failure",
+    first_failure
+  )
 end
 
 local function merged_blocker_cache_key(repo, blocker_number)
@@ -343,8 +457,28 @@ has_dependency_waiver = function(context, blocker_number)
   ) ~= nil
 end
 
+local function prefetch_open_sibling_dependencies(repo, blockers, stack, visited, resolver)
+  local issue_numbers = {}
+  local seen = {}
+  for _, blocker in ipairs(blockers or {}) do
+    local number = tonumber(blocker.number)
+    local key = dependency_query_key(repo, number)
+    if tostring(blocker.repo or "") == tostring(repo)
+      and blocker.state ~= "CLOSED"
+      and not cached_blocker_merged(repo, number)
+      and not stack[key]
+      and not visited[key]
+      and resolver.blocked_by[key] == nil
+      and not seen[number] then
+      seen[number] = true
+      table.insert(issue_numbers, number)
+    end
+  end
+  prefetch_blocked_by(resolver, repo, issue_numbers)
+end
+
 local visit
-visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, context, notes)
+visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, context, notes, resolver)
   if depth > max_dependency_depth then
     add_unmet(unmet, unmet_seen, issue_number)
     return gate("unresolvable", "depth-cap-exceeded", unmet)
@@ -360,12 +494,14 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
   end
 
   stack[key] = true
-  local blockers, fetch_reason = fetch_blocked_by(repo, issue_number)
+  local blockers, fetch_reason = fetch_blocked_by(resolver, repo, issue_number)
   if blockers == nil then
     stack[key] = nil
     add_unmet(unmet, unmet_seen, issue_number)
     return gate("unresolvable", fetch_reason or "gh-failed", unmet)
   end
+
+  prefetch_open_sibling_dependencies(repo, blockers, stack, visited, resolver)
 
   for _, blocker in ipairs(blockers) do
     if tostring(blocker.repo or "") ~= tostring(repo) then
@@ -393,7 +529,7 @@ visit = function(repo, issue_number, stack, visited, unmet, unmet_seen, depth, c
       end
 
       if not prefer_terminal_proof or (satisfied == false and satisfied_reason ~= "dependency-waiver-required") then
-        local nested = visit(repo, blocker.number, stack, visited, unmet, unmet_seen, depth + 1, context, notes)
+        local nested = visit(repo, blocker.number, stack, visited, unmet, unmet_seen, depth + 1, context, notes, resolver)
         if nested.kind == "cycle" or nested.kind == "unresolvable" then
           stack[key] = nil
           return nested
@@ -445,6 +581,25 @@ function M.gh_blocked_by(repo, issue_number, timeout, exec)
   }, timeout, exec)
 end
 
+function M.gh_blocked_by_batch(repo, issue_numbers, timeout, exec)
+  local core = root()
+  local owner, name = strings.split_repo(repo)
+  if owner == nil or type(issue_numbers) ~= "table" or #issue_numbers == 0 then
+    error("github-devloop: invalid-dependency-target: invalid dependency batch query target")
+  end
+  local numbers = {}
+  for _, issue_number in ipairs(issue_numbers) do
+    if not forge_validators.is_positive_pr_number(issue_number) then
+      error("github-devloop: invalid-dependency-target: invalid dependency batch query target")
+    end
+    table.insert(numbers, math.floor(tonumber(issue_number)))
+  end
+  return core.github_graphql_batch("dependency_blocked_by", {
+    owner = owner,
+    name = name,
+  }, numbers, timeout, exec)
+end
+
 function M.dependency_gate(repo, issue_number, context)
   local core = root()
   if strings.split_repo(repo) == nil or not forge_validators.is_positive_pr_number(issue_number) then
@@ -455,7 +610,11 @@ function M.dependency_gate(repo, issue_number, context)
     gate_context = {}
   end
   gate_context.managed_sibling_repos = config.managed_sibling_repos()
-  local ok, result = pcall(visit, repo, issue_number, {}, {}, {}, {}, 0, gate_context, {})
+  local resolver = {
+    blocked_by = {},
+    proposal_id = base_ids.proposal_id(repo, issue_number),
+  }
+  local ok, result = pcall(visit, repo, issue_number, {}, {}, {}, {}, 0, gate_context, {}, resolver)
   if not ok or type(result) ~= "table" then
     return gate("unresolvable", "dependency-gate-exception", {})
   end
