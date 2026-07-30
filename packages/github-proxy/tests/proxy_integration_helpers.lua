@@ -15,27 +15,8 @@ local function normalize_rendered_command(command)
   return rendered
 end
 
-local function mocks_graphql_command(command)
-  if command:find("^gh api graphql") ~= nil or command:find("^gh issue view ") ~= nil then
-    return true
-  end
-  return command:find("^gh pr view ") ~= nil
-end
-
-local function mock_healthy_graphql_quota()
-  local current = math.floor(now())
-  raw_mock_command("gh api rate_limit --jq .resources.graphql", {
-    stdout = '{"limit":5000,"remaining":5000,"reset":' .. tostring(current + 3600) .. "}",
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
 function t.mock_command(command, response)
   local normalized = normalize_rendered_command(command)
-  if mocks_graphql_command(normalized) then
-    mock_healthy_graphql_quota()
-  end
   if normalized:find("^gh api %-%-method POST .- %-%-field body=") ~= nil then
     raw_mock_command((normalized:gsub(" %-%-field body=.*$", " --field 'body=")), response)
     return
