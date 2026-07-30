@@ -11,6 +11,7 @@ local saga = require("workflow.saga")
 local convergence_identity = require("contract.convergence_identity")
 local workflow_codex = require("workflow_internal.codex")
 local pr_child_handoff = require("departments.implement.pr_child_handoff")
+local refusal_publication = require("departments.implement.refusal_publication")
 local forks = require("devloop.forks")
 local slice_gate = require("departments.implement.slice_gate")
 local substrate_pin = require("departments.implement.substrate_pin")
@@ -366,6 +367,10 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
   end
   if outcome.kind == "impl-failed" then
     raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.detail, outcome.attempt)
+    return
+  end
+  if outcome.kind == "implementation-refusal" then
+    refusal_publication.publish(core, repo, issue_number, outcome)
     return
   end
   error("github-devloop: invalid-implementation-outcome: unknown implementation outcome")
