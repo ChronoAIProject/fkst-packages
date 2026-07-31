@@ -46,6 +46,33 @@ local function fetch_pr_merge_ref_argv(remote, pr_number)
   return fetch_ref_argv(remote, "refs/pull/" .. tostring(pr_number) .. "/merge")
 end
 
+local function pr_head_local_ref(pr_number)
+  return "refs/fkst/pr/" .. tostring(pr_number)
+end
+
+local function fetch_pr_head_oid_argv(remote, pr_number)
+  local local_ref = pr_head_local_ref(pr_number)
+  return {
+    "git",
+    "fetch",
+    "--porcelain",
+    "--verbose",
+    "--no-write-fetch-head",
+    tostring(remote),
+    "+refs/pull/" .. tostring(pr_number) .. "/head:" .. local_ref,
+  }
+end
+
+local function fetched_oid_from_porcelain(stdout, local_ref)
+  for line in (tostring(stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+    local _, new_oid, updated_ref = line:match("^.?%s+([0-9a-fA-F]+)%s+([0-9a-fA-F]+)%s+(%S+)%s*$")
+    if updated_ref == local_ref and new_oid ~= nil then
+      return new_oid
+    end
+  end
+  return nil
+end
+
 local function ls_remote_ref_argv(remote, ref)
   return { "git", "ls-remote", tostring(remote), tostring(ref) }
 end
@@ -380,6 +407,27 @@ function M.install(handle)
 
   function handle.fetch_pr_merge_ref_cmd(remote, pr_number)
     return handle.fetch_ref_cmd(remote, "refs/pull/" .. tostring(pr_number) .. "/merge")
+  end
+
+  function handle.fetch_pr_head_oid(remote, pr_number, timeout)
+    local local_ref = pr_head_local_ref(pr_number)
+    local result = exec_result(
+      handle,
+      fetch_pr_head_oid_argv(remote, pr_number),
+      timeout,
+      "git fetch PR head OID"
+    )
+    if result.exit_code ~= 0 then
+      return result
+    end
+    local fetched_oid = fetched_oid_from_porcelain(result.stdout, local_ref)
+    if fetched_oid == nil then
+      result.exit_code = 1
+      result.stderr = "forge.git: git fetch PR head OID returned malformed porcelain output"
+      return result
+    end
+    result.stdout = fetched_oid .. "\n"
+    return result
   end
 
   function handle.ls_remote_ref(remote, ref, timeout)
