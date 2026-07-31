@@ -121,8 +121,8 @@ local function invalid(reason)
   }
 end
 
-local function row_budget_absolute_due(row, state, now_seconds)
-  local entry_ms = state_entry_ms(state)
+local function row_budget_absolute_due(row, state, now_seconds, work_unit_epoch_ms)
+  local entry_ms = tonumber(work_unit_epoch_ms) or state_entry_ms(state)
   local now_ms = tonumber(now_seconds) and tonumber(now_seconds) * 1000 or nil
   local budget = row and row.budget and tonumber(row.budget.minutes) or nil
   if now_ms == nil or entry_ms == nil or budget == nil or budget <= 0 or now_ms < entry_ms then
@@ -296,6 +296,20 @@ end
 
 local resolve_child_workflow_wait
 
+local function codex_run_generation_opened_by(row, signal, reason)
+  local legacy = tostring(row and row.defer and row.defer.producer or "codex-run") .. ":" .. tostring(reason)
+  if signal and signal.work_unit_rebased == true and signal.work_unit_generation_id ~= nil then
+    return tostring(signal.work_unit_generation_id) .. ":" .. legacy
+  end
+  return legacy
+end
+
+local function attach_codex_work_unit(eval, signal)
+  eval.work_unit_rebased = signal and signal.work_unit_rebased == true
+  eval.work_unit_key = signal and signal.work_unit_key or nil
+  return eval
+end
+
 local function resolve_codex_run(M, row, state, facts, now_seconds)
   local durable_eval = nil
   if row.actionable_epoch.source == "codex_run_with_durable_hold:v1" then
@@ -309,21 +323,21 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
   end
   local signal = M.restart_row_liveness_signal(row, state, facts, now_seconds)
   if signal.live then
-    local due, age, budget, entry_ms = row_budget_absolute_due(row, state, now_seconds)
+    local due, age, budget, entry_ms = row_budget_absolute_due(row, state, now_seconds, signal.work_unit_epoch_ms)
     if due then
-      local eval = actionable(M, row, state, entry_ms, "codex-run:row-budget-absolute-cap", "codex run is still running over row budget")
+      local eval = actionable(M, row, state, entry_ms, codex_run_generation_opened_by(row, signal, "row-budget-absolute-cap"), "codex run is still running over row budget")
       eval.signal = signal
       eval.row_budget_absolute_cap = true
       eval.age_minutes = age
       eval.budget_minutes = budget
-      return eval
+      return attach_codex_work_unit(eval, signal)
     end
     local eval = deferred("codex run is still running")
     eval.signal = signal
     return eval
   end
   if signal.codex_runs_fallback == true or signal.indeterminate == true then
-    local due, age, _, entry_ms = row_budget_absolute_due(row, state, now_seconds)
+    local due, age, _, entry_ms = row_budget_absolute_due(row, state, now_seconds, signal.work_unit_epoch_ms)
     if entry_ms == nil then
       return invalid("codex run indeterminate epoch is missing state entry")
     end
@@ -331,11 +345,11 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
       return invalid("codex run indeterminate row budget is invalid")
     end
     if due then
-      local eval = actionable(M, row, state, entry_ms, "codex-run:indeterminate", "codex run liveness indeterminate over row budget")
+      local eval = actionable(M, row, state, entry_ms, codex_run_generation_opened_by(row, signal, "indeterminate"), "codex run liveness indeterminate over row budget")
       eval.signal = signal
       eval.codex_runs_fallback = signal.codex_runs_fallback == true
       eval.indeterminate = signal.indeterminate == true
-      return eval
+      return attach_codex_work_unit(eval, signal)
     end
     local eval = deferred("codex run liveness is indeterminate")
     eval.signal = signal
@@ -345,15 +359,15 @@ local function resolve_codex_run(M, row, state, facts, now_seconds)
     durable_eval.signal = durable_eval.signal or signal
     return durable_eval
   end
-  local entry_ms = state_entry_ms(state)
+  local entry_ms = tonumber(signal.work_unit_epoch_ms) or state_entry_ms(state)
   if entry_ms == nil then
     return invalid("codex run fallback epoch is missing state entry")
   end
-  local eval = actionable(M, row, state, entry_ms, tostring(row.defer and row.defer.producer or "codex-run") .. ":" .. tostring(signal.reason or "not-running"), "codex run not positively live")
+  local eval = actionable(M, row, state, entry_ms, codex_run_generation_opened_by(row, signal, signal.reason or "not-running"), "codex run not positively live")
   eval.signal = signal
   eval.codex_runs_fallback = signal.codex_runs_fallback == true
   eval.indeterminate = signal.indeterminate == true
-  return eval
+  return attach_codex_work_unit(eval, signal)
 end
 
 function resolve_child_workflow_wait(M, row, state, facts, now_seconds)
@@ -483,7 +497,8 @@ function C.actionable_epoch_timeout_attempt(M, row, state, facts)
       M.version_timeout_round(state and state.version, row and row.from_state) or 0
     )
   end
-  if row and row.actionable_epoch and row.actionable_epoch.source == "codex_run:v1" then
+  if row and row.actionable_epoch and row.actionable_epoch.source == "codex_run:v1"
+    and eval.work_unit_rebased ~= true then
     return math.max(
       current,
       conv_attempts.timeout_attempt_round(M, comments, proposal_id, state and state.version, row and row.from_state) or 0,

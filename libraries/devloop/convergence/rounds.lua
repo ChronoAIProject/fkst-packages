@@ -51,6 +51,7 @@ local function converge_record_map(comments, kind, matches)
           verdicts = verdicts,
           dedup = dedup,
           version = version,
+          comment_created_at = parsers_misc._comment_created_at(comment),
           narrowed_question = narrowed_question,
           angle_digests = angle_digests,
           findings_record = findings_record,
@@ -137,6 +138,16 @@ function C.converge_proposal_base_dedup(consensus_dedup)
   local base_version = C.converge_base_version(consensus_dedup)
   return base_version:match("^consensus:(.+)$") or base_version
 end
+
+function C.next_replay_dedup(fact)
+  local round = valid_round(type(fact) == "table" and fact.round or nil)
+  local dedup = type(fact) == "table" and fact.dedup or nil
+  if round == nil or not is_bounded_attr(nil, dedup, devloop_base._max_dedup_len) then
+    return nil
+  end
+  return transition_version.loop_at(C.converge_proposal_base_dedup(dedup), round + 1)
+end
+
 function C.converge_round_marker(proposal_id, base_version, source_ref_digest, round, consensus_dedup, narrowed_question, angle_digests, findings_record, essence_stall)
   local n = valid_round(round)
   if n == nil then

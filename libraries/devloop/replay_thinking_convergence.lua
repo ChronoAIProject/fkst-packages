@@ -14,9 +14,11 @@ end
 function C.build_replay_proposal(caps, issue, proposal_id, state, current, event_ts)
   local latest = latest_converge_round(caps, current.comments, proposal_id, state.version, issue.source_ref)
   if latest ~= nil then
-    local base_version = conv_rounds.converge_proposal_base_dedup(latest.dedup)
     local replay_n = latest.round + 1
-    local replay_dedup = transition_version.loop_at(base_version, replay_n)
+    local replay_dedup = conv_rounds.next_replay_dedup(latest)
+    if replay_dedup == nil then
+      return nil
+    end
     local content_fetch = caps.context_fetch({
       dept = "observe_issue",
       repo = issue.repo,

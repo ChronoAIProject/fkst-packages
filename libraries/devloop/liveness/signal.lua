@@ -107,6 +107,17 @@ local function codex_run_status(M)
   return status
 end
 
+local function timestamp_ms(M, value)
+  if value == nil or value == "" then
+    return nil
+  end
+  local seconds = contract_time.iso_timestamp_epoch_seconds(value)
+  if seconds == nil then
+    return nil
+  end
+  return seconds * 1000
+end
+
 local function fixing_work_unit_from_fact(fact)
   if type(fact) ~= "table" then
     return nil
@@ -119,7 +130,7 @@ local function fixing_work_unit_from_fact(fact)
   })
 end
 
-local function fixing_work_unit_comments(facts)
+local function work_unit_comments(facts)
   if facts and facts.current_pr and type(facts.current_pr.comments) == "table" then
     return facts.current_pr.comments
   end
@@ -146,12 +157,6 @@ local function unique_versions(state)
 end
 
 local function fixing_work_unit_from_trusted_facts(M, state, facts)
-  if facts and facts.work_unit_key ~= nil then
-    return facts.work_unit_key
-  end
-  if state and state.work_unit_key ~= nil then
-    return state.work_unit_key
-  end
   if tostring(state and state.state or "") ~= "fixing" then
     return nil
   end
@@ -161,7 +166,7 @@ local function fixing_work_unit_from_trusted_facts(M, state, facts)
   if direct ~= nil then
     return direct
   end
-  local comments = fixing_work_unit_comments(facts)
+  local comments = work_unit_comments(facts)
   if comments == nil then
     return nil
   end
@@ -186,6 +191,46 @@ local function fixing_work_unit_from_trusted_facts(M, state, facts)
   return nil
 end
 
+local function thinking_work_unit_from_trusted_facts(M, state, facts)
+  if tostring(state and state.state or "") ~= "thinking" then
+    return nil
+  end
+  local state_key = strip_liveness_timeout_suffixes(state and state.version)
+  local fallback = state_key ~= nil and { key = state_key, rebased = false } or nil
+  local comments = work_unit_comments(facts)
+  if comments == nil or type(M.latest_complete_converge_round) ~= "function" then
+    return fallback
+  end
+  local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
+  local source_ref = facts and facts.source_ref or nil
+  local latest = M.latest_complete_converge_round(comments, proposal_id, state_key, source_ref)
+  local progress_ms = timestamp_ms(M, latest and latest.comment_created_at)
+  local state_entry = timestamp_ms(M, state and state.marker_created_at)
+  local key = conv_rounds.next_replay_dedup(latest)
+  if key == nil or progress_ms == nil or (state_entry ~= nil and progress_ms < state_entry) then
+    return fallback
+  end
+  return {
+    key = key,
+    epoch_ms = progress_ms,
+    generation_id = "converge-round:v1:" .. key,
+    rebased = true,
+  }
+end
+
+local function work_unit_from_trusted_facts(M, state, facts)
+  local explicit = facts and facts.work_unit_key or state and state.work_unit_key
+  if explicit ~= nil then
+    return { key = explicit, rebased = false }
+  end
+  local thinking = thinking_work_unit_from_trusted_facts(M, state, facts)
+  if thinking ~= nil then
+    return thinking
+  end
+  local fixing = fixing_work_unit_from_trusted_facts(M, state, facts)
+  return fixing ~= nil and { key = fixing, rebased = false } or nil
+end
+
 local function real_execution_expected_value(M, match, key, state, facts)
   local selector = match and match[key] or nil
   if selector == "state.proposal_id" then
@@ -195,20 +240,10 @@ local function real_execution_expected_value(M, match, key, state, facts)
     return strip_liveness_timeout_suffixes(state and state.version)
   end
   if selector == "state.work_unit_key" then
-    return fixing_work_unit_from_trusted_facts(M, state, facts)
+    local work_unit = work_unit_from_trusted_facts(M, state, facts)
+    return work_unit and work_unit.key or nil, work_unit
   end
   return selector
-end
-
-local function timestamp_ms(M, value)
-  if value == nil or value == "" then
-    return nil
-  end
-  local seconds = contract_time.iso_timestamp_epoch_seconds(value)
-  if seconds == nil then
-    return nil
-  end
-  return seconds * 1000
 end
 
 local function timestamp_field_ms(M, run, ms_field, field)
@@ -243,8 +278,18 @@ local function run_matches(run, expected_role, expected_proposal_id, expected_de
     and tostring(run.dedup_key or "") == tostring(expected_dedup_key or "")
 end
 
-local function matching_signal(run, now_ms, collection, reason, deadline_ms, deadline_source)
-  return {
+local function with_work_unit(signal, work_unit)
+  if type(work_unit) == "table" then
+    signal.work_unit_key = work_unit.key
+    signal.work_unit_epoch_ms = work_unit.epoch_ms
+    signal.work_unit_generation_id = work_unit.generation_id
+    signal.work_unit_rebased = work_unit.rebased == true
+  end
+  return signal
+end
+
+local function matching_signal(run, now_ms, collection, reason, deadline_ms, deadline_source, work_unit)
+  return with_work_unit({
     live = true,
     reason = reason,
     family = "codex_run:v1",
@@ -258,11 +303,11 @@ local function matching_signal(run, now_ms, collection, reason, deadline_ms, dea
     deadline_ms = deadline_ms,
     deadline_source = deadline_source,
     remaining_ms = deadline_ms ~= nil and now_ms ~= nil and (deadline_ms - now_ms) or nil,
-  }
+  }, work_unit)
 end
 
-local function base_codex_run_signal(status, expected_role, expected_proposal_id, expected_dedup_key)
-  return {
+local function base_codex_run_signal(status, expected_role, expected_proposal_id, expected_dedup_key, work_unit)
+  return with_work_unit({
     live = false,
     reason = status.codex_runs_fallback and "codex-runs-unavailable" or "codex-run-not-running",
     family = "codex_run:v1",
@@ -272,7 +317,7 @@ local function base_codex_run_signal(status, expected_role, expected_proposal_id
     expected_dedup_key = expected_dedup_key,
     codex_runs_fallback = status.codex_runs_fallback,
     codex_runs_error = status.codex_runs_error,
-  }
+  }, work_unit)
 end
 
 local function codex_run_liveness_signal(M, row, state, facts, now_seconds)
@@ -296,7 +341,7 @@ local function codex_run_liveness_signal(M, row, state, facts, now_seconds)
   end
   local expected_role = real_execution_expected_value(M, match, "role", state, facts)
   local expected_proposal_id = real_execution_expected_value(M, match, "proposal_id", state, facts)
-  local expected_dedup_key = real_execution_expected_value(M, match, "dedup_key", state, facts)
+  local expected_dedup_key, work_unit = real_execution_expected_value(M, match, "dedup_key", state, facts)
   local expected_status = real_execution.status or "running"
   local status = codex_run_status(M)
   local now_ms = tonumber(now_seconds) and tonumber(now_seconds) * 1000 or nil
@@ -307,7 +352,7 @@ local function codex_run_liveness_signal(M, row, state, facts, now_seconds)
       and tostring(run.status or "running") == tostring(expected_status) then
       local deadline_ms, deadline_source = run_deadline_ms(M, run)
       if deadline_ms ~= nil and now_ms ~= nil and now_ms < deadline_ms then
-        return matching_signal(run, now_ms, "running", "codex-run-running", deadline_ms, deadline_source)
+        return matching_signal(run, now_ms, "running", "codex-run-running", deadline_ms, deadline_source, work_unit)
       end
       if deadline_ms == nil or now_ms == nil then
         deadline_missing_match = {
@@ -329,7 +374,7 @@ local function codex_run_liveness_signal(M, row, state, facts, now_seconds)
     if run_matches(run, expected_role, expected_proposal_id, expected_dedup_key) then
       local deadline_ms, deadline_source = run_deadline_ms(M, run)
       if deadline_ms ~= nil and now_ms ~= nil and now_ms < deadline_ms then
-        return matching_signal(run, now_ms, "recent", "codex-run-recent-handoff", deadline_ms, deadline_source)
+        return matching_signal(run, now_ms, "recent", "codex-run-recent-handoff", deadline_ms, deadline_source, work_unit)
       end
       if deadline_ms ~= nil then
         expired_match = expired_match or {
@@ -341,7 +386,7 @@ local function codex_run_liveness_signal(M, row, state, facts, now_seconds)
       end
     end
   end
-  local signal = base_codex_run_signal(status, expected_role, expected_proposal_id, expected_dedup_key)
+  local signal = base_codex_run_signal(status, expected_role, expected_proposal_id, expected_dedup_key, work_unit)
   if deadline_missing_match ~= nil then
     signal.reason = "codex-run-deadline-unavailable"
     signal.run_id = deadline_missing_match.run_id

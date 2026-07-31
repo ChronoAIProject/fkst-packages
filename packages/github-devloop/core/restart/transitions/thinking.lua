@@ -53,7 +53,7 @@ return function(M, h)
         match = {
           role = "consensus",
           proposal_id = "state.proposal_id",
-          dedup_key = "state.version",
+          dedup_key = "state.work_unit_key",
         },
         status = "running",
         on_error = "defer",

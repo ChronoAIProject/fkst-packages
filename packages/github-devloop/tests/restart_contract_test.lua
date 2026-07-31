@@ -371,10 +371,10 @@ return {
   test_liveness_contract_declares_receiver_liveness_for_every_non_terminal_row = function()
     local by_state = table_by_state()
     local expected = {
-      thinking = { mode = "live-defer", codex_run = true, role = "consensus", budget = 150 },
+      thinking = { mode = "live-defer", codex_run = true, role = "consensus", dedup = "state.work_unit_key", budget = 150 },
       dependency_wait = { mode = "live-defer", family = "dependency-wait", resolver = "dependency-hold", max_age = 525600, budget = 525600 },
       ready = { mode = "row-budget-bounds-receiver", receiver = 15, external = 0, budget = 120 },
-      implementing = { mode = "live-defer", codex_run = true, role = "implement", budget = 120 },
+      implementing = { mode = "live-defer", codex_run = true, role = "implement", dedup = "state.version", budget = 120 },
       ["awaiting-pr"] = { mode = "live-defer", family = "state", producer = "child-state", resolver = "child-state", max_age = 1440, budget = 259200 },
       ["impl-failed"] = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },
       blocked = { mode = "row-budget-bounds-receiver", receiver = 0, external = 1410, budget = 1440 },
@@ -391,7 +391,7 @@ return {
           t.eq(row.liveness_contract.real_execution.primitive, "fkst.codex_runs")
           t.eq(row.liveness_contract.real_execution.match.role, spec.role)
           t.eq(row.liveness_contract.real_execution.match.proposal_id, "state.proposal_id")
-          t.eq(row.liveness_contract.real_execution.match.dedup_key, "state.version")
+          t.eq(row.liveness_contract.real_execution.match.dedup_key, spec.dedup)
         else
           t.eq(row.liveness_contract.signal.family, spec.family)
           t.eq(row.liveness_contract.signal.resolver, spec.resolver)
@@ -645,11 +645,12 @@ return {
     }
     -- Owner directive (#2725): a stale thinking convergence round past budget is a
     -- round/counter condition that must NEVER climb to a terminal blocked reconcile. The
-    -- timeout DECISION is now `redrive` (never `escalate`), so thinking convergence
-    -- redrives the next round instead of dropping to blocked.
+    -- convergence fact opens a new work-unit generation, so old state-entry attempts do
+    -- not transfer and the timeout decision redrives from attempt one.
     local decision = core.liveness_timeout_decision_with_facts(row, state, facts, facts.now_seconds)
     t.eq(decision.action, "redrive")
-    t.eq(core.version_timeout_round(decision.version, "thinking"), 4)
+    t.eq(decision.attempt, 1)
+    t.eq(core.version_timeout_round(decision.version, "thinking"), 1)
   end,
 
   test_liveness_timeout_thinking_redrives_never_escalating_to_reconcile = function()

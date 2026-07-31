@@ -59,7 +59,7 @@ local function assert_inventory_errors(inventory, state, expected)
   t.eq(count, expected_count, state)
 end
 
-local function assert_codex_run_row(row, expected_role, state)
+local function assert_codex_run_row(row, expected_role, expected_dedup, state)
   t.eq(row.actionable_epoch.source, "codex_run:v1", state)
   t.eq(row.defer.kind, "codex_run", state)
   t.eq(row.defer.producer, nil, state)
@@ -69,7 +69,7 @@ local function assert_codex_run_row(row, expected_role, state)
   t.eq(row.liveness_contract.real_execution.primitive, "fkst.codex_runs", state)
   t.eq(row.liveness_contract.real_execution.match.role, expected_role, state)
   t.eq(row.liveness_contract.real_execution.match.proposal_id, "state.proposal_id", state)
-  t.eq(row.liveness_contract.real_execution.match.dedup_key, "state.version", state)
+  t.eq(row.liveness_contract.real_execution.match.dedup_key, expected_dedup, state)
   t.eq(row.liveness_contract.real_execution.status, "running", state)
   t.eq(row.liveness_contract.real_execution.on_error, "defer", state)
   t.eq(row.liveness_contract.real_execution.indeterminate_timeout, "row-budget", state)
@@ -425,8 +425,8 @@ return {
 
   test_live_defer_rows_pass_strict_contract = function()
     local by_state = rows_by_state(core.restart_transition_table())
-    assert_codex_run_row(by_state.thinking, "consensus", "thinking")
-    assert_codex_run_row(by_state.implementing, "implement", "implementing")
+    assert_codex_run_row(by_state.thinking, "consensus", "state.work_unit_key", "thinking")
+    assert_codex_run_row(by_state.implementing, "implement", "state.version", "implementing")
   end,
 
   test_codex_run_defer_rejects_age_based_signal = function()
