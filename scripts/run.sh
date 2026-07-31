@@ -216,6 +216,7 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/doctor_test.py"'
     'python3 -B "$ROOT/scripts/ratchet_migration_slicer_test.py"'
     'python3 -B "$ROOT/scripts/competence_gate_test.py"'
+    'bash "$ROOT/scripts/git_compat_test.sh"'
     'python3 -B "$ROOT/scripts/test_parallel_test.py"'
   )
   # competence gate needs a base ref resolved once (a git read) before it can run.
