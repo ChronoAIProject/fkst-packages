@@ -51,11 +51,18 @@ function C.liveness_scan_is_timeout_result(M, result)
     and (tonumber(result.exit_code) == 124 or M.error_fact_class({ message = result.stderr }) == "timeout")
 end
 
-function C.liveness_scan_update_cursor(cursor_key, cursor, total, processed)
+local function activation_cursor_key(activation)
+  return activation and activation.entity and activation.entity.number
+end
+
+function C.liveness_scan_update_cursor(cursor_key, activations, processed)
   if cursor_key == nil then
     return
   end
-  cache_set(cursor_key, tostring(sweep_bounds.sweep_cursor_advance(cursor, total, processed)))
+  local next_cursor = sweep_bounds.sweep_cursor_advance(activations, processed, activation_cursor_key)
+  if next_cursor ~= nil then
+    cache_set(cursor_key, tostring(next_cursor))
+  end
 end
 
 function C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
@@ -213,12 +220,13 @@ function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
     activations,
     cursor,
     LIVENESS_SCAN_MAX_PER_TICK,
-    LIVENESS_SCAN_MAX_PER_TICK
+    LIVENESS_SCAN_MAX_PER_TICK,
+    activation_cursor_key
   )
   if deferred > 0 then
     devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(total - LIVENESS_SCAN_MAX_PER_TICK) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
   end
-  return bounded, deferred, cursor_key, cursor, total
+  return bounded, deferred, cursor_key
 end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)

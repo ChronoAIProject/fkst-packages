@@ -34,9 +34,9 @@ local function with_patches(patches, fn)
   return result
 end
 
-local function issue_items()
+local function issue_items(numbers)
   local items = {}
-  for number = 1, 3 do
+  for _, number in ipairs(numbers or { 1, 2, 3 }) do
     table.insert(items, {
       number = number,
       state = "open",
@@ -47,10 +47,11 @@ local function issue_items()
 end
 
 return {
-  test_under_cap_partial_ticks_advance_cursor_without_starvation = function()
+  test_under_cap_partial_ticks_resist_membership_churn = function()
     local viewed = {}
     local reinjected = {}
     local budget_checks = 0
+    local list_calls = 0
     cache_set(cursor_key, "0")
 
     with_patches({
@@ -70,6 +71,10 @@ return {
         target = liveness_scan,
         key = "liveness_scan_list_open_issues",
         value = function()
+          list_calls = list_calls + 1
+          if list_calls % 2 == 0 then
+            return issue_items({ 2, 3 }), nil
+          end
           return issue_items(), nil
         end,
       },
@@ -139,7 +144,7 @@ return {
         end,
       },
     }, function()
-      for tick = 1, 2 do
+      for tick = 1, 4 do
         budget_checks = 0
         local outcome = testing.run_fake(department, {
           queue = "github-devloop.devloop_liveness_tick",
@@ -152,8 +157,11 @@ return {
 
     t.eq(viewed[1], 1)
     t.eq(viewed[2], 2)
-    t.eq(reinjected[1], 1)
-    t.eq(reinjected[2], 2)
+    t.eq(viewed[3], 3)
+    t.eq(viewed[4], 2)
+    for index = 1, 4 do
+      t.eq(reinjected[index], viewed[index])
+    end
     t.eq(cache_get(cursor_key), "2")
   end,
 }

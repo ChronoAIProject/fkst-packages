@@ -29,7 +29,16 @@ function S.rotation_offset(count, seed)
   return tonumber(hash) % n
 end
 
-function S.cursor_batch(items, cursor, cap, default_cap)
+local function numeric_cursor_key(item, key_of)
+  local value = type(key_of) == "function" and key_of(item) or item
+  local key = tonumber(value)
+  if key == nil or key < 0 or key ~= math.floor(key) then
+    error("workflow_internal.sweep: cursor key must be a non-negative integer")
+  end
+  return key
+end
+
+function S.cursor_batch(items, cursor, cap, default_cap, key_of)
   local source = items or {}
   local count = #source
   local bounded_cap = S.positive_integer(cap, default_cap or 25, 1, 1000)
@@ -37,36 +46,47 @@ function S.cursor_batch(items, cursor, cap, default_cap)
     return {}, 0, 0
   end
 
-  local start = tonumber(cursor) or 0
-  if start < 0 or start ~= math.floor(start) then
-    start = 0
+  local cursor_key = tonumber(cursor)
+  if cursor_key == nil or cursor_key < 0 or cursor_key ~= math.floor(cursor_key) then
+    cursor_key = nil
   end
-  start = start % count
+
+  local start = 1
+  if cursor_key ~= nil then
+    local found = false
+    for index, item in ipairs(source) do
+      if numeric_cursor_key(item, key_of) > cursor_key then
+        start = index
+        found = true
+        break
+      end
+    end
+    if not found then
+      start = 1
+    end
+  end
 
   local selected = {}
   for i = 1, math.min(count, bounded_cap) do
-    local index = ((start + i - 1) % count) + 1
+    local index = ((start + i - 2) % count) + 1
     table.insert(selected, source[index])
   end
 
-  local next_cursor = (start + #selected) % count
+  local next_cursor = numeric_cursor_key(selected[#selected], key_of)
   return selected, math.max(0, count - #selected), next_cursor
 end
 
-function S.cursor_advance(cursor, total, processed)
-  local count = tonumber(total) or 0
-  if count <= 0 or count ~= math.floor(count) then
-    return 0
-  end
-  local start = tonumber(cursor) or 0
-  if start < 0 or start ~= math.floor(start) then
-    start = 0
-  end
+function S.cursor_advance(items, processed, key_of)
+  local source = items or {}
   local step = tonumber(processed) or 0
   if step < 0 or step ~= math.floor(step) then
     step = 0
   end
-  return (start + step) % count
+  step = math.min(step, #source)
+  if step == 0 then
+    return nil
+  end
+  return numeric_cursor_key(source[step], key_of)
 end
 
 function S.deadline_deferred_result(error_class, stderr)
