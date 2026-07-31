@@ -317,7 +317,7 @@ end
 local function assert_observed_admission(trace)
   graph.assert_covers(trace, {
     "github-proxy.github_poll_tick -> github-proxy.github_poll",
-    "github-proxy.github_issue_observed -> github-devloop-intake.admission",
+    "github-proxy.github_issue_observed -> github-devloop-intake.replay_admission",
   })
 end
 

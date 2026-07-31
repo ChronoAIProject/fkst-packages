@@ -92,9 +92,11 @@
 {"path":"libraries/devloop/validators.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"packages/github-devloop-intake-default/departments/intake_judge/main.lua","owner":"intake","reason":"owns default intake route enable and decline policy."}
 {"path":"packages/github-devloop-intake/core/admission.lua","owner":"intake","reason":"core module owns event-driven unmanaged issue admission."}
+{"path":"packages/github-devloop-intake/core/admission_shared.lua","owner":"intake","reason":"core module shares intake admission context and capacity reconciliation across isolated fresh and replay lanes."}
 {"path":"packages/github-devloop-intake/core/intake_capacity.lua","owner":"intake","reason":"core module owns repository-scoped intake capacity grants and excess claim convergence."}
 {"path":"packages/github-devloop-intake/core/replay_authorization.lua","owner":"intake","reason":"core module owns engine-fact authorization for terminal intake replay."}
 {"path":"packages/github-devloop-intake/departments/admission/main.lua","owner":"intake","reason":"owns event-driven unmanaged issue admission."}
+{"path":"packages/github-devloop-intake/departments/replay_admission/main.lua","owner":"intake","reason":"owns terminal intake replay admission on an isolated observation lane."}
 {"path":"packages/github-devloop-integration/core/branches.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/core/branches/branch_train.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/core/branches/pr_freshness.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}

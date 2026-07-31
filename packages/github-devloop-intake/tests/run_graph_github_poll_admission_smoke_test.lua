@@ -130,7 +130,13 @@ return {
 
     local spec = require("departments.admission.main").spec
     t.eq(spec.consumes[1], "github-proxy.github_entity_changed")
+    t.eq(#spec.consumes, 1)
     t.eq(spec.produces[1], "devloop_intake_candidate")
+
+    local replay_spec = require("departments.replay_admission.main").spec
+    t.eq(replay_spec.consumes[1], "github-proxy.github_issue_observed")
+    t.eq(#replay_spec.consumes, 1)
+    t.eq(replay_spec.produces[1], "devloop_intake_candidate")
 
     local _, admission_index = graph.require_delivery(trace, {
       queue = "github-proxy.github_entity_changed",
