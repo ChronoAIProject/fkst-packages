@@ -467,7 +467,7 @@ return {
     t.eq(cached_labelled_observed[1].payload.dedup_key, second_observed[1].payload.dedup_key)
   end,
 
-  test_inbound_poll_rearms_a_permanent_delivery_once_and_reuses_the_live_generation = function()
+  test_inbound_poll_rearms_a_terminal_subscriber_while_a_sibling_is_live = function()
     local run_opts = opts("post-dlq-level-rearm", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
     local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
     local base_key = "owner/x#issue#50@2026-06-03T01:04:00Z"
@@ -476,7 +476,7 @@ return {
     local terminal = {
       delivery_id = terminal_id,
       queue = "github-proxy.github_entity_changed",
-      dept = "github-devloop-intake.admission",
+      dept = "github-devloop.observe_issue",
       source = poll_delivery_source(),
       observed_at_ms = 1785574800000,
       not_before_ms = 1785574800000,
@@ -517,22 +517,22 @@ return {
       lease_until_ms = 1785574950000,
       fence_token = "live-rearm-delivery#1",
       subscriber_absent_since_ms = nil,
-      payload = poll_delivery_payload_summary(rearm_key),
+      payload = poll_delivery_payload_summary(base_key),
       last_error_excerpt = nil,
     }
     mock_poll_env("1", "fkst-class:")
     mock_issue_list(issue_list_from({ intake }))
     mock_pr_list("[]\n")
     t.mock_observe(delivery_snapshot({ live }, { terminal }))
-    local coalesced = t.run_department("departments/github_poll/main.lua", {
+    local subscriber_rearmed = t.run_department("departments/github_poll/main.lua", {
       queue = "github_poll_tick",
       payload = {},
-      ts = "poll-while-rearmed",
+      ts = "poll-with-live-sibling",
     }, run_opts)
-    t.eq(coalesced.exit_code, 0)
-    t.eq(#coalesced.raises, 1)
-    t.eq(coalesced.raises[1].payload.dedup_key, rearm_key)
-    t.eq(coalesced.raises[1].payload.poll_token, allocated_poll_epoch("poll-while-rearmed", 0))
+    t.eq(subscriber_rearmed.exit_code, 0)
+    t.eq(#subscriber_rearmed.raises, 1)
+    t.eq(subscriber_rearmed.raises[1].payload.dedup_key, rearm_key)
+    t.eq(subscriber_rearmed.raises[1].payload.poll_token, allocated_poll_epoch("poll-with-live-sibling", 0))
   end,
 
   test_inbound_poll_emits_fresh_entity_when_delivery_rearm_snapshot_is_truncated = function()

@@ -60,17 +60,23 @@ local function selected_queues(queues)
   return selected
 end
 
-local function entry_for(entries, queue, dedup_key)
+local function entry_for(entries, queue, dept, dedup_key)
   local by_queue = entries[queue]
   if by_queue == nil then
     by_queue = {}
     entries[queue] = by_queue
   end
   local root = lineage_key(dedup_key)
-  local entry = by_queue[root]
+  local by_subscriber = by_queue[root]
+  if by_subscriber == nil then
+    by_subscriber = {}
+    by_queue[root] = by_subscriber
+  end
+  local subscriber = tostring(dept or "")
+  local entry = by_subscriber[subscriber]
   if entry == nil then
     entry = {}
-    by_queue[root] = entry
+    by_subscriber[subscriber] = entry
   end
   return entry
 end
@@ -93,7 +99,7 @@ local function record_outstanding(entries, row, allowed)
   if dedup_key == nil then
     return
   end
-  local entry = entry_for(entries, queue, dedup_key)
+  local entry = entry_for(entries, queue, row.dept, dedup_key)
   if entry.outstanding_key == nil or newer(
     row.observed_at_ms,
     row.delivery_id,
@@ -119,7 +125,7 @@ local function record_terminal(entries, row, allowed)
     record_outstanding(entries, row, allowed)
     return
   end
-  local entry = entry_for(entries, queue, dedup_key)
+  local entry = entry_for(entries, queue, row.dept, dedup_key)
   if entry.terminal_id == nil or newer(
     row.dead_at_ms,
     row.delivery_id,
@@ -145,15 +151,41 @@ function R.index(snapshot, queues)
   return {
     key_for = function(queue, base_key)
       local by_queue = entries[tostring(queue)] or {}
-      local entry = by_queue[tostring(base_key)]
-      if entry == nil then
+      local by_subscriber = by_queue[tostring(base_key)]
+      if by_subscriber == nil then
         return base_key
       end
-      if entry.outstanding_key ~= nil then
-        return entry.outstanding_key
+      local outstanding_key = nil
+      local outstanding_at_ms = nil
+      local outstanding_id = nil
+      local terminal_id = nil
+      local terminal_at_ms = nil
+      for _, entry in pairs(by_subscriber) do
+        if entry.outstanding_key ~= nil and (outstanding_key == nil or newer(
+          entry.outstanding_at_ms,
+          entry.outstanding_id,
+          outstanding_at_ms,
+          outstanding_id
+        )) then
+          outstanding_key = entry.outstanding_key
+          outstanding_at_ms = entry.outstanding_at_ms
+          outstanding_id = entry.outstanding_id
+        end
+        if entry.terminal_id ~= nil and (terminal_id == nil or newer(
+          entry.terminal_at_ms,
+          entry.terminal_id,
+          terminal_at_ms,
+          terminal_id
+        )) then
+          terminal_id = entry.terminal_id
+          terminal_at_ms = entry.terminal_at_ms
+        end
       end
-      if entry.terminal_id ~= nil then
-        return tostring(base_key) .. "/rearm/" .. sha256.hex(entry.terminal_id)
+      if terminal_id ~= nil then
+        return tostring(base_key) .. "/rearm/" .. sha256.hex(terminal_id)
+      end
+      if outstanding_key ~= nil then
+        return outstanding_key
       end
       return base_key
     end,

@@ -21,11 +21,11 @@ local function source()
   }
 end
 
-local function live_row(dedup_key)
+local function live_row(dedup_key, dept)
   return {
     delivery_id = "live-delivery",
     queue = queue,
-    dept = "github-devloop-intake.admission",
+    dept = dept or "github-devloop-intake.admission",
     source = source(),
     status = "in-flight",
     observed_at_ms = 1785574800000,
@@ -100,6 +100,18 @@ return {
     local index = rearm.index(snapshot({ live_row(rearm_key) }, { terminal_row() }))
 
     t.eq(index.key_for(queue, base_key), rearm_key)
+  end,
+
+  test_terminal_subscriber_rearms_independently_of_live_sibling = function()
+    local rearm = load_rearm()
+    local index = rearm.index(snapshot({
+      live_row(base_key, "github-devloop.observe_issue"),
+    }, { terminal_row() }))
+
+    t.eq(
+      index.key_for(queue, base_key),
+      base_key .. "/rearm/" .. sha256.hex(terminal_id)
+    )
   end,
 
   test_truncated_delivery_snapshot_fails_closed = function()
