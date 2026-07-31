@@ -29,6 +29,10 @@ local spec = {
     "devloop_merge_ready",
     "devloop_review_reconcile",
     "devloop_timeout_reconcile",
+    -- Reached via requests/review.lua:508 when a fixing-state redrive rewrites the
+    -- issue state label. Undeclared, the engine's raise-subset-of-produces guard
+    -- fail-closes and crashes the whole scan on every tick that reaches a fixing PR.
+    "github-proxy.github_issue_label_request",
   },
   fanout = { "devloop_liveness_tick" },
   stall_window = "30s",
