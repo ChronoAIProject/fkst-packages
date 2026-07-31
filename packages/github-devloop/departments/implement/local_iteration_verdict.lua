@@ -31,6 +31,15 @@ function M.classify(candidate_result, base_probe)
   if base_probe.result.kind == "SEMANTIC_FAIL" then
     return "BASE_RED"
   end
+  if base_probe.result.kind == "CONFIGURATION_FAIL" then
+    return "BASE_CONFIGURATION_FAIL"
+  end
+  if base_probe.result.kind == "TOOLCHAIN_FAIL" then
+    return "BASE_TOOLCHAIN_FAIL"
+  end
+  if base_probe.result.kind == "INFRASTRUCTURE_FAIL" then
+    return "BASE_INFRASTRUCTURE_FAIL"
+  end
   return "INDETERMINATE"
 end
 

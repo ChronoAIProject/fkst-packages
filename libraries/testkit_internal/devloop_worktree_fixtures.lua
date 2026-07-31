@@ -590,7 +590,7 @@ function M.new(deps)
     if resolved_exit_code == 0 then
       t.mock_command("scripts/run.sh test-affected", {
         stdout = "",
-        stderr = "",
+        stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
         exit_code = 0,
       })
     end
