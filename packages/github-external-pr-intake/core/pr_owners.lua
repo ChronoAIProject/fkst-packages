@@ -4,6 +4,7 @@ local axes = {
   "is_integration_rollup",
   "has_trusted_issue_origin",
   "is_managed_author",
+  "is_authorized_author",
 }
 
 local declarations = {
@@ -41,6 +42,7 @@ local declarations = {
       is_integration_rollup = false,
       has_trusted_issue_origin = false,
       is_managed_author = true,
+      is_authorized_author = true,
     },
   },
   {
@@ -54,6 +56,20 @@ local declarations = {
       is_integration_rollup = false,
       has_trusted_issue_origin = false,
       is_managed_author = false,
+      is_authorized_author = true,
+    },
+  },
+  {
+    kind = "unauthorized-pr-retirement",
+    lifecycle_package = "github-external-pr-intake",
+    claim_kind = "authorization-policy",
+    authorization_kind = "github-author-policy",
+    terminal_contract = "authorization-denial",
+    disposition = "retire",
+    match = {
+      is_integration_rollup = false,
+      has_trusted_issue_origin = false,
+      is_authorized_author = false,
     },
   },
 }
@@ -106,11 +122,14 @@ local function each_fact_shape(fn)
   for _, rollup in ipairs({ false, true }) do
     for _, origin in ipairs({ false, true }) do
       for _, managed in ipairs({ false, true }) do
-        fn({
-          is_integration_rollup = rollup,
-          has_trusted_issue_origin = origin,
-          is_managed_author = managed,
-        })
+        for _, authorized in ipairs({ false, true }) do
+          fn({
+            is_integration_rollup = rollup,
+            has_trusted_issue_origin = origin,
+            is_managed_author = managed,
+            is_authorized_author = authorized,
+          })
+        end
       end
     end
   end
@@ -161,7 +180,9 @@ function M.conformance_errors(owner_declarations)
         end
         kinds[declaration.kind] = true
       end
-      if declaration.disposition ~= "reserved" and declaration.disposition ~= "bridge" then
+      if declaration.disposition ~= "reserved"
+        and declaration.disposition ~= "bridge"
+        and declaration.disposition ~= "retire" then
         table.insert(errors, "PR owner declaration " .. tostring(index) .. " has invalid disposition")
       end
       if type(declaration.match) ~= "table" then

@@ -43,11 +43,11 @@ local function owner_pr(fields)
   }
 end
 
-local function owner_kind(pr)
+local function owner_kind(pr, is_authorized_author)
   return core.classify_pr_owner(pr, managed, {
     upstream = upstream_branch,
     integration = integration_branch,
-  }).kind
+  }, is_authorized_author ~= false).kind
 end
 
 local function contains(errors, needle)
@@ -175,6 +175,12 @@ local function fake_github(prs)
     return { stdout = "", exit_code = 0 }
   end
 
+  function github.pr_close(_repo, number, _timeout)
+    by_number[number].state = "CLOSED"
+    table.insert(model.writes, { kind = "pr_close", number = number })
+    return { stdout = "", exit_code = 0 }
+  end
+
   function github.issue_close(_repo, number, _timeout)
     table.insert(model.writes, { kind = "issue_close", number = number })
     return { stdout = "", exit_code = 0 }
@@ -242,21 +248,32 @@ return {
     t.eq(#core.pr_owner_conformance_errors(), 0)
 
     local expected = {
-      ["true:true:true"] = "integration-promotion",
-      ["true:true:false"] = "integration-promotion",
-      ["true:false:true"] = "integration-promotion",
-      ["true:false:false"] = "integration-promotion",
-      ["false:true:true"] = "github-devloop-pr",
-      ["false:true:false"] = "github-devloop-pr",
-      ["false:false:true"] = "operator-hotfix-bridge",
-      ["false:false:false"] = "external-pr-bridge",
+      ["true:true:true:true"] = "integration-promotion",
+      ["true:true:true:false"] = "integration-promotion",
+      ["true:true:false:true"] = "integration-promotion",
+      ["true:true:false:false"] = "integration-promotion",
+      ["true:false:true:true"] = "integration-promotion",
+      ["true:false:true:false"] = "integration-promotion",
+      ["true:false:false:true"] = "integration-promotion",
+      ["true:false:false:false"] = "integration-promotion",
+      ["false:true:true:true"] = "github-devloop-pr",
+      ["false:true:true:false"] = "github-devloop-pr",
+      ["false:true:false:true"] = "github-devloop-pr",
+      ["false:true:false:false"] = "github-devloop-pr",
+      ["false:false:true:true"] = "operator-hotfix-bridge",
+      ["false:false:false:true"] = "external-pr-bridge",
+      ["false:false:true:false"] = "unauthorized-pr-retirement",
+      ["false:false:false:false"] = "unauthorized-pr-retirement",
     }
     for key, kind in pairs(expected) do
-      local rollup, origin, managed_author = key:match("([^:]+):([^:]+):([^:]+)")
+      local rollup, origin, managed_author, authorized_author = key:match(
+        "([^:]+):([^:]+):([^:]+):([^:]+)"
+      )
       local owner = core.classify_pr_owner_facts({
         is_integration_rollup = rollup == "true",
         has_trusted_issue_origin = origin == "true",
         is_managed_author = managed_author == "true",
+        is_authorized_author = authorized_author == "true",
       })
       t.eq(owner.kind, kind, key)
     end
@@ -295,6 +312,29 @@ return {
       comments = { { author_login = "untrusted-contributor", body = origin } },
     })), "operator-hotfix-bridge")
     t.eq(owner_kind(owner_pr({ author_login = "trusted-contributor" })), "external-pr-bridge")
+    t.eq(owner_kind(owner_pr({ author_login = "untrusted-contributor" }), false), "unauthorized-pr-retirement")
+  end,
+
+  test_scan_retires_unauthorized_pr_with_durable_why = function()
+    local github = fake_github({
+      owner_pr({ number = 5, author_login = "untrusted-contributor", head_ref_name = "feature/untrusted" }),
+    })
+
+    local raised = run_events(github, {
+      { queue = "external_pr_scan", payload = { schema = "github-external-pr-intake.v1" } },
+    })
+
+    t.eq(#raised, 0)
+    t.eq(#github._model.writes, 2)
+    t.eq(github._model.writes[1].kind, "pr_comment")
+    t.eq(github._model.writes[1].number, 5)
+    t.is_true(github._model.comments[1].body:find(
+      'pr-disposition:v1 repo="owner/repo" pr="5" owner="unauthorized-pr-retirement" outcome="retired" why="non-authorized-author"',
+      1,
+      true
+    ) ~= nil)
+    t.eq(github._model.writes[2].kind, "pr_close")
+    t.eq(github._model.writes[2].number, 5)
   end,
 
   test_scan_routes_only_bridge_owned_prs_and_operator_candidate_materializes_issue = function()

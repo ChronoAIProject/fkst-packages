@@ -209,6 +209,20 @@ function M.handled_marker(repo, pr_number, issue_number)
     .. '" -->'
 end
 
+function M.pr_disposition_marker(repo, pr_number, owner_kind, outcome, why)
+  return '<!-- fkst:github-external-pr-intake:pr-disposition:v1 repo="'
+    .. tostring(repo)
+    .. '" pr="'
+    .. tostring(M.safe_number(pr_number, "disposition marker pr"))
+    .. '" owner="'
+    .. tostring(owner_kind)
+    .. '" outcome="'
+    .. tostring(outcome)
+    .. '" why="'
+    .. tostring(why)
+    .. '" -->'
+end
+
 function M.bridge_search_query(repo, pr_number)
   return external_pr_bridge.search_query(repo, pr_number)
 end
@@ -430,7 +444,7 @@ function M.classify_pr_owner_facts(facts, declarations)
   return pr_owners.classify_facts(facts, declarations)
 end
 
-function M.classify_pr_owner(pr, managed, branches)
+function M.classify_pr_owner(pr, managed, branches, is_authorized_author)
   if type(pr) ~= "table" or pr.number == nil then
     error("github-external-pr-intake: pr-owner-pr-required: PR ownership requires a numbered PR")
   end
@@ -442,11 +456,15 @@ function M.classify_pr_owner(pr, managed, branches)
     or not forge_strings.is_git_ref_safe(branches.integration) then
     error("github-external-pr-intake: pr-owner-branches-required: PR ownership requires configured safe branches")
   end
+  if type(is_authorized_author) ~= "boolean" then
+    error("github-external-pr-intake: pr-owner-authorization-required: PR ownership requires author authorization")
+  end
   local facts = {
     is_integration_rollup = tostring(pr.head_ref_name or "") == branches.integration
       and tostring(pr.base_ref_name or "") == branches.upstream,
     has_trusted_issue_origin = M.find_trusted_issue_pr_origin(pr.comments, pr.repo, managed) ~= nil,
     is_managed_author = M.is_managed_bot_login(pr.author_login, managed),
+    is_authorized_author = is_authorized_author,
   }
   return pr_owners.classify_facts(facts), facts
 end
@@ -529,6 +547,21 @@ function M.find_pr_handled_marker(comments, repo, pr_number, issue_number, manag
   return nil
 end
 
+function M.find_pr_disposition_marker(comments, repo, pr_number, owner_kind, outcome, why, managed)
+  local expected = M.pr_disposition_marker(repo, pr_number, owner_kind, outcome, why)
+  for _, comment in ipairs(comments or {}) do
+    if M.trusted_author(comment, managed) and tostring(comment.body or ""):find(expected, 1, true) ~= nil then
+      return {
+        owner_kind = owner_kind,
+        outcome = outcome,
+        why = why,
+        source = "pr-disposition-marker",
+      }
+    end
+  end
+  return nil
+end
+
 local function bridge_subject(owner_kind)
   if owner_kind == "external-pr-bridge" then
     return "external PR", "contributor change"
@@ -603,6 +636,17 @@ function M.handled_comment_body(repo, pr, issue, signal)
   table.insert(lines, "")
   table.insert(lines, M.handled_marker(repo, pr_number, issue_number))
   return table.concat(lines, "\n")
+end
+
+function M.pr_retirement_comment_body(repo, pr, owner_kind, why)
+  local pr_number = M.safe_number(pr.number, "retirement comment pr")
+  return table.concat({
+    "Automated intake did not admit this pull request.",
+    "",
+    "Closing it because the author is not authorized by the repository's external PR intake policy. No bridge issue was created.",
+    "",
+    M.pr_disposition_marker(repo, pr_number, owner_kind, "retired", why),
+  }, "\n")
 end
 
 M.error_fingerprint = error_facts.error_fingerprint

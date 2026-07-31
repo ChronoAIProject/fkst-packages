@@ -106,6 +106,16 @@ local function fake_github(opts)
     return { stdout = "", stderr = "", exit_code = 0 }
   end
 
+  function handle.pr_close(repo, pr_number, timeout)
+    table.insert(model.writes, {
+      kind = "pr_close",
+      repo = repo,
+      pr_number = pr_number,
+      timeout = timeout,
+    })
+    return { stdout = "", stderr = "", exit_code = 0 }
+  end
+
   function handle.issue_close(repo, issue_number, disposition, timeout)
     table.insert(model.writes, {
       kind = "issue_close",
@@ -419,18 +429,24 @@ return {
     t.eq(result.raises[1].payload.number, 7)
   end,
 
-  test_non_authorized_durable_candidate_is_rejected_before_bridge_writes = function()
+  test_non_authorized_durable_candidate_is_retired_without_bridge_creation = function()
     local github = fake_github({ allowed = {}, authors = { "untrusted-contributor" } })
     local logs = run_candidate(github)
 
     t.eq(count_kind(github._model.writes, "pr_cli_view"), 1)
     t.eq(count_kind(github._model.writes, "issue_assign"), 0)
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
-    t.eq(count_kind(github._model.writes, "pr_comment"), 0)
-    t.is_true(logs_contain(logs, "action=skip-non-authorized-author"))
+    t.eq(count_kind(github._model.writes, "pr_comment"), 1)
+    t.eq(count_kind(github._model.writes, "pr_close"), 1)
+    t.is_true(write_of_kind(github._model.writes, "pr_comment").body:find(
+      'pr-disposition:v1 repo="owner/repo" pr="7" owner="unauthorized-pr-retirement" outcome="retired" why="non-authorized-author"',
+      1,
+      true
+    ) ~= nil)
+    t.is_true(logs_contain(logs, "action=retired-non-authorized-author"))
   end,
 
-  test_scan_does_not_admit_non_authorized_author = function()
+  test_scan_retires_non_authorized_author = function()
     local github = fake_github({ allowed = {}, authors = { "untrusted-contributor" } })
     local logs, raises = run_event(github, {
       queue = "external_pr_scan",
@@ -439,8 +455,10 @@ return {
 
     t.eq(#raises, 0)
     t.eq(count_kind(github._model.writes, "pr_list"), 1)
-    t.eq(count_kind(github._model.writes, "pr_cli_view"), 1)
-    t.is_true(logs_contain(logs, "action=skip-non-authorized-author"))
+    t.eq(count_kind(github._model.writes, "pr_cli_view"), 2)
+    t.eq(count_kind(github._model.writes, "pr_comment"), 1)
+    t.eq(count_kind(github._model.writes, "pr_close"), 1)
+    t.is_true(logs_contain(logs, "action=retired-non-authorized-author"))
   end,
 
   test_authorization_is_rechecked_after_claim_before_bridge_creation = function()
@@ -453,7 +471,9 @@ return {
     t.eq(count_kind(github._model.writes, "pr_cli_view"), 2)
     t.eq(count_kind(github._model.writes, "issue_assign"), 1)
     t.eq(count_kind(github._model.writes, "issue_create"), 0)
-    t.is_true(logs_contain(logs, "action=skip-non-authorized-author-after-claim"))
+    t.eq(count_kind(github._model.writes, "pr_comment"), 1)
+    t.eq(count_kind(github._model.writes, "pr_close"), 1)
+    t.is_true(logs_contain(logs, "action=retired-non-authorized-author-after-claim"))
   end,
 
   test_explicitly_trusted_contributor_gets_metadata_only_bridge_identity = function()

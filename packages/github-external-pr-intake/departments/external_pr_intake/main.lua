@@ -41,7 +41,18 @@ local function admit_bridge_candidate(github, pr, managed, branches, now_seconds
   if tostring(pr and pr.state or ""):upper() ~= "OPEN" then
     return false, "pr-not-open"
   end
-  local owner = core.classify_pr_owner(pr, managed, branches)
+  local owner = core.classify_pr_owner(
+    pr,
+    managed,
+    branches,
+    github.is_authorized_author(pr.author_login)
+  )
+  if owner.disposition == "retire" then
+    if not core.is_bridge_age_eligible(pr, now_seconds) then
+      return false, "bridge-age-ineligible", owner
+    end
+    return false, "non-authorized-author", owner
+  end
   if owner.disposition ~= "bridge" then
     return false, "reserved-" .. tostring(owner.kind), owner
   end
@@ -50,9 +61,6 @@ local function admit_bridge_candidate(github, pr, managed, branches, now_seconds
   end
   if not core.is_bridge_age_eligible(pr, now_seconds) then
     return false, "bridge-age-ineligible", owner
-  end
-  if not github.is_authorized_author(pr.author_login) then
-    return false, "non-authorized-author", owner
   end
   return true, nil, owner
 end
@@ -123,6 +131,47 @@ local function write_handled_comment(github, repo, pr, issue, signal)
   local path = core.body_file_path(repo, pr.number, "handled")
   file.write(path, core.handled_comment_body(repo, pr, issue, signal) .. "\n")
   return github.pr_comment(repo, pr.number, path, 30)
+end
+
+local function write_pr_disposition_comment(github, repo, pr, owner_kind, why)
+  local path = core.body_file_path(repo, pr.number, "disposition")
+  file.write(path, core.pr_retirement_comment_body(repo, pr, owner_kind, why) .. "\n")
+  return github.pr_comment(repo, pr.number, path, 30)
+end
+
+local function retire_pr(github, repo, pr, owner, reason, managed)
+  if owner == nil or owner.disposition ~= "retire" or reason ~= "non-authorized-author" then
+    error("github-external-pr-intake: invalid-retirement: retirement requires an authorization denial owner")
+  end
+  if not core.write_enabled() then
+    return "would-retire-" .. reason
+  end
+  local existing = core.find_pr_disposition_marker(
+    pr.comments,
+    repo,
+    pr.number,
+    owner.kind,
+    "retired",
+    reason,
+    managed
+  )
+  if existing == nil then
+    write_pr_disposition_comment(github, repo, pr, owner.kind, reason)
+  end
+  if tostring(pr.state or ""):upper() == "OPEN" then
+    github.pr_close(repo, pr.number, 30)
+  end
+  if existing ~= nil then
+    return "closed-after-existing-" .. reason
+  end
+  return "retired-" .. reason
+end
+
+local function retirement_action(github, repo, pr, owner, reason, managed)
+  if owner == nil or owner.disposition ~= "retire" or reason ~= "non-authorized-author" then
+    return nil
+  end
+  return retire_pr(github, repo, pr, owner, reason, managed)
 end
 
 local function create_bridge_issue(github, repo, pr, owner_kind)
@@ -289,7 +338,8 @@ local function handle_candidate(github, payload)
       expected_owner_kind
     )
     if not admitted then
-      action = "skip-" .. tostring(reason)
+      action = retirement_action(github, repo, pr, owner, reason, managed)
+        or ("skip-" .. tostring(reason))
       return
     end
 
@@ -322,7 +372,9 @@ local function handle_candidate(github, payload)
       expected_owner_kind
     )
     if not admitted then
-      action = "skip-" .. tostring(reason) .. "-after-claim"
+      action = retirement_action(github, repo, pr, owner, reason, managed)
+        or ("skip-" .. tostring(reason))
+      action = action .. "-after-claim"
       return
     end
     bridge = existing_bridge(github, repo, pr, managed)
@@ -399,8 +451,32 @@ local function handle_scan(github, event)
             })
             raise("external_pr_candidate", payload)
           end
-        elseif reason == "non-authorized-author" then
-          log_action(dedup_key, "skip-non-authorized-author")
+        elseif reason == "non-authorized-author"
+          and owner ~= nil
+          and owner.disposition == "retire" then
+          local action = nil
+          with_lock(core.bridge_lock_key(repo, pr.number), function()
+            local fresh_pr = read_pr(github, repo, pr.number)
+            local fresh_admitted, fresh_reason, fresh_owner = admit_bridge_candidate(
+              github,
+              fresh_pr,
+              managed,
+              branches,
+              now()
+            )
+            if not fresh_admitted then
+              action = retirement_action(
+                github,
+                repo,
+                fresh_pr,
+                fresh_owner,
+                fresh_reason,
+                managed
+              )
+            end
+            action = action or ("skip-" .. tostring(fresh_reason))
+          end)
+          log_action(dedup_key, action)
         end
       end
     end
