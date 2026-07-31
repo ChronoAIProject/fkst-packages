@@ -295,11 +295,11 @@ local function mock_pr_comment_write()
     stdout = "",
     exit_code = 0,
   })
-  t.mock_command("gh pr comment 7 --repo owner/x --body-file /tmp/fkst-github-proxy-intent-issue-create-decompose_generic-workflow_issue_owner_x_42_v1_1_123.md", {
+  t.mock_command("gh pr comment 7 --repo owner/x --body-file /tmp/fkst-github-proxy-intent-", {
     stdout = "",
     exit_code = 0,
   })
-  t.mock_command("gh pr comment 7 --repo owner/x --body-file /tmp/fkst-github-proxy-created-issue-create-decompose_generic-workflow_issue_owner_x_42_v1_1_123.md", {
+  t.mock_command("gh pr comment 7 --repo owner/x --body-file /tmp/fkst-github-proxy-created-", {
     stdout = "",
     exit_code = 0,
   })
