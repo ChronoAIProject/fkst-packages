@@ -15,6 +15,19 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+RESULT_PREFIX = "FKST_LOCAL_ITERATION_RESULT:v2:"
+
+
+def result_marker(verdict: str, fault_class: str) -> str:
+    return f"{RESULT_PREFIX}{verdict}:{fault_class}"
+
+
+def result_markers(result: subprocess.CompletedProcess[str]) -> list[str]:
+    return [
+        line
+        for line in (result.stdout + result.stderr).splitlines()
+        if line.startswith("FKST_LOCAL_ITERATION_RESULT:")
+    ]
 
 
 def _robust_rmtree(path: str) -> None:
@@ -60,6 +73,8 @@ class TestAffectedHarness:
             for name in (
                 "run.sh",
                 "bin_bootstrap.sh",
+                "local_iteration_result.sh",
+                "run_bin.sh",
                 "host_run.sh",
                 "host_entry.sh",
                 "composed_manifest.sh",
@@ -74,11 +89,24 @@ class TestAffectedHarness:
             test_affected = REPO_ROOT / "scripts" / "test_affected.sh"
             if test_affected.exists():
                 shutil.copy2(test_affected, self.scripts / "test_affected.sh")
+            local_iteration_result = REPO_ROOT / "scripts" / "local_iteration_result.sh"
+            if local_iteration_result.exists():
+                shutil.copy2(local_iteration_result, self.scripts / "local_iteration_result.sh")
             self.runner.write_text(
                 "#!/bin/sh\n"
                 "printf '%s\\n' \"$*\" >> \"$FKST_TEST_AFFECTED_LOG\"\n"
-                "if [ -n \"${FKST_TEST_AFFECTED_RUNNER_RESULT:-}\" ]; then\n"
-                "  printf 'FKST_LOCAL_ITERATION_RESULT:v1:%s\\n' \"$FKST_TEST_AFFECTED_RUNNER_RESULT\" >&2\n"
+                "result=${FKST_TEST_AFFECTED_RUNNER_RESULT:-}\n"
+                "case \"${2:-}\" in\n"
+                "  consensus) result=${FKST_TEST_AFFECTED_RESULT_CONSENSUS:-$result} ;;\n"
+                "  github-devloop) result=${FKST_TEST_AFFECTED_RESULT_GITHUB_DEVLOOP:-$result} ;;\n"
+                "esac\n"
+                "if [ -n \"$result\" ]; then\n"
+                "  marker=FKST_LOCAL_ITERATION_RESULT:v2:$result\n"
+                "  if [ -n \"${FKST_LOCAL_ITERATION_RESULT_FILE:-}\" ]; then\n"
+                "    printf '%s\\n' \"$marker\" > \"$FKST_LOCAL_ITERATION_RESULT_FILE\"\n"
+                "  else\n"
+                "    printf '%s\\n' \"$marker\" >&2\n"
+                "  fi\n"
                 "fi\n"
                 "exit \"${FKST_TEST_AFFECTED_RUNNER_EXIT:-0}\"\n",
                 encoding="utf-8",
@@ -206,6 +234,7 @@ class TestAffectedHarness:
         with_branch_env: bool = True,
         runner_exit: int = 0,
         runner_result: str | None = None,
+        package_results: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         # Scope derives from the worktree's own uncommitted edits, so these env
@@ -223,6 +252,10 @@ class TestAffectedHarness:
             env.pop("FKST_TEST_AFFECTED_RUNNER_RESULT", None)
         else:
             env["FKST_TEST_AFFECTED_RUNNER_RESULT"] = runner_result
+        package_results = package_results or {}
+        for package, value in package_results.items():
+            key = "FKST_TEST_AFFECTED_RESULT_" + package.upper().replace("-", "_")
+            env[key] = value
         return subprocess.run(
             ["/bin/bash", "scripts/run.sh", "test-affected"],
             cwd=self.root,
@@ -233,7 +266,11 @@ class TestAffectedHarness:
             check=False,
         )
 
-    def run_default_test(self, engine_result: str) -> subprocess.CompletedProcess[str]:
+    def run_test_process(
+        self,
+        shell_body: str,
+        engine_result: str = "pass",
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["BIN"] = str(self.engine)
         env["FKST_NO_AUTOBUILD"] = "1"
@@ -242,7 +279,7 @@ class TestAffectedHarness:
             [
                 "/bin/bash",
                 "-c",
-                ". scripts/run.sh; resolve_bin; cmd_test github-devloop",
+                ". scripts/run.sh\n" + shell_body,
             ],
             cwd=self.root,
             env=env,
@@ -250,6 +287,12 @@ class TestAffectedHarness:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+        )
+
+    def run_default_test(self, engine_result: str) -> subprocess.CompletedProcess[str]:
+        return self.run_test_process(
+            "cmd_check() { return 0; }\nmain test github-devloop",
+            engine_result,
         )
 
     def runner_args(self) -> list[str]:
@@ -268,6 +311,7 @@ class RunShTestAffectedTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual(h.runner_args(), ["test github-devloop"])
+            self.assertEqual(result_markers(result), [result_marker("PASS", "NONE")])
         finally:
             h.close()
 
@@ -276,12 +320,12 @@ class RunShTestAffectedTest(unittest.TestCase):
         try:
             h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
 
-            result = h.run(runner_exit=1, runner_result="SEMANTIC_FAIL")
+            result = h.run(runner_exit=1, runner_result="FAIL:SEMANTIC")
 
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
-            self.assertIn(
-                "FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL\n",
-                result.stderr,
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "SEMANTIC")],
             )
             self.assertEqual(h.runner_args(), ["test github-devloop"])
         finally:
@@ -295,7 +339,10 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run(runner_exit=2)
 
             self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertNotIn("FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL", result.stderr)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("UNKNOWN", "UNKNOWN")],
+            )
             self.assertEqual(h.runner_args(), ["test github-devloop"])
         finally:
             h.close()
@@ -306,21 +353,112 @@ class RunShTestAffectedTest(unittest.TestCase):
             result = h.run_default_test("semantic-fail")
 
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
-            self.assertIn(
-                "FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL\n",
-                result.stderr,
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "SEMANTIC")],
             )
         finally:
             h.close()
 
-    def test_default_test_leaves_unreported_engine_failure_unknown(self) -> None:
+    def test_default_test_types_unreported_engine_failure_as_infrastructure(self) -> None:
         h = TestAffectedHarness()
         try:
             result = h.run_default_test("infrastructure-fail")
 
             self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertNotIn("FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL", result.stderr)
-            self.assertIn("FKST_LOCAL_ITERATION_RESULT:v1:UNKNOWN\n", result.stderr)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "INFRASTRUCTURE")],
+            )
+        finally:
+            h.close()
+
+    def test_default_test_types_unknown_flag_as_configuration(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "cmd_check() { return 0; }\nmain test --not-a-test-flag"
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "CONFIGURATION")],
+            )
+        finally:
+            h.close()
+
+    def test_default_test_types_missing_package_target_as_configuration(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "cmd_check() { return 0; }\nmain test missing-package"
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "CONFIGURATION")],
+            )
+        finally:
+            h.close()
+
+    def test_default_test_types_bin_resolution_failure_as_toolchain(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "cmd_check() { return 0; }\n"
+                "resolve_bin_contract() { RESOLVE_BIN_ERROR='fixture BIN missing'; return 1; }\n"
+                "main test github-devloop"
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "TOOLCHAIN")],
+            )
+        finally:
+            h.close()
+
+    def test_default_test_finalizer_types_implicit_errexit_as_infrastructure(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "cmd_check() { return 0; }\n"
+                "resolve_bin() { :; }\n"
+                "ensure_fresh_bin() { :; }\n"
+                "cmd_test() { false; }\n"
+                "main test"
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "INFRASTRUCTURE")],
+            )
+        finally:
+            h.close()
+
+    def test_test_affected_aggregates_child_faults_with_one_top_level_result(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("packages/consensus/core.lua", "return {changed = true}\n")
+            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+
+            result = h.run(
+                runner_exit=1,
+                package_results={
+                    "consensus": "FAIL:SEMANTIC",
+                    "github-devloop": "FAIL:CONFIGURATION",
+                },
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "CONFIGURATION")],
+            )
+            self.assertEqual(h.runner_args(), ["test consensus", "test github-devloop"])
         finally:
             h.close()
 

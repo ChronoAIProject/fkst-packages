@@ -20,7 +20,18 @@ local current_base_pin = "2222222222222222222222222222222222222222"
 local stale_queue_pin = "1111111111111111111111111111111111111111"
 
 local function local_iteration_marker(outcome)
-  return "FKST_LOCAL_ITERATION_RESULT:v1:" .. outcome .. "\n"
+  local pair = ({
+    PASS = "PASS:NONE",
+    SEMANTIC_FAIL = "FAIL:SEMANTIC",
+    CONFIGURATION_FAIL = "FAIL:CONFIGURATION",
+    TOOLCHAIN_FAIL = "FAIL:TOOLCHAIN",
+    INFRASTRUCTURE_FAIL = "FAIL:INFRASTRUCTURE",
+    UNKNOWN = "UNKNOWN:UNKNOWN",
+  })[outcome]
+  if pair == nil then
+    error("github-devloop test: unknown local iteration outcome " .. tostring(outcome))
+  end
+  return "FKST_LOCAL_ITERATION_RESULT:v2:" .. pair .. "\n"
 end
 
 local function shell_quote(value)
@@ -362,6 +373,26 @@ return {
     t.eq(count_calls("git worktree add --detach"), 0)
   end,
 
+  test_implement_local_gate_configuration_failure_has_explicit_disposition = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = local_iteration_marker("CONFIGURATION_FAIL") .. "no packages matched for 'missing-package'\n",
+      exit_code = 1,
+    })
+
+    local result = run_implement(event, opts("implement-candidate-configuration-failure"))
+
+    local failure = assert_impl_failure_without_publication(result, "local-iteration-configuration-failed")
+    t.is_true(failure.payload.body:find("no packages matched for 'missing-package'", 1, true) ~= nil)
+    t.eq(count_calls("scripts/run.sh test-affected"), 1)
+    t.eq(count_calls("git worktree add --detach"), 0)
+  end,
+
   test_implement_local_gate_typed_base_failure_is_attributed_to_base = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
@@ -396,6 +427,29 @@ return {
       end
     end
     t.eq(pinned_add, true)
+  end,
+
+  test_implement_local_gate_typed_base_toolchain_failure_has_explicit_disposition = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    mock_candidate_local_red(worktree, "candidate failed\n")
+    mock_base_probe(worktree, {
+      check = {
+        stdout = "",
+        stderr = local_iteration_marker("TOOLCHAIN_FAIL") .. "fkst-framework BIN is not executable\n",
+        exit_code = 1,
+      },
+    })
+
+    local result = run_implement(event, opts("implement-base-toolchain-failure"))
+
+    local failure = assert_impl_failure_without_publication(result, "base-local-iteration-toolchain-failed")
+    t.is_true(failure.payload.body:find("fkst-framework BIN is not executable", 1, true) ~= nil)
+    t.eq(count_calls("scripts/run.sh test-affected"), 2)
+    t.eq(count_calls("git worktree add --detach"), 1)
   end,
 
   test_implement_local_gate_unknown_base_probe_recovers_without_rerunning_codex = function()
