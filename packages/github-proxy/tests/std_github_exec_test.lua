@@ -635,6 +635,51 @@ return {
     end
   end,
 
+  test_git_fetch_pr_head_oid_is_tied_to_one_fetch_invocation = function()
+    local oid = "0123456789abcdef0123456789abcdef01234567"
+    local calls = {}
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      return {
+        stdout = "= " .. oid .. " " .. oid .. " refs/fkst/pr/7\n",
+        stderr = "",
+        exit_code = 0,
+      }
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert(#calls == 1, "fetch_pr_head_oid must use one git invocation")
+    assert_argv_equal(calls[1].argv, {
+      "git",
+      "fetch",
+      "--porcelain",
+      "--verbose",
+      "--no-write-fetch-head",
+      "origin",
+      "+refs/pull/7/head:refs/fkst/pr/7",
+    }, "fetch_pr_head_oid")
+    assert(calls[1].timeout == 42, "fetch_pr_head_oid timeout mismatch")
+    assert(result.stdout == oid .. "\n", "fetch_pr_head_oid must normalize stdout to the fetched OID")
+    assert(result.stderr == "", "fetch_pr_head_oid must preserve stderr")
+    assert(result.exit_code == 0, "fetch_pr_head_oid must preserve success")
+  end,
+
+  test_git_fetch_pr_head_oid_preserves_fetch_failure = function()
+    local calls = {}
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "", stderr = "fetch failed", exit_code = 128 }
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert(#calls == 1, "failed fetch_pr_head_oid must not run a fallback command")
+    assert(result.stdout == "", "failed fetch_pr_head_oid must preserve stdout")
+    assert(result.stderr == "fetch failed", "failed fetch_pr_head_oid must preserve stderr")
+    assert(result.exit_code == 128, "failed fetch_pr_head_oid must preserve exit code")
+  end,
+
   test_git_methods_build_argv = function()
     local calls = {}
     local handle = git.new(function(opts)
