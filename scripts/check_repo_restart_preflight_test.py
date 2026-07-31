@@ -303,6 +303,27 @@ class RestartPreflightTest(unittest.TestCase):
         self.apply_cochange()
         self.assertTrue(any("checker-checked-cochange" in message for message in self.messages()))
 
+    def assert_attestation_control_cochange_fails(self, path: str) -> None:
+        self.write(path, "# changed attestation control\n")
+        self.write(SEMANTIC_PATH, CHANGED_SEMANTICS)
+        self.commit()
+        self.assertTrue(
+            any("checker-checked-cochange" in message for message in self.messages())
+        )
+
+    def test_ci_attestation_step_and_production_semantics_cochange_fail(self) -> None:
+        self.assert_attestation_control_cochange_fails(".github/workflows/ci.yml")
+
+    def test_attestation_generator_and_production_semantics_cochange_fail(self) -> None:
+        self.assert_attestation_control_cochange_fails(
+            "scripts/generate_intent_diff_attestation.py"
+        )
+
+    def test_attestation_verifier_and_production_semantics_cochange_fail(self) -> None:
+        self.assert_attestation_control_cochange_fails(
+            "scripts/intent_bounded_replay/attestation.py"
+        )
+
     def test_promotion_grant_absent_still_fails_cochange(self) -> None:
         self.apply_cochange()
         self.assertTrue(any("checker-checked-cochange" in message for message in self.messages()))

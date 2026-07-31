@@ -89,6 +89,18 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
         self.assertNotIn("git fetch --", compatibility_test)
 
+    def test_intent_diff_attestation_uses_actual_pr_context_after_tests(self) -> None:
+        workflow = self.read_workflow()
+
+        tests_at = workflow.index("scripts/run.sh test")
+        attestation_at = workflow.index("scripts/generate_intent_diff_attestation.py")
+        self.assertLess(tests_at, attestation_at)
+        self.assertIn("github.event.pull_request.number", workflow)
+        self.assertIn("github.event.pull_request.head.sha", workflow)
+        self.assertIn("origin/${{ github.base_ref }}", workflow)
+        self.assertIn(".fkst/run/intent-diff-attestations", workflow)
+        self.assertIn("actions/upload-artifact@v4", workflow[attestation_at:])
+
 
 if __name__ == "__main__":
     unittest.main()

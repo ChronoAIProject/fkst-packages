@@ -99,6 +99,22 @@ jobs:
           test -x "$BIN"
           scripts/run.sh test
 
+      - name: Generate intent-diff attestation
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/generate_intent_diff_attestation.py \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --base-ref "origin/${{ github.base_ref }}" \
+            --head-ref "${{ github.event.pull_request.head.sha }}"
+
+      - name: Upload intent-diff attestation
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: intent-diff-attestation-${{ github.event.pull_request.number }}
+          path: .fkst/run/intent-diff-attestations/*.json
+          if-no-files-found: ignore
+
       - name: Upload Lua coverage artifact
         uses: actions/upload-artifact@v4
         if: always()

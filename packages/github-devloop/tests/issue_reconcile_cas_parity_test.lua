@@ -14,6 +14,7 @@ local canonical_json = observation.canonical_json
 local json_array = observation.json_array
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
 local CORPUS_PATH = "migration/intent_bounded_replay/corpus/issue-reconcile.json"
+local NEW_TRACE_PATH = ".fkst/run/r9-issue-reconcile-new-trace.json"
 local APPLY_OBSERVATION_ID =
   "writer:github-devloop:reconcile-thinking-blocked/blocked/apply/apply/blocked"
 local V_OLDER = "consensus:github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z"
@@ -348,6 +349,11 @@ return {
     )
     t.eq(canonical_json(trace), canonical_json(corpus),
       "R9 issue-reconcile NEW semantic trace equals committed corpus")
+    local mkdir_ok = os.execute("mkdir -p .fkst/run")
+    if mkdir_ok ~= true and mkdir_ok ~= 0 then
+      error("R9 issue-reconcile trace could not create its artifact directory", 0)
+    end
+    file.write(NEW_TRACE_PATH, canonical_json(trace) .. "\n")
   end,
 
   test_issue_reconcile_malformed_payload_fails_closed_before_decision = function()

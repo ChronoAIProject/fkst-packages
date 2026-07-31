@@ -21,8 +21,11 @@ SEMANTIC_TREE_CONTROL = "scripts/intent_bounded_replay/semantic_tree.py"
 COCHANGE_GRANT_DIR = "migration/restart-cochange-grants/"
 COCHANGE_GRANT_SCHEMA = "fkst.restart-cochange-grant.v1"
 CHECKER_CONTROLS = {
+    ".github/workflows/ci.yml",
     "scripts/check_repo_intent_bounded_replay.py",
     "scripts/check_repo_restart_preflight.py",
+    "scripts/generate_intent_diff_attestation.py",
+    "scripts/intent_bounded_replay/attestation.py",
     "scripts/intent_bounded_replay/compare.py",
     "scripts/intent_bounded_replay/corpus_manifest.json",
     "scripts/intent_bounded_replay/normalize.py",

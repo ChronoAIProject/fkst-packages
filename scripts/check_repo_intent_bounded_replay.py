@@ -13,6 +13,7 @@ from typing import Any
 
 from intent_bounded_replay.compare import compare_report
 from intent_bounded_replay import delivery_authorization
+from intent_bounded_replay.attestation import TRACE_PAIRS, attestation_messages
 from intent_bounded_replay.normalize import (
     canonical_artifact_hash_v1,
     canonical_json,
@@ -25,37 +26,39 @@ import ratchet_base
 
 ALLOWLIST = "migration/intent-bounded-replay.allowlist"
 INTENT_DIFF_DIR = "migration/intent-diffs"
-THINKING_OLD_CORPUS = "migration/intent_bounded_replay/corpus/thinking.json"
-THINKING_NEW_TRACE = ".fkst/run/r9-thinking-new-trace.json"
-ISSUE_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/issue-reconcile.json"
-ISSUE_RECONCILE_NEW_TRACE = ".fkst/run/r9-issue-reconcile-new-trace.json"
-LOOP_PLAIN_OLD_CORPUS = "migration/intent_bounded_replay/corpus/loop-plain.json"
-LOOP_PLAIN_NEW_TRACE = ".fkst/run/r9-loop-plain-new-trace.json"
-IMPLEMENT_ACTIVATION_OLD_CORPUS = "migration/intent_bounded_replay/corpus/implement-activation.json"
-IMPLEMENT_ACTIVATION_NEW_TRACE = ".fkst/run/r9-implement-activation-new-trace.json"
-AWAITING_PR_OLD_CORPUS = "migration/intent_bounded_replay/corpus/awaiting-pr.json"
-AWAITING_PR_NEW_TRACE = ".fkst/run/r9-awaiting-pr-new-trace.json"
-TIMEOUT_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/timeout-reconcile.json"
-TIMEOUT_RECONCILE_NEW_TRACE = ".fkst/run/r9-timeout-reconcile-new-trace.json"
-OBSERVE_ISSUE_ENTRY_OLD_CORPUS = "migration/intent_bounded_replay/corpus/observe-issue-entry.json"
-OBSERVE_ISSUE_ENTRY_NEW_TRACE = ".fkst/run/r9-observe-issue-entry-new-trace.json"
-PR_REVIEW_RESULT_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-review-result.json"
-PR_REVIEW_RESULT_NEW_TRACE = ".fkst/run/r9-pr-review-result-new-trace.json"
-PR_REVIEW_META_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-review-meta.json"
-PR_REVIEW_META_NEW_TRACE = ".fkst/run/r9-pr-review-meta-new-trace.json"
-PR_FIX_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-fix.json"
-PR_FIX_NEW_TRACE = ".fkst/run/r9-pr-fix-new-trace.json"
-PR_REVIEW_ACTIVATION_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-review-activation.json"
-PR_REVIEW_ACTIVATION_NEW_TRACE = ".fkst/run/r9-pr-review-activation-new-trace.json"
-OBSERVE_PR_FIX_OLD_CORPUS = "migration/intent_bounded_replay/corpus/observe-pr-fix.json"
-OBSERVE_PR_FIX_NEW_TRACE = ".fkst/run/r9-observe-pr-fix-new-trace.json"
-PR_REVIEW_LOOP_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-review-loop.json"
-PR_REVIEW_LOOP_NEW_TRACE = ".fkst/run/r9-pr-review-loop-new-trace.json"
-PR_FIX_RECONCILE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json"
-PR_FIX_RECONCILE_NEW_TRACE = ".fkst/run/r9-pr-fix-reconcile-new-trace.json"
-PR_MERGE_OLD_CORPUS = "migration/intent_bounded_replay/corpus/pr-merge.json"
-PR_MERGE_NEW_TRACE = ".fkst/run/r9-pr-merge-new-trace.json"
+_TRACE_PAIRS_BY_FAMILY = {pair.family: pair for pair in TRACE_PAIRS}
+THINKING_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["thinking"].old_path
+THINKING_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["thinking"].new_path
+ISSUE_RECONCILE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["issue-reconcile"].old_path
+ISSUE_RECONCILE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["issue-reconcile"].new_path
+LOOP_PLAIN_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["loop-plain"].old_path
+LOOP_PLAIN_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["loop-plain"].new_path
+IMPLEMENT_ACTIVATION_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["implement-activation"].old_path
+IMPLEMENT_ACTIVATION_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["implement-activation"].new_path
+AWAITING_PR_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["awaiting-pr"].old_path
+AWAITING_PR_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["awaiting-pr"].new_path
+TIMEOUT_RECONCILE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["timeout-reconcile"].old_path
+TIMEOUT_RECONCILE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["timeout-reconcile"].new_path
+OBSERVE_ISSUE_ENTRY_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["observe-issue-entry"].old_path
+OBSERVE_ISSUE_ENTRY_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["observe-issue-entry"].new_path
+PR_REVIEW_RESULT_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-result"].old_path
+PR_REVIEW_RESULT_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-result"].new_path
+PR_REVIEW_META_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-meta"].old_path
+PR_REVIEW_META_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-meta"].new_path
+PR_FIX_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-fix"].old_path
+PR_FIX_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-fix"].new_path
+PR_REVIEW_ACTIVATION_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-activation"].old_path
+PR_REVIEW_ACTIVATION_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-activation"].new_path
+OBSERVE_PR_FIX_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["observe-pr-fix"].old_path
+OBSERVE_PR_FIX_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["observe-pr-fix"].new_path
+PR_REVIEW_LOOP_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-review-loop"].old_path
+PR_REVIEW_LOOP_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-review-loop"].new_path
+PR_FIX_RECONCILE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-fix-reconcile"].old_path
+PR_FIX_RECONCILE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-fix-reconcile"].new_path
+PR_MERGE_OLD_CORPUS = _TRACE_PAIRS_BY_FAMILY["pr-merge"].old_path
+PR_MERGE_NEW_TRACE = _TRACE_PAIRS_BY_FAMILY["pr-merge"].new_path
 PROTECTED_MODULES = (
+    "scripts/intent_bounded_replay/attestation.py",
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
     "scripts/intent_bounded_replay/semantic_tree.py",
@@ -84,22 +87,6 @@ MANIFEST_FIELDS = (
     "one_use_identity",
     "manifest_sha256",
 )
-ATTESTATION_FIELDS = (
-    "schema",
-    "pr_number",
-    "base_sha",
-    "head_sha",
-    "manifest_path",
-    "manifest_blob_sha256",
-    "manifest_sha256",
-    "semantic_tree_sha256",
-    "semantic_diff_sha256",
-    "old_trace_sha256",
-    "new_trace_sha256",
-    "behavior_diff_sha256",
-    "result",
-    "attestation_sha256",
-)
 MANIFEST_HASH_FIELDS = (
     "semantic_tree_sha256",
     "semantic_diff_sha256",
@@ -115,16 +102,6 @@ ANOMALY_TRANSPORT_FIELDS = {
     "ingestion",
     "package_visible_delivery_delta",
 }
-ATTESTATION_HASH_FIELDS = (
-    "manifest_blob_sha256",
-    "manifest_sha256",
-    "semantic_tree_sha256",
-    "semantic_diff_sha256",
-    "old_trace_sha256",
-    "new_trace_sha256",
-    "behavior_diff_sha256",
-    "attestation_sha256",
-)
 
 
 def _exact_fields_messages(
@@ -352,168 +329,26 @@ def _trace_pair_messages(
 
 
 def _admission_trace_messages(root: Path) -> list[str]:
-    messages = _trace_pair_messages(
-        root,
-        THINKING_OLD_CORPUS,
-        THINKING_NEW_TRACE,
-        "restart-thinking-trace.v1",
-        "thinking",
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            ISSUE_RECONCILE_OLD_CORPUS,
-            ISSUE_RECONCILE_NEW_TRACE,
-            "restart-issue-reconcile-trace.v1",
-            "issue-reconcile",
+    messages: list[str] = []
+    for pair in TRACE_PAIRS:
+        messages.extend(
+            _trace_pair_messages(
+                root,
+                pair.old_path,
+                pair.new_path,
+                pair.schema,
+                pair.family,
+                owner=pair.owner,
+            )
         )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            LOOP_PLAIN_OLD_CORPUS,
-            LOOP_PLAIN_NEW_TRACE,
-            "restart-loop-plain-trace.v1",
-            "loop-plain",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            IMPLEMENT_ACTIVATION_OLD_CORPUS,
-            IMPLEMENT_ACTIVATION_NEW_TRACE,
-            "restart-implement-activation-trace.v1",
-            "implement-activation",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            AWAITING_PR_OLD_CORPUS,
-            AWAITING_PR_NEW_TRACE,
-            "restart-awaiting-pr-trace.v1",
-            "awaiting-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            TIMEOUT_RECONCILE_OLD_CORPUS,
-            TIMEOUT_RECONCILE_NEW_TRACE,
-            "restart-timeout-reconcile-trace.v1",
-            "timeout-reconcile",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            OBSERVE_ISSUE_ENTRY_OLD_CORPUS,
-            OBSERVE_ISSUE_ENTRY_NEW_TRACE,
-            "restart-observe-issue-entry-trace.v1",
-            "observe-issue-entry",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            PR_REVIEW_RESULT_OLD_CORPUS,
-            PR_REVIEW_RESULT_NEW_TRACE,
-            "restart-pr-review-result-trace.v1",
-            "pr-review-result",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            PR_REVIEW_META_OLD_CORPUS,
-            PR_REVIEW_META_NEW_TRACE,
-            "restart-pr-review-meta-trace.v1",
-            "pr-review-meta",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            PR_FIX_OLD_CORPUS,
-            PR_FIX_NEW_TRACE,
-            "restart-pr-fix-trace.v1",
-            "pr-fix",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            PR_REVIEW_ACTIVATION_OLD_CORPUS,
-            PR_REVIEW_ACTIVATION_NEW_TRACE,
-            "restart-pr-review-activation-trace.v1",
-            "pr-review-activation",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root, OBSERVE_PR_FIX_OLD_CORPUS, OBSERVE_PR_FIX_NEW_TRACE,
-            "restart-observe-pr-fix-trace.v1", "observe-pr-fix",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            PR_REVIEW_LOOP_OLD_CORPUS,
-            PR_REVIEW_LOOP_NEW_TRACE,
-            "restart-pr-review-loop-trace.v1",
-            "pr-review-loop",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            PR_FIX_RECONCILE_OLD_CORPUS,
-            PR_FIX_RECONCILE_NEW_TRACE,
-            "restart-pr-fix-reconcile-trace.v1",
-            "pr-fix-reconcile",
-            owner="github-devloop-pr",
-        )
-    )
-    messages.extend(
-        _trace_pair_messages(
-            root,
-            PR_MERGE_OLD_CORPUS,
-            PR_MERGE_NEW_TRACE,
-            "restart-pr-merge-trace.v1",
-            "pr-merge",
-            owner="github-devloop-pr",
-        )
-    )
     return messages
 
 
 def admission_trace_status(root: Path) -> str:
     emitted = [
-        relative
-        for relative in (
-            THINKING_NEW_TRACE,
-            ISSUE_RECONCILE_NEW_TRACE,
-            LOOP_PLAIN_NEW_TRACE,
-            IMPLEMENT_ACTIVATION_NEW_TRACE,
-            AWAITING_PR_NEW_TRACE,
-            TIMEOUT_RECONCILE_NEW_TRACE,
-            OBSERVE_ISSUE_ENTRY_NEW_TRACE,
-            PR_REVIEW_RESULT_NEW_TRACE,
-            PR_REVIEW_META_NEW_TRACE,
-            PR_FIX_NEW_TRACE,
-            PR_REVIEW_ACTIVATION_NEW_TRACE,
-            OBSERVE_PR_FIX_NEW_TRACE,
-            PR_REVIEW_LOOP_NEW_TRACE,
-            PR_FIX_RECONCILE_NEW_TRACE,
-            PR_MERGE_NEW_TRACE,
-        )
-        if (Path(root) / relative).is_file()
+        pair.new_path
+        for pair in TRACE_PAIRS
+        if (Path(root) / pair.new_path).is_file()
     ]
     if not emitted:
         return "admission trace comparisons skipped: emitted traces are absent"
@@ -724,86 +559,6 @@ def _base_allowlist(root: Path, base_sha: str | None = None) -> tuple[str, set[s
     return status, entries, messages
 
 
-def _head_sha(root: Path) -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
-        cwd=root,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.strip()
-        raise RuntimeError(f"git rev-parse HEAD failed ({result.returncode}): {detail}")
-    return result.stdout.strip().lower()
-
-
-def _attestation_messages(
-    root: Path,
-    path: Path,
-    artifact: dict[str, Any],
-    manifests: dict[str, dict[str, Any]],
-) -> list[str]:
-    relative = _relative(path, root)
-    messages = _required_field_messages(artifact, ATTESTATION_FIELDS, relative)
-    if messages:
-        return messages
-    if artifact["schema"] != "fkst.intent-diff-attestation.v1":
-        messages.append(f"{relative} schema must be fkst.intent-diff-attestation.v1")
-    if artifact["result"] != "approved":
-        messages.append(f"{relative} result must be approved")
-    if not _positive_integer(artifact["pr_number"]):
-        messages.append(f"{relative} pr_number must be a positive integer")
-        expected_manifest = None
-    else:
-        expected_manifest = f"{INTENT_DIFF_DIR}/{int(artifact['pr_number'])}.json"
-        if artifact["manifest_path"] != expected_manifest:
-            messages.append(f"{relative} manifest_path must be {expected_manifest}")
-    for field in ("base_sha", "head_sha"):
-        if not isinstance(artifact[field], str) or GIT_SHA_RE.fullmatch(artifact[field]) is None:
-            messages.append(f"{relative} {field} must be a lowercase Git object ID")
-    messages.extend(_hash_field_messages(artifact, ATTESTATION_HASH_FIELDS, relative))
-    messages.extend(_self_hash_messages(artifact, "attestation_sha256", relative))
-    if messages or expected_manifest is None:
-        return messages
-
-    manifest = manifests.get(expected_manifest)
-    manifest_path = root / expected_manifest
-    if manifest is None or not manifest_path.is_file():
-        return messages + [f"{relative} references missing or invalid manifest {expected_manifest}"]
-    manifest_blob = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    if artifact["manifest_blob_sha256"] != manifest_blob:
-        messages.append(
-            f"{relative} manifest_blob_sha256 mismatch: declared {artifact['manifest_blob_sha256']}, computed {manifest_blob}"
-        )
-    if artifact["manifest_sha256"] != manifest.get("manifest_sha256"):
-        messages.append(f"{relative} manifest_sha256 does not match {expected_manifest}")
-    if artifact["base_sha"] != manifest.get("base_sha"):
-        messages.append(f"{relative} base_sha does not match {expected_manifest}")
-    for field in ("old_trace_sha256", "new_trace_sha256", "behavior_diff_sha256"):
-        if artifact[field] != manifest.get(field):
-            messages.append(f"{relative} {field} does not match {expected_manifest}")
-
-    try:
-        actual_head = _head_sha(root)
-        actual_tree = semantic_tree_sha256(root)
-        actual_diff = semantic_diff_sha256(root, artifact["base_sha"])
-    except Exception as error:
-        return messages + [f"{relative} cannot recompute semantic hashes: {error}"]
-    if artifact["head_sha"] != actual_head:
-        messages.append(f"{relative} head_sha mismatch: declared {artifact['head_sha']}, computed {actual_head}")
-    for field, actual in (
-        ("semantic_tree_sha256", actual_tree),
-        ("semantic_diff_sha256", actual_diff),
-    ):
-        if artifact[field] != actual:
-            messages.append(f"{relative} {field} mismatch: declared {artifact[field]}, computed {actual}")
-        if manifest.get(field) != actual:
-            messages.append(f"{expected_manifest} {field} mismatch: declared {manifest.get(field)}, computed {actual}")
-    return messages
-
-
 def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
     from check_repo_restart_preflight import _step8_complete  # Lazy to avoid the checker import cycle.
 
@@ -885,7 +640,7 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
             messages.append(f"{entry} grows {ALLOWLIST} relative to the protected base")
 
     for path, artifact in attestations:
-        messages.extend(_attestation_messages(root, path, artifact, manifests))
+        messages.extend(attestation_messages(root, path, artifact, manifests))
     return messages
 
 

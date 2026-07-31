@@ -1784,6 +1784,25 @@ R11 zero-surface activation同样是保留的 post-terminal behavior change。�
 
 CI从 actual PR context取得 PR/head并重新计算全部 hashes。任一 mismatch fail closed；head变化使旧 attestation失效。
 
+Trace recomputation has one canonical form. CI runs it after the parity tests have
+emitted every NEW trace in the fixed verifier-owned trace-family inventory. Families
+are ordered by UTF-8 bytes. For each family, CI validates the OLD and NEW artifact
+self-hashes, then hashes these canonical aggregates:
+
+```json
+{"schema":"fkst.intent-diff-trace-set.v1","traces":[{"family":"<family>","trace_sha256":"<canonical-artifact-hash>"}]}
+```
+
+`old_trace_sha256` and `new_trace_sha256` are the hashes of the corresponding aggregate.
+`behavior_diff_sha256` is the hash of
+`fkst.intent-diff-behavior-diff.v1`, whose byte-ordered `comparisons` bind each family,
+both recomputed trace hashes, equality, and `first_divergence` when unequal. A missing
+trace, malformed artifact, self-hash mismatch, aggregate mismatch, or manifest mismatch
+fails closed. A PR that changes a numbered intent-diff manifest must change exactly
+`migration/intent-diffs/<actual-pr-number>.json`; a PR without a changed manifest has no
+attestation claim. The generated `fkst.intent-diff-attestation.v1` remains outside the
+tracked tree and is uploaded as a CI artifact.
+
 ### 9.7 Preflight
 
 Protected-base scanner扫描完整 head tree，检测：
