@@ -49,6 +49,24 @@ local function initial_event()
   }
 end
 
+local function divergent_ready_event()
+  local source_ref = issue_source_ref(stale_issue_number)
+  return {
+    queue = "devloop_ready",
+    payload = {
+      schema = "github-devloop.ready.v1",
+      proposal_id = stale_proposal_id,
+      dedup_key = stale_version,
+      impl_retry_attempt = 2,
+      source_ref = source_ref,
+    },
+    source_ref = {
+      kind = source_ref.kind,
+      reference = source_ref.ref,
+    },
+  }
+end
+
 local function mock_env(name, value, times)
   for _ = 1, times or 1 do
     t.mock_command(devloop_base.read_env_command(name), {
@@ -131,6 +149,27 @@ local function stale_issue_comments()
       diverged_version,
       stale_version,
       3
+    )),
+  }
+end
+
+local function divergent_issue_comments()
+  local child_pr = entity_lib.pr_proposal_id(repo, stale_pr_number)
+  return {
+    trusted_comment(core.state_marker(stale_proposal_id, "implementing", stale_version)),
+    trusted_comment(core.implement_attempt_marker(
+      stale_proposal_id,
+      stale_version,
+      2,
+      tostring(now() - 60),
+      core.implement_exec_ref(stale_proposal_id, stale_version)
+    )),
+    trusted_comment(m_builders.pr_delegation_marker(
+      stale_proposal_id,
+      child_pr,
+      stale_pr_number,
+      stale_version,
+      "g1"
     )),
   }
 end
@@ -433,5 +472,44 @@ return {
     t.eq(codex_count, 1)
     t.is_true(codex_worktree:find("devloop-owner-repo-43", 1, true) ~= nil)
     t.eq(codex_worktree:find("devloop-owner-repo-42", 1, true), nil)
+  end,
+
+  test_run_graph_divergent_delivery_remains_nonfatal = function()
+    local stale_comments = divergent_issue_comments()
+
+    mock_runtime_and_config("")
+    mock_issue(stale_issue_number, "Divergent implementation delivery", {
+      "fkst-dev:enabled",
+      "fkst-dev:implementing",
+    }, stale_comments)
+
+    local stale_trace = graph.require_quiescent(graph.run(divergent_ready_event(), { max_steps = 4 }))
+    local stale_step = graph.require_delivery(stale_trace, {
+      queue = "github-devloop.devloop_ready",
+      consumer = "github-devloop.implement",
+      predicate = function(step)
+        return find_step_raise(
+          step,
+          "github-proxy.github_issue_comment_request",
+          'fkst:github-devloop:implement-version-mismatch:v1 proposal="' .. stale_proposal_id .. '"'
+        ) ~= nil
+      end,
+    })
+    t.eq(stale_step.status, "accepted")
+    t.eq(stale_step.exit_code, 0)
+    local mismatch = find_step_raise(
+      stale_step,
+      "github-proxy.github_issue_comment_request",
+      'fkst:github-devloop:implement-version-mismatch:v1 proposal="' .. stale_proposal_id .. '"'
+    )
+    t.eq(core.implement_version_mismatch_attempt_count(
+      { mismatch.payload.body },
+      stale_proposal_id,
+      core.implementation_attempt_version(stale_version, 2),
+      stale_version
+    ), 1)
+    t.eq(stale_trace.final.pending, 0)
+    t.eq(stale_trace.final.deliveries, 0)
+    t.eq(stale_trace.final.dead_letters, 0)
   end,
 }
