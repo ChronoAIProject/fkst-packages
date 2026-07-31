@@ -44,7 +44,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "local verification failed",
       exit_code = 1,

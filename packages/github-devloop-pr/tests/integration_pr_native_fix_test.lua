@@ -82,7 +82,13 @@ return {
       reject_comment,
     }, branch, "def456")
     t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', { stdout = "/tmp/fkst-packages-test/github-devloop/runtime", stderr = "", exit_code = 0 })
-    mock_existing_fix_worktree(branch, "def456")
+    local worktree = devloop_base.implement_worktree_path(
+      devloop_base.implementation_worktree_root("/tmp/fkst-packages-test/github-devloop/durable"),
+      "owner/repo",
+      nil,
+      "2026-06-03T02:03:04Z"
+    )
+    mock_existing_fix_worktree(branch, "def456", worktree)
     mock_implement_codex(0, "fixed PR-native review feedback")
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("feedface", branch)

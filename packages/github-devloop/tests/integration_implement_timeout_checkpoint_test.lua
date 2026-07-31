@@ -53,16 +53,18 @@ local function mock_harvest_worktree(event, branch)
   local durable_root = "/tmp/fkst-packages-test/github-devloop/durable"
   local stable_root = devloop_base.implementation_worktree_root(durable_root)
   local worktree = devloop_base.implement_worktree_path(stable_root, "owner/repo", 42, event.dedup_key)
-  t.mock_command("[ -d '" .. worktree .. "' ]", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree list --porcelain", {
-    stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
-    stderr = "",
-    exit_code = 0,
-  })
+  for _ = 1, 2 do
+    t.mock_command("[ -d '" .. worktree .. "' ]", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "worktree " .. worktree .. "\nHEAD abc123\nbranch refs/heads/" .. branch .. "\n\n",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
 end
 
 local function mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_head)
@@ -83,6 +85,11 @@ local function mock_remote_checkpoint_worktree_reuse(event, branch, checkpoint_h
   })
   t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
     stdout = "/tmp/fkst-packages-test/github-devloop/durable",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git worktree list --porcelain", {
+    stdout = "",
     stderr = "",
     exit_code = 0,
   })
@@ -270,7 +277,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "local verification failed",
       exit_code = 1,
@@ -326,7 +333,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "local verification failed",
       exit_code = 1,

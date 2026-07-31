@@ -242,9 +242,9 @@ return {
         stderr = "",
         exit_code = 0,
       })
-      t.mock_command("scripts/run.sh test-affected", {
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
         stdout = "tests passed\n",
-        stderr = "",
+        stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
         exit_code = 0,
       })
       local outcome = harvest.after_codex_success(
@@ -288,7 +288,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "tests passed\n",
       stderr = "",
       exit_code = 0,
@@ -315,7 +315,7 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "tests passed\n",
       stderr = "",
       exit_code = 0,
@@ -342,12 +342,12 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:MISSING\n",
       exit_code = 1,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:MISSING\n",
       exit_code = 1,
@@ -374,9 +374,10 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:MISSING\n",
-      stderr = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED\n",
+      stderr = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED\n"
+        .. "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
       exit_code = 0,
     })
 
@@ -386,7 +387,7 @@ return {
 
   test_local_iteration_wrapper_reprobes_absence_before_missing_marker = function()
     local worktree = "/tmp/fkst-packages-test/github-devloop/nonmissing-cd-failure"
-    t.mock_command("scripts/run.sh test-affected", {
+    t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
       stdout = "",
       stderr = "cd failed without directory absence",
       exit_code = 1,
@@ -482,7 +483,7 @@ return {
       implementation_root,
       "owner/repo",
       42,
-      impl_version
+      event.dedup_key
     )
     t.mock_command('printf %s "$FKST_DURABLE_ROOT"', {
       stdout = durable_root,

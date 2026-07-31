@@ -272,7 +272,15 @@ local function mock_fix_execution(event, canonical, opts)
     status_check_rollup_json,
     opts.precheck_times
   )
-  h.mock_existing_fix_worktree(branch, event.reviewed_head_sha, nil, {
+  local worktree = devloop_base.implement_worktree_path(
+    devloop_base.implementation_worktree_root(
+      "/tmp/fkst-packages-test/github-devloop/durable"
+    ),
+    repo,
+    issue_number,
+    event.version
+  )
+  h.mock_existing_fix_worktree(branch, event.reviewed_head_sha, worktree, {
     sha = new_base,
     stdout = "",
     stderr = "",

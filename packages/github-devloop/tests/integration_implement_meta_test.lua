@@ -347,7 +347,7 @@ return {
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("git worktree list"), 1)
+    t.eq(count_calls("git worktree list"), 3)
     t.eq(count_calls("codex exec"), 1)
   end,
 
@@ -460,7 +460,7 @@ return {
     t.eq(fact.branch, branch)
     t.eq(fact.head_sha, "def456")
     t.is_true(comment:find(worktree, 1, true) ~= nil)
-    t.eq(count_calls("git worktree list --porcelain"), 2)
+    t.eq(count_calls("git worktree list --porcelain"), 3)
     t.eq(count_calls("git worktree add"), 0)
     t.eq(count_calls("codex exec"), 1)
   end,

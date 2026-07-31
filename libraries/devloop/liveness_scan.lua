@@ -32,14 +32,18 @@ function C.liveness_scan_cursor_key(repo, prefix)
 end
 
 function C.liveness_scan_log_deferred(reason, fields)
-  devloop_logging.log_line("info", "liveness_scan", "github-devloop/liveness-scan", "LIVENESS_DEFERRED", {
+  local fact_fields = {
     "reason=" .. tostring(reason or "budget"),
     "listed_issues=" .. tostring(fields and fields.listed_issues or 0),
     "listed_prs=" .. tostring(fields and fields.listed_prs or 0),
     "processed=" .. tostring(fields and fields.processed or 0),
     "deferred=" .. tostring(fields and fields.deferred or 0),
     "entity_cap=" .. tostring(fields and fields.entity_cap or 0),
-  })
+  }
+  if fields and fields.error_class ~= nil then
+    table.insert(fact_fields, 2, "error_class=" .. tostring(fields.error_class))
+  end
+  devloop_logging.log_line("info", "liveness_scan", "github-devloop/liveness-scan", "LIVENESS_DEFERRED", fact_fields)
 end
 
 function C.liveness_scan_is_timeout_result(M, result)
@@ -146,12 +150,30 @@ function C.liveness_scan_observe_queue(kind)
   return "devloop_observe_issue"
 end
 
+local function rate_limit_deferred_outcome(result)
+  if type(result) == "table"
+    and result.error_class == "gh-rate-limited"
+    and result.retryable == true then
+    return {
+      status = "deferred",
+      reason = result.error_class,
+      error_class = result.error_class,
+      retryable = true,
+    }
+  end
+  return nil
+end
+
 function C.liveness_scan_list_open_issues(M, repo, timeout, poll_key)
   local list = entity_list_cache.fetch_shared_issue_observe_list(M, repo, {
     timeout = timeout or 60,
     poll_key = poll_key,
   })
   if list.exit_code ~= 0 then
+    local deferred = rate_limit_deferred_outcome(list)
+    if deferred ~= nil then
+      return nil, deferred
+    end
     error("github-devloop: liveness-scan-issue-list-failed: " .. tostring(list.stderr))
   end
   return parsers_issue.parse_issue_list_observe(list.stdout)
@@ -163,6 +185,10 @@ function C.liveness_scan_list_open_prs(M, repo, timeout, poll_key)
     poll_key = poll_key,
   })
   if list.exit_code ~= 0 then
+    local deferred = rate_limit_deferred_outcome(list)
+    if deferred ~= nil then
+      return nil, deferred
+    end
     error("github-devloop: liveness-scan-pr-list-failed: " .. tostring(list.stderr))
   end
   return parsers_pr.parse_pr_list_observe(list.stdout)

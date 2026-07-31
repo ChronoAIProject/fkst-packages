@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local impl_failure = require("devloop.impl_failure")
 local S = {}
 local C = {}
 local support = require("devloop.commands.support")
@@ -130,6 +131,14 @@ end
 
   function C.git_fetch_pr_head_ref(remote, pr_number, timeout)
     return support.git().fetch_ref(validators.require_safe_remote(remote), "refs/pull/" .. validators.require_positive_pr_number(pr_number) .. "/head", timeout)
+  end
+
+  function C.git_fetch_pr_head_oid(remote, pr_number, timeout)
+    return support.git().fetch_pr_head_oid(
+      validators.require_safe_remote(remote),
+      validators.require_positive_pr_number(pr_number),
+      timeout
+    )
   end
 
   function C.git_fetch_head_commit(timeout)
@@ -268,7 +277,9 @@ end
         .. tostring(type(durable) == "table" and durable.stderr or "missing command result"))
     end
     local implementation_root = devloop_base.implementation_worktree_root(durable.stdout)
-    local worktree = devloop_base.implement_worktree_path(implementation_root, repo, issue_number, impl_version)
+    local worktree_version = impl_failure.implementation_branch_version(impl_version, nil)
+    local worktree = devloop_base.implement_worktree_path(
+      implementation_root, repo, issue_number, worktree_version)
     local list = C.git_worktree_list(30)
     if type(list) ~= "table" or list.exit_code ~= 0 then
       error("github-devloop: worktree-list-failed: git worktree list failed: "
@@ -369,7 +380,7 @@ end
   end
 
 function S.install(M)
-  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_root", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_remove_if_present", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_durable_root_cmd", "read_runtime_root_cmd", "worktree_registered", "worktree_registered_for_branch"}) do M[n] = C[n] end
+  for _, n in ipairs({"find_worktree_for_branch", "find_worktree_for_branch_under_root", "find_worktrees_for_branch", "git_add_all", "git_ahead_count", "git_base_head", "git_branch_ahead_count", "git_branch_head", "git_cat_file_pretty", "git_commit", "git_commit_tree", "git_current_branch", "git_fetch_branch", "git_fetch_head_commit", "git_fetch_pr_head_oid", "git_fetch_pr_head_ref", "git_fetch_pr_merge_ref", "git_fetch_ref", "git_fetch_remote_branch_to_tracking_ref", "git_ls_remote_branch", "git_ls_remote_ref", "git_push_branch", "git_push_ref_update", "git_remote_branch_head", "git_rev_parse_branch", "git_rev_parse_ref_commit", "git_rev_parse_ref_tree", "git_show_ref", "git_show_ref_branch", "git_status", "git_switch_branch", "git_worktree_add_existing_branch", "git_worktree_add_new_branch", "git_worktree_add_remote_branch", "git_worktree_add_reset_branch", "git_worktree_clean", "git_worktree_force_clean", "git_worktree_list", "git_worktree_merge_no_edit", "git_worktree_prune", "git_worktree_remove_if_present", "git_worktree_reset_hard", "mkdir_p_cmd", "path_is_directory_cmd", "read_runtime_root_cmd"}) do M[n] = C[n] end
 end
 C.install = S.install
 

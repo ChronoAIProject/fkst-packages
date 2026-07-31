@@ -17,6 +17,18 @@ local MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS = 2
 local WORKTREE_MISSING_MARKER = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:MISSING"
 local WORKTREE_ENTERED_MARKER = "FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED"
 
+local local_iteration_failure_reasons = {
+  CONFIGURATION_FAIL = "local-iteration-configuration-failed",
+  TOOLCHAIN_FAIL = "local-iteration-toolchain-failed",
+  INFRASTRUCTURE_FAIL = "local-iteration-infrastructure-failed",
+}
+
+local base_local_iteration_failure_reasons = {
+  BASE_CONFIGURATION_FAIL = "base-local-iteration-configuration-failed",
+  BASE_TOOLCHAIN_FAIL = "base-local-iteration-toolchain-failed",
+  BASE_INFRASTRUCTURE_FAIL = "base-local-iteration-infrastructure-failed",
+}
+
 local function implementation_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   return {
     kind = "implementing",
@@ -390,6 +402,11 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
       attempt, started_at, exec_ref, base_head)
   end
   if not green then
+    local typed_failure_reason = local_iteration_failure_reasons[candidate_result.kind]
+    if typed_failure_reason ~= nil then
+      return impl_failed_outcome(ready, typed_failure_reason, verify_detail,
+        attempt, started_at, exec_ref, base_head)
+    end
     if candidate_result.kind ~= "SEMANTIC_FAIL" then
       return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
         "candidate_result=" .. tostring(candidate_result.kind)
@@ -426,6 +443,11 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
     end
     if verdict == "BASE_RED" then
       return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
+    end
+    local typed_base_failure_reason = base_local_iteration_failure_reasons[verdict]
+    if typed_base_failure_reason ~= nil then
+      return impl_failed_outcome(ready, typed_base_failure_reason, base_probe_detail(base_probe),
+        attempt, started_at, exec_ref, base_head)
     end
     return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
   end

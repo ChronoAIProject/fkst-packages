@@ -1,12 +1,12 @@
 -- worktree_gc: level-triggered, stateless, fail-open sweep that removes EXPIRED
 -- deterministic github-devloop worktrees. "Expired" = proven not-live by the
--- ground-truth codex-run -> implement_branch join (never age) plus a fresh trusted
--- terminal issue marker.
+-- ground-truth codex-run -> implement_branch join (never age). Worktrees in either
+-- the current runtime or stable implementation root require a lifecycle release fact.
 --
 -- Safety: nothing is removed unless core.classify proves it, and each candidate is
 -- re-validated against a FRESH codex_runs snapshot immediately before removal
--- (TOCTOU guard). Any error, incomplete live set, or unverified
--- terminal issue fact fails OPEN (skip this tick, retry next). Non-deterministic and
+-- (TOCTOU guard). Any error, empty runtime root, incomplete live set, or unverified
+-- release fact fails OPEN (skip this tick, retry next). Non-deterministic and
 -- detached worktrees are skipped and never force-removed.
 
 local env = require("workflow_internal.env")
@@ -14,7 +14,8 @@ local error_facts = require("contract.error_facts")
 local ports_lib = require("forge.ports")
 local saga = require("workflow.saga")
 local caps = require("worktree_gc_caps")
-local devloop_state = require("devloop.state")
+local devloop_base = require("devloop.base")
+local entity_lib = require("devloop.entity")
 local github_factory = require("devloop.github_factory")
 
 local spec = {
@@ -24,6 +25,8 @@ local spec = {
 }
 
 local allowed_env = {
+  FKST_DURABLE_ROOT = true,
+  FKST_RUNTIME_ROOT = true,
   -- Dangerous-posture host fact (same shape as FKST_GITHUB_WRITE): real worktree
   -- removal only happens when this is "1". Unset/anything-else = DRY-RUN: the sweep
   -- logs each `would-remove` it identified but mutates nothing. This lets the GC run
@@ -100,18 +103,7 @@ local function make_department(ports)
   local now_value = ports.now or production_now
   local codex_runs = ports.codex_runs or production_codex_runs
 
-  -- Snapshot the live deterministic-branch set from a fresh codex_runs read.
-  -- Returns the { set, complete } table, or nil on any read error (fail-open).
-  local function snapshot_live()
-    local ok, runs = pcall(codex_runs)
-    if not ok or type(runs) ~= "table" then
-      return nil
-    end
-    local now_ms = now_value() * 1000
-    return caps.live_branches(runs.running or {}, now_ms)
-  end
-
-  local function issue_is_terminal(issue_ref)
+  local function fresh_issue(issue_ref, failure_outcome)
     local github_handle = github or production_github()
     local ok, issue = pcall(function()
       return github_handle.read_issue(issue_ref.source_ref, {
@@ -121,32 +113,69 @@ local function make_department(ports)
       })
     end)
     if not ok or type(issue) ~= "table" then
-      gc_log("skip-terminal-read-failed", {
+      gc_log(failure_outcome, {
         "proposal_id=" .. tostring(issue_ref.proposal_id),
       })
-      return false
+      return nil
     end
-    return devloop_state.current_issue_observation_is_terminal(issue.comments, issue_ref.proposal_id)
+    return issue
   end
 
-  local function inactive_terminal_issues(worktrees, live)
-    local terminal = {}
+  local function resolve_fix_branch(row)
+    local repo, issue_number = caps.parse_proposal_repo_issue(row.proposal_id)
+    if repo == nil or issue_number == nil then
+      return nil
+    end
+    local issue_ref = {
+      proposal_id = row.proposal_id,
+      source_ref = entity_lib.issue_source_ref(repo, issue_number),
+    }
+    local issue = fresh_issue(issue_ref, "skip-live-fix-owner-read-failed")
+    if issue == nil then
+      return nil
+    end
+    return caps.fix_owner_branch(issue.comments, row.proposal_id)
+  end
+
+  -- Snapshot the live deterministic-branch set from a fresh codex_runs read.
+  -- Returns the { set, complete } table, or nil on any read error (fail-open).
+  local function snapshot_live()
+    local ok, runs = pcall(codex_runs)
+    if not ok or type(runs) ~= "table" then
+      return nil
+    end
+    local now_ms = now_value() * 1000
+    return caps.live_branches(runs.running or {}, now_ms, resolve_fix_branch)
+  end
+
+  local function issue_release_fact(issue_ref, branch)
+    local issue = fresh_issue(issue_ref, "skip-release-read-failed")
+    if issue == nil then
+      return nil
+    end
+    return caps.branch_release_fact(issue.comments, issue_ref, branch)
+  end
+
+  local function owned_released_branches(worktrees, live, current_rt, implementation_root)
+    local released = {}
     if not (live and live.complete) then
-      return terminal
+      return released
     end
     for _, w in ipairs(worktrees or {}) do
       if not w.detached
         and caps.is_deterministic_devloop_branch(w.branch)
         and not live.set[w.branch] then
         local issue_ref = caps.issue_ref_from_branch(w.branch)
-        if issue_ref ~= nil then
-          if issue_is_terminal(issue_ref) then
-            terminal[issue_ref.proposal_id] = true
+        if issue_ref ~= nil
+          and (devloop_base.path_under_root(current_rt, w.path)
+            or devloop_base.path_under_root(implementation_root, w.path)) then
+          if issue_release_fact(issue_ref, w.branch) ~= nil then
+            released[w.branch] = true
           end
         end
       end
     end
-    return terminal
+    return released
   end
 
   local function act_gc(event)
@@ -157,7 +186,29 @@ local function make_department(ports)
     -- Dangerous-posture host fact: real removal only when FKST_WORKTREE_GC_REMOVE=1.
     local remove_enabled = tostring(read_env("FKST_WORKTREE_GC_REMOVE") or "") == "1"
 
-    -- (1) enumerate every registered worktree (this clone only).
+    -- (1) resolve the two producer-owned roots. Any missing or malformed host fact
+    -- fails open because this department owns destructive reclamation.
+    local current_rt = tostring(read_env("FKST_RUNTIME_ROOT") or "")
+    if current_rt == "" then
+      gc_log("skip-no-runtime-root", {})
+      return
+    end
+    local durable_root = tostring(read_env("FKST_DURABLE_ROOT") or "")
+    if durable_root == "" then
+      gc_log("skip-no-durable-root", {})
+      return
+    end
+    local root_ok = pcall(devloop_base.path_under_root, current_rt, current_rt)
+    local implementation_ok, implementation_root = pcall(
+      devloop_base.implementation_worktree_root,
+      durable_root
+    )
+    if not root_ok or not implementation_ok then
+      gc_log("skip-invalid-ownership-root", {})
+      return
+    end
+
+    -- (2) enumerate every registered worktree (this clone only).
     local list = git.worktree_list(30)
     if type(list) ~= "table" or list.exit_code ~= 0 then
       gc_log("skip-worktree-list-failed", { "exit_code=" .. tostring(list and list.exit_code) })
@@ -165,17 +216,28 @@ local function make_department(ports)
     end
     local worktrees = caps.parse_worktrees(list.stdout)
 
-    -- (2) live set from ground-truth codex_runs; fail-open on any read error.
+    -- (3) live set from ground-truth codex_runs; fail-open on any read error.
     local live = snapshot_live()
     if live == nil then
       gc_log("skip-codex-runs-failed", {})
       return
     end
 
-    -- (3) classify. Every inactive deterministic worktree requires a fresh trusted
-    -- terminal issue marker; its filesystem generation is not lifecycle evidence.
-    local terminal_issues = inactive_terminal_issues(worktrees, live)
-    local result = caps.classify(worktrees, live, { terminal_issues = terminal_issues })
+    -- (4) classify. Old generations are reclaimable once not live; current-runtime
+    -- and stable implementation worktrees additionally require lifecycle release.
+    local released_branches = owned_released_branches(
+      worktrees,
+      live,
+      current_rt,
+      implementation_root
+    )
+    local result = caps.classify(
+      worktrees,
+      live,
+      current_rt,
+      implementation_root,
+      { released_branches = released_branches }
+    )
     gc_log("scanned", {
       "worktrees=" .. tostring(#worktrees),
       "removable=" .. tostring(#result.removable),
@@ -183,30 +245,35 @@ local function make_department(ports)
       "live_complete=" .. tostring(live.complete),
     })
 
-    -- (4) remove each candidate, re-validating against a FRESH codex_runs snapshot
-    --     immediately before the destructive op (TOCTOU guard). Fail-open per item.
+    -- (5) remove each candidate only after freshly revalidating its release fact, then
+    --     reading codex_runs immediately before the destructive op (TOCTOU guard).
+    --     Fail-open per item.
     for _, candidate in ipairs(result.removable) do
-      local recheck = snapshot_live()
-      if recheck == nil or not recheck.complete then
-        gc_log("skip-recheck-indeterminate", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
-      elseif recheck.set[candidate.branch] then
-        gc_log("skip-raced-now-live", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
-      elseif not issue_is_terminal(candidate.issue_ref) then
-        gc_log("skip-raced-terminal-unverified", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
-      elseif not remove_enabled then
-        gc_log("would-remove-dry-run", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
+      local release_valid = candidate.issue_ref == nil
+        or issue_release_fact(candidate.issue_ref, candidate.branch) ~= nil
+      if not release_valid then
+        gc_log("skip-raced-release-unverified", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
       else
-        local ok, removed = pcall(function()
-          return git.worktree_remove(candidate.path, 60)
-        end)
-        if ok and type(removed) == "table" and removed.exit_code == 0 then
-          gc_log("removed", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
+        local recheck = snapshot_live()
+        if recheck == nil or not recheck.complete then
+          gc_log("skip-recheck-indeterminate", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
+        elseif recheck.set[candidate.branch] then
+          gc_log("skip-raced-now-live", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
+        elseif not remove_enabled then
+          gc_log("would-remove-dry-run", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
         else
-          gc_log("remove-failed", {
-            "branch=" .. tostring(candidate.branch),
-            "path=" .. tostring(candidate.path),
-            "exit_code=" .. tostring(type(removed) == "table" and removed.exit_code or "error"),
-          })
+          local ok, removed = pcall(function()
+            return git.worktree_remove(candidate.path, 60)
+          end)
+          if ok and type(removed) == "table" and removed.exit_code == 0 then
+            gc_log("removed", { "branch=" .. tostring(candidate.branch), "path=" .. tostring(candidate.path) })
+          else
+            gc_log("remove-failed", {
+              "branch=" .. tostring(candidate.branch),
+              "path=" .. tostring(candidate.path),
+              "exit_code=" .. tostring(type(removed) == "table" and removed.exit_code or "error"),
+            })
+          end
         end
       end
     end

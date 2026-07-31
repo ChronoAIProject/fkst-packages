@@ -332,6 +332,7 @@ local function observe_blocked_implementation_refusal_reimplement()
     expected_boundary = "implementation-refusal",
     comments = {
       core.state_marker(proposal_id, "blocked", ready_version),
+      core.implement_attempt_marker(proposal_id, ready_version, 1, "100"),
       core.implementation_refusal_marker(
         proposal_id,
         ready_version,

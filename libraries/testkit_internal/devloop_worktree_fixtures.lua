@@ -73,17 +73,19 @@ function M.new(deps)
       .. "\nHEAD abc123\nbranch refs/heads/" .. tostring(branch) .. "\n\n"
   end
 
-  local function mock_harvest_worktree(worktree, branch, additional_registrations)
+  local function mock_harvest_worktree(worktree, branch, additional_registrations, checks)
     local registrations = ""
     for _, registered in ipairs(additional_registrations or {}) do
       registrations = registrations .. worktree_registration(registered.path, registered.branch)
     end
-    t.mock_command("[ -d '" .. tostring(worktree) .. "' ]", { stdout = "", stderr = "", exit_code = 0 })
-    t.mock_command("git worktree list --porcelain", {
-      stdout = registrations .. worktree_registration(worktree, branch),
-      stderr = "",
-      exit_code = 0,
-    })
+    for _ = 1, checks or 2 do
+      t.mock_command("[ -d '" .. tostring(worktree) .. "' ]", { stdout = "", stderr = "", exit_code = 0 })
+      t.mock_command("git worktree list --porcelain", {
+        stdout = registrations .. worktree_registration(worktree, branch),
+        stderr = "",
+        exit_code = 0,
+      })
+    end
   end
 
   local function mock_setup_worktree(path)
@@ -197,6 +199,11 @@ function M.new(deps)
       exit_code = 1,
     })
     mock_durable_root(durable)
+    t.mock_command("git worktree list --porcelain", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("git worktree remove --force", {
       stdout = "",
       stderr = "",
@@ -221,7 +228,12 @@ function M.new(deps)
     })
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
     if opts.harvest ~= false then
-      mock_harvest_worktree(worktree, implement_branch_for(opts), opts.additional_registrations)
+      mock_harvest_worktree(
+        worktree,
+        implement_branch_for(opts),
+        opts.additional_registrations,
+        opts.harvest_checks
+      )
     end
     return worktree
   end
@@ -295,7 +307,12 @@ function M.new(deps)
     end
     mock_substrate_pin_refresh(worktree, opts.base_pin, opts.branch_pin)
     if opts.harvest ~= false then
-      mock_harvest_worktree(worktree, implement_branch_for(opts), opts.additional_registrations)
+      mock_harvest_worktree(
+        worktree,
+        implement_branch_for(opts),
+        opts.additional_registrations,
+        opts.harvest_checks
+      )
     end
     return worktree
   end
@@ -355,7 +372,12 @@ function M.new(deps)
     })
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
     if opts.harvest ~= false then
-      mock_harvest_worktree(worktree, implement_branch_for(opts), opts.additional_registrations)
+      mock_harvest_worktree(
+        worktree,
+        implement_branch_for(opts),
+        opts.additional_registrations,
+        opts.harvest_checks
+      )
     end
   end
 
@@ -521,11 +543,10 @@ function M.new(deps)
       stderr = stderr or "",
       exit_code = resolved_exit_code,
     })
-    t.mock_command("[ -d ", { stdout = "", stderr = "", exit_code = 0 })
     if resolved_exit_code == 0 then
-      t.mock_command("scripts/run.sh test-affected", {
+      t.mock_command("FKST_IMPLEMENTATION_WORKTREE_RESULT:v1:ENTERED", {
         stdout = "",
-        stderr = "",
+        stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
         exit_code = 0,
       })
     end
