@@ -150,6 +150,23 @@ return {
     t.eq(calls, 2)
   end,
 
+  test_unexpected_fetch_error_is_exposed_and_not_cached = function()
+    local org = "cache-fetch-error-org"
+    local clock = { value = authorization_cache.REVOCATION_BOUND_SECONDS * 38 }
+    reset_org(org)
+
+    with_now(clock, function()
+      local ok, err = pcall(authorization_cache.get, org, function()
+        error("unexpected-fetch-defect")
+      end)
+
+      t.eq(ok, false)
+      t.is_true(tostring(err):find("unexpected-fetch-defect", 1, true) ~= nil)
+    end)
+
+    t.eq(cache_get(authorization_cache.cache_key(org)), "")
+  end,
+
   test_next_authorization_epoch_refetches_membership = function()
     local org = "cache-refresh-org"
     local bound = authorization_cache.REVOCATION_BOUND_SECONDS

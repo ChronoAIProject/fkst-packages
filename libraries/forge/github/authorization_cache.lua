@@ -108,10 +108,7 @@ local function decode_record(encoded, expected_epoch)
 end
 
 local function settle(fetch_logins)
-  local ok, logins = pcall(fetch_logins)
-  if not ok then
-    return unavailable_outcome("fetch-threw")
-  end
+  local logins = fetch_logins()
   if type(logins) ~= "table" then
     return unavailable_outcome("fetch-unavailable")
   end
