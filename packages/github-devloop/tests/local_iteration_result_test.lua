@@ -11,11 +11,18 @@ local function marker(verdict, fault_class)
 end
 
 return {
-  test_zero_exit_is_pass = function()
+  test_markerless_zero_is_unknown = function()
     local classified = classify({ exit_code = 0, stdout = "tests passed\n", stderr = "" })
+    t.eq(classified.kind, "UNKNOWN")
+    t.eq(classified.fault_class, "UNKNOWN")
+    t.eq(classified.reason, "missing-declaration")
+  end,
+
+  test_zero_exit_requires_a_producer_pass_declaration = function()
+    local classified = classify({ exit_code = 0, stdout = marker("PASS", "NONE"), stderr = "" })
     t.eq(classified.kind, "PASS")
     t.eq(classified.fault_class, "NONE")
-    t.eq(classified.reason, "exit-zero")
+    t.eq(classified.reason, "producer-declared")
   end,
 
   test_nonzero_requires_a_producer_semantic_failure_declaration = function()

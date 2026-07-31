@@ -82,7 +82,7 @@ function M.from_command(command_result)
     return outcome(declarations.kind, declarations.fault_class, exit_code, "producer-declared")
   end
   if exit_code == 0 then
-    return outcome("PASS", "NONE", exit_code, "exit-zero")
+    return unknown(exit_code, "missing-declaration")
   end
   return unknown(exit_code, "untyped-nonzero")
 end

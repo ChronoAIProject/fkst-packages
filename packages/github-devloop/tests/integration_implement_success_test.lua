@@ -139,7 +139,7 @@ local function mock_base_probe(worktree, options)
     if values.head == nil or values.head.exit_code == 0 then
       t.mock_command("scripts/run.sh test-affected", values.check or {
         stdout = "",
-        stderr = "",
+        stderr = local_iteration_marker("PASS"),
         exit_code = 0,
       })
     end
@@ -311,7 +311,7 @@ return {
     t.eq(branch, deterministic_branch_for(event))
   end,
 
-  test_implement_local_gate_unknown_retries_unchanged_candidate_once = function()
+  test_implement_local_gate_markerless_zero_retry_exhausts_indeterminate = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
@@ -328,11 +328,11 @@ return {
       stderr = "",
       exit_code = 0,
     })
-    mock_git_commit("def456", branch)
 
-    local result = run_implement(event, opts("implement-candidate-unknown-recovers"))
+    local result = run_implement(event, opts("implement-candidate-markerless-zero"))
 
-    t.eq(result.exit_code, 0)
+    local failure = assert_impl_failure_without_publication(result, "local-iteration-attribution-indeterminate")
+    t.is_true(failure.payload.body:find("candidate_result_reason=missing-declaration", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("scripts/run.sh test-affected"), 2)
     t.eq(count_calls("git worktree add --detach"), 0)
@@ -342,8 +342,7 @@ return {
         t.is_true(call.rendered:find(worktree, 1, true) ~= nil)
       end
     end
-    t.is_true(find_comment_with(result.raises, "github-devloop implementation output published") ~= nil)
-    t.eq(find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1"), nil)
+    t.eq(find_comment_with(result.raises, "github-devloop implementation output published"), nil)
   end,
 
   test_implement_local_gate_unknown_retry_exhausts_indeterminate = function()

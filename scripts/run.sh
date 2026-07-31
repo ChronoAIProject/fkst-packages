@@ -281,6 +281,7 @@ PY
 
   comm -23 "$expected" "$actual" > "$missing"
   if [ -s "$missing" ]; then
+    local_iteration_result_fail "SEMANTIC"
     echo "error: G5 engine test coverage failed; these *_test.lua files produced zero report-json pass results:" >&2
     sed 's/^/  /' "$missing" >&2
     echo "  Each *_test.lua must contribute at least one real engine-enumerated top-level test." >&2
@@ -560,13 +561,14 @@ cmd_test() {
     if test_reports_establish_semantic_failure "$report_dir" "$fail"; then
       local_iteration_result_fail "SEMANTIC"
     else
-      local_iteration_result_fail "INFRASTRUCTURE"
+      [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
     fi
     rm -rf "$report_dir"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
   fi
   rm -rf "$report_dir"
   echo "OK: $ran package(s)"
+  local_iteration_result_pass
 }
 
 collect_composed_package() {
@@ -800,12 +802,12 @@ main() {
       if [ -n "$_tv" ]; then
         if ! cmd_check; then
           local_iteration_result_sync_state
-          [ "$LOCAL_ITERATION_RESULT_VERDICT" != "PASS" ] || local_iteration_result_fail "SEMANTIC"
+          [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
           return 1
         fi
       elif ! _chk_out="$(cmd_check 2>&1)"; then
         local_iteration_result_sync_state
-        [ "$LOCAL_ITERATION_RESULT_VERDICT" != "PASS" ] || local_iteration_result_fail "SEMANTIC"
+        [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
         printf '%s\n' "$_chk_out"; return 1
       fi
       resolve_bin; ensure_fresh_bin; cmd_test "$@" ;;

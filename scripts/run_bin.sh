@@ -2,12 +2,8 @@
 # fkst-framework BIN resolution and local-source freshness for scripts/run.sh.
 
 resolve_bin() {
-  local prior_verdict="${LOCAL_ITERATION_RESULT_VERDICT:-PASS}"
-  local prior_fault_class="${LOCAL_ITERATION_RESULT_FAULT_CLASS:-NONE}"
-  if [ "${LOCAL_ITERATION_RESULT_ARMED:-0}" -eq 1 ]; then
-    local_iteration_result_fail "TOOLCHAIN"
-  fi
   if ! resolve_bin_contract "$ROOT" "bootstrap"; then
+    local_iteration_result_fail "TOOLCHAIN"
     echo "error: $RESOLVE_BIN_ERROR" >&2
     if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
       echo "  CI must build fkst-substrate and inject BIN; scripts/run.sh will not build in CI." >&2
@@ -16,11 +12,6 @@ resolve_bin() {
   fi
   BIN="$RESOLVED_BIN"
   export BIN
-  if [ "${LOCAL_ITERATION_RESULT_ARMED:-0}" -eq 1 ]; then
-    LOCAL_ITERATION_RESULT_VERDICT="$prior_verdict"
-    LOCAL_ITERATION_RESULT_FAULT_CLASS="$prior_fault_class"
-    local_iteration_result_write_state
-  fi
 }
 
 # Resolve a path to its physical location, following file symlinks too (portable:
@@ -49,14 +40,8 @@ warn_if_substrate_behind() {
 }
 
 ensure_fresh_bin() {
-  local prior_verdict="${LOCAL_ITERATION_RESULT_VERDICT:-PASS}"
-  local prior_fault_class="${LOCAL_ITERATION_RESULT_FAULT_CLASS:-NONE}"
   if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
     return 0
-  fi
-
-  if [ "${LOCAL_ITERATION_RESULT_ARMED:-0}" -eq 1 ]; then
-    local_iteration_result_fail "TOOLCHAIN"
   fi
 
   local phys substrate suffix
@@ -71,9 +56,6 @@ ensure_fresh_bin() {
     if [ -z "${FKST_NO_AUTOBUILD:-}" ]; then
       echo "warning: cannot trace BIN to an fkst-substrate checkout; skipping freshness build: $BIN" >&2
     fi
-    LOCAL_ITERATION_RESULT_VERDICT="$prior_verdict"
-    LOCAL_ITERATION_RESULT_FAULT_CLASS="$prior_fault_class"
-    local_iteration_result_write_state
     return 0
   fi
 
@@ -81,20 +63,15 @@ ensure_fresh_bin() {
 
   if [ -n "${FKST_NO_AUTOBUILD:-}" ]; then
     echo "warning: FKST_NO_AUTOBUILD set; skipping fkst-framework freshness build" >&2
-    LOCAL_ITERATION_RESULT_VERDICT="$prior_verdict"
-    LOCAL_ITERATION_RESULT_FAULT_CLASS="$prior_fault_class"
-    local_iteration_result_write_state
     return 0
   fi
 
   echo "ensuring fkst-framework is built from current source: $substrate" >&2
   local build_out
   if ! build_out="$(cargo build --manifest-path "$substrate/Cargo.toml" -p fkst-framework 2>&1)"; then
+    local_iteration_result_fail "TOOLCHAIN"
     printf '%s\n' "$build_out" >&2
     echo "error: fkst-framework freshness build failed; refusing to continue with a potentially stale BIN" >&2
     exit 1
   fi
-  LOCAL_ITERATION_RESULT_VERDICT="$prior_verdict"
-  LOCAL_ITERATION_RESULT_FAULT_CLASS="$prior_fault_class"
-  local_iteration_result_write_state
 }

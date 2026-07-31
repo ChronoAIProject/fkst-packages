@@ -2,43 +2,49 @@
 # Total process-result contract for `scripts/run.sh test` and `test-affected`.
 
 LOCAL_ITERATION_RESULT_ARMED=0
-LOCAL_ITERATION_RESULT_VERDICT="PASS"
-LOCAL_ITERATION_RESULT_FAULT_CLASS="NONE"
+LOCAL_ITERATION_RESULT_VERDICT=""
+LOCAL_ITERATION_RESULT_FAULT_CLASS=""
 LOCAL_ITERATION_RESULT_OUTPUT_FILE=""
 LOCAL_ITERATION_RESULT_STATE_FILE=""
 
-local_iteration_result_rank() {
+local_iteration_result_is_valid() {
   case "$1:$2" in
-    PASS:NONE) printf '%s\n' 0 ;;
-    FAIL:SEMANTIC) printf '%s\n' 10 ;;
-    FAIL:INFRASTRUCTURE) printf '%s\n' 20 ;;
-    FAIL:TOOLCHAIN) printf '%s\n' 30 ;;
-    FAIL:CONFIGURATION) printf '%s\n' 40 ;;
-    UNKNOWN:UNKNOWN) printf '%s\n' 50 ;;
+    PASS:NONE|FAIL:SEMANTIC|FAIL:CONFIGURATION|FAIL:TOOLCHAIN|FAIL:INFRASTRUCTURE|UNKNOWN:UNKNOWN)
+      return 0
+      ;;
     *) return 1 ;;
   esac
 }
 
 local_iteration_result_write_state() {
   [ -n "${LOCAL_ITERATION_RESULT_STATE_FILE:-}" ] || return 0
-  printf '%s:%s\n' "$LOCAL_ITERATION_RESULT_VERDICT" "$LOCAL_ITERATION_RESULT_FAULT_CLASS" \
-    > "$LOCAL_ITERATION_RESULT_STATE_FILE"
+  if [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ]; then
+    printf '%s:%s\n' "$LOCAL_ITERATION_RESULT_VERDICT" "$LOCAL_ITERATION_RESULT_FAULT_CLASS" \
+      > "$LOCAL_ITERATION_RESULT_STATE_FILE"
+  else
+    : > "$LOCAL_ITERATION_RESULT_STATE_FILE"
+  fi
 }
 
 local_iteration_result_merge() {
-  local verdict="$1" fault_class="$2" current_rank incoming_rank
-  incoming_rank="$(local_iteration_result_rank "$verdict" "$fault_class")" || {
+  local verdict="$1" fault_class="$2" current_pair incoming_pair
+  if ! local_iteration_result_is_valid "$verdict" "$fault_class"; then
     verdict="UNKNOWN"
     fault_class="UNKNOWN"
-    incoming_rank=50
-  }
-  current_rank="$(local_iteration_result_rank \
-    "$LOCAL_ITERATION_RESULT_VERDICT" "$LOCAL_ITERATION_RESULT_FAULT_CLASS")" || current_rank=50
-  if [ "$incoming_rank" -gt "$current_rank" ]; then
+  fi
+  incoming_pair="$verdict:$fault_class"
+  current_pair="$LOCAL_ITERATION_RESULT_VERDICT:$LOCAL_ITERATION_RESULT_FAULT_CLASS"
+
+  if [ -z "$LOCAL_ITERATION_RESULT_VERDICT" ] || [ "$current_pair" = "PASS:NONE" ]; then
     LOCAL_ITERATION_RESULT_VERDICT="$verdict"
     LOCAL_ITERATION_RESULT_FAULT_CLASS="$fault_class"
-    local_iteration_result_write_state
+  elif [ "$current_pair" = "$incoming_pair" ] || [ "$incoming_pair" = "PASS:NONE" ]; then
+    return 0
+  else
+    LOCAL_ITERATION_RESULT_VERDICT="UNKNOWN"
+    LOCAL_ITERATION_RESULT_FAULT_CLASS="UNKNOWN"
   fi
+  local_iteration_result_write_state
 }
 
 local_iteration_result_fail() {
@@ -56,12 +62,17 @@ local_iteration_result_unknown() {
   local_iteration_result_merge "UNKNOWN" "UNKNOWN"
 }
 
+local_iteration_result_pass() {
+  local_iteration_result_merge "PASS" "NONE"
+}
+
 local_iteration_result_sync_state() {
   local line=""
   [ -n "${LOCAL_ITERATION_RESULT_STATE_FILE:-}" ] || return 0
   [ -f "$LOCAL_ITERATION_RESULT_STATE_FILE" ] || return 0
   IFS= read -r line < "$LOCAL_ITERATION_RESULT_STATE_FILE" || true
   case "$line" in
+    "") return 0 ;;
     PASS:NONE) local_iteration_result_merge "PASS" "NONE" ;;
     FAIL:SEMANTIC) local_iteration_result_merge "FAIL" "SEMANTIC" ;;
     FAIL:CONFIGURATION) local_iteration_result_merge "FAIL" "CONFIGURATION" ;;
@@ -75,12 +86,8 @@ local_iteration_result_sync_state() {
 local_iteration_result_merge_file() {
   local path="$1" exit_code="$2" marker="" lines verdict fault_class
   if [ ! -f "$path" ] || [ ! -s "$path" ]; then
-    if [ "$exit_code" -eq 0 ]; then
-      local_iteration_result_merge "PASS" "NONE"
-    else
-      local_iteration_result_unknown
-    fi
-    return 0
+    local_iteration_result_unknown
+    return 1
   fi
 
   lines="$(wc -l < "$path" | tr -d ' ')"
@@ -123,8 +130,8 @@ local_iteration_result_merge_file() {
 
 local_iteration_result_arm() {
   LOCAL_ITERATION_RESULT_ARMED=1
-  LOCAL_ITERATION_RESULT_VERDICT="PASS"
-  LOCAL_ITERATION_RESULT_FAULT_CLASS="NONE"
+  LOCAL_ITERATION_RESULT_VERDICT=""
+  LOCAL_ITERATION_RESULT_FAULT_CLASS=""
   LOCAL_ITERATION_RESULT_OUTPUT_FILE="${FKST_LOCAL_ITERATION_RESULT_FILE:-}"
   unset FKST_LOCAL_ITERATION_RESULT_FILE
   LOCAL_ITERATION_RESULT_STATE_FILE=""
@@ -159,9 +166,11 @@ local_iteration_result_finish() {
       LOCAL_ITERATION_RESULT_FAULT_CLASS="UNKNOWN"
       exit_code=1
     fi
-  elif [ "$LOCAL_ITERATION_RESULT_VERDICT" = "PASS" ]; then
-    LOCAL_ITERATION_RESULT_VERDICT="FAIL"
-    LOCAL_ITERATION_RESULT_FAULT_CLASS="INFRASTRUCTURE"
+  elif [ -z "$LOCAL_ITERATION_RESULT_VERDICT" ] \
+    || { [ "$LOCAL_ITERATION_RESULT_VERDICT" = "PASS" ] \
+      && [ "$LOCAL_ITERATION_RESULT_FAULT_CLASS" = "NONE" ]; }; then
+    LOCAL_ITERATION_RESULT_VERDICT="UNKNOWN"
+    LOCAL_ITERATION_RESULT_FAULT_CLASS="UNKNOWN"
   fi
 
   local_iteration_result_cleanup_test_roots

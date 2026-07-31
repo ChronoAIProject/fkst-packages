@@ -233,7 +233,7 @@ class TestAffectedHarness:
         self,
         with_branch_env: bool = True,
         runner_exit: int = 0,
-        runner_result: str | None = None,
+        runner_result: str | None = "PASS:NONE",
         package_results: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
@@ -341,7 +341,7 @@ class RunShTestAffectedTest(unittest.TestCase):
         try:
             h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
 
-            result = h.run(runner_exit=2)
+            result = h.run(runner_exit=2, runner_result=None)
 
             self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual(
@@ -365,7 +365,7 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_default_test_types_unreported_engine_failure_as_infrastructure(self) -> None:
+    def test_default_test_leaves_unreported_engine_failure_unknown(self) -> None:
         h = TestAffectedHarness()
         try:
             result = h.run_default_test("infrastructure-fail")
@@ -373,7 +373,7 @@ class RunShTestAffectedTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertEqual(
                 result_markers(result),
-                [result_marker("FAIL", "INFRASTRUCTURE")],
+                [result_marker("UNKNOWN", "UNKNOWN")],
             )
         finally:
             h.close()
@@ -425,7 +425,7 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_default_test_finalizer_types_implicit_errexit_as_infrastructure(self) -> None:
+    def test_default_test_leaves_implicit_errexit_unknown(self) -> None:
         h = TestAffectedHarness()
         try:
             result = h.run_test_process(
@@ -439,8 +439,45 @@ class RunShTestAffectedTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
             self.assertEqual(
                 result_markers(result),
-                [result_marker("FAIL", "INFRASTRUCTURE")],
+                [result_marker("UNKNOWN", "UNKNOWN")],
             )
+        finally:
+            h.close()
+
+    def test_default_test_leaves_unclassified_check_failure_unknown(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "cmd_check() { printf '%s\\n' 'python3: command not found' >&2; return 127; }\n"
+                "main test github-devloop"
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("UNKNOWN", "UNKNOWN")],
+            )
+        finally:
+            h.close()
+
+    def test_default_test_preserves_g5_failure_as_semantic(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("packages/github-devloop/tests/unreported_test.lua", "return {}\n")
+
+            result = h.run_test_process(
+                "cmd_check() { return 0; }\n"
+                "cmd_test_composed() { return 0; }\n"
+                "enforce_lua_coverage_ratchet() { return 0; }\n"
+                "main test"
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "SEMANTIC")],
+            )
+            self.assertIn("G5 engine test coverage failed", result.stderr + result.stdout)
         finally:
             h.close()
 
@@ -473,7 +510,7 @@ class RunShTestAffectedTest(unittest.TestCase):
                 "cmd_check() { [ -z \"${FKST_LOCAL_ITERATION_RESULT_FILE:-}\" ]; }\n"
                 "resolve_bin() { :; }\n"
                 "ensure_fresh_bin() { :; }\n"
-                "cmd_test() { :; }\n"
+                "cmd_test() { local_iteration_result_pass; }\n"
                 "main test",
                 result_file=result_file,
             )
@@ -487,7 +524,22 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
-    def test_test_affected_aggregates_child_faults_with_one_top_level_result(self) -> None:
+    def test_markerless_affected_runner_success_fails_closed(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+
+            result = h.run(runner_result=None)
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("UNKNOWN", "UNKNOWN")],
+            )
+        finally:
+            h.close()
+
+    def test_test_affected_leaves_heterogeneous_child_faults_unknown(self) -> None:
         h = TestAffectedHarness()
         try:
             h._write("packages/consensus/core.lua", "return {changed = true}\n")
@@ -504,9 +556,31 @@ class RunShTestAffectedTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
             self.assertEqual(
                 result_markers(result),
-                [result_marker("FAIL", "CONFIGURATION")],
+                [result_marker("UNKNOWN", "UNKNOWN")],
             )
             self.assertEqual(h.runner_args(), ["test consensus", "test github-devloop"])
+        finally:
+            h.close()
+
+    def test_test_affected_preserves_matching_child_faults(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            h._write("packages/consensus/core.lua", "return {changed = true}\n")
+            h._write("packages/github-devloop/core.lua", "return {changed = true}\n")
+
+            result = h.run(
+                runner_exit=1,
+                package_results={
+                    "consensus": "FAIL:TOOLCHAIN",
+                    "github-devloop": "FAIL:TOOLCHAIN",
+                },
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "TOOLCHAIN")],
+            )
         finally:
             h.close()
 
