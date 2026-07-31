@@ -6,6 +6,14 @@ local mock_write_env = h.mock_write_env
 local mock_bot_env = h.mock_bot_env
 local count_calls = h.count_calls
 
+local function long_decompose_dedup(slot, token)
+  return "decompose/generic-workflow/issue/owner/x/42/"
+    .. string.rep("review-loop/1/fix/12/", 10)
+    .. tostring(slot)
+    .. "/"
+    .. tostring(token)
+end
+
 local function event(extra)
   local payload = {
     schema = "github-proxy.issue-create.v1",
@@ -152,7 +160,40 @@ local function first_call_index(needle)
   return nil
 end
 
+local function body_file_path(call)
+  local path = tostring(call and call.rendered or ""):match("%-%-body%-file%s+([^%s]+)")
+  if path == nil then
+    return nil
+  end
+  return path:gsub("^'", ""):gsub("'$", "")
+end
+
 return {
+  test_issue_create_runtime_keys_distinguish_long_dedup_suffixes = function()
+    local first = long_decompose_dedup(1, 2014529193)
+    local second = long_decompose_dedup(2, 2014529194)
+    local first_once_key = core.issue_create_once_key(first)
+    local digest = first_once_key:match("%-([0-9a-f]+)$")
+
+    t.is_true(#first > 200)
+    t.is_true(first:sub(1, 200) == second:sub(1, 200))
+    t.is_true(first_once_key:find("issue-create-decompose_generic-workflow_issue_owner_x_42_", 1, true) ~= nil)
+    t.eq(#digest, 64)
+    t.is_true(first_once_key ~= core.issue_create_once_key(second))
+    t.is_true(core.issue_create_lock_key(first) ~= core.issue_create_lock_key(second))
+  end,
+
+  test_issue_create_once_owner_rejects_only_a_different_complete_key = function()
+    local dedup_key = long_decompose_dedup(1, 2014529193)
+
+    t.eq(core.assert_issue_create_once_owner(nil, dedup_key), false)
+    t.eq(core.assert_issue_create_once_owner(dedup_key, dedup_key), true)
+    local ok, err = pcall(core.assert_issue_create_once_owner, long_decompose_dedup(2, 2014529194), dedup_key)
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("github-proxy: issue-create-once-owner-mismatch:", 1, true) ~= nil)
+    t.eq(core.error_class_from_message(err), "issue-create-once-owner-mismatch")
+  end,
+
   test_issue_create_parent_ledger_markers_have_visible_text_and_parse = function()
     local dedup_key = event().payload.dedup_key
     local created = core.issue_created_marker(dedup_key, "99")
@@ -606,6 +647,42 @@ return {
     t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/7/comments?per_page=100"), 3)
     t.eq(count_calls("gh issue list"), 2)
     t.eq(count_calls("gh issue create"), 1)
+  end,
+
+  test_issue_create_distinct_long_dedup_intents_each_create_in_one_runtime_generation = function()
+    local dedup_keys = {
+      long_decompose_dedup(1, 2014529193),
+      long_decompose_dedup(2, 2014529194),
+    }
+    local run_opts = opts("issue-create-long-dedup-distinct", {
+      FKST_GITHUB_WRITE = "1",
+    })
+
+    for _, dedup_key in ipairs(dedup_keys) do
+      mock_write_env("1")
+      mock_bot_env()
+      mock_issue_create_search("[]\n")
+      mock_issue_create()
+      local payload = event({
+        dedup_key = dedup_key,
+      }).payload
+      payload.parent_comment_target = nil
+
+      local result = t.run_department("departments/github_issue_create/main.lua", {
+        queue = "github_issue_create_request",
+        payload = payload,
+      }, run_opts)
+      t.eq(result.exit_code, 0, result.error)
+    end
+
+    local create_calls = h.calls_matching("gh issue create")
+    local first_body_path = body_file_path(create_calls[1])
+    local second_body_path = body_file_path(create_calls[2])
+    t.eq(count_calls("gh issue list"), 2)
+    t.eq(#create_calls, 2)
+    t.is_true(first_body_path ~= nil)
+    t.is_true(second_body_path ~= nil)
+    t.is_true(first_body_path ~= second_body_path)
   end,
 
   test_issue_create_request_without_parent_uses_issue_search_fallback = function()
