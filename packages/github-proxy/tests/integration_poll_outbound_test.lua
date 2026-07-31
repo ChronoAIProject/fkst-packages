@@ -1,4 +1,5 @@
 local h = require("tests.proxy_integration_helpers")
+local sha256 = require("contract.sha256")
 local t = h.t
 local core = h.core
 local issue_list_json = h.issue_list_json
@@ -40,6 +41,40 @@ local function allocated_poll_epoch(timestamp, sub_epoch)
   return tostring(timestamp) .. "/sub-epoch/" .. tostring(sub_epoch)
 end
 local issue_comment_create = "gh api --method POST repos/owner/x/issues/42/comments"
+
+local function delivery_snapshot(deliveries, dead_letters)
+  return {
+    schema_version = 1,
+    generated_at_ms = 1785574920000,
+    source = {
+      durable_root = "/tmp/fkst-durable",
+      database = "/tmp/fkst-durable/delivery.redb",
+      read_semantics = "single read transaction",
+      history_semantics = "mutable delivery queue snapshot",
+    },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
+    truncated = { deliveries = false, dead_letters = false },
+    queues = json.decode("[]"),
+    deliveries = deliveries or json.decode("[]"),
+    dead_letters = dead_letters or json.decode("[]"),
+  }
+end
+
+local function poll_delivery_payload_summary(dedup_key)
+  return {
+    schema = "github-proxy.v1",
+    dedup_key = dedup_key,
+    digest = string.rep("b", 64),
+    bytes = 128,
+  }
+end
+
+local function poll_delivery_source()
+  return {
+    kind = "cron",
+    reference = "github-proxy.github_poll/slot/1785574800000",
+  }
+end
 
 local function mock_poll_env(replay_budget, label_prefix)
   mock_repo_env()
@@ -430,6 +465,74 @@ return {
     local cached_labelled_observed = observed_issue_raises(cached_labelled.raises)
     t.eq(#cached_labelled_observed, 1)
     t.eq(cached_labelled_observed[1].payload.dedup_key, second_observed[1].payload.dedup_key)
+  end,
+
+  test_inbound_poll_rearms_a_permanent_delivery_once_and_reuses_the_live_generation = function()
+    local run_opts = opts("post-dlq-level-rearm", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
+    local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+    local base_key = "owner/x#issue#50@2026-06-03T01:04:00Z"
+    local terminal_id = "delivery/v3/raised/queue/github-proxy.github_entity_changed/dept/github-devloop-intake.admission/dedup/base"
+    local rearm_key = base_key .. "/rearm/" .. sha256.hex(terminal_id)
+    local terminal = {
+      delivery_id = terminal_id,
+      queue = "github-proxy.github_entity_changed",
+      dept = "github-devloop-intake.admission",
+      source = poll_delivery_source(),
+      observed_at_ms = 1785574800000,
+      not_before_ms = 1785574800000,
+      dead_at_ms = 1785574860000,
+      attempts = 3,
+      redrive_count = 3,
+      replayable = false,
+      permanent = true,
+      payload = poll_delivery_payload_summary(base_key),
+      error_excerpt = "transient admission failure",
+    }
+
+    mock_poll_env("1", "fkst-class:")
+    mock_issue_list(issue_list_from({ intake }))
+    mock_pr_list("[]\n")
+    t.mock_observe(delivery_snapshot(json.decode("[]"), { terminal }))
+    local rearmed = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-after-dlq",
+    }, run_opts)
+    t.eq(rearmed.exit_code, 0)
+    t.eq(#rearmed.raises, 1)
+    t.eq(rearmed.raises[1].payload.dedup_key, rearm_key)
+    t.eq(rearmed.raises[1].payload.poll_token, allocated_poll_epoch("poll-after-dlq", 0))
+
+    local live = {
+      delivery_id = "live-rearm-delivery",
+      queue = "github-proxy.github_entity_changed",
+      dept = "github-devloop-intake.admission",
+      source = poll_delivery_source(),
+      status = "in-flight",
+      observed_at_ms = 1785574920000,
+      not_before_ms = 1785574920000,
+      attempt = 0,
+      redrive_count = 0,
+      lease_generation = 1,
+      lease_until_ms = 1785574950000,
+      fence_token = "live-rearm-delivery#1",
+      subscriber_absent_since_ms = nil,
+      payload = poll_delivery_payload_summary(rearm_key),
+      last_error_excerpt = nil,
+    }
+    mock_poll_env("1", "fkst-class:")
+    mock_issue_list(issue_list_from({ intake }))
+    mock_pr_list("[]\n")
+    t.mock_observe(delivery_snapshot({ live }, { terminal }))
+    local coalesced = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-while-rearmed",
+    }, run_opts)
+    t.eq(coalesced.exit_code, 0)
+    t.eq(#coalesced.raises, 1)
+    t.eq(coalesced.raises[1].payload.dedup_key, rearm_key)
+    t.eq(coalesced.raises[1].payload.poll_token, allocated_poll_epoch("poll-while-rearmed", 0))
   end,
 
   test_inbound_poll_rejects_invalid_replay_budget = function()

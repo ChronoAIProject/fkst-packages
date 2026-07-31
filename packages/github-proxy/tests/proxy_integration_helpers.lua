@@ -111,6 +111,21 @@ local function mock_bot_env(value)
 end
 
 local function mock_issue_list(stdout, exit_code, stderr)
+  t.mock_observe({
+    schema_version = 1,
+    generated_at_ms = 0,
+    source = {
+      durable_root = "/tmp/fkst-durable",
+      database = "/tmp/fkst-durable/delivery.redb",
+      read_semantics = "single read transaction",
+      history_semantics = "mutable delivery queue snapshot",
+    },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
+    truncated = { deliveries = false, dead_letters = false },
+    queues = json.decode("[]"),
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
+  })
   t.mock_command("gh api --paginate --slurp repos/owner/x/issues?state=open&per_page=100", {
     stdout = stdout or issue_list_json(),
     stderr = stderr or "",
