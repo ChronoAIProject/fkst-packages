@@ -87,6 +87,25 @@ local function mock_observe_issue_state_once(labels, comments)
   })
 end
 
+-- observe_issue only enters the impl-failed branch when the authoritative state:v1
+-- marker says so, and it matches the impl-failure fact against that marker's version.
+-- Pin the version to the failure marker's own dedup so the pair stays consistent
+-- across the retry attempts, whose implementation version advances.
+local function observe_comments(proposal_id, failure_body, command)
+  local dedup = tostring(failure_body):match('dedup="([^"]*)"')
+  if dedup == nil then
+    error("github-devloop test: impl-failure marker carries no dedup attribute")
+  end
+  local comments = {
+    core.state_marker(proposal_id, "impl-failed", dedup),
+    failure_body,
+  }
+  if command ~= nil then
+    table.insert(comments, command)
+  end
+  return comments
+end
+
 local function mock_linked_pr_state(comments, state)
   local rendered_comments = {}
   for _, comment in ipairs(comments or {}) do
@@ -205,7 +224,7 @@ end
 
 local function run_retry_typed_failure(retry_payload, prior_failure_body, outcome, name)
   local comments = { prior_failure_body }
-  mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
+  mock_issue_implement_view_only({ "fkst-dev:impl-failed" }, comments, 3)
   mock_existing_empty_implement_worktree({
     impl_version = core.implementation_attempt_version(retry_payload.dedup_key, retry_payload.impl_retry_attempt),
   })
@@ -216,7 +235,6 @@ local function run_retry_typed_failure(retry_payload, prior_failure_body, outcom
     stderr = local_iteration_marker(outcome) .. "typed local iteration failure\n",
     exit_code = 1,
   })
-  mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
   local result = run_implement(retry_payload, opts(name))
   assert_department_success(result, name)
   local failure = find_impl_failure_comment(result.raises)
@@ -369,7 +387,8 @@ return {
     t.eq(core.impl_failure_retry_allowed(first_fact), true)
 
     mock_observe_issue_state_once(
-      { "fkst-dev:enabled", "fkst-dev:impl-failed" }, { first_failure.payload.body })
+      { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      observe_comments(event.proposal_id, first_failure.payload.body))
     local observed = run_observe(
       issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
       opts("observe-infrastructure-failure-first"))
@@ -387,7 +406,8 @@ return {
     t.is_true(second_failure.payload.body:find('attempt="2"', 1, true) ~= nil)
 
     mock_observe_issue_state_once(
-      { "fkst-dev:enabled", "fkst-dev:impl-failed" }, { second_failure.payload.body })
+      { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      observe_comments(event.proposal_id, second_failure.payload.body))
     local capped = run_observe(
       issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
       opts("observe-infrastructure-failure-ceiling"))
@@ -395,10 +415,9 @@ return {
     t.eq(find_raise(capped.raises, "devloop_ready"), nil)
 
     local command = trusted_command("IC_reimplement_infrastructure")
-    mock_observe_issue_state_once({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, {
-      second_failure.payload.body,
-      command,
-    })
+    mock_observe_issue_state_once(
+      { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      observe_comments(event.proposal_id, second_failure.payload.body, command))
     local operator = run_observe(
       issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
       opts("operator-reimplement-infrastructure"))
@@ -420,7 +439,8 @@ return {
     t.eq(core.impl_failure_retry_allowed(semantic_fact), false)
 
     mock_observe_issue_state_once(
-      { "fkst-dev:enabled", "fkst-dev:impl-failed" }, { failure.payload.body })
+      { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      observe_comments(event.proposal_id, failure.payload.body))
     local observed = run_observe(
       issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
       opts("observe-semantic-failure"))
@@ -428,10 +448,9 @@ return {
     t.eq(find_raise(observed.raises, "devloop_ready"), nil)
 
     local command = trusted_command("IC_reimplement_semantic")
-    mock_observe_issue_state_once({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, {
-      failure.payload.body,
-      command,
-    })
+    mock_observe_issue_state_once(
+      { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      observe_comments(event.proposal_id, failure.payload.body, command))
     local operator = run_observe(
       issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
       opts("operator-reimplement-semantic"))
