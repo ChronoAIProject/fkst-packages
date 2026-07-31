@@ -72,6 +72,7 @@ add("codex.dispatch:fix", "fix", "run_fix_codex.codex_dispatch", "codex", "lifec
 add("git.push:fix-branch", "fix", "publish_fix.push", effect_kinds.git, "lifecycle-authoritative", "git-push/fix-branch/proposal+head")
 add("comment:issue:row-replay", "liveness_scan", "scan.restart_replay_issue_comments", "comment", "lifecycle-authoritative", "restart-row-replay/issue-comment-marker-families")
 add("comment:pr:row-replay", "liveness_scan", "scan.restart_replay_pr_comments", "comment", "lifecycle-authoritative", "restart-row-replay/pr-comment-marker-families")
+add("label:issue:liveness-fixing-replay-reviewing", "liveness_scan", "requests_review.raise_fixing_replay_reviewing.label", "label", "lifecycle-authoritative", "state-label:reviewing;dedup=fixing/label/reviewing")
 add("comment:pr:merge-fixing", "merge", "raise_fixing.comment", "comment", "lifecycle-authoritative", "state:v1/fixing+merge-gate:v1;dedup=merge/fixing/comment")
 add("label:issue:merge-fixing", "merge", "raise_fixing.label", "label", "lifecycle-authoritative", "state-label:fixing;dedup=merge/fixing/label")
 add("comment:pr:merge-head-reviewing", "merge", "raise_reviewing_for_current_head.comment", "comment", "lifecycle-authoritative", "state:v1/reviewing+head-change;dedup=merge/reviewing/comment")

@@ -86,8 +86,11 @@ local function mock_throwing_head_pr_list()
   })
 end
 
-local function mock_target_fixing_pr()
+local function mock_target_fixing_pr(extra)
+  extra = extra or {}
   local event = h.fixing()
+  local head_sha = extra.head_sha or event.reviewed_head_sha
+  local updated_at = extra.updated_at or "2026-06-04T01:02:04Z"
   local comments = {
     trusted_comment(m_builders.pr_origin_marker(
       event.proposal_id,
@@ -121,10 +124,10 @@ local function mock_target_fixing_pr()
     repo = repo,
     number = target_pr_number,
     head = "devloop-owner-repo-42-01HY",
-    head_sha = event.reviewed_head_sha,
+    head_sha = head_sha,
     base_branch = "dev",
     state = "OPEN",
-    updated_at = "2026-06-04T01:02:04Z",
+    updated_at = updated_at,
     comments = comments,
     labels = {},
     register_all_views = true,
@@ -182,6 +185,41 @@ local function raised_for_pr(result, queue, pr_number)
 end
 
 return {
+  test_run_department_fixing_head_advanced_redrive_raises_issue_label = function()
+    local updated_at = "2026-06-04T09:17:43Z"
+    mock_env()
+    t.mock_command(core.gh_pr_list_observe_cmd(repo), {
+      stdout = '[{"number":7,"state":"open","updated_at":"' .. updated_at .. '"}]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_target_fixing_pr({ head_sha = "feedface", updated_at = updated_at })
+    t.mock_command("git fetch origin devloop-owner-repo-42-01HY", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("git rev-parse --verify 'FETCH_HEAD^{commit}'", {
+      stdout = "feedface\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    cache_set(liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix), "0")
+
+    with_no_codex_runs(function()
+      local tick = liveness_tick(401)
+      tick.now_seconds = 1780617600
+      local result = h.run_department(
+        "departments/liveness_scan/main.lua",
+        tick
+      )
+      t.eq(result.exit_code, 0)
+      local label = h.find_raise(result.raises, "github-proxy.github_issue_label_request")
+      t.is_true(label ~= nil)
+      t.eq(label.payload.add_labels[1], "fkst-dev:reviewing")
+    end)
+  end,
+
   test_overlapping_ticks_serialize_cursor_and_do_not_double_serve_head = function()
     mock_env()
     mock_under_cap_pr_list()
