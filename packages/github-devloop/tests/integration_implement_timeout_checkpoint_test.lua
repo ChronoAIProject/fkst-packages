@@ -8,6 +8,7 @@ local mock_issue_implement = h.mock_issue_implement
 local deterministic_branch_for = h.deterministic_branch_for
 local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
 local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_implement_worktree_reuse
+local mock_existing_dirty_implement_worktree_reuse = h.mock_existing_dirty_implement_worktree_reuse
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_branch_diff_paths = h.mock_branch_diff_paths
@@ -163,6 +164,11 @@ local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, ch
     stderr = "",
     exit_code = 0,
   })
+  t.mock_command("status --porcelain", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
   t.mock_command("git worktree remove --force", {
     stdout = "",
     stderr = "",
@@ -238,6 +244,54 @@ local function last_command_call_index(needle)
 end
 
 return {
+  test_redelivery_preserves_successful_agent_output_after_status_probe_timeout = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local implementing_comments = {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    }
+
+    mock_issue_implement({ "fkst-dev:ready" })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(0, "cached successful implementation output")
+    mock_git_status("", 124, "transient status timeout")
+    mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
+
+    local first = run_implement(event, opts("implement-output-status-timeout-first"))
+
+    t.eq(first.exit_code, 1)
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("reset --hard"), 1)
+    t.eq(count_calls("clean -fd"), 1)
+
+    mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
+    mock_missing_remote_branch(branch)
+    local worktree = mock_existing_dirty_implement_worktree_reuse(nil, branch, "0")
+    mock_implement_codex(0, "cached successful implementation output")
+    mock_git_status(" M backend/src/schedule/mod.rs\n?? backend/tests/schedule.rs\n")
+    mock_git_commit("2222222222222222222222222222222222222222", branch)
+    mock_issue_implement({ "fkst-dev:implementing" }, implementing_comments)
+
+    local retry = run_implement(event, opts("implement-output-status-timeout-redelivery"))
+
+    t.eq(retry.exit_code, 0)
+    t.eq(count_calls("codex exec"), 2)
+    t.eq(count_calls("reset --hard"), 1, "redelivery must not reset the dirty worktree")
+    t.eq(count_calls("clean -fd"), 1, "redelivery must not clean the dirty worktree")
+    t.eq(count_calls("merge --no-edit 'abc123'"), 1, "redelivery must not mutate preserved output during setup")
+    local final = find_raise(retry.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
+    end)
+    t.is_true(final ~= nil)
+    local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
+    t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
+    t.is_true(tostring(final.payload.body):find(worktree, 1, true) ~= nil)
+    t.eq(find_raise(retry.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("implementation failed: no-changes", 1, true) ~= nil
+    end), nil)
+  end,
+
   test_dirty_timeout_progress_is_committed_before_verification_and_pushed_as_wip_checkpoint = function()
     local event = ready()
     local branch = deterministic_branch_for(event)

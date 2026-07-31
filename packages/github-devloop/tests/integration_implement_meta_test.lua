@@ -325,7 +325,7 @@ return {
     t.eq(count_calls("git worktree add"), 0)
     t.eq(count_calls("codex exec"), 1)
     t.eq(count_calls("merge --no-edit 'abc123'"), 1)
-    t.eq(count_calls("status --porcelain"), 1)
+    t.eq(count_calls("status --porcelain"), 2)
     t.eq(count_calls("impl-failed"), 0)
   end,
 
@@ -471,11 +471,11 @@ return {
     t.eq(count_calls("codex exec"), 1)
   end,
 
-  test_implement_reused_worktree_is_reset_and_cleaned_before_merge = function()
+  test_implement_reused_clean_worktree_is_reset_and_cleaned_before_merge = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
-    local worktree = mock_existing_dirty_implement_worktree_reuse(nil, branch, "1")
+    local worktree = mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
     mock_implement_codex(0, "Committed implementation directly.")
     mock_git_status("")
     mock_branch_diff_paths("packages/github-devloop/core.lua\n")

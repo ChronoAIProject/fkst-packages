@@ -313,7 +313,7 @@ function M.new(deps)
     mock_substrate_pin_refresh(worktree, base_pin, branch_pin)
   end
 
-  local function mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count)
+  local function mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count, status_stdout)
     local runtime = path or default_runtime_root
     local worktree = enable_substrate_pin_refresh and implement_worktree_for(runtime, {})
       or (runtime .. "/worktrees/devloop-owner-repo-42-01HY")
@@ -347,7 +347,15 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    mock_implement_worktree_reconcile()
+    local worktree_status = status_stdout or ""
+    t.mock_command("status --porcelain", {
+      stdout = worktree_status,
+      stderr = "",
+      exit_code = 0,
+    })
+    if worktree_status == "" then
+      mock_implement_worktree_reconcile()
+    end
     t.mock_command("merge --no-edit 'abc123'", {
       stdout = "Already up to date.\n",
       stderr = "",
@@ -358,7 +366,8 @@ function M.new(deps)
   end
 
   local function mock_existing_dirty_implement_worktree_reuse(path, branch, ahead_count)
-    return mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count)
+    return mock_existing_empty_implement_worktree_reuse(path, branch, ahead_count,
+      " M packages/github-devloop/core.lua\n?? backend/src/schedule/\n")
   end
 
   local function mock_outside_runtime_implement_worktree_rebuild(runtime_root, branch)

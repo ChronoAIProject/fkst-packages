@@ -85,6 +85,25 @@ local function restore_remote_checkpoint_worktree(worktree, branch, checkpoint_h
   end
 end
 
+local function preserve_dirty_current_worktree(worktree, branch, ready)
+  if worktree == nil then
+    return false
+  end
+  local status_result = devloop_commands.git_status(worktree, 30)
+  if status_result.exit_code ~= 0 then
+    error("github-devloop: git-status-failed: git worktree status failed: " .. tostring(status_result.stderr))
+  end
+  if tostring(status_result.stdout or "") == "" then
+    return false
+  end
+  devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
+    "branch=" .. tostring(branch),
+    "worktree=" .. tostring(worktree),
+    "reason=preserving dirty current-runtime worktree for deterministic redelivery",
+  })
+  return true
+end
+
 function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
   local branch_ref = devloop_commands.git_show_ref_branch(branch, 30)
   local branch_exists = branch_ref.exit_code == 0
@@ -103,6 +122,11 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
       local list_result = devloop_commands.git_worktree_list(30)
       if list_result.exit_code ~= 0 then
         error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
+      end
+      local current_worktree = devloop_commands.find_worktree_for_branch_under_runtime(
+        list_result.stdout, branch, runtime_result.stdout)
+      if preserve_dirty_current_worktree(current_worktree, branch, ready) then
+        return current_worktree, true
       end
       for _, stale_worktree in ipairs(devloop_commands.find_worktrees_for_branch(list_result.stdout, branch)) do
         if stale_worktree ~= worktree then
@@ -126,6 +150,9 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
       error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
     end
     local existing_worktree = devloop_commands.find_worktree_for_branch_under_runtime(list_result.stdout, branch, runtime_result.stdout)
+    if preserve_dirty_current_worktree(existing_worktree, branch, ready) then
+      return existing_worktree, true
+    end
     for _, stale_worktree in ipairs(devloop_commands.find_worktrees_for_branch(list_result.stdout, branch)) do
       if not devloop_base.path_under_runtime_root(runtime_result.stdout, stale_worktree) then
         devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
@@ -164,7 +191,7 @@ function M.prepare_worktree(repo, issue_number, ready, branch, base_head, checkp
     end
   end
   M.reconcile_worktree_to_branch(worktree, branch)
-  return worktree
+  return worktree, false
 end
 
 function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
@@ -177,6 +204,11 @@ function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_he
   local list_result = devloop_commands.git_worktree_list(30)
   if list_result.exit_code ~= 0 then
     error("github-devloop: worktree-list-failed: git worktree list failed: " .. tostring(list_result.stderr))
+  end
+  local current_worktree = devloop_commands.find_worktree_for_branch_under_runtime(
+    list_result.stdout, branch, runtime_root)
+  if preserve_dirty_current_worktree(current_worktree, branch, ready) then
+    return current_worktree, true
   end
   for _, stale_worktree in ipairs(devloop_commands.find_worktrees_for_branch(list_result.stdout, branch)) do
     devloop_logging.log_line("info", "implement", ready.proposal_id, "IMPLEMENT", {
@@ -194,7 +226,7 @@ function M.prepare_worktree_from_base(repo, issue_number, ready, branch, base_he
   if worktree_result.exit_code ~= 0 then
     error("github-devloop: git-worktree-add-failed: git worktree reset add failed: " .. tostring(worktree_result.stderr))
   end
-  return worktree
+  return worktree, false
 end
 
 return M

@@ -267,12 +267,19 @@ local function merge_integration_for_implementation(worktree, integration_branch
 end
 
 local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, receiver_state, snapshot, decision, lock_key)
-  local worktree = bridge_marker ~= nil
-    and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-    or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
-  local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
-  merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
-  substrate_pin.refresh(worktree, branch, base_head, merge_clean)
+  local worktree, preserved
+  if bridge_marker ~= nil then
+    worktree, preserved = worktree_lifecycle.prepare_worktree_from_base(
+      repo, issue_number, ready, branch, base_head)
+  else
+    worktree, preserved = worktree_lifecycle.prepare_worktree(
+      repo, issue_number, ready, branch, base_head, checkpoint)
+  end
+  if not preserved then
+    local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
+    merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
+    substrate_pin.refresh(worktree, branch, base_head, merge_clean)
+  end
 
   local codex_started_at = now()
   local exec_ref = core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
