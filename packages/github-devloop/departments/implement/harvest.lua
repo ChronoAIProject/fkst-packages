@@ -95,10 +95,20 @@ function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, e
   }
 end
 
-function M.local_iteration_check(worktree)
-  local command = "cd " .. devloop_base._shell_single_quote(worktree)
-    .. " && " .. config.local_iteration_test_command()
+local function execute_local_iteration_check(worktree, base_head)
+  local command = "cd " .. devloop_base._shell_single_quote(worktree) .. " && "
+  if base_head ~= nil then
+    command = command .. "export BASE=" .. devloop_base._shell_single_quote(base_head) .. " && "
+  end
+  command = command .. config.local_iteration_test_command()
   return exec_sync({ cmd = command, timeout = 7200 })
+end
+
+function M.local_iteration_check(worktree, base_head)
+  if base_head == nil or tostring(base_head) == "" then
+    error("github-devloop: local-iteration-base-missing: candidate base head is required")
+  end
+  return execute_local_iteration_check(worktree, base_head)
 end
 
 local function command_detail(result)
@@ -152,7 +162,8 @@ local function run_base_probe(worktree, base_sha)
     return { status = "head-mismatch", head_readback = head_readback }
   end
 
-  local check = M.local_iteration_check(plan.worktree)
+  -- A raw-base probe has no candidate diff and must not inherit candidate comparison context.
+  local check = execute_local_iteration_check(plan.worktree, nil)
   local exit_code = type(check) == "table" and tonumber(check.exit_code) or nil
   local result = local_iteration_result.from_command(check)
   if exit_code == nil then
@@ -222,8 +233,8 @@ function M.base_local_iteration_probe(candidate_worktree, base_sha, probe_tag)
   return observation
 end
 
-local function run_local_iteration_check(ready, worktree)
-  local check = M.local_iteration_check(worktree)
+local function run_local_iteration_check(ready, worktree, base_head)
+  local check = M.local_iteration_check(worktree, base_head)
   local result = local_iteration_result.from_command(check)
   devloop_logging.log_line(result.kind == "PASS" and "info" or "warn", "implement", ready.proposal_id, "IMPLEMENT_VERIFY", {
     "exit_code=" .. tostring(check.exit_code),
@@ -234,10 +245,10 @@ local function run_local_iteration_check(ready, worktree)
   return result.kind == "PASS", command_detail(check), result
 end
 
-local function run_candidate_local_iteration_check(ready, worktree)
+local function run_candidate_local_iteration_check(ready, worktree, base_head)
   local green, detail, result
   for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
-    green, detail, result = run_local_iteration_check(ready, worktree)
+    green, detail, result = run_local_iteration_check(ready, worktree, base_head)
     if result.kind ~= "UNKNOWN" then
       return green, detail, result, verification_attempt
     end
@@ -317,7 +328,7 @@ end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
   local green, verify_detail, candidate_result, candidate_verification_attempt =
-    run_candidate_local_iteration_check(ready, worktree)
+    run_candidate_local_iteration_check(ready, worktree, base_head)
   if not green then
     local typed_failure_reason = local_iteration_failure_reasons[candidate_result.kind]
     if typed_failure_reason ~= nil then
@@ -384,7 +395,7 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   local green = false
   local verify_detail = ""
   if progress_head ~= nil then
-    green, verify_detail = run_local_iteration_check(ready, worktree)
+    green, verify_detail = run_local_iteration_check(ready, worktree, base_head)
   end
   if green and progress_head ~= nil then
     return implementation_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref)
