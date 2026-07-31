@@ -237,6 +237,7 @@ class TestAffectedHarness:
         package_results: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
+        env.pop("FKST_LOCAL_ITERATION_RESULT_FILE", None)
         # Scope derives from the worktree's own uncommitted edits, so these env
         # vars must NOT be required; spawned implement/fix codex environments do
         # not carry them. Drop them to assert env-independence (with_branch_env=False).
@@ -270,11 +271,15 @@ class TestAffectedHarness:
         self,
         shell_body: str,
         engine_result: str = "pass",
+        result_file: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
+        env.pop("FKST_LOCAL_ITERATION_RESULT_FILE", None)
         env["BIN"] = str(self.engine)
         env["FKST_NO_AUTOBUILD"] = "1"
         env["FKST_TEST_ENGINE_RESULT"] = engine_result
+        if result_file is not None:
+            env["FKST_LOCAL_ITERATION_RESULT_FILE"] = str(result_file)
         return subprocess.run(
             [
                 "/bin/bash",
@@ -456,6 +461,28 @@ class RunShTestAffectedTest(unittest.TestCase):
             self.assertEqual(
                 result_markers(result),
                 [result_marker("FAIL", "INFRASTRUCTURE")],
+            )
+        finally:
+            h.close()
+
+    def test_result_output_file_is_not_inherited_by_test_descendants(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result_file = Path(h.tmp) / "local-iteration-result"
+            result = h.run_test_process(
+                "cmd_check() { [ -z \"${FKST_LOCAL_ITERATION_RESULT_FILE:-}\" ]; }\n"
+                "resolve_bin() { :; }\n"
+                "ensure_fresh_bin() { :; }\n"
+                "cmd_test() { :; }\n"
+                "main test",
+                result_file=result_file,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(result_markers(result), [])
+            self.assertEqual(
+                result_file.read_text(encoding="utf-8"),
+                result_marker("PASS", "NONE") + "\n",
             )
         finally:
             h.close()
