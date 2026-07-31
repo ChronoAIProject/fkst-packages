@@ -110,6 +110,16 @@ local function record_outstanding(entries, row, allowed)
     entry.outstanding_at_ms = row.observed_at_ms
     entry.outstanding_id = row.delivery_id
   end
+  if lineage_key(dedup_key) ~= dedup_key and (entry.outstanding_rearm_key == nil or newer(
+    row.observed_at_ms,
+    row.delivery_id,
+    entry.outstanding_rearm_at_ms,
+    entry.outstanding_rearm_id
+  )) then
+    entry.outstanding_rearm_key = dedup_key
+    entry.outstanding_rearm_at_ms = row.observed_at_ms
+    entry.outstanding_rearm_id = row.delivery_id
+  end
 end
 
 local function record_terminal(entries, row, allowed)
@@ -158,6 +168,9 @@ function R.index(snapshot, queues)
       local outstanding_key = nil
       local outstanding_at_ms = nil
       local outstanding_id = nil
+      local outstanding_rearm_key = nil
+      local outstanding_rearm_at_ms = nil
+      local outstanding_rearm_id = nil
       local terminal_id = nil
       local terminal_at_ms = nil
       for _, entry in pairs(by_subscriber) do
@@ -171,6 +184,16 @@ function R.index(snapshot, queues)
           outstanding_at_ms = entry.outstanding_at_ms
           outstanding_id = entry.outstanding_id
         end
+        if entry.outstanding_rearm_key ~= nil and (outstanding_rearm_key == nil or newer(
+          entry.outstanding_rearm_at_ms,
+          entry.outstanding_rearm_id,
+          outstanding_rearm_at_ms,
+          outstanding_rearm_id
+        )) then
+          outstanding_rearm_key = entry.outstanding_rearm_key
+          outstanding_rearm_at_ms = entry.outstanding_rearm_at_ms
+          outstanding_rearm_id = entry.outstanding_rearm_id
+        end
         if entry.terminal_id ~= nil and (terminal_id == nil or newer(
           entry.terminal_at_ms,
           entry.terminal_id,
@@ -183,8 +206,8 @@ function R.index(snapshot, queues)
       end
       -- A rearm generation fans out to every subscriber, so keep it as the
       -- queue-wide outstanding generation until all subscriber copies drain.
-      if outstanding_key ~= nil and lineage_key(outstanding_key) ~= outstanding_key then
-        return outstanding_key
+      if outstanding_rearm_key ~= nil then
+        return outstanding_rearm_key
       end
       if terminal_id ~= nil then
         return tostring(base_key) .. "/rearm/" .. sha256.hex(terminal_id)

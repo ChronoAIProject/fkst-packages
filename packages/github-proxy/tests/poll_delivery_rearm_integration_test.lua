@@ -72,6 +72,23 @@ return {
       payload = payload_summary(rearm_key),
       last_error_excerpt = nil,
     }
+    local newer_live_base = {
+      delivery_id = "newer-live-base-delivery",
+      queue = queue,
+      dept = "github-devloop.observe_issue",
+      source = source(),
+      status = "in-flight",
+      observed_at_ms = 1785575100000,
+      not_before_ms = 1785575100000,
+      attempt = 0,
+      redrive_count = 0,
+      lease_generation = 1,
+      lease_until_ms = 1785575130000,
+      fence_token = "newer-live-base-delivery#1",
+      subscriber_absent_since_ms = nil,
+      payload = payload_summary(base_key),
+      last_error_excerpt = nil,
+    }
     local repeated_terminal = {
       delivery_id = next_terminal_id,
       queue = queue,
@@ -89,7 +106,7 @@ return {
     }
 
     mock_poll_inputs(intake)
-    t.mock_observe(delivery_snapshot({ live_sibling }, { repeated_terminal }))
+    t.mock_observe(delivery_snapshot({ live_sibling, newer_live_base }, { repeated_terminal }))
     local bounded = t.run_department("departments/github_poll/main.lua", {
       queue = "github_poll_tick",
       payload = {},

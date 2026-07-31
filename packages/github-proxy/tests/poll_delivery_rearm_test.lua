@@ -119,8 +119,13 @@ return {
     local rearm_key = base_key .. "/rearm/" .. sha256.hex(terminal_id)
     local next_terminal_id = terminal_id .. "/rearm-1"
     local next_terminal = terminal_row(rearm_key, next_terminal_id)
+    local live_rearm = live_row(rearm_key, "github-devloop-intake.admission")
+    local newer_live_base = live_row(base_key, "github-devloop.observe_issue")
+    newer_live_base.delivery_id = "newer-live-base-delivery"
+    newer_live_base.observed_at_ms = 1785574920000
     local while_sibling_live = rearm.index(snapshot({
-      live_row(rearm_key, "github-devloop.observe_issue"),
+      live_rearm,
+      newer_live_base,
     }, { next_terminal }))
 
     t.eq(while_sibling_live.key_for(queue, base_key), rearm_key)
