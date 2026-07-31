@@ -454,12 +454,32 @@ restart_one() {
   launch_one "$1" 1
 }
 
+# fmt_uptime <etime>: render `ps -o etime=` ([[DD-]HH:]MM:SS) with EXPLICIT units.
+# The raw format's leading field changes meaning with the field count, so `09:30` (nine minutes) and
+# `09:30:00` (nine hours) look alike at a glance — an operator read a 9m30s supervise uptime as 9h30m
+# and started diagnosing a nine-hour stall on a twelve-minute-old process. The producer owns making
+# this unambiguous; every reader of status/doctor/board gets it for free.
+fmt_uptime() {
+  local et="${1:-}" d=0 h=0 m=0 s=0 rest colons
+  [ -n "$et" ] || { printf '?'; return 0; }
+  rest="$et"
+  case "$rest" in *-*) d=$((10#${rest%%-*})); rest=${rest#*-} ;; esac
+  # `rest` is now [HH:]MM:SS — peel the hour field only when it is actually present, rather than
+  # indexing a fixed offset (a negative subscript would be evaluated even on the branch that discards it)
+  colons=${rest//[^:]/}
+  if [ ${#colons} -ge 2 ]; then h=$((10#${rest%%:*})); rest=${rest#*:}; fi
+  m=$((10#${rest%%:*})); s=$((10#${rest##*:}))
+  if [ "$d" -gt 0 ]; then printf '%dd%02dh' "$d" "$h"
+  elif [ "$h" -gt 0 ]; then printf '%dh%02dm' "$h" "$m"
+  else printf '%dm%02ds' "$m" "$s"; fi
+}
+
 status_one() {
   cfg "$1" || return 1
   local p log; p=$(pidof_df); log=$(latest_log "$1")
   if [ -z "$p" ]; then echo "[$1] STOPPED   (target $REPO)"; return 0; fi
   local et panic last hv pv
-  et=$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')
+  et=$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')")
   panic=$(engine_panic_count "$log")
   last=$(tail -1 "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-44)
   hv=$(git -C "$HOST" rev-parse HEAD 2>/dev/null | cut -c1-8)
@@ -510,7 +530,7 @@ doctor_one() {
     *)            verdict="$st" ;;
   esac
   printf '  %-9s RUNNING pid %s up %s | %s | worktree %s | panic %s\n' "$1" "$p" \
-    "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')" "$verdict" "$(git -C "$PKGSRC" rev-parse --short HEAD 2>/dev/null)" "$panic"
+    "$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" "$verdict" "$(git -C "$PKGSRC" rev-parse --short HEAD 2>/dev/null)" "$panic"
 }
 
 # durable_health_one <name>: surface redb delivery-queue state (stuck-pending events + dead-letters)
