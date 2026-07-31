@@ -576,37 +576,42 @@ local function process_ready_event(event)
       return
     end
     local state = devloop_state.current_state(current.comments, ready.proposal_id)
-    local gate = core.dependency_gate(repo, issue_number, {
-      proposal_id = ready.proposal_id,
-      version = core.ready_payload_inner_version(ready.dedup_key),
-      comments = current.comments,
-    })
-    if not gate.ok then
-      local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
-      local dep_version = core.ready_split_version(inner_ready_version)
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
-      devloop_logging.log_apply("implement", ready.proposal_id, "dependency_wait", dep_version, { add = { devloop_base._blocked_on_dependency_label }, remove = {} }, {
-        "github-proxy.github_issue_comment_request",
-        "github-proxy.github_issue_label_request",
+    -- The dependency gate is a ready-phase entry precondition. A redelivered ready
+    -- event past that phase can emit a newer ready-split marker whose version-first
+    -- ordering regresses the lifecycle without a generation bump.
+    if state == nil or state.state == nil or devloop_state.stage_rank(state.state) <= devloop_state.stage_rank("ready") then
+      local gate = core.dependency_gate(repo, issue_number, {
+        proposal_id = ready.proposal_id,
+        version = core.ready_payload_inner_version(ready.dedup_key),
+        comments = current.comments,
       })
-      devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", core.build_ready_split_canonicalized_comment_request(
-        repo,
-        issue_number,
-        ready.proposal_id,
-        inner_ready_version,
-        "dependency_wait",
-        dep_version,
-        gate,
-        ready.source_ref
-      ))
-      devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(repo,
-        issue_number,
-        { devloop_base._blocked_on_dependency_label },
-        {},
-        base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }),
-        ready.source_ref
-      ))
-      return
+      if not gate.ok then
+        local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
+        local dep_version = core.ready_split_version(inner_ready_version)
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
+        devloop_logging.log_apply("implement", ready.proposal_id, "dependency_wait", dep_version, { add = { devloop_base._blocked_on_dependency_label }, remove = {} }, {
+          "github-proxy.github_issue_comment_request",
+          "github-proxy.github_issue_label_request",
+        })
+        devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_comment_request", core.build_ready_split_canonicalized_comment_request(
+          repo,
+          issue_number,
+          ready.proposal_id,
+          inner_ready_version,
+          "dependency_wait",
+          dep_version,
+          gate,
+          ready.source_ref
+        ))
+        devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(repo,
+          issue_number,
+          { devloop_base._blocked_on_dependency_label },
+          {},
+          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }),
+          ready.source_ref
+        ))
+        return
+      end
     end
 
     local branches = config.branch_config()
