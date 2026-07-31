@@ -20,7 +20,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  git-239-compat:
+    runs-on: ubuntu-latest
+    container: debian:bookworm-slim
+    steps:
+      - name: Install Git 2.39
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git lua5.4
+
+      - name: Checkout fkst-packages
+        uses: actions/checkout@v4
+
+      - name: Verify Git 2.39 adapter compatibility
+        run: |
+          git --version | grep -Eq '^git version 2\.39\.'
+          LUA_BIN=lua5.4 bash scripts/git_compat_test.sh
+
   test:
+    needs: git-239-compat
     runs-on: ubuntu-latest
     steps:
       - name: Checkout fkst-packages
