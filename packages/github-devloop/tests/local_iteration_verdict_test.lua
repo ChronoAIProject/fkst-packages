@@ -53,6 +53,21 @@ return {
     t.eq(verdict.classify(result("UNKNOWN"), probe()), "INDETERMINATE")
   end,
 
+  test_typed_base_faults_have_exhaustive_non_attribution_dispositions = function()
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), probe({
+      exit = 1,
+      result = result("CONFIGURATION_FAIL"),
+    })), "BASE_CONFIGURATION_FAIL")
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), probe({
+      exit = 1,
+      result = result("TOOLCHAIN_FAIL"),
+    })), "BASE_TOOLCHAIN_FAIL")
+    t.eq(verdict.classify(result("SEMANTIC_FAIL"), probe({
+      exit = 1,
+      result = result("INFRASTRUCTURE_FAIL"),
+    })), "BASE_INFRASTRUCTURE_FAIL")
+  end,
+
   -- KNOWN v1 LIMITATION (open, three-point control deferred): when the raw base_sha
   -- probe is green but the candidate is red, v1 attributes it to the candidate
   -- (OWN_LOCAL_RED) even though the red could have been introduced by the harness
