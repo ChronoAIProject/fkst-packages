@@ -186,7 +186,8 @@ return {
     local issue = prompt_issue()
     local manifest = "Read these local files for your complete context.\nIssue JSON: /tmp/ctx/issue.json\nBoard digest: /tmp/ctx/board.txt\nPR diff patch: /tmp/ctx/diff.patch"
     local actor_prompts = {
-      core.build_implement_prompt("github-devloop/issue/owner/repo/42", issue, "Approved framing.", manifest),
+      core.build_implement_prompt("github-devloop/issue/owner/repo/42", issue, "Approved framing.", manifest,
+        nil, { implementation_version = "ready/context-layer", attempt = 1 }),
     }
 
     for _, prompt in ipairs(actor_prompts) do

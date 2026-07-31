@@ -408,9 +408,15 @@ local function append_gh_mock_patterns(patterns, command)
   if pr_close_number ~= nil then
     table.insert(patterns, "gh pr close " .. pr_close_number .. " --repo " .. pr_close_repo)
   end
-  local issue_close_number, issue_close_repo = text:match("^gh issue close '([^']+)' %-%-repo '([^']+)'$")
+  local issue_close_number, issue_close_repo, issue_close_reason =
+    text:match("^gh issue close '([^']+)' %-%-repo '([^']+)' %-%-reason '([^']+)'$")
   if issue_close_number ~= nil then
-    table.insert(patterns, "gh issue close " .. issue_close_number .. " --repo " .. issue_close_repo)
+    table.insert(patterns, "gh issue close " .. issue_close_number .. " --repo " .. issue_close_repo .. " --reason " .. issue_close_reason)
+  end
+  local duplicate_close_number, duplicate_close_repo, duplicate_of =
+    text:match("^gh issue close '([^']+)' %-%-repo '([^']+)' %-%-duplicate%-of '([^']+)'$")
+  if duplicate_close_number ~= nil then
+    table.insert(patterns, "gh issue close " .. duplicate_close_number .. " --repo " .. duplicate_close_repo .. " --duplicate-of " .. duplicate_of)
   end
   local diff_number, diff_repo = text:match("^gh pr diff '([^']+)' %-%-repo '([^']+)'$")
   if diff_number ~= nil then
@@ -785,8 +791,15 @@ local function install_legacy_command_renderers(core)
   core.gh_pr_close_cmd = core.gh_pr_close_cmd or function(repo, number)
     return "gh pr close " .. shell_single_quote(number) .. " --repo " .. shell_single_quote(repo)
   end
-  core.gh_issue_close_cmd = core.gh_issue_close_cmd or function(repo, number)
-    return "gh issue close " .. shell_single_quote(number) .. " --repo " .. shell_single_quote(repo)
+  core.gh_issue_close_cmd = core.gh_issue_close_cmd or function(repo, number, disposition)
+    local command = "gh issue close " .. shell_single_quote(number) .. " --repo " .. shell_single_quote(repo)
+    if disposition.kind == "completed" then
+      return command .. " --reason completed"
+    end
+    if disposition.kind == "not_planned" then
+      return command .. " --reason " .. shell_single_quote("not planned")
+    end
+    return command .. " --duplicate-of " .. shell_single_quote(disposition.duplicate_of)
   end
   core.gh_pr_diff_cmd = core.gh_pr_diff_cmd or function(repo, number)
     return "gh pr diff " .. shell_single_quote(number) .. " --repo " .. shell_single_quote(repo)

@@ -26,6 +26,7 @@ local expected_successor_kinds = {
   ["dependency_wait/blockers_released"] = "guard_boundary",
   ["dependency_wait/dependency_resolver_stale"] = "guard_boundary",
   ["implementing/revision_published"] = "autonomous",
+  ["implementing/implementation_refused"] = "autonomous",
   ["implementing/revision_failed"] = "autonomous",
   ["ready/blocker_reappeared"] = "guard_boundary",
   ["ready/actionable_kickoff_timeout"] = "timeout",
@@ -643,7 +644,7 @@ return {
       end
     end
     local actual = restart_edges.extract_autonomous_edges(owner, rows)
-    t.eq(#actual, 6)
+    t.eq(#actual, 7)
     assert_edges(actual, expected, empty_rows)
     assert_same_value(rows, snapshot)
 

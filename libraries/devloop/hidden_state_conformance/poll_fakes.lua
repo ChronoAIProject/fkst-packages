@@ -18,6 +18,7 @@ function S.with(core, opts, fn)
   local previous_git_fetch_branch = core.git.fetch_branch
   local previous_git_fetch_head_commit = core.git.fetch_head_commit
   local previous_git_remote_branch_head = core.git.remote_branch_head
+  local previous_git_fetch_pr_head_oid = git_commands.git_fetch_pr_head_oid
   local previous_git_fetch_pr_head_ref = git_commands.git_fetch_pr_head_ref
   local previous_git_fetch_head_commit_command = git_commands.git_fetch_head_commit
   local previous_pr_list_promotions = pr_commands.gh_pr_list_promotions
@@ -54,6 +55,9 @@ function S.with(core, opts, fn)
   git_commands.git_fetch_pr_head_ref = function()
     return { exit_code = 0, stdout = "", stderr = "" }
   end
+  git_commands.git_fetch_pr_head_oid = function()
+    return { exit_code = 0, stdout = head_sha, stderr = "" }
+  end
   git_commands.git_fetch_head_commit = function()
     return { exit_code = 0, stdout = head_sha, stderr = "" }
   end
@@ -88,6 +92,7 @@ function S.with(core, opts, fn)
   core.git.fetch_branch = previous_git_fetch_branch
   core.git.fetch_head_commit = previous_git_fetch_head_commit
   core.git.remote_branch_head = previous_git_remote_branch_head
+  git_commands.git_fetch_pr_head_oid = previous_git_fetch_pr_head_oid
   git_commands.git_fetch_pr_head_ref = previous_git_fetch_pr_head_ref
   git_commands.git_fetch_head_commit = previous_git_fetch_head_commit_command
   pr_commands.gh_pr_list_promotions = previous_pr_list_promotions

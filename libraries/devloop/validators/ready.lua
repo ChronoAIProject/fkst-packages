@@ -37,6 +37,9 @@ local function is_supported_blocked_reimplement(payload)
     local round = tonumber(reentry.timeout_round)
     return reentry.pr_number == nil and round ~= nil and round >= 1 and round == math.floor(round)
   end
+  if reentry.terminal_reason == "implementation-refusal" then
+    return reentry.pr_number == nil and reentry.timeout_round == nil
+  end
   return reentry.terminal_reason == nil and forge_validators.is_positive_pr_number(reentry.pr_number)
 end
 

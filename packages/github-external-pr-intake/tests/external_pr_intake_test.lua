@@ -236,8 +236,8 @@ local function new_fake_github(opts)
     table.insert(pr.comments, { author_login = "fkst-test-bot", body = body })
     return { stdout = "", stderr = "", exit_code = 0 }
   end
-  function handle.issue_close(repo, issue_number, timeout)
-    table.insert(model.writes, { kind = "issue_close", repo = repo, issue_number = issue_number, timeout = timeout })
+  function handle.issue_close(repo, issue_number, disposition, timeout)
+    table.insert(model.writes, { kind = "issue_close", repo = repo, issue_number = issue_number, disposition = disposition, timeout = timeout })
     for _, issue in ipairs(model.issues or {}) do
       if tonumber(issue.number) == tonumber(issue_number) then
         issue.state = "CLOSED"
@@ -715,6 +715,7 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
     t.eq(count_kind(writes, "issue_create"), 1)
     t.eq(count_kind(writes, "issue_close"), 1)
     t.eq(write_of_kind(writes, "issue_close").issue_number, 99)
+    t.eq(write_of_kind(writes, "issue_close").disposition.duplicate_of, 88)
     t.is_true(marker.body:find('issue="88"', 1, true) ~= nil)
   end,
 

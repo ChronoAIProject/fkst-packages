@@ -117,7 +117,7 @@ return {
       state_comment(sibling_repo, 61, "merged"),
     })
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, true)
+    t.eq(core.dependency_gate_is_satisfied(gate), true)
     t.eq(gate.kind, "satisfied")
   end,
 
@@ -147,7 +147,7 @@ return {
       },
     })
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, true)
+    t.eq(core.dependency_gate_is_satisfied(gate), true)
     t.eq(gate.kind, "satisfied")
   end,
 
@@ -158,7 +158,7 @@ return {
       state_comment(sibling_repo, 64, "merged", "ordinary-user"),
     })
     local stranger = core.dependency_gate(repo, 42)
-    t.eq(stranger.ok, false)
+    t.eq(core.dependency_gate_is_satisfied(stranger), false)
     t.eq(stranger.kind, "waiting")
     t.eq(stranger.unmet[1], 64)
 
@@ -168,7 +168,7 @@ return {
       state_comment(sibling_repo, 65, "ready"),
     })
     local open = core.dependency_gate(repo, 42)
-    t.eq(open.ok, false)
+    t.eq(core.dependency_gate_is_satisfied(open), false)
     t.eq(open.kind, "waiting")
     t.eq(open.unmet[1], 65)
   end,
@@ -178,7 +178,7 @@ return {
     mock_blocked_by(42, { { number = 69, repo = sibling_repo, state = "CLOSED", state_reason = "COMPLETED" } })
     mock_repo_blocker_issue(sibling_repo, 69, {})
     local gate = core.dependency_gate(repo, 42)
-    t.eq(gate.ok, false)
+    t.eq(core.dependency_gate_is_satisfied(gate), false)
     t.eq(gate.kind, "waiting")
     t.eq(gate.reason, "waiting-on-dependency")
     t.eq(gate.unmet[1], 69)
@@ -188,8 +188,9 @@ return {
     mock_managed_repos("")
     mock_blocked_by(42, { { number = 66, repo = sibling_repo, state = "CLOSED", state_reason = "COMPLETED" } })
     local unmanaged = core.dependency_gate(repo, 42)
-    t.eq(unmanaged.ok, false)
-    t.eq(unmanaged.kind, "unresolvable")
+    t.eq(core.dependency_gate_is_satisfied(unmanaged), false)
+    t.eq(unmanaged.kind, "verified_cannot_proceed")
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(unmanaged, repo, 42), true)
     t.eq(unmanaged.reason, "cross-repo-blocker")
   end,
 
@@ -197,8 +198,9 @@ return {
     mock_managed_repos(foreign_repo .. "," .. sibling_repo)
     mock_blocked_by(42, { { number = 67, repo = foreign_repo, state = "CLOSED", state_reason = "COMPLETED" } })
     local different_owner = core.dependency_gate(repo, 42)
-    t.eq(different_owner.ok, false)
-    t.eq(different_owner.kind, "unresolvable")
+    t.eq(core.dependency_gate_is_satisfied(different_owner), false)
+    t.eq(different_owner.kind, "verified_cannot_proceed")
+    t.eq(core.dependency_gate_is_verified_cannot_proceed(different_owner, repo, 42), true)
     t.eq(different_owner.reason, "cross-repo-blocker")
   end,
 
@@ -207,9 +209,9 @@ return {
     mock_blocked_by(42, { { number = 68, repo = sibling_repo, state = "CLOSED", state_reason = "COMPLETED" } })
     mock_repo_blocker_issue_failure(sibling_repo, 68)
     local failed = core.dependency_gate(repo, 42)
-    t.eq(failed.ok, false)
-    t.eq(failed.kind, "unresolvable")
+    t.eq(core.dependency_gate_is_satisfied(failed), false)
+    t.eq(failed.kind, "unavailable")
     t.eq(failed.reason, "gh-failed")
-    t.eq(failed.unmet[1], 68)
+    t.eq(#failed.unmet, 0)
   end,
 }

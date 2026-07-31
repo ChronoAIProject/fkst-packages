@@ -1,5 +1,15 @@
+local implementation_refusal = require("core.implementation_refusal")
+
+local generic_result_contract = [[## Implementation result
+Result identity: proposal `{{proposal_id}}`, implementation version `{{implementation_version}}`, attempt `{{attempt}}`.
+
+Your final stdout must be exactly one JSON object with schema `github-devloop.implementation-result.v1`; do not wrap it in Markdown or add prose. Always include exactly `schema`, `outcome`, `proposal_id`, `implementation_version`, and `attempt`.
+- Use `outcome="changes-produced"` after producing repository changes.
+]] .. implementation_refusal.prompt_contract()
+
 return {
   profiles = {
+    generic = generic_result_contract,
     ["lean-proof"] = [[## Implementation profile: `lean-proof`
 Target: `{{target}}`
 This attempt has {{attempt_timeout_seconds}} seconds from the existing `FKST_CODEX_TIMEOUT_IMPLEMENT` authority.

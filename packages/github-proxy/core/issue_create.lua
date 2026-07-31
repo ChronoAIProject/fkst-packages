@@ -3,11 +3,15 @@ local S = {}
 function S.install(M, deps)
 local shared = deps or M
 local strings = require("contract.strings")
-local max_title_len = 240
-local max_body_len = 12000
+local issue_create_limits = require("contract.github_issue_create").limits()
+local max_repo_len = issue_create_limits.repo
+local max_title_len = issue_create_limits.title
+local max_body_len = issue_create_limits.body
 local max_label_len = 80
 local max_login_len = 80
-local max_dedup_len = 512
+local max_dedup_len = issue_create_limits.dedup_key
+local max_source_ref_kind_len = issue_create_limits.source_ref_kind
+local max_source_ref_ref_len = issue_create_limits.source_ref_ref
 local max_runtime_id_len = 180
 local max_issue_number_len = 32
 
@@ -176,7 +180,7 @@ local function normalize_parent_comment_target(target)
   if target == nil then
     return nil
   end
-  if type(target) ~= "table" or not strings.is_bounded_string(target.repo, 200) then
+  if type(target) ~= "table" or not strings.is_bounded_string(target.repo, max_repo_len) then
     return false
   end
   if shared.is_positive_integer(target.pr_number) then
@@ -375,7 +379,7 @@ function M.validate_issue_create_payload(payload)
   if payload.schema ~= "github-proxy.issue-create.v1" then
     return false
   end
-  if not strings.is_bounded_string(payload.repo, 200) then
+  if not strings.is_bounded_string(payload.repo, max_repo_len) then
     return false
   end
   if not strings.is_bounded_string(payload.title, max_title_len) then
@@ -388,8 +392,8 @@ function M.validate_issue_create_payload(payload)
     return false
   end
   if type(payload.source_ref) ~= "table"
-    or not strings.is_bounded_string(payload.source_ref.kind, 80)
-    or not strings.is_bounded_string(payload.source_ref.ref, 200) then
+    or not strings.is_bounded_string(payload.source_ref.kind, max_source_ref_kind_len)
+    or not strings.is_bounded_string(payload.source_ref.ref, max_source_ref_ref_len) then
     return false
   end
   if payload.labels ~= nil then

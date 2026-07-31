@@ -76,7 +76,10 @@ function M.check(repo, issue_number, ready, origin, original, managed)
   devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request",
     duplicate_label(repo, issue_number, ready, origin, canonical))
   if devloop_base.read_env("FKST_GITHUB_WRITE") == "1" then
-    local closed = devloop_commands.gh_issue_close(repo, issue_number, 30)
+    local closed = devloop_commands.gh_issue_close(repo, issue_number, {
+      kind = "duplicate",
+      duplicate_of = canonical,
+    }, 30)
     if type(closed) ~= "table" or closed.exit_code ~= 0 then
       error("github-devloop: duplicate-fork-close-failed: duplicate fork close failed: " .. tostring(closed and closed.stderr or "missing result"))
     end

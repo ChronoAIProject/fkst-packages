@@ -53,10 +53,14 @@ function M.implementation_branch_version(version, attempt)
   if attempt ~= nil and retry_attempt == nil then
     error("github-devloop: invalid-attempt: invalid implementation branch attempt")
   end
-  if replacement_round == 1 then
+  if replacement_round == 1 and (retry_attempt == nil or retry_attempt == replacement_round) then
     return tostring(version or "")
   end
-  if replacement_round ~= 0 and retry_attempt ~= nil and replacement_round ~= retry_attempt then
+  if replacement_round ~= 0
+    and retry_attempt ~= nil
+    and replacement_round ~= retry_attempt
+    and replacement_round + 1 ~= retry_attempt
+  then
     error("github-devloop: invalid-version-lineage: implementation retry suffix does not match structured attempt")
   end
   return M.implementation_base_version(version)

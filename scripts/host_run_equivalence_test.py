@@ -244,6 +244,8 @@ class DogfoodLayout:
                 )
             (platform / "scripts").mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO_ROOT / "scripts" / "run.sh", platform / "scripts" / "run.sh")
+            shutil.copy2(REPO_ROOT / "scripts" / "local_iteration_result.sh", platform / "scripts" / "local_iteration_result.sh")
+            shutil.copy2(REPO_ROOT / "scripts" / "run_bin.sh", platform / "scripts" / "run_bin.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_affected.sh", platform / "scripts" / "test_affected.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_parallel.sh", platform / "scripts" / "test_parallel.sh")
             shutil.copy2(REPO_ROOT / "scripts" / "test_deadline.sh", platform / "scripts" / "test_deadline.sh")

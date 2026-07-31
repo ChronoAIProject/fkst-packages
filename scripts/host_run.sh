@@ -131,18 +131,29 @@ def lock_sources(lock_path: Path) -> list[dict[str, object]]:
     return sources
 
 
-def validate_source(source: dict[str, object]) -> tuple[str, str, str]:
+def validate_source_id(source: dict[str, object], context: str) -> str:
     source_id = source.get("id")
+    if not isinstance(source_id, str) or not ID_RE.fullmatch(source_id) or source_id in {".", ".."}:
+        fail(f"{context} has invalid id")
+    return source_id
+
+
+def record_unique_source_id(source_id: str, locations: dict[str, str], location: str) -> None:
+    first_location = locations.get(source_id)
+    if first_location is not None:
+        fail(f"duplicate source id '{source_id}' at {first_location} and {location}")
+    locations[source_id] = location
+
+
+def validate_lock_source(source: dict[str, object], source_id: str) -> tuple[str, str]:
     git_url = source.get("git")
     resolved = source.get("resolved")
     rev = resolved.get("rev") if isinstance(resolved, dict) else None
-    if not isinstance(source_id, str) or not ID_RE.fullmatch(source_id) or source_id in {".", ".."}:
-        fail("fkst.lock external_source has invalid id")
     if not isinstance(git_url, str) or not git_url:
         fail(f"fkst.lock external_source(id={source_id}) is missing git")
     if not isinstance(rev, str) or not REV_RE.fullmatch(rev):
         fail(f"fkst.lock external_source(id={source_id}) is missing resolved.rev as a full git SHA")
-    return source_id, git_url, rev.lower()
+    return git_url, rev.lower()
 
 
 def is_scp_like_url(value: str) -> bool:
@@ -222,11 +233,15 @@ for package in list_of_tables(workspace, "package"):
         workspace_packages[name] = "workspace"
 
 external_sources: dict[str, dict[str, object]] = {}
-for source in list_of_tables(workspace, "external_sources"):
-    source_id = source.get("id")
+workspace_source_locations: dict[str, str] = {}
+for entry_number, source in enumerate(list_of_tables(workspace, "external_sources"), start=1):
+    source_id = validate_source_id(source, "fkst.workspace.toml external_sources")
+    record_unique_source_id(
+        source_id,
+        workspace_source_locations,
+        f"fkst.workspace.toml external_sources[{entry_number}]",
+    )
     git_url = source.get("git")
-    if not isinstance(source_id, str) or not ID_RE.fullmatch(source_id) or source_id in {".", ".."}:
-        fail("fkst.workspace.toml external_sources has invalid id")
     if not isinstance(git_url, str) or not git_url:
         fail(f"fkst.workspace.toml external_sources(id={source_id}) is missing git")
     packages = string_list(source.get("packages", []), f"external_sources(id={source_id}).packages")
@@ -256,8 +271,15 @@ if needed_external_source_ids:
     lock_path = project_root / "fkst.lock"
     if not lock_path.is_file():
         fail(f"target fkst.lock is required for external platform packages: {lock_path}")
-    for source in lock_sources(lock_path):
-        source_id, git_url, rev = validate_source(source)
+    lock_source_locations: dict[str, str] = {}
+    for entry_number, source in enumerate(lock_sources(lock_path), start=1):
+        source_id = validate_source_id(source, "fkst.lock external_source")
+        record_unique_source_id(
+            source_id,
+            lock_source_locations,
+            f"fkst.lock external_source[{entry_number}]",
+        )
+        git_url, rev = validate_lock_source(source, source_id)
         lock_by_id[source_id] = (git_url, rev)
 
 source_roots: dict[str, Path] = {}

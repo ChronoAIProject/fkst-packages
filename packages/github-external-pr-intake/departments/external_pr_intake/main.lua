@@ -147,14 +147,14 @@ local function reconcile_created_bridge_issue(github, repo, pr_number, managed, 
     local issue_number = tonumber(issue.issue_number)
     if issue_number ~= nil and not seen[issue_number] then
       seen[issue_number] = true
-      github.issue_close(repo, issue_number, 30)
+      github.issue_close(repo, issue_number, { kind = "duplicate", duplicate_of = canonical }, 30)
     end
   end
   if created_issue_number ~= nil
     and canonical ~= nil
     and tonumber(created_issue_number) ~= tonumber(canonical)
     and not seen[tonumber(created_issue_number)] then
-    github.issue_close(repo, created_issue_number, 30)
+    github.issue_close(repo, created_issue_number, { kind = "duplicate", duplicate_of = canonical }, 30)
   end
   return canonical
 end

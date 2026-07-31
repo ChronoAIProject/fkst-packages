@@ -148,15 +148,13 @@ local function replay_implementing(M, dept, issue, state, row, facts)
   end
   -- Pass the INNER (unwrapped) version: build_devloop_ready_payload re-applies
   -- the "ready/" wrapper, so re-wrapping the already-wrapped state.version would
-  -- double-wrap it ("ready/ready/..."). Preserve the retry suffix as structured
-  -- attempt metadata so re-drives reproduce frozen "ready/.../reimplement/N"
-  -- markers exactly.
+  -- double-wrap it ("ready/ready/..."). Derive lifecycle retry identity from the
+  -- authoritative state version; implement-attempt.attempt is audit-only.
   local payload = payloads_builders.build_devloop_ready_payload(M, {
     proposal_id = proposal_id,
     dedup_key = M.ready_payload_inner_version(state.version),
     source_ref = issue.source_ref,
-    impl_retry_attempt = tonumber(attempt and attempt.attempt)
-      or M.implementation_retry_attempt(state.version),
+    impl_retry_attempt = M.implementation_retry_attempt(state.version),
     redrive_delivery = facts.redrive_delivery,
   })
   devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", "implementing", "applied(codex-run-absent)", "no matching implement codex run is running")

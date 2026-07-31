@@ -10,8 +10,15 @@ local m_builders = require("devloop.markers.builders")
 local github_commands = require("forge.github").new(function() end)
 gh_argv.install(t, core)
 
+local implement_fixtures = require("testkit_internal.devloop_worktree_fixtures").new({
+  devloop_base = devloop_base,
+  base_ids = base_ids,
+  base = { t = t, core = core },
+})
+
 local repo = "owner/repo"
 local origin_issue = 2133
+local origin_blocker_issue = 2132
 local first_child_issue = 2134
 local revived_child_issue = 2137
 local origin = base_ids.proposal_id(repo, origin_issue)
@@ -36,34 +43,117 @@ local function json_escape(value)
     :gsub("\n", "\\n")
 end
 
-local function comment_json(body, created_at)
+local function comment_json(body, created_at, id)
+  local id_field = id ~= nil and '"id":"' .. json_escape(id) .. '",' or ""
   return string.format(
-    '{"body":"%s","createdAt":"%s","author":{"login":"fkst-test-bot"}}',
+    '{%s"body":"%s","createdAt":"%s","author":{"login":"fkst-test-bot"}}',
+    id_field,
     json_escape(body),
     tostring(created_at or "2026-07-10T20:18:00Z")
   )
 end
 
-local function issue_json(number, title, labels, comments, state)
+local function issue_json(number, title, labels, comments, state, body)
   local comment_parts = {}
   for index, item in ipairs(comments or {}) do
-    comment_parts[index] = comment_json(item.body or item, item.created_at)
+    comment_parts[index] = comment_json(item.body or item, item.created_at, item.id)
   end
   local label_parts = {}
   for index, label in ipairs(labels or {}) do
     label_parts[index] = string.format('{"name":"%s"}', json_escape(label))
   end
   return string.format(
-    '{"number":%d,"title":"%s","body":"fixture","state":"%s","createdAt":"2026-07-10T20:00:00Z","updatedAt":"2026-07-12T00:25:02Z","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
+    '{"number":%d,"title":"%s","body":"%s","state":"%s","createdAt":"2026-07-10T20:00:00Z","updatedAt":"2026-07-12T00:25:02Z","labels":[%s],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
     number,
     json_escape(title),
+    json_escape(body or "fixture"),
     tostring(state or "OPEN"),
     table.concat(label_parts, ","),
     table.concat(comment_parts, ",")
   )
 end
 
-local function rest_comments_json(comments)
+local rest_comments_json
+
+local function mock_child_issue_reads(issue_number, title, body, labels, comments)
+  local stdout = issue_json(issue_number, title, labels, comments, "OPEN", body)
+  for _ = 1, 8 do
+    for _, command in ipairs({
+      core.gh_issue_view_state_cmd(repo, issue_number),
+      core.gh_issue_view_intake_judge_cmd(repo, issue_number),
+      core.gh_issue_view_implement_cmd(repo, issue_number),
+      core.gh_issue_view_claim_cmd(repo, issue_number),
+      core.gh_issue_view_commit_subject_cmd(repo, issue_number),
+      "gh issue view " .. tostring(issue_number) .. " --repo " .. repo
+        .. " --json 'title,body,updatedAt,labels,comments,state,author'",
+    }) do
+      t.mock_command(command, { stdout = stdout, stderr = "", exit_code = 0 })
+    end
+  end
+
+  local path = "repos/" .. repo .. "/issues/" .. tostring(issue_number)
+  local rest = string.format(
+    '{"number":%d,"title":"%s","body":"%s","state":"open","created_at":"2026-07-10T20:00:00Z","updated_at":"2026-07-12T00:25:03Z","labels":[{"name":"fkst-dev:enabled"},{"name":"fkst-dev:ready"}],"user":{"login":"fkst-test-bot"},"assignees":[{"login":"fkst-test-bot"}]}\n',
+    issue_number,
+    json_escape(title),
+    json_escape(body)
+  )
+  for _ = 1, 12 do
+    t.mock_command("gh api '" .. path .. "' --jq '.updated_at'", {
+      stdout = "2026-07-12T00:25:03Z\n", stderr = "", exit_code = 0,
+    })
+    t.mock_command("gh api '" .. path .. "' --jq '.updated_at // .updatedAt // \"\"'", {
+      stdout = "2026-07-12T00:25:03Z\n", stderr = "", exit_code = 0,
+    })
+    t.mock_command("gh api '" .. path .. "'", { stdout = rest, stderr = "", exit_code = 0 })
+    t.mock_command("gh api --paginate --slurp '" .. path .. "/comments?per_page=100'", {
+      stdout = rest_comments_json(comments), stderr = "", exit_code = 0,
+    })
+  end
+end
+
+local function mock_child_implementation_context()
+  local runtime = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child"
+  for _ = 1, 24 do
+    t.mock_command('printf %s "$FKST_RUNTIME_ROOT"', {
+      stdout = runtime, stderr = "", exit_code = 0,
+    })
+  end
+  for _, name in ipairs({
+    "FKST_DEVLOOP_UPSTREAM_BRANCH",
+    "FKST_DEVLOOP_INTEGRATION_BRANCH",
+    "FKST_DEVLOOP_MAX_INFLIGHT",
+    "FKST_DEVLOOP_MANAGED_SIBLING_REPOS",
+  }) do
+    for _ = 1, 8 do
+      t.mock_command('printf %s "$' .. name .. '"', {
+        stdout = name == "FKST_DEVLOOP_UPSTREAM_BRANCH" and "dev" or "",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+  end
+  for _ = 1, 3 do
+    t.mock_command("test -d", { stdout = "", stderr = "", exit_code = 1 })
+    t.mock_command("test -e", { stdout = "", stderr = "", exit_code = 1 })
+  end
+  t.mock_command("install -d -m 0755", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("mktemp -d", {
+    stdout = runtime .. "/context/.bundle-tmp.mocked\n", stderr = "", exit_code = 0,
+  })
+  for _ = 1, 12 do
+    t.mock_command("touch ", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("printf %s '", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command(" > ", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("test -r", { stdout = "", stderr = "", exit_code = 0 })
+    t.mock_command("wc -c < ", { stdout = "1\n", stderr = "", exit_code = 0 })
+  end
+  for _ = 1, 3 do
+    t.mock_command("python3 -c", { stdout = "", stderr = "", exit_code = 0 })
+  end
+end
+
+rest_comments_json = function(comments)
   local parts = {}
   for index, item in ipairs(comments or {}) do
     parts[index] = string.format(
@@ -78,6 +168,24 @@ end
 
 local function ownership_json()
   return '{"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n'
+end
+
+local function blocked_by_json(nodes)
+  local rendered = {}
+  for index, node in ipairs(nodes or {}) do
+    rendered[index] = string.format(
+      '{"number":%d,"state":"%s","stateReason":"%s","repository":{"nameWithOwner":"%s"}}',
+      tonumber(node.number),
+      tostring(node.state or "OPEN"),
+      tostring(node.state_reason or ""),
+      tostring(node.repo or repo)
+    )
+  end
+  return '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":'
+    .. tostring(#rendered)
+    .. ',"pageInfo":{"hasNextPage":false},"nodes":['
+    .. table.concat(rendered, ",")
+    .. ']}}}}}\n'
 end
 
 local function created_materialization_marker(blueprint, slot, predecessor_digest, child_issue)
@@ -129,7 +237,7 @@ local function workflow_history(include_revived_child, terminal_body)
   if terminal_body ~= nil then
     comments[#comments + 1] = { body = terminal_body, created_at = "2026-07-10T20:43:00Z" }
   end
-  return comments
+  return comments, core.materialization.child_dedup_key(origin, blueprint.steps[2].id, second_predecessor)
 end
 
 local function child_history(proposal_id, issue_number, pr_number, merged)
@@ -236,7 +344,50 @@ local function mock_pr_view(state)
   })
 end
 
-local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout)
+local function mock_origin_dependency(blocker_state)
+  t.mock_command(devloop_base.read_env_command("FKST_DEVLOOP_MANAGED_SIBLING_REPOS"), {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(core.gh_blocked_by_cmd(repo, origin_issue), {
+    stdout = blocked_by_json(blocker_state and {
+      {
+        number = origin_blocker_issue,
+        state = blocker_state,
+        state_reason = blocker_state == "CLOSED" and "COMPLETED" or "",
+      },
+    } or {}),
+    stderr = "",
+    exit_code = 0,
+  })
+  if blocker_state == nil then
+    return
+  end
+  if blocker_state ~= "CLOSED" then
+    t.mock_command(core.gh_blocked_by_cmd(repo, origin_blocker_issue), {
+      stdout = blocked_by_json({}),
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  local blocker_proposal = base_ids.proposal_id(repo, origin_blocker_issue)
+  local blocker_milestone = blocker_state == "CLOSED" and "merged" or "ready"
+  t.mock_command(core.gh_issue_view_observe_cmd(repo, origin_blocker_issue), {
+    stdout = issue_json(
+      origin_blocker_issue,
+      "Workflow origin blocker",
+      { "fkst-dev:" .. blocker_milestone },
+      { { body = core.state_marker(blocker_proposal, blocker_milestone, "blocker-version") } },
+      blocker_state
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_materialization_cycle(origin_comments, revived_state, pr_state, releases_claim, revived_stdout, blocker_state)
+  mock_origin_dependency(blocker_state)
   t.mock_command("gh api --paginate --slurp 'repos/" .. repo .. "/issues?state=open&per_page=100'", {
     stdout = '[[{"number":' .. tostring(origin_issue) .. ',"title":"Workflow origin","state":"OPEN","updatedAt":"2026-07-12T00:25:02Z"}]]\n',
     stderr = "",
@@ -297,8 +448,8 @@ local function mock_write_mode(value, times)
   end
 end
 
-local function mock_child_materialization()
-  for _ = 1, 2 do
+local function mock_child_materialization(created_issue, child_dedup)
+  for _ = 1, 3 do
     t.mock_command("gh issue list", { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
   t.mock_command("codex exec", {
@@ -306,6 +457,26 @@ local function mock_child_materialization()
     stderr = "",
     exit_code = 0,
   })
+  if created_issue == nil then return end
+  local comments_cmd = "gh api --paginate --slurp 'repos/" .. repo .. "/issues/"
+    .. tostring(origin_issue) .. "/comments?per_page=100'"
+  t.mock_command(comments_cmd, { stdout = rest_comments_json({}), stderr = "", exit_code = 0 })
+  t.mock_command(comments_cmd, {
+    stdout = rest_comments_json({ { body = '<!-- fkst:github-proxy:issue-create-intent:v1 dedup="'
+      .. tostring(child_dedup) .. '" -->' } }), stderr = "", exit_code = 0,
+  })
+  for _, kind in ipairs({ "intent", "created" }) do
+    t.mock_command("gh issue comment " .. tostring(origin_issue) .. " --repo " .. repo
+      .. " --body-file /tmp/fkst-github-proxy-" .. kind .. "-", { stdout = "", stderr = "", exit_code = 0 })
+  end
+  t.mock_command("gh issue create", {
+    stdout = "https://github.example/" .. repo .. "/issues/" .. tostring(created_issue) .. "\n", stderr = "", exit_code = 0,
+  })
+  t.mock_command("gh api 'repos/" .. repo .. "/issues/" .. tostring(created_issue) .. "'", {
+    stdout = '{"id":987654321,"number":' .. tostring(created_issue) .. '}\n', stderr = "", exit_code = 0,
+  })
+  t.mock_command("gh api --method POST repos/" .. repo .. "/issues/" .. tostring(origin_issue)
+    .. "/sub_issues -F sub_issue_id=987654321", { stdout = "", stderr = "", exit_code = 0 })
 end
 
 local function mock_native_merge_observation()
@@ -337,16 +508,14 @@ local function mock_native_merge_observation()
       .. '","repo":{"full_name":"' .. repo .. '"}},"base":{"ref":"' .. upstream_branch .. '"}}]]\n',
     stderr = "", exit_code = 0,
   })
-  t.mock_command(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr), {
-    stdout = "", stderr = "", exit_code = 0,
-  })
-  t.mock_command(core.git_fetch_head_commit_cmd(), {
-    stdout = rollup_head_sha .. "\n", stderr = "", exit_code = 0,
-  })
+  t.mock_command("git fetch --no-write-fetch-head origin '+refs/pull/" .. tostring(rollup_pr)
+    .. "/head:refs/fkst/pr/" .. tostring(rollup_pr) .. "'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command(core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(rollup_pr)),
+    { stdout = rollup_head_sha .. "\n", stderr = "", exit_code = 0 })
   t.mock_command("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha, {
     stdout = "", stderr = "", exit_code = 0,
   })
-  t.mock_command(core.gh_issue_close_cmd(repo, revived_child_issue), {
+  t.mock_command(core.gh_issue_close_cmd(repo, revived_child_issue, { kind = "completed" }), {
     stdout = "closed\n", stderr = "", exit_code = 0,
   })
 end
@@ -595,5 +764,134 @@ return {
     local done = graph.require_raise(recovered_trace, "github-proxy.github_issue_comment_request")
     t.is_true(done.payload.body:find('state="done"', 1, true) ~= nil)
     t.is_true(done.payload.body:find('reason_code="all-slots-result-ready"', 1, true) ~= nil)
+  end,
+
+  test_run_graph_origin_dependency_holds_then_releases_materialization = function()
+    mock_env()
+    mock_write_mode("", 4)
+    local release_history, released_child_dedup = workflow_history(false)
+    mock_child_materialization(revived_child_issue, released_child_dedup)
+    mock_materialization_cycle(release_history, nil, nil, false, nil, "OPEN")
+
+    local held = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/dependency-held" },
+    }, { max_steps = 4 }))
+    t.eq(graph.find_raise(held, "github-proxy.github_issue_create_request"), nil)
+
+    mock_env()
+    mock_write_mode("1", 4)
+    mock_materialization_cycle(release_history, nil, nil, false, nil, "CLOSED")
+    local released = graph.require_quiescent(graph.run({
+      queue = "github-devloop-workflow.workflow_materialization_tick",
+      payload = { schema = "github-devloop-workflow.materialization-tick.v1" },
+      source_ref = { kind = "cron", reference = "github-devloop-workflow.materialization_poll/dependency-released" },
+    }, { max_steps = 4 }))
+    graph.assert_covers(released, {
+      "github-devloop-workflow.workflow_materialization_tick -> github-devloop-workflow.workflow_materialize_next",
+      "github-proxy.github_issue_create_request -> github-proxy.github_issue_create",
+    })
+    local create = graph.require_raise(released, "github-proxy.github_issue_create_request")
+    t.eq(create.payload.parent, origin_issue)
+
+    local created_marker_path = nil
+    for _, call in ipairs(t.command_calls()) do
+      local rendered = gh_argv.call_rendered(call)
+      if rendered:find("fkst-github-proxy-created-", 1, true) ~= nil then
+        created_marker_path = rendered:match("%-%-body%-file%s+(%S+)")
+      end
+    end
+    t.is_true(created_marker_path ~= nil)
+    local marker_dedup, child_issue = file.read(created_marker_path)
+      :match('issue%-created:v1 dedup="([^"]+)" issue="(%d+)"')
+    t.eq(marker_dedup, create.payload.dedup_key)
+    local created_child_issue = tonumber(child_issue)
+    t.is_true(created_child_issue ~= nil)
+    local created_child = base_ids.proposal_id(repo, created_child_issue)
+
+    local ready_version = "consensus:" .. created_child .. "/materialized"
+    local ready_comment = {
+      id = "IC_materialized_child_ready",
+      body = core.state_marker(
+        created_child,
+        "ready",
+        ready_version,
+        "result-marker,ready-label,devloop-ready"
+      ),
+      created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
+    }
+    local child_labels = { "fkst-dev:enabled", "fkst-dev:ready" }
+    mock_env()
+    mock_write_mode("", 18)
+    mock_child_issue_reads(
+      created_child_issue,
+      create.payload.title,
+      create.payload.body,
+      child_labels,
+      { ready_comment }
+    )
+    mock_child_implementation_context()
+    for _ = 1, 3 do
+      t.mock_command(core.gh_blocked_by_cmd(repo, created_child_issue), {
+        stdout = blocked_by_json({}), stderr = "", exit_code = 0,
+      })
+    end
+    local implementation_version = base_ids.dedup_key({
+      "ready",
+      ready_version .. "/redrive/ready/1",
+    })
+    implement_fixtures.mock_fresh_implement_worktree({
+      runtime = "/tmp/fkst-packages-test/github-devloop-workflow/materialized-child",
+      repo = repo,
+      issue_number = created_child_issue,
+      impl_version = implementation_version,
+    })
+    t.mock_command("git show abc123:.fkst/substrate-ref", {
+      stdout = "",
+      stderr = "fatal: path '.fkst/substrate-ref' does not exist in 'abc123'\n",
+      exit_code = 128,
+    })
+    implement_fixtures.mock_implement_codex(0, "implemented")
+    implement_fixtures.mock_git_status(
+      " M packages/github-devloop-workflow/materialize_reconcile.lua\n"
+    )
+    implement_fixtures.mock_git_commit(
+      "def456",
+      devloop_base.implement_branch(repo, created_child_issue, implementation_version)
+    )
+
+    local child_ref = repo .. "#issue/" .. tostring(created_child_issue)
+    local cascaded = graph.require_quiescent(graph.run({
+      queue = "github-proxy.github_entity_changed",
+      payload = {
+        schema = "github-proxy.v1",
+        type = "issue",
+        repo = repo,
+        number = created_child_issue,
+        title = create.payload.title,
+        state = "OPEN",
+        updated_at = "2026-07-12T00:25:03Z",
+        dedup_key = repo .. "#issue#" .. tostring(created_child_issue) .. "@2026-07-12T00:25:03Z",
+        source_ref = { kind = "external", ref = child_ref },
+      },
+      source_ref = { kind = "external", reference = child_ref },
+    }, { max_steps = 12 }))
+    graph.assert_covers(cascaded, {
+      "github-proxy.github_entity_changed -> github-devloop.observe_issue",
+      "github-devloop.devloop_ready -> github-devloop.implement",
+    })
+    local implementing = graph.find_raise(
+      cascaded,
+      "github-proxy.github_issue_label_request",
+      function(raised)
+        return tonumber(raised.payload.issue_number) == created_child_issue
+          and raised.payload.add_labels ~= nil
+          and raised.payload.add_labels[1] == "fkst-dev:implementing"
+      end
+    )
+    t.is_true(implementing ~= nil)
+    t.eq(tonumber(implementing.payload.issue_number), created_child_issue)
+    t.eq(implementing.payload.add_labels[1], "fkst-dev:implementing")
   end,
 }

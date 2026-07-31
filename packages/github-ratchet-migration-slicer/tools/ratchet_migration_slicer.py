@@ -163,8 +163,10 @@ class GithubClient:
             stdout = self.run(argv)
         return parse_created_issue_number(stdout)
 
-    def issue_close(self, repo: str, number: int) -> None:
-        self.run(["gh", "issue", "close", str(number), "--repo", repo])
+    def issue_close(self, repo: str, number: int, disposition: str) -> None:
+        if disposition not in {"completed", "not planned"}:
+            raise ValueError(f"unsupported issue close disposition: {disposition}")
+        self.run(["gh", "issue", "close", str(number), "--repo", repo, "--reason", disposition])
 
 
 def repo_rel(root: Path, path: Path) -> str:
@@ -676,7 +678,7 @@ def reconcile_ratchet(
         if state != "OPEN":
             return ReconcileResult(spec.ratchet, "parent-already-closed", None, parent_issue=parent_issue)
         if write_enabled:
-            client.issue_close(repo, parent_issue)
+            client.issue_close(repo, parent_issue, "completed")
             return ReconcileResult(spec.ratchet, "closed-parent", None, parent_issue=parent_issue)
         return ReconcileResult(spec.ratchet, "would-close-parent", None, parent_issue=parent_issue, reason="FKST_GITHUB_WRITE!=1")
 
