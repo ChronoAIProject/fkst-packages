@@ -2,6 +2,20 @@ local sha256 = require("contract.sha256")
 
 local R = {}
 
+local function base_generation_index()
+  return {
+    key_for = function(_queue, base_key)
+      return base_key
+    end,
+  }
+end
+
+local function snapshot_is_truncated(snapshot)
+  local truncated = type(snapshot) == "table" and snapshot.truncated or nil
+  return type(truncated) == "table"
+    and (truncated.deliveries == true or truncated.dead_letters == true)
+end
+
 local function require_complete_snapshot(snapshot)
   if type(snapshot) ~= "table"
     or type(snapshot.deliveries) ~= "table"
@@ -150,7 +164,11 @@ function R.current(queues)
   if type(fkst) ~= "table" or type(fkst.observe) ~= "function" then
     error("github-proxy: delivery-rearm-observe-unavailable: fkst.observe is unavailable")
   end
-  return R.index(fkst.observe({ limit = 10000 }), queues)
+  local snapshot = fkst.observe({ limit = 10000 })
+  if snapshot_is_truncated(snapshot) then
+    return base_generation_index()
+  end
+  return R.index(snapshot, queues)
 end
 
 return R

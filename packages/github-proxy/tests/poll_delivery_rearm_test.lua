@@ -111,4 +111,15 @@ return {
     t.eq(ok, false)
     t.is_true(tostring(err):find("observe-truncated", 1, true) ~= nil)
   end,
+
+  test_current_truncated_snapshot_falls_back_to_the_base_generation = function()
+    local rearm = load_rearm()
+    local truncated = snapshot(json.decode("[]"), { terminal_row() })
+    truncated.truncated.dead_letters = true
+    t.mock_observe(truncated)
+
+    local index = rearm.current({ queue })
+
+    t.eq(index.key_for(queue, base_key), base_key)
+  end,
 }

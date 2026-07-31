@@ -535,6 +535,31 @@ return {
     t.eq(coalesced.raises[1].payload.poll_token, allocated_poll_epoch("poll-while-rearmed", 0))
   end,
 
+  test_inbound_poll_emits_fresh_entity_when_delivery_rearm_snapshot_is_truncated = function()
+    local run_opts = opts("truncated-rearm-keeps-fresh-polling", {
+      FKST_GITHUB_PROXY_REPLAY_BUDGET = "1",
+    })
+    local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+    local truncated = delivery_snapshot(json.decode("[]"), json.decode("[]"))
+    truncated.truncated.dead_letters = true
+
+    mock_poll_env("1", "fkst-class:")
+    mock_issue_list(issue_list_from({ intake }))
+    mock_pr_list("[]\n")
+    t.mock_observe(truncated)
+    local result = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-with-truncated-rearm-snapshot",
+    }, run_opts)
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(result.raises[1].queue, "github_entity_changed")
+    t.eq(result.raises[1].payload.number, 50)
+    t.eq(result.raises[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
+  end,
+
   test_inbound_poll_rejects_invalid_replay_budget = function()
     mock_poll_env("0")
     mock_issue_list()
