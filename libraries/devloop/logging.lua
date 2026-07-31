@@ -30,6 +30,9 @@ function C.error_class_from_message(message)
 end
 
 function C.log_error_fact(level, dept, proposal_id, tag, error_class, queue, message, context)
+  if type(context) ~= "table" then
+    error("devloop.logging: log_error_fact context must be a table", 2)
+  end
   local fields = error_facts.error_fact_fields(error_class, queue, dept, message, context)
   table.insert(fields, "queue=" .. error_facts.one_line(queue))
   table.insert(fields, "error=" .. error_facts.one_line(message))
