@@ -143,6 +143,7 @@ local function record_terminal(entries, row, allowed)
     entry.terminal_id
   ) then
     entry.terminal_id = tostring(row.delivery_id)
+    entry.terminal_key = dedup_key
     entry.terminal_at_ms = row.dead_at_ms
   end
 end
@@ -172,6 +173,7 @@ function R.index(snapshot, queues)
       local outstanding_rearm_at_ms = nil
       local outstanding_rearm_id = nil
       local terminal_id = nil
+      local terminal_key = nil
       local terminal_at_ms = nil
       for _, entry in pairs(by_subscriber) do
         if entry.outstanding_key ~= nil and (outstanding_key == nil or newer(
@@ -201,6 +203,7 @@ function R.index(snapshot, queues)
           terminal_id
         )) then
           terminal_id = entry.terminal_id
+          terminal_key = entry.terminal_key
           terminal_at_ms = entry.terminal_at_ms
         end
       end
@@ -208,6 +211,13 @@ function R.index(snapshot, queues)
       -- queue-wide outstanding generation until all subscriber copies drain.
       if outstanding_rearm_key ~= nil then
         return outstanding_rearm_key
+      end
+      -- Do not mint another queue-wide generation while an earlier generation
+      -- is still live after a rearm delivery becomes terminal.
+      if terminal_key ~= nil
+        and lineage_key(terminal_key) ~= terminal_key
+        and outstanding_key ~= nil then
+        return outstanding_key
       end
       if terminal_id ~= nil then
         return tostring(base_key) .. "/rearm/" .. sha256.hex(terminal_id)

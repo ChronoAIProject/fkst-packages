@@ -130,9 +130,14 @@ return {
 
     t.eq(while_sibling_live.key_for(queue, base_key), rearm_key)
 
-    local after_sibling_drains = rearm.index(snapshot({}, { next_terminal }))
+    local after_rearm_drains = rearm.index(snapshot({
+      newer_live_base,
+    }, { next_terminal }))
+    t.eq(after_rearm_drains.key_for(queue, base_key), base_key)
+
+    local after_all_deliveries_drain = rearm.index(snapshot({}, { next_terminal }))
     t.eq(
-      after_sibling_drains.key_for(queue, base_key),
+      after_all_deliveries_drain.key_for(queue, base_key),
       base_key .. "/rearm/" .. sha256.hex(next_terminal_id)
     )
   end,

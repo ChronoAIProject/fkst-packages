@@ -117,11 +117,22 @@ return {
     t.eq(bounded.raises[1].payload.dedup_key, rearm_key)
 
     mock_poll_inputs(intake)
+    t.mock_observe(delivery_snapshot({ newer_live_base }, { repeated_terminal }))
+    local bounded_after_rearm_drains = t.run_department("departments/github_poll/main.lua", {
+      queue = "github_poll_tick",
+      payload = {},
+      ts = "poll-rearm-z-drained",
+    }, run_opts)
+    t.eq(bounded_after_rearm_drains.exit_code, 0)
+    t.eq(#bounded_after_rearm_drains.raises, 1)
+    t.eq(bounded_after_rearm_drains.raises[1].payload.dedup_key, base_key)
+
+    mock_poll_inputs(intake)
     t.mock_observe(delivery_snapshot(json.decode("[]"), { repeated_terminal }))
     local requeued = t.run_department("departments/github_poll/main.lua", {
       queue = "github_poll_tick",
       payload = {},
-      ts = "poll-rearm-z-drained",
+      ts = "poll-rearm-zz-all-drained",
     }, run_opts)
     t.eq(requeued.exit_code, 0)
     t.eq(#requeued.raises, 1)
