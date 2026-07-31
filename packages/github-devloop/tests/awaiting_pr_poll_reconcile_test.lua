@@ -30,6 +30,8 @@ local upstream_branch = "dev"
 local upstream_head_sha = "fedcba9876543210fedcba9876543210fedcba98"
 local rollup_pr_number = 9
 local rollup_head_sha = "2222222222222222222222222222222222222222"
+local other_rollup_head_sha = "3333333333333333333333333333333333333333"
+local zero_sha = "0000000000000000000000000000000000000000"
 local original_branch = devloop_base.implement_branch(repo, issue_number, core.implementation_base_version(version))
 local replacement_version = version .. "/reimplement/1"
 local replacement_branch = devloop_base.implement_branch(repo, issue_number, replacement_version)
@@ -167,7 +169,17 @@ local function mock_branch_config(split)
   })
 end
 
-local function mock_rollup_landing(exit_code)
+local function git_fetch_pr_head_oid_cmd(remote, number)
+  return "git fetch --porcelain --verbose --no-write-fetch-head " .. tostring(remote)
+    .. " '+refs/pull/" .. tostring(number) .. "/head:refs/fkst/pr/" .. tostring(number) .. "'"
+end
+
+local function git_fetch_pr_head_oid_stdout(number, oid)
+  return "* " .. zero_sha .. " " .. tostring(oid) .. " refs/fkst/pr/" .. tostring(number) .. "\n"
+end
+
+local function mock_rollup_landing(exit_code, fetched_head_sha)
+  local fetched_head = fetched_head_sha or rollup_head_sha
   t.mock_command(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch), {
     stdout = '[[{"number":' .. tostring(rollup_pr_number)
       .. ',"state":"closed","merged_at":"2026-06-03T03:03:04Z"'
@@ -176,13 +188,8 @@ local function mock_rollup_landing(exit_code)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number), {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command(core.git_fetch_head_commit_cmd(), {
-    stdout = rollup_head_sha .. "\n",
+  t.mock_command(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number), {
+    stdout = git_fetch_pr_head_oid_stdout(rollup_pr_number, fetched_head),
     stderr = "",
     exit_code = 0,
   })
@@ -325,6 +332,25 @@ return {
     assert_resume_has_autonomy_result(resume)
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+  end,
+
+  test_rollup_receipt_head_mismatch_preserves_exact_error = function()
+    mock_branch_config()
+    mock_rollup_landing(0, other_rollup_head_sha)
+    local result = run_observe(parent_comments(), child_comments("merged"), {
+      pr_state = "MERGED",
+      write = "real",
+    })
+
+    t.eq(result.exit_code, 1)
+    t.is_true(tostring(result.error or result.stderr):find(
+      "github-devloop: awaiting-pr-rollup-receipt-head-mismatch: fetched rollup PR head differs from GitHub metadata",
+      1,
+      true
+    ) ~= nil)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
   end,
 
   test_parent_poll_reconciles_canonical_merged_child_pr_without_child_terminal_markers = function()
@@ -482,7 +508,9 @@ return {
     assert_resume_has_autonomy_result(resume)
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
     t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
-    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
+    t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
     t.eq(count_calls("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha), 1)
     t.eq(count_calls("git fetch 'origin' '" .. upstream_branch .. "'"), 0)
     t.eq(count_calls("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. upstream_head_sha), 0)
@@ -515,7 +543,9 @@ return {
     t.eq(count_raises(result.raises, "github-proxy.github_issue_comment_request"), 0)
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
     t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
+    t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 0)
     t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
+    t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
     t.eq(count_calls("git merge-base --is-ancestor"), 0)
     t.eq(count_calls("gh issue close 42 --repo owner/repo"), 0)
   end,

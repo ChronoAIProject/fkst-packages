@@ -217,7 +217,7 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
   local attempt = prior_attempts + 1
   local message = "ready event does not match current implementing version"
   if attempt < MAX_VERSION_MISMATCH_DELIVERIES then
-    devloop_logging.log_error_fact("warn", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
+    devloop_logging.log_error_fact("warn", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "stale-version-mismatch", "devloop_ready", message, {
       source_ref = ready.source_ref,
       attempt = attempt,
       terminal = false,
@@ -230,7 +230,7 @@ local function handle_implementing_version_mismatch(repo, issue_number, current,
     raise_implement_version_mismatch(repo, issue_number, ready, state, expected_version, attempt)
     return
   end
-  devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "devloop_ready", message, {
+  devloop_logging.log_error_fact("error", "implement", ready.proposal_id, "STALE_VERSION_MISMATCH", "stale-version-mismatch", "devloop_ready", message, {
     source_ref = ready.source_ref,
     attempt = attempt,
     terminal = true,
