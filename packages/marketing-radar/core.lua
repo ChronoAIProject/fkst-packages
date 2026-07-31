@@ -1,10 +1,10 @@
 local strings = require("contract.strings")
+local issue_create_limits = require("contract.github_issue_create").limits()
 
 local M = {}
 
 local issue_ref_pattern = "^([%w%._%-]+/[%w%._%-]+)#issue/(%d+)$"
 local max_ref_len = 200
-local max_dedup_len = 512
 
 local function trim(value)
   return strings.trim(value)
@@ -89,8 +89,8 @@ function M.weekly_content_dedup_key(run_source_ref, signal_source_ref)
     .. strings.sanitize_key(run_ref, 220)
     .. "/signal/"
     .. strings.decimal_checksum(signal_ref)
-  if #key > max_dedup_len then
-    key = key:sub(1, max_dedup_len)
+  if #key > issue_create_limits.dedup_key then
+    key = key:sub(1, issue_create_limits.dedup_key)
   end
   return key
 end

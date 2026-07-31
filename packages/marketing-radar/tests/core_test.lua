@@ -1,4 +1,5 @@
 local core = require("core")
+local issue_create_limits = require("contract.github_issue_create").limits()
 local t = fkst.test
 
 local function issue(ref, body)
@@ -13,6 +14,16 @@ local function issue(ref, body)
 end
 
 return {
+  test_weekly_content_dedup_key_respects_issue_create_contract_boundary = function()
+    local key = core.weekly_content_dedup_key({
+      ref = string.rep("r", issue_create_limits.source_ref_ref),
+    }, {
+      ref = "owner/repo#issue/11",
+    })
+
+    t.is_true(#key <= issue_create_limits.dedup_key)
+  end,
+
   test_parse_minimal_radar_run_contract = function()
     local parsed = core.parse_radar_run_contract(table.concat({
       "config-ref: owner/repo#issue/10",
