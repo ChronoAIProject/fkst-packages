@@ -136,24 +136,30 @@ local function run_construction(raw, id)
 end
 
 local function retry_from_failure(ready, accepted, failure_body, raw, id, checker)
+  local command = trusted_comment("fkst: reimplement", "2026-06-03T03:00:00Z")
+  command.id = "IC_lean_proof_reimplement_" .. id
   local comments = {
     trusted_comment(accepted_result_comment(accepted), "2026-06-03T01:00:00Z"),
     trusted_comment(failure_body, "2026-06-03T02:00:00Z"),
+    command,
   }
   local failure_fact = core.impl_failure_fact(comments, ready.proposal_id, ready.dedup_key)
   t.is_true(failure_fact ~= nil, "construction failure comment must expose impl-failure:v1")
   t.eq(failure_fact.reason, "lean-proof-repair-needed")
-  t.eq(core.impl_failure_retry_allowed(failure_fact), true, "lean repair must use the existing bounded retry policy")
+  t.eq(failure_fact.fault_class, "UNKNOWN")
+  t.eq(core.impl_failure_retry_allowed(failure_fact), false,
+    "proof repair must not infer an infrastructure fault class from its reason name")
   t.eq(core.current_state(comments, ready.proposal_id).state, "impl-failed",
     "the later failure receipt must be the authoritative lifecycle fact")
   mock_observe_impl_failed({
     trusted_comment(failure_body, "2026-06-03T02:00:00Z"),
+    command,
   })
   local observed = h.run_observe(h.issue({
     labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
   }), h.opts(id .. "-observe"))
   local replay = h.find_raise(observed.raises, "devloop_ready")
-  t.is_true(replay ~= nil, "impl-failed observation must emit attempt-two devloop_ready")
+  t.is_true(replay ~= nil, "operator reimplement must emit attempt-two devloop_ready")
   t.eq(replay.payload.impl_retry_attempt, 2)
 
   mock_implementation_issue_reads({ "fkst-dev:impl-failed" }, comments)

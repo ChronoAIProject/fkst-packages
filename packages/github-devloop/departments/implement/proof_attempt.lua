@@ -205,7 +205,7 @@ function M.previous_receipt(comments, expected)
         checker_command = expected.checker_command,
       })
       local marker = receipt ~= nil and '<!-- fkst:github-devloop:impl-failure:v1 proposal="'
-        .. receipt.proposal_id .. '" reason="' .. repair_reason .. '" attempt="'
+        .. receipt.proposal_id .. '" reason="' .. repair_reason .. '" fault_class="UNKNOWN" attempt="'
         .. tostring(receipt.attempt) .. '" dedup="' .. receipt.implementation_version .. '" -->' or nil
       if receipt ~= nil
         and receipt.status == "repair-needed"

@@ -88,7 +88,7 @@ return function(M, h)
     },
     version_identity = "ready_payload_inner_version(impl-failure.dedup) plus next_impl_retry_attempt(impl-failure)",
     effects = effect({ "devloop_ready" }, "impl-failed replay is complete when trusted retryable impl-failure attempt is below the retry ceiling"),
-    marker_facts = "state:v1 impl-failed plus impl-failure:v1 retryable reason attempt<N",
+    marker_facts = "state:v1 impl-failed plus impl-failure:v1 fault_class=INFRASTRUCTURE attempt<N",
     kickoff = "devloop_ready",
     replay = "Observe re-raises ready/<version> after one observe tick for bounded retryable implementation failures.",
   }

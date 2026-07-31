@@ -365,7 +365,7 @@ function C.build_implement_version_mismatch_comment_request(M, repo, issue_numbe
   }
 end
 
-function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reason, detail, attempt)
+function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reason, detail, attempt, fault_class)
   local safe_reason = strings.sanitize_key(reason or "failed", M._max_key_len):gsub("/", "-")
   local retry_attempt = tonumber(attempt) or 1
   local text = tostring(detail or "")
@@ -377,7 +377,7 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
 
-  local marker = M.impl_failure_marker(ready.proposal_id, ready.dedup_key, safe_reason, attempt)
+  local marker = M.impl_failure_marker(ready.proposal_id, ready.dedup_key, safe_reason, attempt, fault_class)
   local state_marker = M.state_marker(ready.proposal_id, "impl-failed", ready.dedup_key)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",

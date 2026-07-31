@@ -544,15 +544,26 @@ return {
     local retry_failed = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "codex-failed", 2)
     local retry_fact = core.impl_failure_fact({ failed, retry_failed }, ready.proposal_id, ready.dedup_key)
     t.eq(retry_fact.reason, "codex-failed")
+    t.eq(retry_fact.fault_class, "UNKNOWN")
     t.eq(retry_fact.attempt, 2)
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ failed }, ready.proposal_id, ready.dedup_key)), true)
+    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ failed }, ready.proposal_id, ready.dedup_key)), false)
     t.eq(core.impl_failure_retry_allowed(retry_fact), false)
     local non_descendant = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "non-descendant-head")
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ non_descendant }, ready.proposal_id, ready.dedup_key)), true)
-    local local_iteration = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "local-iteration-failed")
+    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ non_descendant }, ready.proposal_id, ready.dedup_key)), false)
+    local local_iteration = core.impl_failure_marker(
+      ready.proposal_id, ready.dedup_key, "local-iteration-failed", 1, "SEMANTIC")
     local local_iteration_fact = core.impl_failure_fact({ local_iteration }, ready.proposal_id, ready.dedup_key)
     t.eq(core.impl_failure_retry_allowed(local_iteration_fact), false)
-    local base_local_iteration = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "base-local-iteration-failed")
+    local infrastructure = core.impl_failure_marker(
+      ready.proposal_id, ready.dedup_key, "local-iteration-infrastructure-failed", 1, "INFRASTRUCTURE")
+    t.eq(core.impl_failure_retry_allowed(
+      core.impl_failure_fact({ infrastructure }, ready.proposal_id, ready.dedup_key)), true)
+    local infrastructure_at_ceiling = core.impl_failure_marker(
+      ready.proposal_id, ready.dedup_key, "local-iteration-infrastructure-failed", 2, "INFRASTRUCTURE")
+    t.eq(core.impl_failure_retry_allowed(
+      core.impl_failure_fact({ infrastructure_at_ceiling }, ready.proposal_id, ready.dedup_key)), false)
+    local base_local_iteration = core.impl_failure_marker(
+      ready.proposal_id, ready.dedup_key, "base-local-iteration-failed", 1, "SEMANTIC")
     t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ base_local_iteration }, ready.proposal_id, ready.dedup_key)), false)
     local unretryable = core.impl_failure_marker(ready.proposal_id, ready.dedup_key, "no-changes")
     t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ unretryable }, ready.proposal_id, ready.dedup_key)), false)

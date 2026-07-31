@@ -19,6 +19,7 @@ local function invalid_result(ready, detail, attempt, started_at, exec_ref, base
   return harvest.impl_failed_outcome(
     ready,
     "lean-proof-invalid-result",
+    "UNKNOWN",
     "Invalid typed result envelope: " .. tostring(detail),
     attempt,
     started_at,
@@ -68,6 +69,7 @@ local function completed_proof_outcome(args, receipt, timeout_seconds)
     return harvest.impl_failed_outcome(
       args.ready,
       verification.reason,
+      "UNKNOWN",
       verification.detail,
       args.attempt,
       args.codex_started_at,
@@ -96,6 +98,7 @@ local function proof_result_outcome(args, result, profile_context, timeout_secon
     return harvest.impl_failed_outcome(
       args.ready,
       reason,
+      "UNKNOWN",
       receipt.raw,
       args.attempt,
       args.codex_started_at,
@@ -258,6 +261,7 @@ local function run_attempt(args)
     return harvest.impl_failed_outcome(
       args.ready,
       "no-changes",
+      "UNKNOWN",
       detail,
       args.attempt,
       args.codex_started_at,

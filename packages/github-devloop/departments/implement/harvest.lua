@@ -62,11 +62,12 @@ local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch
   }
 end
 
-local function impl_failed_outcome(ready, reason, detail, attempt, started_at, exec_ref, base_sha)
+local function impl_failed_outcome(ready, reason, fault_class, detail, attempt, started_at, exec_ref, base_sha)
   return {
     kind = "impl-failed",
     ready = ready,
     reason = reason,
+    fault_class = fault_class,
     detail = detail,
     attempt = attempt,
     started_at = started_at,
@@ -321,11 +322,11 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
   if not green then
     local typed_failure_reason = local_iteration_failure_reasons[candidate_result.kind]
     if typed_failure_reason ~= nil then
-      return impl_failed_outcome(ready, typed_failure_reason, verify_detail,
+      return impl_failed_outcome(ready, typed_failure_reason, candidate_result.fault_class, verify_detail,
         attempt, started_at, exec_ref, base_head)
     end
     if candidate_result.kind ~= "SEMANTIC_FAIL" then
-      return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
+      return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", "UNKNOWN",
         "candidate_result=" .. tostring(candidate_result.kind)
           .. "\ncandidate_result_reason=" .. tostring(candidate_result.reason)
           .. "\ncandidate_verification_attempt=" .. tostring(candidate_verification_attempt)
@@ -356,17 +357,20 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
       end
     end
     if verdict == "OWN_LOCAL_RED" then
-      return impl_failed_outcome(ready, "local-iteration-failed", verify_detail, attempt, started_at, exec_ref, base_head)
+      return impl_failed_outcome(ready, "local-iteration-failed", candidate_result.fault_class,
+        verify_detail, attempt, started_at, exec_ref, base_head)
     end
     if verdict == "BASE_RED" then
-      return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
+      return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe.result.fault_class,
+        base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
     end
     local typed_base_failure_reason = base_local_iteration_failure_reasons[verdict]
     if typed_base_failure_reason ~= nil then
-      return impl_failed_outcome(ready, typed_base_failure_reason, base_probe_detail(base_probe),
+      return impl_failed_outcome(ready, typed_base_failure_reason, base_probe.result.fault_class, base_probe_detail(base_probe),
         attempt, started_at, exec_ref, base_head)
     end
-    return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
+    return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", "UNKNOWN",
+      base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
   end
   local verified_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
   return implementation_outcome(ready, worktree, branch, verified_head, integration_branch, base_head, attempt, started_at, exec_ref)
@@ -392,7 +396,8 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   if progress_head ~= nil then
     return checkpoint_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr)
   end
-  return impl_failed_outcome(ready, "codex-failed", stderr, attempt, started_at, exec_ref, base_head)
+  return impl_failed_outcome(ready, "codex-failed", "UNKNOWN", stderr,
+    attempt, started_at, exec_ref, base_head)
 end
 
 return M

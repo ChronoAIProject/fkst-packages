@@ -10,8 +10,12 @@ function S.install(M)
 M._max_impl_retry_attempts = impl_failure.MAX_RETRY_ATTEMPTS
 M._max_impl_auto_retry_attempts = impl_failure.MAX_AUTO_RETRY_ATTEMPTS
 
-function M.impl_failure_marker(proposal_id, dedup_key, reason, attempt)
+function M.impl_failure_marker(proposal_id, dedup_key, reason, attempt, fault_class)
   local safe_reason = strings.sanitize_key(reason or "failed", M._max_key_len):gsub("/", "-")
+  local safe_fault_class = impl_failure.valid_fault_class(fault_class or "UNKNOWN")
+  if safe_fault_class == nil then
+    error("github-devloop: invalid-fault-class: invalid implementation failure fault class")
+  end
   local attempt_field = ""
   if attempt ~= nil then
     local n = valid_attempt(attempt)
@@ -22,6 +26,7 @@ function M.impl_failure_marker(proposal_id, dedup_key, reason, attempt)
   end
   return '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. tostring(proposal_id)
     .. '" reason="' .. safe_reason
+    .. '" fault_class="' .. safe_fault_class
     .. attempt_field
     .. '" dedup="' .. tostring(dedup_key)
     .. '" -->'
