@@ -55,13 +55,22 @@ local function activation_cursor_key(activation)
   return activation and activation.entity and activation.entity.number
 end
 
-function C.liveness_scan_update_cursor(cursor_key, activations, processed)
+local function parse_activation_cursor_state(value)
+  local cursor, high_water = tostring(value or ""):match("^v1/(%d+)/(%d+)$")
+  return tonumber(cursor), tonumber(high_water)
+end
+
+local function render_activation_cursor_state(cursor, high_water)
+  return "v1/" .. tostring(cursor) .. "/" .. tostring(high_water)
+end
+
+function C.liveness_scan_update_cursor(cursor_key, cursor_progress, processed)
   if cursor_key == nil then
     return
   end
-  local next_cursor = sweep_bounds.sweep_cursor_advance(activations, processed, activation_cursor_key)
-  if next_cursor ~= nil then
-    cache_set(cursor_key, tostring(next_cursor))
+  local next_cursor, next_high_water = sweep_bounds.sweep_cursor_advance(cursor_progress, processed)
+  if next_cursor ~= nil and next_high_water ~= nil then
+    cache_set(cursor_key, render_activation_cursor_state(next_cursor, next_high_water))
   end
 end
 
@@ -215,18 +224,19 @@ function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
   end
   local total = #activations
   local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
-  local cursor = cache_get(cursor_key)
-  local bounded, deferred = sweep_bounds.sweep_cursor_batch(
+  local cursor, high_water = parse_activation_cursor_state(cache_get(cursor_key))
+  local bounded, deferred, _, _, cursor_progress = sweep_bounds.sweep_cursor_batch(
     activations,
     cursor,
     LIVENESS_SCAN_MAX_PER_TICK,
     LIVENESS_SCAN_MAX_PER_TICK,
-    activation_cursor_key
+    activation_cursor_key,
+    high_water
   )
   if deferred > 0 then
     devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(total - LIVENESS_SCAN_MAX_PER_TICK) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
   end
-  return bounded, deferred, cursor_key
+  return bounded, deferred, cursor_key, cursor_progress
 end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)

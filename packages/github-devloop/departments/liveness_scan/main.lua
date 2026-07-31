@@ -133,13 +133,13 @@ local function act_liveness_scan(event)
     })
     return
   end
-  local activations, deferred_by_cap, cursor_key = liveness_scan.liveness_scan_activation_slice(repo, "issue", issues, LIVENESS_SCAN_CURSOR_PREFIX)
+  local activations, deferred_by_cap, cursor_key, cursor_progress = liveness_scan.liveness_scan_activation_slice(repo, "issue", issues, LIVENESS_SCAN_CURSOR_PREFIX)
   local processed = 0
   local attempted = 0
 
   for _, activation in ipairs(activations) do
     if not sweep_bounds.sweep_has_budget(deadline) then
-      liveness_scan.liveness_scan_update_cursor(cursor_key, activations, attempted)
+      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor_progress, attempted)
       liveness_scan.liveness_scan_log_deferred("deadline", {
         listed_issues = #issues,
         processed = processed,
@@ -152,7 +152,7 @@ local function act_liveness_scan(event)
     attempted = attempted + 1
     local should_reinject, defer_reason = should_reinject_issue(repo, activation.entity, limits, deadline)
     if defer_reason == "deadline" then
-      liveness_scan.liveness_scan_update_cursor(cursor_key, activations, attempted)
+      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor_progress, attempted)
       liveness_scan.liveness_scan_log_deferred("deadline", {
         listed_issues = #issues,
         processed = processed,
@@ -167,7 +167,7 @@ local function act_liveness_scan(event)
     end
   end
 
-  liveness_scan.liveness_scan_update_cursor(cursor_key, activations, attempted)
+  liveness_scan.liveness_scan_update_cursor(cursor_key, cursor_progress, attempted)
 
   if deferred_by_cap > 0 then
     liveness_scan.liveness_scan_log_deferred("cap", {

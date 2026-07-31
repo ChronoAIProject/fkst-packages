@@ -50,24 +50,43 @@ return {
   end,
 
   test_cursor_batch_tracks_stable_keys_across_membership_churn = function()
-    local first, _, cursor = sweep.cursor_batch({ 1, 2, 3 }, 0, 1, 25)
+    local first, _, cursor, high_water = sweep.cursor_batch({ 1, 2, 3 }, 0, 1, 25)
     eq_list(first, { 1 })
     t.eq(cursor, 1)
+    t.eq(high_water, 3)
 
     local second
-    second, _, cursor = sweep.cursor_batch({ 2, 3 }, cursor, 1, 25)
+    second, _, cursor, high_water = sweep.cursor_batch({ 2, 3 }, cursor, 1, 25, nil, high_water)
     eq_list(second, { 2 })
     t.eq(cursor, 2)
+    t.eq(high_water, 3)
 
     local third
-    third, _, cursor = sweep.cursor_batch({ 1, 2, 3 }, cursor, 1, 25)
+    third, _, cursor, high_water = sweep.cursor_batch({ 1, 2, 3 }, cursor, 1, 25, nil, high_water)
     eq_list(third, { 3 })
     t.eq(cursor, 3)
+    t.eq(high_water, 3)
+  end,
+
+  test_cursor_batch_refreshes_high_water_only_after_cycle_wrap = function()
+    local first, _, cursor, high_water = sweep.cursor_batch({ 2, 4 }, 3, 1, 25, nil, 4)
+    eq_list(first, { 4 })
+    t.eq(cursor, 4)
+    t.eq(high_water, 4)
+
+    local second
+    second, _, cursor, high_water = sweep.cursor_batch({ 2, 4, 5 }, cursor, 1, 25, nil, high_water)
+    eq_list(second, { 2 })
+    t.eq(cursor, 2)
+    t.eq(high_water, 5)
   end,
 
   test_cursor_advance = function()
-    t.eq(sweep.cursor_advance({ 4, 5 }, 2), 5)
-    t.eq(sweep.cursor_advance({ 4, 5 }, 0), nil)
+    local _, _, _, _, progress = sweep.cursor_batch({ 4, 5 }, nil, 2, 25)
+    local cursor, high_water = sweep.cursor_advance(progress, 2)
+    t.eq(cursor, 5)
+    t.eq(high_water, 5)
+    t.eq(sweep.cursor_advance(progress, 0), nil)
   end,
 
   test_deferred_result_shape = function()

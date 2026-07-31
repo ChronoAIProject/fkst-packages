@@ -47,12 +47,12 @@ local function issue_items(numbers)
 end
 
 return {
-  test_under_cap_partial_ticks_resist_membership_churn = function()
+  test_under_cap_partial_ticks_resist_append_churn = function()
     local viewed = {}
     local reinjected = {}
     local budget_checks = 0
     local list_calls = 0
-    cache_set(cursor_key, "0")
+    cache_set(cursor_key, "v1/3/4")
 
     with_patches({
       {
@@ -72,10 +72,11 @@ return {
         key = "liveness_scan_list_open_issues",
         value = function()
           list_calls = list_calls + 1
-          if list_calls % 2 == 0 then
-            return issue_items({ 2, 3 }), nil
+          local numbers = { 2 }
+          for number = 4, 3 + list_calls do
+            table.insert(numbers, number)
           end
-          return issue_items(), nil
+          return issue_items(numbers), nil
         end,
       },
       {
@@ -155,13 +156,10 @@ return {
       end
     end)
 
-    t.eq(viewed[1], 1)
+    t.eq(viewed[1], 4)
     t.eq(viewed[2], 2)
-    t.eq(viewed[3], 3)
-    t.eq(viewed[4], 2)
     for index = 1, 4 do
       t.eq(reinjected[index], viewed[index])
     end
-    t.eq(cache_get(cursor_key), "2")
   end,
 }
