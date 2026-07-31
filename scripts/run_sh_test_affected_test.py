@@ -439,6 +439,27 @@ class RunShTestAffectedTest(unittest.TestCase):
         finally:
             h.close()
 
+    def test_result_arm_failure_still_emits_one_infrastructure_result(self) -> None:
+        h = TestAffectedHarness()
+        try:
+            result = h.run_test_process(
+                "mktemp() {\n"
+                "  case \"$*\" in\n"
+                "    *fkst-local-result-state*) return 1 ;;\n"
+                "    *) command mktemp \"$@\" ;;\n"
+                "  esac\n"
+                "}\n"
+                "main test"
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertEqual(
+                result_markers(result),
+                [result_marker("FAIL", "INFRASTRUCTURE")],
+            )
+        finally:
+            h.close()
+
     def test_test_affected_aggregates_child_faults_with_one_top_level_result(self) -> None:
         h = TestAffectedHarness()
         try:

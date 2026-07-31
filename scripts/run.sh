@@ -783,7 +783,7 @@ main() {
   # Bound the whole test-family run BEFORE dispatch (covers cmd_check too); see scripts/test_deadline.sh.
   case "${1:-}" in
     check|test-composed) arm_test_deadline; trap 'disarm_test_deadline' EXIT ;;
-    test|test-affected) arm_test_deadline; local_iteration_result_arm; trap 'local_iteration_result_finish' EXIT ;;
+    test|test-affected) local_iteration_result_arm; arm_test_deadline ;;
   esac
   case "${1:-}" in
     check) shift; cmd_check "$@" ;;

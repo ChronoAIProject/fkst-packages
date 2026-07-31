@@ -126,7 +126,12 @@ local_iteration_result_arm() {
   LOCAL_ITERATION_RESULT_VERDICT="PASS"
   LOCAL_ITERATION_RESULT_FAULT_CLASS="NONE"
   LOCAL_ITERATION_RESULT_OUTPUT_FILE="${FKST_LOCAL_ITERATION_RESULT_FILE:-}"
-  LOCAL_ITERATION_RESULT_STATE_FILE="$(mktemp "${TMPDIR:-/tmp}/fkst-local-result-state.XXXXXX")"
+  LOCAL_ITERATION_RESULT_STATE_FILE=""
+  trap 'local_iteration_result_finish' EXIT
+  if ! LOCAL_ITERATION_RESULT_STATE_FILE="$(mktemp "${TMPDIR:-/tmp}/fkst-local-result-state.XXXXXX")"; then
+    local_iteration_result_fail "INFRASTRUCTURE"
+    return 1
+  fi
   export FKST_LOCAL_ITERATION_STATE_FILE="$LOCAL_ITERATION_RESULT_STATE_FILE"
   local_iteration_result_write_state
 }
