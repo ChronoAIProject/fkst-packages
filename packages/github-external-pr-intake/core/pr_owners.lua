@@ -2,7 +2,7 @@ local M = {}
 
 local axes = {
   "is_integration_rollup",
-  "has_trusted_issue_origin",
+  "has_actionable_issue_origin",
   "is_managed_author",
   "is_authorized_author",
 }
@@ -28,7 +28,7 @@ local declarations = {
     disposition = "reserved",
     match = {
       is_integration_rollup = false,
-      has_trusted_issue_origin = true,
+      has_actionable_issue_origin = true,
     },
   },
   {
@@ -40,7 +40,7 @@ local declarations = {
     disposition = "bridge",
     match = {
       is_integration_rollup = false,
-      has_trusted_issue_origin = false,
+      has_actionable_issue_origin = false,
       is_managed_author = true,
       is_authorized_author = true,
     },
@@ -54,7 +54,7 @@ local declarations = {
     disposition = "bridge",
     match = {
       is_integration_rollup = false,
-      has_trusted_issue_origin = false,
+      has_actionable_issue_origin = false,
       is_managed_author = false,
       is_authorized_author = true,
     },
@@ -68,7 +68,7 @@ local declarations = {
     disposition = "retire",
     match = {
       is_integration_rollup = false,
-      has_trusted_issue_origin = false,
+      has_actionable_issue_origin = false,
       is_authorized_author = false,
     },
   },
@@ -125,7 +125,7 @@ local function each_fact_shape(fn)
         for _, authorized in ipairs({ false, true }) do
           fn({
             is_integration_rollup = rollup,
-            has_trusted_issue_origin = origin,
+            has_actionable_issue_origin = origin,
             is_managed_author = managed,
             is_authorized_author = authorized,
           })

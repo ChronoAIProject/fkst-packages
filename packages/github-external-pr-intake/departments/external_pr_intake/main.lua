@@ -1,4 +1,5 @@
 local core = require("core")
+local pr_owner_resolution = require("core.pr_owner_resolution")
 local ports_seam = require("forge.ports")
 local saga = require("workflow.saga")
 
@@ -41,12 +42,7 @@ local function admit_bridge_candidate(github, pr, managed, branches, now_seconds
   if tostring(pr and pr.state or ""):upper() ~= "OPEN" then
     return false, "pr-not-open"
   end
-  local owner = core.classify_pr_owner(
-    pr,
-    managed,
-    branches,
-    github.is_authorized_author(pr.author_login)
-  )
+  local owner = pr_owner_resolution.classify(github, pr, managed, branches)
   if owner.disposition == "retire" then
     if not core.is_bridge_age_eligible(pr, now_seconds) then
       return false, "bridge-age-ineligible", owner

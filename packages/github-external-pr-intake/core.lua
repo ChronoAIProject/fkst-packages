@@ -390,6 +390,7 @@ function M.normalize_issue(issue)
     labels = label_names(issue),
     comments = comments(issue),
     author_login = author_login(issue),
+    assignees = assignee_logins(issue),
   }
 end
 
@@ -432,6 +433,18 @@ function M.find_trusted_issue_pr_origin(comments, repo, managed)
   return nil
 end
 
+function M.find_current_issue_pr_origin(pr, managed)
+  local origin = M.find_trusted_issue_pr_origin(pr.comments, pr.repo, managed)
+  if origin == nil then
+    return nil
+  end
+  if tostring(pr.head_ref_name or "") ~= tostring(origin.branch or "")
+    or tostring(pr.base_ref_name or "") ~= tostring(origin.base_branch or "") then
+    return nil
+  end
+  return origin
+end
+
 function M.pr_owner_declarations()
   return pr_owners.declarations()
 end
@@ -444,7 +457,7 @@ function M.classify_pr_owner_facts(facts, declarations)
   return pr_owners.classify_facts(facts, declarations)
 end
 
-function M.classify_pr_owner(pr, managed, branches, is_authorized_author)
+function M.classify_pr_owner(pr, managed, branches, is_authorized_author, has_actionable_issue_origin)
   if type(pr) ~= "table" or pr.number == nil then
     error("github-external-pr-intake: pr-owner-pr-required: PR ownership requires a numbered PR")
   end
@@ -459,10 +472,13 @@ function M.classify_pr_owner(pr, managed, branches, is_authorized_author)
   if type(is_authorized_author) ~= "boolean" then
     error("github-external-pr-intake: pr-owner-authorization-required: PR ownership requires author authorization")
   end
+  if type(has_actionable_issue_origin) ~= "boolean" then
+    error("github-external-pr-intake: pr-owner-origin-actionability-required: PR ownership requires origin actionability")
+  end
   local facts = {
     is_integration_rollup = tostring(pr.head_ref_name or "") == branches.integration
       and tostring(pr.base_ref_name or "") == branches.upstream,
-    has_trusted_issue_origin = M.find_trusted_issue_pr_origin(pr.comments, pr.repo, managed) ~= nil,
+    has_actionable_issue_origin = has_actionable_issue_origin,
     is_managed_author = M.is_managed_bot_login(pr.author_login, managed),
     is_authorized_author = is_authorized_author,
   }

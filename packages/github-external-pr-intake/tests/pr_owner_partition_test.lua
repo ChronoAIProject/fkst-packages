@@ -44,10 +44,11 @@ local function owner_pr(fields)
 end
 
 local function owner_kind(pr, is_authorized_author)
+  local has_actionable_issue_origin = core.find_current_issue_pr_origin(pr, managed) ~= nil
   return core.classify_pr_owner(pr, managed, {
     upstream = upstream_branch,
     integration = integration_branch,
-  }, is_authorized_author ~= false).kind
+  }, is_authorized_author ~= false, has_actionable_issue_origin).kind
 end
 
 local function contains(errors, needle)
@@ -107,9 +108,27 @@ local function pr_json(pr)
   })
 end
 
-local function fake_github(prs)
+local function issue_json(issue)
+  local assignees = {}
+  for _, login in ipairs(issue.assignees or {}) do
+    table.insert(assignees, '{"login":' .. strings.json_string(login) .. "}")
+  end
+  local labels = {}
+  for _, name in ipairs(issue.labels or {}) do
+    table.insert(labels, '{"name":' .. strings.json_string(name) .. "}")
+  end
+  return table.concat({
+    '{"number":', tostring(issue.number),
+    ',"state":"OPEN","author":{"login":', strings.json_string(issue.author_login),
+    '},"assignees":[', table.concat(assignees, ","),
+    '],"labels":[', table.concat(labels, ","), "]}",
+  })
+end
+
+local function fake_github(prs, backing_issues)
   local by_number = {}
   local model = {
+    backing_issues = backing_issues or {},
     bridge_issues = {},
     comments = {},
     writes = {},
@@ -148,6 +167,14 @@ local function fake_github(prs)
       end
     end
     return { stdout = "[" .. table.concat(encoded, ",") .. "]\n", exit_code = 0 }
+  end
+
+  function github.issue_view(_repo, number, _fields, _timeout)
+    local issue = model.backing_issues[number]
+    if issue == nil then
+      return { stdout = "{}\n", exit_code = 0 }
+    end
+    return { stdout = issue_json(issue) .. "\n", exit_code = 0 }
   end
 
   function github.issue_assign(_repo, number, login, _timeout)
@@ -271,7 +298,7 @@ return {
       )
       local owner = core.classify_pr_owner_facts({
         is_integration_rollup = rollup == "true",
-        has_trusted_issue_origin = origin == "true",
+        has_actionable_issue_origin = origin == "true",
         is_managed_author = managed_author == "true",
         is_authorized_author = authorized_author == "true",
       })
@@ -349,6 +376,8 @@ return {
       owner_pr({ number = 2, head_ref_name = integration_branch, base_ref_name = upstream_branch }),
       owner_pr({ number = 3, head_ref_name = "fix/operator-hotfix" }),
       owner_pr({ number = 4, author_login = "trusted-contributor", head_ref_name = "feature/contrib" }),
+    }, {
+      [42] = { number = 42, author_login = "fkst-test-bot", assignees = {}, labels = {} },
     })
 
     local raised = run_events(github, {
@@ -366,6 +395,41 @@ return {
     t.eq(github._model.writes[2].kind, "issue_create")
     t.eq(github._model.writes[2].title, "Integrate operator hotfix PR #3 from @fkst-test-bot")
     t.is_true(github._model.writes[2].body:find("operator hotfix", 1, true) ~= nil)
+    t.eq(github._model.writes[3].kind, "pr_comment")
+  end,
+
+  test_scan_routes_stale_or_unclaimed_trusted_origins_to_operator_bridge = function()
+    local current_origin = pr_origin_marker(42, "fix/generated", integration_branch)
+    local github = fake_github({
+      owner_pr({
+        number = 5,
+        head_ref_name = "fix/changed-after-origin",
+        base_ref_name = integration_branch,
+        comments = { { author_login = "fkst-test-bot", body = current_origin } },
+      }),
+      owner_pr({
+        number = 6,
+        head_ref_name = "fix/generated",
+        base_ref_name = integration_branch,
+        comments = { { author_login = "fkst-test-bot", body = current_origin } },
+      }),
+    }, {
+      [42] = { number = 42, author_login = "other-bot", assignees = { "other-bot" }, labels = {} },
+    })
+
+    local raised = run_events(github, {
+      { queue = "external_pr_scan", payload = { schema = "github-external-pr-intake.v1" } },
+    })
+
+    t.eq(#raised, 2)
+    t.eq(raised[1].payload.number, 5)
+    t.eq(raised[1].payload.owner_kind, "operator-hotfix-bridge")
+    t.eq(raised[2].payload.number, 6)
+    t.eq(raised[2].payload.owner_kind, "operator-hotfix-bridge")
+
+    run_events(github, { raised[1] })
+    t.eq(github._model.writes[1].kind, "issue_assign")
+    t.eq(github._model.writes[2].kind, "issue_create")
     t.eq(github._model.writes[3].kind, "pr_comment")
   end,
 }

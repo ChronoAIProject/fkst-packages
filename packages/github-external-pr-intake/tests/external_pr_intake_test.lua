@@ -416,6 +416,7 @@ return {
     local devloop_admission = read_disk_file(sibling_package_root("github-devloop-intake") .. "/departments/admission/main.lua")
     local external_scan_raiser = read_disk_file(package_root .. "/raisers/external_pr_scan.lua")
     local external_intake = read_disk_file(package_root .. "/departments/external_pr_intake/main.lua")
+    local external_owner_resolution = read_disk_file(package_root .. "/core/pr_owner_resolution.lua")
 
     -- Necessity proof: `github-proxy` can observe generic PR facts and execute
     -- already-formed issue-create effects, but it has no policy owner for the
@@ -454,7 +455,7 @@ return {
     t.is_true(external_intake:find('consumes = { "external_pr_scan", "external_pr_candidate" }', 1, true) ~= nil)
     t.is_true(external_intake:find('produces = { "external_pr_candidate" }', 1, true) ~= nil)
     t.is_true(external_intake:find("github.pr_list(repo, 30)", 1, true) ~= nil)
-    t.is_true(external_intake:find("core.classify_pr_owner", 1, true) ~= nil)
+    t.is_true(external_owner_resolution:find("core.classify_pr_owner", 1, true) ~= nil)
     t.is_true(external_intake:find("with_lock(core.bridge_lock_key", 1, true) ~= nil)
     t.is_true(external_intake:find("external_pr_candidate", 1, true) ~= nil)
     t.is_true(external_intake:find("create_bridge_issue", 1, true) ~= nil)
@@ -920,6 +921,9 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
           },
           assignees = {},
         },
+      },
+      issues = {
+        { number = 42, author_login = "fkst-test-bot" },
       },
     })
     run_pipeline({
