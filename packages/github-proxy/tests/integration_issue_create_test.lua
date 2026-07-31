@@ -160,6 +160,14 @@ local function first_call_index(needle)
   return nil
 end
 
+local function body_file_path(call)
+  local path = tostring(call and call.rendered or ""):match("%-%-body%-file%s+([^%s]+)")
+  if path == nil then
+    return nil
+  end
+  return path:gsub("^'", ""):gsub("'$", "")
+end
+
 return {
   test_issue_create_runtime_keys_distinguish_long_dedup_suffixes = function()
     local first = long_decompose_dedup(1, 2014529193)
@@ -668,9 +676,13 @@ return {
     end
 
     local create_calls = h.calls_matching("gh issue create")
+    local first_body_path = body_file_path(create_calls[1])
+    local second_body_path = body_file_path(create_calls[2])
     t.eq(count_calls("gh issue list"), 2)
     t.eq(#create_calls, 2)
-    t.is_true(create_calls[1].rendered ~= create_calls[2].rendered)
+    t.is_true(first_body_path ~= nil)
+    t.is_true(second_body_path ~= nil)
+    t.is_true(first_body_path ~= second_body_path)
   end,
 
   test_issue_create_request_without_parent_uses_issue_search_fallback = function()
