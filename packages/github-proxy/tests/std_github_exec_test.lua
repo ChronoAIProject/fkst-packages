@@ -635,13 +635,19 @@ return {
     end
   end,
 
-  test_git_fetch_pr_head_oid_is_tied_to_one_fetch_invocation = function()
+  test_git_fetch_pr_head_oid_uses_floor_compatible_exact_argv = function()
+    -- README prerequisites declare git >= 2.39.5. These exact argv assertions reject
+    -- the known-bad fetch --porcelain flag, but cannot prove that an arbitrary future
+    -- flag preserves that floor; a real-git floor CI lane is the escalation if needed.
     local oid = "0123456789abcdef0123456789abcdef01234567"
     local calls = {}
     local handle = git.new(function(opts)
       table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end
       return {
-        stdout = "= " .. oid .. " " .. oid .. " refs/fkst/pr/7\n",
+        stdout = oid .. "\n",
         stderr = "",
         exit_code = 0,
       }
@@ -649,35 +655,69 @@ return {
 
     local result = handle.fetch_pr_head_oid("origin", 7, 42)
 
-    assert(#calls == 1, "fetch_pr_head_oid must use one git invocation")
     assert_argv_equal(calls[1].argv, {
       "git",
       "fetch",
-      "--porcelain",
-      "--verbose",
       "--no-write-fetch-head",
       "origin",
       "+refs/pull/7/head:refs/fkst/pr/7",
-    }, "fetch_pr_head_oid")
-    assert(calls[1].timeout == 42, "fetch_pr_head_oid timeout mismatch")
-    assert(result.stdout == oid .. "\n", "fetch_pr_head_oid must normalize stdout to the fetched OID")
-    assert(result.stderr == "", "fetch_pr_head_oid must preserve stderr")
-    assert(result.exit_code == 0, "fetch_pr_head_oid must preserve success")
+    }, "fetch_pr_head_oid fetch")
+    assert(#calls == 2, "fetch_pr_head_oid must fetch and then resolve the local ref")
+    assert_argv_equal(calls[2].argv, {
+      "git",
+      "rev-parse",
+      "--verify",
+      "refs/fkst/pr/7^{commit}",
+    }, "fetch_pr_head_oid rev-parse")
+    assert(calls[1].timeout == 42, "fetch_pr_head_oid fetch timeout mismatch")
+    assert(calls[2].timeout == 42, "fetch_pr_head_oid rev-parse timeout mismatch")
+    assert(result.stdout == oid .. "\n", "fetch_pr_head_oid must return the resolved OID")
+    assert(result.stderr == "", "fetch_pr_head_oid must return rev-parse stderr")
+    assert(result.exit_code == 0, "fetch_pr_head_oid must return rev-parse success")
   end,
 
   test_git_fetch_pr_head_oid_preserves_fetch_failure = function()
     local calls = {}
+    local fetch_failure = { stdout = "", stderr = "fetch failed", exit_code = 128 }
     local handle = git.new(function(opts)
       table.insert(calls, opts)
-      return { stdout = "", stderr = "fetch failed", exit_code = 128 }
+      return fetch_failure
     end)
 
     local result = handle.fetch_pr_head_oid("origin", 7, 42)
 
+    assert_argv_equal(calls[1].argv, {
+      "git",
+      "fetch",
+      "--no-write-fetch-head",
+      "origin",
+      "+refs/pull/7/head:refs/fkst/pr/7",
+    }, "failed fetch_pr_head_oid fetch")
     assert(#calls == 1, "failed fetch_pr_head_oid must not run a fallback command")
-    assert(result.stdout == "", "failed fetch_pr_head_oid must preserve stdout")
-    assert(result.stderr == "fetch failed", "failed fetch_pr_head_oid must preserve stderr")
-    assert(result.exit_code == 128, "failed fetch_pr_head_oid must preserve exit code")
+    assert(result == fetch_failure, "failed fetch_pr_head_oid must return the fetch result unchanged")
+  end,
+
+  test_git_fetch_pr_head_oid_propagates_rev_parse_failure = function()
+    local calls = {}
+    local rev_parse_failure = { stdout = "", stderr = "missing ref", exit_code = 128 }
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end
+      return rev_parse_failure
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert(#calls == 2, "successful fetch must be followed by rev-parse")
+    assert_argv_equal(calls[2].argv, {
+      "git",
+      "rev-parse",
+      "--verify",
+      "refs/fkst/pr/7^{commit}",
+    }, "failed fetch_pr_head_oid rev-parse")
+    assert(result == rev_parse_failure, "fetch_pr_head_oid must propagate rev-parse failure")
   end,
 
   test_git_methods_build_argv = function()
