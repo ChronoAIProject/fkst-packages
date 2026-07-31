@@ -181,6 +181,11 @@ function R.index(snapshot, queues)
           terminal_at_ms = entry.terminal_at_ms
         end
       end
+      -- A rearm generation fans out to every subscriber, so keep it as the
+      -- queue-wide outstanding generation until all subscriber copies drain.
+      if outstanding_key ~= nil and lineage_key(outstanding_key) ~= outstanding_key then
+        return outstanding_key
+      end
       if terminal_id ~= nil then
         return tostring(base_key) .. "/rearm/" .. sha256.hex(terminal_id)
       end

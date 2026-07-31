@@ -41,9 +41,9 @@ local function live_row(dedup_key, dept)
   }
 end
 
-local function terminal_row()
+local function terminal_row(dedup_key, delivery_id)
   return {
-    delivery_id = terminal_id,
+    delivery_id = delivery_id or terminal_id,
     queue = queue,
     dept = "github-devloop-intake.admission",
     source = source(),
@@ -54,7 +54,7 @@ local function terminal_row()
     redrive_count = 3,
     replayable = false,
     permanent = true,
-    payload = payload_summary(base_key),
+    payload = payload_summary(dedup_key or base_key),
     error_excerpt = "transient admission failure",
   }
 end
@@ -111,6 +111,24 @@ return {
     t.eq(
       index.key_for(queue, base_key),
       base_key .. "/rearm/" .. sha256.hex(terminal_id)
+    )
+  end,
+
+  test_outstanding_rearm_generation_bounds_repeated_terminal_rearms = function()
+    local rearm = load_rearm()
+    local rearm_key = base_key .. "/rearm/" .. sha256.hex(terminal_id)
+    local next_terminal_id = terminal_id .. "/rearm-1"
+    local next_terminal = terminal_row(rearm_key, next_terminal_id)
+    local while_sibling_live = rearm.index(snapshot({
+      live_row(rearm_key, "github-devloop.observe_issue"),
+    }, { next_terminal }))
+
+    t.eq(while_sibling_live.key_for(queue, base_key), rearm_key)
+
+    local after_sibling_drains = rearm.index(snapshot({}, { next_terminal }))
+    t.eq(
+      after_sibling_drains.key_for(queue, base_key),
+      base_key .. "/rearm/" .. sha256.hex(next_terminal_id)
     )
   end,
 
