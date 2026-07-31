@@ -7,6 +7,11 @@ local implementation_result = require("departments.implement.implementation_resu
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
 local implementation_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
+local refusal_reasons = {
+  "precursor-missing",
+  "wrong-layer",
+  "already-satisfied",
+}
 
 local function receipt(outcome, fields)
   local values = {
@@ -55,16 +60,19 @@ return {
     t.eq(value.evidence, nil)
   end,
 
-  test_precursor_missing_receipt_preserves_bounded_evidence = function()
-    local value, err = implementation_result.decode(receipt("cannot-implement-here", {
-      '"reason":"precursor-missing"',
-      '"evidence":"Required generated parser is absent from packages/parser."',
-    }), expected())
+  test_supported_refusal_receipts_preserve_exact_reason_and_bounded_evidence = function()
+    for _, reason in ipairs(refusal_reasons) do
+      local evidence = "Worker-reported evidence for " .. reason .. "."
+      local value, err = implementation_result.decode(receipt("cannot-implement-here", {
+        '"reason":' .. strings.json_string(reason),
+        '"evidence":' .. strings.json_string(evidence),
+      }), expected())
 
-    t.eq(err, nil)
-    t.eq(value.outcome, "cannot-implement-here")
-    t.eq(value.reason, "precursor-missing")
-    t.eq(value.evidence, "Required generated parser is absent from packages/parser.")
+      t.eq(err, nil, reason)
+      t.eq(value.outcome, "cannot-implement-here", reason)
+      t.eq(value.reason, reason, reason)
+      t.eq(value.evidence, evidence, reason)
+    end
   end,
 
   test_receipt_rejects_malformed_or_unsupported_shapes = function()
@@ -74,6 +82,16 @@ return {
     decode_fails(receipt("cannot-implement-here", {
       '"reason":"scope-mismatch"',
       '"evidence":"The requested file is absent."',
+    }))
+    decode_fails(receipt("cannot-implement-here", {
+      '"reason":"Wrong-Layer"',
+      '"evidence":"The requested file is in another repository."',
+    }))
+    decode_fails(receipt("cannot-implement-here", {
+      '"evidence":"The reason field is missing."',
+    }))
+    decode_fails(receipt("cannot-implement-here", {
+      '"reason":"already-satisfied"',
     }))
     decode_fails(receipt("cannot-implement-here", {
       '"reason":"precursor-missing"',

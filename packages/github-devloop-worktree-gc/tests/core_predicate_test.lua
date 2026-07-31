@@ -4,6 +4,8 @@
 
 local core = require("core")
 local base = require("devloop.base")
+local marker_builders = require("devloop.markers.builders")
+local devloop_state = require("devloop.state")
 local t = fkst.test
 
 local REPO = "ChronoAIProject/fkst-packages"
@@ -12,8 +14,9 @@ local CUR_RT = "/runtime/dogfood-rt-packages.2222"
 local NOW_S = 1000000
 local NOW_MS = NOW_S * 1000
 
-local function running_row(issue, dedup, lease_offset_ms)
+local function running_row(issue, dedup, lease_offset_ms, role)
   return {
+    role = role,
     status = "running",
     proposal_id = "github-devloop/issue/" .. REPO .. "/" .. tostring(issue),
     dedup_key = dedup,
@@ -75,6 +78,42 @@ local FULL_PORCELAIN = porcelain({
   { path = FOREIGN_PATH, branch = "feature/some-external-branch" },
 })
 
+local function comment(body, author_login)
+  return {
+    body = body,
+    author_login = author_login or base._test_bot_login,
+    created_at = "2026-07-22T00:01:00Z",
+  }
+end
+
+local function implementation_marker()
+  return marker_builders.implementing_marker(
+    "github-devloop/issue/" .. REPO .. "/333",
+    "dedup-current",
+    CURRENT_BRANCH,
+    "1111111111111111111111111111111111111111",
+    "dev",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  )
+end
+
+local function checkpoint_marker()
+  return marker_builders.implement_checkpoint_marker(
+    "github-devloop/issue/" .. REPO .. "/333",
+    "dedup-current",
+    CURRENT_BRANCH,
+    "1111111111111111111111111111111111111111",
+    "dev",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    1
+  )
+end
+
+local function failure_marker()
+  return '<!-- fkst:github-devloop:impl-failure:v1 proposal="github-devloop/issue/'
+    .. REPO .. '/333" reason="local-iteration-failed" attempt="1" dedup="dedup-current" -->'
+end
+
 return {
   -- Orphan-after-restart: a live running codex row keyed to the orphan branch keeps its
   -- old-RT worktree even though the path is under a dead runtime root.
@@ -113,23 +152,122 @@ return {
     t.eq(issue_ref.source_ref.ref, REPO .. "#issue/333")
   end,
 
-  test_current_rt_terminal_issue_is_removable = function()
+  test_published_output_releases_exact_branch = function()
+    local issue_ref = core.issue_ref_from_branch(CURRENT_BRANCH)
+    local fact = core.branch_release_fact({ comment(implementation_marker()) }, issue_ref, CURRENT_BRANCH)
+    t.eq(fact.kind, "published")
+    t.eq(fact.branch, CURRENT_BRANCH)
+  end,
+
+  test_checkpointed_output_releases_exact_branch = function()
+    local issue_ref = core.issue_ref_from_branch(CURRENT_BRANCH)
+    local fact = core.branch_release_fact({ comment(checkpoint_marker()) }, issue_ref, CURRENT_BRANCH)
+    t.eq(fact.kind, "checkpointed")
+    t.eq(fact.branch, CURRENT_BRANCH)
+  end,
+
+  test_current_impl_failure_classifies_residue_disposable = function()
+    local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
+    local comments = {
+      comment(devloop_state.state_marker(proposal_id, "impl-failed", "dedup-current") .. "\n" .. failure_marker()),
+    }
+    local fact = core.branch_release_fact(comments, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH)
+    t.eq(fact.kind, "disposable-residue")
+    t.eq(fact.branch, CURRENT_BRANCH)
+  end,
+
+  test_stale_impl_failure_does_not_release_reentered_attempt = function()
+    local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
+    local comments = {
+      comment(failure_marker()),
+      comment(devloop_state.state_marker(proposal_id, "implementing", "dedup-current")),
+    }
+    t.eq(core.branch_release_fact(comments, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH), nil)
+  end,
+
+  test_untrusted_progress_marker_does_not_release_branch = function()
+    local comments = { comment(implementation_marker(), "attacker") }
+    t.eq(core.branch_release_fact(comments, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH), nil)
+  end,
+
+  test_progress_marker_for_different_branch_does_not_release_branch = function()
+    local marker = marker_builders.implementing_marker(
+      "github-devloop/issue/" .. REPO .. "/333",
+      "dedup-current",
+      ORPHAN_BRANCH,
+      "1111111111111111111111111111111111111111",
+      "dev",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    )
+    t.eq(core.branch_release_fact({ comment(marker) }, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH), nil)
+  end,
+
+  test_terminal_issue_releases_branch = function()
+    local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
+    local fact = core.branch_release_fact({
+      comment(devloop_state.state_marker(proposal_id, "merged", "dedup-current")),
+    }, core.issue_ref_from_branch(CURRENT_BRANCH), CURRENT_BRANCH)
+    t.eq(fact.kind, "terminal")
+    t.eq(fact.branch, CURRENT_BRANCH)
+  end,
+
+  test_fix_owner_branch_comes_from_trusted_implementation_fact = function()
+    local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
+    t.eq(core.fix_owner_branch({ comment(implementation_marker()) }, proposal_id), CURRENT_BRANCH)
+    t.eq(core.fix_owner_branch({ comment(implementation_marker(), "attacker") }, proposal_id), nil)
+  end,
+
+  test_current_rt_finalized_branch_is_removable_without_terminal_issue = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
     local result = core.classify(worktrees, live, CUR_RT, {
-      terminal_issues = {
-        ["github-devloop/issue/" .. REPO .. "/333"] = true,
+      released_branches = {
+        [CURRENT_BRANCH] = true,
       },
     })
     t.eq(removable_has(result, CURRENT_PATH), true)
   end,
 
-  test_current_rt_without_terminal_proof_is_skipped = function()
+  test_live_branch_wins_over_finalized_release_fact = function()
+    local worktrees = core.parse_worktrees(FULL_PORCELAIN)
+    local live = core.live_branches({ running_row(333, "dedup-current") }, NOW_MS)
+    local result = core.classify(worktrees, live, CUR_RT, {
+      released_branches = {
+        [CURRENT_BRANCH] = true,
+      },
+    })
+    t.eq(removable_has(result, CURRENT_PATH), false)
+    t.eq(skip_reason(result, CURRENT_PATH), "live-branch")
+  end,
+
+  test_live_fix_resolves_immutable_owner_branch = function()
+    local work_unit_key = "review-feedback/head/review-dedup"
+    local resolved = 0
+    local live = core.live_branches({
+      running_row(333, work_unit_key, nil, "fix"),
+    }, NOW_MS, function(row)
+      resolved = resolved + 1
+      t.eq(row.dedup_key, work_unit_key)
+      return CURRENT_BRANCH
+    end)
+    t.eq(resolved, 1)
+    t.eq(live.complete, true)
+    t.eq(live.set[CURRENT_BRANCH], true)
+  end,
+
+  test_live_fix_without_exact_branch_resolution_fails_open = function()
+    local live = core.live_branches({
+      running_row(333, "review-feedback/head/review-dedup", nil, "fix"),
+    }, NOW_MS)
+    t.eq(live.complete, false)
+  end,
+
+  test_current_rt_without_release_proof_is_skipped = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
-    local result = core.classify(worktrees, live, CUR_RT, { terminal_issues = {} })
+    local result = core.classify(worktrees, live, CUR_RT, { released_branches = {} })
     t.eq(removable_has(result, CURRENT_PATH), false)
-    t.eq(skip_reason(result, CURRENT_PATH), "current-runtime-terminal-unverified")
+    t.eq(skip_reason(result, CURRENT_PATH), "current-runtime-release-unverified")
   end,
 
   -- Detached, foreign, and main-checkout worktrees are never removable.

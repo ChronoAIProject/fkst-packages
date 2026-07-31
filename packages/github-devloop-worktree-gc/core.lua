@@ -3,14 +3,18 @@
 --
 -- "Expired" NEVER means age. A worktree is removable ONLY when ground-truth codex
 -- liveness (fkst.codex_runs) proves no running codex owns its deterministic
--- implement/fix branch. Liveness is joined codex-run -> implement_branch (the exact
--- devloop.base helper, RT-independent) -> porcelain branch match; the reverse
--- (worktree path -> identity) does not round-trip and is never used.
+-- implement/fix branch. Implement runs join through devloop.base.implement_branch;
+-- fix runs join through the producer-owned immutable implementing:v1 branch fact.
+-- The reverse (worktree path -> identity) does not round-trip and is never used.
 --
 -- Pure functions only (no I/O); the department wires the real primitives.
 
 local base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
+local impl_failure = require("devloop.impl_failure")
+local m_facts = require("devloop.markers.facts")
+local parsers_misc = require("devloop.parsers.misc")
+local devloop_state = require("devloop.state")
 
 local M = {}
 
@@ -69,25 +73,28 @@ function M.lease_valid(row, now_ms)
   return lease >= tonumber(now_ms or 0)
 end
 
--- Build the LIVE-BRANCH set from codex_runs().running via the codex-run -> implement_branch join.
+-- Build the LIVE-BRANCH set from codex_runs().running via the codex-run -> owner-branch join.
 -- Returns { set = {<branch>=true,...}, complete = bool }. `complete` is false (FAIL-OPEN) when a
 -- live running row cannot be mapped to a branch (unparseable proposal_id/dedup_key or helper
 -- error) — an incomplete live set must block ALL removals this pass, because a live worktree
 -- could belong to the row we failed to map.
-function M.live_branches(running_rows, now_ms)
+function M.live_branches(running_rows, now_ms, resolve_fix_branch)
   local set = {}
   local complete = true
   for _, row in ipairs(running_rows or {}) do
     if tostring(row.status) == "running" and M.lease_valid(row, now_ms) then
-      local repo, issue = M.parse_proposal_repo_issue(row.proposal_id)
-      local dedup = row.dedup_key
-      if repo and issue and dedup ~= nil and tostring(dedup) ~= "" then
-        local ok, branch = pcall(base.implement_branch, repo, issue, dedup)
-        if ok and type(branch) == "string" then
-          set[branch] = true
-        else
-          complete = false
+      local ok, branch
+      if tostring(row.role or "") == "fix" then
+        ok, branch = pcall(resolve_fix_branch or function() return nil end, row)
+      else
+        local repo, issue = M.parse_proposal_repo_issue(row.proposal_id)
+        local dedup = row.dedup_key
+        if repo and issue and dedup ~= nil and tostring(dedup) ~= "" then
+          ok, branch = pcall(base.implement_branch, repo, issue, dedup)
         end
+      end
+      if ok and type(branch) == "string" and branch ~= "" then
+        set[branch] = true
       else
         complete = false
       end
@@ -119,17 +126,125 @@ function M.issue_ref_from_branch(branch)
   }
 end
 
+local function marker_attr(marker, name)
+  return marker:match(name .. '="([^"]*)"')
+end
+
+local function progress_fact_for_branch(comments, proposal_id, branch, marker_pattern, fact_reader)
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      if marker_attr(marker, "proposal") == proposal_id
+        and marker_attr(marker, "branch") == branch then
+        local dedup_key = marker_attr(marker, "dedup")
+        local fact = fact_reader(comments, proposal_id, dedup_key)
+        if fact ~= nil and fact.branch == branch then
+          return fact
+        end
+      end
+    end
+  end
+  return nil
+end
+
+-- A live fix row is fenced by its work-unit key, while its immutable worktree branch
+-- remains the branch published by the implementation lifecycle. Multiple historical
+-- facts are safe only when they agree on that exact branch.
+function M.fix_owner_branch(comments, proposal_id)
+  local branch = nil
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:implementing:v1.-%-%->") do
+      if marker_attr(marker, "proposal") == proposal_id then
+        local fact = m_facts.implementing_fact(comments, proposal_id, marker_attr(marker, "dedup"))
+        if fact ~= nil then
+          if branch ~= nil and branch ~= fact.branch then
+            return nil
+          end
+          branch = fact.branch
+        end
+      end
+    end
+  end
+  return branch
+end
+
+-- Derive lifecycle-owned release eligibility for one exact deterministic branch.
+-- Required output is releasable only after its published/checkpoint fact is durable.
+-- A current implementation failure is the lifecycle's explicit classification that
+-- the remaining local residue is disposable. Terminal issue rows are final as before.
+function M.branch_release_fact(comments, issue_ref, branch)
+  if type(issue_ref) ~= "table" or type(branch) ~= "string" then
+    return nil
+  end
+  local proposal_id = issue_ref.proposal_id
+  if devloop_state.current_issue_observation_is_terminal(comments, proposal_id) then
+    return { kind = "terminal", branch = branch, proposal_id = proposal_id }
+  end
+
+  local published = progress_fact_for_branch(
+    comments,
+    proposal_id,
+    branch,
+    "<!%-%- fkst:github%-devloop:implementing:v1.-%-%->",
+    m_facts.implementing_fact
+  )
+  if published ~= nil then
+    return {
+      kind = "published",
+      branch = published.branch,
+      proposal_id = proposal_id,
+      dedup_key = published.dedup_key,
+      head_sha = published.head_sha,
+    }
+  end
+
+  local checkpoint = progress_fact_for_branch(
+    comments,
+    proposal_id,
+    branch,
+    "<!%-%- fkst:github%-devloop:implement%-checkpoint:v1.-%-%->",
+    m_facts.implement_checkpoint_fact
+  )
+  if checkpoint ~= nil then
+    return {
+      kind = "checkpointed",
+      branch = checkpoint.branch,
+      proposal_id = proposal_id,
+      dedup_key = checkpoint.dedup_key,
+      head_sha = checkpoint.head_sha,
+    }
+  end
+
+  local failure = impl_failure.current_fact(
+    base._max_key_len,
+    base._max_dedup_len,
+    comments,
+    proposal_id
+  )
+  if failure ~= nil then
+    local ok, failure_branch = pcall(base.implement_branch, issue_ref.repo, issue_ref.issue, failure.dedup_key)
+    if ok and failure_branch == branch then
+      return {
+        kind = "disposable-residue",
+        branch = branch,
+        proposal_id = proposal_id,
+        dedup_key = failure.dedup_key,
+      }
+    end
+  end
+  return nil
+end
+
 -- classify(worktrees, live, current_runtime_root) -> { removable = {<path>,...}, skipped = {{path,branch,reason},...} }.
 -- A worktree is REMOVABLE iff ALL hold:
 --   (1) the live set is complete (else fail-open: skip everything);
 --   (2) it is attached to a deterministic devloop implement/fix branch (round-trips through the prefix);
 --   (3) that branch is ABSENT from the live-branch set;
---   (4) it is either under an old runtime root, or a trusted terminal issue marker proves
---       the current-runtime worktree has reached a terminal lifecycle row.
+--   (4) it is either under an old runtime root, or a trusted lifecycle fact releases
+--       the exact current-runtime branch after output publication/final classification.
 -- Everything else is skipped with a positive reason and never force-removed.
 function M.classify(worktrees, live, current_runtime_root, opts)
   local removable, skipped = {}, {}
-  local terminal_issues = opts and opts.terminal_issues or nil
+  local released_branches = opts and opts.released_branches or nil
   local function skip(w, reason)
     skipped[#skipped + 1] = { path = w.path, branch = w.branch, reason = reason }
   end
@@ -150,10 +265,10 @@ function M.classify(worktrees, live, current_runtime_root, opts)
       skip(w, "live-branch")
     elseif base.path_under_runtime_root(current_runtime_root, w.path) then
       local issue_ref = M.issue_ref_from_branch(w.branch)
-      if issue_ref ~= nil and terminal_issues ~= nil and terminal_issues[issue_ref.proposal_id] == true then
+      if issue_ref ~= nil and released_branches ~= nil and released_branches[w.branch] == true then
         removable[#removable + 1] = { path = w.path, branch = w.branch, issue_ref = issue_ref }
       else
-        skip(w, terminal_issues ~= nil and "current-runtime-terminal-unverified" or "current-runtime-root")
+        skip(w, released_branches ~= nil and "current-runtime-release-unverified" or "current-runtime-root")
       end
     else
       removable[#removable + 1] = { path = w.path, branch = w.branch }

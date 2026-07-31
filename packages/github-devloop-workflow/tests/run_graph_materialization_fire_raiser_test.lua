@@ -508,12 +508,10 @@ local function mock_native_merge_observation()
       .. '","repo":{"full_name":"' .. repo .. '"}},"base":{"ref":"' .. upstream_branch .. '"}}]]\n',
     stderr = "", exit_code = 0,
   })
-  t.mock_command(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr), {
-    stdout = "", stderr = "", exit_code = 0,
-  })
-  t.mock_command(core.git_fetch_head_commit_cmd(), {
-    stdout = rollup_head_sha .. "\n", stderr = "", exit_code = 0,
-  })
+  t.mock_command("git fetch --no-write-fetch-head origin '+refs/pull/" .. tostring(rollup_pr)
+    .. "/head:refs/fkst/pr/" .. tostring(rollup_pr) .. "'", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command(core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(rollup_pr)),
+    { stdout = rollup_head_sha .. "\n", stderr = "", exit_code = 0 })
   t.mock_command("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha, {
     stdout = "", stderr = "", exit_code = 0,
   })

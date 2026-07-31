@@ -32,14 +32,18 @@ function C.liveness_scan_cursor_key(repo, prefix)
 end
 
 function C.liveness_scan_log_deferred(reason, fields)
-  devloop_logging.log_line("info", "liveness_scan", "github-devloop/liveness-scan", "LIVENESS_DEFERRED", {
+  local fact_fields = {
     "reason=" .. tostring(reason or "budget"),
     "listed_issues=" .. tostring(fields and fields.listed_issues or 0),
     "listed_prs=" .. tostring(fields and fields.listed_prs or 0),
     "processed=" .. tostring(fields and fields.processed or 0),
     "deferred=" .. tostring(fields and fields.deferred or 0),
     "entity_cap=" .. tostring(fields and fields.entity_cap or 0),
-  })
+  }
+  if fields and fields.error_class ~= nil then
+    table.insert(fact_fields, 2, "error_class=" .. tostring(fields.error_class))
+  end
+  devloop_logging.log_line("info", "liveness_scan", "github-devloop/liveness-scan", "LIVENESS_DEFERRED", fact_fields)
 end
 
 function C.liveness_scan_is_timeout_result(M, result)
@@ -47,11 +51,27 @@ function C.liveness_scan_is_timeout_result(M, result)
     and (tonumber(result.exit_code) == 124 or M.error_fact_class({ message = result.stderr }) == "timeout")
 end
 
-function C.liveness_scan_update_cursor(cursor_key, cursor, total, processed)
+local function activation_cursor_key(activation)
+  return activation and activation.entity and activation.entity.number
+end
+
+local function parse_activation_cursor_state(value)
+  local cursor, high_water = tostring(value or ""):match("^v1/(%d+)/(%d+)$")
+  return tonumber(cursor), tonumber(high_water)
+end
+
+local function render_activation_cursor_state(cursor, high_water)
+  return "v1/" .. tostring(cursor) .. "/" .. tostring(high_water)
+end
+
+function C.liveness_scan_update_cursor(cursor_key, cursor_progress, processed)
   if cursor_key == nil then
     return
   end
-  cache_set(cursor_key, tostring(sweep_bounds.sweep_cursor_advance(cursor, total, processed)))
+  local next_cursor, next_high_water = sweep_bounds.sweep_cursor_advance(cursor_progress, processed)
+  if next_cursor ~= nil and next_high_water ~= nil then
+    cache_set(cursor_key, render_activation_cursor_state(next_cursor, next_high_water))
+  end
 end
 
 function C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
@@ -146,12 +166,30 @@ function C.liveness_scan_observe_queue(kind)
   return "devloop_observe_issue"
 end
 
+local function rate_limit_deferred_outcome(result)
+  if type(result) == "table"
+    and result.error_class == "gh-rate-limited"
+    and result.retryable == true then
+    return {
+      status = "deferred",
+      reason = result.error_class,
+      error_class = result.error_class,
+      retryable = true,
+    }
+  end
+  return nil
+end
+
 function C.liveness_scan_list_open_issues(M, repo, timeout, poll_key)
   local list = entity_list_cache.fetch_shared_issue_observe_list(M, repo, {
     timeout = timeout or 60,
     poll_key = poll_key,
   })
   if list.exit_code ~= 0 then
+    local deferred = rate_limit_deferred_outcome(list)
+    if deferred ~= nil then
+      return nil, deferred
+    end
     error("github-devloop: liveness-scan-issue-list-failed: " .. tostring(list.stderr))
   end
   return parsers_issue.parse_issue_list_observe(list.stdout)
@@ -163,6 +201,10 @@ function C.liveness_scan_list_open_prs(M, repo, timeout, poll_key)
     poll_key = poll_key,
   })
   if list.exit_code ~= 0 then
+    local deferred = rate_limit_deferred_outcome(list)
+    if deferred ~= nil then
+      return nil, deferred
+    end
     error("github-devloop: liveness-scan-pr-list-failed: " .. tostring(list.stderr))
   end
   return parsers_pr.parse_pr_list_observe(list.stdout)
@@ -181,20 +223,20 @@ function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
     table.insert(activations, { kind = kind, entity = entity })
   end
   local total = #activations
-  if total > LIVENESS_SCAN_MAX_PER_TICK then
-    local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
-    local cursor = cache_get(cursor_key)
-    local bounded, deferred = sweep_bounds.sweep_cursor_batch(
-      activations,
-      cursor,
-      LIVENESS_SCAN_MAX_PER_TICK,
-      LIVENESS_SCAN_MAX_PER_TICK
-    )
+  local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
+  local cursor, high_water = parse_activation_cursor_state(cache_get(cursor_key))
+  local bounded, deferred, _, _, cursor_progress = sweep_bounds.sweep_cursor_batch(
+    activations,
+    cursor,
+    LIVENESS_SCAN_MAX_PER_TICK,
+    LIVENESS_SCAN_MAX_PER_TICK,
+    activation_cursor_key,
+    high_water
+  )
+  if deferred > 0 then
     devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(total - LIVENESS_SCAN_MAX_PER_TICK) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
-    return bounded, deferred, cursor_key, cursor, total
   end
-  cache_set(C.liveness_scan_cursor_key(repo, cursor_prefix), "0")
-  return activations, 0, nil, nil, total
+  return bounded, deferred, cursor_key, cursor_progress
 end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)

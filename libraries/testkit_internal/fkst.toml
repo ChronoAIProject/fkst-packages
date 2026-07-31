@@ -26,6 +26,7 @@ public = [
   "testkit_internal.devloop_worktree_fixtures",
   "testkit_internal.gh_argv_mock",
   "testkit_internal.github_author_policy",
+  "testkit_internal.liveness_scan_rate_limit_fixture",
   "testkit_internal.namespaced_dispatch_conformance",
   "testkit_internal.old_behavior_observation_support",
   "testkit_internal.saga_conformance",
