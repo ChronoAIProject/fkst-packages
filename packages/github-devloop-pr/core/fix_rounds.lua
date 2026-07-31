@@ -9,6 +9,7 @@ local parsers_misc = require("devloop.parsers.misc")
 local payloads_builders = require("devloop.payloads.builders")
 local source_refs = require("contract.source_ref")
 local strings = require("contract.strings")
+local delivery_repositories = require("devloop.delivery_repositories")
 local OWN_CI_RED = ci_verdict.OWN_CI_RED
 
 local C = {}
@@ -32,9 +33,17 @@ local function terminal_dedup_key(schema, issue_version, reason_class)
 end
 
 local function build_terminal_intent(schema, ctx, issue_version, reason_class)
+  local repositories = delivery_repositories.from_pr_source_ref(
+    ctx.proposal_id,
+    ctx.source_ref,
+    ctx.lifecycle_repo,
+    ctx.implementation_repo
+  )
   return {
     schema = schema,
     proposal_id = ctx.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     review_proposal_id = ctx.review_proposal_id,
     review_dedup_key = ctx.review_dedup_key,
     issue_version = issue_version,
@@ -66,6 +75,12 @@ local function supported_terminal(payload, schema, reasons)
   return payload.schema == schema
     and repo ~= nil
     and issue_number ~= nil
+    and delivery_repositories.is_valid_pr_source(
+      payload.proposal_id,
+      payload.source_ref,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and strings.is_path_safe_key(payload.proposal_id, devloop_base._max_key_len)
     and strings.is_path_safe_key(payload.review_proposal_id, devloop_base._max_key_len)
     and strings.is_bounded_string(payload.review_dedup_key, devloop_base._max_dedup_len)
@@ -89,6 +104,8 @@ end
 local function build_decompose(intent)
   return payloads_builders.build_devloop_decompose_payload({
     proposal_id = intent.proposal_id,
+    lifecycle_repo = intent.lifecycle_repo,
+    implementation_repo = intent.implementation_repo,
     pr_number = intent.pr_number,
     issue_version = intent.issue_version,
     review_proposal_id = intent.review_proposal_id,
@@ -210,6 +227,8 @@ function C.admit_merge_failure(merge_ready, current_state, current_pr, source_re
     review_dedup_key = merge_ready.review_dedup_key,
     pr_number = merge_ready.pr_number,
     source_ref = source_ref,
+    lifecycle_repo = merge_ready.lifecycle_repo,
+    implementation_repo = merge_ready.implementation_repo,
     reason = reason,
   }
   local own_ci_red = parsers_misc.is_ci_red_reason(reason)

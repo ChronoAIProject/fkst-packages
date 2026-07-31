@@ -437,11 +437,19 @@ end
 
 function C.build_context_bundle(M, args)
   local repo = args and args.repo
+  local lifecycle_repo = args and args.lifecycle_repo
+  local implementation_repo = args and args.implementation_repo
   local issue_number = args and args.issue_number
   local proposal_id = args and args.proposal_id
   local version = args and args.version
   if repo == nil or proposal_id == nil or version == nil then
     error("github-devloop: context bundle requires repo, proposal, and version")
+  end
+  if lifecycle_repo == nil and implementation_repo == nil then
+    lifecycle_repo = repo
+    implementation_repo = repo
+  elseif lifecycle_repo == nil or implementation_repo == nil then
+    error("github-devloop: context bundle requires a complete delivery repository pair")
   end
 
   local key = C.context_bundle_key(proposal_id, version)
@@ -497,12 +505,12 @@ function C.build_context_bundle(M, args)
   local issue_json = '{"title":"PR-only context","body":"No backing GitHub issue is available for this delivery.","labels":[],"comments":[],"state":"UNKNOWN"}\n'
   if issue_number ~= nil then
     issue_json = fetch_result(function(timeout)
-      return M.gh_issue_view(repo, issue_number, "title,body,updatedAt,labels,comments,state,author", timeout, args.exec, args.exec)
+      return M.gh_issue_view(lifecycle_repo, issue_number, "title,body,updatedAt,labels,comments,state,author", timeout, args.exec, args.exec)
     end, "issue fetch")
     if whitelist ~= nil then
       local issue_redactions = {}
       issue_json = content_filter.filter_gh_content_json(issue_json, "issue", whitelist, issue_redactions)
-      log_content_redactions(args.dept, proposal_id, repo, "issue/" .. tostring(issue_number), issue_redactions)
+      log_content_redactions(args.dept, proposal_id, lifecycle_repo, "issue/" .. tostring(issue_number), issue_redactions)
     end
   end
   issue_json = truncate_if_needed(issue_json, args.dept, proposal_id, "issue.json")
@@ -511,24 +519,24 @@ function C.build_context_bundle(M, args)
 
   if args.pr_number ~= nil then
     local pr_json = fetch_result(function(timeout)
-      return M.gh_pr_view_context(repo, args.pr_number, timeout, args.exec, args.exec)
+      return M.gh_pr_view_context(implementation_repo, args.pr_number, timeout, args.exec, args.exec)
     end, "pr fetch")
     if whitelist ~= nil then
       local pr_redactions = {}
       pr_json = content_filter.filter_gh_content_json(pr_json, "pr", whitelist, pr_redactions)
-      log_content_redactions(args.dept, proposal_id, repo, "pr/" .. tostring(args.pr_number), pr_redactions)
+      log_content_redactions(args.dept, proposal_id, implementation_repo, "pr/" .. tostring(args.pr_number), pr_redactions)
     end
     pr_json = truncate_if_needed(pr_json, args.dept, proposal_id, "pr.json")
     write_file(tmp_bundle.pr_path, pr_json, args.exec)
     tmp_bundle.pr_bytes = #pr_json
     local diff = fetch_result(function(timeout)
-      return M.gh_pr_diff(repo, args.pr_number, timeout, args.exec)
+      return M.gh_pr_diff(implementation_repo, args.pr_number, timeout, args.exec)
     end, "pr diff fetch")
     diff = truncate_if_needed(diff, args.dept, proposal_id, "diff.patch")
     write_file(tmp_bundle.diff_path, diff, args.exec)
     tmp_bundle.diff_bytes = #diff
     local name_result = (function(timeout)
-      return M.gh_pr_diff_name_only(repo, args.pr_number, timeout, args.exec)
+      return M.gh_pr_diff_name_only(implementation_repo, args.pr_number, timeout, args.exec)
     end)(60)
     local risk = github_risk.github_diff_name_risk(name_result)
     risk_classification = clone_risk_classification(risk)
@@ -538,7 +546,7 @@ function C.build_context_bundle(M, args)
     tmp_bundle.risk_bytes = #risk_text
   end
 
-  local board = payloads_board.board_digest_block(M, repo, args.tick)
+  local board = payloads_board.board_digest_block(M, lifecycle_repo, args.tick)
   board = truncate_if_needed(board, args.dept, proposal_id, "board.txt")
   write_file(tmp_bundle.board_path, board, args.exec)
   tmp_bundle.board_bytes = #board

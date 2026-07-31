@@ -6,6 +6,7 @@ local source_refs = require("contract.source_ref")
 local forge_validators = require("devloop.forge_validators")
 local entity_lib = require("devloop.entity")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local C = {}
 function C.is_supported_fixing(payload)
@@ -28,6 +29,14 @@ function C.is_supported_fixing(payload)
   end
 
   if not entity_lib.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key) then
+    return false
+  end
+  if not delivery_repositories.is_valid_pr_source(
+    payload.proposal_id,
+    payload.source_ref,
+    payload.lifecycle_repo,
+    payload.implementation_repo
+  ) then
     return false
   end
   local repair_input = payload.repair_input or "review-feedback"

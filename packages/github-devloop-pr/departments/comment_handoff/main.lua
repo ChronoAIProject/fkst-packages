@@ -9,6 +9,7 @@ local handoff_helpers = require("devloop.comment_handoff")
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
@@ -31,6 +32,12 @@ local spec = {
 
 local function valid_base_pr_handoff(handoff)
   return entity_lib.is_safe_entity_proposal_ref(handoff.proposal_id, handoff.version)
+    and delivery_repositories.is_valid_pr_source(
+      handoff.proposal_id,
+      handoff.source_ref,
+      handoff.lifecycle_repo,
+      handoff.implementation_repo
+    )
     and require("devloop.pr_safety").is_safe_pr_number(handoff.pr_number)
     and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len)
@@ -91,6 +98,8 @@ local function review_meta_payload(handoff, comment_id)
   local payload = {
     schema = "github-devloop.review-meta.v1",
     proposal_id = handoff.proposal_id,
+    lifecycle_repo = handoff.lifecycle_repo,
+    implementation_repo = handoff.implementation_repo,
     review_proposal_id = handoff.review_proposal_id,
     review_dedup_key = handoff.review_dedup_key,
     version = handoff.version,
@@ -156,6 +165,8 @@ local maybe_raise_pr_label
 
 local function emit_merge_ready(payload, handoff)
   local merge_ready = payloads_builders.build_devloop_merge_ready_payload(handoff.proposal_id, handoff.pr_number, handoff.version, {
+    lifecycle_repo = handoff.lifecycle_repo,
+    implementation_repo = handoff.implementation_repo,
     review_proposal_id = handoff.review_proposal_id,
     review_dedup_key = handoff.review_dedup_key,
     reviewed_head_sha = handoff.reviewed_head_sha,
@@ -169,6 +180,8 @@ end
 local function emit_fixing(payload, handoff)
   local fixing = payloads_builders.build_devloop_fixing_payload({
     proposal_id = handoff.proposal_id,
+    lifecycle_repo = handoff.lifecycle_repo,
+    implementation_repo = handoff.implementation_repo,
     impl_version = handoff.version,
   }, handoff.pr_number, {
     review_proposal_id = handoff.review_proposal_id,
@@ -242,6 +255,8 @@ local function emit_reviewing(payload, handoff)
   end
   local reviewing = payloads_builders.build_devloop_reviewing_payload({
     proposal_id = handoff.proposal_id,
+    lifecycle_repo = handoff.lifecycle_repo,
+    implementation_repo = handoff.implementation_repo,
     impl_version = handoff.version,
     reviewing_comment_id = payload.comment_id,
   }, handoff.pr_number, handoff.source_ref, handoff.version)
@@ -345,14 +360,14 @@ maybe_raise_pr_label = function(payload, handoff)
   if state == nil then
     return
   end
-  local repo = payload.repo
-  if repo == nil then
-    repo = select(1, devloop_base.parse_pr_source_ref(handoff.source_ref))
+  local implementation_repo = payload.repo
+  if implementation_repo == nil then
+    implementation_repo = select(1, devloop_base.parse_pr_source_ref(handoff.source_ref))
   end
-  if repo == nil then
+  if implementation_repo == nil then
     error("github-devloop: pr-label-handoff-missing-repo: PR label handoff missing repo")
   end
-  local verified_state, reason = verified_pr_state(repo, handoff, payload.comment_id, state)
+  local verified_state, reason = verified_pr_state(implementation_repo, handoff, payload.comment_id, state)
   if verified_state == nil then
     if retryable_visibility_reason(reason) then
       devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = nil, version = nil }, "comment-written", "github-proxy.github_issue_label_request", "retry-pending(" .. tostring(state) .. " marker not visible)", tostring(state) .. " marker comment write was acknowledged but exact marker is not visible")
@@ -363,8 +378,8 @@ maybe_raise_pr_label = function(payload, handoff)
   end
 
   local label_request = core.build_reconcile_pr_state_label_request(
-    repo,
-    issue_number_for_label(payload, handoff, repo),
+    handoff.lifecycle_repo,
+    issue_number_for_label(payload, handoff, handoff.lifecycle_repo),
     handoff.pr_number,
     handoff.proposal_id,
     verified_state.state,

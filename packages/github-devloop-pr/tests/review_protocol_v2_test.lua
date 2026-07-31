@@ -460,7 +460,7 @@ return {
     event.blocking_gap = nil
     local impl_version = h.reviewing().version
     h.mock_pr_origin({
-      m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
+      m_builders.pr_origin_marker("github-devloop/issue/owner/repo/42", "42", "devloop-owner-repo-42-01HY", impl_version, "dev"),
     })
 
     local result = h.run_review_result(event, h.opts("review-v2-reject-missing-gap"))

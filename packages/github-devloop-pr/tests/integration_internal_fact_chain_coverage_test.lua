@@ -156,7 +156,7 @@ local function live_308_decompose_reconcile_marker_substream(event)
     -- Runtime logs preserve the trusted marker facts but not complete comment bodies.
     -- Replay consumes bot-authored fkst markers only; non-marker stream noise is checked below.
     comments = {
-      'github-devloop implementation PR for issue #285\n\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/285" issue="285" branch="' .. branch .. '" impl_version="ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/285/2026-06-11T16-31-07Z" base_branch="dev" -->',
+      'github-devloop implementation PR for issue #285\n\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/285" issue="285" branch="' .. branch .. '" impl_version="ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/285/2026-06-11T16-31-07Z" base_branch="dev" lifecycle_repo="ChronoAIProject/fkst-packages" implementation_repo="ChronoAIProject/fkst-packages" -->',
       'github-devloop PR is ready for review\n\n<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/285" state="reviewing" version="ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/285/2026-06-11T16-31-07Z/loop/1/fix/1/fix/2/fix/3/fix/4/fix/5/review-meta-action/1/review-loop/1/rereview/1/66a6dd47225a9564bed391119e2ffbf5e778ac68/fix/6/review-meta-action/2/review-loop/2/rereview/2/66a6dd47225a9564bed391119e2ffbf5e778ac68/fix/7/fix/8/fix/9/fix/10/fix/11/fix/12/fix/13/fix/14/review-loop/3/rereview/3" stage_rank="675" -->',
       'github-devloop fix reconcile action: drop\n\nReason:\nfix-loop-max-rounds-after-14-rounds\n\n<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/285" state="blocked" version="' .. version .. '" stage_rank="800" -->\n<!-- fkst:github-devloop:fix-reconcile:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/285" version="' .. version .. '" round="14" action="drop" dedup="fix-reconcile:' .. version .. '" -->\n⟦AI:FKST⟧',
       'github-devloop decomposed blocked PR into 3 follow-up issue(s)\n\n<!-- fkst:github-devloop:decomposed:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/285" version="' .. version .. '" pr="308" count="3" -->',
@@ -197,7 +197,7 @@ local function live_305_merge_gate_fix_marker_substream(event)
     -- Runtime logs preserve the trusted marker facts but not complete comment bodies.
     -- Replay consumes bot-authored fkst markers only; non-marker stream noise is checked below.
     pr_comments = {
-      'github-devloop implementation PR for issue #300\n\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/300" issue="300" branch="' .. branch .. '" impl_version="ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/300/2026-06-11T18-15-40Z" base_branch="dev" -->',
+      'github-devloop implementation PR for issue #300\n\n<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/300" issue="300" branch="' .. branch .. '" impl_version="ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/300/2026-06-11T18-15-40Z" base_branch="dev" lifecycle_repo="ChronoAIProject/fkst-packages" implementation_repo="ChronoAIProject/fkst-packages" -->',
       'github-devloop PR is ready for review\n\n<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/300" state="reviewing" version="' .. version .. '" stage_rank="675" -->',
       merge_gate,
     },
@@ -249,6 +249,8 @@ local function assert_declared_merge_gate_fixing_replay_field_set(payload)
   t.eq(expected.review_proposal_id, true)
   t.eq(expected.review_dedup_key, true)
   t.eq(expected.reviewed_head_sha, true)
+  t.eq(expected.lifecycle_repo, true)
+  t.eq(expected.implementation_repo, true)
   t.eq(expected.gate_baseline_sha, true)
   t.eq(expected.source_ref, true)
   t.eq(expected.ci_failure_key, true)

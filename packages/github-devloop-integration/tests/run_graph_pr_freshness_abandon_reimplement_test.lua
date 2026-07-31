@@ -338,7 +338,7 @@ local function run_fixture(fixture, write_mode)
     entity_lib.issue_source_ref(REPO, ISSUE_NUMBER)
   )
   local origin = m_facts.pr_origin_fact(fixture.pr.comments)
-  if origin ~= nil and origin.repo == REPO and origin.issue_number == tostring(ISSUE_NUMBER) then
+  if origin ~= nil and origin.implementation_repo == REPO and origin.issue_number == tostring(ISSUE_NUMBER) then
     local delegation = m_facts.pr_delegation_fact(
       normalized_parent.comments,
       origin.proposal_id,

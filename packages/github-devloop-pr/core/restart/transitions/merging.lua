@@ -207,6 +207,8 @@ return function(M, h)
     },
     payload_fields = {
       proposal_id = "marker:merge-ready.proposal",
+      lifecycle_repo = "marker:pr-link.lifecycle_repo",
+      implementation_repo = "marker:pr-link.implementation_repo",
       pr_number = "marker:merge-ready.pr",
       version = "marker:merge-ready.version",
       review_proposal_id = "marker:merge-ready.review_proposal",

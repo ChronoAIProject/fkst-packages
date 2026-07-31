@@ -5,6 +5,7 @@ local saga = require("workflow.saga")
 local source_refs = require("contract.source_ref")
 local valid_round = require("devloop.rounds").valid_round
 local handoff_helpers = require("devloop.comment_handoff")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local payloads_builders = require("devloop.payloads.builders")
 local payloads_predicates = require("devloop.payloads.predicates")
@@ -33,6 +34,11 @@ local function supported_handoff(payload)
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.version)
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.marker_version)
     and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
+    and delivery_repositories.is_valid(
+      handoff.proposal_id,
+      handoff.lifecycle_repo,
+      handoff.implementation_repo
+    )
     and (handoff.framing == nil
       or strings.is_bounded_string(handoff.framing, devloop_base._max_framing_len))
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len) then
@@ -69,6 +75,8 @@ local function act_handoff(event)
   if handoff.kind == "github-devloop.ready" then
     local ready = payloads_builders.build_devloop_ready_payload(core, {
       proposal_id = handoff.proposal_id,
+      lifecycle_repo = handoff.lifecycle_repo,
+      implementation_repo = handoff.implementation_repo,
       dedup_key = handoff.marker_version,
       source_ref = handoff.source_ref,
       include_ready_hand_off = true,

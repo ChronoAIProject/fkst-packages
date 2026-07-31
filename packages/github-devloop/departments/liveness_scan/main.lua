@@ -70,7 +70,7 @@ local function should_reinject_issue(repo, issue, limits, deadline)
   local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, state.version)
   local current_pr = nil
   if state.state == "awaiting-pr" and delegation ~= nil then
-    local pr_view = devloop_entity_view.fetch_pr_view_origin(repo, delegation.pr_number, nil, {
+    local pr_view = devloop_entity_view.fetch_pr_view_origin(delegation.implementation_repo, delegation.pr_number, nil, {
       force_fresh = true,
       consumer = "liveness_scan",
     })
@@ -92,6 +92,8 @@ local function should_reinject_issue(repo, issue, limits, deadline)
     current_pr = current_pr,
     ["pr-delegation"] = delegation,
     pr_delegation = delegation,
+    lifecycle_repo = delegation and delegation.lifecycle_repo or repo,
+    implementation_repo = delegation and delegation.implementation_repo or repo,
     snapshot = snapshot,
     event_ts = issue.updated_at,
     source_ref = entity_lib.issue_source_ref(repo, issue.number),

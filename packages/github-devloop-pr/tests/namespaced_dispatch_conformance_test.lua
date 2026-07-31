@@ -86,6 +86,8 @@ local function payload_for_queue(_path, queue)
       handoff = {
         kind = "github-devloop.reviewing",
         proposal_id = "github-devloop/issue/owner/repo/42",
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = 7,
         version = h.reviewing().version,
         source_ref = { kind = "external", ref = "owner/repo#pr/7" },

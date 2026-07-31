@@ -31,6 +31,8 @@ local function reviewing_handoff(version)
   return {
     kind = "github-devloop.reviewing",
     proposal_id = "github-devloop/issue/owner/repo/42",
+    lifecycle_repo = "owner/repo",
+    implementation_repo = "owner/repo",
     pr_number = 7,
     version = version or "v1",
     source_ref = entity_lib.pr_source_ref("owner/repo", 7),
@@ -41,6 +43,8 @@ local function closed_unmerged_handoff(version)
   return {
     kind = "github-devloop.closed_unmerged",
     proposal_id = "github-devloop/issue/owner/repo/42",
+    lifecycle_repo = "owner/repo",
+    implementation_repo = "owner/repo",
     pr_number = 7,
     version = version or "v1",
     source_ref = entity_lib.pr_source_ref("owner/repo", 7),

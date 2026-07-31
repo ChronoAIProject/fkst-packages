@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local forge_validators = require("devloop.forge_validators")
 local strings = require("contract.strings")
 local source_refs = require("contract.source_ref")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local payloads_predicates = require("devloop.payloads.predicates")
 local payloads_shared = require("devloop.payloads.shared")
@@ -47,6 +48,11 @@ function C.is_supported_ready(M, payload)
   return type(payload) == "table"
     and payload.schema == "github-devloop.ready.v1"
     and devloop_base.is_safe_proposal_ref(payload.proposal_id, payload.dedup_key)
+    and delivery_repositories.is_valid(
+      payload.proposal_id,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and devloop_base.is_safe_proposal_ref(
       payload.proposal_id,
       payload.implementation_version or payload.dedup_key
@@ -61,7 +67,9 @@ function C.is_supported_ready(M, payload)
           state = "ready",
           marker_version = payload.ready_hand_off.marker_version,
           event_version = payload.dedup_key,
-        })))
+        })
+        and payload.ready_hand_off.lifecycle_repo == payload.lifecycle_repo
+        and payload.ready_hand_off.implementation_repo == payload.implementation_repo))
     and (payload.impl_retry_attempt == nil
       or (tonumber(payload.impl_retry_attempt) ~= nil
         and tonumber(payload.impl_retry_attempt) >= 1

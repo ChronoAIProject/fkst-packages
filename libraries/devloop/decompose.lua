@@ -7,6 +7,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local C = {}
 local source_refs = require("contract.source_ref")
 local forge_validators = require("devloop.forge_validators")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local max_decompose_issues = 3
 local max_decompose_depth = 1
@@ -50,6 +51,12 @@ function C.is_supported_decompose(payload)
   return payload.schema == "github-devloop.decompose.v1"
     and repo ~= nil
     and issue_number ~= nil
+    and delivery_repositories.is_valid_pr_source(
+      payload.proposal_id,
+      payload.source_ref,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and strings.is_path_safe_key(payload.proposal_id, devloop_base._max_key_len)
     and forge_validators.is_positive_pr_number(payload.pr_number)
     and strings.is_bounded_string(payload.version, devloop_base._max_dedup_len)
@@ -222,6 +229,8 @@ function C.build_decompose_replay_payload(M, fact, comments_or_feedback, source_
   end
   local payload = payloads_builders.build_devloop_decompose_payload({
     proposal_id = fact.proposal_id,
+    lifecycle_repo = fact.lifecycle_repo,
+    implementation_repo = fact.implementation_repo,
     pr_number = fact.pr_number,
     issue_version = fact.version,
     review_proposal_id = feedback and feedback.review_proposal_id or nil,

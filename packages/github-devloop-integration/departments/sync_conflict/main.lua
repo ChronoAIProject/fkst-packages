@@ -230,11 +230,11 @@ end
 
 local function original_generation_branch(origin)
   local root_version = transition_version.strip_trailing_reimplement(origin.impl_version)
-  return devloop_base.implement_branch(origin.repo, origin.issue_number, root_version)
+  return devloop_base.implement_branch(origin.implementation_repo, origin.issue_number, root_version)
 end
 
 local function validate_open_original_pr(conflict, source_repo, pr, origin, branches)
-  if origin == nil or origin.pr_native == true or origin.repo ~= source_repo then
+  if origin == nil or origin.pr_native == true or origin.implementation_repo ~= source_repo then
     return "fail-closed(pr-origin)", "PR lacks a trusted managed issue origin"
   end
   if origin.branch ~= original_generation_branch(origin) then
@@ -262,7 +262,7 @@ local function validate_open_original_pr(conflict, source_repo, pr, origin, bran
 end
 
 local function read_matching_parent(github, source_repo, pr_number, origin)
-  local parent = github.read_issue(entity_lib.issue_source_ref(origin.repo, origin.issue_number), {
+  local parent = github.read_issue(entity_lib.issue_source_ref(origin.lifecycle_repo, origin.issue_number), {
     consumer = "sync_conflict",
     force_fresh = true,
   })

@@ -11,6 +11,7 @@ local H = {}
 local function issue_from_current(repo, issue_number, ready, current, fact)
   return {
     repo = repo,
+    implementation_repo = ready.implementation_repo,
     number = issue_number,
     title = current and current.title,
     proposal_id = ready.proposal_id,
@@ -74,7 +75,7 @@ function H.raise_awaiting_pr_from_fact(dept, repo, issue_number, ready, current,
   end
   local current_pr = nil
   if linked_pr_number ~= nil then
-    current_pr = find_linked_pr(repo, linked_pr_number)
+    current_pr = find_linked_pr(ready.implementation_repo, linked_pr_number)
     if current_pr ~= nil then
       handoff_fact.head_sha = handoff_fact.head_sha or current_pr.head_sha
       handoff_fact.branch = handoff_fact.branch or current_pr.head_ref_name

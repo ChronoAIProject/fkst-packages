@@ -3,12 +3,19 @@ local strings = require("contract.strings")
 local source_refs = require("contract.source_ref")
 local forge_validators = require("devloop.forge_validators")
 local entity_lib = require("devloop.entity")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local C = {}
 function C.is_supported_merge_ready(payload)
   return type(payload) == "table"
     and payload.schema == "github-devloop.merge-ready.v1"
     and entity_lib.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key)
+    and delivery_repositories.is_valid_pr_source(
+      payload.proposal_id,
+      payload.source_ref,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and require("devloop.pr_safety").is_safe_pr_number(payload.pr_number)
     and strings.is_bounded_string(payload.version, devloop_base._max_dedup_len)
     and devloop_base.is_safe_pr_review_result_ref(payload.review_proposal_id, payload.review_dedup_key)

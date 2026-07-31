@@ -13,6 +13,7 @@ local S = {}
 local config = require("devloop.config")
 local transition_version = require("contract.transition_version")
 local pr_partition_contract = require("devloop.restart.issue.pr_partition_contract")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 function S.install(M)
 local gate = require("devloop.gate")
@@ -34,16 +35,21 @@ local function issue_fields(issue, impl_version)
   if type(issue) ~= "table" then
     error("github-devloop: invalid-delegation-input: invalid delegation issue")
   end
-  local repo = issue.repo
+  local lifecycle_repo = issue.repo
   local issue_number = issue.number or issue.issue_number
-  local proposal_id = issue.proposal_id or base_ids.proposal_id(repo, issue_number)
+  local proposal_id = issue.proposal_id or base_ids.proposal_id(lifecycle_repo, issue_number)
   if base_ids.parse_proposal_id(proposal_id) == nil then
     error("github-devloop: invalid-delegation-input: invalid delegation issue proposal")
   end
   if not strings.is_bounded_string(impl_version, M._max_dedup_len) then
     error("github-devloop: invalid-delegation-input: invalid delegation implementation version")
   end
-  return repo, issue_number, proposal_id
+  local repositories = delivery_repositories.resolve(
+    proposal_id,
+    lifecycle_repo,
+    issue.implementation_repo or lifecycle_repo
+  )
+  return repositories.lifecycle_repo, repositories.implementation_repo, issue_number, proposal_id
 end
 
 local function delegation_key(proposal_id, impl_version, generation)
@@ -115,17 +121,17 @@ local function require_head_sha(branch, expected_head)
   return fetched
 end
 
-local function build_pr_open_comment_request(repo, pr_number, pr_proposal_id, issue_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, source_ref, delegation)
+local function build_pr_open_comment_request(implementation_repo, lifecycle_repo, pr_number, pr_proposal_id, issue_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, source_ref, delegation)
   if not require("devloop.pr_safety").is_safe_head_sha(head_sha) then
     error("github-devloop: unsafe-head-sha: invalid pr-delegation head sha")
   end
   local body = "github-devloop PR child open"
-    .. "\n\n" .. m_builders.pr_origin_marker(issue_proposal_id, issue_number, branch, impl_version, base_branch)
-    .. "\n" .. m_builders.pr_link_marker(issue_proposal_id, pr_number, branch, impl_version, base_branch)
+    .. "\n\n" .. m_builders.pr_origin_marker(issue_proposal_id, issue_number, branch, impl_version, base_branch, lifecycle_repo, implementation_repo)
+    .. "\n" .. m_builders.pr_link_marker(issue_proposal_id, pr_number, branch, impl_version, base_branch, lifecycle_repo, implementation_repo)
     .. "\n" .. devloop_state.state_marker(issue_proposal_id, "pr-open", impl_version)
   local request = entity_lib.build_entity_comment_request({
     kind = "pr",
-    repo = repo,
+    repo = implementation_repo,
     number = pr_number,
   }, body, base_ids.dedup_key({
     "pr-delegation",
@@ -136,6 +142,8 @@ local function build_pr_open_comment_request(repo, pr_number, pr_proposal_id, is
   request.handoff = {
     kind = "github-devloop.pr_open",
     proposal_id = issue_proposal_id,
+    lifecycle_repo = lifecycle_repo,
+    implementation_repo = implementation_repo,
     pr_number = pr_number,
     version = impl_version,
     source_ref = base_ids.normalize_source_ref(source_ref),
@@ -201,6 +209,8 @@ local function existing_delegation(issue, issue_proposal_id, delegation)
   return {
     number = fact.pr_number,
     pr_number = fact.pr_number,
+    lifecycle_repo = fact.lifecycle_repo,
+    implementation_repo = fact.implementation_repo,
     version = fact.version,
     delegation = fact.delegation,
     pr_proposal_id = fact.pr_proposal_id,
@@ -216,6 +226,8 @@ local function child_start_facts(comments)
   if origin ~= nil then
     origin_fields = {
       proposal_id = origin.proposal_id,
+      lifecycle_repo = origin.lifecycle_repo,
+      implementation_repo = origin.implementation_repo,
       issue_number = origin.issue_number,
       impl_version = origin.impl_version,
       branch = origin.branch,
@@ -243,9 +255,11 @@ local function child_start_facts(comments)
   })
 end
 
-local function child_start_bindings(issue_proposal_id, issue_number, impl_version, branch, base_branch)
+local function child_start_bindings(issue_proposal_id, lifecycle_repo, implementation_repo, issue_number, impl_version, branch, base_branch)
   return {
     proposal_id = issue_proposal_id,
+    lifecycle_repo = lifecycle_repo,
+    implementation_repo = implementation_repo,
     issue_number = issue_number,
     impl_version = impl_version,
     branch = branch,
@@ -262,11 +276,13 @@ local function version_is_same_lineage_or_descendant(version, lineage)
   return base ~= "" and (candidate == base or candidate:sub(1, #base + 1) == base .. "/")
 end
 
-local function terminal_child_matches_lineage(comments, issue_proposal_id, issue_number, impl_version, branch, base_branch)
+local function terminal_child_matches_lineage(comments, issue_proposal_id, lifecycle_repo, implementation_repo, issue_number, impl_version, branch, base_branch)
   local origin = m_facts.pr_origin_fact(comments)
   if origin == nil
     or origin.pr_native == true
     or tostring(origin.proposal_id or "") ~= tostring(issue_proposal_id or "")
+    or tostring(origin.lifecycle_repo or "") ~= tostring(lifecycle_repo or "")
+    or tostring(origin.implementation_repo or "") ~= tostring(implementation_repo or "")
     or tostring(origin.issue_number or "") ~= tostring(issue_number or "")
     or not version_is_same_lineage_or_descendant(origin.impl_version, impl_version)
     or tostring(origin.branch or "") ~= tostring(branch or "")
@@ -290,7 +306,7 @@ local function terminal_child_matches_lineage(comments, issue_proposal_id, issue
 end
 
 function M.build_pr_delegation_open_comment_request(repo, pr_number, issue_proposal_id, pr_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, source_ref, delegation)
-  return build_pr_open_comment_request(repo, pr_number, pr_proposal_id, issue_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, source_ref, delegation)
+  return build_pr_open_comment_request(repo, repo, pr_number, pr_proposal_id, issue_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, source_ref, delegation)
 end
 
 function M.build_parent_awaiting_pr_comment_request(repo, issue_number, ready, child)
@@ -301,7 +317,7 @@ function M.build_parent_awaiting_pr_label_request(repo, issue_number, ready, chi
   return build_parent_awaiting_label(repo, issue_number, ready, child)
 end
 
-local function child_from_pr(issue, impl_version, generation, pr, repo, issue_number, issue_proposal_id, branch, base_branch, delegation, child_start_visible)
+local function child_from_pr(issue, impl_version, generation, pr, lifecycle_repo, implementation_repo, issue_number, issue_proposal_id, branch, base_branch, delegation, child_start_visible)
   if pr == nil then
     return nil
   end
@@ -309,38 +325,42 @@ local function child_from_pr(issue, impl_version, generation, pr, repo, issue_nu
     error("github-devloop: invalid-pr-number: pr-delegation adopted invalid PR")
   end
   local pr_number = tonumber(pr.number)
-  local pr_source_ref = entity_lib.pr_source_ref(repo, pr_number)
-  local pr_proposal_id = entity_lib.pr_proposal_id(repo, pr_number)
+  local pr_source_ref = entity_lib.pr_source_ref(implementation_repo, pr_number)
+  local pr_proposal_id = entity_lib.pr_proposal_id(implementation_repo, pr_number)
   local head_sha = pr.head_sha or issue.head_sha or (issue.implementation and issue.implementation.head_sha)
   local effects = {}
   if child_start_visible == nil then
     child_start_visible = gate.holds(
       load_child_start_visible_gate(),
       child_start_facts(issue.pr_comments or {}),
-      child_start_bindings(issue_proposal_id, issue_number, impl_version, branch, base_branch)
+      child_start_bindings(issue_proposal_id, lifecycle_repo, implementation_repo, issue_number, impl_version, branch, base_branch)
     )
   end
   if not child_start_visible then
     table.insert(effects, {
       queue = "github-proxy.github_pr_comment_request",
-      payload = build_pr_open_comment_request(repo, pr_number, pr_proposal_id, issue_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, pr_source_ref, delegation),
+      payload = build_pr_open_comment_request(implementation_repo, lifecycle_repo, pr_number, pr_proposal_id, issue_proposal_id, issue_number, impl_version, branch, base_branch, head_sha, pr_source_ref, delegation),
     })
-  elseif terminal_child_matches_lineage(issue.pr_comments or {}, issue_proposal_id, issue_number, impl_version, branch, base_branch) then
+  elseif terminal_child_matches_lineage(issue.pr_comments or {}, issue_proposal_id, lifecycle_repo, implementation_repo, issue_number, impl_version, branch, base_branch) then
     return nil
   end
   local delegation_fact = existing_delegation(issue, issue_proposal_id, delegation)
   local issue_delegation_visible = delegation_fact ~= nil
+    and delegation_fact.lifecycle_repo == lifecycle_repo
+    and delegation_fact.implementation_repo == implementation_repo
     and tonumber(delegation_fact.pr_number) == pr_number
     and tostring(delegation_fact.version or "") == tostring(impl_version)
     and tostring(delegation_fact.delegation or "") == tostring(delegation)
   if not issue_delegation_visible then
     table.insert(effects, {
       queue = "github-proxy.github_issue_comment_request",
-      payload = build_issue_delegation_comment_request(repo, issue_number, issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation, entity_lib.issue_source_ref(repo, issue_number)),
+      payload = build_issue_delegation_comment_request(lifecycle_repo, issue_number, issue_proposal_id, pr_proposal_id, pr_number, impl_version, delegation, entity_lib.issue_source_ref(lifecycle_repo, issue_number)),
     })
   end
   return {
     issue_proposal_id = issue_proposal_id,
+    lifecycle_repo = lifecycle_repo,
+    implementation_repo = implementation_repo,
     pr_proposal_id = pr_proposal_id,
     pr_number = pr_number,
     pr_source_ref = pr_source_ref,
@@ -356,28 +376,28 @@ local function child_from_pr(issue, impl_version, generation, pr, repo, issue_nu
 end
 
 function M.adopt_existing_pr_child(issue, impl_version, generation)
-  local repo, issue_number, issue_proposal_id = issue_fields(issue, impl_version)
+  local lifecycle_repo, implementation_repo, issue_number, issue_proposal_id = issue_fields(issue, impl_version)
   local base_branch = issue.base_branch or (issue.implementation and issue.implementation.base_branch) or config.branch_config().integration
-  local branch = issue.branch or (issue.implementation and issue.implementation.branch) or branch_for(repo, issue_number, impl_version)
+  local branch = issue.branch or (issue.implementation and issue.implementation.branch) or branch_for(implementation_repo, issue_number, impl_version)
   local delegation = delegation_key(issue_proposal_id, impl_version, generation or 1)
-  local pr = find_pr(repo, branch, base_branch)
-  return child_from_pr(issue, impl_version, generation, pr, repo, issue_number, issue_proposal_id, branch, base_branch, delegation)
+  local pr = find_pr(implementation_repo, branch, base_branch)
+  return child_from_pr(issue, impl_version, generation, pr, lifecycle_repo, implementation_repo, issue_number, issue_proposal_id, branch, base_branch, delegation)
 end
 
 function M.ensure_pr_child(issue, impl_version, generation)
-  local repo, issue_number, issue_proposal_id = issue_fields(issue, impl_version)
+  local lifecycle_repo, implementation_repo, issue_number, issue_proposal_id = issue_fields(issue, impl_version)
   local base_branch = issue.base_branch or (issue.implementation and issue.implementation.base_branch) or config.branch_config().integration
-  local branch = issue.branch or (issue.implementation and issue.implementation.branch) or branch_for(repo, issue_number, impl_version)
+  local branch = issue.branch or (issue.implementation and issue.implementation.branch) or branch_for(implementation_repo, issue_number, impl_version)
   local delegation = delegation_key(issue_proposal_id, impl_version, generation or 1)
   local pr = existing_delegation(issue, issue_proposal_id, delegation)
   if pr == nil then
-    pr = find_pr(repo, branch, base_branch)
+    pr = find_pr(implementation_repo, branch, base_branch)
   end
   if pr == nil then
     local head_sha = require_head_sha(branch, issue.head_sha or (issue.implementation and issue.implementation.head_sha))
     local body = "github-devloop implementation PR for issue #" .. tostring(issue_number)
-    create_pr(repo, issue_number, branch, base_branch, issue.title, body)
-    pr = find_pr(repo, branch, base_branch)
+    create_pr(implementation_repo, issue_number, branch, base_branch, issue.title, body)
+    pr = find_pr(implementation_repo, branch, base_branch)
     if pr == nil then
       error("github-devloop: pr-evidence-missing: pr-delegation PR create did not yield an adoptable branch PR")
     end
@@ -388,9 +408,9 @@ function M.ensure_pr_child(issue, impl_version, generation)
   local child_start_visible = gate.holds(
     load_child_start_visible_gate(),
     child_start_facts(issue.pr_comments or {}),
-    child_start_bindings(issue_proposal_id, issue_number, impl_version, branch, base_branch)
+    child_start_bindings(issue_proposal_id, lifecycle_repo, implementation_repo, issue_number, impl_version, branch, base_branch)
   )
-  return child_from_pr(issue, impl_version, generation, pr, repo, issue_number, issue_proposal_id, branch, base_branch, delegation, child_start_visible)
+  return child_from_pr(issue, impl_version, generation, pr, lifecycle_repo, implementation_repo, issue_number, issue_proposal_id, branch, base_branch, delegation, child_start_visible)
 end
 end
 

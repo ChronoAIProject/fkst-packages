@@ -9,6 +9,7 @@ local replay_fields = require("devloop.replay_fields")
 local forge_validators = require("devloop.forge_validators")
 local transition_version = require("contract.transition_version")
 local conv_rounds = require("devloop.convergence.rounds")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local source_refs = shared.source_refs
 local valid_round = shared.valid_round
@@ -64,9 +65,17 @@ function C.build_devloop_review_reconcile_payload(unresolved, round, issue_propo
   if not conv_rounds.is_terminal_cause(terminal_cause) then
     error("github-devloop: invalid review convergence terminal cause")
   end
+  local repositories = delivery_repositories.from_pr_source_ref(
+    issue_proposal_id,
+    unresolved.source_ref,
+    unresolved.lifecycle_repo,
+    unresolved.implementation_repo
+  )
   return {
     schema = "github-devloop.review-reconcile.v1",
     proposal_id = issue_proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     review_proposal_id = unresolved.proposal_id,
     issue_version = issue_version,
     head_sha = head_sha,
@@ -81,9 +90,17 @@ function C.build_devloop_review_reconcile_payload(unresolved, round, issue_propo
 end
 
 function C.build_devloop_fix_reconcile_payload(reject_ctx, issue_version)
+  local repositories = delivery_repositories.from_pr_source_ref(
+    reject_ctx.proposal_id,
+    reject_ctx.source_ref,
+    reject_ctx.lifecycle_repo,
+    reject_ctx.implementation_repo
+  )
   return {
     schema = "github-devloop.fix-reconcile.v1",
     proposal_id = reject_ctx.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     review_proposal_id = reject_ctx.review_proposal_id,
     review_dedup_key = reject_ctx.review_dedup_key,
     issue_version = issue_version,
@@ -98,10 +115,13 @@ function C.build_devloop_fix_reconcile_payload(reject_ctx, issue_version)
   }
 end
 
-function C.build_devloop_timeout_reconcile_payload(row, state, proposal_id, source_ref, attempt)
+function C.build_devloop_timeout_reconcile_payload(row, state, proposal_id, source_ref, attempt, lifecycle_repo, implementation_repo)
+  local repositories = delivery_repositories.resolve(proposal_id, lifecycle_repo, implementation_repo)
   return {
     schema = "github-devloop.timeout-reconcile.v1",
     proposal_id = proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     state = row.from_state,
     issue_version = state.version,
     round = attempt,
@@ -192,6 +212,12 @@ function C.is_supported_review_reconcile(payload)
   return payload.schema == "github-devloop.review-reconcile.v1"
     and repo ~= nil
     and issue_number ~= nil
+    and delivery_repositories.is_valid_pr_source(
+      payload.proposal_id,
+      payload.source_ref,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and strings.is_path_safe_key(payload.proposal_id, devloop_base._max_key_len)
     and strings.is_path_safe_key(payload.review_proposal_id, devloop_base._max_key_len)
     and strings.is_bounded_string(payload.issue_version, devloop_base._max_dedup_len)
@@ -211,6 +237,12 @@ function C.is_supported_fix_reconcile(payload)
   return payload.schema == "github-devloop.fix-reconcile.v1"
     and repo ~= nil
     and issue_number ~= nil
+    and delivery_repositories.is_valid_pr_source(
+      payload.proposal_id,
+      payload.source_ref,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and strings.is_path_safe_key(payload.proposal_id, devloop_base._max_key_len)
     and strings.is_path_safe_key(payload.review_proposal_id, devloop_base._max_key_len)
     and strings.is_bounded_string(payload.review_dedup_key, devloop_base._max_dedup_len)
@@ -233,6 +265,11 @@ function C.is_supported_timeout_reconcile(M, payload)
   return payload.schema == "github-devloop.timeout-reconcile.v1"
     and repo ~= nil
     and issue_number ~= nil
+    and delivery_repositories.is_valid(
+      payload.proposal_id,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and row ~= nil
     and row.terminal == false
     and strings.is_path_safe_key(payload.proposal_id, devloop_base._max_key_len)

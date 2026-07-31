@@ -70,6 +70,8 @@ local function run_own_ci_merging_replay(version, head_sha, name)
     source_ref = h.pr_source_ref(),
     link = {
       proposal_id = proposal_id,
+      lifecycle_repo = repo,
+      implementation_repo = repo,
       pr_number = pr_number,
       branch = branch,
       impl_version = version,

@@ -10,6 +10,7 @@ local m_builders = require("devloop.markers.builders")
 local author_policy = require("testkit_internal.github_author_policy")
 
 local repo = "owner/repo"
+local implementation_repo = "implementation/repo"
 local issue_number = 42
 local issue_proposal = "github-devloop/issue/owner/repo/42"
 local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -165,6 +166,38 @@ return {
     t.is_true(fact_first_line ~= awaiting_first_line)
     t.is_true(awaiting_request.body:find('state="awaiting-pr"', 1, true) ~= nil)
     t.is_true(awaiting_request.body:find("fkst:github-devloop:pr-delegation:v1", 1, true) ~= nil)
+  end,
+
+  test_cross_repository_child_uses_implementation_repo_and_preserves_lifecycle_repo = function()
+    local cross_branch = devloop_base.implement_branch(
+      implementation_repo,
+      issue_number,
+      core.implementation_base_version(impl_version)
+    )
+    author_policy.mock_env(t, nil, {
+      configure_trusted_bot_login = h.mock_author_policy_configure,
+    })
+    t.mock_command(core.gh_pr_list_head_base_cmd(implementation_repo, cross_branch, base_branch), {
+      stdout = '[[{"number":7,"head":{"ref":"' .. cross_branch
+        .. '","sha":"' .. head_sha .. '"},"base":{"ref":"' .. base_branch
+        .. '"},"state":"open"}]]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = core.ensure_pr_child(issue({
+      implementation_repo = implementation_repo,
+      branch = nil,
+    }), impl_version, 1)
+
+    t.eq(result.pr_proposal_id, "github-devloop/pr/implementation/repo/7")
+    local pr_effect = find_effect(result.effects, "github-proxy.github_pr_comment_request")
+    local issue_effect = find_effect(result.effects, "github-proxy.github_issue_comment_request")
+    t.eq(pr_effect.payload.repo, implementation_repo)
+    t.eq(issue_effect.payload.repo, repo)
+    local origin = require("devloop.markers.facts").pr_origin_fact({ render_comment(pr_effect.payload.body) })
+    t.eq(origin.lifecycle_repo, repo)
+    t.eq(origin.implementation_repo, implementation_repo)
   end,
 
   test_ensure_pr_child_rerun_with_visible_facts_is_idempotent = function()

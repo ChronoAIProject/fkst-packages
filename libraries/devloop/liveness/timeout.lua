@@ -126,10 +126,30 @@ end
 local function build_timeout_reconcile(row, entity, state, facts, decision)
   local source_ref = (facts and facts.source_ref) or (entity and entity.source_ref) or (state and state.source_ref)
   local proposal_id = (facts and facts.proposal_id) or (state and state.proposal_id)
+  local repositories
+  if type(facts) == "table" and facts.lifecycle_repo ~= nil and facts.implementation_repo ~= nil then
+    repositories = require("devloop.delivery_repositories").resolve(
+      proposal_id,
+      facts.lifecycle_repo,
+      facts.implementation_repo
+    )
+  elseif type(facts) == "table" and type(facts.current_issue) == "table" then
+    repositories = require("devloop.delivery_repositories").from_issue(proposal_id, facts.current_issue)
+  else
+    repositories = require("devloop.delivery_repositories").resolve(proposal_id)
+  end
   if source_refs.has_bounded_source_ref(source_ref, M._max_key_len)
     and strings.is_path_safe_key(proposal_id, M._max_key_len)
     and strings.is_bounded_string(state and state.version, M._max_dedup_len) then
-    return "devloop_timeout_reconcile", conv_reconcile.build_devloop_timeout_reconcile_payload(row, state, proposal_id, source_ref, decision.attempt)
+    return "devloop_timeout_reconcile", conv_reconcile.build_devloop_timeout_reconcile_payload(
+      row,
+      state,
+      proposal_id,
+      source_ref,
+      decision.attempt,
+      repositories.lifecycle_repo,
+      repositories.implementation_repo
+    )
   end
   return nil, nil
 end

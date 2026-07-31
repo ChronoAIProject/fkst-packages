@@ -707,10 +707,12 @@ return {
     local version = fixtures.full_review_issue_version(repo)
     local event = reviewing({
       proposal_id = issue_proposal_id,
+      lifecycle_repo = repo,
+      implementation_repo = repo,
       version = version,
       source_ref = {
         kind = "external",
-        ref = repo .. "#issue/42",
+        ref = repo .. "#pr/7",
       },
     })
     mock_issue_review({ "fkst-dev:reviewing" }, {
@@ -799,6 +801,8 @@ return {
     event.reviewing_hand_off = {
       kind = "own-state-marker",
       proposal_id = event.proposal_id,
+      lifecycle_repo = event.lifecycle_repo,
+      implementation_repo = event.implementation_repo,
       state = "reviewing",
       marker_version = event.version,
       event_version = event.version,

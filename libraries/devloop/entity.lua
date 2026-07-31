@@ -6,6 +6,7 @@ local parsers_pr = require("devloop.parsers.pr")
 local C = {}
 local strings = require("contract.strings")
 local forge_validators = require("devloop.forge_validators")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 
 local function pr_source_ref(repo, pr_number)
@@ -58,8 +59,8 @@ local function command_indicates_not_found(result)
     or stderr:find("not found", 1, true) ~= nil
 end
 
-local function linked_pr_numbers(M, issue_comments, proposal_id)
-  local numbers = {}
+local function linked_pr_facts(M, issue_comments, proposal_id)
+  local links = {}
   local seen = {}
   local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-link:v1.-%-%->"
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue_comments)) do
@@ -69,18 +70,37 @@ local function linked_pr_numbers(M, issue_comments, proposal_id)
       local marker_branch = marker:match('branch="([^"]+)"')
       local marker_impl_version = marker:match('impl_version="([^"]*)"')
       local marker_base_branch = marker:match('base_branch="([^"]+)"')
+      local lifecycle_repo = marker:match('lifecycle_repo="([^"]+)"')
+      local implementation_repo = marker:match('implementation_repo="([^"]+)"')
+      local repositories
+      if lifecycle_repo ~= nil and implementation_repo ~= nil then
+        local ok, resolved = pcall(
+          delivery_repositories.resolve,
+          marker_proposal,
+          lifecycle_repo,
+          implementation_repo
+        )
+        if ok then
+          repositories = resolved
+        end
+      end
       if marker_proposal == proposal_id
+        and repositories ~= nil
         and forge_validators.is_positive_pr_number(marker_pr)
         and forge_validators.is_git_ref_safe(marker_branch)
         and strings.is_bounded_string(marker_impl_version, M._max_dedup_len)
         and forge_validators.is_git_ref_safe(marker_base_branch)
         and not seen[tostring(marker_pr)] then
         seen[tostring(marker_pr)] = true
-        table.insert(numbers, tonumber(marker_pr))
+        table.insert(links, {
+          pr_number = tonumber(marker_pr),
+          lifecycle_repo = repositories.lifecycle_repo,
+          implementation_repo = repositories.implementation_repo,
+        })
       end
     end
   end
-  return numbers
+  return links
 end
 
 function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts)
@@ -92,17 +112,21 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
     deferred = false,
     defer_reason = nil,
   }
-  for _, pr_number in ipairs(linked_pr_numbers(M, issue_comments, proposal_id)) do
+  for _, link in ipairs(linked_pr_facts(M, issue_comments, proposal_id)) do
+    local pr_number = link.pr_number
+    if link.lifecycle_repo ~= repo then
+      error("github-devloop: linked PR lifecycle repository mismatch")
+    end
     local pr_view
     if options.cache_only == true then
-      pr_view = M.cached_entity_view(repo, "pr", pr_number)
+      pr_view = M.cached_entity_view(link.implementation_repo, "pr", pr_number)
       if pr_view == nil then
         snapshot.deferred = true
         snapshot.defer_reason = "pr-surface-not-cached"
         return snapshot
       end
     else
-      pr_view = M.gh_pr_view_observe(repo, pr_number, 30)
+      pr_view = M.gh_pr_view_observe(link.implementation_repo, pr_number, 30)
     end
     if pr_view.exit_code ~= 0 then
       if command_indicates_not_found(pr_view) then
@@ -117,6 +141,7 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
       end
       table.insert(snapshot.prs, {
         number = pr_number,
+        implementation_repo = link.implementation_repo,
         current = current_pr,
       })
     end
@@ -139,11 +164,7 @@ function C.pr_proposal_id(repo, pr_number)
 end
 
 function C.parse_pr_proposal_id(proposal_id)
-  local repo_part, number = tostring(proposal_id or ""):match("^github%-devloop/pr/(.+)/(%d+)$")
-  if repo_part == nil or not require("devloop.pr_safety").is_safe_pr_number(number) then
-    return nil, nil
-  end
-  return repo_part, tonumber(number)
+  return base_ids.parse_pr_proposal_id(proposal_id)
 end
 
 function C.pr_transition_lock_key(repo, pr_number)
@@ -232,7 +253,8 @@ end
 function C.pr_native_origin(repo, pr_number, pr)
   return {
     proposal_id = C.pr_proposal_id(repo, pr_number),
-    repo = repo,
+    lifecycle_repo = repo,
+    implementation_repo = repo,
     issue_number = nil,
     branch = pr.head_ref_name,
     impl_version = pr.updated_at or pr.updatedAt or pr.head_sha or "pr/" .. tostring(pr_number),

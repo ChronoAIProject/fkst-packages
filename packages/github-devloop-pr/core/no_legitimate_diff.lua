@@ -8,6 +8,7 @@ local devloop_state = require("devloop.state")
 local entity_view = require("devloop.github_proxy_entity_view")
 local entity_lib = require("devloop.entity")
 local transition_version = require("contract.transition_version")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 M.reason = "no-legitimate-diff: current PR head has no file delta against its base; no reviewable implementation remains"
 
@@ -38,9 +39,12 @@ function M.closed_unmerged_comment_request(core, repo, pr_number, proposal_id, v
     tostring(effective_version),
     tostring(pr_number),
   }), source_ref)
+  local repositories = delivery_repositories.from_pr_source_ref(proposal_id, source_ref)
   request.handoff = {
     kind = "github-devloop.closed_unmerged",
     proposal_id = proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = pr_number,
     version = effective_version,
     source_ref = source_ref,

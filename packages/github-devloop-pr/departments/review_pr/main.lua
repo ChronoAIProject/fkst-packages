@@ -41,7 +41,9 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("review_pr", reviewing.proposal_id, { state = nil, version = nil }, "reviewing", "review-proposal", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
-  local repo = entity.repo
+  local lifecycle_repo = reviewing.lifecycle_repo
+  local implementation_repo = reviewing.implementation_repo
+  local repo = implementation_repo
   local issue_number = entity.issue_number
 
   local lock_key = entity_lib.review_lock_key(reviewing.proposal_id)
@@ -156,13 +158,13 @@ return saga.department(spec, { done = function() return false end, act = functio
       comments = current_pr.comments,
     }
     if issue_number ~= nil then
-      local issue_view = devloop_commands.gh_issue_view_review(repo, issue_number, 30)
+      local issue_view = devloop_commands.gh_issue_view_review(lifecycle_repo, issue_number, 30)
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-view-failed: gh issue review view failed: " .. tostring(issue_view.stderr))
       end
       current_issue = parsers_issue.parse_issue_view_review(core, issue_view.stdout)
     end
-    if not m_claims.verify_pr_review_issue_claim("review_pr", repo, issue_number, current_issue, reviewing.proposal_id) then
+    if not m_claims.verify_pr_review_issue_claim("review_pr", lifecycle_repo, issue_number, current_issue, reviewing.proposal_id) then
       return
     end
     local review_id = devloop_base.pr_review_proposal_id(repo, reviewing.pr_number, reviewing.version, current_pr.head_sha)
@@ -170,6 +172,8 @@ return saga.department(spec, { done = function() return false end, act = functio
     local context_fetch = { context_bundle.context_fetch_ref_from_bundle(core, {
       dept = "review_pr",
       repo = repo,
+      lifecycle_repo = lifecycle_repo,
+      implementation_repo = implementation_repo,
       issue_number = issue_number,
       pr_number = reviewing.pr_number,
       proposal_id = review_id,
@@ -183,7 +187,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       no_legitimate_diff.raise_closed_unmerged("review_pr", core, repo, reviewing.pr_number, reviewing.proposal_id, state, pr_source_ref)
       return
     end
-    local proposal = payloads_builders.build_board_pr_review_proposal(core, repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch, high_risk)
+    local proposal = payloads_builders.build_board_pr_review_proposal(core, repo, issue_number, reviewing.pr_number, reviewing.version, current_pr.head_sha, current_issue, pr_source_ref, event.ts, current_pr.comments, content_fetch, high_risk, lifecycle_repo)
     if reviewing.review_delivery_dedup_key ~= nil then
       if devloop_base.pr_review_proposal_id_from_redrive_delivery_dedup_key(
         reviewing.review_delivery_dedup_key

@@ -362,12 +362,12 @@ function M.new(core)
       return false, nil
     end
     local pr_repo, pr_number = entity.parse_pr_proposal_id(delegation.pr_proposal_id or delegation.pr_proposal)
-    if tostring(pr_repo or "") ~= tostring(repo)
+    if pr_repo == nil
       or tostring(pr_number or "") ~= tostring(delegation.pr_number or "") then
       return nil, "pr-delegation-mismatch"
     end
 
-    local pr_result = devloop_commands.gh_pr_view_observe(repo, delegation.pr_number, 30)
+    local pr_result = devloop_commands.gh_pr_view_observe(pr_repo, delegation.pr_number, 30)
     if type(pr_result) ~= "table" or pr_result.exit_code ~= 0 then
       return nil, "gh-pr-failed"
     end
@@ -380,7 +380,8 @@ function M.new(core)
     local origin = marker_facts.pr_origin_fact(pr_current.comments)
     if origin == nil
       or tostring(origin.proposal_id or "") ~= blocker_proposal_id
-      or tostring(origin.repo or "") ~= tostring(repo)
+      or tostring(origin.lifecycle_repo or "") ~= tostring(repo)
+      or tostring(origin.implementation_repo or "") ~= tostring(pr_repo)
       or tostring(origin.issue_number or "") ~= tostring(blocker_number)
       or tostring(origin.impl_version or "") ~= tostring(delegation.version or "") then
       return nil, "pr-origin-mismatch"
@@ -424,7 +425,7 @@ function M.new(core)
       return resolve_delegation(repo, blocker_number, blocker_proposal_id, current, delegation)
     end
 
-    local pr_result = devloop_commands.gh_pr_view_observe(repo, link.pr_number, 30)
+    local pr_result = devloop_commands.gh_pr_view_observe(link.implementation_repo, link.pr_number, 30)
     if type(pr_result) ~= "table" or pr_result.exit_code ~= 0 then
       return nil, "gh-pr-failed"
     end
@@ -437,7 +438,8 @@ function M.new(core)
     local origin = marker_facts.pr_origin_fact(pr_current.comments)
     if origin == nil
       or tostring(origin.proposal_id or "") ~= blocker_proposal_id
-      or tostring(origin.repo or "") ~= tostring(repo)
+      or tostring(origin.lifecycle_repo or "") ~= tostring(repo)
+      or tostring(origin.implementation_repo or "") ~= tostring(link.implementation_repo)
       or tostring(origin.issue_number or "") ~= tostring(blocker_number)
       or tostring(origin.branch or "") ~= tostring(link.branch or "")
       or tostring(origin.impl_version or "") ~= tostring(link.impl_version or "")

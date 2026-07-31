@@ -209,7 +209,7 @@ local function in_managed_scope(repo, branches, pr, origin)
   return tostring(pr.state or ""):upper() == "OPEN"
     and not pr.is_draft
     and origin ~= nil
-    and origin.repo == repo
+    and origin.implementation_repo == repo
     and origin.branch == pr.head_ref_name
     and origin.base_branch == branches.integration
     and pr.base_ref_name == branches.integration
@@ -226,8 +226,8 @@ local function process_pr(repo, branches, listed_pr)
     return
   end
 
-  local issue = issue_state(repo, origin.issue_number)
-  if not m_claims.verify_pr_review_issue_claim("pr_freshness_scan", origin.repo, origin.issue_number, issue, origin.proposal_id) then
+  local issue = issue_state(origin.lifecycle_repo, origin.issue_number)
+  if not m_claims.verify_pr_review_issue_claim("pr_freshness_scan", origin.lifecycle_repo, origin.issue_number, issue, origin.proposal_id) then
     return
   end
   local state = require("devloop.entity").current_entity_state(pr.comments, origin.proposal_id)

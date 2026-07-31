@@ -116,7 +116,7 @@ return saga.department(spec, { done = function() return false end, act = functio
   if origin == nil then
     origin = entity_lib.pr_native_origin(repo, pr_number, current_pr)
   end
-  if origin.repo ~= repo then
+  if origin.implementation_repo ~= repo then
     devloop_logging.log_cas_decision("review_result", reached.proposal_id, { state = nil, version = nil }, "reviewing", "merge-ready|fixing", "skip-foreign(repo)", "pr-origin repo mismatch")
     return
   end
@@ -142,8 +142,8 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("review_result", reached.proposal_id, { state = nil, version = nil }, "reviewing", "merge-ready|fixing", "skip-foreign(version)", "review proposal version is missing")
     return
   end
-    local pr_source_ref = entity_lib.pr_source_ref(origin.repo, pr_number)
-    if not m_claims.verify_pr_review_issue_claim("review_result", origin.repo, origin.issue_number, nil, origin.proposal_id) then
+    local pr_source_ref = entity_lib.pr_source_ref(origin.implementation_repo, pr_number)
+    if not m_claims.verify_pr_review_issue_claim("review_result", origin.lifecycle_repo, origin.issue_number, nil, origin.proposal_id) then
       return
     end
     devloop_logging.log_forged_markers("review_result", origin.proposal_id, current_pr.comments)
@@ -155,7 +155,7 @@ return saga.department(spec, { done = function() return false end, act = functio
         return
       end
       local audit_request = requests_review.build_review_result_divergence_comment_request(
-        origin.repo,
+        origin.implementation_repo,
         origin.proposal_id,
         reached,
         first_result.decision,
@@ -272,6 +272,8 @@ return saga.department(spec, { done = function() return false end, act = functio
       if max_rounds_hit then
         local fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
           proposal_id = origin.proposal_id,
+          lifecycle_repo = origin.lifecycle_repo,
+          implementation_repo = origin.implementation_repo,
           review_proposal_id = reached.proposal_id,
           review_dedup_key = canonical_review_dedup,
           reviewed_head_sha = reviewed_head_sha,
@@ -329,17 +331,19 @@ return saga.department(spec, { done = function() return false end, act = functio
     end
     local evidence_request = nil
     if effective_decision == "approve" and #high_risk_paths > 0 then
-      evidence_request = requests_review.build_high_risk_review_evidence_comment_request(origin.repo, origin.proposal_id, issue_version, comment_reached, pr_number, reviewed_head_sha, paths_digest, angle_digest, pr_source_ref)
+      evidence_request = requests_review.build_high_risk_review_evidence_comment_request(origin.implementation_repo, origin.proposal_id, issue_version, comment_reached, pr_number, reviewed_head_sha, paths_digest, angle_digest, pr_source_ref)
     end
     local args = {
       core = core,
-      repo = origin.repo,
+      repo = origin.implementation_repo,
+      lifecycle_repo = origin.lifecycle_repo,
+      implementation_repo = origin.implementation_repo,
       issue_number = origin.issue_number,
       issue_proposal_id = origin.proposal_id,
       issue_version = issue_version,
       reached = comment_reached,
       pr_source_ref = pr_source_ref,
-      issue_source_ref = entity_lib.issue_source_ref(origin.repo, origin.issue_number),
+      issue_source_ref = entity_lib.issue_source_ref(origin.lifecycle_repo, origin.issue_number),
       marker_target = { kind = "pr", number = pr_number },
     }
     local add_labels, remove_labels = devloop_state.state_label_changes(to_state)

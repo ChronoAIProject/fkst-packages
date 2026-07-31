@@ -13,6 +13,7 @@ local m_builders = require("devloop.markers.builders")
 local request_bodies = require("devloop.requests.bodies")
 local result_facts = require("devloop.markers.result_facts")
 local m_mq = require("devloop.merge_queue")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local strings = shared.strings
 local ai_sentinel = shared.ai_sentinel
@@ -34,6 +35,11 @@ function C.build_observe_comment_request(M, issue, proposal)
   }, issue.source_ref)
 end
 function C.build_result_comment_request(M, repo, issue_number, reached, state_name)
+  local repositories = delivery_repositories.resolve(
+    reached.proposal_id,
+    reached.lifecycle_repo,
+    reached.implementation_repo
+  )
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
   local marker_lineage = reached.effect_version ~= nil
     and tostring(reached.effect_version) ~= tostring(reached.dedup_key)
@@ -71,6 +77,8 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
     request.handoff = {
       kind = "github-devloop.ready",
       proposal_id = reached.proposal_id,
+      lifecycle_repo = repositories.lifecycle_repo,
+      implementation_repo = repositories.implementation_repo,
       version = reached.dedup_key,
       marker_version = tostring(reached.effect_version or reached.dedup_key),
       source_ref = base_ids.normalize_source_ref(reached.source_ref),

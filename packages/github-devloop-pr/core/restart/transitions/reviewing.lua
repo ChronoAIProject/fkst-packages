@@ -222,6 +222,8 @@ return function(M, h)
     },
     payload_fields = {
       proposal_id = "marker:state.proposal",
+      lifecycle_repo = "marker:pr-link.lifecycle_repo",
+      implementation_repo = "marker:pr-link.implementation_repo",
       version = "marker:state.version",
       pr_number = "marker:pr-link.pr",
       source_ref = "source_ref:pr",

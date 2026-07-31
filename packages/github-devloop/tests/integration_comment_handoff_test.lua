@@ -30,6 +30,8 @@ return {
       handoff = {
         kind = "github-devloop.ready",
         proposal_id = "github-devloop/issue/owner/repo/42",
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "implementation/repo",
         version = version,
         marker_version = version,
         source_ref = source_ref,
@@ -40,6 +42,8 @@ return {
     t.eq(#result.raises, 1)
     local ready = find_raise(result.raises, "devloop_ready").payload
     t.eq(ready.schema, "github-devloop.ready.v1")
+    t.eq(ready.lifecycle_repo, "owner/repo")
+    t.eq(ready.implementation_repo, "implementation/repo")
     t.eq(ready.ready_hand_off.comment_id, "IC_ready_1")
     t.eq(ready.ready_hand_off.marker_version, version)
     t.eq(ready.ready_hand_off.event_version, ready.dedup_key)

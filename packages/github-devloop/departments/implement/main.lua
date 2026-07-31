@@ -266,20 +266,20 @@ local function merge_integration_for_implementation(worktree, integration_branch
   return false
 end
 
-local function prepare_attempt(repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, receiver_state, snapshot, decision, lock_key)
+local function prepare_attempt(lifecycle_repo, implementation_repo, issue_number, ready, branches, branch, base_head, attempt, bridge_marker, checkpoint, receiver_state, snapshot, decision, lock_key)
   local worktree = bridge_marker ~= nil
-    and worktree_lifecycle.prepare_worktree_from_base(repo, issue_number, ready, branch, base_head)
-    or worktree_lifecycle.prepare_worktree(repo, issue_number, ready, branch, base_head, checkpoint)
+    and worktree_lifecycle.prepare_worktree_from_base(implementation_repo, issue_number, ready, branch, base_head)
+    or worktree_lifecycle.prepare_worktree(implementation_repo, issue_number, ready, branch, base_head, checkpoint)
   local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
   merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
   substrate_pin.refresh(worktree, branch, base_head, merge_clean)
 
   local codex_started_at = now()
   local exec_ref = core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
-  raise_implementing_state(repo, issue_number, ready, worktree, branch, branches.integration,
+  raise_implementing_state(lifecycle_repo, issue_number, ready, worktree, branch, branches.integration,
     base_head, attempt, codex_started_at, exec_ref, snapshot, decision)
   local receiver_authorization = restart_sink_grants.implement_receiver(implement_caps, {
-    repo = repo, issue_number = issue_number, ready = ready,
+    repo = lifecycle_repo, issue_number = issue_number, ready = ready,
     receiver_state = receiver_state, lock_key = lock_key,
   })
   return worktree, codex_started_at, exec_ref, receiver_authorization
@@ -311,15 +311,15 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
   })
 end
 
-local function raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
+local function raise_attempt_outcome(lifecycle_repo, implementation_repo, issue_number, outcome, publish_authorization)
   if outcome == nil then
     return
   end
-  raise_implement_attempt(repo, issue_number, outcome.ready, outcome.attempt, outcome.started_at, outcome.exec_ref)
+  raise_implement_attempt(lifecycle_repo, issue_number, outcome.ready, outcome.attempt, outcome.started_at, outcome.exec_ref)
   if outcome.kind == "implementing" then
-    publish_implementation_branch(repo, issue_number, outcome.ready, outcome.worktree, outcome.branch, publish_authorization)
+    publish_implementation_branch(implementation_repo, issue_number, outcome.ready, outcome.worktree, outcome.branch, publish_authorization)
     raise_implementing(
-      repo,
+      lifecycle_repo,
       issue_number,
       outcome.ready,
       outcome.worktree,
@@ -333,7 +333,7 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
     )
     pr_child_handoff.raise_awaiting_pr_from_fact(
       "implement",
-      repo,
+      lifecycle_repo,
       issue_number,
       outcome.ready,
       { title = nil, comments = {} },
@@ -347,10 +347,10 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
     return
   end
   if outcome.kind == "implement-checkpoint" then
-    publish_implementation_branch(repo, issue_number, outcome.ready, outcome.worktree, outcome.branch, publish_authorization)
+    publish_implementation_branch(implementation_repo, issue_number, outcome.ready, outcome.worktree, outcome.branch, publish_authorization)
     local request = requests_lifecycle.build_implement_checkpoint_comment_request(
       core,
-      repo,
+      lifecycle_repo,
       issue_number,
       outcome.ready,
       outcome.worktree,
@@ -367,11 +367,11 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
     return
   end
   if outcome.kind == "impl-failed" then
-    raise_impl_failed(repo, issue_number, outcome.ready, outcome.reason, outcome.detail, outcome.attempt)
+    raise_impl_failed(lifecycle_repo, issue_number, outcome.ready, outcome.reason, outcome.detail, outcome.attempt)
     return
   end
   if outcome.kind == "implementation-refusal" then
-    refusal_publication.publish(core, repo, issue_number, outcome)
+    refusal_publication.publish(core, lifecycle_repo, issue_number, outcome)
     return
   end
   error("github-devloop: invalid-implementation-outcome: unknown implementation outcome")
@@ -500,7 +500,7 @@ local function precheck_implementation_write_gate(repo, issue_number, lock_key, 
 end
 
 local function backing_original(current, managed)
-  local origin = forks.fork_origin_fact(core, current, managed)
+  local origin = forks.fork_origin_fact(current, managed)
   if origin == nil then
     return nil, nil
   end
@@ -534,11 +534,13 @@ local function process_ready_event(event)
     ready = logical
   end
   devloop_logging.log_entry("implement", event, ready.proposal_id, delivery_dedup_key)
-  local repo, issue_number = base_ids.parse_proposal_id(ready.proposal_id)
-  if repo == nil then
+  local proposal_repo, issue_number = base_ids.parse_proposal_id(ready.proposal_id)
+  if proposal_repo == nil or proposal_repo ~= ready.lifecycle_repo then
     devloop_logging.log_cas_decision("implement", ready.proposal_id, { state = nil, version = nil }, "ready", "implementing", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
+  local repo = ready.lifecycle_repo
+  local implementation_repo = ready.implementation_repo
 
   local lock_key = entity_lib.implement_lock_key(ready.proposal_id)
   if lock_key == nil then
@@ -601,7 +603,11 @@ local function process_ready_event(event)
           "dependency_wait",
           dep_version,
           gate,
-          ready.source_ref
+          ready.source_ref,
+          {
+            lifecycle_repo = ready.lifecycle_repo,
+            implementation_repo = ready.implementation_repo,
+          }
         ))
         devloop_logging.log_raise("implement", ready.proposal_id, "github-proxy.github_issue_label_request", requests_labels.build_label_request(repo,
           issue_number,
@@ -638,7 +644,7 @@ local function process_ready_event(event)
       return
     end
     local marker_ready = ready_for_implementation_version(ready, implementation_version)
-    local branch = devloop_base.implement_branch(repo, issue_number, branch_version)
+    local branch = devloop_base.implement_branch(implementation_repo, issue_number, branch_version)
 
     if state.state == "implementing" then
       if tostring(state.version or "") ~= tostring(marker_ready.dedup_key or "") then
@@ -841,7 +847,7 @@ local function process_ready_event(event)
         attempt_plan.base_head = worktree_lifecycle.prepare_base(attempt_plan.branches)
       end
       worktree, codex_started_at, exec_ref, receiver_authorization = prepare_attempt(
-        repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
+        repo, implementation_repo, issue_number, attempt_plan.marker_ready, attempt_plan.branches,
         attempt_plan.branch, attempt_plan.base_head, attempt_plan.attempt,
         attempt_plan.bridge_marker, attempt_plan.checkpoint, pre_spawn_state,
         activation_snapshot, activation_decision, lock_key)
@@ -868,7 +874,7 @@ local function process_ready_event(event)
           publish_state = publish_state, outcome_kind = outcome.kind, lock_key = lock_key,
         })
       end
-      raise_attempt_outcome(repo, issue_number, outcome, publish_authorization)
+      raise_attempt_outcome(repo, implementation_repo, issue_number, outcome, publish_authorization)
     end
   end)
 end

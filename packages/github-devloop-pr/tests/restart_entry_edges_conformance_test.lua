@@ -698,6 +698,8 @@ local function pr_open_handoff_entry()
       handoff = {
         kind = "github-devloop.pr_open",
         proposal_id = proposal_id,
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = pr_number,
         version = version,
         source_ref = source_ref,

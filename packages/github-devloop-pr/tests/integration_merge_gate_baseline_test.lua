@@ -84,6 +84,8 @@ local function replay_fixing_payload(event, comments)
       source_ref = event.source_ref,
       link = {
         proposal_id = event.proposal_id,
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = event.pr_number,
         branch = branch,
         impl_version = event.version,

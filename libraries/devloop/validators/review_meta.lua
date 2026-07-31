@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local strings = require("contract.strings")
 local source_refs = require("contract.source_ref")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local C = {}
 function C.is_supported_review_meta(payload)
@@ -17,6 +18,12 @@ function C.is_supported_review_meta(payload)
     has_valid_identity = entity_lib.is_safe_entity_proposal_ref(payload.proposal_id, payload.dedup_key)
   end
   return has_valid_identity
+    and delivery_repositories.is_valid_pr_source(
+      payload.proposal_id,
+      payload.source_ref,
+      payload.lifecycle_repo,
+      payload.implementation_repo
+    )
     and strings.is_bounded_string(payload.version, devloop_base._max_dedup_len)
     and require("devloop.pr_safety").is_safe_pr_number(payload.pr_number)
     and tonumber(payload.n) ~= nil

@@ -23,6 +23,7 @@ local v_validate_proposal = require("devloop.validators.validate_proposal")
 local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
 local devloop_commands = require("devloop.commands")
+local delivery_repositories = require("devloop.delivery_repositories")
 local spec = {
   consumes = { "devloop_review_continue" },
   produces = {
@@ -95,7 +96,7 @@ return saga.department(spec, { done = function() return false end, act = functio
   if origin == nil then
     origin = entity_lib.pr_native_origin(repo, pr_number, current_pr)
   end
-  if origin.repo ~= repo or tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch) then
+  if origin.implementation_repo ~= repo or tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch) then
     devloop_logging.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|blocked", "skip-foreign(pr-origin)", "PR origin mismatch")
     return
   end
@@ -112,7 +113,7 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("review_loop", unresolved.proposal_id, { state = nil, version = nil }, "reviewing", "reviewing|blocked", "skip-stale(head-advanced)", "PR head advanced since unresolved review")
     return
   end
-  if not m_claims.verify_pr_review_issue_claim("review_loop", origin.repo, origin.issue_number, nil, origin.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("review_loop", origin.lifecycle_repo, origin.issue_number, nil, origin.proposal_id) then
     return
   end
 
@@ -168,7 +169,9 @@ return saga.department(spec, { done = function() return false end, act = functio
         snapshot,
         {
           core = core,
-          repo = origin.repo,
+          repo = origin.implementation_repo,
+          lifecycle_repo = origin.lifecycle_repo,
+          implementation_repo = origin.implementation_repo,
           issue_number = origin.issue_number,
           unresolved = unresolved,
           issue_proposal_id = origin.proposal_id,
@@ -209,7 +212,14 @@ return saga.department(spec, { done = function() return false end, act = functio
     local terminal_cause = conv_rounds.terminal_cause(facts_with_current, round)
     if terminal_cause ~= nil then
       local comment_request = build_comment_request(round, marker_body)
-      local review_reconcile = conv_reconcile.build_devloop_review_reconcile_payload(unresolved, round, origin.proposal_id, review_version, reviewed_head_sha, terminal_cause)
+      local review_reconcile = conv_reconcile.build_devloop_review_reconcile_payload(
+        delivery_repositories.attach(unresolved, origin),
+        round,
+        origin.proposal_id,
+        review_version,
+        reviewed_head_sha,
+        terminal_cause
+      )
       local reason = "PR review convergence terminal cause=" .. terminal_cause .. " at round " .. tostring(round)
       devloop_logging.log_cas_decision("review_loop", origin.proposal_id, state, "reviewing", "reviewing", transition.cas_outcome, reason)
       devloop_logging.log_apply("review_loop", origin.proposal_id, nil, nil, { add = {}, remove = {} }, {
@@ -228,7 +238,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       comments = current_pr.comments,
     }
     if origin.issue_number ~= nil then
-      local issue_view = devloop_commands.gh_issue_view_review_loop(origin.repo, origin.issue_number, 30)
+      local issue_view = devloop_commands.gh_issue_view_review_loop(origin.lifecycle_repo, origin.issue_number, 30)
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-loop-view-failed: gh issue review loop view failed: " .. tostring(issue_view.stderr))
       end
@@ -239,6 +249,8 @@ return saga.department(spec, { done = function() return false end, act = functio
     local context_fetch = { context_bundle.context_fetch_ref_from_bundle(core, {
       dept = "review_loop",
       repo = repo,
+      lifecycle_repo = origin.lifecycle_repo,
+      implementation_repo = origin.implementation_repo,
       issue_number = origin.issue_number,
       pr_number = pr_number,
       proposal_id = unresolved.proposal_id,
@@ -251,7 +263,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       narrowed_question = unresolved.narrowed_question,
       angle_digests = unresolved.angle_digests,
       findings_record = facts_with_current[#facts_with_current] and facts_with_current[#facts_with_current].findings_record,
-    }, event.ts, current_pr.comments, content_fetch, high_risk, next_dedup)
+    }, event.ts, current_pr.comments, content_fetch, high_risk, next_dedup, origin.lifecycle_repo)
     -- The implementation worktree is per-launch runtime scratch that a restart wipes; when it is gone,
     -- fall back to the read-only project checkout (".", a git repo the sandboxed codex accepts) so the
     -- review-consensus angle codex does not land in a non-git scratch dir and refuse to start ("Not inside

@@ -76,7 +76,7 @@ local function should_reinject_pr(repo, pr, limits, deadline, now_seconds)
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, { state = nil, version = nil }, "tick", "observe", "skip-no-state", "PR has no origin marker")
     return false
   end
-  if not m_claims.verify_pr_review_issue_claim("liveness_scan", origin.repo, origin.issue_number, nil, origin.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("liveness_scan", origin.lifecycle_repo, origin.issue_number, nil, origin.proposal_id) then
     return false
   end
 
@@ -88,12 +88,16 @@ local function should_reinject_pr(repo, pr, limits, deadline, now_seconds)
     return true
   end
   local source_ref = entity_lib.pr_source_ref(repo, pr.number)
-  local timeout_action = liveness_scan.liveness_scan_maybe_timeout_action(core, liveness_scan.liveness_scan_issue_entity(origin.repo, origin.issue_number), state, {
+  local timeout_action = liveness_scan.liveness_scan_maybe_timeout_action(core, liveness_scan.liveness_scan_issue_entity(origin.lifecycle_repo, origin.issue_number), state, {
     proposal_id = origin.proposal_id,
+    lifecycle_repo = origin.lifecycle_repo,
+    implementation_repo = origin.implementation_repo,
     current = { comments = current.comments or {}, labels = current.labels or {} },
     current_pr = current,
     link = {
       proposal_id = origin.proposal_id,
+      lifecycle_repo = origin.lifecycle_repo,
+      implementation_repo = origin.implementation_repo,
       pr_number = pr.number,
       branch = origin.branch,
       impl_version = origin.impl_version,
@@ -107,7 +111,7 @@ local function should_reinject_pr(repo, pr, limits, deadline, now_seconds)
     source_ref = source_ref,
     head_sha = current.head_sha,
     review_proposal_id = state.state == "reviewing" and forge_validators.is_git_sha(current.head_sha)
-      and devloop_base.pr_review_proposal_id(origin.repo, pr.number, state.version, current.head_sha)
+      and devloop_base.pr_review_proposal_id(origin.implementation_repo, pr.number, state.version, current.head_sha)
       or nil,
     fresh_current_state = state,
     now_seconds = now_seconds,

@@ -148,19 +148,19 @@ local function fork_origin_fact_from_text(core, text)
   return nil
 end
 
-function F.fork_origin_fact(core, entity, managed)
+function F.fork_origin_fact(entity, managed)
   if type(entity) ~= "table" then
     return nil
   end
-  local trust_set = F.managed_fork_trust_set(core, github_author_policy.claim_owner(), managed)
+  local trust_set = F.managed_fork_trust_set({}, github_author_policy.claim_owner(), managed)
   if github_author_policy.is_managed_bot_login(parsers_shared.issue_author_login(entity), trust_set) then
-    local body_fact = fork_origin_fact_from_text(core, entity.body)
+    local body_fact = fork_origin_fact_from_text(nil, entity.body)
     if body_fact ~= nil then
       return body_fact
     end
   end
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(entity.comments, trust_set)) do
-    local comment_fact = fork_origin_fact_from_text(core, parsers_misc.comment_body(comment))
+    local comment_fact = fork_origin_fact_from_text(nil, parsers_misc.comment_body(comment))
     if comment_fact ~= nil then
       return comment_fact
     end

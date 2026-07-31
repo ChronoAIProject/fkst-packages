@@ -6,6 +6,7 @@ local forge_validators = require("devloop.forge_validators")
 local autonomy_ledger = require("devloop.autonomy_ledger")
 local shared = require("devloop.markers.shared")
 local ci_failure_keys = require("devloop.ci_failure_keys")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local valid_round = shared.valid_round
 local strings = shared.strings
@@ -157,7 +158,8 @@ function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha,
     .. '" -->'
 end
 
-function C.pr_link_marker(proposal_id, pr_number, branch, impl_version, base_branch)
+function C.pr_link_marker(proposal_id, pr_number, branch, impl_version, base_branch, lifecycle_repo, implementation_repo)
+  local repositories = delivery_repositories.resolve(proposal_id, lifecycle_repo, implementation_repo)
   if not forge_validators.is_positive_pr_number(pr_number) then
     error("github-devloop: invalid pr number")
   end
@@ -172,10 +174,13 @@ function C.pr_link_marker(proposal_id, pr_number, branch, impl_version, base_bra
     .. '" branch="' .. tostring(branch)
     .. '" impl_version="' .. tostring(impl_version)
     .. '" base_branch="' .. tostring(base_branch)
+    .. '" lifecycle_repo="' .. safe_marker_attr(repositories.lifecycle_repo)
+    .. '" implementation_repo="' .. safe_marker_attr(repositories.implementation_repo)
     .. '" -->'
 end
 
-function C.pr_link_marker_template(proposal_id, branch, impl_version, base_branch)
+function C.pr_link_marker_template(proposal_id, branch, impl_version, base_branch, lifecycle_repo, implementation_repo)
+  local repositories = delivery_repositories.resolve(proposal_id, lifecycle_repo, implementation_repo)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: invalid branch")
   end
@@ -187,6 +192,8 @@ function C.pr_link_marker_template(proposal_id, branch, impl_version, base_branc
     .. ' branch="' .. tostring(branch)
     .. '" impl_version="' .. tostring(impl_version)
     .. '" base_branch="' .. tostring(base_branch)
+    .. '" lifecycle_repo="' .. safe_marker_attr(repositories.lifecycle_repo)
+    .. '" implementation_repo="' .. safe_marker_attr(repositories.implementation_repo)
     .. '" -->'
 end
 
@@ -200,6 +207,14 @@ function C.pr_delegation_marker(issue_proposal_id, pr_proposal_id, pr_number, ve
     or not strings.is_path_safe_key(delegation, devloop_base._max_dedup_len) then
     error("github-devloop: invalid pr-delegation marker")
   end
+  local base_ids = require("devloop.base_ids")
+  local lifecycle_repo = base_ids.parse_proposal_id(issue_proposal_id)
+  local implementation_repo, proposal_pr_number = base_ids.parse_pr_proposal_id(pr_proposal_id)
+  if lifecycle_repo == nil
+    or implementation_repo == nil
+    or tostring(proposal_pr_number or "") ~= tostring(pr_number) then
+    error("github-devloop: invalid pr-delegation repository identity")
+  end
   return '<!-- fkst:github-devloop:pr-delegation:v1 proposal="' .. tostring(issue_proposal_id)
     .. '" pr_proposal="' .. tostring(pr_proposal_id)
     .. '" pr="' .. tostring(pr_number)
@@ -208,7 +223,8 @@ function C.pr_delegation_marker(issue_proposal_id, pr_proposal_id, pr_number, ve
     .. '" -->'
 end
 
-function C.pr_origin_marker(proposal_id, issue_number, branch, impl_version, base_branch)
+function C.pr_origin_marker(proposal_id, issue_number, branch, impl_version, base_branch, lifecycle_repo, implementation_repo)
+  local repositories = delivery_repositories.resolve_origin(proposal_id, lifecycle_repo, implementation_repo)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: invalid branch")
   end
@@ -220,6 +236,8 @@ function C.pr_origin_marker(proposal_id, issue_number, branch, impl_version, bas
     .. '" branch="' .. tostring(branch)
     .. '" impl_version="' .. tostring(impl_version)
     .. '" base_branch="' .. tostring(base_branch)
+    .. '" lifecycle_repo="' .. safe_marker_attr(repositories.lifecycle_repo)
+    .. '" implementation_repo="' .. safe_marker_attr(repositories.implementation_repo)
     .. '" -->'
 end
 

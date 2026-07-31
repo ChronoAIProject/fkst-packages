@@ -43,6 +43,8 @@ local function event_for(fixture)
     payload.reviewing_hand_off = {
       kind = "own-state-marker",
       proposal_id = PROPOSAL_ID,
+      lifecycle_repo = payload.lifecycle_repo,
+      implementation_repo = payload.implementation_repo,
       state = "reviewing",
       marker_version = payload.version,
       event_version = payload.version,

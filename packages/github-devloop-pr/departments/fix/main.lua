@@ -83,6 +83,8 @@ local function emit_reviewing(restart_effect, repo, issue_number, fix, old_head_
   local args = {
     core = core,
     repo = repo,
+    lifecycle_repo = fix.lifecycle_repo,
+    implementation_repo = fix.implementation_repo,
     issue_number = issue_number,
     fix = fix,
     old_head_sha = old_head_sha,
@@ -257,6 +259,8 @@ local function run_fix_attempt(plan)
   local content_fetch = context_bundle.context_fetch_from_bundle(core, {
     dept = "fix",
     repo = plan.repo,
+    lifecycle_repo = plan.lifecycle_repo,
+    implementation_repo = plan.fix.implementation_repo,
     issue_number = plan.issue_number,
     pr_number = plan.fix.pr_number,
     proposal_id = plan.fix.proposal_id,
@@ -511,6 +515,8 @@ local function apply_fix_outcome(repo, issue_number, fix, branch, outcome, resta
       if fix_round >= config.max_fix_rounds() then
         local fix_reconcile = conv_reconcile.build_devloop_fix_reconcile_payload({
           proposal_id = fix.proposal_id,
+          lifecycle_repo = fix.lifecycle_repo,
+          implementation_repo = fix.implementation_repo,
           review_proposal_id = fix.review_proposal_id,
           review_dedup_key = fix.review_dedup_key,
           reviewed_head_sha = fix.reviewed_head_sha,
@@ -591,9 +597,10 @@ local function act_fix(event)
     devloop_logging.log_cas_decision("fix", fix.proposal_id, { state = nil, version = nil }, "fixing", "reviewing|review-meta", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
-  local repo = entity.repo
+  local lifecycle_repo = fix.lifecycle_repo
+  local repo = fix.implementation_repo
   local issue_number = entity.issue_number
-  if entity.kind == "issue" and not m_claims.verify_pr_review_issue_claim("fix", repo, issue_number, nil, fix.proposal_id) then
+  if entity.kind == "issue" and not m_claims.verify_pr_review_issue_claim("fix", lifecycle_repo, issue_number, nil, fix.proposal_id) then
     return
   end
 
@@ -749,7 +756,7 @@ local function act_fix(event)
       origin = entity_lib.pr_native_origin(repo, fix.pr_number, current_pr)
     end
     if origin.proposal_id ~= fix.proposal_id
-      or origin.repo ~= repo
+      or origin.implementation_repo ~= repo
       or tostring(origin.base_branch) ~= tostring(branches.integration)
       or tostring(current_pr.base_ref_name or "") ~= tostring(origin.base_branch)
       or tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch) then
@@ -801,7 +808,7 @@ local function act_fix(event)
       comments = current_pr.comments,
     }
     if issue_number ~= nil then
-      local issue_view = devloop_commands.gh_issue_view_fix(repo, issue_number, 30)
+      local issue_view = devloop_commands.gh_issue_view_fix(lifecycle_repo, issue_number, 30)
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-fix-view-failed: gh issue fix view failed: " .. tostring(issue_view.stderr))
       end
@@ -827,6 +834,7 @@ local function act_fix(event)
 
     attempt_plan = {
       repo = repo,
+      lifecycle_repo = lifecycle_repo,
       issue_number = issue_number,
       fix = fix,
       branches = branches,

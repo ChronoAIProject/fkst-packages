@@ -45,6 +45,8 @@ return {
       handoff = {
         kind = "github-devloop.pr_open",
         proposal_id = proposal_id,
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = 7,
         version = version,
         source_ref = source_ref,
@@ -83,6 +85,8 @@ return {
       handoff = {
         kind = "github-devloop.reviewing",
         proposal_id = "github-devloop/issue/owner/repo/42",
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = 7,
         version = version,
         source_ref = source_ref,
@@ -124,6 +128,8 @@ return {
       handoff = {
         kind = "github-devloop.reviewing",
         proposal_id = "github-devloop/issue/owner/repo/42",
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = 7,
         version = version,
         source_ref = source_ref,
@@ -151,6 +157,8 @@ return {
       handoff = {
         kind = "github-devloop.reviewing",
         proposal_id = proposal_id,
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = 7,
         version = version,
         source_ref = source_ref,
@@ -202,6 +210,8 @@ return {
       handoff = {
         kind = "github-devloop.fixing",
         proposal_id = proposal_id,
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = 7,
         version = version,
         review_proposal_id = review_proposal_id,
@@ -272,6 +282,8 @@ return {
       handoff = {
         kind = "github-devloop.merge_ready",
         proposal_id = "github-devloop/issue/owner/repo/42",
+        lifecycle_repo = "owner/repo",
+        implementation_repo = "owner/repo",
         pr_number = 7,
         version = version,
         review_proposal_id = review_proposal_id,

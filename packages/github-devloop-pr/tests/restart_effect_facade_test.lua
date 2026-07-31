@@ -1,4 +1,5 @@
 local h = require("tests.devloop_helpers")
+local devloop_base = require("devloop.base")
 local entity_lib = require("devloop.entity")
 local requests_labels = require("devloop.requests.labels")
 local requests_review = require("devloop.requests.review")
@@ -127,6 +128,38 @@ local function observe_fix_args()
   }
 end
 
+local function cross_repo_review_effects()
+  local lifecycle_repo = "owner/repo"
+  local implementation_repo = "implementation/repo"
+  local review_proposal_id = devloop_base.pr_review_proposal_id(
+    implementation_repo,
+    7,
+    VERSION,
+    "def456"
+  )
+  local review = reached()
+  review.proposal_id = review_proposal_id
+  review.dedup_key = "consensus:" .. review_proposal_id .. "/review"
+  review.source_ref = entity_lib.pr_source_ref(implementation_repo, 7)
+  local args = emit_args(review)
+  args.repo = nil
+  args.lifecycle_repo = lifecycle_repo
+  args.implementation_repo = implementation_repo
+  args.pr_source_ref = entity_lib.pr_source_ref(implementation_repo, 7)
+  args.issue_source_ref = entity_lib.issue_source_ref(lifecycle_repo, 42)
+
+  local snapshot = restart_effects.seal_snapshot({
+    owner = OWNER,
+    entity = { kind = "pr", repo = implementation_repo, number = 7 },
+    proposal_id = ISSUE_PROPOSAL_ID,
+    current = { state = "reviewing", version = VERSION },
+    snapshot_fingerprint = "snapshot:pr:cross-repo:v1",
+    lock_epoch = "lock:pr:cross-repo:epoch:7",
+    generation = "generation:cross-repo:7",
+  })
+  return facade(), real_grant(snapshot), snapshot, args
+end
+
 return {
   test_emit_without_grant_rejects_before_serialization = function()
     local effect, reason = facade().emit(nil, COMMENT_EFFECT_ID, {}, nil)
@@ -215,6 +248,28 @@ return {
       nil, { kind = "pr", number = 7 })
     t.eq(canonical_json(comment), canonical_json(old_comment))
     t.eq(canonical_json(label), canonical_json(old_label))
+  end,
+
+  test_cross_repository_review_effects_route_by_explicit_repository_pair = function()
+    h.mock_default_issue_claim("owner/repo", 42)
+    local shadow, grant, snapshot, args = cross_repo_review_effects()
+
+    local comment = shadow.emit(grant, COMMENT_EFFECT_ID, snapshot, args)
+    local label = shadow.emit(grant, LABEL_EFFECT_ID, snapshot, args)
+
+    t.eq(comment.repo, "implementation/repo")
+    t.eq(comment.source_ref.ref, "implementation/repo#pr/7")
+    t.eq(label.repo, "owner/repo")
+    t.eq(label.source_ref.ref, "owner/repo#issue/42")
+  end,
+
+  test_cross_repository_review_effects_reject_incomplete_repository_pair = function()
+    local shadow, grant, snapshot, args = cross_repo_review_effects()
+    args.implementation_repo = nil
+
+    t.raises(function()
+      shadow.emit(grant, COMMENT_EFFECT_ID, snapshot, args)
+    end)
   end,
 
   test_grantless_non_lifecycle_effect_is_not_accepted = function()

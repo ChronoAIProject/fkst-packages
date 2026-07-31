@@ -16,6 +16,7 @@ local consensus_result_caps = require("consensus_result_department_caps")
 local consensus_call = require("devloop.consensus_call")
 local queue = require("devloop.queue")
 local v_unresolved = require("devloop.validators.unresolved")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local spec = {
   consumes = { "devloop_consensus_request" },
@@ -287,6 +288,12 @@ local function make_department(ports)
         consumer = "consensus_result",
         force_fresh = true,
       })
+      current.repo = repo
+      current.number = issue_number
+      reached = delivery_repositories.attach(
+        reached,
+        delivery_repositories.from_issue(reached.proposal_id, current)
+      )
       devloop_logging.log_forged_markers("consensus_result", reached.proposal_id, current.comments)
       local state = devloop_state.current_state(current.comments, reached.proposal_id)
       local trusted_author_policy = github_author_policy.from_handle_policy(ports.github)

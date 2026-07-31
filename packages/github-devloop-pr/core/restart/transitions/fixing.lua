@@ -218,6 +218,8 @@ return function(M, h)
     payload_fields = {
       schema = "literal:github-devloop.fixing.v1",
       proposal_id = "marker:state.proposal",
+      lifecycle_repo = "marker:pr-link.lifecycle_repo",
+      implementation_repo = "marker:pr-link.implementation_repo",
       pr_number = "marker:pr-link.pr",
       version = "marker:state.version",
       review_proposal_id = "marker:merge-gate.review_proposal",

@@ -182,6 +182,8 @@ function M.new(deps)
     local value = {
       schema = "consensus.consensus_reached.v1",
       proposal_id = "github-devloop/issue/owner/repo/42",
+      lifecycle_repo = "owner/repo",
+      implementation_repo = "owner/repo",
       decision = "approve",
       body = "All angles approve.",
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
@@ -197,6 +199,8 @@ function M.new(deps)
     local value = {
       schema = "consensus.consensus_converge.v1",
       proposal_id = "github-devloop/issue/owner/repo/42",
+      lifecycle_repo = "owner/repo",
+      implementation_repo = "owner/repo",
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
       source_ref = source_ref(),
     }
@@ -220,6 +224,8 @@ function M.new(deps)
     local value = {
       schema = "github-devloop.ready.v1",
       proposal_id = "github-devloop/issue/owner/repo/42",
+      lifecycle_repo = "owner/repo",
+      implementation_repo = "owner/repo",
       dedup_key = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
       source_ref = source_ref(),
     }
@@ -233,6 +239,8 @@ function M.new(deps)
     local value = {
       schema = "github-devloop.reviewing.v1",
       proposal_id = "github-devloop/issue/owner/repo/42",
+      lifecycle_repo = "owner/repo",
+      implementation_repo = "owner/repo",
       pr_number = 7,
       version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
       dedup_key = "reviewing/github-devloop/issue/owner/repo/42/ready-consensus-github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z/7",
@@ -250,6 +258,8 @@ function M.new(deps)
     local value = {
       schema = "consensus.consensus_reached.v1",
       proposal_id = proposal_id,
+      lifecycle_repo = "owner/repo",
+      implementation_repo = "owner/repo",
       decision = "approve",
       body = "Review consensus approves the diff.",
       dedup_key = "consensus:" .. proposal_id .. "/review",
@@ -270,6 +280,8 @@ function M.new(deps)
     local value = {
       schema = "consensus.consensus_converge.v1",
       proposal_id = proposal_id,
+      lifecycle_repo = "owner/repo",
+      implementation_repo = "owner/repo",
       dedup_key = "consensus:" .. proposal_id .. "/review",
       source_ref = {
         kind = "external",

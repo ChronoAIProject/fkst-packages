@@ -66,6 +66,16 @@ function I.parse_proposal_id(id)
   return repo, issue_number
 end
 
+function I.parse_pr_proposal_id(proposal_id)
+  local repo, pr_number = tostring(proposal_id or ""):match(
+    "^github%-devloop/pr/(.+)/(%d+)$"
+  )
+  if repo == nil or not require("devloop.pr_safety").is_safe_pr_number(pr_number) then
+    return nil, nil
+  end
+  return repo, tonumber(pr_number)
+end
+
 function I.issue_ref_round_trips(repo, issue_number)
   local repo_text = tostring(repo)
   local issue_text = tostring(issue_number)

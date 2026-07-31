@@ -13,13 +13,17 @@ local labels = require("devloop.requests.labels")
 local shared = require("devloop.requests.shared")
 local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local ai_sentinel = shared.ai_sentinel
 
 function C.attach_reviewing_handoff(request, proposal_id, pr_number, version, source_ref, review_delivery_dedup_key)
+  local repositories = delivery_repositories.from_pr_source_ref(proposal_id, source_ref)
   request.handoff = {
     kind = "github-devloop.reviewing",
     proposal_id = proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = pr_number,
     version = version,
     source_ref = base_ids.normalize_source_ref(source_ref),
@@ -54,9 +58,12 @@ function C.attach_reviewing_handoff(request, proposal_id, pr_number, version, so
 end
 
 function C.attach_blocked_handoff(request, proposal_id, pr_number, version, source_ref)
+  local repositories = delivery_repositories.from_pr_source_ref(proposal_id, source_ref)
   request.handoff = {
     kind = "github-devloop.blocked",
     proposal_id = proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = pr_number,
     version = version,
     source_ref = base_ids.normalize_source_ref(source_ref),
@@ -72,6 +79,8 @@ function C.attach_fixing_handoff(request, proposal_id, pr_number, version, revie
   request.handoff = {
     kind = "github-devloop.fixing",
     proposal_id = normalized.proposal_id,
+    lifecycle_repo = normalized.lifecycle_repo,
+    implementation_repo = normalized.implementation_repo,
     pr_number = normalized.pr_number,
     version = normalized.version,
     review_proposal_id = normalized.review_proposal_id,
@@ -102,9 +111,17 @@ function C.attach_fixing_handoff(request, proposal_id, pr_number, version, revie
 end
 
 function C.attach_review_meta_handoff(request, review_meta)
+  local repositories = delivery_repositories.from_pr_source_ref(
+    review_meta.proposal_id,
+    review_meta.source_ref,
+    review_meta.lifecycle_repo,
+    review_meta.implementation_repo
+  )
   request.handoff = {
     kind = "github-devloop.review_meta",
     proposal_id = review_meta.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     review_proposal_id = review_meta.review_proposal_id,
     review_dedup_key = review_meta.review_dedup_key,
     version = review_meta.version,
@@ -285,9 +302,12 @@ function C.build_review_result_comment_request(M, repo, issue_number, issue_prop
   }), source_ref)
   if reached.decision == "approve" then
     local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(reached.proposal_id)
+    local repositories = delivery_repositories.from_pr_source_ref(issue_proposal_id, source_ref)
     request.handoff = {
       kind = "github-devloop.merge_ready",
       proposal_id = issue_proposal_id,
+      lifecycle_repo = repositories.lifecycle_repo,
+      implementation_repo = repositories.implementation_repo,
       pr_number = pr_number,
       version = issue_version,
       review_proposal_id = reached.proposal_id,
@@ -448,9 +468,18 @@ function C.build_fix_reviewing_comment_request(M, repo, issue_number, fix, old_h
 end
 
 function C.raise_fix_review_meta(caps, repo, issue_number, fix, reason, detail)
-  local comment_request = caps.build_comment(repo, issue_number, fix, reason, detail)
+  local repositories = delivery_repositories.from_pr_source_ref(
+    fix.proposal_id,
+    fix.source_ref,
+    fix.lifecycle_repo,
+    fix.implementation_repo
+  )
+  local comment_request = caps.build_comment(
+    repositories.implementation_repo, issue_number, fix, reason, detail)
   C.attach_review_meta_handoff(comment_request, {
     proposal_id = fix.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     review_proposal_id = fix.review_proposal_id,
     review_dedup_key = fix.review_dedup_key,
     version = fix.version,
@@ -459,7 +488,8 @@ function C.raise_fix_review_meta(caps, repo, issue_number, fix, reason, detail)
     dedup_key = fix.dedup_key,
     source_ref = fix.source_ref,
   })
-  local label_request = caps.build_label(repo, issue_number, fix, reason)
+  local label_request = caps.build_label(
+    repositories.lifecycle_repo, issue_number, fix, reason)
   local add_labels, remove_labels = devloop_state.state_label_changes("review-meta")
   devloop_logging.log_apply("fix", fix.proposal_id, "review-meta", fix.version, { add = add_labels, remove = remove_labels }, {
     "github-proxy.github_pr_comment_request",
@@ -474,9 +504,14 @@ end
 function C.raise_fix_reviewing(M, opts)
   opts = opts or {}
   local dept = tostring(opts.dept or "unknown")
-  local repo = opts.repo
   local issue_number = opts.issue_number
   local fix = opts.fix or {}
+  local repositories = delivery_repositories.from_pr_source_ref(
+    fix.proposal_id,
+    fix.source_ref,
+    fix.lifecycle_repo,
+    fix.implementation_repo
+  )
   local old_head_sha = opts.old_head_sha
   local new_head_sha = opts.new_head_sha
   local new_version = opts.new_version or M.next_fix_version(fix.version)
@@ -487,8 +522,10 @@ function C.raise_fix_reviewing(M, opts)
   end
 
   devloop_logging.log_cas_decision(dept, fix.proposal_id, current_state, "fixing", "reviewing", opts.outcome or "applied", reason)
-  local comment_request = C.build_fix_reviewing_comment_request(M, repo, issue_number, fix, old_head_sha, new_head_sha, new_version)
-  local label_request = opts.label_request or labels.build_fix_reviewing_label_request(repo, issue_number, fix, new_head_sha, new_version)
+  local comment_request = C.build_fix_reviewing_comment_request(M, repositories.implementation_repo,
+    issue_number, fix, old_head_sha, new_head_sha, new_version)
+  local label_request = opts.label_request or labels.build_fix_reviewing_label_request(
+    repositories.lifecycle_repo, issue_number, fix, new_head_sha, new_version)
   local add_labels, remove_labels
   if opts.label_changes ~= nil then
     add_labels = opts.label_changes.add or {}
@@ -511,9 +548,11 @@ end
 
 function C.raise_fixing_replay_reviewing(raise_reviewing, dept, issue, state, proposal_id, link, current_pr, feedback, reason)
   local new_version = devloop_state.next_fix_version(state.version)
-  local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+  local source_ref = entity_lib.pr_source_ref(link.implementation_repo, link.pr_number)
   local fix = {
     proposal_id = proposal_id,
+    lifecycle_repo = link.lifecycle_repo,
+    implementation_repo = link.implementation_repo,
     pr_number = link.pr_number,
     version = state.version,
     review_proposal_id = feedback.review_proposal_id,
@@ -522,14 +561,14 @@ function C.raise_fixing_replay_reviewing(raise_reviewing, dept, issue, state, pr
     source_ref = source_ref,
   }
   local label_request = issue.number ~= nil and labels.build_state_label_request(
-    issue.repo, issue.number, "reviewing", proposal_id, new_version, base_ids.dedup_key({
+    link.lifecycle_repo, issue.number, "reviewing", proposal_id, new_version, base_ids.dedup_key({
       "fixing", "label", "reviewing", tostring(proposal_id), tostring(new_version),
       tostring(link.pr_number), tostring(current_pr.head_sha),
-    }), entity_lib.issue_source_ref(issue.repo, issue.number), nil, { kind = "pr", number = link.pr_number }
+    }), entity_lib.issue_source_ref(link.lifecycle_repo, issue.number), nil, { kind = "pr", number = link.pr_number }
   ) or nil
   raise_reviewing({
     dept = dept,
-    repo = issue.repo,
+    repo = link.implementation_repo,
     issue_number = issue.number,
     fix = fix,
     old_head_sha = feedback.reviewed_head_sha,
@@ -599,9 +638,12 @@ function C.build_review_carry_over_comment_request(repo, pr_number, issue_propos
     tostring(carry.approved_head_sha),
     tostring(carry.new_head_sha),
   }), source_ref)
+  local repositories = delivery_repositories.from_pr_source_ref(issue_proposal_id, source_ref)
   request.handoff = {
     kind = "github-devloop.merge_ready",
     proposal_id = issue_proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = pr_number,
     version = version,
     review_proposal_id = carry.new_review_proposal_id,

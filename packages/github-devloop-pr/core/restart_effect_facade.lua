@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local delivery_repositories = require("devloop.delivery_repositories")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local requests_review = require("devloop.requests.review")
@@ -10,18 +11,32 @@ local M = {}
 local COMMENT_EFFECT_ID = "github-proxy.github_pr_comment_request"
 local LABEL_EFFECT_ID = "github-proxy.github_issue_label_request"
 
+local function repositories(args, owner)
+  local lifecycle_repo = args.lifecycle_repo
+  local implementation_repo = args.implementation_repo
+  if lifecycle_repo == nil and implementation_repo == nil and type(owner) == "table" then
+    lifecycle_repo = owner.lifecycle_repo
+    implementation_repo = owner.implementation_repo
+  end
+  return delivery_repositories.resolve_origin(
+    owner and owner.proposal_id,
+    lifecycle_repo,
+    implementation_repo
+  )
+end
+
 local function serialize_review_activation_comment(args)
   if type(args) ~= "table"
     or type(args.core) ~= "table"
-    or type(args.repo) ~= "string"
     or type(args.origin) ~= "table"
     or args.pr_number == nil
     or type(args.source_ref) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.origin)
   return requests_review.build_reviewing_comment_request(
     args.core,
-    args.repo,
+    repos.implementation_repo,
     args.issue_number,
     args.origin,
     args.pr_number,
@@ -32,7 +47,6 @@ end
 local function serialize_review_loop_comment(args)
   if type(args) ~= "table"
     or type(args.core) ~= "table"
-    or type(args.repo) ~= "string"
     or type(args.unresolved) ~= "table"
     or type(args.issue_proposal_id) ~= "string"
     or type(args.round) ~= "number"
@@ -40,9 +54,10 @@ local function serialize_review_loop_comment(args)
     or type(args.source_ref) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, { proposal_id = args.issue_proposal_id })
   return requests_review.build_review_converge_round_comment_request(
     args.core,
-    args.repo,
+    repos.implementation_repo,
     args.issue_number,
     args.unresolved,
     args.issue_proposal_id,
@@ -55,7 +70,6 @@ end
 local function valid_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
-    and type(args.repo) == "string"
     and args.issue_number ~= nil
     and type(args.issue_proposal_id) == "string"
     and type(args.issue_version) == "string"
@@ -67,9 +81,10 @@ local function serialize_review_result_comment(args)
   if not valid_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, { proposal_id = args.issue_proposal_id })
   return requests_review.build_review_result_comment_request(
     args.core,
-    args.repo,
+    repos.implementation_repo,
     args.issue_number,
     args.issue_proposal_id,
     args.issue_version,
@@ -84,8 +99,9 @@ local function serialize_review_result_label(args)
     or type(args.marker_target) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, { proposal_id = args.issue_proposal_id })
   return requests_labels.build_review_result_label_request(
-    args.repo,
+    repos.lifecycle_repo,
     args.issue_number,
     args.issue_proposal_id,
     args.issue_version,
@@ -98,7 +114,6 @@ end
 local function valid_fix_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
-    and type(args.repo) == "string"
     and type(args.fix) == "table"
     and type(args.old_head_sha) == "string"
     and type(args.new_head_sha) == "string"
@@ -109,9 +124,10 @@ local function serialize_fix_reviewing_comment(args)
   if not valid_fix_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.fix)
   return requests_review.build_fix_reviewing_comment_request(
     args.core,
-    args.repo,
+    repos.implementation_repo,
     args.issue_number,
     args.fix,
     args.old_head_sha,
@@ -124,8 +140,9 @@ local function serialize_fix_reviewing_label(args)
   if not valid_fix_args(args) or args.issue_number == nil then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.fix)
   return requests_labels.build_fix_reviewing_label_request(
-    args.repo,
+    repos.lifecycle_repo,
     args.issue_number,
     args.fix,
     args.new_head_sha,
@@ -135,7 +152,7 @@ end
 
 local function valid_observe_pr_fix_args(args)
   return type(args) == "table" and type(args.core) == "table"
-    and type(args.repo) == "string" and args.issue_number ~= nil
+    and args.issue_number ~= nil
     and args.pr_number ~= nil and type(args.comment_origin) == "table"
     and type(args.fix_version) == "string" and type(args.reason) == "string"
     and type(args.source_ref) == "table" and type(args.issue_source_ref) == "table"
@@ -145,8 +162,9 @@ local function serialize_observe_pr_fix_comment(args)
   if not valid_observe_pr_fix_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.comment_origin)
   return requests_review.build_merge_gate_fix_comment_request(
-    args.core, args.repo, args.issue_number, args.comment_origin,
+    args.core, repos.implementation_repo, args.issue_number, args.comment_origin,
     args.fix_version, args.reason, nil, args.source_ref, nil,
     { gate_failure_excerpt = args.reason })
 end
@@ -155,8 +173,9 @@ local function serialize_observe_pr_fix_label(args)
   if not valid_observe_pr_fix_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.comment_origin)
   return requests_labels.build_state_label_request(
-    args.repo, args.issue_number, "fixing", args.comment_origin.proposal_id,
+    repos.lifecycle_repo, args.issue_number, "fixing", args.comment_origin.proposal_id,
     args.fix_version, tostring(args.comment_origin.version)
       .. "/observe-pr-conflict/label/fixing",
     args.issue_source_ref, nil, { kind = "pr", number = args.pr_number })
@@ -165,7 +184,6 @@ end
 local function valid_review_meta_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
-    and type(args.repo) == "string"
     and args.issue_number ~= nil
     and type(args.review_meta) == "table"
     and type(args.action) == "string"
@@ -177,8 +195,9 @@ local function serialize_review_meta_comment(args)
   if not valid_review_meta_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.review_meta)
   return args.core.build_review_meta_comment_request(
-    args.repo,
+    repos.implementation_repo,
     args.issue_number,
     args.review_meta,
     args.action,
@@ -192,8 +211,9 @@ local function serialize_review_meta_label(args)
   if not valid_review_meta_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.review_meta)
   return args.core.build_review_meta_label_request(
-    args.repo,
+    repos.lifecycle_repo,
     args.issue_number,
     args.review_meta,
     args.action,
@@ -203,7 +223,6 @@ end
 local function valid_review_reconcile_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
-    and type(args.repo) == "string"
     and type(args.reconcile) == "table"
     and type(args.action) == "string"
     and type(args.reason) == "string"
@@ -214,8 +233,9 @@ local function serialize_review_reconcile_comment(args)
   if not valid_review_reconcile_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.reconcile)
   return args.core.build_review_reconcile_comment_request(
-    args.repo,
+    repos.implementation_repo,
     args.issue_number,
     args.reconcile,
     args.action,
@@ -228,8 +248,9 @@ local function serialize_review_reconcile_label(args)
   if not valid_review_reconcile_args(args) or args.issue_number == nil then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.reconcile)
   return args.core.build_review_reconcile_label_request(
-    args.repo,
+    repos.lifecycle_repo,
     args.issue_number,
     args.reconcile
   )
@@ -238,7 +259,6 @@ end
 local function valid_fix_reconcile_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
-    and type(args.repo) == "string"
     and args.issue_number ~= nil
     and type(args.reconcile) == "table"
     and type(args.action) == "string"
@@ -250,8 +270,9 @@ local function serialize_fix_reconcile_comment(args)
   if not valid_fix_reconcile_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.reconcile)
   return args.core.build_fix_reconcile_comment_request(
-    args.repo,
+    repos.implementation_repo,
     args.issue_number,
     args.reconcile,
     args.action,
@@ -264,8 +285,9 @@ local function serialize_fix_reconcile_label(args)
   if not valid_fix_reconcile_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.reconcile)
   return args.core.build_fix_reconcile_label_request(
-    args.repo,
+    repos.lifecycle_repo,
     args.issue_number,
     args.reconcile,
     args.version
@@ -275,7 +297,6 @@ end
 local function valid_timeout_reconcile_args(args)
   return type(args) == "table"
     and type(args.core) == "table"
-    and type(args.repo) == "string"
     and args.issue_number ~= nil
     and type(args.reconcile) == "table"
     and type(args.action) == "string"
@@ -289,9 +310,10 @@ local function serialize_timeout_reconcile_comment(args)
   if not valid_timeout_reconcile_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.reconcile)
   if args.target_pr_number ~= nil then
     return args.build_timeout_reconcile_pr_comment_request(
-      args.repo,
+      repos.implementation_repo,
       args.target_pr_number,
       args.reconcile,
       args.action,
@@ -301,7 +323,7 @@ local function serialize_timeout_reconcile_comment(args)
     )
   end
   return conv_reconcile.build_timeout_reconcile_comment_request(
-    args.repo,
+    repos.lifecycle_repo,
     args.issue_number,
     args.reconcile,
     args.action,
@@ -315,8 +337,9 @@ local function serialize_timeout_reconcile_label(args)
   if not valid_timeout_reconcile_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.reconcile)
   return requests_labels.build_state_label_request(
-    args.repo,
+    repos.lifecycle_repo,
     args.issue_number,
     "blocked",
     args.reconcile.proposal_id,
@@ -337,12 +360,12 @@ end
 local function serialize_merge_comment(args)
   if type(args) ~= "table"
     or type(args.core) ~= "table"
-    or type(args.repo) ~= "string"
     or type(args.merge_ready) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
+  local repos = repositories(args, args.merge_ready)
   return requests_lifecycle.build_merging_comment_request(
-    args.core, args.repo, args.merge_ready
+    args.core, repos.implementation_repo, args.merge_ready
   )
 end
 

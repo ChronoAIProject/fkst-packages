@@ -156,6 +156,8 @@ return function(M, h)
     },
     payload_fields = {
       proposal_id = "marker:review-meta.proposal",
+      lifecycle_repo = "marker:pr-link.lifecycle_repo",
+      implementation_repo = "marker:pr-link.implementation_repo",
       review_proposal_id = "marker:review-converge-round.proposal",
       review_dedup_key = "marker:review-converge-round.dedup",
       version = "marker:state.version",

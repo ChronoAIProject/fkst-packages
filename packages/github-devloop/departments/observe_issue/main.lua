@@ -18,6 +18,7 @@ local replayer = require("devloop.replayer")
 local awaiting_pr_replay = require("awaiting_pr_replay")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local payloads_builders = require("devloop.payloads.builders")
 local conv_reconcile = require("devloop.convergence.reconcile")
@@ -555,6 +556,9 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     source_ref = issue.source_ref,
     impl_retry_attempt = attempt,
   }
+  local repositories = delivery_repositories.from_issue(proposal_id, current)
+  payload_source.lifecycle_repo = repositories.lifecycle_repo
+  payload_source.implementation_repo = repositories.implementation_repo
   if blocked_open_pr_reentry then
     payload_source.operator_reentry = {
       command = "reimplement",
@@ -715,7 +719,7 @@ local function process_issue_event(event)
         devloop_logging.log_cas_decision("observe_issue", proposal_id, issue_state, "pr-open", "awaiting-pr", "skip-pending(open-pr-missing)", "legacy pr-open canonicalization requires an open linked PR")
         return false
       end
-      local pr_proposal_id = entity_lib.pr_proposal_id(issue.repo, link.pr_number)
+      local pr_proposal_id = entity_lib.pr_proposal_id(link.implementation_repo, link.pr_number)
       local retry_attempt = core.implementation_retry_attempt(issue_state.version)
       local delegation = "g" .. tostring(core.implementation_delegation_generation(
         issue_state.version,
@@ -928,7 +932,7 @@ local function process_pr_event(event)
   current_pr.number = pr.number
   current_pr.force_fresh = true
   local origin = m_facts.pr_origin_fact(current_pr.comments)
-  if origin == nil or origin.pr_native == true or origin.repo ~= pr.repo or tonumber(origin.issue_number) == nil then
+  if origin == nil or origin.pr_native == true or origin.implementation_repo ~= pr.repo or tonumber(origin.issue_number) == nil then
     devloop_logging.log_entry("observe_issue", event, "unknown", devloop_logging.payload_field(pr, "dedup_key"))
     devloop_logging.log_cas_decision("observe_issue", "unknown", { state = nil, version = nil }, "awaiting-pr", "awaiting-pr", "skip-foreign(pr-origin)", "PR entity change has no issue-backed devloop origin")
     return
@@ -946,13 +950,13 @@ local function process_pr_event(event)
     payload = {
       schema = "github-proxy.v1",
       type = "issue",
-      repo = origin.repo,
+      repo = origin.lifecycle_repo,
       number = tonumber(origin.issue_number),
       title = "PR-backed parent issue",
       state = "OPEN",
       updated_at = pr.updated_at,
       dedup_key = tostring(pr.dedup_key or "") .. "/parent-awaiting-pr",
-      source_ref = entity_lib.issue_source_ref(origin.repo, origin.issue_number),
+      source_ref = entity_lib.issue_source_ref(origin.lifecycle_repo, origin.issue_number),
       source = "pr-entity-change",
       child_pr = current_pr,
     },

@@ -211,6 +211,8 @@ local function review_dedup(core, state) return devloop_base.pr_review_consensus
 local function add_common_pr_facts(core, entity, state, facts, include_pr_link_marker)
   local link = {
     proposal_id = ISSUE_PROPOSAL,
+    lifecycle_repo = REPO,
+    implementation_repo = REPO,
     pr_number = PR_NUMBER,
     branch = BRANCH,
     impl_version = state.version,

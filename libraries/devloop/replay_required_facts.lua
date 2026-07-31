@@ -78,7 +78,7 @@ local function fetch_child_state_fact(M, facts)
   facts.pr_delegation = delegation
   facts["pr-delegation"] = delegation
   if facts.current_pr == nil then
-    local view = M.fetch_pr_view_origin(facts.issue.repo, delegation.pr_number, nil, {
+    local view = M.fetch_pr_view_origin(delegation.implementation_repo, delegation.pr_number, nil, {
       force_fresh = true,
       consumer = "replay_child_state",
     })

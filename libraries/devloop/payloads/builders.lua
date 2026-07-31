@@ -14,6 +14,7 @@ local transition_version = require("contract.transition_version")
 local ci_failure_keys = require("devloop.ci_failure_keys")
 local payload_registry = require("devloop.payload_registry")
 local premise_correction = require("devloop.premise_correction")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local function resolve_payload_token(token, context)
   local value, failure = payload_registry.resolve(token, context)
@@ -87,6 +88,11 @@ function C.fixing_work_unit_key(fix)
 end
 
 function C.build_devloop_ready_payload(M, source)
+  local repositories = delivery_repositories.resolve(
+    source.proposal_id,
+    source.lifecycle_repo,
+    source.implementation_repo
+  )
   local ready_version = resolve_payload_token("dedup:ready", {
     dedup_key = source.dedup_key,
   })
@@ -94,6 +100,8 @@ function C.build_devloop_ready_payload(M, source)
   local payload = {
     schema = resolve_payload_token("literal:github-devloop.ready.v1"),
     proposal_id = source.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     dedup_key = ready_version,
     source_ref = resolve_payload_token("source_ref:normalized", {
       source_ref = source.source_ref,
@@ -115,6 +123,8 @@ function C.build_devloop_ready_payload(M, source)
     payload.ready_hand_off = {
       kind = "own-state-marker",
       proposal_id = source.proposal_id,
+      lifecycle_repo = repositories.lifecycle_repo,
+      implementation_repo = repositories.implementation_repo,
       state = "ready",
       marker_version = marker_version,
       event_version = ready_version,
@@ -142,9 +152,17 @@ end
 
 function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, version)
   local review_version = version or origin.impl_version
+  local repositories = delivery_repositories.from_pr_source_ref(
+    origin.proposal_id,
+    source_ref,
+    origin.lifecycle_repo,
+    origin.implementation_repo
+  )
   local payload = {
     schema = resolve_payload_token("literal:github-devloop.reviewing.v1"),
     proposal_id = origin.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = pr_number,
     version = review_version,
     dedup_key = resolve_payload_token("dedup:reviewing", {
@@ -160,6 +178,8 @@ function C.build_devloop_reviewing_payload(origin, pr_number, source_ref, versio
     payload.reviewing_hand_off = {
       kind = "own-state-marker",
       proposal_id = origin.proposal_id,
+      lifecycle_repo = repositories.lifecycle_repo,
+      implementation_repo = repositories.implementation_repo,
       state = "reviewing",
       marker_version = review_version,
       event_version = review_version,
@@ -174,12 +194,14 @@ function C.build_current_head_reviewing_payload(origin, pr_number, current_pr, s
   local state_version = resolve_payload_token("marker:state.version", {
     state = state,
   })
-  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state_version, current_pr.head_sha)
+  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.implementation_repo, pr_number, state_version, current_pr.head_sha)
   if m_facts.has_any_review_result_marker(current_pr.comments, review_proposal_id, origin.proposal_id) then
     return nil
   end
   return C.build_devloop_reviewing_payload({
     proposal_id = origin.proposal_id,
+    lifecycle_repo = origin.lifecycle_repo,
+    implementation_repo = origin.implementation_repo,
     impl_version = state_version,
   }, pr_number, source_ref, state_version)
 end
@@ -190,9 +212,17 @@ function C.build_devloop_fixing_payload(origin, pr_number, review_fact, source_r
     version = review_fact.fix_version
   end
   local repair_input = C.fixing_repair_input(review_fact)
+  local repositories = delivery_repositories.from_pr_source_ref(
+    origin.proposal_id,
+    source_ref,
+    origin.lifecycle_repo,
+    origin.implementation_repo
+  )
   local payload = {
     schema = "github-devloop.fixing.v1",
     proposal_id = origin.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = pr_number,
     version = version,
     review_proposal_id = review_fact.review_proposal_id,
@@ -292,9 +322,18 @@ function C.build_replayed_fixing_payload(origin, pr_number, feedback, source_ref
 end
 
 function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issue_version, pr_number, n, source_ref)
+  local effective_source_ref = source_ref or unresolved.source_ref
+  local repositories = delivery_repositories.from_pr_source_ref(
+    issue_proposal_id,
+    effective_source_ref,
+    unresolved.lifecycle_repo,
+    unresolved.implementation_repo
+  )
   return {
     schema = resolve_payload_token("literal:github-devloop.review-meta.v1"),
     proposal_id = issue_proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     review_proposal_id = unresolved.proposal_id,
     review_dedup_key = unresolved.dedup_key,
     version = issue_version,
@@ -309,7 +348,7 @@ function C.build_devloop_review_meta_payload(unresolved, issue_proposal_id, issu
       tostring(unresolved.dedup_key),
     }),
     source_ref = resolve_payload_token("source_ref:normalized", {
-      source_ref = source_ref or unresolved.source_ref,
+      source_ref = effective_source_ref,
     }),
   }
 end
@@ -331,6 +370,8 @@ function C.build_devloop_fix_reflection_payload(unresolved, issue_proposal_id, i
     proposal_id = unresolved.proposal_id,
     dedup_key = review_dedup_key,
     source_ref = unresolved.source_ref,
+    lifecycle_repo = unresolved.lifecycle_repo,
+    implementation_repo = unresolved.implementation_repo,
   }, issue_proposal_id, issue_version, pr_number, fix_round, source_ref)
   payload.mode = "fix-reflection"
   payload.fix_round = fix_round
@@ -343,9 +384,17 @@ function C.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, versi
   if current_head_sha == nil then
     current_head_sha = review_fact and review_fact.reviewed_head_sha
   end
+  local repositories = delivery_repositories.from_pr_source_ref(
+    issue_proposal_id,
+    source_ref,
+    review_fact and review_fact.lifecycle_repo,
+    review_fact and review_fact.implementation_repo
+  )
   return {
     schema = resolve_payload_token("literal:github-devloop.merge-ready.v1"),
     proposal_id = issue_proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = pr_number,
     version = version,
     review_proposal_id = review_fact and review_fact.review_proposal_id,
@@ -366,9 +415,17 @@ function C.build_devloop_merge_ready_payload(issue_proposal_id, pr_number, versi
 end
 
 function C.build_devloop_decompose_payload(fix_reconcile)
+  local repositories = delivery_repositories.from_pr_source_ref(
+    fix_reconcile.proposal_id,
+    fix_reconcile.source_ref,
+    fix_reconcile.lifecycle_repo,
+    fix_reconcile.implementation_repo
+  )
   return {
     schema = "github-devloop.decompose.v1",
     proposal_id = fix_reconcile.proposal_id,
+    lifecycle_repo = repositories.lifecycle_repo,
+    implementation_repo = repositories.implementation_repo,
     pr_number = fix_reconcile.pr_number,
     version = fix_reconcile.issue_version,
     review_proposal_id = fix_reconcile.review_proposal_id,
@@ -491,7 +548,8 @@ local function apply_high_risk_angles(proposal, high_risk)
   return proposal
 end
 
-function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk)
+function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk, lifecycle_repo)
+  local issue_repo = lifecycle_repo or repo
   local review_id = devloop_base.pr_review_proposal_id(repo, pr_number, version, head_sha)
   local title = "Review PR #" .. tostring(pr_number)
   if issue_number ~= nil then
@@ -510,13 +568,13 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
   end
   issue_title = devloop_base.neutralize_untrusted_prompt_text(devloop_base._neutralize_fkst_markers(issue_title))
   local body = "Review the PR diff and decide whether it should advance to merge-ready."
-    .. "\nEntity proposal: " .. tostring(issue_number ~= nil and base_ids.proposal_id(repo, issue_number) or entity_lib.pr_proposal_id(repo, pr_number))
+    .. "\nEntity proposal: " .. tostring(issue_number ~= nil and base_ids.proposal_id(issue_repo, issue_number) or entity_lib.pr_proposal_id(repo, pr_number))
     .. "\nReviewed PR head: " .. tostring(head_sha)
     .. "\nIssue title: " .. issue_title
     .. "\n" .. M.short_review_observation_boundary_clause()
     .. "\nReview contract: reject only for a stated issue requirement the diff fails; beyond stated bounds is advisory/spec-amendment."
     .. "\nRead the local context bundle before judging."
-  local issue_proposal_id = tostring(issue_number ~= nil and base_ids.proposal_id(repo, issue_number) or entity_lib.pr_proposal_id(repo, pr_number))
+  local issue_proposal_id = tostring(issue_number ~= nil and base_ids.proposal_id(issue_repo, issue_number) or entity_lib.pr_proposal_id(repo, pr_number))
   local ledger = m_facts.review_prior_round_ledger(pr_comments, issue_proposal_id, version)
   if ledger ~= nil and ledger ~= "" then
     body = body
@@ -542,18 +600,18 @@ function C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, h
   }, high_risk)
 end
 
-function C.build_board_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, tick, pr_comments, content_fetch, high_risk)
-  return board.append_board_digest_to_proposal(M, C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk), repo, tick)
+function C.build_board_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, tick, pr_comments, content_fetch, high_risk, lifecycle_repo)
+  return board.append_board_digest_to_proposal(M, C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk, lifecycle_repo), lifecycle_repo or repo, tick)
 end
 
-function C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key)
-  local proposal = C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk)
+function C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key, lifecycle_repo)
+  local proposal = C.build_pr_review_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, pr_comments, content_fetch, high_risk, lifecycle_repo)
   proposal.dedup_key = dedup_key or transition_version.loop_at(proposal.dedup_key, n)
   return apply_converge_fields(proposal, n, converge)
 end
 
-function C.build_board_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, tick, pr_comments, content_fetch, high_risk, dedup_key)
-  return board.append_board_digest_to_proposal(M, C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key), repo, tick)
+function C.build_board_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, tick, pr_comments, content_fetch, high_risk, dedup_key, lifecycle_repo)
+  return board.append_board_digest_to_proposal(M, C.build_pr_review_loop_proposal(M, repo, issue_number, pr_number, version, head_sha, current_issue, source_ref, n, converge, pr_comments, content_fetch, high_risk, dedup_key, lifecycle_repo), lifecycle_repo or repo, tick)
 end
 
 function C.implement_commit_subject(issue_number, current)

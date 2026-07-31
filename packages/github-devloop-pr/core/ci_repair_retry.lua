@@ -11,6 +11,7 @@ local requests_review = require("devloop.requests.review")
 local entity_lib = require("devloop.entity")
 local base_ids = require("devloop.base_ids")
 local devloop_logging = require("devloop.logging")
+local delivery_repositories = require("devloop.delivery_repositories")
 
 local C = {}
 local with_current_classification = ci_verdict.with_current_classification
@@ -62,6 +63,8 @@ local function admission_context(ctx, current_pr)
     dept = ctx.dept,
     from_state = "fixing",
     proposal_id = ctx.proposal_id,
+    lifecycle_repo = ctx.lifecycle_repo,
+    implementation_repo = ctx.implementation_repo,
     review_proposal_id = ctx.review_proposal_id,
     review_dedup_key = ctx.review_dedup_key,
     bound_head_sha = current_pr and current_pr.head_sha or ctx.reviewed_head_sha,
@@ -172,6 +175,15 @@ function C.evaluate(M, state, ctx)
 end
 
 function C.raise_speculative(M, repo, issue_number, fix, current_state, current_predecessor_set, reason)
+  local repositories = delivery_repositories.from_pr_source_ref(
+    fix.proposal_id,
+    fix.source_ref,
+    fix.lifecycle_repo,
+    fix.implementation_repo
+  )
+  if repo ~= repositories.implementation_repo then
+    error("github-devloop: speculative-ci-repair-repository-mismatch: implementation repository does not match")
+  end
   local function raise_generation(next_version, current_ci_failure_key, current_gate_reason)
     local merge_ready = {
       proposal_id = fix.proposal_id,
@@ -183,7 +195,7 @@ function C.raise_speculative(M, repo, issue_number, fix, current_state, current_
       dedup_key = fix.dedup_key,
     }
     local comment_request = requests_review.build_merge_gate_fix_comment_request(M,
-      repo,
+      repositories.implementation_repo,
       issue_number,
       merge_ready,
       next_version,
@@ -199,13 +211,14 @@ function C.raise_speculative(M, repo, issue_number, fix, current_state, current_
         ci_failure_key = current_ci_failure_key,
       }
     )
-    local label_request = issue_number ~= nil and requests_labels.build_state_label_request(repo,
+    local label_request = issue_number ~= nil and requests_labels.build_state_label_request(
+      repositories.lifecycle_repo,
       issue_number,
       "fixing",
       fix.proposal_id,
       next_version,
       fix.dedup_key .. "/label/refix/" .. tostring(devloop_state.version_fix_round(next_version)),
-      entity_lib.issue_source_ref(repo, issue_number),
+      entity_lib.issue_source_ref(repositories.lifecycle_repo, issue_number),
       nil,
       { kind = "pr", number = fix.pr_number }
     ) or nil
@@ -239,6 +252,8 @@ function C.raise_speculative(M, repo, issue_number, fix, current_state, current_
         dept = "fix",
         from_state = "fixing",
         proposal_id = fix.proposal_id,
+        lifecycle_repo = repositories.lifecycle_repo,
+        implementation_repo = repositories.implementation_repo,
         review_proposal_id = fix.review_proposal_id,
         review_dedup_key = fix.review_dedup_key,
         pr_number = fix.pr_number,
@@ -335,9 +350,11 @@ end
 
 raise_admitted_round = function(M, dept, issue, state, proposal_id, link, feedback, decision, tools)
   local current_pr = decision.current_pr
-  local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+  local source_ref = entity_lib.pr_source_ref(link.implementation_repo, link.pr_number)
   local next_payload = payloads_builders.build_devloop_fixing_payload({
     proposal_id = proposal_id,
+    lifecycle_repo = link.lifecycle_repo,
+    implementation_repo = link.implementation_repo,
     impl_version = decision.version,
   }, link.pr_number, {
     review_proposal_id = feedback.review_proposal_id,
@@ -350,7 +367,7 @@ raise_admitted_round = function(M, dept, issue, state, proposal_id, link, feedba
     gate_failure_excerpt = decision.gate_failure_excerpt or decision.reason,
   }, source_ref)
   local request = requests_review.build_merge_gate_fix_comment_request(M,
-    issue.repo,
+    link.implementation_repo,
     issue.number,
     {
       proposal_id = proposal_id,
@@ -379,14 +396,16 @@ raise_admitted_round = function(M, dept, issue, state, proposal_id, link, feedba
   if issue.number ~= nil then
     table.insert(effects, {
       queue = "github-proxy.github_issue_label_request",
-      payload = requests_labels.build_state_label_request(issue.repo, issue.number, "fixing", proposal_id, decision.version, base_ids.dedup_key({
+      payload = requests_labels.build_state_label_request(link.lifecycle_repo, issue.number,
+        "fixing", proposal_id, decision.version, base_ids.dedup_key({
         "ci-repair",
         "label",
         "fixing",
         tostring(proposal_id),
         tostring(link.pr_number),
         tostring(decision.version),
-      }), entity_lib.issue_source_ref(issue.repo, issue.number), nil, { kind = "pr", number = link.pr_number }),
+      }), entity_lib.issue_source_ref(link.lifecycle_repo, issue.number), nil,
+        { kind = "pr", number = link.pr_number }),
     })
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "fixing", "applied(ci-repair-next-round)", decision.reason)

@@ -414,6 +414,8 @@ return {
     local ready = payloads_builders.build_devloop_ready_payload(core, source)
     t.eq(ready.schema, "github-devloop.ready.v1")
     t.eq(ready.proposal_id, source.proposal_id)
+    t.eq(ready.lifecycle_repo, "owner/repo")
+    t.eq(ready.implementation_repo, "owner/repo")
     t.eq(ready.framing, source.framing)
     t.eq(ready.source_ref.ref, "owner/repo#issue/42")
     t.eq(v_ready.is_supported_ready(core, ready), true)
@@ -421,6 +423,15 @@ return {
     t.is_nil(ready_without_framing.framing)
     t.is_nil(ready_without_framing.ready_hand_off)
     t.eq(v_ready.is_supported_ready(core, ready_without_framing), true)
+    local cross_repo_ready = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
+      lifecycle_repo = "owner/repo",
+      implementation_repo = "implementation/repo",
+    }))
+    t.eq(cross_repo_ready.lifecycle_repo, "owner/repo")
+    t.eq(cross_repo_ready.implementation_repo, "implementation/repo")
+    t.eq(v_ready.is_supported_ready(core, cross_repo_ready), true)
+    cross_repo_ready.lifecycle_repo = "other/repo"
+    t.eq(v_ready.is_supported_ready(core, cross_repo_ready), false)
     local ready_with_hand_off = payloads_builders.build_devloop_ready_payload(core, copy_table(reached(), {
       include_ready_hand_off = true,
       ready_comment_id = "IC_123",
@@ -428,6 +439,8 @@ return {
     t.eq(ready_with_hand_off.ready_hand_off.kind, "own-state-marker")
     t.eq(ready_with_hand_off.ready_hand_off.event_version, ready_with_hand_off.dedup_key)
     t.eq(ready_with_hand_off.ready_hand_off.comment_id, "IC_123")
+    t.eq(ready_with_hand_off.ready_hand_off.lifecycle_repo, "owner/repo")
+    t.eq(ready_with_hand_off.ready_hand_off.implementation_repo, "owner/repo")
     t.eq(v_ready.is_supported_ready(core, ready_with_hand_off), true)
     ready_with_hand_off.ready_hand_off.effects = "alternate-ready-producer"
     t.eq(v_ready.is_supported_ready(core, ready_with_hand_off), true)
@@ -607,9 +620,11 @@ return {
     t.eq(current.version, ready.dedup_key)
 
     local origin = m_facts.pr_origin_fact({
-      m_builders.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+      m_builders.pr_origin_marker(ready.proposal_id, "42", "devloop-owner-repo-42-01HY", ready.dedup_key, "dev", "owner/repo", "implementation/repo"),
     })
     t.eq(origin.proposal_id, ready.proposal_id)
+    t.eq(origin.lifecycle_repo, "owner/repo")
+    t.eq(origin.implementation_repo, "implementation/repo")
     t.eq(origin.issue_number, "42")
     t.eq(origin.branch, "devloop-owner-repo-42-01HY")
     t.is_nil(m_facts.pr_origin_fact({
@@ -618,9 +633,11 @@ return {
     }))
 
     local link = m_facts.pr_link_fact({
-      m_builders.pr_link_marker(ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
+      m_builders.pr_link_marker(ready.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev", "owner/repo", "implementation/repo"),
     }, ready.proposal_id)
     t.eq(link.pr_number, 7)
+    t.eq(link.lifecycle_repo, "owner/repo")
+    t.eq(link.implementation_repo, "implementation/repo")
     t.eq(link.base_branch, "dev")
     t.is_nil(m_facts.pr_link_fact({
       '<!-- fkst:github-devloop:pr-link:v1 proposal="' .. ready.proposal_id

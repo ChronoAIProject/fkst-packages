@@ -45,6 +45,8 @@ local function load_review_meta_context(repo, issue_number, review_meta, event, 
   local content_fetch = context_bundle.context_fetch_from_bundle(core, {
     dept = "review_meta",
     repo = repo,
+    lifecycle_repo = review_meta.lifecycle_repo,
+    implementation_repo = review_meta.implementation_repo,
     issue_number = issue_number,
     pr_number = review_meta.pr_number,
     proposal_id = review_meta.proposal_id,
@@ -53,6 +55,8 @@ local function load_review_meta_context(repo, issue_number, review_meta, event, 
   })
   return {
     repo = repo,
+    lifecycle_repo = review_meta.lifecycle_repo,
+    implementation_repo = review_meta.implementation_repo,
     issue_number = issue_number,
     review_meta = review_meta,
     current_pr = current_pr,
@@ -134,6 +138,8 @@ local function apply_review_meta_decision(plan, parsed, restart_effect)
   local args = {
     core = core,
     repo = plan.repo,
+    lifecycle_repo = plan.lifecycle_repo,
+    implementation_repo = plan.implementation_repo,
     issue_number = plan.issue_number,
     review_meta = review_meta,
     action = parsed.action,
@@ -184,9 +190,11 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("review_meta", review_meta.proposal_id, { state = nil, version = nil }, "review-meta", "fixing|blocked", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
     return
   end
-  local repo = entity.repo
+  local lifecycle_repo = review_meta.lifecycle_repo
+  local implementation_repo = review_meta.implementation_repo
+  local repo = implementation_repo
   local issue_number = entity.issue_number
-  if not m_claims.verify_pr_review_issue_claim("review_meta", repo, issue_number, nil, review_meta.proposal_id) then
+  if not m_claims.verify_pr_review_issue_claim("review_meta", lifecycle_repo, issue_number, nil, review_meta.proposal_id) then
     return
   end
 
@@ -210,7 +218,7 @@ return saga.department(spec, { done = function() return false end, act = functio
       comments = current_pr.comments,
     }
     if issue_number ~= nil then
-      local issue_view = devloop_commands.gh_issue_view_fix(repo, issue_number, 30)
+      local issue_view = devloop_commands.gh_issue_view_fix(lifecycle_repo, issue_number, 30)
       if issue_view.exit_code ~= 0 then
         error("github-devloop: gh-issue-review-meta-view-failed: gh issue review-meta view failed: " .. tostring(issue_view.stderr))
       end

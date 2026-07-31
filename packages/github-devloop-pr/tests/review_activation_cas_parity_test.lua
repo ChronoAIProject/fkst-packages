@@ -250,6 +250,8 @@ local function reviewing_event(version, with_handoff)
     event.reviewing_hand_off = {
       kind = "own-state-marker",
       proposal_id = event.proposal_id,
+      lifecycle_repo = event.lifecycle_repo,
+      implementation_repo = event.implementation_repo,
       state = "reviewing",
       marker_version = event.version,
       event_version = event.version,
