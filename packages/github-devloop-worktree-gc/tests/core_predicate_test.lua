@@ -14,8 +14,9 @@ local CUR_RT = "/runtime/dogfood-rt-packages.2222"
 local NOW_S = 1000000
 local NOW_MS = NOW_S * 1000
 
-local function running_row(issue, dedup, lease_offset_ms)
+local function running_row(issue, dedup, lease_offset_ms, role)
   return {
+    role = role,
     status = "running",
     proposal_id = "github-devloop/issue/" .. REPO .. "/" .. tostring(issue),
     dedup_key = dedup,
@@ -210,6 +211,12 @@ return {
     t.eq(fact.branch, CURRENT_BRANCH)
   end,
 
+  test_fix_owner_branch_comes_from_trusted_implementation_fact = function()
+    local proposal_id = "github-devloop/issue/" .. REPO .. "/333"
+    t.eq(core.fix_owner_branch({ comment(implementation_marker()) }, proposal_id), CURRENT_BRANCH)
+    t.eq(core.fix_owner_branch({ comment(implementation_marker(), "attacker") }, proposal_id), nil)
+  end,
+
   test_current_rt_finalized_branch_is_removable_without_terminal_issue = function()
     local worktrees = core.parse_worktrees(FULL_PORCELAIN)
     local live = core.live_branches({ running_row(111, "dedup-orphan") }, NOW_MS)
@@ -231,6 +238,28 @@ return {
     })
     t.eq(removable_has(result, CURRENT_PATH), false)
     t.eq(skip_reason(result, CURRENT_PATH), "live-branch")
+  end,
+
+  test_live_fix_resolves_immutable_owner_branch = function()
+    local work_unit_key = "review-feedback/head/review-dedup"
+    local resolved = 0
+    local live = core.live_branches({
+      running_row(333, work_unit_key, nil, "fix"),
+    }, NOW_MS, function(row)
+      resolved = resolved + 1
+      t.eq(row.dedup_key, work_unit_key)
+      return CURRENT_BRANCH
+    end)
+    t.eq(resolved, 1)
+    t.eq(live.complete, true)
+    t.eq(live.set[CURRENT_BRANCH], true)
+  end,
+
+  test_live_fix_without_exact_branch_resolution_fails_open = function()
+    local live = core.live_branches({
+      running_row(333, "review-feedback/head/review-dedup", nil, "fix"),
+    }, NOW_MS)
+    t.eq(live.complete, false)
   end,
 
   test_current_rt_without_release_proof_is_skipped = function()

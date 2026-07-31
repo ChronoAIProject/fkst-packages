@@ -15,6 +15,7 @@ local ports_lib = require("forge.ports")
 local saga = require("workflow.saga")
 local caps = require("worktree_gc_caps")
 local devloop_base = require("devloop.base")
+local entity_lib = require("devloop.entity")
 local github_factory = require("devloop.github_factory")
 
 local spec = {
@@ -101,18 +102,7 @@ local function make_department(ports)
   local now_value = ports.now or production_now
   local codex_runs = ports.codex_runs or production_codex_runs
 
-  -- Snapshot the live deterministic-branch set from a fresh codex_runs read.
-  -- Returns the { set, complete } table, or nil on any read error (fail-open).
-  local function snapshot_live()
-    local ok, runs = pcall(codex_runs)
-    if not ok or type(runs) ~= "table" then
-      return nil
-    end
-    local now_ms = now_value() * 1000
-    return caps.live_branches(runs.running or {}, now_ms)
-  end
-
-  local function issue_release_fact(issue_ref, branch)
+  local function fresh_issue(issue_ref, failure_outcome)
     local github_handle = github or production_github()
     local ok, issue = pcall(function()
       return github_handle.read_issue(issue_ref.source_ref, {
@@ -122,9 +112,44 @@ local function make_department(ports)
       })
     end)
     if not ok or type(issue) ~= "table" then
-      gc_log("skip-release-read-failed", {
+      gc_log(failure_outcome, {
         "proposal_id=" .. tostring(issue_ref.proposal_id),
       })
+      return nil
+    end
+    return issue
+  end
+
+  local function resolve_fix_branch(row)
+    local repo, issue_number = caps.parse_proposal_repo_issue(row.proposal_id)
+    if repo == nil or issue_number == nil then
+      return nil
+    end
+    local issue_ref = {
+      proposal_id = row.proposal_id,
+      source_ref = entity_lib.issue_source_ref(repo, issue_number),
+    }
+    local issue = fresh_issue(issue_ref, "skip-live-fix-owner-read-failed")
+    if issue == nil then
+      return nil
+    end
+    return caps.fix_owner_branch(issue.comments, row.proposal_id)
+  end
+
+  -- Snapshot the live deterministic-branch set from a fresh codex_runs read.
+  -- Returns the { set, complete } table, or nil on any read error (fail-open).
+  local function snapshot_live()
+    local ok, runs = pcall(codex_runs)
+    if not ok or type(runs) ~= "table" then
+      return nil
+    end
+    local now_ms = now_value() * 1000
+    return caps.live_branches(runs.running or {}, now_ms, resolve_fix_branch)
+  end
+
+  local function issue_release_fact(issue_ref, branch)
+    local issue = fresh_issue(issue_ref, "skip-release-read-failed")
+    if issue == nil then
       return nil
     end
     return caps.branch_release_fact(issue.comments, issue_ref, branch)

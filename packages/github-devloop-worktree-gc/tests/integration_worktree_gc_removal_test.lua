@@ -70,8 +70,9 @@ local function fake_git(removed)
   return git
 end
 
-local function running_row(issue, dedup)
+local function running_row(issue, dedup, role)
   return {
+    role = role,
     status = "running",
     proposal_id = "github-devloop/issue/" .. REPO .. "/" .. tostring(issue),
     dedup_key = dedup,
@@ -273,6 +274,24 @@ return {
     testing.run_fake(inactive, tick())
 
     t.eq(contains(released, CURRENT_PATH), true)
+  end,
+
+  test_preserves_finalized_branch_reacquired_by_live_fix = function()
+    local release_marker = implementation_marker()
+    local reads = 0
+    local removed = {}
+    local dept = department_with(removed, function()
+      reads = reads + 1
+      local running = reads == 1 and {} or {
+        running_row(333, "review-feedback/head/review-dedup", "fix"),
+      }
+      return { running = running, recent = {} }
+    end, "1", "implementing", release_marker)
+
+    testing.run_fake(dept, tick())
+
+    t.eq(reads >= 2, true)
+    t.eq(contains(removed, CURRENT_PATH), false)
   end,
 
   test_releases_checkpointed_current_rt_worktree = function()

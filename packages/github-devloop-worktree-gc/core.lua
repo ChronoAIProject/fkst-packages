@@ -3,9 +3,9 @@
 --
 -- "Expired" NEVER means age. A worktree is removable ONLY when ground-truth codex
 -- liveness (fkst.codex_runs) proves no running codex owns its deterministic
--- implement/fix branch. Liveness is joined codex-run -> implement_branch (the exact
--- devloop.base helper, RT-independent) -> porcelain branch match; the reverse
--- (worktree path -> identity) does not round-trip and is never used.
+-- implement/fix branch. Implement runs join through devloop.base.implement_branch;
+-- fix runs join through the producer-owned immutable implementing:v1 branch fact.
+-- The reverse (worktree path -> identity) does not round-trip and is never used.
 --
 -- Pure functions only (no I/O); the department wires the real primitives.
 
@@ -73,25 +73,28 @@ function M.lease_valid(row, now_ms)
   return lease >= tonumber(now_ms or 0)
 end
 
--- Build the LIVE-BRANCH set from codex_runs().running via the codex-run -> implement_branch join.
+-- Build the LIVE-BRANCH set from codex_runs().running via the codex-run -> owner-branch join.
 -- Returns { set = {<branch>=true,...}, complete = bool }. `complete` is false (FAIL-OPEN) when a
 -- live running row cannot be mapped to a branch (unparseable proposal_id/dedup_key or helper
 -- error) — an incomplete live set must block ALL removals this pass, because a live worktree
 -- could belong to the row we failed to map.
-function M.live_branches(running_rows, now_ms)
+function M.live_branches(running_rows, now_ms, resolve_fix_branch)
   local set = {}
   local complete = true
   for _, row in ipairs(running_rows or {}) do
     if tostring(row.status) == "running" and M.lease_valid(row, now_ms) then
-      local repo, issue = M.parse_proposal_repo_issue(row.proposal_id)
-      local dedup = row.dedup_key
-      if repo and issue and dedup ~= nil and tostring(dedup) ~= "" then
-        local ok, branch = pcall(base.implement_branch, repo, issue, dedup)
-        if ok and type(branch) == "string" then
-          set[branch] = true
-        else
-          complete = false
+      local ok, branch
+      if tostring(row.role or "") == "fix" then
+        ok, branch = pcall(resolve_fix_branch or function() return nil end, row)
+      else
+        local repo, issue = M.parse_proposal_repo_issue(row.proposal_id)
+        local dedup = row.dedup_key
+        if repo and issue and dedup ~= nil and tostring(dedup) ~= "" then
+          ok, branch = pcall(base.implement_branch, repo, issue, dedup)
         end
+      end
+      if ok and type(branch) == "string" and branch ~= "" then
+        set[branch] = true
       else
         complete = false
       end
@@ -141,6 +144,27 @@ local function progress_fact_for_branch(comments, proposal_id, branch, marker_pa
     end
   end
   return nil
+end
+
+-- A live fix row is fenced by its work-unit key, while its immutable worktree branch
+-- remains the branch published by the implementation lifecycle. Multiple historical
+-- facts are safe only when they agree on that exact branch.
+function M.fix_owner_branch(comments, proposal_id)
+  local branch = nil
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch("<!%-%- fkst:github%-devloop:implementing:v1.-%-%->") do
+      if marker_attr(marker, "proposal") == proposal_id then
+        local fact = m_facts.implementing_fact(comments, proposal_id, marker_attr(marker, "dedup"))
+        if fact ~= nil then
+          if branch ~= nil and branch ~= fact.branch then
+            return nil
+          end
+          branch = fact.branch
+        end
+      end
+    end
+  end
+  return branch
 end
 
 -- Derive lifecycle-owned release eligibility for one exact deterministic branch.
