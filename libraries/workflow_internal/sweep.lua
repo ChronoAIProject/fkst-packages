@@ -29,48 +29,112 @@ function S.rotation_offset(count, seed)
   return tonumber(hash) % n
 end
 
-function S.cursor_batch(items, cursor, cap, default_cap)
+local function numeric_cursor_key(item, key_of)
+  local value = type(key_of) == "function" and key_of(item) or item
+  local key = tonumber(value)
+  if key == nil or key < 0 or key ~= math.floor(key) then
+    error("workflow_internal.sweep: cursor key must be a non-negative integer")
+  end
+  return key
+end
+
+local function optional_cursor_key(value)
+  local key = tonumber(value)
+  if key == nil or key < 0 or key ~= math.floor(key) then
+    return nil
+  end
+  return key
+end
+
+local function maximum_cursor_key(source, key_of)
+  local maximum = nil
+  for _, item in ipairs(source) do
+    local key = numeric_cursor_key(item, key_of)
+    if maximum == nil or key > maximum then
+      maximum = key
+    end
+  end
+  return maximum
+end
+
+local function next_cursor_index(source, selected_indexes, cursor_key, high_water, key_of)
+  for index, item in ipairs(source) do
+    local key = numeric_cursor_key(item, key_of)
+    if not selected_indexes[index]
+      and key <= high_water
+      and (cursor_key == nil or key > cursor_key) then
+      return index, key
+    end
+  end
+  return nil, nil
+end
+
+function S.cursor_batch(items, cursor, cap, default_cap, key_of, high_water)
   local source = items or {}
   local count = #source
   local bounded_cap = S.positive_integer(cap, default_cap or 25, 1, 1000)
-  if count <= bounded_cap then
-    local all_items = {}
-    for _, item in ipairs(source) do
-      table.insert(all_items, item)
-    end
-    return all_items, 0, 0
+  if count == 0 then
+    return {}, 0, nil, nil, {}
   end
 
-  local start = tonumber(cursor) or 0
-  if start < 0 or start ~= math.floor(start) then
-    start = 0
-  end
-  start = start % count
+  local cursor_key = optional_cursor_key(cursor)
+  local current_high_water = maximum_cursor_key(source, key_of)
+  local cycle_high_water = optional_cursor_key(high_water) or current_high_water
 
   local selected = {}
-  for i = 1, bounded_cap do
-    local index = ((start + i - 1) % count) + 1
+  local selected_indexes = {}
+  local progress = {}
+  for i = 1, math.min(count, bounded_cap) do
+    local index, key = next_cursor_index(
+      source,
+      selected_indexes,
+      cursor_key,
+      cycle_high_water,
+      key_of
+    )
+    if index == nil then
+      cursor_key = nil
+      cycle_high_water = current_high_water
+      index, key = next_cursor_index(
+        source,
+        selected_indexes,
+        cursor_key,
+        cycle_high_water,
+        key_of
+      )
+    end
+    if index == nil then
+      break
+    end
+    selected_indexes[index] = true
     table.insert(selected, source[index])
+    cursor_key = key
+    table.insert(progress, {
+      cursor_key = cursor_key,
+      high_water = cycle_high_water,
+    })
   end
 
-  local next_cursor = (start + #selected) % count
-  return selected, math.max(0, count - #selected), next_cursor
+  local checkpoint = progress[#progress]
+  return selected,
+    math.max(0, count - #selected),
+    checkpoint and checkpoint.cursor_key or nil,
+    checkpoint and checkpoint.high_water or nil,
+    progress
 end
 
-function S.cursor_advance(cursor, total, processed)
-  local count = tonumber(total) or 0
-  if count <= 0 or count ~= math.floor(count) then
-    return 0
-  end
-  local start = tonumber(cursor) or 0
-  if start < 0 or start ~= math.floor(start) then
-    start = 0
-  end
+function S.cursor_advance(progress, processed)
+  local checkpoints = progress or {}
   local step = tonumber(processed) or 0
   if step < 0 or step ~= math.floor(step) then
     step = 0
   end
-  return (start + step) % count
+  step = math.min(step, #checkpoints)
+  if step == 0 then
+    return nil, nil
+  end
+  local checkpoint = checkpoints[step]
+  return numeric_cursor_key(checkpoint.cursor_key), numeric_cursor_key(checkpoint.high_water)
 end
 
 function S.deadline_deferred_result(error_class, stderr)
