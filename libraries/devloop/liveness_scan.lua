@@ -55,7 +55,18 @@ function C.liveness_scan_update_cursor(cursor_key, cursor, total, processed)
   if cursor_key == nil then
     return
   end
-  cache_set(cursor_key, tostring(sweep_bounds.sweep_cursor_advance(cursor, total, processed)))
+  local state = type(cursor) == "table" and cursor or {}
+  local attempted = tonumber(processed) or 0
+  local remaining = tonumber(state.remaining) or 0
+  if attempted >= remaining then
+    cache_set(cursor_key, "0")
+    return
+  end
+  local last_attempted = tonumber(state.activation_numbers and state.activation_numbers[attempted])
+  if attempted > 0 and last_attempted ~= nil then
+    state.last_number = last_attempted
+  end
+  cache_set(cursor_key, tostring(state.last_number or 0) .. ":" .. tostring(state.high_water or 0))
 end
 
 function C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
@@ -201,26 +212,65 @@ local function sort_by_number(items)
   return items
 end
 
+local function decode_scan_cursor(value)
+  local last_number, high_water = tostring(value or ""):match("^(%d+):(%d+)$")
+  last_number = tonumber(last_number)
+  high_water = tonumber(high_water)
+  if last_number == nil or high_water == nil or last_number > high_water then
+    return 0, nil
+  end
+  return last_number, high_water
+end
+
+local function entities_in_cursor_cycle(activations, last_number, high_water)
+  local eligible = {}
+  for _, activation in ipairs(activations) do
+    local number = tonumber(activation.entity and activation.entity.number)
+    if number ~= nil and number > last_number and number <= high_water then
+      table.insert(eligible, activation)
+    end
+  end
+  return eligible
+end
+
 function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
   local activations = {}
   for _, entity in ipairs(sort_by_number(items or {})) do
     table.insert(activations, { kind = kind, entity = entity })
   end
   local total = #activations
-  if total > LIVENESS_SCAN_MAX_PER_TICK then
-    local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
-    local cursor = cache_get(cursor_key)
-    local bounded, deferred = sweep_bounds.sweep_cursor_batch(
-      activations,
-      cursor,
-      LIVENESS_SCAN_MAX_PER_TICK,
-      LIVENESS_SCAN_MAX_PER_TICK
-    )
-    devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(total - LIVENESS_SCAN_MAX_PER_TICK) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
-    return bounded, deferred, cursor_key, cursor, total
+  local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
+  local last_number, high_water = decode_scan_cursor(cache_get(cursor_key))
+  local current_high_water = total > 0 and tonumber(activations[total].entity.number) or 0
+  if high_water == nil then
+    high_water = current_high_water
   end
-  cache_set(C.liveness_scan_cursor_key(repo, cursor_prefix), "0")
-  return activations, 0, nil, nil, total
+  local eligible = entities_in_cursor_cycle(activations, last_number, high_water)
+  if total > 0 and #eligible == 0 then
+    last_number = 0
+    high_water = current_high_water
+    eligible = entities_in_cursor_cycle(activations, last_number, high_water)
+  end
+
+  local bounded = {}
+  local activation_numbers = {}
+  for index, activation in ipairs(eligible) do
+    if index > LIVENESS_SCAN_MAX_PER_TICK then
+      break
+    end
+    table.insert(bounded, activation)
+    table.insert(activation_numbers, tonumber(activation.entity.number))
+  end
+  local deferred = math.max(0, #eligible - #bounded)
+  if deferred > 0 then
+    devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(deferred) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
+  end
+  return bounded, deferred, cursor_key, {
+    last_number = last_number,
+    high_water = high_water,
+    activation_numbers = activation_numbers,
+    remaining = #eligible,
+  }, total
 end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)
