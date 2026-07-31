@@ -85,7 +85,9 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn("git version 2\\.39\\.", workflow)
         self.assertIn("scripts/git_compat_test.sh", workflow)
         self.assertIn("needs: git-239-compat", workflow)
-        self.assertIn("git fetch --no-write-fetch-head origin", compatibility_test)
+        self.assertIn('require("forge.git")', compatibility_test)
+        self.assertIn('.fetch_pr_head_oid("origin", 7, 60)', compatibility_test)
+        self.assertNotIn("git fetch --", compatibility_test)
 
 
 if __name__ == "__main__":
