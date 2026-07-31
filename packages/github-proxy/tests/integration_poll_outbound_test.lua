@@ -190,8 +190,9 @@ return {
     mock_pr_list("[]\n")
     local first = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(first.exit_code, 0)
-    t.eq(#first.raises, 2)
+    t.eq(#first.raises, 3)
     t.eq(numbers(first.raises), "42,43")
+    t.eq(#observed_issue_raises(first.raises), 1)
 
     mock_poll_env("2")
     mock_issue_list(issues)
@@ -202,6 +203,27 @@ return {
     t.eq(#changed_raises(second.raises), 1)
     t.eq(changed_raises(second.raises)[1].payload.number, 44)
     t.eq(#observed_issue_raises(second.raises), 2)
+  end,
+
+  test_inbound_poll_observes_cold_issue_deferred_by_replay_budget = function()
+    local event = { queue = "github_poll_tick", payload = {}, ts = "cold-observed-poll" }
+    local run_opts = opts("cold-observed-replay-budget", {
+      FKST_GITHUB_PROXY_REPLAY_BUDGET = "1",
+    })
+
+    mock_poll_env("1")
+    mock_issue_list(issue_list_from({
+      issue_json(42, "2026-06-03T01:02:00Z"),
+      issue_json(43, "2026-06-03T01:03:00Z"),
+    }))
+    mock_pr_list("[]\n")
+
+    local result = t.run_department("departments/github_poll/main.lua", event, run_opts)
+    t.eq(result.exit_code, 0)
+    t.eq(#changed_raises(result.raises), 1)
+    t.eq(changed_raises(result.raises)[1].payload.number, 42)
+    t.eq(#observed_issue_raises(result.raises), 1)
+    assert_observed_issue(observed_issue_raises(result.raises)[1], 43, "2026-06-03T01:03:00Z")
   end,
 
   test_inbound_poll_replay_budget_is_shared_across_issue_and_pr_lanes = function()
@@ -223,11 +245,12 @@ return {
     mock_pr_list(prs)
     local first = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(first.exit_code, 0)
-    t.eq(#first.raises, 2)
+    t.eq(#first.raises, 3)
     t.eq(first.raises[1].payload.type, "issue")
     t.eq(first.raises[1].payload.number, 42)
     t.eq(first.raises[2].payload.type, "pr")
     t.eq(first.raises[2].payload.number, 7)
+    t.eq(#observed_issue_raises(first.raises), 1)
 
     mock_poll_env("2")
     mock_issue_list(issues)
@@ -264,11 +287,12 @@ return {
     mock_pr_list(prs)
     local first = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(first.exit_code, 0)
-    t.eq(#first.raises, 2)
+    t.eq(#first.raises, 3)
     t.eq(first.raises[1].payload.type, "issue")
     t.eq(first.raises[1].payload.number, 42)
     t.eq(first.raises[2].payload.type, "pr")
     t.eq(first.raises[2].payload.number, 42)
+    t.eq(#observed_issue_raises(first.raises), 1)
 
     mock_poll_env("2")
     mock_issue_list(issues)
@@ -297,7 +321,7 @@ return {
     mock_pr_list("[]\n")
     local result = t.run_department("departments/github_poll/main.lua", event, opts("default-replay-budget"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 10)
+    t.eq(#result.raises, 11)
     t.eq(result.raises[1].payload.number, 1)
     t.eq(result.raises[10].payload.number, 10)
   end,
@@ -326,8 +350,9 @@ return {
     mock_pr_list("[]\n")
     local changed = t.run_department("departments/github_poll/main.lua", event, run_opts)
     t.eq(changed.exit_code, 0)
-    t.eq(#changed.raises, 2)
+    t.eq(#changed.raises, 3)
     t.eq(numbers(changed.raises), "42,43")
+    t.eq(#observed_issue_raises(changed.raises), 1)
   end,
 
   test_inbound_poll_prioritizes_cold_intake_candidates_over_replay_budget = function()
@@ -338,8 +363,9 @@ return {
     mock_issue_list(issue_list_from({ issue_json(42, "2026-06-03T01:02:00Z"), issue_json(43, "2026-06-03T01:03:00Z"), intake }))
     mock_pr_list("[]\n")
     local result = t.run_department("departments/github_poll/main.lua", event, run_opts)
-    t.eq(result.exit_code, 0) t.eq(#result.raises, 2)
+    t.eq(result.exit_code, 0) t.eq(#result.raises, 3)
     t.eq(numbers(result.raises), "50,42")
+    t.eq(#observed_issue_raises(result.raises), 1)
     t.eq(result.raises[1].queue, "github_entity_changed")
     t.eq(result.raises[1].payload.schema, "github-proxy.v1")
     t.eq(result.raises[1].payload.type, "issue")

@@ -433,6 +433,62 @@ local tests = {
     ), "stale")
   end,
 
+  test_trusted_workflow_child_reintake_uses_lifecycle_authority_and_completes_command = function()
+    local payload = candidate()
+    local origin = "github-devloop/issue/owner/repo/7"
+    local body = lineage_header(origin, "d-1234567890", "slot-one") .. "\n\nGenerated child spec body."
+    local command = {
+      id = "IC_workflow_child_reintake",
+      body = "fkst: reintake",
+      author_login = "fkst-test-bot",
+      created_at = "2026-06-03T01:04:00Z",
+    }
+    local current = {
+      body = body,
+      author_login = "fkst-test-bot",
+      labels = { "fkst-dev:blocked" },
+      comments = {
+        {
+          body = core.state_marker(
+            payload.proposal_id,
+            "blocked",
+            payload.proposal_id .. "/2026-06-03T01-00-00Z/intake/1"
+          ),
+          author_login = "fkst-test-bot",
+          created_at = "2026-06-03T01:03:00Z",
+        },
+        command,
+      },
+    }
+    local effect_id = devloop_base.intake_decision_dedup_key(
+      payload.proposal_id,
+      { title = "Run the release workflow", body = body },
+      command,
+      command.created_at
+    )
+    payload.effect_id = effect_id
+    payload.dedup_key = core.intake_candidate_delivery_dedup_key(payload.proposal_id, effect_id, effect_id)
+    payload.reintake_command_created_at = command.created_at
+    payload.reintake_effect_updated_at = command.created_at
+
+    mock_env("/tmp/fkst-packages-test/github-devloop-workflow/no-extra-catalog")
+    mock_issue_view(current, 1)
+
+    local result = run_workflow_select(payload)
+    t.eq(#codex_calls(), 0)
+    t.eq(#raises_to_queue(result.raises, "github-devloop.devloop_execute_request"), 1)
+    t.eq(#raises_to_queue(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(#raises_to_queue(result.raises, "github-proxy.github_issue_comment_request"), 1)
+    assert_no_intake_marker_or_consensus(result.raises)
+
+    local accepted = first_raise_payload(result, "github-proxy.github_issue_comment_request")
+    t.is_true(accepted.body:find("operator command accepted: reintake", 1, true) ~= nil)
+    t.is_true(accepted.body:find('command="reintake"', 1, true) ~= nil)
+    local request = first_raise_payload(result, "github-devloop.devloop_execute_request")
+    t.eq(request.dedup_key, effect_id)
+    t.eq(request.origin.route, "workflow-child")
+  end,
+
   test_origin_issue_with_no_lineage_still_runs_selection_and_default_intake = function()
     with_catalog({
       ["workflow-alpha.json"] = workflow_json("workflow-alpha", '{"labels_any":["workflow"]}', "Do the workflow step."),

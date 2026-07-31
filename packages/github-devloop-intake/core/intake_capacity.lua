@@ -331,8 +331,8 @@ local function build_reintake_reservation(repo, current, proposal_id)
   if command == nil or operator_commands.has_operator_command_response(current.comments, command) then
     return nil, "reintake-command-not-pending"
   end
-  if not marker_facts.has_intake_decision_marker(current.comments, proposal_id) then
-    return nil, "reintake-intake-decision-absent"
+  if not operator_commands.has_reintake_authority(current.comments, proposal_id) then
+    return nil, "reintake-authority-absent"
   end
   if devloop_base.is_intake_held(current.labels)
     or devloop_state.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id) then

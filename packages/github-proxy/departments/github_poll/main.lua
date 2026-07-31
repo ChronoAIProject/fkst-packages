@@ -69,15 +69,20 @@ local function collect_changed(repo, entity_type, entities, fresh_changes, repla
   end
 end
 
-local function replay_allowance(replay_candidates, budget)
+local function partition_replay(replay_candidates, budget)
   table.sort(replay_candidates, function(left, right)
     return replay_sort_key(left.entity) < replay_sort_key(right.entity)
   end)
   local allowed = {}
-  for index = 1, math.min(#replay_candidates, budget) do
-    table.insert(allowed, replay_candidates[index])
+  local deferred_observed = {}
+  for index, item in ipairs(replay_candidates) do
+    if index <= budget then
+      table.insert(allowed, item)
+    elseif is_observed_issue_snapshot(item.entity_type, item.entity) then
+      table.insert(deferred_observed, item)
+    end
   end
-  return allowed
+  return allowed, deferred_observed
 end
 
 local function item_dedup_key(repo, item, poll_token)
@@ -136,7 +141,9 @@ end
 local function raise_observed_item(repo, item, poll_token)
   with_lock(item.key, function()
     local entity = item.entity
-    if cache_get(item.key) == entity.updated_at then
+    local cached_updated_at = cache_get(item.key)
+    if cached_updated_at == entity.updated_at
+      or (item.replay and cached_updated_at == nil) then
       raise("github_issue_observed", {
         schema = "github-proxy.issue-observed.v1",
         type = "issue",
@@ -205,7 +212,11 @@ local function act(event)
     return
   end
   local epoch_current = entity_list_cache.with_current_poll_epoch(repo, allocated_epoch, function()
-    raise_changed(repo, fresh_changes, replay_allowance(replay_candidates, replay_budget), observed_issues, allocated_epoch)
+    local replay_changes, deferred_observed = partition_replay(replay_candidates, replay_budget)
+    for _, item in ipairs(deferred_observed) do
+      table.insert(observed_issues, item)
+    end
+    raise_changed(repo, fresh_changes, replay_changes, observed_issues, allocated_epoch)
   end)
   if not epoch_current then
     log.info("github-proxy: suppressing poll emissions after epoch advanced repo=" .. tostring(repo)

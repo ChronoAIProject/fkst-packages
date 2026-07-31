@@ -260,6 +260,29 @@ return {
     t.eq(count_calls("codex exec"), 1)
   end,
 
+  test_judge_reintake_rejudges_after_trusted_lifecycle_marker_without_intake_decision = function()
+    local command = trusted_reintake_command("IC_reintake_lifecycle_authority")
+    local payload = reintake_candidate(command)
+    mock_bot_env()
+    mock_intake_judge_view({ "fkst-dev:blocked" }, {
+      trusted_comment(core.state_marker(
+        payload.proposal_id,
+        "blocked",
+        payload.proposal_id .. "/2026-06-04T01-00-00Z/intake/1"
+      ), "2026-06-04T01:00:00Z"),
+      command,
+    })
+    mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Trusted lifecycle state authorizes a fresh intake generation.")
+
+    local result = run_judge(payload, opts("intake-reintake-lifecycle-authority"))
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 4)
+    t.is_true(find_comment_body(result.raises, "operator command accepted: reintake") ~= nil)
+    t.is_true(find_comment_body(result.raises, 'decision="enable"') ~= nil)
+    assert_execution_request_chain(result.raises, payload, command)
+    t.eq(count_calls("codex exec"), 1)
+  end,
+
   test_judge_reintake_rejudges_terminal_blocked_issue_with_effect_timestamp_after_blocked = function()
     local command = trusted_reintake_command("IC_reintake_blocked_judge")
     command.created_at = "2026-06-04T03:00:00Z"

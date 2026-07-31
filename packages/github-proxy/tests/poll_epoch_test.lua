@@ -88,4 +88,37 @@ return {
     t.eq(#result.raises, 0)
     t.is_true(entity_list_cache.poll_epoch_is_current("owner/x", newer_epoch))
   end,
+
+  test_deferred_cold_observation_is_suppressed_after_entity_cache_advances = function()
+    local event = {
+      queue = "github_poll_tick",
+      ts = "2026-07-30T01:02:05Z",
+      payload = {},
+    }
+    cache_set(entity_list_cache.poll_epoch_cache_key("owner/x"), "")
+    h.mock_repo_env()
+    h.mock_poll_label_prefix_env("adapter-")
+    h.mock_proxy_replay_budget_env("1")
+    author_policy.mock_env(t, h.opts("poll-deferred-stale-snapshot"))
+    h.mock_issue_list(h.poll_issue_list_from({
+      h.poll_issue_json(9142, "2026-06-03T01:02:00Z"),
+      h.poll_issue_json(9143, "2026-06-03T01:03:00Z"),
+    }))
+    h.mock_pr_list("[]\n")
+
+    local original_with_current = entity_list_cache.with_current_poll_epoch
+    entity_list_cache.with_current_poll_epoch = function(repo, epoch, fn)
+      cache_set(h.core.entity_cache_key("owner/x", "issue", 9143), "2026-06-03T01:04:00Z")
+      return original_with_current(repo, epoch, fn)
+    end
+    local ok, result = pcall(testing.run_fake, github_poll, event)
+    entity_list_cache.with_current_poll_epoch = original_with_current
+    if not ok then
+      error(result, 0)
+    end
+
+    t.eq(#h.changed_raises(result.raises), 1)
+    t.eq(h.changed_raises(result.raises)[1].payload.number, 9142)
+    t.eq(#h.observed_issue_raises(result.raises), 0)
+  end,
 }

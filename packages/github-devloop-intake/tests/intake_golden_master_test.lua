@@ -137,7 +137,7 @@ return {
     assert_source_ref(payload)
   end,
 
-  test_golden_admission_refuses_reintake_without_existing_intake = function()
+  test_golden_admission_refuses_reintake_without_trusted_authority = function()
     local command = trusted_reintake_command("IC_reintake_no_marker")
     local command_fact = operator_commands.operator_command_fact({ command }, "reintake")
     h.mock_bot_env()
@@ -154,9 +154,9 @@ return {
       "comment",
       command_fact.key,
       "refused",
-      "reintake requires an existing intake decision",
+      "reintake requires a trusted intake decision or lifecycle state",
     }))
-    t.is_true(request.body:find("github-devloop operator command refused: reintake requires an existing intake decision", 1, true) ~= nil)
+    t.is_true(request.body:find("github-devloop operator command refused: reintake requires a trusted intake decision or lifecycle state", 1, true) ~= nil)
     t.is_true(request.body:find('command="reintake"', 1, true) ~= nil)
     t.is_true(request.body:find('outcome="refused"', 1, true) ~= nil)
   end,

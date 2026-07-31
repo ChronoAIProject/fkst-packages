@@ -8,9 +8,11 @@ local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local entity_list_cache = require("devloop.entity_list_cache")
 local author_policy = require("testkit_internal.github_author_policy")
 local h = require("tests.devloop_helpers")
+local marker_builders = require("devloop.markers.builders")
 
 local repo = "owner/repo"
 local issue_number = 42
+local cold_issue_number = 142
 
 local function source_ref()
   return entity_lib.issue_source_ref(repo, issue_number)
@@ -43,6 +45,19 @@ local function mock_proxy_poll_lists()
   })
 end
 
+local function mock_cold_reintake_poll_lists()
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'", {
+    stdout = '[[{"number":142,"title":"Self-owned workflow fork","html_url":"https://github.example/owner/repo/issues/142","updated_at":"2026-06-03T01:04:00Z","state":"open","labels":[{"name":"fkst-dev:blocked"}],"assignees":[{"login":"fkst-test-bot"}]}]]\n',
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
+    stdout = '[[{"number":7,"title":"Earlier cold PR","html_url":"https://github.example/owner/repo/pull/7","updated_at":"2026-06-03T01:03:00Z","state":"open","labels":[]}]]\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_admission_issue_view()
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = repo,
@@ -53,6 +68,44 @@ local function mock_admission_issue_view()
     state = "OPEN",
     labels = { "bug" },
     comments = {},
+    assignees = { "fkst-test-bot" },
+    author_login = "fkst-test-bot",
+  }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
+end
+
+local function mock_blocked_reintake_admission_view()
+  local proposal_id = base_ids.proposal_id(repo, cold_issue_number)
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = repo,
+    number = cold_issue_number,
+    title = "Self-owned workflow fork",
+    body = "Self-owned fork for isolated implementation.",
+    updated_at = "2026-06-03T01:04:00Z",
+    state = "OPEN",
+    labels = { "fkst-dev:blocked" },
+    comments = {
+      {
+        body = marker_builders.intake_decision_marker(
+          proposal_id,
+          "enable",
+          proposal_id .. "/intake/1",
+          "standard"
+        ),
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:01:00Z",
+      },
+      {
+        body = core.state_marker(proposal_id, "blocked", proposal_id .. "/intake/1"),
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:02:00Z",
+      },
+      {
+        id = "IC_reintake_cold_observed",
+        body = "fkst: reintake",
+        author_login = "fkst-test-bot",
+        created_at = "2026-06-03T01:03:00Z",
+      },
+    },
     assignees = { "fkst-test-bot" },
     author_login = "fkst-test-bot",
   }, "title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone")
@@ -151,6 +204,30 @@ return {
       t.is_true(step.consumer ~= "github-devloop-intake.intake_scan")
       t.is_true(step.consumer ~= "github-devloop-intake.intake_probe")
     end
+  end,
+
+  test_cold_observed_reintake_precedes_terminal_replay_and_trusted_progress_skip = function()
+    cache_set(entity_list_cache.poll_epoch_cache_key(repo), "")
+    mock_env()
+    mock_cold_reintake_poll_lists()
+    mock_blocked_reintake_admission_view()
+
+    local trace = graph.run("github-proxy.github_poll", { max_steps = 4 })
+    graph.assert_covers(trace, {
+      "github-proxy.github_poll_tick -> github-proxy.github_poll",
+      "github-proxy.github_issue_observed -> github-devloop-intake.admission",
+    })
+    local observed = graph.require_raise(trace, "github-proxy.github_issue_observed", function(item)
+      return tonumber(item.payload and item.payload.number) == cold_issue_number
+    end)
+    t.eq(observed.payload.updated_at, "2026-06-03T01:04:00Z")
+
+    local candidate = graph.require_raise(trace, "github-devloop-intake.devloop_intake_candidate", function(item)
+      local payload = item.payload or {}
+      return payload.proposal_id == base_ids.proposal_id(repo, cold_issue_number)
+        and payload.reintake_command_created_at == "2026-06-03T01:03:00Z"
+    end)
+    t.eq(candidate.payload.source_ref.ref, "owner/repo#issue/142")
   end,
 
   test_configured_prefix_issue_replays_after_transient_peer_failure_and_reaches_admission_effect = function()

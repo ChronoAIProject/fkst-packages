@@ -297,19 +297,6 @@ local function expect_no_candidate(trace)
   t.is_nil(raised)
 end
 
-local function issue_refetch_call_count()
-  local count = 0
-  local fields = "--json title,body,createdAt,updatedAt,labels,comments,state,assignees,author,milestone"
-  for _, call in ipairs(t.command_calls()) do
-    local rendered = tostring(call.rendered or call.command or call.cmd or call)
-    if rendered:find("gh issue view", 1, true) ~= nil
-      and rendered:find(fields, 1, true) ~= nil then
-      count = count + 1
-    end
-  end
-  return count
-end
-
 local function run_poll(max_steps)
   return t.run_graph("github-proxy.github_poll", { max_steps = max_steps or 12 })
 end
@@ -358,13 +345,12 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     t.mock_observe(observe_snapshot({ live_row() }, nil))
     seed_proxy_cache()
     mock_proxy_poll_lists({ owner })
-    local refetches_before_live_blocked = issue_refetch_call_count()
+    mock_issue_view({ owner }, {})
     local live_blocked = run_poll(8)
     t.eq(live_blocked.status, "quiescent")
     t.eq(live_blocked.final.dead_letters, 0)
     assert_observed_admission(live_blocked)
     expect_no_candidate(live_blocked)
-    t.eq(issue_refetch_call_count(), refetches_before_live_blocked)
 
     local terminal = terminal_row(judge_step.delivery_id, 1)
     t.mock_observe(observe_snapshot(nil, { terminal }))

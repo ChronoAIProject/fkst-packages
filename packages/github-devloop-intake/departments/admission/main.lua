@@ -101,9 +101,9 @@ local function handle_pending_reintake(context, repo, issue, current, proposal_i
     raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an open issue", source_ref)
     return true
   end
-  if not m_facts.has_intake_decision_marker(current.comments, proposal_id) then
+  if not operator_commands.has_reintake_authority(current.comments, proposal_id) then
     reconcile_capacity(context, repo, proposal_id)
-    raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires an existing intake decision", source_ref)
+    raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires a trusted intake decision or lifecycle state", source_ref)
     return true
   end
   if devloop_base.is_intake_held(current.labels) then
@@ -299,6 +299,14 @@ local function act_issue_observed(context, event)
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   with_lock(lock_key, function()
+    local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
+    devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
+    local issue = issue_from_current(issue_number, current)
+    local poll_key = m_claims.claim_admission_poll_epoch(event)
+    if handle_pending_reintake(context, repo, issue, current, proposal_id, entity.source_ref, poll_key) then
+      return
+    end
+
     local terminal, precondition_reason, observe_snapshot = replay_authorization.terminal_precondition(entity.source_ref)
     if terminal == nil then
       reconcile_capacity(context, repo, proposal_id)
@@ -306,8 +314,6 @@ local function act_issue_observed(context, event)
       return
     end
 
-    local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
-    devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
     local progress_visible = has_trusted_progress(current, proposal_id)
     local authorization, reason = replay_authorization.authorize(current, proposal_id, entity.source_ref, {
       has_trusted_progress = progress_visible,

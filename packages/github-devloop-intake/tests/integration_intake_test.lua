@@ -256,7 +256,7 @@ return {
     t.eq(result.raises[1].payload.effect_id, expected_effect_key(proposal_id, command, blocked_created_at))
   end,
 
-  test_admission_reintake_without_prior_intake_marker_refuses = function()
+  test_admission_reintake_without_trusted_authority_refuses = function()
     h.mock_bot_env()
     mock_repo_env()
     mock_issue(42, { comments = { trusted_reintake_command("IC_reintake_no_marker") } })
@@ -267,7 +267,7 @@ return {
     t.eq(#result.raises, 1)
     local refusal = find_comment_body(result.raises, "operator command refused")
     t.is_true(refusal ~= nil)
-    t.is_true(refusal.body:find("reintake requires an existing intake decision", 1, true) ~= nil)
+    t.is_true(refusal.body:find("reintake requires a trusted intake decision or lifecycle state", 1, true) ~= nil)
     t.is_true(refusal.body:find('outcome="refused"', 1, true) ~= nil)
   end,
 

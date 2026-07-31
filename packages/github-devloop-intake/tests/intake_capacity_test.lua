@@ -460,6 +460,41 @@ return {
     t.eq(claims.issue_claim_state(world.issues[75].assignees, OWNER), "unassigned")
   end,
 
+  test_reintake_reservation_accepts_trusted_lifecycle_authority_without_intake_decision = function()
+    h.mock_bot_env()
+    local world = new_world(1)
+    local command = reintake_command("IC_reintake_lifecycle_authority_74")
+    world:add(issue(74, {
+      comments = {
+        state_comment(74, "blocked", nil, "2026-07-16T00:00:01Z"),
+        command,
+      },
+    }))
+    local controller = capacity.new(world:ports("/runtime/reintake-lifecycle-authority"))
+
+    t.eq(controller.authorize_reintake(REPO, 74, world:current(74), proposal_id(74)), true)
+    local reservation = assert(world.grant.reintake_reservations[1])
+    t.eq(reservation.issue_number, 74)
+    t.eq(reservation.effect_updated_at, command.created_at)
+  end,
+
+  test_reintake_reservation_rejects_lifecycle_authority_for_different_issue_identity = function()
+    h.mock_bot_env()
+    local world = new_world(1)
+    local command = reintake_command("IC_reintake_wrong_identity_73")
+    world:add(issue(73, {
+      comments = {
+        state_comment(7, "blocked", nil, "2026-07-16T00:00:01Z"),
+        command,
+      },
+    }))
+    local controller = capacity.new(world:ports("/runtime/reintake-wrong-identity"))
+
+    local granted, reason = controller.authorize_reintake(REPO, 73, world:current(73), proposal_id(73))
+    t.eq(granted, false)
+    t.eq(reason, "reintake-authority-absent")
+  end,
+
   test_reintake_refusal_releases_matching_reservation = function()
     h.mock_bot_env()
     local world = new_world(1)

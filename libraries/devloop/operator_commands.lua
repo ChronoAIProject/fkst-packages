@@ -9,6 +9,7 @@ local transition_version = require("contract.transition_version")
 local forge_validators = require("devloop.forge_validators")
 local devloop_logging = require("devloop.logging")
 local source_refs = require("contract.source_ref")
+local marker_facts = require("devloop.markers.facts")
 
 local ai_sentinel = "⟦AI:FKST⟧"
 
@@ -102,6 +103,11 @@ end
 
 function C.reintake_has_active_devloop_state(labels, comments, proposal_id)
   return devloop_state.reintake_has_active_devloop_state(labels, comments, proposal_id)
+end
+
+function C.has_reintake_authority(comments, proposal_id)
+  return marker_facts.has_intake_decision_marker(comments, proposal_id)
+    or marker_facts.has_state_marker(comments, proposal_id)
 end
 
 function C.reintake_effect_updated_at(issue, command, comments, proposal_id)
