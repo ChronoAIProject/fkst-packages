@@ -169,12 +169,12 @@ local function mock_branch_config(split)
 end
 
 local function git_fetch_pr_head_oid_cmd(remote, number)
-  return "git fetch --verbose --no-write-fetch-head " .. tostring(remote)
+  return "git fetch --no-write-fetch-head " .. tostring(remote)
     .. " '+refs/pull/" .. tostring(number) .. "/head:refs/fkst/pr/" .. tostring(number) .. "'"
 end
 
-local function git_read_pr_head_oid_cmd(number)
-  return "git rev-parse --verify 'refs/fkst/pr/" .. tostring(number) .. "^{commit}'"
+local function git_rev_parse_pr_head_oid_cmd(number)
+  return core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(number))
 end
 
 local function mock_rollup_landing(exit_code, fetched_head_sha)
@@ -192,7 +192,7 @@ local function mock_rollup_landing(exit_code, fetched_head_sha)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(git_read_pr_head_oid_cmd(rollup_pr_number), {
+  t.mock_command(git_rev_parse_pr_head_oid_cmd(rollup_pr_number), {
     stdout = fetched_head .. "\n",
     stderr = "",
     exit_code = 0,
@@ -322,6 +322,21 @@ local function assert_resume_has_autonomy_result(resume)
 end
 
 return {
+  test_rollup_receipt_fetch_and_rev_parse_stay_inside_repo_ref_store_lock = function()
+    -- fetch_pr_head_oid synchronously runs both commands pinned by the forge adapter
+    -- contract test. This proves exclusion only against writers using this runtime
+    -- lock; it does not claim exclusion against external Git writers.
+    local source = file.read("packages/github-devloop/core/awaiting_pr_replayer.lua")
+    local lock_start = assert(source:find(
+      "local landed = git_mechanics.with_repo_ref_store_lock(issue.repo, function()",
+      1,
+      true
+    ))
+    local lock_end = assert(source:find("\n  end)", lock_start, true))
+    local fetch_call = assert(source:find("git_commands.git_fetch_pr_head_oid", lock_start, true))
+    t.is_true(fetch_call < lock_end, "PR-head fetch and rev-parse must execute under the repo ref-store lock")
+  end,
+
   test_child_merged_reconciles_parent_to_merged = function()
     mock_issue_close()
     mock_branch_config()
@@ -353,7 +368,7 @@ return {
       true
     ) ~= nil)
     t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
-    t.eq(count_calls(git_read_pr_head_oid_cmd(rollup_pr_number)), 1)
+    t.eq(count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
     t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
     t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
   end,
@@ -514,7 +529,7 @@ return {
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 1)
     t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
     t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
-    t.eq(count_calls(git_read_pr_head_oid_cmd(rollup_pr_number)), 1)
+    t.eq(count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
     t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
     t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
     t.eq(count_calls("git merge-base --is-ancestor " .. merge_commit_sha .. " " .. rollup_head_sha), 1)
@@ -550,7 +565,6 @@ return {
     t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
     t.eq(count_calls(github_commands.pr_list_promotions_cmd(repo, integration_branch, upstream_branch)), 1)
     t.eq(count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 0)
-    t.eq(count_calls(git_read_pr_head_oid_cmd(rollup_pr_number)), 0)
     t.eq(count_calls(core.git_fetch_pr_head_ref_cmd("origin", rollup_pr_number)), 0)
     t.eq(count_calls(core.git_fetch_head_commit_cmd()), 0)
     t.eq(count_calls("git merge-base --is-ancestor"), 0)

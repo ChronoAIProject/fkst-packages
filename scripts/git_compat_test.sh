@@ -23,7 +23,7 @@ git init -q "$client"
 git -C "$client" remote add origin "$remote"
 (
   cd "$client"
-  git fetch --verbose --no-write-fetch-head origin '+refs/pull/7/head:refs/fkst/pr/7'
+  git fetch --no-write-fetch-head origin '+refs/pull/7/head:refs/fkst/pr/7'
   actual_oid="$(git rev-parse --verify 'refs/fkst/pr/7^{commit}')"
   test "$actual_oid" = "$expected_oid"
   test ! -e .git/FETCH_HEAD

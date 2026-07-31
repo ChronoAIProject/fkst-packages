@@ -27,12 +27,12 @@ local child_branch = "devloop-rollup-owner-rollup-repo-4242-01HY"
 local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
 
 local function git_fetch_pr_head_oid_cmd(remote, number)
-  return "git fetch --verbose --no-write-fetch-head " .. tostring(remote)
+  return "git fetch --no-write-fetch-head " .. tostring(remote)
     .. " '+refs/pull/" .. tostring(number) .. "/head:refs/fkst/pr/" .. tostring(number) .. "'"
 end
 
-local function git_read_pr_head_oid_cmd(number)
-  return "git rev-parse --verify 'refs/fkst/pr/" .. tostring(number) .. "^{commit}'"
+local function git_rev_parse_pr_head_oid_cmd(number)
+  return core.git_rev_parse_ref_commit_cmd("refs/fkst/pr/" .. tostring(number))
 end
 
 local function issue_comments_api_cmd()
@@ -282,7 +282,7 @@ local function mock_rollup_landing(exit_code)
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command(git_read_pr_head_oid_cmd(rollup_pr_number), {
+  t.mock_command(git_rev_parse_pr_head_oid_cmd(rollup_pr_number), {
     stdout = rollup_head_sha .. "\n",
     stderr = "",
     exit_code = 0,
@@ -489,7 +489,7 @@ return {
     t.eq(h.count_calls("git merge-base --is-ancestor " .. child_merge_commit_sha .. " " .. rollup_head_sha), 1)
     t.eq(h.count_calls("git merge-base --is-ancestor " .. child_head_sha .. " " .. rollup_head_sha), 0)
     t.eq(h.count_calls(git_fetch_pr_head_oid_cmd("origin", rollup_pr_number)), 1)
-    t.eq(h.count_calls(git_read_pr_head_oid_cmd(rollup_pr_number)), 1)
+    t.eq(h.count_calls(git_rev_parse_pr_head_oid_cmd(rollup_pr_number)), 1)
     t.eq(h.count_calls("gh issue close " .. tostring(issue_number) .. " --repo " .. repo), 0)
   end,
 

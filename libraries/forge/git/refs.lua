@@ -55,7 +55,6 @@ local function fetch_pr_head_oid_argv(remote, pr_number)
   return {
     "git",
     "fetch",
-    "--verbose",
     "--no-write-fetch-head",
     tostring(remote),
     "+refs/pull/" .. tostring(pr_number) .. "/head:" .. local_ref,

@@ -78,13 +78,14 @@ class CiWorkflowTest(unittest.TestCase):
 
     def test_git_239_compatibility_gate_runs_the_executable_contract(self) -> None:
         workflow = self.read_workflow()
+        compatibility_test = (REPO_ROOT / "scripts" / "git_compat_test.sh").read_text(encoding="utf-8")
 
         self.assertIn("git-239-compat:", workflow)
         self.assertIn("container: debian:bookworm-slim", workflow)
         self.assertIn("git version 2\\.39\\.", workflow)
         self.assertIn("scripts/git_compat_test.sh", workflow)
         self.assertIn("needs: git-239-compat", workflow)
-        self.assertTrue((REPO_ROOT / "scripts" / "git_compat_test.sh").is_file())
+        self.assertIn("git fetch --no-write-fetch-head origin", compatibility_test)
 
 
 if __name__ == "__main__":
