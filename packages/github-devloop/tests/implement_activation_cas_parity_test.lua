@@ -399,7 +399,8 @@ local function fixture_comments(fixture, event)
     table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   end
   if fixture.impl_failure then
-    table.insert(comments, core.impl_failure_marker(PROPOSAL_ID, event.dedup_key, "codex-failed", 1))
+    table.insert(comments, core.impl_failure_marker(
+      PROPOSAL_ID, event.dedup_key, "codex-failed", 1, "UNKNOWN", true))
   end
   if fixture.blocked_version ~= nil or fixture.current_target_link then
     table.insert(comments, m_builders.pr_link_marker(
