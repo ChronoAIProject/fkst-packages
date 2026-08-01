@@ -554,6 +554,9 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
     dedup_key = core.ready_payload_inner_version(retry_version),
     source_ref = issue.source_ref,
     impl_retry_attempt = attempt,
+    operator_reimplement_delivery = {
+      command_key = command.key,
+    },
   }
   if blocked_open_pr_reentry then
     payload_source.operator_reentry = {

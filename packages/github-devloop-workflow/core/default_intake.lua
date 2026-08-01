@@ -119,10 +119,10 @@ function M.read_current_for_candidate(package_core, dept, repo, issue_number, ca
     local refusal = operator_commands.build_operator_issue_command_refusal_request(repo,
       issue_number,
       reintake_command,
-      "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states",
+      "reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state; use rereview, reready, or reimplement for recoverable active states",
       candidate.source_ref
     )
-    devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "refused(reintake-active-state)", "operator reintake requires terminal blocked or no active devloop state")
+    devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "refused(reintake-active-state)", "operator reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state")
     devloop_logging.log_raise(dept, candidate.proposal_id, "github-proxy.github_issue_comment_request", refusal)
     return nil
   end
