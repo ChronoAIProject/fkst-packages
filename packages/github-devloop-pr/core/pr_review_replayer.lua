@@ -726,10 +726,11 @@ local function replay_pr_open(dept, issue, state, row, facts, tools)
       if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
         local fix_version = devloop_state.next_fix_version(state.version)
         local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+        local review_proposal_id = devloop_base.pr_review_proposal_id(issue.repo, link.pr_number, state.version, pr.head_sha)
         local review_fact = {
           proposal_id = proposal_id,
-          review_proposal_id = devloop_base.pr_review_proposal_id(issue.repo, link.pr_number, state.version, pr.head_sha),
-          review_dedup_key = "observe-pr-conflict/" .. tostring(proposal_id) .. "/" .. tostring(state.version) .. "/" .. tostring(link.pr_number),
+          review_proposal_id = review_proposal_id,
+          review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
           reviewed_head_sha = pr.head_sha,
           blocking_gap = mergeable_reason,
           review_reason = mergeable_reason,

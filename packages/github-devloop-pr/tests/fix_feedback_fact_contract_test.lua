@@ -59,6 +59,15 @@ local function fixing_row()
   error("fix feedback contract test: fixing restart row is missing", 0)
 end
 
+local function pr_open_row()
+  for _, row in ipairs(core.restart_transition_table()) do
+    if row.from_state == "pr-open" then
+      return row
+    end
+  end
+  error("fix feedback contract test: pr-open restart row is missing", 0)
+end
+
 local function replay_facts(feedback)
   local current_pr = {
     number = PR_NUMBER,
@@ -237,5 +246,46 @@ return {
 
   test_timeout_classified_fixing_replay_rejects_partial_feedback = function()
     assert_replay_rejects_partial_feedback(true)
+  end,
+
+  test_timeout_conflict_replay_emits_feedback_accepted_by_next_replay = function()
+    local raises = {}
+    local original_log_raise = devloop_logging.log_raise
+    devloop_logging.log_raise = function(_, _, queue, payload)
+      table.insert(raises, { queue = queue, payload = payload })
+    end
+    local ok, result = pcall(replayer.replay_from_table_classified,
+      core,
+      "liveness_scan",
+      { repo = REPO, number = ISSUE_NUMBER, source_ref = { kind = "external", ref = REPO .. "#issue/" .. ISSUE_NUMBER } },
+      {
+        state = "pr-open",
+        version = BASE_VERSION,
+        proposal_id = PROPOSAL_ID,
+        marker_created_at = "2026-06-03T01:02:03Z",
+      },
+      pr_open_row(),
+      replay_facts(nil))
+    devloop_logging.log_raise = original_log_raise
+    if not ok then
+      error(result, 0)
+    end
+    t.eq(result.kind, "issued")
+
+    local comment_request
+    for _, raised in ipairs(raises) do
+      if raised.queue == "github-proxy.github_pr_comment_request" then
+        comment_request = raised.payload
+      end
+    end
+    t.is_true(comment_request ~= nil)
+    local feedback = m_facts.merge_gate_fix_fact(
+      { trusted_comment(comment_request.body) },
+      PROPOSAL_ID,
+      FIXING_VERSION)
+    t.eq(m_facts.parse_fix_feedback_fact(feedback), feedback)
+    t.eq(feedback.review_proposal_id, REVIEW_PROPOSAL_ID)
+    t.eq(feedback.review_dedup_key, REVIEW_DEDUP_KEY)
+    t.eq(feedback.reviewed_head_sha, REVIEWED_HEAD_SHA)
   end,
 }
