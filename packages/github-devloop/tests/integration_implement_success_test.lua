@@ -610,4 +610,67 @@ return {
     t.is_true(branch_pin_read_index < codex_index)
     t.is_true(pin_commit_index < codex_index)
   end,
+
+  -- #3022: an indeterminate VERIFIER verdict must not discard a COMMITTED implementation.
+  --
+  -- The two tests above pin the nil-head_sha case (dirty worktree, nothing committed), where
+  -- terminalizing is defensible. Production takes a different path: attempt.lua reaches
+  -- "reusing clean ahead implementation branch" and calls harvest.after_codex_success with a
+  -- NON-NIL head_sha. Verified on the real #2883 run
+  -- (github-devloop.implement-1785598619-474175000-4289.log):
+  --   reason=reusing clean ahead implementation branch
+  --   head_sha=d8a59e43698ca6acb3943cf48ddae0578f5b208d
+  -- The indeterminate verdict then discarded that committed product. No test covered it.
+  --
+  -- RED until #3022 is fixed.
+  test_indeterminate_verdict_does_not_discard_a_committed_implementation = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status("")
+    -- Branch is AHEAD: this is what makes head_sha non-nil, unlike the two tests above.
+    t.mock_command("rev-list --count", { stdout = "1\n", stderr = "", exit_code = 0 })
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = "d8a59e43698ca6acb3943cf48ddae0578f5b208d\n", stderr = "", exit_code = 0,
+    })
+    t.mock_command("diff --name-only", {
+      stdout = "packages/github-devloop/core.lua\n", stderr = "", exit_code = 0,
+    })
+    -- Both bounded verification attempts return an untyped nonzero => UNKNOWN.
+    t.mock_command("scripts/run.sh test-affected", { stdout = "", stderr = "first untyped nonzero\n", exit_code = 2 })
+    t.mock_command("scripts/run.sh test-affected", { stdout = "", stderr = "second untyped nonzero\n", exit_code = 2 })
+
+    local result = run_implement(event, opts("implement-indeterminate-with-committed-head"))
+
+    t.eq(result.exit_code, 0)
+    local failure = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
+    t.is_true(failure == nil,
+      "a committed implementation was discarded on an indeterminate verifier verdict: "
+        .. tostring(failure and failure.payload.body:sub(1, 160) or ""))
+  end,
+
+  -- Control: SEMANTIC_FAIL is the one verdict that says the code is wrong, and it must STILL
+  -- terminalize even with a committed head. Without this, the fix above could be satisfied by
+  -- blanket-disabling the terminal.
+  test_semantic_fail_still_terminalizes_with_a_committed_implementation = function()
+    local event = ready()
+    mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
+    local worktree = mock_fresh_implement_worktree()
+    mock_codex_success_without_local_iteration()
+    mock_git_status("")
+    t.mock_command("rev-list --count", { stdout = "1\n", stderr = "", exit_code = 0 })
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = "d8a59e43698ca6acb3943cf48ddae0578f5b208d\n", stderr = "", exit_code = 0,
+    })
+    t.mock_command("diff --name-only", {
+      stdout = "packages/github-devloop/core.lua\n", stderr = "", exit_code = 0,
+    })
+    mock_candidate_local_red(worktree, "FILEMAP-UNCLASSIFIED packages/github-devloop/core.lua\n")
+    mock_base_probe(worktree)
+
+    local result = run_implement(event, opts("implement-semantic-fail-with-committed-head"))
+
+    assert_impl_failure_without_publication(result, "local-iteration-failed")
+  end,
 }
