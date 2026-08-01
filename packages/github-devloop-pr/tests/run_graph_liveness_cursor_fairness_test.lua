@@ -12,7 +12,6 @@ local core = h.core
 
 local repo = "owner/repo"
 local malformed_pr_number = 5
-local later_pr_number = 9
 local target_pr_number = 7
 local cursor_prefix = "github-devloop-pr/liveness-scan/pr-cursor/"
 local malformed_issue_number = 41
@@ -76,7 +75,7 @@ end
 
 local function mock_malformed_feedback_pr_list()
   local stdout = '[{"number":5,"state":"open","updated_at":"2026-06-04T01:02:03Z"},'
-    .. '{"number":9,"state":"open","updated_at":"2026-06-04T01:02:04Z"}]\n'
+    .. '{"number":7,"state":"open","updated_at":"2026-06-04T01:02:04Z"}]\n'
   t.mock_command(core.gh_pr_list_observe_cmd(repo), {
     stdout = stdout,
     stderr = "",
@@ -403,33 +402,44 @@ return {
     t.eq(cache_get(key), "0")
   end,
 
-  test_malformed_fix_feedback_stays_at_cursor_for_durable_retry = function()
+  test_malformed_fix_feedback_isolated_for_retry_while_later_pr_progresses = function()
     mock_env()
     mock_malformed_feedback_pr_list()
     mock_malformed_fixing_pr()
+    mock_target_fixing_pr()
     local cursor_key = liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix)
     cache_set(cursor_key, "0")
 
     with_no_codex_runs(function()
-      local trace = graph.run(liveness_tick(201), { max_steps = 2 })
+      local trace = graph.run(liveness_tick(201), { max_steps = 12 })
       graph.assert_covers(trace, {
         "github-devloop-pr.devloop_liveness_tick -> github-devloop-pr.liveness_scan",
       })
       t.eq(trace.status, "quiescent")
-      t.eq(#trace.steps, 1)
-      t.eq(trace.steps[1].consumer, "github-devloop-pr.liveness_scan")
-      t.eq(trace.steps[1].exit_code, 1)
-      t.eq(devloop_logging.error_class_from_message(trace.steps[1].error),
+      local scan_step = graph.require_delivery(trace, {
+        queue = "github-devloop-pr.devloop_liveness_tick",
+        consumer = "github-devloop-pr.liveness_scan",
+      })
+      local malformed_step = graph.require_delivery(trace, {
+        queue = "github-devloop-pr.devloop_observe_pr",
+        consumer = "github-devloop-pr.observe_pr",
+      })
+      t.eq(scan_step.exit_code, 0)
+      t.eq(malformed_step.exit_code, 1)
+      t.eq(devloop_logging.error_class_from_message(malformed_step.error),
         "fix-feedback-missing-review-proposal-id",
-        tostring(trace.steps[1].error))
-      -- run_graph holds its clock at zero, so nonzero backoff remains durably pending.
-      t.eq(trace.final.pending, 1)
-      t.eq(trace.final.deliveries, 1)
-      t.eq(trace.final.dead_letters, 0)
+        tostring(malformed_step.error))
+      t.is_true(type(malformed_step.delivery_id) == "string" and malformed_step.delivery_id ~= "")
       t.eq(cache_get(cursor_key), "0")
-      t.eq(graph.find_raise(trace, "github-proxy.github_pr_comment_request", function(raised)
-        return tonumber(raised.payload and raised.payload.pr_number) == later_pr_number
-      end), nil)
+      local timeout_attempt = graph.require_raise(trace, "github-proxy.github_pr_comment_request", function(raised)
+        return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
+          and tostring(raised.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
+      end)
+      local fixing = graph.require_raise(trace, "github-devloop-pr.devloop_fixing", function(raised)
+        return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
+      end)
+      t.eq(tonumber(timeout_attempt.payload.pr_number), target_pr_number)
+      t.eq(fixing.queue, "github-devloop-pr.devloop_fixing")
     end)
   end,
 
