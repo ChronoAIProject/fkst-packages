@@ -314,9 +314,10 @@ local function build_conflict_review_fact(origin, pr_number, current_pr, version
   if not forge_validators.is_git_sha(head_sha) then
     return nil, "head-missing"
   end
+  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, version, head_sha)
   return {
-    review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, version, head_sha),
-    review_dedup_key = "observe-pr-conflict/" .. tostring(origin.proposal_id) .. "/" .. tostring(version) .. "/" .. tostring(pr_number),
+    review_proposal_id = review_proposal_id,
+    review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
     reviewed_head_sha = head_sha,
     gate_failure_excerpt = reason,
   }, "ok"
