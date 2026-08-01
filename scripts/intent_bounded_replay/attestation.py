@@ -180,12 +180,36 @@ def canonical_attestation_sha256(artifact: Mapping[str, object]) -> str:
     return hashlib.sha256(canonical_json(body)).hexdigest()
 
 
-def _load_trace(root: Path, relative: str, pair: TracePair) -> dict[str, Any]:
-    path = root / relative
-    if not path.is_file():
-        raise AttestationError(f"missing trace artifact: {relative}")
+def _load_trace(
+    root: Path,
+    relative: str,
+    pair: TracePair,
+    *,
+    git_ref: str | None = None,
+) -> dict[str, Any]:
+    if git_ref is None:
+        path = root / relative
+        if not path.is_file():
+            raise AttestationError(f"missing trace artifact: {relative}")
+        raw = path.read_bytes()
+    else:
+        if GIT_SHA_RE.fullmatch(git_ref) is None:
+            raise AttestationError(f"trace artifact Git ref must be an object ID: {git_ref}")
+        result = subprocess.run(
+            ["git", "cat-file", "blob", f"{git_ref}:{relative}"],
+            cwd=root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise AttestationError(
+                f"cannot load trace artifact {relative} from {git_ref}: {detail}"
+            )
+        raw = result.stdout
     try:
-        artifact = loads_json(path.read_bytes())
+        artifact = loads_json(raw)
     except Exception as error:
         raise AttestationError(f"cannot load trace artifact {relative}: {error}") from error
     if not isinstance(artifact, dict):
@@ -214,7 +238,10 @@ def _load_trace(root: Path, relative: str, pair: TracePair) -> dict[str, Any]:
 
 
 def recompute_trace_hashes(
-    root: Path, trace_pairs: Iterable[TracePair] = TRACE_PAIRS,
+    root: Path,
+    trace_pairs: Iterable[TracePair] = TRACE_PAIRS,
+    *,
+    old_ref: str | None = None,
 ) -> dict[str, str]:
     """Recompute aggregate OLD, NEW, and behavior-diff hashes from all trace pairs."""
     pairs = sorted(tuple(trace_pairs), key=lambda pair: pair.family.encode("utf-8"))
@@ -228,7 +255,7 @@ def recompute_trace_hashes(
     new_entries: list[dict[str, str]] = []
     comparisons: list[dict[str, object]] = []
     for pair in pairs:
-        old = _load_trace(Path(root), pair.old_path, pair)
+        old = _load_trace(Path(root), pair.old_path, pair, git_ref=old_ref)
         new = _load_trace(Path(root), pair.new_path, pair)
         report = compare_report(old, new)
         old_hash = str(report["old_hash"])
@@ -263,10 +290,12 @@ def trace_hash_messages(
     declared: Mapping[str, object],
     relative: str,
     trace_pairs: Iterable[TracePair] = TRACE_PAIRS,
+    *,
+    old_ref: str | None = None,
 ) -> list[str]:
     """Return fail-closed verifier messages for declared aggregate trace hashes."""
     try:
-        computed = recompute_trace_hashes(root, trace_pairs)
+        computed = recompute_trace_hashes(root, trace_pairs, old_ref=old_ref)
     except AttestationError as error:
         return [f"{relative} cannot recompute trace hashes: {error}"]
     return [
@@ -368,7 +397,14 @@ def attestation_messages(
     for field in TRACE_HASH_FIELDS:
         if artifact[field] != manifest.get(field):
             messages.append(f"{relative} {field} does not match {expected_manifest}")
-    messages.extend(trace_hash_messages(root, artifact, relative))
+    messages.extend(
+        trace_hash_messages(
+            root,
+            artifact,
+            relative,
+            old_ref=str(artifact["base_sha"]),
+        )
+    )
 
     try:
         actual_head = _head_sha(root, head_ref)

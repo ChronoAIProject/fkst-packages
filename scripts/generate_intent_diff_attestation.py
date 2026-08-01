@@ -90,11 +90,16 @@ def generate_attestation(
     if pr_number < 1:
         raise AttestationError("actual PR number must be positive")
     head_sha = _git(root, "rev-parse", "--verify", f"{head_ref}^{{commit}}").lower()
+    checkout_sha = _git(root, "rev-parse", "--verify", "HEAD^{commit}").lower()
+    if checkout_sha != head_sha:
+        raise AttestationError(
+            f"checked out commit {checkout_sha} does not match attested head {head_sha}"
+        )
     base_sha = _git(root, "merge-base", head_sha, base_ref).lower()
     expected_manifest = f"{checker.INTENT_DIFF_DIR}/{pr_number}.json"
     changed_manifests = _changed_manifest_paths(root, base_sha, head_sha)
     output_path = Path(output_dir) / f"{pr_number}.json"
-    trace_hashes = recompute_trace_hashes(root, trace_pairs)
+    trace_hashes = recompute_trace_hashes(root, trace_pairs, old_ref=base_sha)
     if not changed_manifests:
         if output_path.is_file():
             output_path.unlink()

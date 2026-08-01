@@ -155,8 +155,13 @@ class AttestationGenerationTest(unittest.TestCase):
         git(self.root, "commit", "-qm", "behavior change")
         write_json(self.root, PAIR.new_path, trace("new"))
 
-    def add_manifest(self, pr_number: int = 123) -> dict[str, object]:
-        trace_hashes = recompute_trace_hashes(self.root, (PAIR,))
+    def add_manifest(
+        self,
+        pr_number: int = 123,
+        trace_hashes: dict[str, str] | None = None,
+    ) -> dict[str, object]:
+        if trace_hashes is None:
+            trace_hashes = recompute_trace_hashes(self.root, (PAIR,))
         tree_hash = semantic_tree_sha256(self.root)
         diff_hash = semantic_diff_sha256(self.root, self.base_sha)
         manifest: dict[str, object] = {
@@ -181,13 +186,17 @@ class AttestationGenerationTest(unittest.TestCase):
         git(self.root, "commit", "-qm", "intent manifest")
         return manifest
 
-    def generate(self, pr_number: int = 123) -> dict[str, object] | None:
+    def generate(
+        self,
+        pr_number: int = 123,
+        head_ref: str = "HEAD",
+    ) -> dict[str, object] | None:
         output_dir = self.root / ".fkst/run/intent-diff-attestations"
         return generator.generate_attestation(
             root=self.root,
             pr_number=pr_number,
             base_ref="protected-base",
-            head_ref="HEAD",
+            head_ref=head_ref,
             output_dir=output_dir,
             trace_pairs=(PAIR,),
         )
@@ -217,6 +226,30 @@ class AttestationGenerationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(AttestationError, "new_trace_sha256 mismatch"):
             self.generate()
+
+    def test_checkout_commit_must_match_attested_head(self) -> None:
+        self.add_manifest()
+        git(self.root, "branch", "different-head", self.base_sha)
+
+        with self.assertRaisesRegex(
+            AttestationError,
+            "checked out commit .* does not match attested head",
+        ):
+            self.generate(head_ref="different-head")
+
+    def test_old_trace_is_loaded_from_protected_base(self) -> None:
+        base_trace_hashes = recompute_trace_hashes(self.root, (PAIR,))
+        write_json(self.root, PAIR.old_path, trace("head-controlled old trace"))
+        git(self.root, "add", PAIR.old_path)
+        git(self.root, "commit", "-qm", "change old corpus in head")
+        manifest = self.add_manifest(trace_hashes=base_trace_hashes)
+
+        artifact = self.generate()
+
+        self.assertIsNotNone(artifact)
+        assert artifact is not None
+        self.assertEqual(artifact["old_trace_sha256"], base_trace_hashes["old_trace_sha256"])
+        self.assertEqual(manifest["old_trace_sha256"], base_trace_hashes["old_trace_sha256"])
 
     def test_changed_manifest_must_match_actual_pr_number(self) -> None:
         self.add_manifest(pr_number=124)

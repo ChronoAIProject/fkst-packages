@@ -92,8 +92,15 @@ class CiWorkflowTest(unittest.TestCase):
     def test_intent_diff_attestation_uses_actual_pr_context_after_tests(self) -> None:
         workflow = self.read_workflow()
 
+        test_job_at = workflow.index("\n  test:\n")
+        checkout_at = workflow.index("- name: Checkout fkst-packages", test_job_at)
+        head_ref_at = workflow.index(
+            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            checkout_at,
+        )
         tests_at = workflow.index("scripts/run.sh test")
         attestation_at = workflow.index("scripts/generate_intent_diff_attestation.py")
+        self.assertLess(head_ref_at, tests_at)
         self.assertLess(tests_at, attestation_at)
         self.assertIn("github.event.pull_request.number", workflow)
         self.assertIn("github.event.pull_request.head.sha", workflow)
