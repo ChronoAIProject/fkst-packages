@@ -31,6 +31,7 @@ local allowed_env = {
   FKST_DEVLOOP_BOARD_CMD = true,
   FKST_DEVLOOP_TEST_COMMAND = true,
   FKST_DEVLOOP_LOCAL_TEST_COMMAND = true,
+  FKST_DEVLOOP_CACHE_PREPARATION_COMMAND = true,
   FKST_OUTPUT_LANG = true,
   FKST_DEBUG_STAMP = true,
 }
@@ -200,6 +201,14 @@ function C.local_iteration_test_command(exec)
   local command = C.read_env("FKST_DEVLOOP_LOCAL_TEST_COMMAND", exec)
   if command == nil then
     return "scripts/run.sh test-affected"
+  end
+  return command
+end
+
+function C.cache_preparation_command(exec)
+  local command = strings.trim(C.read_env("FKST_DEVLOOP_CACHE_PREPARATION_COMMAND", exec) or "")
+  if command == "" then
+    return nil
   end
   return command
 end
