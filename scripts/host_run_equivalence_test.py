@@ -15,6 +15,9 @@ import tomllib
 import unittest
 from pathlib import Path
 
+from host_run_process_group_test import ProcessGroupCleanupTest
+from host_run_test_support import run_bounded
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_PATH = REPO_ROOT / "scripts" / "host_run_equivalence_golden.json"
@@ -36,7 +39,6 @@ WEBSITE_PLATFORM_PACKAGES = " ".join(
 )
 STALE_WEBSITE_PACKAGES = "github-devloop github-devloop-pr github-devloop-integration"
 FIXED_TS = "1760000000"
-COMMAND_TIMEOUT_SECONDS = 60.0
 
 
 def self_workspace_platform_packages() -> str:
@@ -59,45 +61,6 @@ ALL_PLATFORM_PACKAGES = sorted(set(PLATFORM_PACKAGES.split()) | set(WEBSITE_PLAT
 def write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
-
-
-def kill_process_group(process: subprocess.Popen[str]) -> None:
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except PermissionError:
-        if process.poll() is None:
-            raise
-
-
-def run_bounded(
-    args: list[str],
-    *,
-    cwd: Path,
-    env: dict[str, str],
-    timeout: float = COMMAND_TIMEOUT_SECONDS,
-) -> subprocess.CompletedProcess[str]:
-    process = subprocess.Popen(
-        args,
-        cwd=cwd,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        kill_process_group(process)
-        stdout, stderr = process.communicate(timeout=timeout)
-        error.stdout = stdout
-        error.stderr = stderr
-        raise
-    finally:
-        kill_process_group(process)
-    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def wait_for_process_exit(pid: int, timeout: float = 5.0) -> bool:
