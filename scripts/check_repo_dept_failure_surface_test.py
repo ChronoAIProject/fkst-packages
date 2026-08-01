@@ -103,6 +103,20 @@ class DeptFailureSurfaceTest(unittest.TestCase):
         fresh = messages({NAKED: NO_SURFACE, "packages/np/departments/nd/main.lua": NO_SURFACE}, allow)
         self.assertTrue(any("np.nd" in m for m in fresh))
 
+    def test_wrapper_only_is_accepted_but_is_NOT_a_dlq_guarantee(self):
+        """The ratchet passes tier 2, and that is deliberate -- but it must not be read as DLQ.
+
+        `wrap_pipeline_failure` pcalls, emits a log fact, then rethrows; with no `retry` the engine
+        ACKs the rethrow as `dropped_no_retry_policy`. Merged PR#2998 originally described the two
+        mechanisms as equivalent, which overclaimed the guarantee for ~27 departments. This test
+        pins the accepted-but-weaker status so the wording cannot silently regress to "reaches DLQ".
+        """
+        self.assertEqual(messages({PROTECTED: WITH_WRAPPER}, set()), [])
+        fired = messages({NAKED: NO_SURFACE}, set())
+        self.assertTrue(fired)
+        self.assertIn("NO error fact at all", fired[0])
+        self.assertIn("only `retry`", fired[0])
+
     def test_dept_id_parses_package_and_department(self):
         self.assertEqual(check.dept_id(PROTECTED), "pkg.worker")
         self.assertIsNone(check.dept_id("packages/pkg/core.lua"))
