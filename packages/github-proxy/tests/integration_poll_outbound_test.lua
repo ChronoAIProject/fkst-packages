@@ -227,6 +227,38 @@ return {
     assert_observed_issue(observed_issue_raises(result.raises)[1], 43, "2026-06-03T01:03:00Z")
   end,
 
+  test_inbound_poll_bounds_and_advances_cache_warm_issue_observations = function()
+    local run_opts = opts("cache-warm-observation-budget", {
+      FKST_GITHUB_PROXY_REPLAY_BUDGET = "1",
+    })
+    local issues = issue_list_from({
+      issue_json(44, "2026-06-03T01:04:00Z"),
+      issue_json(42, "2026-06-03T01:02:00Z"),
+      issue_json(43, "2026-06-03T01:03:00Z"),
+    })
+    local observed_numbers = {}
+
+    for poll = 1, 4 do
+      mock_poll_env("1")
+      mock_issue_list(issues)
+      mock_pr_list("[]\n")
+      local result = t.run_department("departments/github_poll/main.lua", {
+        queue = "github_poll_tick",
+        payload = {},
+        ts = "cache-warm-observed-" .. tostring(poll),
+      }, run_opts)
+
+      t.eq(result.exit_code, 0)
+      local observed = observed_issue_raises(result.raises)
+      t.eq(#observed, 1)
+      observed_numbers[tonumber(observed[1].payload.number)] = true
+    end
+
+    t.is_true(observed_numbers[42])
+    t.is_true(observed_numbers[43])
+    t.is_true(observed_numbers[44])
+  end,
+
   test_inbound_poll_replay_budget_is_shared_across_issue_and_pr_lanes = function()
     local event = { queue = "github_poll_tick", payload = {} }
     local run_opts = opts("shared-replay-budget", {
