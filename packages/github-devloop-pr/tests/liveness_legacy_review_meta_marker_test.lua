@@ -228,6 +228,19 @@ return {
     end
   end,
 
+  test_legacy_classifier_does_not_absorb_partially_bound_review_meta = function()
+    local partial = LEGACY_REVIEW_META_MARKER:gsub(
+      ' gap="', ' review_proposal="' .. REVIEW_PROPOSAL_ID .. '" gap="', 1)
+    local comments = { trusted_comment(partial) }
+    local observation = m_fix_feedback_observation.observe(
+      comments, PROPOSAL_ID, FIXING_VERSION)
+    t.eq(observation.status, "invalid")
+    t.eq(observation.reason_code, "fix-feedback-missing-review-dedup-key")
+    t.eq(observation.legacy_shape, nil)
+    t.eq(m_fix_feedback_observation.legacy_review_meta_unbound(
+      comments, PROPOSAL_ID, FIXING_VERSION), nil)
+  end,
+
   test_observe_pr_routes_legacy_fix_feedback_to_review_meta_before_replay = function()
     local initial_comments = pr_comments("fixing", FIXING_VERSION, {
       trusted_comment(LEGACY_REVIEW_META_MARKER),
