@@ -201,6 +201,23 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
+  local authority_current, authority_reason, authorized_version = operator_commands.output_obligation_rereview_command_precondition(
+    command,
+    pr_number,
+    current_pr,
+    state
+  )
+  if not authority_current then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "authorized-rereview-command", "reviewing", "refused(command-authority-changed)", "output obligation rereview authority changed before application")
+    local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
+      pr_number,
+      command,
+      authority_reason,
+      source_ref
+    )
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
+    return true
+  end
   local admissible, precondition_reason = operator_commands.rereview_precondition(
     current_pr,
     origin,
@@ -252,7 +269,8 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     return true
   end
 
-  local new_version = operator_commands.operator_rereview_version(state.version, current_pr.head_sha)
+  local new_version = authorized_version
+    or operator_commands.operator_rereview_version(state.version, current_pr.head_sha)
   local comment_request = requests_review.build_operator_rereview_comment_request(origin.repo,
     pr_number,
     origin.proposal_id,

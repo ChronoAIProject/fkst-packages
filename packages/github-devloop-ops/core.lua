@@ -113,6 +113,7 @@ require("core.dependency_wait").install(M)
 require("core.state_gap").install(M)
 local entity = require("devloop.entity")
 M.linked_pr_surface_snapshot = function(...) return entity.linked_pr_surface_snapshot(M, ...) end
+M.linked_pr_delegation_surface_snapshot = function(...) return entity.linked_pr_delegation_surface_snapshot(M, ...) end
 require("core.observability_bounds").install(M)
 require("core.ensure_repo").install(M)
 require("core.doctor").install(M)

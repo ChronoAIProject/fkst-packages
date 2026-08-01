@@ -4,6 +4,7 @@ local core = h.core
 local resolution = require("departments.observability.output_obligation_resolution")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_base = require("devloop.base")
+local entity_lib = require("devloop.entity")
 local marker_builders = require("devloop.markers.builders")
 local operator_commands = require("devloop.operator_commands")
 
@@ -148,10 +149,11 @@ local function linked_pr_snapshot(state, version, extra)
       {
         number = snapshot_pr_number,
         link = {
+          kind = "delegation",
           pr_number = snapshot_pr_number,
-          branch = fields.link_branch or pr_branch,
-          impl_version = fields.link_impl_version or ready_version,
-          base_branch = fields.link_base_branch or "dev",
+          pr_proposal_id = entity_lib.pr_proposal_id(repo, snapshot_pr_number),
+          version = fields.link_version or ready_version,
+          delegation = fields.link_delegation or "g1",
         },
         current = {
           state = fields.external_state or "OPEN",
@@ -168,15 +170,15 @@ local function linked_pr_snapshot(state, version, extra)
   }
 end
 
-local function source_with_pr_link(overrides, link_fields)
+local function source_with_pr_delegation(overrides, link_fields)
   local link = link_fields or {}
   local source = live_source_issue()
-  source.comments = append_comment(source.comments, bot_comment(marker_builders.pr_link_marker(
+  source.comments = append_comment(source.comments, bot_comment(marker_builders.pr_delegation_marker(
     proposal_id,
+    entity_lib.pr_proposal_id(repo, pr_number),
     pr_number,
-    link.branch or pr_branch,
-    link.impl_version or ready_version,
-    link.base_branch or "dev"
+    link.version or ready_version,
+    link.delegation or "g1"
   )))
   for key, value in pairs(overrides or {}) do
     source[key] = value
@@ -382,7 +384,7 @@ return {
 
   test_live_source_decision_table_selects_rereview_reintake_or_wait = function()
     local fact = classify(escalation_issue())
-    local linked_source = source_with_pr_link()
+    local linked_source = source_with_pr_delegation()
 
     local rereview = core.output_obligation_resolution_decision(
       fact,
@@ -435,7 +437,7 @@ return {
   test_rereview_requires_exact_applied_response_and_command_derived_reentry = function()
     local issue = escalation_issue()
     local fact = classify(issue)
-    local source = source_with_pr_link()
+    local source = source_with_pr_delegation()
     local initial_snapshot = linked_pr_snapshot("blocked", pr_blocked_version)
     local first = core.output_obligation_resolution_decision(fact, issue, source, initial_snapshot)
     local replay = core.output_obligation_resolution_decision(fact, issue, source, initial_snapshot)
@@ -495,7 +497,7 @@ return {
   test_multiple_correlated_rereview_commands_wait_without_another_effect = function()
     local issue = escalation_issue()
     local fact = classify(issue)
-    local source = source_with_pr_link()
+    local source = source_with_pr_delegation()
     local snapshot = linked_pr_snapshot("blocked", pr_blocked_version)
     local first = core.output_obligation_resolution_decision(fact, issue, source, snapshot)
     local comments = append_comment(
@@ -523,7 +525,7 @@ return {
   test_existing_rereview_revalidates_other_same_lineage_pr_quiescence = function()
     local issue = escalation_issue()
     local fact = classify(issue)
-    local source = source_with_pr_link()
+    local source = source_with_pr_delegation()
     local initial_snapshot = linked_pr_snapshot("blocked", pr_blocked_version)
     local first = core.output_obligation_resolution_decision(fact, issue, source, initial_snapshot)
     local command = command_comment(first.request, "IC_rereview_other_active")
@@ -541,7 +543,6 @@ return {
     local other_branch = "devloop-owner-repo-42-other-live-recovery"
     local other = linked_pr_snapshot("fixing", pr_blocked_version, {
       pr_number = 78,
-      link_branch = other_branch,
       origin_branch = other_branch,
       head_ref_name = other_branch,
       head_sha = "1234567890abcdef1234567890abcdef12345678",
@@ -618,7 +619,7 @@ return {
   test_existing_reintake_revalidates_same_lineage_pr_quiescence = function()
     local issue = escalation_issue()
     local fact = classify(issue)
-    local source = source_with_pr_link()
+    local source = source_with_pr_delegation()
     local quiescent = linked_pr_snapshot("merged", pr_blocked_version, { external_state = "MERGED" })
     local first = core.output_obligation_resolution_decision(fact, issue, source, quiescent)
     local command = command_comment(first.request, "IC_reintake_pr_drift", "2026-07-27T12:30:00Z")
@@ -667,9 +668,9 @@ return {
     local decision = core.output_obligation_resolution_decision(
       classify(escalation_issue()),
       escalation_issue(),
-      source_with_pr_link(nil, { impl_version = new_generation }),
+      source_with_pr_delegation(nil, { version = new_generation }),
       linked_pr_snapshot("fixing", new_generation, {
-        link_impl_version = new_generation,
+        link_version = new_generation,
         origin_impl_version = new_generation,
       })
     )
@@ -679,15 +680,11 @@ return {
 
   test_incoherent_linked_pr_cannot_authorize_rereview_or_reintake = function()
     local fact = classify(escalation_issue())
-    local source = source_with_pr_link()
+    local source = source_with_pr_delegation()
     local cases = {
       linked_pr_snapshot("blocked", pr_blocked_version, { is_cross_repository = true }),
       linked_pr_snapshot("blocked", pr_blocked_version, { head_ref_name = "changed-head" }),
       linked_pr_snapshot("blocked", pr_blocked_version, { head_sha = "not-a-sha" }),
-      linked_pr_snapshot("blocked", pr_blocked_version, {
-        origin_branch = "different-origin-branch",
-        head_ref_name = "different-origin-branch",
-      }),
       linked_pr_snapshot("blocked", pr_blocked_version, {
         origin_impl_version = "ready/another-generation",
       }),

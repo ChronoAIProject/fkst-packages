@@ -88,7 +88,39 @@ local function linked_pr_links(M, issue_comments, proposal_id)
   return links
 end
 
-function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts)
+local function linked_pr_delegations(M, issue_comments, proposal_id)
+  local links = {}
+  local seen = {}
+  local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-delegation:v1.-%-%->"
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(issue_comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
+      local marker_proposal = marker:match('proposal="([^"]+)"')
+      local marker_pr_proposal = marker:match('pr_proposal="([^"]+)"')
+      local marker_pr = marker:match('pr="([^"]+)"')
+      local marker_version = marker:match('version="([^"]*)"')
+      local marker_delegation = marker:match('delegation="([^"]*)"')
+      local _, proposal_pr_number = C.parse_pr_proposal_id(marker_pr_proposal)
+      if marker_proposal == proposal_id
+        and forge_validators.is_positive_pr_number(marker_pr)
+        and tostring(proposal_pr_number or "") == tostring(marker_pr)
+        and strings.is_bounded_string(marker_version, M._max_dedup_len)
+        and strings.is_path_safe_key(marker_delegation, M._max_dedup_len)
+        and not seen[tostring(marker_pr)] then
+        seen[tostring(marker_pr)] = true
+        table.insert(links, {
+          kind = "delegation",
+          pr_number = tonumber(marker_pr),
+          pr_proposal_id = marker_pr_proposal,
+          version = marker_version,
+          delegation = marker_delegation,
+        })
+      end
+    end
+  end
+  return links
+end
+
+local function linked_pr_surface_snapshot(M, repo, issue_comments, links, opts)
   local options = opts or {}
   local snapshot = {
     comments = issue_comments or {},
@@ -97,7 +129,7 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
     deferred = false,
     defer_reason = nil,
   }
-  for _, link in ipairs(linked_pr_links(M, issue_comments, proposal_id)) do
+  for _, link in ipairs(links) do
     local pr_number = link.pr_number
     local pr_view
     if options.cache_only == true then
@@ -139,6 +171,26 @@ function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts
     ["pr-head"] = true,
   }
   return snapshot
+end
+
+function C.linked_pr_surface_snapshot(M, repo, proposal_id, issue_comments, opts)
+  return linked_pr_surface_snapshot(
+    M,
+    repo,
+    issue_comments,
+    linked_pr_links(M, issue_comments, proposal_id),
+    opts
+  )
+end
+
+function C.linked_pr_delegation_surface_snapshot(reader, repo, proposal_id, issue_comments, opts)
+  return linked_pr_surface_snapshot(
+    reader,
+    repo,
+    issue_comments,
+    linked_pr_delegations(reader, issue_comments, proposal_id),
+    opts
+  )
 end
 
 function C.pr_proposal_id(repo, pr_number)

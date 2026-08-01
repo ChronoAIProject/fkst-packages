@@ -111,12 +111,12 @@ local function live_source_fixture(with_pr)
     bot_comment(core.state_marker(proposal_id, "blocked", terminal_version)),
   }
   if with_pr then
-    table.insert(comments, bot_comment(marker_builders.pr_link_marker(
+    table.insert(comments, bot_comment(marker_builders.pr_delegation_marker(
       proposal_id,
+      entity_lib.pr_proposal_id(repo, pr_number),
       pr_number,
-      pr_branch,
       ready_version,
-      "dev"
+      "g1"
     )))
   end
   return {
@@ -595,6 +595,57 @@ return {
     local close_tick = run_tick(department)
     t.eq(find_target_raise(close_tick.raises, "github-proxy.github_issue_comment_request", "issue_number", escalation_issue_number), nil)
     t.is_true(close_write(model.writes) ~= nil)
+  end,
+
+  test_refused_rereview_falls_through_to_fresh_reintake_without_reemitting = function()
+    mock_env("1")
+    local source = live_source_fixture(true)
+    local pr = pr_fixture("blocked", pr_blocked_version)
+    local department = fake_department({
+      source_issue = source,
+      prs = { ["owner/repo#pr/77"] = pr },
+    })
+
+    mock_census({})
+    local command_tick = run_tick(department)
+    local rereview = find_target_raise(
+      command_tick.raises,
+      "github-proxy.github_pr_comment_request",
+      "pr_number",
+      pr_number
+    )
+    t.is_true(rereview ~= nil)
+
+    local command_comment = identified_bot_comment(
+      "IC_rereview_refused",
+      rereview.payload.body
+    )
+    pr.comments = append_comment(pr.comments, command_comment)
+    local command_fact = operator_commands.operator_command_fact(pr.comments, "rereview")
+    pr.comments = append_comment(pr.comments, bot_comment(
+      operator_commands.operator_command_marker(command_fact, "refused", "command-authority-changed")
+    ))
+    pr.comments = append_comment(pr.comments, bot_comment(
+      core.state_marker(proposal_id, "merged", pr_blocked_version)
+    ))
+    pr.state = "MERGED"
+
+    mock_census({})
+    local recovery_tick = run_tick(department)
+    t.eq(find_target_raise(
+      recovery_tick.raises,
+      "github-proxy.github_pr_comment_request",
+      "pr_number",
+      pr_number
+    ), nil)
+    local reintake = find_target_raise(
+      recovery_tick.raises,
+      "github-proxy.github_issue_comment_request",
+      "issue_number",
+      source_issue_number
+    )
+    t.is_true(reintake ~= nil)
+    t.is_true(reintake.payload.body:find("fkst: reintake", 1, true) == 1)
   end,
 
   test_reintake_multitick_recovers_command_applied_generation_receipt_and_close = function()

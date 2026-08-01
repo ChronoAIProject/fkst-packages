@@ -1,5 +1,4 @@
 local base_ids = require("devloop.base_ids")
-local conv_reconcile = require("devloop.convergence.reconcile")
 local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
@@ -7,7 +6,6 @@ local forge_validators = require("devloop.forge_validators")
 local marker_facts = require("devloop.markers.facts")
 local operator_commands = require("devloop.operator_commands")
 local parsers_misc = require("devloop.parsers.misc")
-local pr_partition = require("devloop.restart.issue.pr_partition_contract")
 
 local S = {}
 
@@ -18,34 +16,6 @@ local command_names = {
   ["rereview"] = "rereview",
   ["abandon-recreate"] = "reintake",
 }
-local source_routes = {
-  blocked = "blocked",
-}
-
-local function build_pr_state_routes()
-  local routes = {}
-  for _, state in ipairs(pr_partition.pr_phase_states()) do
-    routes[state] = {
-      kind = "phase",
-      recovery = "active",
-      state = state,
-    }
-  end
-  for _, state in ipairs(pr_partition.pr_terminal_states()) do
-    routes[state] = {
-      kind = "terminal",
-      recovery = "quiescent",
-      state = state,
-    }
-  end
-  routes.blocked.recovery = "rereview"
-  routes["review-meta"].recovery = "rereview"
-  routes.reviewing.recovery = "rereview"
-  return routes
-end
-
-local pr_state_routes = build_pr_state_routes()
-
 local function attr(marker, name)
   return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
 end
@@ -63,43 +33,12 @@ local function marker_attr(value, limit)
     :gsub(">", "&gt;")
 end
 
-local function same_source_ref(left, right)
-  local ok_left, normalized_left = pcall(base_ids.normalize_source_ref, left)
-  local ok_right, normalized_right = pcall(base_ids.normalize_source_ref, right)
-  return ok_left
-    and ok_right
-    and normalized_left.kind == normalized_right.kind
-    and normalized_left.ref == normalized_right.ref
-end
-
 local function source_lineage_fact(fact, source_issue)
-  if not same_source_ref(source_issue and source_issue.source_ref, fact and fact.source_ref) then
-    return nil
-  end
-  local allowed_from_states = {}
-  for _, state in ipairs(devloop_state.issue_state_order()) do
-    if #devloop_state.state_successors(state) > 0 then
-      allowed_from_states[state] = true
-    end
-  end
-  local source_fact = conv_reconcile.timeout_reconcile_fact_for_terminal_version_from_states(
-    source_issue.comments,
-    fact.proposal_id,
-    fact.terminal_version,
-    allowed_from_states
-  )
-  if source_fact == nil
-    or source_fact.reason_class ~= fact.reason_class
-    or not same_source_ref(source_fact.source_ref, fact.source_ref) then
-    return nil
-  end
-  return source_fact
+  return operator_commands.output_obligation_source_lineage_fact(fact, source_issue)
 end
 
 local function current_source_terminal_matches(fact, source_issue)
-  local current = devloop_state.route_current(source_issue.comments, fact.proposal_id, source_routes)
-  return current.route == "blocked"
-    and tostring(current.version or "") == tostring(fact.terminal_version)
+  return operator_commands.output_obligation_current_source_terminal_matches(fact, source_issue)
 end
 
 local function resolution_receipt_marker(fact, decision, max_dedup_len)
@@ -181,7 +120,8 @@ local function build_command_decision(M, fact, decision, target, source_ref, fie
     command_name,
     command_dedup_key(fact, decision),
     source_ref,
-    command_correlation_marker(M, fact, decision, fields)
+    command_correlation_marker(M, fact, decision, fields),
+    operator_commands.build_output_obligation_command_guard(fact, decision, fields)
   )
   return {
     decision = decision,
@@ -219,89 +159,40 @@ local function correlated_command(comments, fact, decision)
   return found, nil
 end
 
-local function applied_response(comments, command, expected_reason)
+local function command_response_status(comments, command, expected_reason)
   local response = operator_commands.operator_command_response_fact(comments, command)
   if response == nil then
-    return false, "command-response-pending"
+    return "pending", "command-response-pending"
+  end
+  if response.outcome == "refused" then
+    return "refused", "command-refused"
   end
   if response.outcome ~= "applied" or response.reason ~= expected_reason then
-    return false, "command-not-applied"
+    return "invalid", "command-not-applied"
   end
-  return true, nil
+  return "applied", nil
+end
+
+local function applied_response(comments, command, expected_reason)
+  local status, reason = command_response_status(comments, command, expected_reason)
+  return status == "applied", reason
 end
 
 local function linked_pr_generation(source_fact, row)
-  local link = type(row) == "table" and row.link or nil
-  if type(link) ~= "table"
-    or not forge_validators.is_positive_pr_number(row.number)
-    or not forge_validators.is_positive_pr_number(link.pr_number)
-    or tostring(link.pr_number) ~= tostring(row.number) then
-    return nil, "linked-pr-incoherent"
-  end
-  if tostring(link.impl_version or "") ~= tostring(source_fact and source_fact.from_version or "") then
-    return "other", nil
-  end
-  return "same", nil
+  return operator_commands.output_obligation_linked_pr_generation(source_fact, row)
 end
 
 local function coherent_pr(fact, row)
-  local current_pr = type(row) == "table" and row.current or nil
-  local link = type(row) == "table" and row.link or nil
-  if type(current_pr) ~= "table" or type(link) ~= "table" then
-    return nil, "linked-pr-incoherent"
-  end
-  local origin = marker_facts.pr_origin_fact(current_pr.comments)
-  local routed = devloop_state.route_current(current_pr.comments, fact.proposal_id, pr_state_routes)
-  local route = routed.route
-  if origin == nil
-    or origin.proposal_id ~= fact.proposal_id
-    or origin.repo ~= fact.source_repo
-    or tostring(origin.issue_number or "") ~= tostring(fact.source_issue_number or "")
-    or tostring(link.branch or "") ~= tostring(origin.branch or "")
-    or tostring(link.impl_version or "") ~= tostring(origin.impl_version or "")
-    or tostring(link.base_branch or "") ~= tostring(origin.base_branch or "")
-    or tostring(current_pr.head_ref_name or "") ~= tostring(origin.branch or "")
-    or tostring(current_pr.base_ref_name or "") ~= tostring(origin.base_branch or "")
-    or tostring(current_pr.head_repository or ""):lower() ~= tostring(fact.source_repo or ""):lower()
-    or current_pr.is_cross_repository == true
-    or not forge_validators.is_git_sha(current_pr.head_sha)
-    or type(route) ~= "table" then
-    return nil, "linked-pr-incoherent"
-  end
-  local current = {
-    state = route.state,
-    version = routed.version,
-    marker_created_at = routed.marker_created_at,
-  }
-  return {
-    row = row,
-    origin = origin,
-    current = current,
-    route = route,
-    current_pr = current_pr,
-  }, nil
+  return operator_commands.output_obligation_coherent_pr(fact, row)
 end
 
 local function same_lineage_prs_quiescent(fact, source_fact, snapshot, excluded_pr_number)
-  for _, row in ipairs(snapshot and snapshot.prs or {}) do
-    local generation, generation_reason = linked_pr_generation(source_fact, row)
-    if generation == nil then
-      return false, generation_reason
-    end
-    if generation == "same" and tostring(row.number) ~= tostring(excluded_pr_number or "") then
-      local coherent, reason = coherent_pr(fact, row)
-      if coherent == nil then
-        return false, reason
-      end
-      if coherent.route.kind == "phase" then
-        return false, "linked-pr-active"
-      end
-      if coherent.route.kind ~= "terminal" then
-        return false, "linked-pr-incoherent"
-      end
-    end
-  end
-  return true, nil
+  return operator_commands.output_obligation_same_lineage_prs_quiescent(
+    fact,
+    source_fact,
+    snapshot,
+    excluded_pr_number
+  )
 end
 
 local function existing_rereview_command(snapshot, fact)
@@ -431,6 +322,25 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
   if rereview_command_reason == "ambiguous-command" or reintake_command_reason == "ambiguous-command" then
     return { action = "wait", reason = "ambiguous-command" }
   end
+  local spent = {}
+  if rereview_command ~= nil then
+    local status = command_response_status(
+      rereview_command.row.current and rereview_command.row.current.comments,
+      rereview_command.metadata.command,
+      "rereview"
+    )
+    if status == "refused" then
+      spent.rereview = true
+      rereview_command = nil
+    end
+  end
+  if reintake_command ~= nil then
+    local status = command_response_status(source_issue.comments, reintake_command.command, "reintake")
+    if status == "refused" then
+      spent["abandon-recreate"] = true
+      reintake_command = nil
+    end
+  end
   if rereview_command ~= nil and reintake_command ~= nil then
     return { action = "wait", reason = "ambiguous-command-decision" }
   end
@@ -451,51 +361,20 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
       reintake_command
     )
   end
-  if not current_source_terminal_matches(fact, source_issue) then
-    return { action = "wait", reason = "source-terminal-changed" }
+  local authorization, authorization_reason = operator_commands.output_obligation_live_command_authorization(
+    fact,
+    source_issue,
+    snapshot,
+    source_fact
+  )
+  if authorization == nil then
+    return { action = "wait", reason = authorization_reason }
   end
-
-  local target = nil
-  local active = false
-  for _, row in ipairs(snapshot and snapshot.prs or {}) do
-    local generation, generation_reason = linked_pr_generation(source_fact, row)
-    if generation == nil then
-      return { action = "wait", reason = generation_reason }
-    end
-    if generation == "same" then
-      local coherent, reason = coherent_pr(fact, row)
-      if coherent == nil then
-        return { action = "wait", reason = reason }
-      end
-      local admissible = false
-      if coherent.route.recovery == "rereview" then
-        admissible = operator_commands.rereview_precondition(
-          coherent.current_pr,
-          coherent.origin,
-          row.number,
-          coherent.current
-        )
-      end
-      if admissible then
-        if target ~= nil then
-          return { action = "wait", reason = "multiple-rereview-targets" }
-        end
-        target = coherent
-      elseif coherent.route.kind == "phase" then
-        active = true
-      elseif coherent.route.kind ~= "terminal" then
-        return { action = "wait", reason = "linked-pr-incoherent" }
-      end
-    end
+  if spent[authorization.decision] then
+    return { action = "wait", reason = "command-refused" }
   end
-  if active then
-    return { action = "wait", reason = "linked-pr-active" }
-  end
-  if target ~= nil then
-    local target_version = operator_commands.operator_rereview_version(
-      target.current.version,
-      target.current_pr.head_sha
-    )
+  if authorization.decision == "rereview" then
+    local target = authorization.target
     return build_command_decision(
       M,
       fact,
@@ -505,18 +384,9 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
       {
         pr_number = target.row.number,
         head_sha = target.current_pr.head_sha,
-        target_version = target_version,
+        target_version = authorization.target_version,
       }
     )
-  end
-  if not marker_facts.has_intake_decision_marker(source_issue.comments, fact.proposal_id)
-    or devloop_base.is_intake_held(source_issue.labels)
-    or operator_commands.reintake_has_active_devloop_state(
-      source_issue.labels,
-      source_issue.comments,
-      fact.proposal_id
-    ) then
-    return { action = "wait", reason = "reintake-precondition-failed" }
   end
   return build_command_decision(
     M,

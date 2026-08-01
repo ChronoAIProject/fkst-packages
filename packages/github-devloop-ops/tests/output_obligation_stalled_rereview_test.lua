@@ -93,12 +93,12 @@ local function source_issue()
       )),
       bot_comment(source_timeout_marker()),
       bot_comment(core.state_marker(proposal_id, "blocked", terminal_version)),
-      bot_comment(marker_builders.pr_link_marker(
+      bot_comment(marker_builders.pr_delegation_marker(
         proposal_id,
+        entity_lib.pr_proposal_id(repo, pr_number),
         pr_number,
-        pr_branch,
         ready_version,
-        "dev"
+        "g1"
       )),
     },
   }
@@ -124,10 +124,11 @@ local function stalled_snapshot()
       {
         number = pr_number,
         link = {
+          kind = "delegation",
           pr_number = pr_number,
-          branch = pr_branch,
-          impl_version = ready_version,
-          base_branch = "dev",
+          pr_proposal_id = entity_lib.pr_proposal_id(repo, pr_number),
+          version = ready_version,
+          delegation = "g1",
         },
         current = {
           state = "OPEN",

@@ -40,7 +40,7 @@ local function refresh_decision(core, github, fact, limits, deadline, consumer)
   })
   local linked_pr_snapshot = nil
   if tostring(source_issue and source_issue.state or ""):upper() == "OPEN" then
-    linked_pr_snapshot = core.linked_pr_surface_snapshot(
+    linked_pr_snapshot = core.linked_pr_delegation_surface_snapshot(
       fact.source_repo,
       fact.proposal_id,
       source_issue.comments,
