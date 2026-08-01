@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "95b4444e1dc4c030abd095dcabce029bc0d340cdfee1f76d787c7e959a21e533",
+  "artifact_sha256": "7f1daa69cf99c8c4b197424b64a36ee31c14f95f80707d075228d2e17b30609e",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -27342,8 +27342,7 @@
                 "fkst-dev:review-meta",
                 "fkst-dev:merging",
                 "fkst-dev:merged",
-                "fkst-dev:awaiting-pr",
-                "fkst-dev:blocked-on-dependency"
+                "fkst-dev:awaiting-pr"
               ],
               "schema": "github-proxy.label.v1",
               "target_kind": "issue",
@@ -27503,8 +27502,7 @@
                 "fkst-dev:review-meta",
                 "fkst-dev:merging",
                 "fkst-dev:merged",
-                "fkst-dev:awaiting-pr",
-                "fkst-dev:blocked-on-dependency"
+                "fkst-dev:awaiting-pr"
               ],
               "schema": "github-proxy.label.v1",
               "target_kind": "issue",
@@ -27664,8 +27662,7 @@
                 "fkst-dev:review-meta",
                 "fkst-dev:merging",
                 "fkst-dev:merged",
-                "fkst-dev:awaiting-pr",
-                "fkst-dev:blocked-on-dependency"
+                "fkst-dev:awaiting-pr"
               ],
               "schema": "github-proxy.label.v1",
               "target_kind": "issue",
@@ -28373,8 +28370,7 @@
                 "fkst-dev:review-meta",
                 "fkst-dev:merging",
                 "fkst-dev:merged",
-                "fkst-dev:awaiting-pr",
-                "fkst-dev:blocked-on-dependency"
+                "fkst-dev:awaiting-pr"
               ],
               "schema": "github-proxy.label.v1",
               "target_kind": "issue",
@@ -34476,7 +34472,7 @@
             "authority_class": "lifecycle-authoritative",
             "department": "consensus_result",
             "effect_id": "label:issue:consensus-result",
-            "family": "state-label:ready|declined;dedup=proposal/label/logical-result",
+            "family": "state-label:ready|dependency_wait|declined;dedup=proposal/label/logical-result",
             "sink_kind": "label"
           },
           {
