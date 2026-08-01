@@ -363,7 +363,8 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
       outcome.attempt,
       outcome.started_at,
       outcome.exec_ref,
-      outcome.detail
+      outcome.detail,
+      outcome.reason
     )
     devloop_logging.log_raise("implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", request)
     return
