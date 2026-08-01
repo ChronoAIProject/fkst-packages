@@ -113,7 +113,7 @@ local function handle_pending_reintake(context, repo, issue, current, proposal_i
   end
   if core.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id) then
     reconcile_capacity(context, repo, proposal_id)
-    raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states", source_ref)
+    raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state; use rereview, reready, or reimplement for recoverable active states", source_ref)
     return true
   end
   local claim_admission, claim_detail = settled_claim_admission(context, repo, current, poll_key)
@@ -295,6 +295,11 @@ local function act_issue_observed(context, event)
     return
   end
   local proposal_id = base_ids.proposal_id(repo, issue_number)
+  local claim_mode_allowed, claim_mode_reason = replay_authorization.claim_mode_precondition()
+  if not claim_mode_allowed then
+    devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(claim_mode_reason), "intake replay is unavailable in the active claim mode")
+    return
+  end
   devloop_base.assert_trusted_bot_configured()
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)

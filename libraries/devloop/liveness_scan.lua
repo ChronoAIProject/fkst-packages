@@ -217,6 +217,19 @@ local function sort_by_number(items)
   return items
 end
 
+local function entities_in_cursor_cycle(activations, cursor, high_water)
+  local eligible = {}
+  for _, activation in ipairs(activations) do
+    local number = tonumber(activation.entity and activation.entity.number)
+    if number ~= nil
+      and (cursor == nil or number > cursor)
+      and number <= high_water then
+      table.insert(eligible, activation)
+    end
+  end
+  return eligible
+end
+
 function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
   local activations = {}
   for _, entity in ipairs(sort_by_number(items or {})) do
@@ -225,8 +238,19 @@ function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
   local total = #activations
   local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
   local cursor, high_water = parse_activation_cursor_state(cache_get(cursor_key))
+  local current_high_water = total > 0 and tonumber(activations[total].entity.number) or 0
+  if high_water == nil then
+    cursor = nil
+    high_water = current_high_water
+  end
+  local eligible = entities_in_cursor_cycle(activations, cursor, high_water)
+  if total > 0 and #eligible == 0 then
+    cursor = nil
+    high_water = current_high_water
+    eligible = entities_in_cursor_cycle(activations, cursor, high_water)
+  end
   local bounded, deferred, _, _, cursor_progress = sweep_bounds.sweep_cursor_batch(
-    activations,
+    eligible,
     cursor,
     LIVENESS_SCAN_MAX_PER_TICK,
     LIVENESS_SCAN_MAX_PER_TICK,
@@ -234,7 +258,7 @@ function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
     high_water
   )
   if deferred > 0 then
-    devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(total - LIVENESS_SCAN_MAX_PER_TICK) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
+    devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(deferred) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
   end
   return bounded, deferred, cursor_key, cursor_progress
 end
