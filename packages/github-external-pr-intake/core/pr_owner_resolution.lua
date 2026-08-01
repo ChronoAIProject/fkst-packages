@@ -1,40 +1,9 @@
 local core = require("core")
-local forge_strings = require("forge.strings")
-local env = require("workflow_internal.env")
+local claims = require("devloop.claims")
 
 local M = {}
 
 local backing_issue_view_fields = "number,state,labels,assignees,author"
-local read_env = env.read_env(function(name)
-  if name ~= "FKST_GITHUB_CLAIM_MODE" then
-    error("github-external-pr-intake: env-not-allowed: " .. tostring(name))
-  end
-  return 'printf %s "$FKST_GITHUB_CLAIM_MODE"'
-end)
-
-local function contains(values, expected)
-  for _, value in ipairs(values or {}) do
-    if tostring(value) == tostring(expected) then
-      return true
-    end
-  end
-  return false
-end
-
-local function issue_is_self_owned(issue)
-  if tostring(read_env("FKST_GITHUB_CLAIM_MODE") or "") == "label" then
-    return contains(issue.labels, "fkst-dev:claimed")
-  end
-  local owner = core.current_bot_login()
-  if #(issue.assignees or {}) == 1
-    and forge_strings.strip_bot_login_suffix(issue.assignees[1]) == owner then
-    return true
-  end
-  if #(issue.assignees or {}) > 0 then
-    return false
-  end
-  return forge_strings.strip_bot_login_suffix(issue.author_login) == owner
-end
 
 local function has_actionable_issue_origin(github, pr)
   local origin = core.find_current_issue_pr_origin(pr)
@@ -45,7 +14,7 @@ local function has_actionable_issue_origin(github, pr)
   local decoded = core.decode_json_object(result and result.stdout or "{}", "backing issue view")
   decoded.number = decoded.number or origin.issue_number
   local issue = core.normalize_issue(decoded)
-  return issue_is_self_owned(issue)
+  return claims.is_self_owned_issue(issue, claims.claim_owner())
 end
 
 function M.classify(github, pr, managed, branches)

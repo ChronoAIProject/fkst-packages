@@ -100,6 +100,7 @@ class LibraryDependencyModelGuardTest(unittest.TestCase):
                 "github-devloop",
                 "github-devloop-decompose",
                 "github-devloop-workflow",
+                "github-external-pr-intake",
                 "github-devloop-intake-default",
                 "github-devloop-intake",
                 "github-devloop-integration",

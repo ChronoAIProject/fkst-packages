@@ -168,4 +168,5 @@ allow = [
   "fkst-substrate-ref-maintainer",
   "github-proxy",
   "github-devloop-worktree-gc",
+  "github-external-pr-intake",
 ]

@@ -390,6 +390,40 @@ return {
     t.eq(raised[1].payload.owner_kind, "operator-hotfix-bridge")
   end,
 
+  test_label_mode_self_authored_unassigned_origin_stays_with_devloop = function()
+    for _ = 1, 4 do
+      t.mock_command('printf %s "$FKST_GITHUB_CLAIM_MODE"', {
+        stdout = "label",
+        stderr = "",
+        exit_code = 0,
+      })
+      t.mock_command('printf %s "$FKST_GITHUB_BOT_LOGIN"', {
+        stdout = "fkst-test-bot",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+
+    local origin = pr_origin_marker(42, "fix/generated", integration_branch)
+    local github = fake_github({
+      owner_pr({
+        number = 5,
+        head_ref_name = "fix/generated",
+        base_ref_name = integration_branch,
+        comments = { { author_login = "fkst-test-bot", body = origin } },
+      }),
+    }, {
+      [42] = { number = 42, author_login = "fkst-test-bot", assignees = {}, labels = {} },
+    })
+
+    local raised = run_events(github, {
+      { queue = "external_pr_scan", payload = { schema = "github-external-pr-intake.v1" } },
+    })
+
+    t.eq(#raised, 0)
+    t.eq(#github._model.writes, 0)
+  end,
+
   test_scan_retires_unauthorized_pr_with_durable_why = function()
     local github = fake_github({
       owner_pr({ number = 5, author_login = "untrusted-contributor", head_ref_name = "feature/untrusted" }),
