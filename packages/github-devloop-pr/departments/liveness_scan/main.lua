@@ -32,6 +32,7 @@ local spec = {
   },
   fanout = { "devloop_liveness_tick" },
   stall_window = "30s",
+  retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
 local function should_reinject_pr_base_unmanaged_heal(origin, current, state)
@@ -175,10 +176,12 @@ local function act_liveness_scan(event)
         deadline,
         current_now_seconds
       )
-      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
       if not call_ok then
-        error(should_reinject, 0)
+        -- Isolate the failed PR in the existing reliable per-PR consumer so the sweep can continue.
+        liveness_scan.liveness_scan_reinject(repo, activation.entity, "pr", event and event.ts)
+        should_reinject = false
       end
+      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
       if defer_reason == "deadline" then
         liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
         liveness_scan.liveness_scan_log_deferred("deadline", {

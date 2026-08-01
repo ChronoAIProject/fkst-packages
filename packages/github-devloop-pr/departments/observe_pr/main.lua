@@ -25,6 +25,8 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local observe_pr_caps = require("observe_pr_department_caps")
+local m_fix_feedback_observation = require("devloop.markers.fix_feedback_observation")
+local payloads_builders = require("devloop.payloads.builders")
 
 local M = {}
 local restart_transition_table = core.restart_transition_table
@@ -160,6 +162,12 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked", "decomposed", "skip-foreign(decomposed)", "decomposed marker is not visible")
     return false
   end
+  local feedback = nil
+  if not devloop_state.is_current_state(
+      current_pr.comments, origin.proposal_id, "review-meta", state.version) then
+    feedback = core.fixing_replay_feedback_fact(
+      current_pr.comments, origin.proposal_id, state.version)
+  end
   return replayer.replay_from_table(core, "observe_pr", {
     repo = origin.repo,
     number = origin.issue_number,
@@ -182,7 +190,8 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     },
     source_ref = source_ref,
     now_seconds = now_seconds,
-    feedback = core.fixing_replay_feedback_fact(current_pr.comments, origin.proposal_id, state.version), fix_feedback = core.fixing_replay_feedback_fact(current_pr.comments, origin.proposal_id, state.version),
+    feedback = feedback,
+    fix_feedback = feedback,
   })
 end
 
@@ -314,9 +323,10 @@ local function build_conflict_review_fact(origin, pr_number, current_pr, version
   if not forge_validators.is_git_sha(head_sha) then
     return nil, "head-missing"
   end
+  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, version, head_sha)
   return {
-    review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, version, head_sha),
-    review_dedup_key = "observe-pr-conflict/" .. tostring(origin.proposal_id) .. "/" .. tostring(version) .. "/" .. tostring(pr_number),
+    review_proposal_id = review_proposal_id,
+    review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
     reviewed_head_sha = head_sha,
     gate_failure_excerpt = reason,
   }, "ok"
@@ -510,6 +520,118 @@ local function maybe_block_unmanaged_base(pr, origin, current_pr, branches, sour
   return true
 end
 
+local function maybe_remediate_legacy_fix_feedback(origin, pr_number, current_pr,
+    state, source_ref, lock_key)
+  if state.state ~= "fixing" then
+    return false
+  end
+  local observation = m_fix_feedback_observation.legacy_review_meta_unbound(
+    current_pr.comments, origin.proposal_id, state.version)
+  if observation == nil then
+    return false
+  end
+  if origin.issue_number == nil or not forge_validators.is_git_sha(current_pr.head_sha) then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+      "fixing", "review-meta", "skip-pending(legacy-fix-feedback-identity)",
+      "legacy fix feedback remediation requires an issue-backed PR with a current head")
+    return true
+  end
+
+  local review_version = devloop_state._strip_latest_fix_version_suffix(state.version)
+  local review_proposal_id = devloop_base.pr_review_proposal_id(
+    origin.repo, pr_number, review_version, current_pr.head_sha)
+  local review_dedup_key =
+    devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
+  if not devloop_base.is_safe_pr_review_result_ref(
+      review_proposal_id, review_dedup_key) then
+    error("github-devloop: legacy-fix-feedback-review-identity-invalid: "
+      .. "could not derive a current review identity")
+  end
+  local review_meta = payloads_builders.build_devloop_review_meta_payload({
+    proposal_id = review_proposal_id,
+    dedup_key = review_dedup_key,
+    source_ref = source_ref,
+  }, origin.proposal_id, state.version, pr_number, 0, source_ref)
+
+  local snapshot = observe_pr_caps.restart_effects.seal_snapshot({
+    owner = observe_pr_caps.restart_package_name,
+    entity = { kind = "pr", repo = origin.repo, number = pr_number },
+    proposal_id = origin.proposal_id,
+    current = state,
+    snapshot_fingerprint = table.concat({
+      "observe-pr-legacy-fix-feedback", origin.proposal_id,
+      state.version, pr_number, current_pr.head_sha,
+    }, "|"),
+    lock_epoch = lock_key .. "@" .. state.version,
+    generation = state.version,
+    head = { sha = current_pr.head_sha },
+  })
+  local decision = observe_pr_caps.restart_effects.decide_transition(snapshot, {
+    semantic_variant = "revision_failed",
+    target = "review-meta",
+    incoming_version = state.version,
+    overlay_version = state.version,
+  })
+  observe_pr_caps.restart_effects.assert_decision_admissible(
+    decision,
+    "github-devloop: restart-effect-decision-illegal: legacy fix feedback remediation rejected"
+  )
+  if decision.status == "idempotent" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+      "fixing", "review-meta", decision.cas_outcome,
+      "legacy fix feedback already reached review-meta")
+    return true
+  end
+  if decision.status ~= "apply" then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+      "fixing", "review-meta", decision.cas_outcome,
+      "legacy fix feedback remediation is not currently admissible")
+    return true
+  end
+
+  local grant = observe_pr_caps.restart_effects.mint_grant(
+    snapshot, decision, "comment:pr:fix-review-meta")
+  if grant == nil then
+    error("github-devloop: restart-effect-grant-mint-failed: "
+      .. "legacy fix feedback remediation grant was not minted")
+  end
+  local facade = observe_pr_caps.restart_effect_facade.make({
+    family = "pr-fix-review-meta",
+    verify_grant = observe_pr_caps.restart_effects.verify_grant,
+    sink_inventory = observe_pr_caps.sink_inventory,
+  })
+  local args = {
+    core = core,
+    repo = origin.repo,
+    issue_number = origin.issue_number,
+    review_meta = review_meta,
+    reason = "legacy-fix-feedback-unbound",
+    detail = "Legacy review-meta fix feedback has no replay binding.",
+  }
+  local effects = {}
+  for _, effect_id in ipairs(decision.granted_effect_ids) do
+    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: legacy fix feedback effect "
+        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+    end
+    table.insert(effects, { queue = effect_id, payload = payload })
+  end
+
+  local add_labels, remove_labels = devloop_state.state_label_changes("review-meta")
+  devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state,
+    "fixing", "review-meta", "applied(legacy-fix-feedback-unbound)",
+    "legacy review-meta fix feedback has no replay binding")
+  devloop_logging.log_apply("observe_pr", origin.proposal_id, "review-meta",
+    state.version, { add = add_labels, remove = remove_labels },
+    decision.granted_effect_ids)
+  for _, effect in ipairs(effects) do
+    devloop_logging.log_raise(
+      "observe_pr", origin.proposal_id, effect.queue, effect.payload)
+  end
+  return true
+end
+
 local function process_pr_event(event)
   local pr = pr_context(event)
   local raw = event.payload or {}
@@ -564,6 +686,10 @@ local function process_pr_event(event)
       return
     end
     if not m_claims.verify_pr_review_issue_claim("observe_pr", origin.repo, origin.issue_number, issue_current, origin.proposal_id) then
+      return
+    end
+    if maybe_remediate_legacy_fix_feedback(
+        origin, pr.number, current_pr, state, source_ref, lock_key) then
       return
     end
     local merge_gate_feedback = nil
