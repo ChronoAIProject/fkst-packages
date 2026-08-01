@@ -330,7 +330,8 @@ return {
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
-      core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed"),
+      core.impl_failure_marker(
+        event.proposal_id, ready_version, "codex-failed", nil, "UNKNOWN", true),
       command,
     })
 
