@@ -99,6 +99,9 @@ function C.build_devloop_ready_payload(M, source)
       source_ref = source.source_ref,
     }),
   }
+  if source.redrive_delivery ~= nil and source.operator_reimplement_delivery ~= nil then
+    error("github-devloop: conflicting implementation delivery identities")
+  end
   if source.redrive_delivery ~= nil then
     payload.implementation_version = ready_version
     payload.redrive_delivery = {
@@ -109,6 +112,17 @@ function C.build_devloop_ready_payload(M, source)
       source.proposal_id,
       ready_version,
       payload.redrive_delivery
+    )
+  end
+  if source.operator_reimplement_delivery ~= nil then
+    payload.implementation_version = ready_version
+    payload.operator_reimplement_delivery = {
+      command_key = source.operator_reimplement_delivery.command_key,
+    }
+    payload.dedup_key = shared.ready_operator_reimplement_delivery_dedup_key(
+      source.proposal_id,
+      ready_version,
+      payload.operator_reimplement_delivery
     )
   end
   if source.include_ready_hand_off == true and source.ready_comment_id ~= nil then
