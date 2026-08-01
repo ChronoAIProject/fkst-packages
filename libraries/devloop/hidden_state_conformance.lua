@@ -458,7 +458,13 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
       table.insert(entity.comments, comment(core, m_builders.merge_gate_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA, BASE_SHA, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
     end
   elseif family == "review-meta" then
-    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(ISSUE_PROPOSAL, value.review_dedup_key, value.action, state.version, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
+    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(ISSUE_PROPOSAL,
+      value.review_dedup_key,
+      value.action,
+      state.version,
+      value.blocking_gap or "behavioral-fixture",
+      nil,
+      value.action == "fix" and value or nil), "2026-06-03T01:03:09Z"))
   elseif family == "review-converge-round" then
     local digest = convergence_shared.source_ref_digest(PR_SOURCE_REF)
     if value.action == "block" then

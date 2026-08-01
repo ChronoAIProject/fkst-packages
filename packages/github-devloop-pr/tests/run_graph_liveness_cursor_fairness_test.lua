@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local devloop_logging = require("devloop.logging")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -10,9 +11,12 @@ local t = h.t
 local core = h.core
 
 local repo = "owner/repo"
-local low_pr_number = 3
+local malformed_pr_number = 5
 local target_pr_number = 7
 local cursor_prefix = "github-devloop-pr/liveness-scan/pr-cursor/"
+local malformed_issue_number = 41
+local malformed_proposal_id = "github-devloop/issue/owner/repo/41"
+local malformed_version = "ready/consensus-github-devloop/issue/owner/repo/41/2026-06-03T01-02-03Z/fix/1"
 
 local function trusted_comment(body)
   return {
@@ -69,21 +73,51 @@ local function mock_under_cap_pr_list()
   end
 end
 
-local function mock_throwing_head_pr_list()
-  local stdout = '[{"number":3,"state":"open","updated_at":"2026-06-04T01:02:03Z"},'
+local function mock_malformed_feedback_pr_list()
+  local stdout = '[{"number":5,"state":"open","updated_at":"2026-06-04T01:02:03Z"},'
     .. '{"number":7,"state":"open","updated_at":"2026-06-04T01:02:04Z"}]\n'
-  for _ = 1, 2 do
-    t.mock_command(core.gh_pr_list_observe_cmd(repo), {
-      stdout = stdout,
-      stderr = "",
-      exit_code = 0,
-    })
-  end
-  t.mock_command("gh api 'repos/owner/repo/pulls/3'", {
-    stdout = "",
-    stderr = "deterministic head failure",
-    exit_code = 1,
+  t.mock_command(core.gh_pr_list_observe_cmd(repo), {
+    stdout = stdout,
+    stderr = "",
+    exit_code = 0,
   })
+end
+
+local function mock_malformed_fixing_pr()
+  local branch = "devloop-owner-repo-41-01HY"
+  local comments = {
+    trusted_comment(m_builders.pr_origin_marker(
+      malformed_proposal_id,
+      tostring(malformed_issue_number),
+      branch,
+      malformed_version,
+      "dev"
+    )),
+    trusted_comment(core.state_marker(malformed_proposal_id, "fixing", malformed_version)),
+    trusted_comment('<!-- fkst:github-devloop:review-meta:v1 proposal="' .. malformed_proposal_id
+      .. '" dedup="review-meta-delivery" action="fix" version="' .. malformed_version
+      .. '" gap="missing binding" -->'),
+  }
+
+  entity_read_mocks.mock_pr_read_forms(t, {
+    repo = repo,
+    number = malformed_pr_number,
+    head = branch,
+    head_sha = "119ef6fd",
+    base_branch = "dev",
+    state = "OPEN",
+    updated_at = "2026-06-04T01:02:03Z",
+    comments = comments,
+    labels = {},
+    register_all_views = true,
+    times = 8,
+  })
+  entity_read_mocks.mock_issue_view_selector(t, {
+    repo = repo,
+    number = malformed_issue_number,
+    assignees = { "fkst-test-bot" },
+    author_login = "fkst-test-bot",
+  }, "assignees,author", 8)
 end
 
 local function mock_target_fixing_pr()
@@ -368,34 +402,44 @@ return {
     t.eq(cache_get(key), "0")
   end,
 
-  test_throwing_head_checkpoints_attempt_before_next_tick = function()
+  test_malformed_fix_feedback_isolated_for_retry_while_later_pr_progresses = function()
     mock_env()
-    mock_throwing_head_pr_list()
+    mock_malformed_feedback_pr_list()
+    mock_malformed_fixing_pr()
     mock_target_fixing_pr()
-    cache_set(liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix), "0")
+    local cursor_key = liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix)
+    cache_set(cursor_key, "0")
 
     with_no_codex_runs(function()
-      local first = h.run_department(
-        "departments/liveness_scan/main.lua",
-        liveness_tick(201)
-      )
-      t.eq(first.exit_code, 1)
-
-      local second = graph.require_quiescent(graph.run(liveness_tick(202), { max_steps = 3 }))
-      graph.assert_covers(second, {
+      local trace = graph.run(liveness_tick(201), { max_steps = 12 })
+      graph.assert_covers(trace, {
         "github-devloop-pr.devloop_liveness_tick -> github-devloop-pr.liveness_scan",
       })
-      local timeout_attempt = graph.require_raise(second, "github-proxy.github_pr_comment_request", function(raised)
-        return tonumber(raised.payload.pr_number) == target_pr_number
+      t.eq(trace.status, "quiescent")
+      local scan_step = graph.require_delivery(trace, {
+        queue = "github-devloop-pr.devloop_liveness_tick",
+        consumer = "github-devloop-pr.liveness_scan",
+      })
+      local malformed_step = graph.require_delivery(trace, {
+        queue = "github-devloop-pr.devloop_observe_pr",
+        consumer = "github-devloop-pr.observe_pr",
+      })
+      t.eq(scan_step.exit_code, 0)
+      t.eq(malformed_step.exit_code, 1)
+      t.eq(devloop_logging.error_class_from_message(malformed_step.error),
+        "fix-feedback-missing-review-proposal-id",
+        tostring(malformed_step.error))
+      t.is_true(type(malformed_step.delivery_id) == "string" and malformed_step.delivery_id ~= "")
+      t.eq(cache_get(cursor_key), "0")
+      local timeout_attempt = graph.require_raise(trace, "github-proxy.github_pr_comment_request", function(raised)
+        return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
           and tostring(raised.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
       end)
-      local fixing = graph.require_raise(second, "github-devloop-pr.devloop_fixing", function(raised)
+      local fixing = graph.require_raise(trace, "github-devloop-pr.devloop_fixing", function(raised)
         return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
       end)
       t.eq(tonumber(timeout_attempt.payload.pr_number), target_pr_number)
       t.eq(fixing.queue, "github-devloop-pr.devloop_fixing")
-      t.eq(graph.find_raise(second, "devloop_timeout_reconcile"), nil)
-      t.eq(graph.find_raise(second, "github-devloop-pr.devloop_timeout_reconcile"), nil)
     end)
   end,
 
