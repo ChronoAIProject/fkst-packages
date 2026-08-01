@@ -211,13 +211,41 @@ local function count_queue(raises, queue)
   return count
 end
 
-local function contains_value(values, expected)
-  for _, value in ipairs(values or {}) do
-    if value == expected then
-      return true
+local function state_comment_request(raises, to_state, to_version)
+  return find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
+    if type(payload.body) ~= "string" then
+      return false
     end
-  end
-  return false
+    local projected = core.current_state({
+      trusted_comment("IC_projected_result", payload.body),
+    }, proposal_id)
+    return projected.state == to_state and projected.version == to_version
+  end)
+end
+
+local function state_label_request(raises, to_state, to_version)
+  return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
+    return payload.require_marker_guard == true
+      and payload.expected_state == to_state
+      and payload.expected_version == to_version
+  end)
+end
+
+local function dependency_auxiliary_label_request(raises)
+  return find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
+    return payload.require_marker_guard ~= true
+      and h.has_value(payload.add_labels, devloop_base._blocked_on_dependency_label)
+  end)
+end
+
+local function assert_result_projection(raises, to_state, to_version)
+  local comment = state_comment_request(raises, to_state, to_version)
+  local label = state_label_request(raises, to_state, to_version)
+  t.is_true(comment ~= nil)
+  t.is_true(label ~= nil)
+  t.eq(label.payload.marker_guard.expected.state, to_state)
+  t.eq(label.payload.marker_guard.expected.version, to_version)
+  return comment.payload, label.payload
 end
 
 local function marker_body(raises, needle)
@@ -240,10 +268,10 @@ local function assert_ready_split_effects(raises, to_state, to_version, blocked_
   end)
   t.is_true(label_raise ~= nil)
   local request = label_raise.payload
-  t.is_true(contains_value(request.add_labels, "fkst-dev:ready"))
-  t.eq(contains_value(request.add_labels, devloop_base._blocked_on_dependency_label), blocked_label_added)
-  t.eq(contains_value(request.remove_labels, devloop_base._blocked_on_dependency_label), not blocked_label_added)
-  t.is_true(contains_value(request.remove_labels, "fkst-dev:impl-failed"))
+  t.is_true(h.has_value(request.add_labels, "fkst-dev:ready"))
+  t.eq(h.has_value(request.add_labels, devloop_base._blocked_on_dependency_label), blocked_label_added)
+  t.eq(h.has_value(request.remove_labels, devloop_base._blocked_on_dependency_label), not blocked_label_added)
+  t.is_true(h.has_value(request.remove_labels, "fkst-dev:impl-failed"))
   t.eq(request.require_marker_guard, true)
   t.eq(request.expected_proposal_id, proposal_id)
   t.eq(request.expected_state, to_state)
@@ -539,9 +567,11 @@ return {
 
   test_consensus_result_reraises_partial_dependency_wait_effects = function()
     local current = reached()
-    h.mock_issue_result({ "fkst-dev:ready" }, {
+    h.mock_issue_result({ "fkst-dev:enabled", "fkst-dev:blocked-on-dependency" }, {
       core.state_marker(current.proposal_id, "dependency_wait", current.dedup_key),
       m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key),
+      "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
+        .. core.dependency_wait_marker(current.proposal_id, current.dedup_key, { 51 }),
     })
     mock_blocked_by(42, { { number = 51 } })
     mock_blocked_by(51, {})
@@ -549,8 +579,32 @@ return {
 
     local result = h.run_result(current, h.opts("ready-split-regression-result"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
+    local label = state_label_request(result.raises, "dependency_wait", current.dedup_key)
+    t.is_true(label ~= nil)
+    t.is_true(h.has_value(label.payload.add_labels, "fkst-dev:ready"))
+    t.is_true(h.has_value(label.payload.remove_labels, "fkst-dev:impl-failed"))
+    t.eq(h.has_value(label.payload.remove_labels, devloop_base._blocked_on_dependency_label), false)
+    t.eq(state_comment_request(result.raises, "dependency_wait", current.dedup_key), nil)
+    t.eq(dependency_auxiliary_label_request(result.raises), nil)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
+  end,
+
+  test_consensus_result_dependency_wait_projects_the_committed_target = function()
+    local current = reached()
+    h.mock_issue_result({ "fkst-dev:thinking", "fkst-dev:impl-failed" }, {
+      core.state_marker(current.proposal_id, "thinking", current.dedup_key),
+    })
+    mock_blocked_by(42, { { number = 51 } })
+    mock_blocked_by(51, {})
+    mock_blocker_issue(51, "ready")
+
+    local result = h.run_result(current, h.opts("ready-split-regression-result-target-dependency-wait"))
+    t.eq(result.exit_code, 0)
+    local _, label = assert_result_projection(result.raises, "dependency_wait", current.dedup_key)
+    t.is_true(h.has_value(label.add_labels, "fkst-dev:ready"))
+    t.is_true(h.has_value(label.remove_labels, "fkst-dev:impl-failed"))
+    t.eq(h.has_value(label.remove_labels, devloop_base._blocked_on_dependency_label), false)
+    t.is_true(dependency_auxiliary_label_request(result.raises) ~= nil)
   end,
 
   test_consensus_result_dependency_wait_comment_has_no_ready_handoff = function()
@@ -592,6 +646,9 @@ return {
     local result = h.run_result(current, h.opts("ready-split-regression-result-ready-handoff"))
     t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
+    local _, label = assert_result_projection(result.raises, "ready", current.dedup_key)
+    t.is_true(h.has_value(label.add_labels, "fkst-dev:ready"))
+    t.is_true(h.has_value(label.remove_labels, devloop_base._blocked_on_dependency_label))
     local result_comment = ready_handoff_comment_raise(result.raises)
     t.is_true(result_comment ~= nil)
     t.eq(result_comment.payload.handoff.proposal_id, current.proposal_id)
@@ -608,6 +665,22 @@ return {
     t.is_true(ready ~= nil)
     t.eq(ready.payload.ready_hand_off.comment_id, "IC_ready_result")
     t.eq(ready.payload.ready_hand_off.marker_version, current.dedup_key)
+  end,
+
+  test_consensus_result_declined_projects_the_committed_target_without_dependency_changes = function()
+    local current = reached()
+    current.decision = "reject"
+    current.decision_reason = "premise-refuted"
+    h.mock_issue_result({ "fkst-dev:thinking", "fkst-dev:blocked-on-dependency" }, {
+      core.state_marker(current.proposal_id, "thinking", current.dedup_key),
+    })
+
+    local result = h.run_result(current, h.opts("ready-split-regression-result-target-declined"))
+    t.eq(result.exit_code, 0)
+    local _, label = assert_result_projection(result.raises, "declined", current.dedup_key)
+    t.is_true(h.has_value(label.add_labels, "fkst-dev:declined"))
+    t.eq(h.has_value(label.remove_labels, devloop_base._blocked_on_dependency_label), false)
+    t.eq(dependency_auxiliary_label_request(result.raises), nil)
   end,
 
   test_dependency_release_ready_handoff_accepts_direct_visible_marker = function()
