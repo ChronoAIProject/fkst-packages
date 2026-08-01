@@ -680,6 +680,32 @@ return {
     )
     t.is_true(reintake ~= nil)
     t.is_true(reintake.payload.body:find("fkst: reintake", 1, true) == 1)
+
+    source.comments = append_comment(source.comments, identified_bot_comment(
+      "IC_reintake_refused",
+      operator_commands.build_output_obligation_command_write_refusal_body(
+        reintake.payload.body,
+        "linked-pr-active"
+      )
+    ))
+    pr.comments = pr_fixture("fixing", pr_blocked_version .. "/fix/1").comments
+    pr.state = "OPEN"
+    mock_census({})
+    local active_tick = run_tick(department)
+    t.eq(find_target_raise(active_tick.raises, "github-proxy.github_issue_comment_request", "issue_number", source_issue_number), nil)
+
+    pr.comments = pr_fixture("merged", pr_blocked_version .. "/fix/1/merged").comments
+    pr.state = "MERGED"
+    mock_census({})
+    local reauthorized_tick = run_tick(department)
+    local reauthorized = find_target_raise(
+      reauthorized_tick.raises,
+      "github-proxy.github_issue_comment_request",
+      "issue_number",
+      source_issue_number
+    )
+    t.is_true(reauthorized ~= nil)
+    t.is_true(reauthorized.payload.dedup_key ~= reintake.payload.dedup_key)
   end,
 
   test_reintake_multitick_recovers_command_applied_generation_receipt_and_close = function()

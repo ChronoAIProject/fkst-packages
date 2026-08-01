@@ -101,6 +101,7 @@ local function command_correlation_marker(M, fact, decision, fields)
     .. '" pr="' .. marker_attr(values.pr_number, M._max_key_len)
     .. '" head_sha="' .. marker_attr(values.head_sha, M._max_key_len)
     .. '" target_version="' .. marker_attr(values.target_version, M._max_dedup_len)
+    .. '" authorization_epoch="' .. marker_attr(values.authorization_epoch, M._max_key_len)
     .. '" -->'
 end
 
@@ -116,6 +117,8 @@ local function command_dedup_key(fact, decision, fields)
     table.insert(parts, target.pr_number)
     table.insert(parts, target.head_sha)
     table.insert(parts, target.target_version)
+  else
+    table.insert(parts, target.authorization_epoch)
   end
   return base_ids.dedup_key(parts)
 end
@@ -396,9 +399,6 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
     and refused_rereview_matches_authorization(refused_rereview_commands, authorization) then
     return { action = "wait", reason = "command-refused" }
   end
-  if authorization.decision == "abandon-recreate" and #refused_reintake_commands > 0 then
-    return { action = "wait", reason = "command-refused" }
-  end
   if authorization.decision == "rereview" then
     local target = authorization.target
     return build_command_decision(
@@ -420,7 +420,7 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
     "abandon-recreate",
     { kind = "issue", repo = fact.source_repo, number = fact.source_issue_number },
     fact.source_ref,
-    {}
+    { authorization_epoch = #refused_reintake_commands + 1 }
   )
 end
 

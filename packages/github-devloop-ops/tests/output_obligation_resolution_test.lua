@@ -534,6 +534,20 @@ return {
     t.is_true(changed.request.body:find('head_sha="' .. replacement_head .. '"', 1, true) ~= nil)
   end,
 
+  test_refused_reintake_advances_only_its_command_epoch = function()
+    local issue, source = escalation_issue(), live_source_issue()
+    local fact = classify(issue)
+    local no_prs = { comments = source.comments, prs = {}, absent_prs = {} }
+    local first = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
+    local refusal = operator_commands.build_output_obligation_command_write_refusal_body(first.request.body, "linked-pr-active")
+    source.comments = append_comment(source.comments, command_comment({ body = refusal }, "IC_reintake_refused"))
+    local retried = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
+    t.eq(retried.decision, "abandon-recreate")
+    t.eq(retried.action, "command")
+    t.is_true(retried.request.dedup_key ~= first.request.dedup_key)
+    t.is_true(retried.request.body:find('authorization_epoch="2"', 1, true) ~= nil)
+  end,
+
   test_multiple_correlated_rereview_commands_wait_without_another_effect = function()
     local issue = escalation_issue()
     local fact = classify(issue)

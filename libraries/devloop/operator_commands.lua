@@ -77,6 +77,7 @@ local function parse_output_obligation_command(body, command)
   local pr_number = marker_attr(found, "pr")
   local head_sha = marker_attr(found, "head_sha")
   local target_version = marker_attr(found, "target_version")
+  local authorization_epoch = marker_attr(found, "authorization_epoch") or ""
   local expected_decision = command == "rereview" and "rereview"
     or (command == "reintake" and "abandon-recreate" or nil)
   if decision ~= expected_decision
@@ -87,10 +88,15 @@ local function parse_output_obligation_command(body, command)
   if command == "rereview" then
     if not forge_validators.is_positive_pr_number(pr_number)
       or not forge_validators.is_git_sha(head_sha)
-      or not strings.is_bounded_string(target_version, devloop_base._max_dedup_len) then
+      or not strings.is_bounded_string(target_version, devloop_base._max_dedup_len)
+      or authorization_epoch ~= "" then
       return { invalid = true }
     end
-  elseif pr_number ~= "" or head_sha ~= "" or target_version ~= "" then
+  elseif pr_number ~= ""
+    or head_sha ~= ""
+    or target_version ~= ""
+    or not strings.is_bounded_string(authorization_epoch, devloop_base._max_key_len)
+    or authorization_epoch:match("^[1-9][0-9]*$") == nil then
     return { invalid = true }
   end
   return {
@@ -101,6 +107,7 @@ local function parse_output_obligation_command(body, command)
     pr_number = tonumber(pr_number),
     head_sha = head_sha,
     target_version = target_version,
+    authorization_epoch = authorization_epoch,
   }
 end
 
@@ -119,6 +126,8 @@ local function output_obligation_command_key(authority)
     table.insert(parts, authority.pr_number)
     table.insert(parts, authority.head_sha)
     table.insert(parts, authority.target_version)
+  else
+    table.insert(parts, authority.authorization_epoch)
   end
   return base_ids.dedup_key(parts)
 end
@@ -659,6 +668,7 @@ function C.build_output_obligation_command_guard(fact, decision, fields)
       pr_number = target.pr_number,
       head_sha = target.head_sha,
       target_version = target.target_version,
+      authorization_epoch = target.authorization_epoch,
     },
   }
 end
@@ -739,6 +749,8 @@ local function output_obligation_command_effect_matches(guard, fact, effect)
   end
   return effect.kind == "issue"
     and tostring(effect.number or "") == tostring(fact.source_issue_number or "")
+    and tostring(authority.authorization_epoch or "")
+      == tostring(guard.target and guard.target.authorization_epoch or "")
 end
 
 function C.output_obligation_command_write_authorized(github, guard, bot_login, effect)
