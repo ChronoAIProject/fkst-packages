@@ -25,7 +25,7 @@ return {
     t.eq(called, false)
   end,
 
-  test_cache_preparation_runs_repository_command_in_worktree_with_fixed_bound = function()
+  test_cache_preparation_runs_trusted_repository_command_with_candidate_path_and_fixed_bound = function()
     local calls, exec = captures()
     local ran = cache_preparation.run("/tmp/implementation-worktree", {
       command = function() return "make prepare-cache" end,
@@ -35,7 +35,8 @@ return {
     t.eq(ran, true)
     t.eq(#calls, 1)
     t.eq(calls[1].cmd, "make prepare-cache")
-    t.eq(calls[1].cwd, "/tmp/implementation-worktree")
+    t.eq(calls[1].cwd, ".")
+    t.eq(calls[1].env.FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE, "/tmp/implementation-worktree")
     t.eq(calls[1].timeout, 600)
   end,
 
@@ -51,6 +52,10 @@ return {
 
     t.eq(#calls, 2)
     t.eq(calls[1].cwd, calls[2].cwd)
+    t.eq(
+      calls[1].env.FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE,
+      calls[2].env.FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE
+    )
   end,
 
   test_cache_preparation_propagates_command_failure = function()

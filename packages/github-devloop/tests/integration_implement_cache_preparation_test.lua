@@ -48,6 +48,24 @@ local function command_index(needle)
   return nil
 end
 
+local function command_call(needle)
+  for _, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or ""):find(needle, 1, true) ~= nil then
+      return call
+    end
+  end
+  return nil
+end
+
+local function command_env(call, name)
+  for _, pair in ipairs((call and call.env) or {}) do
+    if pair.key == name then
+      return pair.value
+    end
+  end
+  return nil
+end
+
 local function mock_successful_candidate(event)
   local branch = deterministic_branch_for(event)
   mock_implement_codex(0, "implemented after cache preparation")
@@ -59,7 +77,7 @@ return {
   test_cache_preparation_runs_after_substrate_refresh_and_before_codex = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" })
-    mock_fresh_implement_worktree(nil, current_base_pin, stale_branch_pin)
+    local worktree = mock_fresh_implement_worktree(nil, current_base_pin, stale_branch_pin)
     mock_cache_command()
     mock_successful_candidate(event)
 
@@ -75,6 +93,9 @@ return {
     t.is_true(pin_refresh < preparation)
     t.is_true(preparation < codex)
     t.eq(count_calls(cache_command), 1)
+    local preparation_call = command_call(cache_command)
+    t.eq(preparation_call.cwd, ".")
+    t.eq(command_env(preparation_call, "FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE"), worktree)
   end,
 
   test_cache_preparation_unset_preserves_implementation_flow = function()
@@ -114,7 +135,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" })
-    mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
+    local worktree = mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
     mock_cache_command()
     mock_implement_codex(0, "committed implementation from warm cache")
     mock_git_status("")
@@ -137,5 +158,8 @@ return {
     t.eq(count_calls(cache_command), 1)
     t.eq(count_calls("codex exec"), 1)
     t.is_true(command_index(cache_command) < command_index("codex exec"))
+    local preparation_call = command_call(cache_command)
+    t.eq(preparation_call.cwd, ".")
+    t.eq(command_env(preparation_call, "FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE"), worktree)
   end,
 }

@@ -4,6 +4,7 @@ local strings = require("contract.strings")
 local M = {}
 
 local cache_preparation_timeout_seconds = 600
+local trusted_repository_root = "."
 
 local function command_detail(result)
   if type(result) ~= "table" then
@@ -34,7 +35,11 @@ function M.run(worktree, deps)
   end
   local result = execute({
     cmd = command,
-    cwd = worktree,
+    -- Department children run with the trusted supervisor project root as ".".
+    cwd = trusted_repository_root,
+    env = {
+      FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE = worktree,
+    },
     timeout = cache_preparation_timeout_seconds,
   })
   if type(result) ~= "table" or result.exit_code ~= 0 then

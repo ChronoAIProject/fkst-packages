@@ -82,6 +82,8 @@ class HostProfileScaffoldTest(unittest.TestCase):
         self.assertIn("`FKST_DEVLOOP_CACHE_PREPARATION_COMMAND`", doc)
         self.assertIn("10-minute timeout", doc)
         self.assertIn("must be idempotent", doc)
+        self.assertIn("trusted supervisor project root", doc)
+        self.assertIn("`FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE`", doc)
         self.assertIn("FKST_DEVLOOP_CACHE_PREPARATION_COMMAND", scaffold)
         self.assertIn("make prepare-cache", scaffold)
 
