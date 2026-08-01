@@ -75,6 +75,16 @@ class HostProfileScaffoldTest(unittest.TestCase):
         self.assertIn("FKST_DEVLOOP_LOCAL_TEST_COMMAND", scaffold)
         self.assertIn("make preflight", scaffold)
 
+    def test_devloop_cache_preparation_is_documented_as_an_optional_host_contract(self) -> None:
+        doc = self.read("docs/user/global-host-profiles.md")
+        scaffold = self.read("docs/user/host-profile.env.example")
+
+        self.assertIn("`FKST_DEVLOOP_CACHE_PREPARATION_COMMAND`", doc)
+        self.assertIn("10-minute timeout", doc)
+        self.assertIn("must be idempotent", doc)
+        self.assertIn("FKST_DEVLOOP_CACHE_PREPARATION_COMMAND", scaffold)
+        self.assertIn("make prepare-cache", scaffold)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -187,6 +187,7 @@ class RunShComposedConformanceHarness:
                     "FKST_DEVLOOP_MANAGED_BOT_LOGINS",
                     "FKST_DEVLOOP_TEST_COMMAND",
                     "FKST_DEVLOOP_LOCAL_TEST_COMMAND",
+                    "FKST_DEVLOOP_CACHE_PREPARATION_COMMAND",
                     "FKST_OUTPUT_LANG",
                 ]
                 if sys.argv[1:4] == ["manifest", "composed-deps", "--manifest"]:
@@ -227,6 +228,7 @@ class RunShComposedConformanceHarness:
                 "FKST_DEVLOOP_MANAGED_BOT_LOGINS": "live-bot,peer-bot",
                 "FKST_DEVLOOP_TEST_COMMAND": "live-test-command",
                 "FKST_DEVLOOP_LOCAL_TEST_COMMAND": "live-local-test-command",
+                "FKST_DEVLOOP_CACHE_PREPARATION_COMMAND": "live-cache-preparation-command",
                 "FKST_OUTPUT_LANG": "zh",
             }
         )
