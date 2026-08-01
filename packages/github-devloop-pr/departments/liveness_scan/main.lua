@@ -32,6 +32,7 @@ local spec = {
   },
   fanout = { "devloop_liveness_tick" },
   stall_window = "30s",
+  retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
 local function should_reinject_pr_base_unmanaged_heal(origin, current, state)
