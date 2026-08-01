@@ -116,15 +116,21 @@ class TraceAggregationTest(unittest.TestCase):
 
     def test_every_canonical_new_trace_has_a_package_test_emitter(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
-        test_sources = "\n".join(
-            path.read_text(encoding="utf-8")
+        test_sources = {
+            path: path.read_text(encoding="utf-8")
             for path in sorted((repo_root / "packages").glob("*/tests/*.lua"))
-        )
+        }
 
         for pair in TRACE_PAIRS:
             with self.subTest(family=pair.family):
-                self.assertTrue(
-                    pair.new_path in test_sources,
+                emitters = [
+                    path
+                    for path, source in test_sources.items()
+                    if pair.new_path in source and "file.write(" in source
+                ]
+                self.assertNotEqual(
+                    emitters,
+                    [],
                     f"missing package test emitter for {pair.family}: {pair.new_path}",
                 )
 
@@ -231,6 +237,12 @@ class AttestationGenerationTest(unittest.TestCase):
     def test_pr_without_changed_manifest_has_no_attestation_claim(self) -> None:
         self.assertIsNone(self.generate())
         self.assertFalse((self.root / ".fkst/run/intent-diff-attestations/123.json").exists())
+
+    def test_pr_without_changed_manifest_still_requires_trace_evidence(self) -> None:
+        (self.root / PAIR.new_path).unlink()
+
+        with self.assertRaisesRegex(AttestationError, "missing trace artifact"):
+            self.generate()
 
 
 if __name__ == "__main__":

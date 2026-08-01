@@ -94,6 +94,7 @@ def generate_attestation(
     expected_manifest = f"{checker.INTENT_DIFF_DIR}/{pr_number}.json"
     changed_manifests = _changed_manifest_paths(root, base_sha, head_sha)
     output_path = Path(output_dir) / f"{pr_number}.json"
+    trace_hashes = recompute_trace_hashes(root, trace_pairs)
     if not changed_manifests:
         if output_path.is_file():
             output_path.unlink()
@@ -113,7 +114,6 @@ def generate_attestation(
     if manifest_messages:
         raise AttestationError("; ".join(manifest_messages))
 
-    trace_hashes = recompute_trace_hashes(root, trace_pairs)
     for field in TRACE_HASH_FIELDS:
         if manifest.get(field) != trace_hashes[field]:
             raise AttestationError(

@@ -679,6 +679,7 @@ local function assert_observe_issue_entry_old_corpus()
   os.remove(OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH)
   local corpus = json.decode(file.read(OBSERVE_ISSUE_ENTRY_CORPUS_PATH))
   local old_fixtures = json_array()
+  local new_fixtures = json_array()
   for _, fixture in ipairs(TRACE_FIXTURES) do
     local production = nil
     local old_writes = nil
@@ -702,11 +703,19 @@ local function assert_observe_issue_entry_old_corpus()
       local facade_fixture = new_trace_fixture(fixture, production)
       t.eq(canonical_json(old_fixture), canonical_json(facade_fixture),
         fixture.fixture_id .. ": unlisted OLD and NEW facade semantic trace")
+      table.insert(new_fixtures, facade_fixture)
+    else
+      table.insert(new_fixtures, old_fixture)
     end
   end
 
   local old_trace = trace_artifact(corpus.artifact_sha256, old_fixtures)
+  local new_trace = trace_artifact(corpus.artifact_sha256, new_fixtures)
+  t.eq(canonical_json(old_trace), canonical_json(new_trace), "R9 observe-issue-entry OLD and NEW product trace")
   t.eq(canonical_json(old_trace), canonical_json(corpus), "R9 observe-issue-entry OLD observation corpus")
+  local mkdir_ok = os.execute("mkdir -p .fkst/run")
+  if mkdir_ok ~= true and mkdir_ok ~= 0 then error("R9 observe-issue-entry trace could not create its artifact directory", 0) end
+  file.write(OBSERVE_ISSUE_ENTRY_NEW_TRACE_PATH, canonical_json(new_trace) .. "\n")
 end
 
 local function trace_fixture_by_id(fixture_id)
