@@ -760,6 +760,26 @@ return {
     t.eq(current.state, "thinking")
     t.eq(current.version, "v1")
   end,
+  test_route_current_returns_declared_route_and_marker_metadata = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "consensus:github-devloop/issue/owner/repo/42/2026-07-28T01-02-03Z"
+    local comments = { core.state_marker(proposal_id, "blocked", version) }
+    local blocked_route = {
+      kind = "terminal",
+      state = "blocked",
+    }
+
+    local routed = core.route_current(comments, proposal_id, {
+      blocked = blocked_route,
+    })
+    t.eq(routed.route, blocked_route)
+    t.eq(routed.version, version)
+    t.is_nil(routed.state)
+
+    local unmatched = core.route_current(comments, proposal_id, {})
+    t.is_nil(unmatched.route)
+    t.eq(unmatched.version, version)
+  end,
   test_current_state_ignores_authorless_state_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     devloop_base.configure_trusted_bot_login(nil)
