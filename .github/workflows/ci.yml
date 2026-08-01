@@ -100,6 +100,22 @@ jobs:
           test -x "$BIN"
           scripts/run.sh test
 
+      - name: Checkout pull request merge result
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pull-request-merge
+
+      - name: Test pull request merge result
+        if: github.event_name == 'pull_request'
+        working-directory: pull-request-merge
+        env:
+          BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
+        run: |
+          test -x "$BIN"
+          scripts/run.sh test
+
       - name: Generate intent-diff attestation
         if: github.event_name == 'pull_request'
         run: |

@@ -108,6 +108,29 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn(".fkst/run/intent-diff-attestations", workflow)
         self.assertIn("actions/upload-artifact@v4", workflow[attestation_at:])
 
+    def test_pull_request_merge_result_is_tested_separately(self) -> None:
+        workflow = self.read_workflow()
+
+        merge_checkout = """      - name: Checkout pull request merge result
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pull-request-merge
+"""
+        merge_test = """      - name: Test pull request merge result
+        if: github.event_name == 'pull_request'
+        working-directory: pull-request-merge
+        env:
+          BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
+        run: |
+          test -x "$BIN"
+          scripts/run.sh test
+"""
+        checkout_at = workflow.index(merge_checkout)
+        test_at = workflow.index(merge_test)
+        self.assertLess(checkout_at, test_at)
+
 
 if __name__ == "__main__":
     unittest.main()
