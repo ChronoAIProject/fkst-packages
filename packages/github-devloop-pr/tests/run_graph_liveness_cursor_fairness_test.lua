@@ -1,5 +1,4 @@
 local devloop_base = require("devloop.base")
-local devloop_logging = require("devloop.logging")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
@@ -402,7 +401,7 @@ return {
     t.eq(cache_get(key), "0")
   end,
 
-  test_malformed_fix_feedback_isolated_for_retry_while_later_pr_progresses = function()
+  test_legacy_fix_feedback_reaches_review_meta_while_later_pr_progresses = function()
     mock_env()
     mock_malformed_feedback_pr_list()
     mock_malformed_fixing_pr()
@@ -425,16 +424,22 @@ return {
         consumer = "github-devloop-pr.observe_pr",
       })
       t.eq(scan_step.exit_code, 0)
-      t.eq(malformed_step.exit_code, 1)
-      t.eq(devloop_logging.error_class_from_message(malformed_step.error),
-        "fix-feedback-missing-review-proposal-id",
-        tostring(malformed_step.error))
+      t.eq(malformed_step.exit_code, 0)
       t.is_true(type(malformed_step.delivery_id) == "string" and malformed_step.delivery_id ~= "")
       t.eq(cache_get(cursor_key), "0")
+      local remediation = graph.require_raise(
+        trace, "github-proxy.github_pr_comment_request", function(raised)
+          return tonumber(raised.payload and raised.payload.pr_number) == malformed_pr_number
+            and tostring(raised.payload.body or ""):find(
+              'state="review-meta"', 1, true) ~= nil
+            and tostring(raised.payload.body or ""):find(
+              "legacy-fix-feedback-unbound", 1, true) ~= nil
+        end)
       local timeout_attempt = graph.require_raise(trace, "github-proxy.github_pr_comment_request", function(raised)
         return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
           and tostring(raised.payload.body or ""):find("fkst:github-devloop:timeout-attempt", 1, true) ~= nil
       end)
+      t.eq(tonumber(remediation.payload.pr_number), malformed_pr_number)
       local fixing = graph.require_raise(trace, "github-devloop-pr.devloop_fixing", function(raised)
         return tonumber(raised.payload and raised.payload.pr_number) == target_pr_number
       end)
