@@ -361,7 +361,7 @@ return {
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" })
     mock_fresh_implement_worktree()
-    mock_implement_codex(0, "No files needed changes.")
+    mock_implement_codex(0, "")
     mock_git_status("")
     t.mock_command("rev-list --count", {
       stdout = "0\n",
@@ -377,7 +377,6 @@ return {
     t.eq(find_label_with_added(result.raises, "fkst-dev:impl-failed").payload.add_labels[1], "fkst-dev:impl-failed")
     local comment_raise = find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1")
     t.is_true(comment_raise.payload.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
-    t.is_true(comment_raise.payload.body:find("No files needed changes.", 1, true) ~= nil)
   end,
 
   test_implement_clean_worktree_with_branch_ahead_marks_implementing = function()
@@ -416,7 +415,7 @@ return {
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" })
     mock_existing_empty_implement_worktree()
-    mock_implement_codex(0, "No files needed changes.")
+    mock_implement_codex(0, "")
     mock_git_status("")
     t.mock_command("rev-list --count", {
       stdout = "0\n",

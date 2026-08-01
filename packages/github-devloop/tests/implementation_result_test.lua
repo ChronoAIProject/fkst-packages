@@ -12,6 +12,24 @@ local refusal_reasons = {
   "wrong-layer",
   "already-satisfied",
 }
+local production_refusal_receipts = {
+  {
+    raw = [[{"schema":"github-devloop.implementation-result.v1","outcome":"cannot-implement-here","proposal_id":"github-devloop/issue/ChronoAIProject/fkst-packages/2983","implementation_version":"ready/github-devloop/issue/ChronoAIProject/fkst-packages/2983/intake/1664313850","attempt":1,"reason":"wrong-layer","evidence":"Repository ground truth assigns delivery, subscription routing, leases, acknowledgements, retries, and dead-letter state to `fkst-substrate`. The pinned engine revision has no `delivery_key`, `one_outstanding`, or `pending_dirty` primitive. The rejected `39361c10` attempt instead reconstructed subscriber state through `fkst.observe({ limit = 10000 })` and synthetic `/rearm/` keys. `scripts/run.sh test-affected` passed; the worktree remains clean as the issue acceptance requires."}]],
+    expected = {
+      proposal_id = "github-devloop/issue/ChronoAIProject/fkst-packages/2983",
+      implementation_version = "ready/github-devloop/issue/ChronoAIProject/fkst-packages/2983/intake/1664313850",
+      attempt = 1,
+    },
+  },
+  {
+    raw = [[{"schema":"github-devloop.implementation-result.v1","outcome":"cannot-implement-here","proposal_id":"github-devloop/issue/ChronoAIProject/fkst-packages/2979","implementation_version":"ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2979/intake/2354696917/loop/4","attempt":1,"reason":"wrong-layer","evidence":"`fkst.observe()` provides no cross-request snapshot isolation, and `raise()` only buffers in-process; durable publish occurs later in the supervisor after `once` returns. Package-side revalidation therefore leaves the prohibited check-to-enqueue race. The required producer-owned atomic version validation needs an engine primitive in `fkst-substrate`, while this repository explicitly owns only Lua package behavior. `scripts/run.sh test-affected` passed with `FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE`; the worktree remains clean."}]],
+    expected = {
+      proposal_id = "github-devloop/issue/ChronoAIProject/fkst-packages/2979",
+      implementation_version = "ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2979/intake/2354696917/loop/4",
+      attempt = 1,
+    },
+  },
+}
 
 local function receipt(outcome, fields)
   local values = {
@@ -72,6 +90,16 @@ return {
       t.eq(value.outcome, "cannot-implement-here", reason)
       t.eq(value.reason, reason, reason)
       t.eq(value.evidence, evidence, reason)
+    end
+  end,
+
+  test_production_refusal_receipts_expose_the_exact_evidence_bound_rejection = function()
+    for _, fixture in ipairs(production_refusal_receipts) do
+      t.is_true(#fixture.raw <= core._max_impl_output_len)
+      local value, err = implementation_result.decode(fixture.raw, fixture.expected)
+
+      t.eq(value, nil)
+      t.eq(err, "evidence must be a non-empty bounded string")
     end
   end,
 

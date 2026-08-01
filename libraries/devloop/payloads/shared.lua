@@ -68,4 +68,19 @@ function C.ready_redrive_delivery_dedup_key(proposal_id, implementation_version,
   })
 end
 
+function C.ready_operator_reimplement_delivery_dedup_key(proposal_id, implementation_version, delivery)
+  if not devloop_base.is_safe_proposal_ref(proposal_id, implementation_version) then
+    error("github-devloop: invalid operator reimplement version")
+  end
+  if type(delivery) ~= "table"
+    or not strings.is_path_safe_key(delivery.command_key, devloop_base._max_dedup_len) then
+    error("github-devloop: invalid operator reimplement command key")
+  end
+  return base_ids.dedup_key({
+    implementation_version,
+    "operator-reimplement",
+    delivery.command_key,
+  })
+end
+
 return C

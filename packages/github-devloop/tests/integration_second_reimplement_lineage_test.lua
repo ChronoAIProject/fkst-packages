@@ -126,7 +126,10 @@ return {
     t.eq(result.exit_code, 0)
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
-    t.eq(ready.payload.dedup_key, replacement_version)
+    t.eq(ready.payload.implementation_version, replacement_version)
+    t.eq(ready.payload.operator_reimplement_delivery.command_key,
+      "operator-command/IC_second_reimplement")
+    t.is_true(ready.payload.dedup_key ~= replacement_version)
     t.eq(ready.payload.impl_retry_attempt, 3)
   end,
 
