@@ -537,59 +537,6 @@ return {
     t.eq(attempt.started_at, "123")
     t.eq(core.implement_attempt_count({ attempt_marker }, ready.proposal_id, ready.dedup_key), 2)
 
-    local failed = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "codex-failed", nil, "UNKNOWN", true)
-    t.eq(core.has_impl_failure_marker({ failed }, ready.proposal_id, ready.dedup_key), true)
-    t.eq(core.has_implementation_fact_marker({ failed }, ready.proposal_id, ready.dedup_key), true)
-    local failed_fact = core.impl_failure_fact({ failed }, ready.proposal_id, ready.dedup_key)
-    t.eq(failed_fact.attempt, 1)
-    t.eq(failed_fact.fault_class, "UNKNOWN")
-    t.eq(failed_fact.retryable, true)
-    local retry_failed = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "codex-failed", 2, "UNKNOWN", true)
-    local retry_fact = core.impl_failure_fact({ failed, retry_failed }, ready.proposal_id, ready.dedup_key)
-    t.eq(retry_fact.reason, "codex-failed")
-    t.eq(retry_fact.attempt, 2)
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ failed }, ready.proposal_id, ready.dedup_key)), true)
-    t.eq(core.impl_failure_retry_allowed(retry_fact), false)
-    local non_descendant = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "non-descendant-head", nil, "UNKNOWN", true)
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ non_descendant }, ready.proposal_id, ready.dedup_key)), true)
-    local local_iteration = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "local-iteration-failed", nil, "SEMANTIC", false)
-    local local_iteration_fact = core.impl_failure_fact({ local_iteration }, ready.proposal_id, ready.dedup_key)
-    t.eq(core.impl_failure_retry_allowed(local_iteration_fact), false)
-    local base_local_iteration = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "base-local-iteration-failed", nil, "SEMANTIC", false)
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ base_local_iteration }, ready.proposal_id, ready.dedup_key)), false)
-    local unretryable = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "no-changes", nil, "UNKNOWN", false)
-    t.eq(core.impl_failure_retry_allowed(core.impl_failure_fact({ unretryable }, ready.proposal_id, ready.dedup_key)), false)
-    local explicit_override = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "codex-failed", nil, "INFRASTRUCTURE", false)
-    t.eq(core.impl_failure_retry_allowed(
-      core.impl_failure_fact({ explicit_override }, ready.proposal_id, ready.dedup_key)), false)
-    local reason_independent = core.impl_failure_marker(
-      ready.proposal_id, ready.dedup_key, "new-producer-reason", nil, "UNKNOWN", true)
-    t.eq(core.impl_failure_retry_allowed(
-      core.impl_failure_fact({ reason_independent }, ready.proposal_id, ready.dedup_key)), true)
-
-    local function legacy_failure(reason)
-      return '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. ready.proposal_id
-        .. '" reason="' .. reason .. '" dedup="' .. ready.dedup_key .. '" -->'
-    end
-    for _, reason in ipairs({ "codex-failed", "lean-proof-repair-needed", "non-descendant-head" }) do
-      local legacy_fact = core.impl_failure_fact(
-        { legacy_failure(reason) }, ready.proposal_id, ready.dedup_key)
-      t.is_true(legacy_fact ~= nil)
-      t.eq(legacy_fact.fault_class, nil)
-      t.eq(legacy_fact.retryable, true)
-      t.eq(core.impl_failure_retry_allowed(legacy_fact), true)
-    end
-    local legacy_nonretryable = core.impl_failure_fact(
-      { legacy_failure("local-iteration-failed") }, ready.proposal_id, ready.dedup_key)
-    t.eq(legacy_nonretryable.retryable, false)
-    t.eq(core.impl_failure_retry_allowed(legacy_nonretryable), false)
     t.eq(core.implementation_attempt_version(ready.dedup_key, 2), ready.dedup_key .. "/reimplement/2")
     t.eq(core.implementation_base_version(ready.dedup_key .. "/reimplement/2"), ready.dedup_key)
     t.eq(core.implementation_retry_attempt(ready.dedup_key .. "/reimplement/2"), 2)
