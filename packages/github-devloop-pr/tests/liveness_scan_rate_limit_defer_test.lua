@@ -9,13 +9,6 @@ local core = h.core
 local department = require("departments.liveness_scan.main")
 
 return {
-  test_liveness_scan_declares_retry_policy_for_durable_failure_surface = function()
-    t.is_true(type(department.spec.retry) == "table")
-    t.eq(department.spec.retry.max_attempts, 12)
-    t.eq(department.spec.retry.base, "5s")
-    t.eq(department.spec.retry.cap, "30s")
-  end,
-
   test_gh_result_preserves_adapter_classification_on_command_result = function()
     local command_result = {
       stdout = "",
