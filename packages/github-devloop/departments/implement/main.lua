@@ -678,6 +678,7 @@ local function process_ready_event(event)
           dedup_key = marker_ready.dedup_key,
         })
       end
+      local progress_visible = progress ~= nil
       if progress ~= nil then
         if fact ~= nil then
           progress.proposal_id = ready.proposal_id
@@ -696,6 +697,7 @@ local function process_ready_event(event)
       if resume_checkpoint == nil then
         local local_progress = branch_progress.local_branch_fact(base_head, branch, branches.integration, marker_ready.dedup_key)
         if local_progress ~= nil then
+          progress_visible = true
           if fact ~= nil then
             local_progress.proposal_id = ready.proposal_id
             pr_child_handoff.raise_awaiting_pr_from_fact("implement", repo, issue_number, marker_ready, current, local_progress, "local implementation branch progress is visible")
@@ -705,14 +707,18 @@ local function process_ready_event(event)
         end
       end
       local attempts = core.implement_attempt_count(current.comments, ready.proposal_id, marker_ready.dedup_key)
-      if attempts >= MAX_IMPLEMENT_ATTEMPTS then
+      if attempts >= MAX_IMPLEMENT_ATTEMPTS and not progress_visible then
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "impl-failed", "applied(attempts-exhausted)", "implementation attempts exhausted with no PR or branch progress")
         raise_impl_failed(repo, issue_number, marker_ready, "retry-exhausted", "UNKNOWN", false,
           "No linked PR, remote branch, or local branch progress was visible after "
             .. tostring(attempts) .. " attempts.", attempts)
         return
       end
-      devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "applied(retry-no-progress)", "no PR or branch progress is visible; retrying implementation attempt")
+      if progress_visible then
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "applied(retry-with-progress)", "branch progress is visible; retrying implementation attempt")
+      else
+        devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "implementing", "implementing", "applied(retry-no-progress)", "no PR or branch progress is visible; retrying implementation attempt")
+      end
       attempt_plan = {
         marker_ready = marker_ready,
         current = current,
