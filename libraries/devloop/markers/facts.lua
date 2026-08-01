@@ -17,6 +17,7 @@ local premise_correction = require("devloop.premise_correction")
 local valid_round = shared.valid_round
 local marker_attr = shared.marker_attr
 local decode_marker_attr = shared.decode_marker_attr
+C.parse_fix_feedback_fact = shared.parse_fix_feedback_fact
 
 local function review_result_fact_from_marker(marker, comment, issue_proposal_id, issue_version, expected_decision)
   local review_proposal = marker_attr(marker, "proposal")
@@ -54,6 +55,9 @@ local function review_result_fact_from_marker(marker, comment, issue_proposal_id
       end
       fact.blocking_gap = gap
       fact.fix_round = marker_fix_round
+    end
+    if decision == "reject" then
+      return C.parse_fix_feedback_fact(fact)
     end
     return fact
   end
@@ -238,21 +242,20 @@ function C.review_meta_fix_fact(comments, issue_proposal_id, issue_version)
       local marker_dedup = marker:match('dedup="([^"]*)"')
       local action = marker:match('action="([^"]+)"')
       local version = marker:match('version="([^"]*)"')
+      local review_proposal = marker:match('review_proposal="([^"]*)"')
+      local reviewed_head_sha = marker:match('head_sha="([^"]*)"')
       local gap = decode_marker_attr(marker_attr(marker, "gap"))
       if marker_issue == tostring(issue_proposal_id)
-        and marker_dedup ~= nil
         and action == "fix"
         and version == tostring(issue_version)
         and strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
-        local review_proposal = review_proposal_from_dedup(marker_dedup)
-        local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_proposal)
-        return {
+        return C.parse_fix_feedback_fact({
           review_proposal_id = review_proposal,
           review_dedup_key = marker_dedup,
           reviewed_head_sha = reviewed_head_sha,
           review_reason = parsers_misc._comment_body(comment),
           blocking_gap = gap,
-        }
+        })
       end
     end
   end
@@ -277,22 +280,33 @@ function C.review_meta_decision_fact(comments, issue_proposal_id, issue_version)
         and marker_lineage == expected_lineage
         and (action == "fix" or action == "block" or action == "spec-amendment")
         and strings.is_bounded_string(marker_dedup, devloop_base._max_dedup_len) then
-        local review_proposal = review_proposal_from_dedup(marker_dedup)
-        local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_proposal)
-        if review_proposal ~= nil and forge_validators.is_git_sha(reviewed_head_sha) then
-          if action == "fix" and (gap == nil or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len)) then
+        local review_proposal, reviewed_head_sha
+        if action == "fix" then
+          review_proposal = marker_attr(marker, "review_proposal")
+          reviewed_head_sha = marker_attr(marker, "head_sha")
+        else
+          review_proposal = review_proposal_from_dedup(marker_dedup)
+          local _, _, _, derived_head_sha = devloop_base.parse_pr_review_proposal_id(review_proposal)
+          reviewed_head_sha = derived_head_sha
+        end
+        local fact = {
+          review_proposal_id = review_proposal,
+          review_dedup_key = marker_dedup,
+          reviewed_head_sha = reviewed_head_sha,
+          action = action,
+          version = version,
+          review_reason = parsers_misc._comment_body(comment),
+          blocking_gap = gap,
+          comment_created_at = parsers_misc._comment_created_at(comment),
+        }
+        if action == "fix" then
+          if gap == nil or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
             return nil
           end
-          return {
-            review_proposal_id = review_proposal,
-            review_dedup_key = marker_dedup,
-            reviewed_head_sha = reviewed_head_sha,
-            action = action,
-            version = version,
-            review_reason = parsers_misc._comment_body(comment),
-            blocking_gap = gap,
-            comment_created_at = parsers_misc._comment_created_at(comment),
-          }
+          return C.parse_fix_feedback_fact(fact)
+        end
+        if review_proposal ~= nil and forge_validators.is_git_sha(reviewed_head_sha) then
+          return fact
         end
       end
     end
@@ -347,7 +361,7 @@ function C.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
         and (marker_gate_baseline_sha == nil or forge_validators.is_git_sha(marker_gate_baseline_sha))
         and (marker_predecessor_set == nil or strings.is_path_safe_key(marker_predecessor_set, devloop_base._max_dedup_len))
         and (marker_ci_failure_key == nil or ci_failure_keys.is_valid(marker_ci_failure_key, devloop_base._max_dedup_len)) then
-        local fact = {
+        local fact = C.parse_fix_feedback_fact({
           review_proposal_id = marker_review_proposal,
           review_dedup_key = marker_review_dedup,
           reviewed_head_sha = marker_head_sha,
@@ -357,7 +371,7 @@ function C.merge_gate_fix_fact(comments, issue_proposal_id, issue_version, opts)
           reason = marker_reason,
           review_reason = parsers_misc._comment_body(comment),
           comment_created_at = parsers_misc._comment_created_at(comment),
-        }
+        })
         if merge_gate_fix_fact_matches_bindings(fact, opts) then
           matched_binding = true
         end

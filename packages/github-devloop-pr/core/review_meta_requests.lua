@@ -37,9 +37,24 @@ local function review_meta_action_text(review_meta, action)
   return tostring(action)
 end
 
+local function review_meta_fix_feedback(review_meta)
+  local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_meta.review_proposal_id)
+  return {
+    review_proposal_id = review_meta.review_proposal_id,
+    review_dedup_key = review_meta.dedup_key,
+    reviewed_head_sha = reviewed_head_sha,
+  }
+end
+
 local function review_meta_result_marker(review_meta, action, reason, state_version, blocking_gap)
   if review_meta.mode ~= "fix-reflection" then
-    return m_builders.review_meta_marker(review_meta.proposal_id, review_meta.dedup_key, action, state_version, blocking_gap, reason)
+    return m_builders.review_meta_marker(review_meta.proposal_id,
+      review_meta.dedup_key,
+      action,
+      state_version,
+      blocking_gap,
+      reason,
+      action == "fix" and review_meta_fix_feedback(review_meta) or nil)
   end
   local marker = m_builders.fix_reflection_marker(review_meta.proposal_id,
     review_meta.dedup_key,
@@ -53,7 +68,8 @@ local function review_meta_result_marker(review_meta, action, reason, state_vers
       "fix",
       state_version,
       review_meta.blocking_gap,
-      reason
+      reason,
+      review_meta_fix_feedback(review_meta)
     )
   end
   return marker
@@ -146,11 +162,11 @@ function M.build_review_meta_comment_request(repo, issue_number, review_meta, ac
     tostring(state_version),
   }), review_meta.source_ref)
   if action == "fix" or action == "continue" then
-    local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_meta.review_proposal_id)
+    local feedback = review_meta_fix_feedback(review_meta)
     return requests_review.attach_fixing_handoff(request, review_meta.proposal_id, review_meta.pr_number, state_version, {
-      review_proposal_id = review_meta.review_proposal_id,
-      review_dedup_key = review_meta.dedup_key,
-      reviewed_head_sha = reviewed_head_sha,
+      review_proposal_id = feedback.review_proposal_id,
+      review_dedup_key = feedback.review_dedup_key,
+      reviewed_head_sha = feedback.reviewed_head_sha,
       blocking_gap = blocking_gap or review_meta.blocking_gap,
     }, review_meta.source_ref)
   end

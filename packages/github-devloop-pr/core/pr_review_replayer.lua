@@ -269,9 +269,7 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
   if feedback == nil then
     return tools.log_skip(dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(fix-feedback)", "trusted fix feedback marker is not visible")
   end
-  if feedback.review_proposal_id == nil or feedback.review_dedup_key == nil or feedback.reviewed_head_sha == nil then
-    return tools.log_skip(dept, proposal_id, state, "fixing", "fixing", "skip-foreign(fix-feedback-binding)", "trusted fix feedback marker lacks review binding")
-  end
+  feedback = m_facts.parse_fix_feedback_fact(feedback)
   if tostring(current_pr.head_sha or "") ~= tostring(feedback.reviewed_head_sha or "") then
     local intended_head_sha = git_mechanics.current_branch_head_sha(M.git, link.branch)
     if intended_head_sha ~= nil and tostring(current_pr.head_sha or "") ~= intended_head_sha then

@@ -128,7 +128,11 @@ return {
     local comments = {
       m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev"),
       core.state_marker(event.proposal_id, "review-meta", event.version),
-      m_builders.review_meta_marker(event.proposal_id, review_dedup_key, "fix", event.version, "missing retry guard"),
+      m_builders.review_meta_marker(event.proposal_id, review_dedup_key, "fix", event.version, "missing retry guard", nil, {
+        review_proposal_id = review_proposal_id,
+        review_dedup_key = review_dedup_key,
+        reviewed_head_sha = "def456",
+      }),
     }
     mock_bot_env()
     mock_pr_origin(comments, "devloop-owner-repo-42-01HY", "def456")
