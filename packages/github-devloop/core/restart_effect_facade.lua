@@ -101,18 +101,11 @@ local function serialize_consensus_result_label(args)
   if not valid_consensus_result_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  if args.to_state == "declined" then
-    return requests_labels.build_result_state_label_request(
-      args.repo,
-      args.issue_number,
-      args.reached,
-      "declined"
-    )
-  end
-  return requests_labels.build_result_label_request(
+  return requests_labels.build_result_state_label_request(
     args.repo,
     args.issue_number,
-    args.reached
+    args.reached,
+    args.to_state
   )
 end
 
