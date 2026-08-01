@@ -1,0 +1,23 @@
+# Departments that declare neither a `retry` policy nor `wrap_pipeline_failure`, so a thrown
+# error is ACKed as `dropped_no_retry_policy` with no failure fact and no dead letter
+# (fkst-substrate crates/fkst-framework/src/supervise/consumer.rs:702-710).
+#
+# Format: <package>.<department>|issue=#N|why=<one-line reason>
+#
+# SHRINK-ONLY. New entries fail CI. Remove an entry by giving the department a `retry` policy
+# or `wrap_pipeline_failure` -- never by widening the structural exemptions in
+# scripts/check_repo_dept_failure_surface.py.
+#
+# `dead_letter` and `test_*` departments are structurally exempt by role and are not listed.
+github-devloop.liveness_scan|issue=#2996|why=liveness sweep drives every stuck-state redrive; a throw from replay_fixing vanishes here. Highest priority to remove.
+github-devloop-pr.liveness_scan|issue=#2996|why=same sweep on the PR side; this is the path that produced PR#2915's 39h redrive/skip loop. Highest priority to remove.
+archaudit.audit|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+fkst-substrate-ref-maintainer.substrate_ref_scan|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+github-autochrono.inbound_glue|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+github-autochrono.outbound_glue|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+github-devloop-integration.pr_freshness_scan|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+github-devloop-ops.ensure_repo|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+github-devloop-workflow.workflow_materialize_next|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+github-devloop-workflow.workflow_select|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+integration-coverage-producer.produce|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
+marketing-radar.ingest|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
