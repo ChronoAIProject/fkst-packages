@@ -301,6 +301,7 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
     text = "Checkpoint pushed after implementation timeout."
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
+  local checkpoint_reason = strings.sanitize_key(reason or "codex-failed", false):gsub("/", "-")
   local checkpoint_marker = m_builders.implement_checkpoint_marker(
     ready.proposal_id,
     ready.dedup_key,
@@ -309,7 +310,7 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
     base_branch,
     base_sha,
     attempt or 1,
-    reason
+    checkpoint_reason
   )
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
@@ -332,6 +333,7 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
       tostring(ready.dedup_key),
       tostring(attempt or 1),
       tostring(head_sha),
+      checkpoint_reason,
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
   }, ready.source_ref)

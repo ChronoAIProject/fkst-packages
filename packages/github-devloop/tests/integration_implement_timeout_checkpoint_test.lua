@@ -17,6 +17,7 @@ local find_raise = h.find_raise
 local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local devloop_base = require("devloop.base")
+local requests_lifecycle = require("devloop.requests.lifecycle")
 
 local function stale_started_at()
   return tostring(now() - 7201)
@@ -238,6 +239,36 @@ local function last_command_call_index(needle)
 end
 
 return {
+  test_checkpoint_request_identity_separates_divergent_reason_replays = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local function checkpoint_request(reason)
+      return requests_lifecycle.build_implement_checkpoint_comment_request(
+        core,
+        "owner/repo",
+        42,
+        event,
+        "/tmp/fkst-packages-test/github-devloop/runtime/worktrees/checkpoint-identity",
+        branch,
+        "1111111111111111111111111111111111111111",
+        "dev",
+        "abc123",
+        1,
+        "123",
+        "implement/exec/checkpoint-identity",
+        "checkpoint detail",
+        reason
+      )
+    end
+
+    local failed = checkpoint_request("codex-failed")
+    local failed_replay = checkpoint_request("codex-failed")
+    local verification_indeterminate = checkpoint_request("verification-indeterminate")
+
+    t.eq(failed.dedup_key, failed_replay.dedup_key)
+    t.is_true(failed.dedup_key ~= verification_indeterminate.dedup_key)
+  end,
+
   test_dirty_timeout_progress_is_committed_before_verification_and_pushed_as_wip_checkpoint = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
