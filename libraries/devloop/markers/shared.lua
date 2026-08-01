@@ -1,4 +1,6 @@
 local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
+local forge_validators = require("devloop.forge_validators")
 local S = {}
 
 S.valid_round = require("devloop.rounds").valid_round
@@ -21,6 +23,38 @@ end
 
 function S.is_intake_service_class(value)
   return intake_service_class_set[tostring(value or "")] == true
+end
+
+function S.parse_fix_feedback_fact(fact)
+  if type(fact) ~= "table" then
+    error("github-devloop: fix-feedback-invalid-fact: fix feedback must be a table", 2)
+  end
+  if fact.review_proposal_id == nil then
+    error("github-devloop: fix-feedback-missing-review-proposal-id: fix feedback lacks review_proposal_id", 2)
+  end
+  if fact.review_dedup_key == nil then
+    error("github-devloop: fix-feedback-missing-review-dedup-key: fix feedback lacks review_dedup_key", 2)
+  end
+  if fact.reviewed_head_sha == nil then
+    error("github-devloop: fix-feedback-missing-reviewed-head-sha: fix feedback lacks reviewed_head_sha", 2)
+  end
+  if devloop_base.parse_pr_review_proposal_id(fact.review_proposal_id) == nil then
+    error("github-devloop: fix-feedback-invalid-review-proposal-id: fix feedback has an invalid review_proposal_id", 2)
+  end
+  if not S.strings.is_bounded_string(fact.review_dedup_key, devloop_base._max_dedup_len) then
+    error("github-devloop: fix-feedback-invalid-review-dedup-key: fix feedback has an invalid review_dedup_key", 2)
+  end
+  local canonical_review_dedup = devloop_base.canonical_pr_review_consensus_dedup_for_proposal(
+    fact.review_dedup_key,
+    fact.review_proposal_id
+  )
+  if canonical_review_dedup == nil then
+    error("github-devloop: fix-feedback-mismatched-review-dedup-key: fix feedback review_dedup_key does not match review_proposal_id", 2)
+  end
+  if not forge_validators.is_git_sha(fact.reviewed_head_sha) then
+    error("github-devloop: fix-feedback-invalid-reviewed-head-sha: fix feedback has an invalid reviewed_head_sha", 2)
+  end
+  return fact
 end
 
 function S.marker_attr(marker, name)
