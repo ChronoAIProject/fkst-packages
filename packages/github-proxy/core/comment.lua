@@ -4,6 +4,7 @@ function S.install(M, deps)
 local shared = deps or M
 local strings = require("contract.strings")
 local forge_strings = require("forge.strings")
+local operator_commands = require("devloop.operator_commands")
 local max_runtime_id_len = 180
 local stale_comment_target_error_class = "stale-comment-target"
 
@@ -409,8 +410,38 @@ function M.write_comment_request(payload, target)
       and not M.verify_issue_claim_before_write(payload, repo, claim_issue_number, target.kind == "pr" and "github_pr_comment" or "github_comment") then
       return
     end
+    local guarded_body = nil
+    if payload.command_guard ~= nil
+      or operator_commands.output_obligation_command_requires_guard(payload.body) then
+      local authorized, reason, can_record_refusal = operator_commands.output_obligation_command_write_authorized(
+        M.github(),
+        payload.command_guard,
+        bot_login,
+        {
+          repo = repo,
+          kind = target.kind,
+          number = target.number,
+          body = payload.body,
+        }
+      )
+      if not authorized then
+        M.log_line("info", target.kind == "pr" and "github_pr_comment" or "github_comment", "COMMAND_GUARD", {
+          "outcome=refused",
+          "reason=" .. tostring(reason or "authority-changed"),
+          "repo=" .. tostring(repo),
+          "target=" .. tostring(target.kind) .. ":" .. tostring(target.number),
+        })
+        if not can_record_refusal then
+          return
+        end
+        guarded_body = operator_commands.build_output_obligation_command_write_refusal_body(
+          payload.body,
+          reason
+        )
+      end
+    end
 
-    local body = tostring(payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
+    local body = tostring(guarded_body or payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
     if stale_round_marker_replace(existing, body, replace_marker) then
       log.info("github-proxy: round-marker replacement is stale; keeping newer visible marker")
       return

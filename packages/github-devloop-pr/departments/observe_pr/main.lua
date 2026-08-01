@@ -5,12 +5,10 @@ local requests_labels = require("devloop.requests.labels")
 local requests_review = require("devloop.requests.review")
 local parsers_pr = require("devloop.parsers.pr")
 local parsers_issue = require("devloop.parsers.issue")
-local convergence_shared = require("devloop.convergence.shared")
 local check_runs = require("forge.github.check_runs")
 local queue = require("devloop.queue")
 local restart_analysis = require("core.restart_analysis")
 local restart_transition_anomaly = require("devloop.restart_transition_anomaly")
-local transition_version = require("contract.transition_version")
 local m_facts = require("devloop.markers.facts")
 local core, saga, replay_fields = require("core"), require("workflow.saga"), require("devloop.replay_fields")
 local forge_validators = require("devloop.forge_validators")
@@ -18,7 +16,6 @@ local operator_commands = require("devloop.operator_commands")
 local decompose_lib = require("devloop.decompose")
 local replayer = require("devloop.replayer")
 local config = require("devloop.config")
-local conv_rounds = require("devloop.convergence.rounds")
 local v_pr = require("devloop.validators.pr")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
@@ -195,25 +192,6 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
   })
 end
 
-local function is_stalled_reviewing(current_pr, origin, pr_number, state)
-  if state.state ~= "reviewing" or not forge_validators.is_git_sha(current_pr.head_sha) then
-    return false
-  end
-  local review_proposal_id = devloop_base.pr_review_proposal_id(origin.repo, pr_number, state.version, current_pr.head_sha)
-  local review_version = transition_version.safe_version_segment(state.version)
-  local sr_digest = convergence_shared.source_ref_digest(entity_lib.pr_source_ref(origin.repo, pr_number))
-  local facts = conv_rounds.review_converge_round_facts(core,
-    current_pr.comments,
-    review_proposal_id,
-    origin.proposal_id,
-    review_version,
-    current_pr.head_sha,
-    sr_digest
-  )
-  local round = conv_rounds.max_converge_round(facts)
-  return conv_rounds.is_true_stall(facts, round)
-end
-
 local function maybe_apply_rereview_command(origin, pr_number, current_pr, state, source_ref)
   local command = operator_commands.operator_command_fact(current_pr.comments, "rereview")
   if command == nil then
@@ -223,7 +201,30 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "skip-idempotent(command-response-visible)", "operator command response marker is already visible")
     return false
   end
-  if state.state ~= "blocked" and state.state ~= "review-meta" and state.state ~= "reviewing" then
+  local authority_current, authority_reason, authorized_version = operator_commands.output_obligation_rereview_command_precondition(
+    command,
+    pr_number,
+    current_pr,
+    state
+  )
+  if not authority_current then
+    devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "authorized-rereview-command", "reviewing", "refused(command-authority-changed)", "output obligation rereview authority changed before application")
+    local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
+      pr_number,
+      command,
+      authority_reason,
+      source_ref
+    )
+    devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
+    return true
+  end
+  local admissible, precondition_reason = operator_commands.rereview_precondition(
+    current_pr,
+    origin,
+    pr_number,
+    state
+  )
+  if not admissible and precondition_reason == "invalid-state" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(invalid-state)", "operator rereview precondition failed")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -234,7 +235,7 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
     return true
   end
-  if state.state == "reviewing" and not is_stalled_reviewing(current_pr, origin, pr_number, state) then
+  if not admissible and precondition_reason == "active-reviewing" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|stalled-reviewing", "reviewing", "refused(active-reviewing)", "operator rereview requires stalled reviewing")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -245,7 +246,7 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
     return true
   end
-  if tostring(current_pr.state or ""):lower() ~= "open" then
+  if not admissible and precondition_reason == "pr-closed" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(pr-closed)", "operator rereview requires an open PR")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -256,7 +257,7 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     devloop_logging.log_raise("observe_pr", origin.proposal_id, "github-proxy.github_pr_comment_request", refusal)
     return true
   end
-  if not forge_validators.is_git_sha(current_pr.head_sha) then
+  if not admissible and precondition_reason == "head-missing" then
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked|review-meta|reviewing", "reviewing", "refused(head-missing)", "operator rereview requires a current PR head")
     local refusal = operator_commands.build_operator_command_refusal_request(origin.repo,
       pr_number,
@@ -268,7 +269,8 @@ local function maybe_apply_rereview_command(origin, pr_number, current_pr, state
     return true
   end
 
-  local new_version = operator_commands.operator_rereview_version(state.version, current_pr.head_sha)
+  local new_version = authorized_version
+    or operator_commands.operator_rereview_version(state.version, current_pr.head_sha)
   local comment_request = requests_review.build_operator_rereview_comment_request(origin.repo,
     pr_number,
     origin.proposal_id,
