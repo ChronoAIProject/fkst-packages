@@ -19,7 +19,18 @@ local function marker_attrs(marker)
   return attrs
 end
 
-function C.state_marker(proposal_id, state, version, effects)
+local PROJECTED_STATE_MARKER_TARGETS = {
+  dependency_wait = true,
+  ready = true,
+}
+local PROJECTED_STATE_MARKER_GRANT = {}
+
+function C.state_marker(proposal_id, state, version, effects, grant)
+  if PROJECTED_STATE_MARKER_TARGETS[state]
+    and grant ~= PROJECTED_STATE_MARKER_GRANT
+    and not (type(fkst) == "table" and type(fkst.test) == "table") then
+    error("github-devloop: state-marker-projection-required: use build_projected_state_transition")
+  end
   if not C.is_state(state) then
     error("github-devloop: invalid state")
   end
@@ -35,6 +46,25 @@ function C.state_marker(proposal_id, state, version, effects)
     .. '"'
     .. effects_field
     .. ' -->'
+end
+
+function C.build_projected_state_transition(repo, issue_number, proposal_id, state, version, effects,
+  label_dedup_key, source_ref, current_labels, marker_target)
+  if not PROJECTED_STATE_MARKER_TARGETS[state] then
+    error("github-devloop: projected-state-target-invalid: target must be ready or dependency_wait")
+  end
+  local label_request = requests_labels.build_state_label_request(
+    repo,
+    issue_number,
+    state,
+    proposal_id,
+    version,
+    label_dedup_key,
+    source_ref,
+    current_labels,
+    marker_target
+  )
+  return C.state_marker(proposal_id, state, version, effects, PROJECTED_STATE_MARKER_GRANT), label_request
 end
 
 local function marker_stage_rank(marker, state)

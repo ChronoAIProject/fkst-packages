@@ -26,45 +26,18 @@ local function ready_split_canonicalized_marker(proposal_id, from_version, to_ve
     .. '" -->'
 end
 
-local function build_ready_split_canonicalized_comment_request(M, repo, issue_number, proposal_id, from_version, to_state, to_version, gate, source_ref)
-  local state_effects = to_state == "ready" and "result-marker,ready-label,devloop-ready" or "ready-split-canonicalized"
-  local markers = ready_split_canonicalized_marker(proposal_id, from_version, to_version, to_state, gate and gate.reason or "ready_split_rederive")
-    .. "\n" .. devloop_state.state_marker(proposal_id, to_state, to_version, state_effects)
-  if to_state == "dependency_wait" then
-    markers = markers .. "\n" .. M.dependency_wait_marker(proposal_id, to_version, gate and gate.unmet or {}, gate and gate.kind or "waiting", gate and gate.reason or "waiting-on-dependency")
-  end
-  local request = m_claims.attach_issue_claim({
-    schema = "github-proxy.v1",
-    repo = repo,
-    issue_number = issue_number,
-    body = "github-devloop ready split canonicalized"
-      .. "\n\n" .. comment_strings.comment_string(M, "reason_inline_label") .. tostring(gate and gate.reason or "ready_split_rederive")
-      .. "\n\n" .. markers,
-    dedup_key = base_ids.dedup_key({ "ready-split", "canonicalized", tostring(proposal_id), tostring(from_version), tostring(to_version) }),
-    source_ref = base_ids.normalize_source_ref(source_ref),
-  }, source_ref)
-  if to_state == "ready" then
-    request.handoff = {
-      kind = "github-devloop.ready",
-      proposal_id = proposal_id,
-      version = to_version,
-      marker_version = to_version,
-      source_ref = base_ids.normalize_source_ref(source_ref),
-    }
-  end
-  return request
-end
-
 function M.build_ready_split_transition_requests(repo, issue_number, proposal_id, from_version, to_state, to_version, gate, label_dedup_key, source_ref)
   if to_state ~= "ready" and to_state ~= "dependency_wait" then
     error("github-devloop: ready-split-target-invalid: target must be ready or dependency_wait")
   end
-  local label_request = requests_labels.build_state_label_request(
+  local state_effects = to_state == "ready" and "result-marker,ready-label,devloop-ready" or "ready-split-canonicalized"
+  local state_marker, label_request = devloop_state.build_projected_state_transition(
     repo,
     issue_number,
-    to_state,
     proposal_id,
+    to_state,
     to_version,
+    state_effects,
     label_dedup_key,
     source_ref
   )
@@ -75,17 +48,49 @@ function M.build_ready_split_transition_requests(repo, issue_number, proposal_id
   else
     table.insert(label_request.remove_labels, M._blocked_on_dependency_label)
   end
-  return build_ready_split_canonicalized_comment_request(
-    M,
-    repo,
-    issue_number,
+  local markers = ready_split_canonicalized_marker(
     proposal_id,
     from_version,
-    to_state,
     to_version,
-    gate,
-    source_ref
-  ), label_request
+    to_state,
+    gate and gate.reason or "ready_split_rederive"
+  ) .. "\n" .. state_marker
+  if to_state == "dependency_wait" then
+    markers = markers .. "\n" .. M.dependency_wait_marker(
+      proposal_id,
+      to_version,
+      gate and gate.unmet or {},
+      gate and gate.kind or "waiting",
+      gate and gate.reason or "waiting-on-dependency"
+    )
+  end
+  local comment_request = m_claims.attach_issue_claim({
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = issue_number,
+    body = "github-devloop ready split canonicalized"
+      .. "\n\n" .. comment_strings.comment_string(M, "reason_inline_label")
+      .. tostring(gate and gate.reason or "ready_split_rederive")
+      .. "\n\n" .. markers,
+    dedup_key = base_ids.dedup_key({
+      "ready-split",
+      "canonicalized",
+      tostring(proposal_id),
+      tostring(from_version),
+      tostring(to_version),
+    }),
+    source_ref = base_ids.normalize_source_ref(source_ref),
+  }, source_ref)
+  if to_state == "ready" then
+    comment_request.handoff = {
+      kind = "github-devloop.ready",
+      proposal_id = proposal_id,
+      version = to_version,
+      marker_version = to_version,
+      source_ref = base_ids.normalize_source_ref(source_ref),
+    }
+  end
+  return comment_request, label_request
 end
 
 function M.canonicalize_legacy_ready_dependency_wait(dept, issue, state, facts)

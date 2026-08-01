@@ -180,7 +180,7 @@ return {
     local profile = load_profile()
     local framing = "Prove x < y in \"Proofs/Target.lean\".\nKeep 100% of the accepted scope."
     local accepted = h.reached({ framing = framing })
-    local request = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", accepted)
+    local request = requests_lifecycle.build_result_transition_requests(core, "owner/repo", "42", accepted)
     local ready = payloads_builders.build_devloop_ready_payload(core, accepted)
     ready.framing = nil
 

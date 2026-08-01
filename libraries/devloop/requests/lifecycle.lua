@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_state = require("devloop.state")
+local requests_labels = require("devloop.requests.labels")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
@@ -33,7 +34,7 @@ function C.build_observe_comment_request(M, issue, proposal)
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
   }, issue.source_ref)
 end
-function C.build_result_comment_request(M, repo, issue_number, reached, state_name)
+function C.build_result_transition_requests(M, repo, issue_number, reached, state_name)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
   local marker_lineage = reached.effect_version ~= nil
     and tostring(reached.effect_version) ~= tostring(reached.dedup_key)
@@ -44,7 +45,27 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
   local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready"
     or canonical_state == "declined" and "result-marker,declined-label,premise-refuted"
     or "result-marker,ready-label,dependency-hold"
-  local state_marker = M.state_marker(reached.proposal_id, canonical_state, tostring(reached.effect_version or reached.dedup_key), effects)
+  local state_marker, label_request
+  if canonical_state == "ready" or canonical_state == "dependency_wait" then
+    state_marker, label_request = devloop_state.build_projected_state_transition(
+      repo,
+      issue_number,
+      reached.proposal_id,
+      canonical_state,
+      tostring(reached.effect_version or reached.dedup_key),
+      effects,
+      requests_labels.result_label_dedup_key(reached),
+      reached.source_ref
+    )
+  else
+    state_marker = M.state_marker(
+      reached.proposal_id,
+      canonical_state,
+      tostring(reached.effect_version or reached.dedup_key),
+      effects
+    )
+    label_request = requests_labels.build_result_state_label_request(repo, issue_number, reached, canonical_state)
+  end
   local body_text = devloop_base.neutralize_untrusted_comment_text(reached.body or "")
   local verdict_summary = shared.build_verdict_summary(M, reached.angle_results)
   local display_decision = reached.decision == "reject"
@@ -79,7 +100,7 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
       request.handoff.framing = reached.framing
     end
   end
-  return request
+  return request, label_request
 end
 function C.build_result_divergence_comment_request(repo, issue_number, reached, first_decision)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)

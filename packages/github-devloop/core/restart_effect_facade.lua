@@ -88,7 +88,7 @@ local function serialize_consensus_result_comment(args)
   if not valid_consensus_result_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  return requests_lifecycle.build_result_comment_request(
+  return requests_lifecycle.build_result_transition_requests(
     args.core,
     args.repo,
     args.issue_number,
@@ -101,12 +101,14 @@ local function serialize_consensus_result_label(args)
   if not valid_consensus_result_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  return requests_labels.build_result_state_label_request(
+  local _, label_request = requests_lifecycle.build_result_transition_requests(
+    args.core,
     args.repo,
     args.issue_number,
     args.reached,
     args.to_state
   )
+  return label_request
 end
 
 local function serialize_awaiting_pr_comment(args)
@@ -167,7 +169,7 @@ local function serialize_awaiting_pr_exit_comment(args)
   if not valid_awaiting_pr_exit_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  return awaiting_pr_replayer.build_resume_comment_request(
+  return awaiting_pr_replayer.build_resume_transition_requests(
     args.issue,
     args.state,
     args.next_state,

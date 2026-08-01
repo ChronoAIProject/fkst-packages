@@ -9,6 +9,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
+local base_ids = require("devloop.base_ids")
 
 local C = {}
 
@@ -151,9 +152,33 @@ local function state_for(row)
   }
 end
 
+local function fixture_state_marker(proposal_id, number, state, version, effects, source_ref)
+  if state == "ready" or state == "dependency_wait" then
+    local marker = devloop_state.build_projected_state_transition(
+      REPO,
+      number,
+      proposal_id,
+      state,
+      version,
+      effects,
+      base_ids.dedup_key({ "hidden-state-conformance", "label", proposal_id, state, version }),
+      source_ref
+    )
+    return marker
+  end
+  return devloop_state.state_marker(proposal_id, state, version, effects)
+end
+
 local function base_entity(core, row, source_ref)
   local state = state_for(row)
-  local body = devloop_state.state_marker(ISSUE_PROPOSAL, row.from_state, state.version, "result-marker,ready-label,devloop-ready")
+  local body = fixture_state_marker(
+    ISSUE_PROPOSAL,
+    ISSUE_NUMBER,
+    row.from_state,
+    state.version,
+    "result-marker,ready-label,devloop-ready",
+    source_ref
+  )
   local labels = { "fkst-dev:enabled", devloop_state.state_label(row.from_state) }
   return {
     schema = "github-proxy.v1",
@@ -174,7 +199,14 @@ local function child_pr(core, state, child_state, branch)
   local child_branch = branch or BRANCH
   local body = m_builders.pr_origin_marker(ISSUE_PROPOSAL, ISSUE_NUMBER, child_branch, state.version, BASE_BRANCH)
   if child_state ~= nil then
-    body = body .. "\n" .. devloop_state.state_marker(PR_PROPOSAL, child_state, state.version)
+    body = body .. "\n" .. fixture_state_marker(
+      PR_PROPOSAL,
+      PR_NUMBER,
+      child_state,
+      state.version,
+      nil,
+      PR_SOURCE_REF
+    )
   end
   if child_state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, PR_PROPOSAL, PR_NUMBER, state.version, HEAD_SHA)

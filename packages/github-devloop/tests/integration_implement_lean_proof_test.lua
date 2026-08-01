@@ -69,7 +69,7 @@ local function proof_event()
 end
 
 local function accepted_result_comment(accepted)
-  return requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", accepted).body
+  return requests_lifecycle.build_result_transition_requests(core, "owner/repo", "42", accepted).body
 end
 
 local function trusted_comment(body, created_at)

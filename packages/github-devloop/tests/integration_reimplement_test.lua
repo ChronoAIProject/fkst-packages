@@ -456,7 +456,7 @@ return {
     local ready = payloads_builders.build_devloop_ready_payload(core, event)
     ready.framing = nil
     ready.impl_retry_attempt = 2
-    local result_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", event).body
+    local result_comment = requests_lifecycle.build_result_transition_requests(core, "owner/repo", "42", event).body
     local prior_receipt = lean_receipt(event, ready.dedup_key, "repair-needed", "construction", 1)
     local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready,
       "lean-proof-repair-needed", prior_receipt, 1).body

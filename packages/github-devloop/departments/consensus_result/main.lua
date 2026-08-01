@@ -55,10 +55,19 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   version = version or result_version(reached)
   local declined = reached.decision == "reject"
   to_state = to_state or (declined and "declined" or gate and gate.ok and "ready" or "dependency_wait")
-  local comment_request = granted_payloads and granted_payloads[COMMENT_EFFECT_ID]
-    or requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
-  local label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
-    or requests_labels.build_result_state_label_request(repo, issue_number, reached, to_state)
+  local comment_request, label_request
+  if granted_payloads ~= nil then
+    comment_request = granted_payloads[COMMENT_EFFECT_ID]
+    label_request = granted_payloads[LABEL_EFFECT_ID]
+  else
+    comment_request, label_request = requests_lifecycle.build_result_transition_requests(
+      core,
+      repo,
+      issue_number,
+      reached,
+      to_state
+    )
+  end
   local dependency_comment_request = nil
   local dependency_label_request = nil
   local dependency_release_comment_request = nil

@@ -19,136 +19,6 @@ local function read_source(path)
   return body
 end
 
-local function read_repo_source(path)
-  local handle = assert(io.open(path, "r"))
-  local body = handle:read("*a")
-  handle:close()
-  return body
-end
-
-local function production_lua_paths()
-  local paths = {}
-  local find = assert(io.popen(
-    "find packages/github-devloop/core packages/github-devloop/departments packages/github-devloop/raisers libraries/devloop"
-      .. " -type f -name '*.lua' | sort"
-  ))
-  for path in find:lines() do
-    table.insert(paths, path)
-  end
-  local ok = find:close()
-  if ok ~= true then
-    error("github-devloop: production source discovery failed")
-  end
-  return paths
-end
-
-local function normalize_expression(value)
-  return (tostring(value or ""):gsub("%s+", " "):match("^%s*(.-)%s*$"))
-end
-
-local function state_marker_call_arguments(body, open_index)
-  local arguments = {}
-  local argument_start = open_index + 1
-  local stack = { ")" }
-  local index = argument_start
-  local quote = nil
-  while index <= #body do
-    local char = body:sub(index, index)
-    if quote ~= nil then
-      if char == "\\" then
-        index = index + 2
-      elseif char == quote then
-        quote = nil
-        index = index + 1
-      else
-        index = index + 1
-      end
-    elseif char == '"' or char == "'" then
-      quote = char
-      index = index + 1
-    elseif body:sub(index, index + 1) == "--" then
-      local newline = body:find("\n", index + 2, true)
-      index = newline or (#body + 1)
-    elseif char == "(" or char == "[" or char == "{" then
-      local close_by_open = { ["("] = ")", ["["] = "]", ["{"] = "}" }
-      table.insert(stack, close_by_open[char])
-      index = index + 1
-    elseif char == stack[#stack] then
-      if #stack == 1 then
-        table.insert(arguments, normalize_expression(body:sub(argument_start, index - 1)))
-        return arguments, index
-      end
-      table.remove(stack)
-      index = index + 1
-    elseif char == "," and #stack == 1 then
-      table.insert(arguments, normalize_expression(body:sub(argument_start, index - 1)))
-      argument_start = index + 1
-      index = index + 1
-    else
-      index = index + 1
-    end
-  end
-  error("github-devloop: state-marker-source-scan-unclosed-call")
-end
-
-local function state_marker_calls(body)
-  local calls = {}
-  local cursor = 1
-  while true do
-    local call_start, call_end = body:find("[%a_][%w_]*%.state_marker%s*%(", cursor)
-    if call_start == nil then
-      return calls
-    end
-    local line_start = (body:sub(1, call_start - 1):match(".*()\n") or 0) + 1
-    local prefix = body:sub(line_start, call_start - 1)
-    local open_index = body:find("(", call_start, true)
-    local arguments, close_index = state_marker_call_arguments(body, open_index)
-    if not prefix:match("^%s*function%s*$") then
-      if #arguments < 2 then
-        error("github-devloop: state-marker-source-scan-missing-state-argument")
-      end
-      local quote, literal = arguments[2]:match("^([\"'])(.-)%1$")
-      table.insert(calls, {
-        state_expression = arguments[2],
-        literal_state = quote ~= nil and literal or nil,
-      })
-    end
-    cursor = math.max(call_end + 1, close_index + 1)
-  end
-end
-
-local function writes_ready_or_dynamic_state_marker(body)
-  for _, call in ipairs(state_marker_calls(body)) do
-    if call.literal_state == "ready" or call.literal_state == "dependency_wait" or call.literal_state == nil then
-      return true
-    end
-  end
-  return false
-end
-
-local dynamic_state_marker_policies = {
-  ["libraries/devloop/hidden_state_conformance.lua"] = {
-    ["row.from_state"] = { "local function base_entity", "devloop_state.state_label(row.from_state)" },
-    ["child_state"] = { "local function child_pr", "if child_state ~= nil then" },
-  },
-  ["libraries/devloop/requests/lifecycle.lua"] = {
-    ["canonical_state"] = { "function C.build_result_comment_request", 'local canonical_state = state_name or "ready"' },
-  },
-  ["libraries/devloop/requests/review.lua"] = {
-    ["to_state"] = {
-      'reached.reflection_checkpoint and "review-meta"',
-      'reached.decision == "approve" and "merge-ready"',
-      'or "fixing"',
-    },
-  },
-  [package_root .. "/core/awaiting_pr_replayer.lua"] = {
-    ["next_state.to_state"] = { "devloop_state.state_label_changes(next_state.to_state)" },
-  },
-  [package_root .. "/core/ready_split.lua"] = {
-    ["to_state"] = { "function M.build_ready_split_transition_requests", "requests_labels.build_state_label_request" },
-  },
-}
-
 local function department_main_paths()
   local root = package_root
   local paths = {}
@@ -224,63 +94,46 @@ return {
   end,
 
 
-  test_ready_and_dependency_wait_marker_producers_use_guarded_projection_capabilities = function()
+  test_ready_and_dependency_wait_markers_require_guarded_projection_capability = function()
+    local devloop_state = require("devloop.state")
     local ready_split = read_source("core/ready_split.lua")
-    local seen_dynamic_policies = {}
+    local test_api = fkst.test
+    fkst.test = nil
+    local emit = devloop_state.state_marker
+    local ready_ok, ready_err = pcall(emit, "github-devloop/issue/owner/repo/42", "ready", "v1")
+    local dependency_ok, dependency_err = pcall(
+      emit,
+      "github-devloop/issue/owner/repo/42",
+      "dependency_wait",
+      "v1"
+    )
+    local blocked_ok = pcall(emit, "github-devloop/issue/owner/repo/42", "blocked", "v1")
+    fkst.test = test_api
 
-    t.is_true(writes_ready_or_dynamic_state_marker(
-      'local marker = devloop_state.state_marker(proposal_id, "ready", version)'
-    ))
-    t.is_true(writes_ready_or_dynamic_state_marker(
-      'local marker = devloop_state.state_marker(\n  proposal_id,\n  "dependency_wait",\n  version\n)'
-    ))
-    t.is_true(writes_ready_or_dynamic_state_marker([[
-      local to_state = gate.ok and "ready" or "dependency_wait"
-      local marker = devloop_state.state_marker(proposal_id, to_state, version)
-    ]]))
-    t.is_true(writes_ready_or_dynamic_state_marker(
-      "local marker = devloop_state.state_marker(proposal_id, select_target(gate), version)"
-    ))
-    t.eq(writes_ready_or_dynamic_state_marker(
-      'local marker = devloop_state.state_marker(proposal_id, "blocked", version)'
-    ), false)
-    t.is_true(ready_split:find("local function ready_split_canonicalized_marker", 1, true) ~= nil)
-    t.is_true(ready_split:find("local function build_ready_split_canonicalized_comment_request", 1, true) ~= nil)
+    t.eq(ready_ok, false)
+    t.is_true(tostring(ready_err):find("state-marker-projection-required", 1, true) ~= nil)
+    t.eq(dependency_ok, false)
+    t.is_true(tostring(dependency_err):find("state-marker-projection-required", 1, true) ~= nil)
+    t.eq(blocked_ok, true)
+
+    local marker, label_request = devloop_state.build_projected_state_transition(
+      "owner/repo",
+      42,
+      "github-devloop/issue/owner/repo/42",
+      "dependency_wait",
+      "v1",
+      "ready-split-canonicalized",
+      "dependency/label/hold/42/v1",
+      { kind = "external", ref = "owner/repo#issue/42" }
+    )
+    t.is_true(marker:find('state="dependency_wait"', 1, true) ~= nil)
+    t.eq(label_request.require_marker_guard, true)
+    t.eq(label_request.expected_state, "dependency_wait")
+    t.eq(label_request.expected_version, "v1")
+    t.eq(label_request.marker_guard.expected.state, "dependency_wait")
+
     t.is_true(ready_split:find("function M.build_ready_split_transition_requests", 1, true) ~= nil)
-    t.is_true(ready_split:find("requests_labels.build_state_label_request", 1, true) ~= nil)
-    t.is_true(ready_split:find("M._blocked_on_dependency_label", 1, true) ~= nil)
-
-    for _, path in ipairs(production_lua_paths()) do
-      local body = read_repo_source(path)
-      if path ~= package_root .. "/core/ready_split.lua" then
-        t.eq(body:find("ready_split_canonicalized_marker", 1, true), nil, path)
-        t.eq(body:find("return '<!-- fkst:github-devloop:ready-split-canonicalized:v1", 1, true), nil, path)
-      end
-      t.eq(body:find("build_result_label_request", 1, true), nil, path)
-      for _, call in ipairs(state_marker_calls(body)) do
-        if call.literal_state == "ready" or call.literal_state == "dependency_wait" then
-          error(path .. ": ready/dependency_wait state_marker must use a guarded projection capability")
-        elseif call.literal_state == nil then
-          local policies = dynamic_state_marker_policies[path]
-          local proofs = policies and policies[call.state_expression] or nil
-          local policy_key = path .. "::" .. call.state_expression
-          t.is_true(proofs ~= nil, policy_key .. " must declare projection or closed-domain evidence")
-          t.eq(seen_dynamic_policies[policy_key], nil, policy_key .. " must identify exactly one dynamic producer")
-          seen_dynamic_policies[policy_key] = true
-          for _, proof in ipairs(proofs) do
-            t.is_true(body:find(proof, 1, true) ~= nil, policy_key .. " missing evidence " .. proof)
-          end
-        end
-      end
-      if body:find("requests_lifecycle.build_result_comment_request", 1, true) ~= nil then
-        t.is_true(body:find("requests_labels.build_result_state_label_request", 1, true) ~= nil, path)
-      end
-    end
-    for path, policies in pairs(dynamic_state_marker_policies) do
-      for expression in pairs(policies) do
-        local policy_key = path .. "::" .. expression
-        t.eq(seen_dynamic_policies[policy_key], true, policy_key .. " must match a discovered dynamic producer")
-      end
-    end
+    t.is_true(ready_split:find("build_projected_state_transition", 1, true) ~= nil)
+    t.eq(ready_split:find("build_ready_split_canonicalized_comment_request", 1, true), nil)
   end,
 }

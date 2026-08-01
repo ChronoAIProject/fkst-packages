@@ -20,6 +20,7 @@ local autonomy_ledger = require("devloop.autonomy_ledger")
 local m_builders = require("devloop.markers.builders")
 local devloop_entity_view = require("devloop.github_proxy_entity_view")
 local devloop_logging = require("devloop.logging")
+local requests_labels = require("devloop.requests.labels")
 
 function S.fetch_then_scan_rollup_receipts(candidates, fetch_receipt, receipt_contains_child)
   local receipt_heads = {}
@@ -167,9 +168,45 @@ local function resume_terminal_markers(issue, next_state, delegation, current_pr
     .. "\n" .. autonomy_ledger.autonomy_result_marker(autonomy_record)
 end
 
-local function build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
+local function build_resume_transition_requests(issue, state, next_state, child_state, delegation, current_pr)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  local state_marker = devloop_state.state_marker(delegation.proposal_id, next_state.to_state, next_state.version)
+  local label_dedup_key = base_ids.dedup_key({
+    "awaiting-pr",
+    "label",
+    tostring(delegation.proposal_id),
+    tostring(delegation.pr_number),
+    tostring(delegation.delegation),
+    tostring(next_state.to_state),
+    tostring(next_state.version),
+  })
+  local state_marker, label_request
+  if next_state.to_state == "ready" then
+    state_marker, label_request = devloop_state.build_projected_state_transition(
+      issue.repo,
+      issue.number,
+      delegation.proposal_id,
+      next_state.to_state,
+      next_state.version,
+      nil,
+      label_dedup_key,
+      source_ref
+    )
+  else
+    state_marker = devloop_state.state_marker(
+      delegation.proposal_id,
+      next_state.to_state,
+      next_state.version
+    )
+    label_request = requests_labels.build_state_label_request(
+      issue.repo,
+      issue.number,
+      next_state.to_state,
+      delegation.proposal_id,
+      next_state.version,
+      label_dedup_key,
+      source_ref
+    )
+  end
   local request = entity_lib.build_entity_comment_request({
     kind = "issue",
     repo = issue.repo,
@@ -199,9 +236,9 @@ local function build_resume_comment_request(issue, state, next_state, child_stat
       source_ref = source_ref,
     }
   end
-  return request
+  return request, label_request
 end
-S.build_resume_comment_request = build_resume_comment_request
+S.build_resume_transition_requests = build_resume_transition_requests
 
 local function build_awaiting_pr_canonicalization_comment_request(issue, state, delegation)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
