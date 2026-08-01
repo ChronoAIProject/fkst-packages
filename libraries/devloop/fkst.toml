@@ -73,6 +73,7 @@ public = [
   "devloop.markers",
   "devloop.markers.builders",
   "devloop.markers.facts",
+  "devloop.markers.fix_feedback_observation",
   "devloop.markers.result_facts",
   "devloop.markers.shared",
   "devloop.merge_batch",
