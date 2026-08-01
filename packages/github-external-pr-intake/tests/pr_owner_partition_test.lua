@@ -1,4 +1,6 @@
 local core = require("core")
+local forge_strings = require("forge.strings")
+local pr_origin = require("contract.github_devloop_pr_origin")
 local strings = require("contract.strings")
 local t = fkst.test
 
@@ -331,6 +333,18 @@ return {
     local errors = core.pr_owner_conformance_errors({ "not-a-declaration", { match = {} } })
     t.is_true(contains(errors, "must be a table"))
     t.is_true(contains(errors, "requires kind"))
+  end,
+
+  test_pr_origin_fact_normalizes_login_case_on_both_sides = function()
+    local origin = pr_origin.fact({ {
+      author_login = "fkst-test-bot[bot]",
+      body = pr_origin_marker(42, "fix/generated", integration_branch),
+    } }, {
+      trusted_bot_login = "FKST-Test-Bot",
+      is_git_ref_safe = forge_strings.is_git_ref_safe,
+    })
+
+    t.eq(origin.issue_number, "42")
   end,
 
   test_runtime_classification_uses_trusted_origin_and_exact_rollup_facts = function()

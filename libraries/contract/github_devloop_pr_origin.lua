@@ -10,7 +10,7 @@ local function strip_bot_login_suffix(login)
   if login == nil then
     return nil
   end
-  return (tostring(login):gsub("%[bot%]$", ""))
+  return (tostring(login):lower():gsub("%[bot%]$", ""))
 end
 
 local function comment_author_login(comment, fallback_author_login)
