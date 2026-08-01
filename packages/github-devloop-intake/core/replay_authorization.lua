@@ -21,12 +21,17 @@ local function source_ref_equal(left, right)
     and source_ref_value(left) == source_ref_value(right)
 end
 
-local function has_truncated_delivery_facts(snapshot)
+-- The snapshot backs two independent keyed lookups: `deliveries` for a live
+-- delivery and `dead_letters` for a terminal tombstone. Truncation can only
+-- invalidate an ABSENCE conclusion, and only for the family that was actually
+-- truncated -- finding a row is positive evidence no truncation can undermine.
+-- A missing `truncated` table means unknown, so it reports truncated (closed).
+local function family_truncated(snapshot, family)
   local truncated = snapshot and snapshot.truncated
   if type(truncated) ~= "table" then
     return true
   end
-  return truncated.deliveries ~= false or truncated.dead_letters ~= false
+  return truncated[family] ~= false
 end
 
 local function validate_observe_snapshot(snapshot)
@@ -36,10 +41,20 @@ local function validate_observe_snapshot(snapshot)
   if type(snapshot.deliveries) ~= "table" or type(snapshot.dead_letters) ~= "table" then
     return nil, "observe-missing-delivery-facts"
   end
-  if has_truncated_delivery_facts(snapshot) then
-    return nil, "observe-truncated"
-  end
   return snapshot, nil
+end
+
+-- A live delivery we cannot see is harmless: the replay raise carries
+-- `dedup_key = successor_key`, derived from the durable tombstone, and that key
+-- is part of the delivery identity, so the durable layer collapses a duplicate.
+-- Duplicate suppression therefore does not depend on this scan, which is only a
+-- same-runtime early-out. Tombstone ABSENCE has no such backstop and still
+-- requires a complete `dead_letters` list to be a sound conclusion.
+local function tombstone_absence_reason(snapshot)
+  if family_truncated(snapshot, "dead_letters") then
+    return "observe-truncated-dead-letters"
+  end
+  return "terminal-dlq-absent"
 end
 
 local function read_observe_snapshot()
@@ -108,7 +123,7 @@ function S.terminal_precondition(source_ref)
   end
   local terminal = latest_terminal_tombstone(snapshot, normalized)
   if terminal == nil then
-    return nil, "terminal-dlq-absent", snapshot
+    return nil, tombstone_absence_reason(snapshot), snapshot
   end
   return terminal, nil, snapshot
 end
@@ -173,7 +188,7 @@ function S.authorize(current, proposal_id, source_ref, opts)
   end
   terminal = terminal or latest_terminal_tombstone(snapshot, normalized)
   if terminal == nil then
-    return nil, "terminal-dlq-absent"
+    return nil, tombstone_absence_reason(snapshot)
   end
 
   local successor_key = S.successor_key(proposal_id, terminal)
