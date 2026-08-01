@@ -59,19 +59,11 @@ return {
     t.is_true(reject_marker:find('fix_round="1"', 1, true) ~= nil)
     t.is_true(reject_marker:find('gap="missing regression guard"', 1, true) ~= nil)
     local action_version = core.next_review_meta_action_version(version)
-    local meta_review_proposal = devloop_base.pr_review_proposal_id(repo, 7, version, head_sha)
-    local meta_review_dedup = devloop_base.pr_review_consensus_dedup_key(meta_review_proposal)
     local meta_comment = "github-devloop review-meta action: fix\n\nReason:\nRun another fix pass."
       .. "\n\n" .. core.state_marker(issue_proposal_id, "fixing", action_version)
-      .. "\n" .. m_builders.review_meta_marker(issue_proposal_id, meta_review_dedup, "fix", action_version, "missing retry guard", nil, {
-        review_proposal_id = meta_review_proposal,
-        review_dedup_key = meta_review_dedup,
-        reviewed_head_sha = head_sha,
-      })
+      .. "\n" .. m_builders.review_meta_marker(issue_proposal_id, "meta-dedup", "fix", action_version, "missing retry guard")
     local meta_fact = m_facts.review_meta_fix_fact({ meta_comment }, issue_proposal_id, action_version)
-    t.eq(meta_fact.review_proposal_id, meta_review_proposal)
-    t.eq(meta_fact.review_dedup_key, meta_review_dedup)
-    t.eq(meta_fact.reviewed_head_sha, head_sha)
+    t.eq(meta_fact.review_dedup_key, "meta-dedup")
     t.eq(meta_fact.blocking_gap, "missing retry guard")
     t.is_true(meta_fact.review_reason:find("Run another fix pass.", 1, true) ~= nil)
   end,

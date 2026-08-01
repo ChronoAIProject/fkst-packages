@@ -16,6 +16,7 @@ local mock_issue_state = h.mock_issue_state
 local deterministic_branch_for = h.deterministic_branch_for
 local mock_fresh_implement_worktree = h.mock_fresh_implement_worktree
 local mock_existing_empty_implement_worktree_reuse = h.mock_existing_empty_implement_worktree_reuse
+local mock_issue_implement_raw = h.mock_issue_implement_raw
 local mock_implement_codex = h.mock_implement_codex
 local mock_git_status = h.mock_git_status
 local mock_branch_diff_paths = h.mock_branch_diff_paths
@@ -260,6 +261,44 @@ return {
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:impl-failed")
+    local failure = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find(
+        "No linked PR, remote branch, or local branch progress was visible after 2 attempts.",
+        1,
+        true
+      ) ~= nil
+    end)
+    t.is_true(failure ~= nil)
+  end,
+
+  test_progress_retry_log_is_truthful_at_attempt_budget = function()
+    local event = ready()
+    local comments, branch = implementing_comments(event, {
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_attempt_started_at()),
+    })
+    mock_issue_implement_raw({ "fkst-dev:implementing" }, comments)
+    mock_remote_branch(branch, "def456")
+    t.mock_command("git fetch 'origin' 'dev'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'dev'^{commit}", {
+      stdout = "abc123\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_implement_raw({ "fkst-dev:impl-failed" }, {
+      core.state_marker(event.proposal_id, "impl-failed", event.dedup_key),
+    })
+
+    local result, logs = run_implement_with_logs(event)
+    local rendered = table.concat(logs, "\n")
+
+    t.is_nil(result.failure)
+    t.is_true(rendered:find("applied(retry-with-progress)", 1, true) ~= nil)
+    t.is_true(rendered:find("branch progress is visible; retrying implementation attempt", 1, true) ~= nil)
+    t.eq(rendered:find("no PR or branch progress", 1, true), nil)
   end,
 
   test_implementing_liveness_redrive_uses_current_marker_version = function()

@@ -268,7 +268,7 @@ return {
     t.eq(meta_handoff.exit_code, 0)
     local at_cap = find_raise(meta_handoff, "devloop_fixing").payload
     t.eq(core.version_fix_round(at_cap.version), config.max_fix_rounds())
-    t.eq(at_cap.review_dedup_key, advanced.review_dedup_key)
+    t.eq(at_cap.review_dedup_key, advanced.dedup_key)
 
     local capped = run_no_new_head(
       at_cap,

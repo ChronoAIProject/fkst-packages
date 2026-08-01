@@ -11,7 +11,7 @@ local valid_round = shared.valid_round
 local strings = shared.strings
 local safe_marker_attr = shared.safe_marker_attr
 
-function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blocking_gap, reason, feedback)
+function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blocking_gap, reason)
   local fields = ""
   if action ~= nil then
     if not devloop_base._is_review_meta_action(action) then
@@ -27,11 +27,7 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
     if gap == "" or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
       error("github-devloop: invalid review-meta gap")
     end
-    feedback = shared.parse_fix_feedback_fact(feedback)
     fields = fields .. '" gap="' .. gap
-      .. '" review_proposal="' .. tostring(feedback.review_proposal_id)
-      .. '" review_dedup="' .. tostring(feedback.review_dedup_key)
-      .. '" head_sha="' .. tostring(feedback.reviewed_head_sha)
   elseif action == "spec-amendment" then
     fields = fields .. '" reason="blocked-pending-spec'
   end

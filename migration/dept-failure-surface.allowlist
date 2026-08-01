@@ -10,6 +10,7 @@
 #
 # `dead_letter` and `test_*` departments are structurally exempt by role and are not listed.
 github-devloop.liveness_scan|issue=#2996|why=liveness sweep drives every stuck-state redrive; a throw from replay_fixing vanishes here. Highest priority to remove.
+github-devloop-pr.liveness_scan|issue=#2996|why=same sweep on the PR side; this is the path that produced PR#2915's 39h redrive/skip loop. Highest priority to remove.
 archaudit.audit|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
 fkst-substrate-ref-maintainer.substrate_ref_scan|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.
 github-autochrono.inbound_glue|issue=#2996|why=inventoried at ratchet introduction; throw-reachability not yet audited.

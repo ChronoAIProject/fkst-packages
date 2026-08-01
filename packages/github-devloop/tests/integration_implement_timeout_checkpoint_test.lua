@@ -373,13 +373,13 @@ return {
     t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
   end,
 
-  test_unmarked_remote_progress_is_retried_not_handed_off = function()
+  test_unmarked_remote_progress_at_attempt_budget_is_retried_not_handed_off = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
     mock_remote_branch(branch, checkpoint_head)
     mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
@@ -388,13 +388,14 @@ return {
     mock_git_commit("2222222222222222222222222222222222222222", branch)
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
 
     local result = run_implement(event, opts("implement-timeout-unmarked-remote-progress"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("impl-failed"), 0)
     t.eq(count_calls("git worktree add --force -B"), 1)
     local final = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return tostring(payload.body or ""):find("fkst:github-devloop:implementing:v1", 1, true) ~= nil
@@ -404,12 +405,12 @@ return {
     t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
   end,
 
-  test_unmarked_local_progress_is_retried_not_handed_off_when_remote_missing = function()
+  test_unmarked_local_progress_at_attempt_budget_is_retried_not_handed_off_when_remote_missing = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
     mock_missing_remote_branch(branch)
     mock_existing_empty_implement_worktree_reuse(nil, branch, "1")
@@ -434,13 +435,14 @@ return {
     mock_git_commit("2222222222222222222222222222222222222222", branch)
     mock_issue_implement({ "fkst-dev:implementing" }, {
       core.state_marker(event.proposal_id, "implementing", event.dedup_key),
-      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
 
     local result = run_implement(event, opts("implement-timeout-unmarked-local-progress"))
 
     t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("impl-failed"), 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
       return tostring(payload.body or ""):find('state="awaiting-pr"', 1, true) ~= nil
     end), nil)

@@ -196,17 +196,7 @@ local function comments_for(fixture)
     table.insert(comments, trusted_comment(m_builders.merge_gate_marker(PROPOSAL_ID, PR_NUMBER, version, review_proposal, review_dedup, HEAD_SHA, BASE_SHA, "review-rejected")))
   elseif fixture.marker == "review-meta" or fixture.marker == "review-meta-fix" then
     local action = fixture.marker == "review-meta-fix" and "fix" or "block"
-    table.insert(comments, trusted_comment(m_builders.review_meta_marker(PROPOSAL_ID,
-      review_dedup,
-      action,
-      version,
-      action == "fix" and "fix the remaining gap" or nil,
-      "review-meta-" .. action,
-      action == "fix" and {
-        review_proposal_id = review_proposal,
-        review_dedup_key = review_dedup,
-        reviewed_head_sha = HEAD_SHA,
-      } or nil)))
+    table.insert(comments, trusted_comment(m_builders.review_meta_marker(PROPOSAL_ID, review_dedup, action, version, action == "fix" and "fix the remaining gap" or nil, "review-meta-" .. action)))
   elseif fixture.marker == "review-result-reject" then
     table.insert(comments, trusted_comment(m_builders.review_result_marker(review_proposal, PROPOSAL_ID, "reject", review_dedup, devloop_state.version_fix_round(version), "missing row replay regression guard")))
   elseif fixture.marker == "fix-feedback-head-advanced" then
