@@ -494,6 +494,46 @@ return {
     t.eq(close.action, "close")
   end,
 
+  test_refused_rereview_is_retired_only_for_its_target_authority = function()
+    local issue = escalation_issue()
+    local fact = classify(issue)
+    local source = source_with_pr_delegation()
+    local initial_snapshot = linked_pr_snapshot("blocked", pr_blocked_version)
+    local first = core.output_obligation_resolution_decision(fact, issue, source, initial_snapshot)
+    local refusal_body = operator_commands.build_output_obligation_command_write_refusal_body(
+      first.request.body,
+      "command-target-changed"
+    )
+    local refused_comments = append_comment(
+      initial_snapshot.prs[1].current.comments,
+      command_comment({ body = refusal_body }, "IC_rereview_refused_old_head")
+    )
+
+    local unchanged = core.output_obligation_resolution_decision(
+      fact,
+      issue,
+      source,
+      linked_pr_snapshot("blocked", pr_blocked_version, { comments = refused_comments })
+    )
+    t.eq(unchanged.action, "wait")
+    t.eq(unchanged.reason, "command-refused")
+
+    local replacement_head = "1234567890abcdef1234567890abcdef12345678"
+    local changed = core.output_obligation_resolution_decision(
+      fact,
+      issue,
+      source,
+      linked_pr_snapshot("blocked", pr_blocked_version, {
+        comments = refused_comments,
+        head_sha = replacement_head,
+      })
+    )
+    t.eq(changed.decision, "rereview")
+    t.eq(changed.action, "command")
+    t.is_true(changed.request.dedup_key ~= first.request.dedup_key)
+    t.is_true(changed.request.body:find('head_sha="' .. replacement_head .. '"', 1, true) ~= nil)
+  end,
+
   test_multiple_correlated_rereview_commands_wait_without_another_effect = function()
     local issue = escalation_issue()
     local fact = classify(issue)

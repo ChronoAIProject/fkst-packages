@@ -108,13 +108,19 @@ local function output_obligation_command_key(authority)
   if type(authority) ~= "table" or authority.invalid == true then
     return nil
   end
-  return base_ids.dedup_key({
+  local parts = {
     "operator-command",
     "output-obligation",
     authority.escalation_dedup,
     authority.terminal_version,
     authority.decision,
-  })
+  }
+  if authority.decision == "rereview" then
+    table.insert(parts, authority.pr_number)
+    table.insert(parts, authority.head_sha)
+    table.insert(parts, authority.target_version)
+  end
+  return base_ids.dedup_key(parts)
 end
 
 local function parse_command(body)

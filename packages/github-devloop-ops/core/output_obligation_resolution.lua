@@ -104,13 +104,20 @@ local function command_correlation_marker(M, fact, decision, fields)
     .. '" -->'
 end
 
-local function command_dedup_key(fact, decision)
-  return base_ids.dedup_key({
+local function command_dedup_key(fact, decision, fields)
+  local parts = {
     "output-obligation-command",
     fact.dedup_key,
     fact.terminal_version,
     decision,
-  })
+  }
+  local target = fields or {}
+  if decision == "rereview" then
+    table.insert(parts, target.pr_number)
+    table.insert(parts, target.head_sha)
+    table.insert(parts, target.target_version)
+  end
+  return base_ids.dedup_key(parts)
 end
 
 local function build_command_decision(M, fact, decision, target, source_ref, fields)
@@ -118,7 +125,7 @@ local function build_command_decision(M, fact, decision, target, source_ref, fie
   local request = operator_commands.build_operator_command_intent_request(
     target,
     command_name,
-    command_dedup_key(fact, decision),
+    command_dedup_key(fact, decision, fields),
     source_ref,
     command_correlation_marker(M, fact, decision, fields),
     operator_commands.build_output_obligation_command_guard(fact, decision, fields)
@@ -129,34 +136,6 @@ local function build_command_decision(M, fact, decision, target, source_ref, fie
     request = request,
     target_version = fields and fields.target_version or nil,
   }
-end
-
-local function correlated_command(comments, fact, decision)
-  local found = nil
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(command_pattern) do
-      if attr(marker, "escalation_dedup") == tostring(fact.dedup_key)
-        and attr(marker, "terminal_version") == tostring(fact.terminal_version)
-        and attr(marker, "decision") == tostring(decision) then
-        local command = operator_commands.operator_command_fact({ comment }, command_names[decision])
-        if command ~= nil then
-          if found ~= nil then
-            return nil, "ambiguous-command"
-          end
-          found = {
-            command = command,
-            pr_number = tonumber(attr(marker, "pr")),
-            head_sha = attr(marker, "head_sha"),
-            target_version = attr(marker, "target_version"),
-          }
-        end
-      end
-    end
-  end
-  if found == nil then
-    return nil, "command-not-visible"
-  end
-  return found, nil
 end
 
 local function command_response_status(comments, command, expected_reason)
@@ -171,6 +150,45 @@ local function command_response_status(comments, command, expected_reason)
     return "invalid", "command-not-applied"
   end
   return "applied", nil
+end
+
+local function correlated_command(comments, fact, decision)
+  local found = nil
+  local refused = {}
+  local seen = {}
+  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
+    for marker in parsers_misc._comment_body(comment):gmatch(command_pattern) do
+      if attr(marker, "escalation_dedup") == tostring(fact.dedup_key)
+        and attr(marker, "terminal_version") == tostring(fact.terminal_version)
+        and attr(marker, "decision") == tostring(decision) then
+        local command = operator_commands.operator_command_fact({ comment }, command_names[decision])
+        if command ~= nil then
+          if seen[command.key] then
+            return nil, "ambiguous-command", refused
+          end
+          seen[command.key] = true
+          local metadata = {
+            command = command,
+            pr_number = tonumber(attr(marker, "pr")),
+            head_sha = attr(marker, "head_sha"),
+            target_version = attr(marker, "target_version"),
+          }
+          local status = command_response_status(comments, command, command_names[decision])
+          if status == "refused" then
+            table.insert(refused, metadata)
+          elseif found ~= nil then
+            return nil, "ambiguous-command", refused
+          else
+            found = metadata
+          end
+        end
+      end
+    end
+  end
+  if found == nil and #refused == 0 then
+    return nil, "command-not-visible", refused
+  end
+  return found, nil, refused
 end
 
 local function applied_response(comments, command, expected_reason)
@@ -197,19 +215,39 @@ end
 
 local function existing_rereview_command(snapshot, fact)
   local found = nil
+  local refused = {}
   for _, row in ipairs(snapshot and snapshot.prs or {}) do
-    local command, reason = correlated_command(row.current and row.current.comments, fact, "rereview")
+    local command, reason, row_refused = correlated_command(
+      row.current and row.current.comments,
+      fact,
+      "rereview"
+    )
     if reason == "ambiguous-command" then
-      return nil, reason
+      return nil, reason, refused
     end
     if command ~= nil then
       if found ~= nil then
-        return nil, "ambiguous-command"
+        return nil, "ambiguous-command", refused
       end
       found = { row = row, metadata = command }
     end
+    for _, metadata in ipairs(row_refused or {}) do
+      table.insert(refused, metadata)
+    end
   end
-  return found, nil
+  return found, nil, refused
+end
+
+local function refused_rereview_matches_authorization(refused, authorization)
+  local target = authorization and authorization.target or nil
+  for _, metadata in ipairs(refused or {}) do
+    if tostring(metadata.pr_number or "") == tostring(target and target.row.number or "")
+      and metadata.head_sha == tostring(target and target.current_pr.head_sha or "")
+      and metadata.target_version == tostring(authorization and authorization.target_version or "") then
+      return true
+    end
+  end
+  return false
 end
 
 local function decide_existing_rereview(M, fact, escalation_issue, snapshot, source_fact, existing)
@@ -313,33 +351,17 @@ local function decide_existing_reintake(M, fact, escalation_issue, source_issue,
 end
 
 local function select_live_decision(M, fact, escalation_issue, source_issue, snapshot, source_fact)
-  local rereview_command, rereview_command_reason = existing_rereview_command(snapshot, fact)
-  local reintake_command, reintake_command_reason = correlated_command(
+  local rereview_command, rereview_command_reason, refused_rereview_commands = existing_rereview_command(
+    snapshot,
+    fact
+  )
+  local reintake_command, reintake_command_reason, refused_reintake_commands = correlated_command(
     source_issue.comments,
     fact,
     "abandon-recreate"
   )
   if rereview_command_reason == "ambiguous-command" or reintake_command_reason == "ambiguous-command" then
     return { action = "wait", reason = "ambiguous-command" }
-  end
-  local spent = {}
-  if rereview_command ~= nil then
-    local status = command_response_status(
-      rereview_command.row.current and rereview_command.row.current.comments,
-      rereview_command.metadata.command,
-      "rereview"
-    )
-    if status == "refused" then
-      spent.rereview = true
-      rereview_command = nil
-    end
-  end
-  if reintake_command ~= nil then
-    local status = command_response_status(source_issue.comments, reintake_command.command, "reintake")
-    if status == "refused" then
-      spent["abandon-recreate"] = true
-      reintake_command = nil
-    end
   end
   if rereview_command ~= nil and reintake_command ~= nil then
     return { action = "wait", reason = "ambiguous-command-decision" }
@@ -370,7 +392,11 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
   if authorization == nil then
     return { action = "wait", reason = authorization_reason }
   end
-  if spent[authorization.decision] then
+  if authorization.decision == "rereview"
+    and refused_rereview_matches_authorization(refused_rereview_commands, authorization) then
+    return { action = "wait", reason = "command-refused" }
+  end
+  if authorization.decision == "abandon-recreate" and #refused_reintake_commands > 0 then
     return { action = "wait", reason = "command-refused" }
   end
   if authorization.decision == "rereview" then

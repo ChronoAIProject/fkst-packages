@@ -597,7 +597,7 @@ return {
     t.is_true(close_write(model.writes) ~= nil)
   end,
 
-  test_refused_rereview_falls_through_to_fresh_reintake_without_reemitting = function()
+  test_refused_rereview_rederives_same_decision_for_new_head_then_falls_through_to_reintake = function()
     mock_env("1")
     local source = live_source_fixture(true)
     local pr = pr_fixture("blocked", pr_blocked_version)
@@ -630,6 +630,35 @@ return {
     t.is_true(response ~= nil)
     t.eq(response.outcome, "refused")
     t.eq(response.reason, "command-authority-changed")
+
+    local replacement_head = "1234567890abcdef1234567890abcdef12345678"
+    pr.head_sha = replacement_head
+    mock_census({})
+    local same_decision_tick = run_tick(department)
+    local replacement_rereview = find_target_raise(
+      same_decision_tick.raises,
+      "github-proxy.github_pr_comment_request",
+      "pr_number",
+      pr_number
+    )
+    t.is_true(replacement_rereview ~= nil)
+    t.is_true(replacement_rereview.payload.dedup_key ~= rereview.payload.dedup_key)
+    t.is_true(replacement_rereview.payload.body:find('head_sha="' .. replacement_head .. '"', 1, true) ~= nil)
+    t.eq(find_target_raise(
+      same_decision_tick.raises,
+      "github-proxy.github_issue_comment_request",
+      "issue_number",
+      source_issue_number
+    ), nil)
+
+    local replacement_refusal = operator_commands.build_output_obligation_command_write_refusal_body(
+      replacement_rereview.payload.body,
+      "command-authority-changed"
+    )
+    pr.comments = append_comment(pr.comments, identified_bot_comment(
+      "IC_rereview_replacement_refused",
+      replacement_refusal
+    ))
     pr.comments = append_comment(pr.comments, bot_comment(
       core.state_marker(proposal_id, "merged", pr_blocked_version)
     ))
