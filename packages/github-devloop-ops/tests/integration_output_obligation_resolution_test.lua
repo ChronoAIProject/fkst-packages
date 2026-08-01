@@ -616,15 +616,20 @@ return {
     )
     t.is_true(rereview ~= nil)
 
+    local refusal_body = operator_commands.build_output_obligation_command_write_refusal_body(
+      rereview.payload.body,
+      "command-authority-changed"
+    )
     local command_comment = identified_bot_comment(
       "IC_rereview_refused",
-      rereview.payload.body
+      refusal_body
     )
     pr.comments = append_comment(pr.comments, command_comment)
     local command_fact = operator_commands.operator_command_fact(pr.comments, "rereview")
-    pr.comments = append_comment(pr.comments, bot_comment(
-      operator_commands.operator_command_marker(command_fact, "refused", "command-authority-changed")
-    ))
+    local response = operator_commands.operator_command_response_fact(pr.comments, command_fact)
+    t.is_true(response ~= nil)
+    t.eq(response.outcome, "refused")
+    t.eq(response.reason, "command-authority-changed")
     pr.comments = append_comment(pr.comments, bot_comment(
       core.state_marker(proposal_id, "merged", pr_blocked_version)
     ))

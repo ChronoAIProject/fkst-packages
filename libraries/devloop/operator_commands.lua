@@ -104,6 +104,19 @@ local function parse_output_obligation_command(body, command)
   }
 end
 
+local function output_obligation_command_key(authority)
+  if type(authority) ~= "table" or authority.invalid == true then
+    return nil
+  end
+  return base_ids.dedup_key({
+    "operator-command",
+    "output-obligation",
+    authority.escalation_dedup,
+    authority.terminal_version,
+    authority.decision,
+  })
+end
+
 local function parse_command(body)
   local line = first_command_line(body)
   local command = line:match("^fkst:%s*([%w_-]+)")
@@ -134,7 +147,8 @@ function C.operator_command_fact(comments, command_name, expected_key)
     local parsed = parse_command(parsers_misc._comment_body(comment))
     if parsed ~= nil and parsed.command == command_name then
       if parsers_misc._is_trusted_comment(comment) then
-        local key = command_key(comment, index)
+        local key = output_obligation_command_key(parsed.output_obligation)
+          or command_key(comment, index)
         if expected_key == nil or key == tostring(expected_key) then
           latest = {
             command = parsed.command,
@@ -724,10 +738,10 @@ end
 function C.output_obligation_command_write_authorized(github, guard, bot_login, effect)
   local fact = output_obligation_guard_fact(guard)
   if fact == nil or type(github) ~= "table" or type(github.read_issue) ~= "function" then
-    return false, "invalid-command-guard"
+    return false, "invalid-command-guard", false
   end
   if not output_obligation_command_effect_matches(guard, fact, effect) then
-    return false, "command-effect-changed"
+    return false, "command-effect-changed", false
   end
   devloop_base.configure_trusted_bot_login(bot_login)
   local source_issue = github.read_issue(fact.source_ref, {
@@ -741,14 +755,14 @@ function C.output_obligation_command_write_authorized(github, guard, bot_login, 
     consumer = "github-proxy.output-obligation-command-escalation-guard",
   })
   if not output_obligation_escalation_matches(escalation_issue, fact, bot_login) then
-    return false, "escalation-changed"
+    return false, "escalation-changed", true
   end
   if tostring(source_issue and source_issue.state or ""):upper() ~= "OPEN" then
-    return false, "source-changed"
+    return false, "source-changed", true
   end
   local source_fact = C.output_obligation_source_lineage_fact(fact, source_issue)
   if source_fact == nil then
-    return false, "source-lineage-changed"
+    return false, "source-lineage-changed", true
   end
   local snapshot_reader = {
     _max_dedup_len = devloop_base._max_dedup_len,
@@ -768,17 +782,17 @@ function C.output_obligation_command_write_authorized(github, guard, bot_login, 
     source_fact
   )
   if authorization == nil or authorization.decision ~= guard.decision then
-    return false, reason or "command-decision-changed"
+    return false, reason or "command-decision-changed", true
   end
   if guard.decision == "rereview" then
     local target = guard.target or {}
     if tostring(target.pr_number or "") ~= tostring(authorization.target.row.number)
       or target.head_sha ~= authorization.target.current_pr.head_sha
       or target.target_version ~= authorization.target_version then
-      return false, "command-target-changed"
+      return false, "command-target-changed", true
     end
   end
-  return true, "ok"
+  return true, "ok", false
 end
 
 function C.output_obligation_command_requires_guard(body)
@@ -787,6 +801,24 @@ function C.output_obligation_command_requires_guard(body)
     1,
     true
   ) ~= nil
+end
+
+function C.build_output_obligation_command_write_refusal_body(body, reason)
+  local parsed = parse_command(body)
+  local key = parsed and output_obligation_command_key(parsed.output_obligation) or nil
+  if parsed == nil or key == nil then
+    error("github-devloop: invalid output obligation command refusal")
+  end
+  local command = {
+    command = parsed.command,
+    key = key,
+  }
+  local command_body = tostring(body or ""):gsub("%s*" .. ai_sentinel .. "%s*$", "")
+  local safe_reason = devloop_base.neutralize_untrusted_comment_text(reason or "authority-changed")
+  return command_body
+    .. "\n\ngithub-devloop operator command refused at write guard: " .. safe_reason
+    .. "\n\n" .. C.operator_command_marker(command, "refused", reason)
+    .. "\n" .. ai_sentinel
 end
 
 function C.build_operator_command_intent_request(target, command_name, dedup_key, source_ref, correlation_marker, command_guard)

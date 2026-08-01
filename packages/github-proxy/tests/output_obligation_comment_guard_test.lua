@@ -245,6 +245,7 @@ local function run_delivery(mutate)
     }
   end
   local creates = 0
+  local written_body = nil
   local target = {
     kind = "pr",
     number = pr_number,
@@ -252,8 +253,9 @@ local function run_delivery(mutate)
     view_comments = function()
       return { stdout = "[]", stderr = "", exit_code = 0 }
     end,
-    comment_create = function()
+    comment_create = function(_, _, _, body_file)
       creates = creates + 1
+      written_body = file.read(body_file)
       return { stdout = '{"id":123,"body":"created","user":{"login":"fkst-test-bot"}}', stderr = "", exit_code = 0 }
     end,
     view_label = "test PR comments",
@@ -265,7 +267,7 @@ local function run_delivery(mutate)
   end
   target.number = request.pr_number
   subject_for(github).write_comment_request(request, target)
-  return creates
+  return creates, written_body
 end
 
 return {
@@ -274,10 +276,24 @@ return {
   end,
 
   test_output_obligation_command_guard_refuses_delayed_stale_head = function()
-    local creates = run_delivery(function(model)
+    local creates, written_body = run_delivery(function(model)
       model.prs[repo .. "#pr/7"].head_sha = "1234567890abcdef1234567890abcdef12345678"
     end)
-    t.eq(creates, 0)
+    t.eq(creates, 1)
+    local comments = {
+      {
+        id = "123",
+        body = written_body,
+        author_login = "fkst-test-bot",
+        created_at = "2026-08-01T12:20:00Z",
+      },
+    }
+    local command = operator_commands.operator_command_fact(comments, "rereview")
+    t.is_true(command ~= nil)
+    local response = operator_commands.operator_command_response_fact(comments, command)
+    t.is_true(response ~= nil)
+    t.eq(response.outcome, "refused")
+    t.eq(response.reason, "command-target-changed")
   end,
 
   test_output_obligation_command_guard_refuses_missing_guard = function()

@@ -410,9 +410,10 @@ function M.write_comment_request(payload, target)
       and not M.verify_issue_claim_before_write(payload, repo, claim_issue_number, target.kind == "pr" and "github_pr_comment" or "github_comment") then
       return
     end
+    local guarded_body = nil
     if payload.command_guard ~= nil
       or operator_commands.output_obligation_command_requires_guard(payload.body) then
-      local authorized, reason = operator_commands.output_obligation_command_write_authorized(
+      local authorized, reason, can_record_refusal = operator_commands.output_obligation_command_write_authorized(
         M.github(),
         payload.command_guard,
         bot_login,
@@ -430,11 +431,17 @@ function M.write_comment_request(payload, target)
           "repo=" .. tostring(repo),
           "target=" .. tostring(target.kind) .. ":" .. tostring(target.number),
         })
-        return
+        if not can_record_refusal then
+          return
+        end
+        guarded_body = operator_commands.build_output_obligation_command_write_refusal_body(
+          payload.body,
+          reason
+        )
       end
     end
 
-    local body = tostring(payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
+    local body = tostring(guarded_body or payload.body) .. "\n\n" .. M.comment_marker(payload.dedup_key) .. "\n"
     if stale_round_marker_replace(existing, body, replace_marker) then
       log.info("github-proxy: round-marker replacement is stale; keeping newer visible marker")
       return
