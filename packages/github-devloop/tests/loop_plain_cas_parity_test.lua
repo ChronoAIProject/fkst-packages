@@ -54,7 +54,7 @@ local function observe_department(run)
   local original_mint_grant = restart_effects.mint_grant
   local original_facade_make = restart_effect_facade.make
   local original_log_cas = devloop_logging.log_cas_decision
-  local original_converge_round_facts = conv_rounds.converge_round_facts_for_proposal
+  local original_converge_round_facts = conv_rounds.converge_round_facts_for_epoch
 
   restart_effects.decide_transition = function(snapshot, intent)
     local decided = original_decide_transition(snapshot, intent)
@@ -119,16 +119,28 @@ local function observe_department(run)
       reason
     )
   end
-  conv_rounds.converge_round_facts_for_proposal = function(comments, proposal_id)
+  conv_rounds.converge_round_facts_for_epoch = function(
+    comments,
+    proposal_id,
+    epoch_version,
+    source_ref_digest
+  )
     table.insert(boundary_calls, {
       comments = comments,
       proposal_id = proposal_id,
+      epoch_version = epoch_version,
+      source_ref_digest = source_ref_digest,
     })
-    return original_converge_round_facts(comments, proposal_id)
+    return original_converge_round_facts(
+      comments,
+      proposal_id,
+      epoch_version,
+      source_ref_digest
+    )
   end
 
   local ok, result = pcall(run)
-  conv_rounds.converge_round_facts_for_proposal = original_converge_round_facts
+  conv_rounds.converge_round_facts_for_epoch = original_converge_round_facts
   devloop_logging.log_cas_decision = original_log_cas
   restart_effect_facade.make = original_facade_make
   restart_effects.mint_grant = original_mint_grant
@@ -287,6 +299,12 @@ local function assert_case(fixture)
   t.eq(#boundary_calls, fixture.boundary_reached and 1 or 0, fixture.name .. ": admission boundary reach")
   if boundary_reached then
     t.eq(boundary_calls[1].proposal_id, event.proposal_id, fixture.name .. ": boundary proposal")
+    t.eq(boundary_calls[1].epoch_version, fixture.current_version, fixture.name .. ": boundary epoch version")
+    t.eq(
+      boundary_calls[1].source_ref_digest,
+      convergence_shared.source_ref_digest(event.source_ref),
+      fixture.name .. ": boundary source_ref digest"
+    )
     t.is_true(type(boundary_calls[1].comments) == "table", fixture.name .. ": boundary comments captured")
   end
 
