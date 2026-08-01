@@ -61,6 +61,7 @@ The profile schema is the existing host-run environment surface:
 | `FKST_DEVLOOP_INTEGRATION_BRANCH` | `github-devloop` | Per-device integration branch. |
 | `FKST_DEVLOOP_INTAKE_MILESTONE_NUMBERS` | optional | Comma-separated GitHub milestone numbers eligible for an initial issue claim. |
 | `FKST_DEVLOOP_LOCAL_TEST_COMMAND` | `github-devloop` | Repository-root local verification gate run by implement/fix workers before handoff. |
+| `FKST_DEVLOOP_CACHE_PREPARATION_COMMAND` | optional | Trusted-base cache preparation run for each implementation worktree before Codex starts. |
 
 `FKST_GITHUB_WRITE=1` is intentionally commented in the scaffold. Unset means dry-run.
 
@@ -100,6 +101,21 @@ wrappers must aggregate nested results into one top-level declaration and leave 
 Host activation validates the command from `FKST_HOST_ROOT` before replacing an existing supervisor.
 Activation fails closed when the direct executable is missing, non-executable, or the command shape is
 not safely preflightable; it does not execute the test suite during activation.
+
+## Implementation cache preparation
+
+`FKST_DEVLOOP_CACHE_PREPARATION_COMMAND` optionally names a repository-owned executable or task target
+that hydrates build caches in an implementation worktree. `github-devloop` runs it after refreshing
+`.fkst/substrate-ref` and before starting the Codex wall-clock deadline. The command runs from the
+trusted supervisor project root with the candidate path in
+`FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE`, never from candidate-controlled content. The command has
+a 10-minute timeout; a nonzero exit fails the implementation attempt loudly.
+
+The command must be idempotent because redelivery or a later implementation attempt can run it again
+for an existing worktree. It must treat the candidate path as untrusted data and must not execute
+candidate-controlled build scripts. Persistent cache ownership and reuse remain repository concerns,
+so trusted base logic can use the repository's native cache mechanism without teaching
+`github-devloop` about `.lake`, `node_modules`, `target`, or other toolchain-specific directories.
 
 ## Launch
 
