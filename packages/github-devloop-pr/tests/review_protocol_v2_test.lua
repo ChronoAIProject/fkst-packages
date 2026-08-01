@@ -5,6 +5,7 @@ local fixtures = require("tests.production_fixture_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
+local devloop_logging = require("devloop.logging")
 local core = h.core
 local t = h.t
 
@@ -547,7 +548,7 @@ return {
     t.eq(fact.blocking_gap, "first line second")
   end,
 
-  test_review_result_foreign_dedup_is_excluded = function()
+  test_review_result_foreign_dedup_fails_closed = function()
     local issue_version = h.reviewing().version
     local fix_version = core.next_fix_version(issue_version)
     local review_id = devloop_base.pr_review_proposal_id("owner/repo", 7, issue_version, "def456")
@@ -560,12 +561,20 @@ return {
       author_login = "fkst-test-bot",
     }
 
-    local fact = m_facts.review_reject_fact({ foreign }, "github-devloop/issue/owner/repo/42", fix_version)
-    t.is_nil(fact)
-    fact = m_facts.review_reject_fact({ foreign, current }, "github-devloop/issue/owner/repo/42", fix_version)
-    t.eq(fact.blocking_gap, "current gap")
-    local ledger = m_facts.review_prior_round_ledger({ foreign }, "github-devloop/issue/owner/repo/42", core.next_fix_version(fix_version))
-    t.is_nil(ledger)
+    for _, comments in ipairs({ { foreign }, { foreign, current } }) do
+      local ok, failure = pcall(m_facts.review_reject_fact,
+        comments,
+        "github-devloop/issue/owner/repo/42",
+        fix_version)
+      t.eq(ok, false)
+      t.eq(devloop_logging.error_class_from_message(failure), "fix-feedback-mismatched-review-dedup-key")
+    end
+    local ok, failure = pcall(m_facts.review_prior_round_ledger,
+      { foreign },
+      "github-devloop/issue/owner/repo/42",
+      core.next_fix_version(fix_version))
+    t.eq(ok, false)
+    t.eq(devloop_logging.error_class_from_message(failure), "fix-feedback-mismatched-review-dedup-key")
   end,
 
   test_review_result_legacy_loop_dedup_marker_is_canonicalized = function()
