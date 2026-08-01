@@ -44,6 +44,13 @@ function S.parse_fix_feedback_fact(fact)
   if not S.strings.is_bounded_string(fact.review_dedup_key, devloop_base._max_dedup_len) then
     error("github-devloop: fix-feedback-invalid-review-dedup-key: fix feedback has an invalid review_dedup_key", 2)
   end
+  local canonical_review_dedup = devloop_base.canonical_pr_review_consensus_dedup_for_proposal(
+    fact.review_dedup_key,
+    fact.review_proposal_id
+  )
+  if canonical_review_dedup == nil then
+    error("github-devloop: fix-feedback-mismatched-review-dedup-key: fix feedback review_dedup_key does not match review_proposal_id", 2)
+  end
   if not forge_validators.is_git_sha(fact.reviewed_head_sha) then
     error("github-devloop: fix-feedback-invalid-reviewed-head-sha: fix feedback has an invalid reviewed_head_sha", 2)
   end

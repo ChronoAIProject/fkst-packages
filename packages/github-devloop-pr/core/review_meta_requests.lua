@@ -41,7 +41,7 @@ local function review_meta_fix_feedback(review_meta)
   local _, _, _, reviewed_head_sha = devloop_base.parse_pr_review_proposal_id(review_meta.review_proposal_id)
   return {
     review_proposal_id = review_meta.review_proposal_id,
-    review_dedup_key = review_meta.dedup_key,
+    review_dedup_key = review_meta.review_dedup_key,
     reviewed_head_sha = reviewed_head_sha,
   }
 end

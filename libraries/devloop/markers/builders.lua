@@ -28,11 +28,9 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
       error("github-devloop: invalid review-meta gap")
     end
     feedback = shared.parse_fix_feedback_fact(feedback)
-    if feedback.review_dedup_key ~= tostring(dedup_key) then
-      error("github-devloop: fix-feedback-mismatched-review-dedup-key: review-meta dedup does not match fix feedback", 2)
-    end
     fields = fields .. '" gap="' .. gap
       .. '" review_proposal="' .. tostring(feedback.review_proposal_id)
+      .. '" review_dedup="' .. tostring(feedback.review_dedup_key)
       .. '" head_sha="' .. tostring(feedback.reviewed_head_sha)
   elseif action == "spec-amendment" then
     fields = fields .. '" reason="blocked-pending-spec'

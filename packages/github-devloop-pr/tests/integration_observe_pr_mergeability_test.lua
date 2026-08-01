@@ -124,7 +124,7 @@ return {
   test_observe_pr_fixing_conflict_replays_current_fixing_round = function()
     local fixing_version = version .. "/fix/1"
     local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
-    local review_dedup_key = "observe-pr-conflict/" .. proposal_id .. "/" .. version .. "/7"
+    local review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
     local comments = {
       m_builders.pr_origin_marker(proposal_id, "42", branch, fixing_version, "dev"),
       core.state_marker(proposal_id, "fixing", fixing_version),
@@ -209,7 +209,7 @@ return {
         7,
         fix_version,
         review_proposal_id,
-        "observe-pr-conflict/" .. proposal_id .. "/" .. version .. "/7",
+        devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
         "def456",
         nil,
         "mergeable-conflicting"

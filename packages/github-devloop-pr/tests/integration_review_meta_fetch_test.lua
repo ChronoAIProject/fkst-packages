@@ -113,11 +113,17 @@ return {
   end,
 
   test_review_meta_fix_never_produces_merge_ready = function()
+    local event = review_meta_event()
     local result = run_case(action_label .. " fix\n" .. reason_label .. " Run another fix pass.\nBlocking gap: missing retry guard", "review-meta-fix-no-merge-ready")
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 0, tostring(result.error))
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:fixing")
-    t.eq(find_causal_raise(result, "devloop_fixing").payload.schema, "github-devloop.fixing.v1")
-    t.eq(find_causal_raise(result, "devloop_fixing").payload.blocking_gap, "missing retry guard")
+    local fixing = find_causal_raise(result, "devloop_fixing").payload
+    t.eq(fixing.schema, "github-devloop.fixing.v1")
+    t.eq(fixing.blocking_gap, "missing retry guard")
+    t.eq(fixing.review_dedup_key, event.review_dedup_key)
+    local comment = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body
+    t.is_true(comment:find('dedup="' .. event.dedup_key .. '"', 1, true) ~= nil)
+    t.is_true(comment:find('review_dedup="' .. event.review_dedup_key .. '"', 1, true) ~= nil)
     t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
   end,
 
