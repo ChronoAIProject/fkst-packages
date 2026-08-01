@@ -4,6 +4,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local m_facts = require("devloop.markers.facts")
 local conv_reconcile = require("devloop.convergence.reconcile")
+local projected_transitions = require("tests.projected_transition_helpers")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -456,7 +457,7 @@ return {
     local ready = payloads_builders.build_devloop_ready_payload(core, event)
     ready.framing = nil
     ready.impl_retry_attempt = 2
-    local result_comment = requests_lifecycle.build_result_transition_requests(core, "owner/repo", "42", event).body
+    local result_comment = projected_transitions.result_comment(core, "owner/repo", "42", event).body
     local prior_receipt = lean_receipt(event, ready.dedup_key, "repair-needed", "construction", 1)
     local failure_comment = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready,
       "lean-proof-repair-needed", prior_receipt, 1).body

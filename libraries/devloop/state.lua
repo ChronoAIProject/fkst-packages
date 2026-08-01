@@ -1,4 +1,5 @@
 local base_ids = require("devloop.base_ids")
+local devloop_logging = require("devloop.logging")
 local requests_labels = require("devloop.requests.labels")
 local parsers_misc = require("devloop.parsers.misc")
 local payloads_predicates = require("devloop.payloads.predicates")
@@ -24,12 +25,19 @@ local PROJECTED_STATE_MARKER_TARGETS = {
   ready = true,
 }
 local PROJECTED_STATE_MARKER_GRANT = {}
+local PROJECTED_STATE_TRANSITION_BATCHES = setmetatable({}, { __mode = "k" })
+local PROJECTED_STATE_TRANSITION_BATCH_METATABLE = {
+  __metatable = "sealed",
+  __newindex = function()
+    error("github-devloop: projected-state-transition-batch-sealed", 2)
+  end,
+}
 
 function C.state_marker(proposal_id, state, version, effects, grant)
   if PROJECTED_STATE_MARKER_TARGETS[state]
     and grant ~= PROJECTED_STATE_MARKER_GRANT
     and not (type(fkst) == "table" and type(fkst.test) == "table") then
-    error("github-devloop: state-marker-projection-required: use build_projected_state_transition")
+    error("github-devloop: state-marker-projection-required: use build_projected_state_transition_batch")
   end
   if not C.is_state(state) then
     error("github-devloop: invalid state")
@@ -48,23 +56,81 @@ function C.state_marker(proposal_id, state, version, effects, grant)
     .. ' -->'
 end
 
-function C.build_projected_state_transition(repo, issue_number, proposal_id, state, version, effects,
-  label_dedup_key, source_ref, current_labels, marker_target)
-  if not PROJECTED_STATE_MARKER_TARGETS[state] then
+local function append_values(target, values)
+  for _, value in ipairs(values or {}) do
+    table.insert(target, value)
+  end
+end
+
+local function copy_value(value)
+  if type(value) ~= "table" then
+    return value
+  end
+  local copied = {}
+  for key, item in pairs(value) do
+    copied[copy_value(key)] = copy_value(item)
+  end
+  return copied
+end
+
+function C.build_projected_state_transition_batch(args)
+  if type(args) ~= "table" then
+    error("github-devloop: projected-state-transition-batch-invalid: arguments must be a table")
+  end
+  if not PROJECTED_STATE_MARKER_TARGETS[args.state] then
     error("github-devloop: projected-state-target-invalid: target must be ready or dependency_wait")
   end
+  if type(args.comment_request) ~= "table" or args.comment_request.body ~= nil then
+    error("github-devloop: projected-state-transition-batch-invalid: body-free comment_request must be a table")
+  end
+  if type(args.comment_body_prefix) ~= "string" or type(args.comment_body_suffix) ~= "string" then
+    error("github-devloop: projected-state-transition-batch-invalid: comment body fragments must be strings")
+  end
   local label_request = requests_labels.build_state_label_request(
-    repo,
-    issue_number,
-    state,
-    proposal_id,
-    version,
-    label_dedup_key,
-    source_ref,
-    current_labels,
-    marker_target
+    args.repo,
+    args.issue_number,
+    args.state,
+    args.proposal_id,
+    args.version,
+    args.label_dedup_key,
+    args.source_ref,
+    args.current_labels,
+    args.marker_target
   )
-  return C.state_marker(proposal_id, state, version, effects, PROJECTED_STATE_MARKER_GRANT), label_request
+  append_values(label_request.add_labels, args.add_labels)
+  append_values(label_request.remove_labels, args.remove_labels)
+  if type(args.label_colors) == "table" then
+    label_request.label_colors = label_request.label_colors or {}
+    for label, color in pairs(args.label_colors) do
+      label_request.label_colors[label] = color
+    end
+  end
+
+  local marker = C.state_marker(
+    args.proposal_id,
+    args.state,
+    args.version,
+    args.effects,
+    PROJECTED_STATE_MARKER_GRANT
+  )
+  local comment_request = copy_value(args.comment_request)
+  comment_request.body = args.comment_body_prefix .. marker .. args.comment_body_suffix
+
+  local batch = setmetatable({}, PROJECTED_STATE_TRANSITION_BATCH_METATABLE)
+  PROJECTED_STATE_TRANSITION_BATCHES[batch] = {
+    comment_request = comment_request,
+    label_request = label_request,
+  }
+  return batch
+end
+
+function C.emit_projected_state_transition_batch(batch, dept, proposal_id)
+  local record = PROJECTED_STATE_TRANSITION_BATCHES[batch]
+  if record == nil then
+    error("github-devloop: projected-state-transition-batch-invalid: batch is unsealed or foreign")
+  end
+  devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", record.comment_request)
+  devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", record.label_request)
 end
 
 local function marker_stage_rank(marker, state)

@@ -1,6 +1,7 @@
 local h = require("tests.devloop_helpers")
 local payloads_builders = require("devloop.payloads.builders")
 local requests_lifecycle = require("devloop.requests.lifecycle")
+local projected_transitions = require("tests.projected_transition_helpers")
 
 local t = h.t
 local core = h.core
@@ -180,7 +181,7 @@ return {
     local profile = load_profile()
     local framing = "Prove x < y in \"Proofs/Target.lean\".\nKeep 100% of the accepted scope."
     local accepted = h.reached({ framing = framing })
-    local request = requests_lifecycle.build_result_transition_requests(core, "owner/repo", "42", accepted)
+    local request = projected_transitions.result_comment(core, "owner/repo", "42", accepted)
     local ready = payloads_builders.build_devloop_ready_payload(core, accepted)
     ready.framing = nil
 

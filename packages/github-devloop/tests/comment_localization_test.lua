@@ -8,6 +8,7 @@ local conv_rounds = require("devloop.convergence.rounds")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local m_facts = require("devloop.markers.facts")
 local m_builders = require("devloop.markers.builders")
+local projected_transitions = require("tests.projected_transition_helpers")
 local core = h.core
 local t = h.t
 
@@ -78,7 +79,7 @@ local function comment_cases()
   }
   return {
     { id = "thinking", request = requests_lifecycle.build_observe_comment_request(core, { repo = "owner/repo", number = 42, source_ref = source_ref() }, { proposal_id = issue_proposal_id, dedup_key = "v1" }) },
-    { id = "result", request = requests_lifecycle.build_result_transition_requests(core, "owner/repo", "42", reached_with_angles) },
+    { id = "result", request = projected_transitions.result_comment(core, "owner/repo", "42", reached_with_angles) },
     { id = "converge", request = requests_lifecycle.build_converge_round_comment_request(core, "owner/repo", "42", unresolved({
       narrowed_question = "Narrow question?",
       angle_digests = { { angle = "minimal", verdict = "abstain", digest = "digest" } },

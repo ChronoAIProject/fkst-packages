@@ -49,6 +49,20 @@ local function contains_value(values, expected)
   return false
 end
 
+local function capture_raises(fn)
+  local old_raise = raise
+  local raised = {}
+  raise = function(queue, payload)
+    table.insert(raised, { queue = queue, payload = payload })
+  end
+  local ok, err = pcall(fn)
+  raise = old_raise
+  if not ok then
+    error(err, 0)
+  end
+  return raised
+end
+
 return {
   test_observe_issue_reconciles_pr_open_label_when_backing_pr_exists = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -94,7 +108,7 @@ return {
   end,
 
 
-  test_ready_and_dependency_wait_markers_require_guarded_projection_capability = function()
+  test_ready_and_dependency_wait_markers_emit_only_through_sealed_projection_batch = function()
     local devloop_state = require("devloop.state")
     local ready_split = read_source("core/ready_split.lua")
     local test_api = fkst.test
@@ -116,24 +130,76 @@ return {
     t.is_true(tostring(dependency_err):find("state-marker-projection-required", 1, true) ~= nil)
     t.eq(blocked_ok, true)
 
-    local marker, label_request = devloop_state.build_projected_state_transition(
-      "owner/repo",
-      42,
-      "github-devloop/issue/owner/repo/42",
-      "dependency_wait",
-      "v1",
-      "ready-split-canonicalized",
-      "dependency/label/hold/42/v1",
-      { kind = "external", ref = "owner/repo#issue/42" }
-    )
-    t.is_true(marker:find('state="dependency_wait"', 1, true) ~= nil)
+    local batch = devloop_state.build_projected_state_transition_batch({
+      repo = "owner/repo",
+      issue_number = 42,
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      state = "dependency_wait",
+      version = "v1",
+      effects = "ready-split-canonicalized",
+      label_dedup_key = "dependency/label/hold/42/v1",
+      source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+      comment_request = {
+        schema = "github-proxy.v1",
+        repo = "owner/repo",
+        issue_number = 42,
+        dedup_key = "dependency/comment/hold/42/v1",
+        source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+      },
+      comment_body_prefix = "",
+      comment_body_suffix = "",
+    })
+    t.eq(type(batch), "table")
+    t.eq(next(batch), nil)
+    t.eq(getmetatable(batch), "sealed")
+
+    local raised = capture_raises(function()
+      devloop_state.emit_projected_state_transition_batch(
+        batch,
+        "issue-label-authority-test",
+        "github-devloop/issue/owner/repo/42"
+      )
+    end)
+    t.eq(#raised, 2)
+    t.eq(raised[1].queue, "github-proxy.github_issue_comment_request")
+    t.is_true(raised[1].payload.body:find('state="dependency_wait"', 1, true) ~= nil)
+    t.eq(raised[2].queue, "github-proxy.github_issue_label_request")
+    local label_request = raised[2].payload
     t.eq(label_request.require_marker_guard, true)
     t.eq(label_request.expected_state, "dependency_wait")
     t.eq(label_request.expected_version, "v1")
     t.eq(label_request.marker_guard.expected.state, "dependency_wait")
 
-    t.is_true(ready_split:find("function M.build_ready_split_transition_requests", 1, true) ~= nil)
-    t.is_true(ready_split:find("build_projected_state_transition", 1, true) ~= nil)
+    local forged_ok, forged_err = pcall(
+      devloop_state.emit_projected_state_transition_batch,
+      {},
+      "issue-label-authority-test",
+      "github-devloop/issue/owner/repo/42"
+    )
+    t.eq(forged_ok, false)
+    t.is_true(tostring(forged_err):find("projected-state-transition-batch-invalid", 1, true) ~= nil)
+
+    local leaked_marker = false
+    local legacy_ok = pcall(devloop_state.build_projected_state_transition_batch, {
+      repo = "owner/repo",
+      issue_number = 42,
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      state = "ready",
+      version = "v2",
+      label_dedup_key = "dependency/label/clear/42/v2",
+      source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+      build_comment_request = function()
+        leaked_marker = true
+        return {}
+      end,
+    })
+    t.eq(legacy_ok, false)
+    t.eq(leaked_marker, false)
+
+    t.is_true(ready_split:find("function M.build_ready_split_transition_batch", 1, true) ~= nil)
+    t.is_true(ready_split:find("build_projected_state_transition_batch", 1, true) ~= nil)
+    t.is_true(ready_split:find("emit_projected_state_transition_batch", 1, true) ~= nil)
+    t.eq(ready_split:find("build_comment_request", 1, true), nil)
     t.eq(ready_split:find("build_ready_split_canonicalized_comment_request", 1, true), nil)
   end,
 }

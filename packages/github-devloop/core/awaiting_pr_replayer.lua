@@ -168,9 +168,8 @@ local function resume_terminal_markers(issue, next_state, delegation, current_pr
     .. "\n" .. autonomy_ledger.autonomy_result_marker(autonomy_record)
 end
 
-local function build_resume_transition_requests(issue, state, next_state, child_state, delegation, current_pr)
-  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  local label_dedup_key = base_ids.dedup_key({
+local function resume_label_dedup_key(delegation, next_state)
+  return base_ids.dedup_key({
     "awaiting-pr",
     "label",
     tostring(delegation.proposal_id),
@@ -179,44 +178,22 @@ local function build_resume_transition_requests(issue, state, next_state, child_
     tostring(next_state.to_state),
     tostring(next_state.version),
   })
-  local state_marker, label_request
-  if next_state.to_state == "ready" then
-    state_marker, label_request = devloop_state.build_projected_state_transition(
-      issue.repo,
-      issue.number,
-      delegation.proposal_id,
-      next_state.to_state,
-      next_state.version,
-      nil,
-      label_dedup_key,
-      source_ref
-    )
-  else
-    state_marker = devloop_state.state_marker(
-      delegation.proposal_id,
-      next_state.to_state,
-      next_state.version
-    )
-    label_request = requests_labels.build_state_label_request(
-      issue.repo,
-      issue.number,
-      next_state.to_state,
-      delegation.proposal_id,
-      next_state.version,
-      label_dedup_key,
-      source_ref
-    )
-  end
+end
+
+local function build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr,
+  state_marker)
+  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
+  local body_prefix = "github-devloop resumed parent issue from delegated PR child state"
+    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
+    .. "\nChild state: " .. tostring(child_state.state)
+    .. "\nReason: " .. tostring(next_state.reason)
+    .. "\n\n"
+  local body_suffix = resume_terminal_markers(issue, next_state, delegation, current_pr)
   local request = entity_lib.build_entity_comment_request({
     kind = "issue",
     repo = issue.repo,
     number = issue.number,
-  }, "github-devloop resumed parent issue from delegated PR child state"
-    .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
-    .. "\nChild state: " .. tostring(child_state.state)
-    .. "\nReason: " .. tostring(next_state.reason)
-    .. "\n\n" .. state_marker
-    .. resume_terminal_markers(issue, next_state, delegation, current_pr), base_ids.dedup_key({
+  }, state_marker ~= nil and body_prefix .. state_marker .. body_suffix or nil, base_ids.dedup_key({
     "awaiting-pr",
     "resume",
     tostring(delegation.proposal_id),
@@ -236,9 +213,69 @@ local function build_resume_transition_requests(issue, state, next_state, child_
       source_ref = source_ref,
     }
   end
-  return request, label_request
+  return request, body_prefix, body_suffix
 end
-S.build_resume_transition_requests = build_resume_transition_requests
+
+local function build_resume_projected_transition_batch(issue, state, next_state, child_state, delegation,
+  current_pr)
+  if next_state.to_state ~= "ready" then
+    error("github-devloop: awaiting-pr-projected-transition-target-invalid: target must be ready")
+  end
+  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
+  local comment_request, comment_body_prefix, comment_body_suffix = build_resume_comment_request(
+    issue,
+    state,
+    next_state,
+    child_state,
+    delegation,
+    current_pr,
+    nil
+  )
+  return devloop_state.build_projected_state_transition_batch({
+    repo = issue.repo,
+    issue_number = issue.number,
+    proposal_id = delegation.proposal_id,
+    state = next_state.to_state,
+    version = next_state.version,
+    label_dedup_key = resume_label_dedup_key(delegation, next_state),
+    source_ref = source_ref,
+    comment_request = comment_request,
+    comment_body_prefix = comment_body_prefix,
+    comment_body_suffix = comment_body_suffix,
+  })
+end
+S.build_resume_projected_transition_batch = build_resume_projected_transition_batch
+
+local function build_resume_unprojected_transition_requests(issue, state, next_state, child_state, delegation,
+  current_pr)
+  if next_state.to_state == "ready" then
+    error("github-devloop: awaiting-pr-projected-transition-batch-required: use the projected batch serializer")
+  end
+  local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
+  local state_marker = devloop_state.state_marker(
+    delegation.proposal_id,
+    next_state.to_state,
+    next_state.version
+  )
+  return build_resume_comment_request(
+    issue,
+    state,
+    next_state,
+    child_state,
+    delegation,
+    current_pr,
+    state_marker
+  ), requests_labels.build_state_label_request(
+    issue.repo,
+    issue.number,
+    next_state.to_state,
+    delegation.proposal_id,
+    next_state.version,
+    resume_label_dedup_key(delegation, next_state),
+    source_ref
+  )
+end
+S.build_resume_unprojected_transition_requests = build_resume_unprojected_transition_requests
 
 local function build_awaiting_pr_canonicalization_comment_request(issue, state, delegation)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
@@ -515,14 +552,24 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
     current_pr = current_pr,
     proposal_id = proposal_id,
   }
+  local transition_batch = nil
   local effects = {}
-  for _, effect_id in ipairs(decision.granted_effect_ids) do
-    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
-    if payload == nil then
-      error("github-devloop: restart-effect-facade-rejected: awaiting-pr exit effect "
-        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+  if next_state.to_state == "ready" then
+    local rejection
+    transition_batch, rejection = facade.emit_batch(grant, decision.granted_effect_ids, snapshot, args)
+    if transition_batch == nil then
+      error("github-devloop: restart-effect-facade-rejected: awaiting-pr exit effect batch rejected: "
+        .. tostring(rejection))
     end
-    table.insert(effects, { queue = effect_id, payload = payload })
+  else
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: awaiting-pr exit effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+    end
   end
 
   local add_labels, remove_labels = devloop_state.state_label_changes(next_state.to_state)
@@ -533,6 +580,21 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
       error("github-devloop: awaiting-pr-issue-close-failed: " .. tostring(close_result.stderr))
     end
     devloop_entity_view.invalidate_entity_after_write(issue.repo, "issue", issue.number)
+  end
+  if transition_batch ~= nil then
+    devloop_logging.log_apply(dept, proposal_id, next_state.to_state, next_state.version, {
+      add = add_labels,
+      remove = remove_labels,
+    }, {
+      "github-proxy.github_issue_comment_request",
+      "github-proxy.github_issue_label_request",
+    })
+    devloop_state.emit_projected_state_transition_batch(
+      transition_batch,
+      dept,
+      proposal_id
+    )
+    return true
   end
   return raise_effects(dept, proposal_id, next_state.to_state, next_state.version, { add = add_labels, remove = remove_labels }, effects)
 end

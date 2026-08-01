@@ -154,17 +154,46 @@ end
 
 local function fixture_state_marker(proposal_id, number, state, version, effects, source_ref)
   if state == "ready" or state == "dependency_wait" then
-    local marker = devloop_state.build_projected_state_transition(
-      REPO,
-      number,
-      proposal_id,
-      state,
-      version,
-      effects,
-      base_ids.dedup_key({ "hidden-state-conformance", "label", proposal_id, state, version }),
-      source_ref
+    local batch = devloop_state.build_projected_state_transition_batch({
+      repo = REPO,
+      issue_number = number,
+      proposal_id = proposal_id,
+      state = state,
+      version = version,
+      effects = effects,
+      label_dedup_key = base_ids.dedup_key({ "hidden-state-conformance", "label", proposal_id, state, version }),
+      source_ref = source_ref,
+      comment_request = {
+        schema = "github-proxy.v1",
+        repo = REPO,
+        issue_number = number,
+        dedup_key = base_ids.dedup_key({ "hidden-state-conformance", "comment", proposal_id, state, version }),
+        source_ref = source_ref,
+      },
+      comment_body_prefix = "",
+      comment_body_suffix = "",
+    })
+    local raised = {}
+    local previous_raise = raise
+    raise = function(queue, payload)
+      table.insert(raised, { queue = queue, payload = payload })
+    end
+    local ok, err = pcall(
+      devloop_state.emit_projected_state_transition_batch,
+      batch,
+      "hidden-state-conformance",
+      proposal_id
     )
-    return marker
+    raise = previous_raise
+    if not ok then
+      error(err, 0)
+    end
+    if #raised ~= 2
+      or raised[1].queue ~= "github-proxy.github_issue_comment_request"
+      or raised[2].queue ~= "github-proxy.github_issue_label_request" then
+      error("devloop: hidden-state conformance projected fixture did not emit the sealed effect batch")
+    end
+    return raised[1].payload.body
   end
   return devloop_state.state_marker(proposal_id, state, version, effects)
 end

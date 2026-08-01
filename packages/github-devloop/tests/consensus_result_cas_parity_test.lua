@@ -229,12 +229,9 @@ local function emitted_state(result)
   return nil
 end
 
--- Production's result-effect repair (raise_result_effects) has TWO independent guards: a
--- COMMENT re-raise when the result marker is absent, and a LABEL re-raise when the ready
--- label hint is missing. Effect-completeness is (marker present AND label present), so a
--- present-marker/missing-label drift is still incomplete and repairs the LABEL only (no
--- comment). Disposition must therefore be derived from ALL observed raises, not only the
--- comment body, or a label-only repair is mis-classified as effect-idempotent.
+-- Projected result-effect repair treats the marker and label as one batch: if either the
+-- result marker or state-label hint is missing, production emits both effects. Disposition
+-- must therefore be derived from all observed raises, not only the comment body.
 local function label_repaired(result)
   for _, raised in ipairs(result.raises or {}) do
     if raised.queue == "github-proxy.github_issue_label_request" then
@@ -513,7 +510,7 @@ local TRACE_FIXTURES = {
     post_admission_disposition = "effect-repair(ready)",
     legacy_log_outcome = "applied(result effects incomplete)",
     effect_state = "ready",
-    expected_raise_count = 1,
+    expected_raise_count = 2,
   },
 }
 

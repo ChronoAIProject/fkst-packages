@@ -4,6 +4,7 @@ local payloads_builders = require("devloop.payloads.builders")
 local requests_lifecycle = require("devloop.requests.lifecycle")
 local strings = require("contract.strings")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
+local projected_transitions = require("tests.projected_transition_helpers")
 
 local t = h.t
 local core = h.core
@@ -69,7 +70,7 @@ local function proof_event()
 end
 
 local function accepted_result_comment(accepted)
-  return requests_lifecycle.build_result_transition_requests(core, "owner/repo", "42", accepted).body
+  return projected_transitions.result_comment(core, "owner/repo", "42", accepted).body
 end
 
 local function trusted_comment(body, created_at)

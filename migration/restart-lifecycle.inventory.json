@@ -1,5 +1,5 @@
 {
-  "artifact_sha256": "9daf119ecb5c1a425275761196789cea9bf1ffc3bb5b4206fe33a2b8a7282532",
+  "artifact_sha256": "bf1dd8aaead49a25c942d5042f8d03a3ac200d392721d67950558d66db9a91fc",
   "consumer_entry_acceptors": [
     {
       "ordinal": "consumes:consensus.consensus_converge",
@@ -21937,15 +21937,15 @@
           },
           {
             "authority_class": "lifecycle-authoritative",
-            "effect_id": "comment:issue:row-replay",
+            "effect_id": "label:issue:row-replay",
             "ordinal": 2,
-            "sink_kind": "comment"
+            "sink_kind": "label"
           },
           {
             "authority_class": "lifecycle-authoritative",
-            "effect_id": "label:issue:row-replay",
+            "effect_id": "comment:issue:row-replay",
             "ordinal": 3,
-            "sink_kind": "label"
+            "sink_kind": "comment"
           }
         ],
         "handoff_direct_lookup_count": 0,
@@ -21972,28 +21972,6 @@
                 },
                 "version": "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/ready-split/1"
               },
-              "issue_number": 42,
-              "repo": "owner/repo",
-              "schema": "github-proxy.v1",
-              "source_ref": {
-                "kind": "external",
-                "ref": "owner/repo#issue/42"
-              }
-            },
-            "queue": "github-proxy.github_issue_comment_request"
-          },
-          {
-            "effect_id": "comment:issue:row-replay",
-            "payload": {
-              "body": "github-devloop dependency release: satisfied\n\nReason: satisfied\n\n<!-- fkst:github-devloop:dependency-release:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" -->",
-              "claim": {
-                "owner": "fkst-test-bot",
-                "source_ref": {
-                  "kind": "external",
-                  "ref": "owner/repo#issue/42"
-                }
-              },
-              "dedup_key": "dependency/comment/release/github-devloop/issue/owner/repo/42/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/satisfied",
               "issue_number": 42,
               "repo": "owner/repo",
               "schema": "github-proxy.v1",
@@ -22073,6 +22051,28 @@
               "target_number": 42
             },
             "queue": "github-proxy.github_issue_label_request"
+          },
+          {
+            "effect_id": "comment:issue:row-replay",
+            "payload": {
+              "body": "github-devloop dependency release: satisfied\n\nReason: satisfied\n\n<!-- fkst:github-devloop:dependency-release:v1 proposal=\"github-devloop/issue/owner/repo/42\" version=\"consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z\" -->",
+              "claim": {
+                "owner": "fkst-test-bot",
+                "source_ref": {
+                  "kind": "external",
+                  "ref": "owner/repo#issue/42"
+                }
+              },
+              "dedup_key": "dependency/comment/release/github-devloop/issue/owner/repo/42/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/satisfied",
+              "issue_number": 42,
+              "repo": "owner/repo",
+              "schema": "github-proxy.v1",
+              "source_ref": {
+                "kind": "external",
+                "ref": "owner/repo#issue/42"
+              }
+            },
+            "queue": "github-proxy.github_issue_comment_request"
           }
         ],
         "reason_code": "release-dependency-hold",
@@ -28687,6 +28687,12 @@
             "effect_id": "comment:issue:consensus-result",
             "ordinal": 1,
             "sink_kind": "comment"
+          },
+          {
+            "authority_class": "lifecycle-authoritative",
+            "effect_id": "label:issue:consensus-result",
+            "ordinal": 2,
+            "sink_kind": "label"
           }
         ],
         "handoff_direct_lookup_count": 0,
@@ -28704,6 +28710,36 @@
               "target_number": "42"
             },
             "queue": "github-proxy.github_issue_comment_request"
+          },
+          {
+            "effect_id": "label:issue:consensus-result",
+            "payload": {
+              "add_labels": [
+                "fkst-dev:ready"
+              ],
+              "body_markers": [],
+              "dedup_key": "github-devloop/issue/owner/repo/42/label/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
+              "remove_labels": [
+                "fkst-dev:thinking",
+                "fkst-dev:implementing",
+                "fkst-dev:pr-open",
+                "fkst-dev:reviewing",
+                "fkst-dev:merge-ready",
+                "fkst-dev:fixing",
+                "fkst-dev:impl-failed",
+                "fkst-dev:declined",
+                "fkst-dev:blocked",
+                "fkst-dev:review-meta",
+                "fkst-dev:merging",
+                "fkst-dev:merged",
+                "fkst-dev:awaiting-pr",
+                "fkst-dev:blocked-on-dependency"
+              ],
+              "schema": "github-proxy.label.v1",
+              "target_kind": "issue",
+              "target_number": "42"
+            },
+            "queue": "github-proxy.github_issue_label_request"
           }
         ],
         "reason_code": "result-effects-incomplete",

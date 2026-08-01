@@ -61,7 +61,7 @@ local FIXTURES = ra.json_array({
   { disposition = "repair-ready-comment-only", status = "admitted", reason = "result-effects-incomplete",
     cas = "applied(result effects incomplete)", target = "ready", source_line = 228,
     current_state = "ready", current_version = VERSION, labels = { "fkst-dev:ready" },
-    effects = ra.json_array({ RESULT_COMMENT }) },
+    effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },
   { disposition = "repair-ready-comment-and-label", status = "admitted", reason = "result-effects-incomplete",
     cas = "applied(result effects incomplete)", target = "ready", source_line = 228,
     current_state = "ready", current_version = VERSION, labels = {}, effects = ra.json_array({ RESULT_COMMENT, RESULT_LABEL }) },

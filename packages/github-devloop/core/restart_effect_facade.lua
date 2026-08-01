@@ -84,11 +84,8 @@ local function valid_consensus_result_args(args)
     and type(args.to_state) == "string"
 end
 
-local function serialize_consensus_result_comment(args)
-  if not valid_consensus_result_args(args) then
-    return nil, "invalid-serializer-arguments"
-  end
-  return requests_lifecycle.build_result_transition_requests(
+local function serialize_consensus_result_effects(args)
+  return requests_lifecycle.build_result_transition_effects(
     args.core,
     args.repo,
     args.issue_number,
@@ -97,18 +94,26 @@ local function serialize_consensus_result_comment(args)
   )
 end
 
+local function serialize_consensus_result_comment(args)
+  if not valid_consensus_result_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return serialize_consensus_result_effects(args)
+end
+
 local function serialize_consensus_result_label(args)
   if not valid_consensus_result_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  local _, label_request = requests_lifecycle.build_result_transition_requests(
-    args.core,
-    args.repo,
-    args.issue_number,
-    args.reached,
-    args.to_state
-  )
+  local _, label_request = serialize_consensus_result_effects(args)
   return label_request
+end
+
+local function serialize_consensus_result_batch(args)
+  if not valid_consensus_result_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return serialize_consensus_result_effects(args)
 end
 
 local function serialize_awaiting_pr_comment(args)
@@ -169,7 +174,21 @@ local function serialize_awaiting_pr_exit_comment(args)
   if not valid_awaiting_pr_exit_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  return awaiting_pr_replayer.build_resume_transition_requests(
+  return awaiting_pr_replayer.build_resume_unprojected_transition_requests(
+    args.issue,
+    args.state,
+    args.next_state,
+    args.child_state,
+    args.delegation,
+    args.current_pr
+  )
+end
+
+local function serialize_awaiting_pr_exit_batch(args)
+  if not valid_awaiting_pr_exit_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return awaiting_pr_replayer.build_resume_projected_transition_batch(
     args.issue,
     args.state,
     args.next_state,
@@ -385,6 +404,16 @@ local SERIALIZERS_BY_FAMILY = {
   },
 }
 
+local BATCH_SERIALIZERS_BY_FAMILY = {
+  ["awaiting-pr-exit"] = serialize_awaiting_pr_exit_batch,
+  ["consensus-result"] = serialize_consensus_result_batch,
+}
+
+local PROJECTED_TRANSITION_EFFECT_IDS = {
+  COMMENT_EFFECT_ID,
+  LABEL_EFFECT_ID,
+}
+
 function M.make(config)
   assert(type(config) == "table", "restart-effect-facade: config is required")
   assert(type(config.family) == "string" and SERIALIZERS_BY_FAMILY[config.family] ~= nil,
@@ -393,6 +422,10 @@ function M.make(config)
     verify_grant = config.verify_grant,
     sink_inventory = config.sink_inventory,
     serializers = SERIALIZERS_BY_FAMILY[config.family],
+    batch_serializer = BATCH_SERIALIZERS_BY_FAMILY[config.family],
+    batch_effect_ids = BATCH_SERIALIZERS_BY_FAMILY[config.family] ~= nil
+      and PROJECTED_TRANSITION_EFFECT_IDS
+      or nil,
   })
 end
 
