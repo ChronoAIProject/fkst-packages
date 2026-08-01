@@ -7,6 +7,7 @@ import check_repo_config
 import check_repo_codex_timeout
 import check_repo_content_truncation
 import check_repo_coverage
+import check_repo_dept_failure_surface
 import check_repo_dependency_cycle
 import check_repo_dead_letter
 import check_repo_devloop_godlib
@@ -48,6 +49,26 @@ def check_content_truncation(c, root, violations, allowlist_dir=None, enforce_ba
         c.add(violations, "G-CONTENT-TRUNCATION", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
     for message in check_repo_content_truncation.ratchet_messages(current, allowlist, base_allowlist):
         c.add(violations, "G-CONTENT-TRUNCATION", message)
+
+
+def check_dept_failure_surface(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
+    sources = {}
+    for package_root in c.package_roots(root):
+        if not package_root.is_dir():
+            continue
+        for path in sorted(package_root.glob("*/departments/*/main.lua")):
+            sources[c.rel(root, path)] = c.read_text(path)
+    current = check_repo_dept_failure_surface.exposed_departments(sources)
+    allowlist = check_repo_dept_failure_surface.load_allowlist(
+        c.allowlist_path(root, check_repo_dept_failure_surface.ALLOWLIST, allowlist_dir)
+    )
+    base_status, base_allowlist = (
+        check_repo_dept_failure_surface.allowlist_at_dev_base(root) if enforce_base else ("absent", None)
+    )
+    if base_status == "unresolved":
+        c.add(violations, "G-DEPT-FAILURE-SURFACE", "cannot resolve dev base allowlist to enforce shrink-only ratchet; ensure CI provides the dev ref")
+    for message in check_repo_dept_failure_surface.ratchet_messages(current, allowlist, base_allowlist):
+        c.add(violations, "G-DEPT-FAILURE-SURFACE", message)
 
 
 def check_version_suffix(c, root, violations, allowlist_dir=None, enforce_base=True) -> None:
@@ -130,6 +151,7 @@ def run_generic(c, config: check_repo_config.CheckRepoConfig, violations: list[s
     c.check_shell_out_to_self_ratchet(root, violations, allowlists)
     c.check_code_dedup_ratchet(root, violations, allowlists, enforce_base)
     check_content_truncation(c, root, violations, allowlists, enforce_base)
+    check_dept_failure_surface(c, root, violations, allowlists, enforce_base)
     check_version_suffix(c, root, violations, allowlists, enforce_base)
     for message in check_repo_coverage.repository_messages(root):
         c.add(violations, "G-COVERAGE", message)
