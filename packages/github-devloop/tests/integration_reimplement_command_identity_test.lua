@@ -2,6 +2,7 @@ local devloop_base = require("devloop.base")
 local operator_commands = require("devloop.operator_commands")
 local payloads_builders = require("devloop.payloads.builders")
 local h = require("tests.devloop_helpers")
+local entity_read_mocks = require("tests.entity_read_mock_helpers")
 
 local t = h.t
 local core = h.core
@@ -10,7 +11,6 @@ local issue = h.issue
 local reached = h.reached
 local run_observe = h.run_observe
 local run_implement = h.run_implement
-local mock_issue_state = h.mock_issue_state
 local mock_issue_implement_raw = h.mock_issue_implement_raw
 local mock_existing_empty_implement_worktree = h.mock_existing_empty_implement_worktree
 local mock_implement_codex = h.mock_implement_codex
@@ -18,12 +18,14 @@ local mock_git_status = h.mock_git_status
 local mock_git_commit = h.mock_git_commit
 local find_raise = h.find_raise
 
-local function trusted_command(id)
+local issue_state_selector = "title,body,comments,labels,state,createdAt,updatedAt,assignees,author"
+
+local function trusted_command(id, created_at)
   return {
     id = id,
     body = "fkst: reimplement",
     author_login = "fkst-test-bot",
-    created_at = "2026-08-01T01:00:00Z",
+    created_at = created_at or "2026-08-01T01:00:00Z",
   }
 end
 
@@ -31,12 +33,16 @@ local function command_key(command)
   return operator_commands.operator_command_fact({ command }, "reimplement").key
 end
 
-local function impl_failed_comments(event, ready_version, command)
-  return {
+local function impl_failed_comments(event, ready_version, command, earlier_comments)
+  local comments = {
     core.state_marker(event.proposal_id, "impl-failed", ready_version),
     core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed", 2),
-    command,
   }
+  for _, comment in ipairs(earlier_comments or {}) do
+    table.insert(comments, comment)
+  end
+  table.insert(comments, command)
+  return comments
 end
 
 local function operator_ready_source(event, key)
@@ -51,20 +57,24 @@ local function operator_ready_source(event, key)
   }
 end
 
-local function observe_reimplement(event, ready_version, command, name)
-  mock_issue_state(
-    { "fkst-dev:enabled", "fkst-dev:impl-failed" },
-    "OPEN",
-    impl_failed_comments(event, ready_version, command)
-  )
+local function observe_reimplement(event, ready_version, command, earlier_comments, name)
+  entity_read_mocks.mock_issue_view_selector(t, {
+    labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+    comments = impl_failed_comments(event, ready_version, command, earlier_comments),
+    state = "OPEN",
+  }, issue_state_selector, 1)
   local result = run_observe(
     issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
     opts(name)
   )
   t.eq(result.exit_code, 0)
   local ready = find_raise(result.raises, "devloop_ready")
+  local response = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+    return tostring(payload.body or ""):find("operator command accepted: reimplement", 1, true) ~= nil
+  end)
   t.is_true(ready ~= nil, name .. ": reimplement did not raise devloop_ready")
-  return ready.payload
+  t.is_true(response ~= nil, name .. ": reimplement did not raise an applied response")
+  return ready.payload, response.payload
 end
 
 local function admit_reimplementation(event, ready, name)
@@ -121,14 +131,25 @@ return {
   test_distinct_reimplement_commands_deliver_and_admit_under_unchanged_failure = function()
     local event = reached()
     local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
-    local first_command = trusted_command("IC_reimplement_delivery_first")
-    local second_command = trusted_command("IC_reimplement_delivery_second")
+    local first_command = trusted_command("IC_reimplement_delivery_first", "2026-08-01T01:00:00Z")
+    local second_command = trusted_command("IC_reimplement_delivery_second", "2026-08-01T01:02:00Z")
 
-    local first = observe_reimplement(event, ready_version, first_command, "observe-reimplement-first-command")
-    local second = payloads_builders.build_devloop_ready_payload(
-      core,
-      operator_ready_source(event, command_key(second_command))
+    local first, first_response = observe_reimplement(
+      event,
+      ready_version,
+      first_command,
+      nil,
+      "observe-reimplement-first-command"
     )
+    local second = observe_reimplement(event, ready_version, second_command, {
+      first_command,
+      {
+        id = "IC_reimplement_delivery_first_response",
+        body = first_response.body,
+        author_login = "fkst-test-bot",
+        created_at = "2026-08-01T01:01:00Z",
+      },
+    }, "observe-reimplement-second-command")
 
     t.eq(first.impl_retry_attempt, 3)
     t.eq(second.impl_retry_attempt, 3)
