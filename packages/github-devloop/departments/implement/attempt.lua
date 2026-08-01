@@ -244,7 +244,7 @@ local function run_attempt(args)
           args.base_head
         )
       end
-      if receipt == nil and tostring(result.stdout or ""):find("%S") ~= nil then
+      if receipt == nil and tostring(result.stdout or "") ~= "" then
         local invalid_detail = "Invalid typed result envelope: " .. tostring(receipt_err)
         devloop_logging.log_codex_result(
           "implement", args.ready.proposal_id, "implement", result, nil, invalid_detail, {
