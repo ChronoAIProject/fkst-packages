@@ -16,16 +16,16 @@ local M = {}
 -- One recovery follows the initial observation; the second UNKNOWN exhausts fail-closed.
 local MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS = 2
 
-local local_iteration_failure_policies = {
-  CONFIGURATION_FAIL = { reason = "local-iteration-configuration-failed", retryable = false },
-  TOOLCHAIN_FAIL = { reason = "local-iteration-toolchain-failed", retryable = false },
-  INFRASTRUCTURE_FAIL = { reason = "local-iteration-infrastructure-failed", retryable = true },
+local local_iteration_failure_reasons = {
+  CONFIGURATION_FAIL = "local-iteration-configuration-failed",
+  TOOLCHAIN_FAIL = "local-iteration-toolchain-failed",
+  INFRASTRUCTURE_FAIL = "local-iteration-infrastructure-failed",
 }
 
-local base_local_iteration_failure_policies = {
-  BASE_CONFIGURATION_FAIL = { reason = "base-local-iteration-configuration-failed", retryable = false },
-  BASE_TOOLCHAIN_FAIL = { reason = "base-local-iteration-toolchain-failed", retryable = false },
-  BASE_INFRASTRUCTURE_FAIL = { reason = "base-local-iteration-infrastructure-failed", retryable = true },
+local base_local_iteration_failure_reasons = {
+  BASE_CONFIGURATION_FAIL = "base-local-iteration-configuration-failed",
+  BASE_TOOLCHAIN_FAIL = "base-local-iteration-toolchain-failed",
+  BASE_INFRASTRUCTURE_FAIL = "base-local-iteration-infrastructure-failed",
 }
 
 local function implementation_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
@@ -340,10 +340,10 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
   local green, verify_detail, candidate_result, candidate_verification_attempt =
     run_candidate_local_iteration_check(ready, worktree, base_head)
   if not green then
-    local typed_failure_policy = local_iteration_failure_policies[candidate_result.kind]
-    if typed_failure_policy ~= nil then
+    local typed_failure_reason = local_iteration_failure_reasons[candidate_result.kind]
+    if typed_failure_reason ~= nil then
       return impl_failed_outcome(
-        ready, typed_failure_policy.reason, candidate_result.fault_class, typed_failure_policy.retryable, verify_detail,
+        ready, typed_failure_reason, candidate_result.fault_class, false, verify_detail,
         attempt, started_at, exec_ref, base_head)
     end
     if candidate_result.kind ~= "SEMANTIC_FAIL" then
@@ -385,10 +385,10 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
       return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe.result.fault_class, false,
         base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
     end
-    local typed_base_failure_policy = base_local_iteration_failure_policies[verdict]
-    if typed_base_failure_policy ~= nil then
+    local typed_base_failure_reason = base_local_iteration_failure_reasons[verdict]
+    if typed_base_failure_reason ~= nil then
       return impl_failed_outcome(
-        ready, typed_base_failure_policy.reason, base_probe.result.fault_class, typed_base_failure_policy.retryable,
+        ready, typed_base_failure_reason, base_probe.result.fault_class, false,
         base_probe_detail(base_probe),
         attempt, started_at, exec_ref, base_head)
     end

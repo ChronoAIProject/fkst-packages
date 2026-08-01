@@ -262,6 +262,8 @@ local function run_attempt(args)
         return harvest.impl_failed_outcome(
           args.ready,
           "invalid-implementation-result",
+          "UNKNOWN",
+          false,
           invalid_detail,
           args.attempt,
           args.codex_started_at,

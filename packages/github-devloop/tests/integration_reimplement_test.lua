@@ -175,7 +175,7 @@ local function assert_department_success(result, name)
     result.error or result.stderr or (result.failure and result.failure.error)))
 end
 
-local function mock_green_base_probe()
+local function mock_base_probe(outcome)
   for _ = 1, 2 do
     t.mock_command("git worktree remove --force", { stdout = "", stderr = "", exit_code = 0 })
     t.mock_command("git worktree prune", { stdout = "", stderr = "", exit_code = 0 })
@@ -188,13 +188,13 @@ local function mock_green_base_probe()
   })
   t.mock_command("rev-parse HEAD", { stdout = "abc123\n", stderr = "", exit_code = 0 })
   t.mock_command("scripts/run.sh test-affected", {
-    stdout = local_iteration_marker("PASS"),
+    stdout = local_iteration_marker(outcome),
     stderr = "",
-    exit_code = 0,
+    exit_code = outcome == "PASS" and 0 or 1,
   })
 end
 
-local function run_initial_typed_failure(event, outcome, name)
+local function run_initial_typed_failure(event, outcome, name, base_outcome)
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   mock_issue_implement_view_only({ "fkst-dev:ready", "fkst-dev:thinking" }, {
     core.state_marker(event.proposal_id, "ready", ready.dedup_key),
@@ -208,7 +208,7 @@ local function run_initial_typed_failure(event, outcome, name)
     exit_code = 1,
   })
   if outcome == "SEMANTIC_FAIL" then
-    mock_green_base_probe()
+    mock_base_probe(base_outcome or "PASS")
   end
 
   local result = run_implement(ready, opts(name))
@@ -216,26 +216,6 @@ local function run_initial_typed_failure(event, outcome, name)
   local failure = find_impl_failure_comment(result.raises)
   t.is_true(failure ~= nil, name .. ": implement did not publish impl-failure:v1")
   return ready, failure
-end
-
-local function run_retry_typed_failure(retry_payload, prior_failure_body, outcome, name)
-  mock_issue_implement_view_only({ "fkst-dev:impl-failed" }, { prior_failure_body }, 3)
-  mock_existing_empty_implement_worktree({
-    impl_version = core.implementation_attempt_version(retry_payload.dedup_key, retry_payload.impl_retry_attempt),
-  })
-  t.mock_command("codex exec", { stdout = "implemented", stderr = "", exit_code = 0 })
-  mock_git_status(" M packages/github-devloop/core.lua\n")
-  t.mock_command("scripts/run.sh test-affected", {
-    stdout = "",
-    stderr = local_iteration_marker(outcome) .. "typed local iteration failure\n",
-    exit_code = 1,
-  })
-
-  local result = run_implement(retry_payload, opts(name))
-  assert_department_success(result, name)
-  local failure = find_impl_failure_comment(result.raises)
-  t.is_true(failure ~= nil, name .. ": retry did not publish impl-failure:v1")
-  return failure
 end
 
 local function run_refusal_reimplementation_case(reason, evidence, initial_attempt, stop_after_refusal)
@@ -410,18 +390,18 @@ local function assert_invalid_implementation_result(name, build_stdout, decoder_
 end
 
 return {
-  test_infrastructure_failure_autoretries_then_stops_at_ceiling_and_operator_reenters = function()
+  test_infrastructure_failure_is_durable_but_not_autoretried_and_operator_reenters = function()
     local event = reached()
     local first_ready, first_failure = run_initial_typed_failure(
       event, "INFRASTRUCTURE_FAIL", "implement-infrastructure-failure-first")
     t.is_true(first_failure.payload.body:find('fault_class="INFRASTRUCTURE"', 1, true) ~= nil)
-    t.is_true(first_failure.payload.body:find('retryable="true"', 1, true) ~= nil)
+    t.is_true(first_failure.payload.body:find('retryable="false"', 1, true) ~= nil)
     local first_fact = core.impl_failure_fact(
       { first_failure.payload.body }, event.proposal_id, first_ready.dedup_key)
     t.is_true(first_fact ~= nil, "INFRASTRUCTURE marker did not round-trip as an implementation failure fact")
     t.eq(first_fact.fault_class, "INFRASTRUCTURE")
-    t.eq(first_fact.retryable, true)
-    t.eq(core.impl_failure_retry_allowed(first_fact), true)
+    t.eq(first_fact.retryable, false)
+    t.eq(core.impl_failure_retry_allowed(first_fact), false)
 
     mock_observe_issue_state_once(
       { "fkst-dev:enabled", "fkst-dev:impl-failed" },
@@ -430,39 +410,44 @@ return {
       issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
       opts("observe-infrastructure-failure-first"))
     assert_department_success(observed, "observe-infrastructure-failure-first")
-    local automatic_retry = find_raise(observed.raises, "devloop_ready")
-    t.is_true(automatic_retry ~= nil, "retryable implementation failure did not autonomously leave impl-failed")
-    t.eq(automatic_retry.payload.impl_retry_attempt, 2)
-
-    local second_failure = run_retry_typed_failure(
-      automatic_retry.payload,
-      first_failure.payload.body,
-      "INFRASTRUCTURE_FAIL",
-      "implement-infrastructure-failure-second")
-    t.is_true(second_failure.payload.body:find('fault_class="INFRASTRUCTURE"', 1, true) ~= nil)
-    t.is_true(second_failure.payload.body:find('retryable="true"', 1, true) ~= nil)
-    t.is_true(second_failure.payload.body:find('attempt="2"', 1, true) ~= nil)
-
-    mock_observe_issue_state_once(
-      { "fkst-dev:enabled", "fkst-dev:impl-failed" },
-      observe_comments(event.proposal_id, second_failure.payload.body))
-    local capped = run_observe(
-      issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
-      opts("observe-infrastructure-failure-ceiling"))
-    assert_department_success(capped, "observe-infrastructure-failure-ceiling")
-    t.eq(find_raise(capped.raises, "devloop_ready"), nil)
+    t.eq(find_raise(observed.raises, "devloop_ready"), nil)
 
     local command = trusted_command("IC_reimplement_infrastructure")
     mock_observe_issue_state_once(
       { "fkst-dev:enabled", "fkst-dev:impl-failed" },
-      observe_comments(event.proposal_id, second_failure.payload.body, command))
+      observe_comments(event.proposal_id, first_failure.payload.body, command))
     local operator = run_observe(
       issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
       opts("operator-reimplement-infrastructure"))
     assert_department_success(operator, "operator-reimplement-infrastructure")
     local operator_retry = find_raise(operator.raises, "devloop_ready")
-    t.is_true(operator_retry ~= nil, "operator reimplement did not rescue capped retryable failure")
-    t.eq(operator_retry.payload.impl_retry_attempt, 3)
+    t.is_true(operator_retry ~= nil, "operator reimplement did not rescue infrastructure failure")
+    t.eq(operator_retry.payload.impl_retry_attempt, 2)
+  end,
+
+  test_base_infrastructure_failure_is_durable_but_not_autoretried = function()
+    local event = reached()
+    local ready, failure = run_initial_typed_failure(
+      event, "SEMANTIC_FAIL", "implement-base-infrastructure-failure", "INFRASTRUCTURE_FAIL")
+    t.is_true(failure.payload.body:find(
+      "github-devloop implementation failed: base-local-iteration-infrastructure-failed", 1, true) ~= nil)
+    t.is_true(failure.payload.body:find('fault_class="INFRASTRUCTURE"', 1, true) ~= nil)
+    t.is_true(failure.payload.body:find('retryable="false"', 1, true) ~= nil)
+    local fact = core.impl_failure_fact(
+      { failure.payload.body }, event.proposal_id, ready.dedup_key)
+    t.is_true(fact ~= nil, "base INFRASTRUCTURE marker did not round-trip as an implementation failure fact")
+    t.eq(fact.fault_class, "INFRASTRUCTURE")
+    t.eq(fact.retryable, false)
+    t.eq(core.impl_failure_retry_allowed(fact), false)
+
+    mock_observe_issue_state_once(
+      { "fkst-dev:enabled", "fkst-dev:impl-failed" },
+      observe_comments(event.proposal_id, failure.payload.body))
+    local observed = run_observe(
+      issue({ labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" } }),
+      opts("observe-base-infrastructure-failure"))
+    assert_department_success(observed, "observe-base-infrastructure-failure")
+    t.eq(find_raise(observed.raises, "devloop_ready"), nil)
   end,
 
   test_semantic_failure_is_durable_but_not_autoretried = function()
