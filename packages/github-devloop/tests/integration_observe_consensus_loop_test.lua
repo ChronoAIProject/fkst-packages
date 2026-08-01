@@ -891,14 +891,16 @@ return {
 
   test_reconcile_drop_blocks_thinking_issue = function()
     local event = reconcile()
-    mock_issue_reconcile({ "fkst-dev:thinking" })
+    mock_issue_reconcile({ "fkst-dev:thinking" }, {
+      core.state_marker(event.proposal_id, "thinking", event.base_version),
+    })
 
     local result = run_reconcile(event, opts("reconcile-drop"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
-    local version = conv_reconcile.reconcile_terminal_state_version(default_marker_version, event.round)
+    local version = conv_reconcile.reconcile_terminal_state_version(event.base_version, event.round)
     t.is_true(comment.body:find("github-devloop reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("no-semantic-progress-after-3-rounds", 1, true) ~= nil)
     t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)
