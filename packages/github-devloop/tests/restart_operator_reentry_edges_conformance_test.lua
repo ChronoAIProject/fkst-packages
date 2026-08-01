@@ -472,7 +472,7 @@ local function thinking_converge_comments(event, command)
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
   }
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version .. "/loop/7"),
+    core.state_marker(proposal_id, "thinking", base_version),
   }
   for round = 1, 7 do
     table.insert(comments, conv_rounds.converge_round_marker(

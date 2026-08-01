@@ -235,7 +235,7 @@ local function run_attempt(args)
     end
 
     if proof == nil then
-      local receipt = implementation_result.decode(result.stdout, {
+      local receipt, receipt_err = implementation_result.decode(result.stdout, {
         proposal_id = args.ready.proposal_id,
         implementation_version = args.ready.dedup_key,
         attempt = args.attempt,
@@ -244,6 +244,25 @@ local function run_attempt(args)
         return harvest.implementation_refusal_outcome(
           args.ready,
           receipt,
+          args.attempt,
+          args.codex_started_at,
+          args.exec_ref,
+          args.base_head
+        )
+      end
+      if receipt == nil and tostring(result.stdout or "") ~= "" then
+        local invalid_detail = "Invalid typed result envelope: " .. tostring(receipt_err)
+        devloop_logging.log_codex_result(
+          "implement", args.ready.proposal_id, "implement", result, nil, invalid_detail, {
+            error_class = "invalid-implementation-result",
+            queue = args.event_queue,
+            source_ref = args.ready.source_ref,
+            terminal = false,
+          })
+        return harvest.impl_failed_outcome(
+          args.ready,
+          "invalid-implementation-result",
+          invalid_detail,
           args.attempt,
           args.codex_started_at,
           args.exec_ref,

@@ -243,6 +243,7 @@ local function build_record(fixture)
   local event, constructor, decision, ready_raise = capture_runtime(fixture)
   local source = constructor.source
   local payload = constructor.payload
+  local payload_version = payload.implementation_version or payload.dedup_key
   local operator_reentry = payload.operator_reentry
   local timeout_source = fixture.timeout_evidence_source and fixture.timeout_evidence_source or JSON_NULL
   return {
@@ -260,7 +261,7 @@ local function build_record(fixture)
       generation_epoch = {
         current_version = decision.current.version,
         source_version = source.dedup_key,
-        payload_version = payload.dedup_key,
+        payload_version = payload_version,
         impl_retry_attempt = payload.impl_retry_attempt,
       },
       lineage = {
@@ -278,7 +279,7 @@ local function build_record(fixture)
       },
       caller_from_states = json_array({ fixture.state }),
       incoming_version = source.dedup_key,
-      target_version = payload.dedup_key,
+      target_version = payload_version,
       handoff_reference = nullable(operator_reentry),
     },
     old_outcome = {

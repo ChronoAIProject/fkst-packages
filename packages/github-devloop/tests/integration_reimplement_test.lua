@@ -370,6 +370,45 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
     reason .. ": reimplementation output did not use the fresh implementation version")
 end
 
+local function run_first_clean_implementation_attempt(name, build_stdout)
+  local event = reached()
+  local ready = payloads_builders.build_devloop_ready_payload(core, event)
+  local ready_comments = {
+    core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+  }
+  mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
+  mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
+  mock_implement_codex(0, build_stdout(event, ready))
+  mock_git_status("")
+  t.mock_command("rev-list --count", {
+    stdout = "0\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  return run_implement(ready, opts(name))
+end
+
+local function assert_invalid_implementation_result(name, build_stdout, decoder_error)
+  local result = run_first_clean_implementation_attempt(name, build_stdout)
+
+  t.eq(result.exit_code, 0)
+  local failure_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+    return tostring(payload.body or ""):find(
+      "github-devloop implementation failed: invalid-implementation-result", 1, true) ~= nil
+  end)
+  t.is_true(failure_comment ~= nil)
+  t.is_true(failure_comment.payload.body:find(
+    "Invalid typed result envelope: " .. decoder_error, 1, true) ~= nil)
+  t.eq(failure_comment.payload.body:find("implementation failed: no-changes", 1, true), nil)
+  t.eq(failure_comment.payload.body:find("fkst:github-devloop:implementation-refusal:v1", 1, true), nil)
+  t.is_true(find_raise(result.raises, "github-proxy.github_issue_label_request", function(payload)
+    return payload.add_labels[1] == "fkst-dev:impl-failed"
+  end) ~= nil)
+  t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request", function(payload)
+    return payload.add_labels[1] == "fkst-dev:blocked"
+  end), nil)
+end
+
 return {
   test_infrastructure_failure_autoretries_then_stops_at_ceiling_and_operator_reenters = function()
     local event = reached()
@@ -506,7 +545,10 @@ return {
     t.eq(result.exit_code, 0)
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
-    t.eq(ready.payload.dedup_key, payloads_builders.build_devloop_ready_payload(core, event).dedup_key)
+    local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+    t.eq(ready.payload.implementation_version, ready_version)
+    t.eq(ready.payload.operator_reimplement_delivery.command_key, "operator-command/IC_reimplement_1")
+    t.is_true(ready.payload.dedup_key ~= ready_version)
     t.eq(ready.payload.impl_retry_attempt, 3)
     local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(response.payload.body:find("operator command accepted: reimplement", 1, true) ~= nil)
@@ -540,7 +582,9 @@ return {
     local ready = find_raise(result.raises, "devloop_ready")
     t.is_true(ready ~= nil)
     t.eq(ready.payload.proposal_id, event.proposal_id)
-    t.eq(ready.payload.dedup_key, ready_version)
+    t.eq(ready.payload.implementation_version, ready_version)
+    t.eq(ready.payload.operator_reimplement_delivery.command_key, "operator-command/IC_reimplement_blocked")
+    t.is_true(ready.payload.dedup_key ~= ready_version)
     t.eq(ready.payload.impl_retry_attempt, 2)
     t.eq(ready.payload.operator_reentry.command, "reimplement")
     t.eq(ready.payload.operator_reentry.from_state, "blocked")
@@ -751,5 +795,37 @@ return {
     run_refusal_reimplementation_case(
       "already-satisfied",
       "Repository ground truth already contains the requested behavior.")
+  end,
+
+  test_invalid_typed_refusal_preserves_the_decoder_rejection = function()
+    assert_invalid_implementation_result("implement-invalid-typed-refusal", function(event, ready)
+      return implementation_receipt(
+        event,
+        ready.dedup_key,
+        "cannot-implement-here",
+        1,
+        "wrong-layer",
+        string.rep("e", core._max_blocking_gap_len + 1)
+      )
+    end, "evidence must be a non-empty bounded string")
+  end,
+
+  test_whitespace_only_result_preserves_the_decoder_rejection = function()
+    assert_invalid_implementation_result("implement-whitespace-result", function()
+      return " \n\t"
+    end, "typed result envelope is empty or exceeds the implementation receipt bound")
+  end,
+
+  test_changes_produced_receipt_without_a_diff_remains_no_changes = function()
+    local result = run_first_clean_implementation_attempt("implement-clean-changes-produced", function(event, ready)
+      return implementation_receipt(event, ready.dedup_key, "changes-produced", 1)
+    end)
+
+    t.eq(result.exit_code, 0)
+    local failure_comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find("github-devloop implementation failed: no-changes", 1, true) ~= nil
+    end)
+    t.is_true(failure_comment ~= nil)
+    t.eq(failure_comment.payload.body:find("invalid-implementation-result", 1, true), nil)
   end,
 }
