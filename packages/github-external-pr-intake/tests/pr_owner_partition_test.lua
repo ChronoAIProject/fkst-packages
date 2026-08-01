@@ -44,7 +44,19 @@ local function owner_pr(fields)
 end
 
 local function owner_kind(pr, is_authorized_author)
-  local has_actionable_issue_origin = core.find_current_issue_pr_origin(pr, managed) ~= nil
+  local previous_read_env = core.read_env
+  core.read_env = function(name)
+    return ({
+      FKST_GITHUB_BOT_LOGIN = "fkst-test-bot",
+      FKST_GITHUB_WRITE = "",
+    })[name] or ""
+  end
+  local ok, origin = pcall(core.find_current_issue_pr_origin, pr)
+  core.read_env = previous_read_env
+  if not ok then
+    error(origin, 0)
+  end
+  local has_actionable_issue_origin = origin ~= nil
   return core.classify_pr_owner(pr, managed, {
     upstream = upstream_branch,
     integration = integration_branch,
@@ -340,6 +352,28 @@ return {
     })), "operator-hotfix-bridge")
     t.eq(owner_kind(owner_pr({ author_login = "trusted-contributor" })), "external-pr-bridge")
     t.eq(owner_kind(owner_pr({ author_login = "untrusted-contributor" }), false), "unauthorized-pr-retirement")
+  end,
+
+  test_scan_routes_peer_managed_origin_to_operator_bridge = function()
+    local origin = pr_origin_marker(42, "fix/generated", integration_branch)
+    local github = fake_github({
+      owner_pr({
+        number = 5,
+        head_ref_name = "fix/generated",
+        base_ref_name = integration_branch,
+        comments = { { author_login = "other-bot", body = origin } },
+      }),
+    }, {
+      [42] = { number = 42, author_login = "fkst-test-bot", assignees = {}, labels = {} },
+    })
+
+    local raised = run_events(github, {
+      { queue = "external_pr_scan", payload = { schema = "github-external-pr-intake.v1" } },
+    })
+
+    t.eq(#raised, 1)
+    t.eq(raised[1].payload.number, 5)
+    t.eq(raised[1].payload.owner_kind, "operator-hotfix-bridge")
   end,
 
   test_scan_retires_unauthorized_pr_with_durable_why = function()

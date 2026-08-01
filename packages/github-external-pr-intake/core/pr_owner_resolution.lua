@@ -36,8 +36,8 @@ local function issue_is_self_owned(issue)
   return forge_strings.strip_bot_login_suffix(issue.author_login) == owner
 end
 
-local function has_actionable_issue_origin(github, pr, managed)
-  local origin = core.find_current_issue_pr_origin(pr, managed)
+local function has_actionable_issue_origin(github, pr)
+  local origin = core.find_current_issue_pr_origin(pr)
   if origin == nil then
     return false
   end
@@ -54,7 +54,7 @@ function M.classify(github, pr, managed, branches)
     managed,
     branches,
     github.is_authorized_author(pr.author_login),
-    has_actionable_issue_origin(github, pr, managed)
+    has_actionable_issue_origin(github, pr)
   )
 end
 

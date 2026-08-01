@@ -3,6 +3,7 @@ local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local base_ids = require("devloop.base_ids")
 local strings = require("contract.strings")
+local pr_origin = require("contract.github_devloop_pr_origin")
 local parsers_misc = require("devloop.parsers.misc")
 local C = {}
 local forge_validators = require("devloop.forge_validators")
@@ -889,52 +890,11 @@ function C.pr_delegation_fact(comments, proposal_id, version, delegation)
 end
 
 function C.pr_origin_fact(comments)
-  if type(comments) ~= "table" then
-    return nil
-  end
-  local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-origin:v1.-%-%->"
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(marker_pattern) do
-      local marker_proposal = marker:match('proposal="([^"]+)"')
-      local marker_issue = marker:match('issue="([^"]+)"')
-      local marker_branch = marker:match('branch="([^"]+)"')
-      local marker_impl_version = marker:match('impl_version="([^"]*)"')
-      local marker_base_branch = marker:match('base_branch="([^"]+)"')
-      local repo, issue_number = base_ids.parse_proposal_id(marker_proposal)
-      if repo ~= nil
-        and marker_issue == issue_number
-        and forge_validators.is_git_ref_safe(marker_branch)
-        and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
-        and forge_validators.is_git_ref_safe(marker_base_branch) then
-        return {
-          proposal_id = marker_proposal,
-          repo = repo,
-          issue_number = issue_number,
-          branch = marker_branch,
-          impl_version = marker_impl_version,
-          base_branch = marker_base_branch,
-        }
-      end
-      local pr_repo, pr_number = entity_lib.parse_pr_proposal_id(marker_proposal)
-      if pr_repo ~= nil
-        and marker_issue == tostring(pr_number)
-        and forge_validators.is_git_ref_safe(marker_branch)
-        and strings.is_bounded_string(marker_impl_version, devloop_base._max_dedup_len)
-        and forge_validators.is_git_ref_safe(marker_base_branch) then
-        return {
-          proposal_id = marker_proposal,
-          repo = pr_repo,
-          issue_number = nil,
-          pr_number = pr_number,
-          branch = marker_branch,
-          impl_version = marker_impl_version,
-          base_branch = marker_base_branch,
-          pr_native = true,
-        }
-      end
-    end
-  end
-  return nil
+  return pr_origin.fact(comments, {
+    trusted_bot_login = devloop_base.trusted_bot_login(),
+    fallback_author_login = devloop_base._test_bot_login,
+    is_git_ref_safe = forge_validators.is_git_ref_safe,
+  })
 end
 
 function C.has_orphan_reaped_marker(comments, proposal_id, pr_number)

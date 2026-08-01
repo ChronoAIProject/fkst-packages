@@ -2,6 +2,7 @@ local env = require("workflow_internal.env")
 local error_facts = require("contract.error_facts")
 local content_filter = require("forge.github.content_filter")
 local external_pr_bridge = require("contract.external_pr_bridge")
+local pr_origin = require("contract.github_devloop_pr_origin")
 local logging = require("workflow_internal.logging")
 local pr_owners = require("core.pr_owners")
 local strings = require("contract.strings")
@@ -398,43 +399,25 @@ local function marker_attr(marker, name)
   return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
 end
 
-function M.find_trusted_issue_pr_origin(comments, repo, managed)
-  local marker_pattern = "<!%-%- fkst:github%-devloop:pr%-origin:v1.-%-%->"
-  for _, comment in ipairs(comments or {}) do
-    if M.trusted_author(comment, managed) then
-      for marker in tostring(comment.body or ""):gmatch(marker_pattern) do
-        local proposal = marker_attr(marker, "proposal")
-        local proposal_repo, proposal_issue = tostring(proposal or ""):match(
-          "^github%-devloop/issue/(.+)/(%d+)$"
-        )
-        local issue = marker_attr(marker, "issue")
-        local branch = marker_attr(marker, "branch")
-        local base_branch = marker_attr(marker, "base_branch")
-        local impl_version = marker_attr(marker, "impl_version")
-        if proposal_repo == tostring(repo)
-          and issue == proposal_issue
-          and tonumber(issue) ~= nil
-          and tonumber(issue) >= 1
-          and forge_strings.is_git_ref_safe(branch)
-          and forge_strings.is_git_ref_safe(base_branch)
-          and impl_version ~= nil then
-          return {
-            proposal_id = proposal,
-            repo = proposal_repo,
-            issue_number = tonumber(issue),
-            branch = branch,
-            base_branch = base_branch,
-            impl_version = impl_version,
-          }
-        end
-      end
-    end
+function M.find_trusted_issue_pr_origin(comments, repo)
+  local origin = pr_origin.fact(comments, {
+    trusted_bot_login = M.current_bot_login(),
+    is_git_ref_safe = forge_strings.is_git_ref_safe,
+  })
+  local issue_number = origin and tonumber(origin.issue_number) or nil
+  if origin == nil
+    or origin.repo ~= tostring(repo)
+    or issue_number == nil
+    or issue_number < 1
+    or issue_number % 1 ~= 0 then
+    return nil
   end
-  return nil
+  origin.issue_number = issue_number
+  return origin
 end
 
-function M.find_current_issue_pr_origin(pr, managed)
-  local origin = M.find_trusted_issue_pr_origin(pr.comments, pr.repo, managed)
+function M.find_current_issue_pr_origin(pr)
+  local origin = M.find_trusted_issue_pr_origin(pr.comments, pr.repo)
   if origin == nil then
     return nil
   end
