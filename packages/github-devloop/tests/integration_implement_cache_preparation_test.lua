@@ -15,6 +15,8 @@ local count_calls = h.count_calls
 
 local cache_command = "make prepare-cache"
 local cache_command_env = 'printf %s "$FKST_DEVLOOP_CACHE_PREPARATION_COMMAND"'
+local project_root_env = 'printf %s "$FKST_PROJECT_ROOT"'
+local trusted_repository_root = "/trusted/repository"
 local current_base_pin = "2222222222222222222222222222222222222222"
 local stale_branch_pin = "1111111111111111111111111111111111111111"
 
@@ -26,6 +28,11 @@ local function mock_cache_command(result)
   })
   t.mock_command(cache_command, result or {
     stdout = "cache ready\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command(project_root_env, {
+    stdout = trusted_repository_root,
     stderr = "",
     exit_code = 0,
   })
@@ -94,7 +101,7 @@ return {
     t.is_true(preparation < codex)
     t.eq(count_calls(cache_command), 1)
     local preparation_call = command_call(cache_command)
-    t.eq(preparation_call.cwd, ".")
+    t.eq(preparation_call.cwd, trusted_repository_root)
     t.eq(command_env(preparation_call, "FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE"), worktree)
   end,
 
@@ -159,7 +166,7 @@ return {
     t.eq(count_calls("codex exec"), 1)
     t.is_true(command_index(cache_command) < command_index("codex exec"))
     local preparation_call = command_call(cache_command)
-    t.eq(preparation_call.cwd, ".")
+    t.eq(preparation_call.cwd, trusted_repository_root)
     t.eq(command_env(preparation_call, "FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE"), worktree)
   end,
 }

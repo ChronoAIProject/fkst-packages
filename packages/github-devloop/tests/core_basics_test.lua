@@ -21,6 +21,7 @@ return {
       ['printf %s "$FKST_DEVLOOP_TEST_COMMAND"'] = { stdout = "", exit_code = 0 },
       ['printf %s "$FKST_DEVLOOP_LOCAL_TEST_COMMAND"'] = { stdout = "", exit_code = 0 },
       ['printf %s "$FKST_DEVLOOP_CACHE_PREPARATION_COMMAND"'] = { stdout = "", exit_code = 0 },
+      ['printf %s "$FKST_PROJECT_ROOT"'] = { stdout = "/trusted/repository", exit_code = 0 },
       ['printf %s "$FKST_GITHUB_REPO"'] = { stdout = "owner/repo", exit_code = 0 },
       ['printf %s "$FKST_GITHUB_BOT_LOGIN"'] = { stdout = "fkst-test-bot", exit_code = 0 },
       ['printf %s "$FKST_GITHUB_WRITE"'] = { stdout = "", exit_code = 0 },
@@ -40,6 +41,7 @@ return {
     local local_command = config.local_iteration_test_command(exec)
     t.eq(local_command, "scripts/run.sh test-affected")
     t.eq(config.cache_preparation_command(exec), nil)
+    t.eq(config.project_root(exec), "/trusted/repository")
 
     t.eq(config.env_present_command("GH_TOKEN"), 'if [ -n "${GH_TOKEN:-}" ]; then printf present; fi')
     responses[config.env_present_command("GH_TOKEN")] = { stdout = "present", exit_code = 0 }

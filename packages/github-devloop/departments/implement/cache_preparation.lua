@@ -4,7 +4,6 @@ local strings = require("contract.strings")
 local M = {}
 
 local cache_preparation_timeout_seconds = 600
-local trusted_repository_root = "."
 
 local function command_detail(result)
   if type(result) ~= "table" then
@@ -29,14 +28,19 @@ function M.run(worktree, deps)
     return false
   end
 
+  local read_project_root = options.project_root or config.project_root
+  local project_root = strings.trim(read_project_root() or "")
+  if project_root:sub(1, 1) ~= "/" then
+    error("github-devloop: cache-preparation-project-root-invalid: FKST_PROJECT_ROOT must be absolute")
+  end
+
   local execute = options.exec or exec_sync
   if type(execute) ~= "function" then
     error("github-devloop: cache-preparation-unavailable: exec_sync is unavailable")
   end
   local result = execute({
     cmd = command,
-    -- Department children run with the trusted supervisor project root as ".".
-    cwd = trusted_repository_root,
+    cwd = project_root,
     env = {
       FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE = worktree,
     },

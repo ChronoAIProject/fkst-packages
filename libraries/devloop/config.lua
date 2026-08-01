@@ -32,6 +32,7 @@ local allowed_env = {
   FKST_DEVLOOP_TEST_COMMAND = true,
   FKST_DEVLOOP_LOCAL_TEST_COMMAND = true,
   FKST_DEVLOOP_CACHE_PREPARATION_COMMAND = true,
+  FKST_PROJECT_ROOT = true,
   FKST_OUTPUT_LANG = true,
   FKST_DEBUG_STAMP = true,
 }
@@ -211,6 +212,14 @@ function C.cache_preparation_command(exec)
     return nil
   end
   return command
+end
+
+function C.project_root(exec)
+  local root = strings.trim(C.read_env("FKST_PROJECT_ROOT", exec) or "")
+  if root == "" then
+    return nil
+  end
+  return root
 end
 
 local function current_checkout_branch(exec)

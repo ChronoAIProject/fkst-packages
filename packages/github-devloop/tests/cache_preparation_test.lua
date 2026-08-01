@@ -1,5 +1,6 @@
 local cache_preparation = require("departments.implement.cache_preparation")
 local t = fkst.test
+local trusted_repository_root = "/trusted/repository"
 
 local function captures()
   local calls = {}
@@ -29,13 +30,14 @@ return {
     local calls, exec = captures()
     local ran = cache_preparation.run("/tmp/implementation-worktree", {
       command = function() return "make prepare-cache" end,
+      project_root = function() return trusted_repository_root end,
       exec = exec,
     })
 
     t.eq(ran, true)
     t.eq(#calls, 1)
     t.eq(calls[1].cmd, "make prepare-cache")
-    t.eq(calls[1].cwd, ".")
+    t.eq(calls[1].cwd, trusted_repository_root)
     t.eq(calls[1].env.FKST_DEVLOOP_CACHE_PREPARATION_WORKTREE, "/tmp/implementation-worktree")
     t.eq(calls[1].timeout, 600)
   end,
@@ -44,6 +46,7 @@ return {
     local calls, exec = captures()
     local deps = {
       command = function() return "make prepare-cache" end,
+      project_root = function() return trusted_repository_root end,
       exec = exec,
     }
 
@@ -58,10 +61,29 @@ return {
     )
   end,
 
+  test_cache_preparation_rejects_unanchored_project_root = function()
+    local called = false
+    local ok, err = pcall(function()
+      cache_preparation.run("/tmp/implementation-worktree", {
+        command = function() return "make prepare-cache" end,
+        project_root = function() return "." end,
+        exec = function()
+          called = true
+          return { stdout = "", stderr = "", exit_code = 0 }
+        end,
+      })
+    end)
+
+    t.eq(ok, false)
+    t.eq(called, false)
+    t.is_true(tostring(err):find("cache-preparation-project-root-invalid", 1, true) ~= nil)
+  end,
+
   test_cache_preparation_propagates_command_failure = function()
     local ok, err = pcall(function()
       cache_preparation.run("/tmp/implementation-worktree", {
         command = function() return "make prepare-cache" end,
+        project_root = function() return trusted_repository_root end,
         exec = function()
           return { stdout = "", stderr = "cache seed failed", exit_code = 7 }
         end,
