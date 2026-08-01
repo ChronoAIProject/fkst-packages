@@ -211,11 +211,46 @@ local function count_queue(raises, queue)
   return count
 end
 
+local function contains_value(values, expected)
+  for _, value in ipairs(values or {}) do
+    if value == expected then
+      return true
+    end
+  end
+  return false
+end
+
 local function marker_body(raises, needle)
   local raise = find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
     return type(payload.body) == "string" and payload.body:find(needle, 1, true) ~= nil
   end)
   return raise and raise.payload.body or nil
+end
+
+local function assert_ready_split_effects(raises, to_state, to_version, blocked_label_added)
+  local effects = to_state == "ready"
+    and "result-marker,ready-label,devloop-ready"
+    or "ready-split-canonicalized"
+  local body = marker_body(raises, "ready-split-canonicalized:v1")
+  t.is_true(body ~= nil)
+  t.is_true(body:find(core.state_marker(proposal_id, to_state, to_version, effects), 1, true) ~= nil)
+
+  local label_raise = find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
+    return payload.expected_state == to_state and payload.expected_version == to_version
+  end)
+  t.is_true(label_raise ~= nil)
+  local request = label_raise.payload
+  t.is_true(contains_value(request.add_labels, "fkst-dev:ready"))
+  t.eq(contains_value(request.add_labels, devloop_base._blocked_on_dependency_label), blocked_label_added)
+  t.eq(contains_value(request.remove_labels, devloop_base._blocked_on_dependency_label), not blocked_label_added)
+  t.is_true(contains_value(request.remove_labels, "fkst-dev:impl-failed"))
+  t.eq(request.require_marker_guard, true)
+  t.eq(request.expected_proposal_id, proposal_id)
+  t.eq(request.expected_state, to_state)
+  t.eq(request.expected_version, to_version)
+  t.eq(request.marker_guard.match.proposal, proposal_id)
+  t.eq(request.marker_guard.expected.state, to_state)
+  t.eq(request.marker_guard.expected.version, to_version)
 end
 
 local function ready_handoff_comment_raise(raises)
@@ -280,6 +315,11 @@ local function replay_ready_with_comments(comments)
 end
 
 return {
+  test_marker_only_ready_split_apis_are_not_public = function()
+    t.eq(core.ready_split_canonicalized_marker, nil)
+    t.eq(core.build_ready_split_canonicalized_comment_request, nil)
+  end,
+
   test_ready_hand_off_comment_id_requires_trusted_visible_ready_marker = function()
     local marker = core.state_marker(proposal_id, "ready", version, "result-marker,ready-label,devloop-ready")
     t.eq(core.ready_hand_off_comment_id({
@@ -442,7 +482,7 @@ return {
     local ready = ready_at(split_version)
     mock_blocked_by(42, { { number = 55 } })
     mock_blocked_by(55, {})
-    mock_implement_issue({ "fkst-dev:ready" }, {
+    mock_implement_issue({ "fkst-dev:impl-failed" }, {
       core.state_marker(proposal_id, "ready", split_version),
     })
 
@@ -458,11 +498,24 @@ return {
     t.is_true(body:find('to_version="' .. next_split_version .. '"', 1, true) ~= nil)
     t.is_true(body:find('to_version="ready/', 1, true) == nil)
     t.is_true(body:find('state="dependency_wait"', 1, true) ~= nil)
+    assert_ready_split_effects(result.raises, "dependency_wait", next_split_version, true)
+  end,
+
+  test_ready_replay_dependency_hold_projects_guarded_state_and_auxiliary_labels = function()
+    mock_observe_issue({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, {
+      trusted_comment("IC_ready_visible", core.state_marker(proposal_id, "ready", version)),
+    })
+    mock_blocked_by(42, { { number = 55 } })
+    mock_blocked_by(55, {})
+
+    local result = run_observe_with_issue(h.issue())
+    t.eq(result.exit_code, 0)
+    assert_ready_split_effects(result.raises, "dependency_wait", core.ready_split_version(version), true)
   end,
 
   test_legacy_ready_unresolvable_hold_canonicalizes_to_dependency_wait = function()
     mock_observe_issue(
-      { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
+      { "fkst-dev:enabled", "fkst-dev:impl-failed", "fkst-dev:blocked-on-dependency" },
       {
         core.state_marker(proposal_id, "ready", version),
         "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
@@ -481,6 +534,7 @@ return {
     t.is_true(body:find('state="dependency_wait"', 1, true) ~= nil)
     t.is_true(body:find('version="' .. split_version .. '"', 1, true) ~= nil)
     t.is_true(body:find("fkst:github-devloop:dependency-wait:v1", 1, true) ~= nil)
+    assert_ready_split_effects(result.raises, "dependency_wait", split_version, true)
   end,
 
   test_consensus_result_reraises_partial_dependency_wait_effects = function()
@@ -559,7 +613,7 @@ return {
   test_dependency_release_ready_handoff_accepts_direct_visible_marker = function()
     local split_version = core.ready_split_version(version)
     mock_observe_issue(
-      { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
+      { "fkst-dev:enabled", "fkst-dev:impl-failed", "fkst-dev:blocked-on-dependency" },
       {
         core.state_marker(proposal_id, "dependency_wait", version),
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
@@ -582,6 +636,7 @@ return {
       true
     ) ~= nil)
     t.is_true(release_comment.payload.body:find("fkst:github-devloop:ready-split-canonicalized:v1", 1, true) ~= nil)
+    assert_ready_split_effects(released.raises, "ready", split_version, false)
 
     local handoff = run_comment_handoff_from_request(
       release_comment.payload,
