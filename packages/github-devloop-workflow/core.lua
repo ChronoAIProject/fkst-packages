@@ -14,6 +14,7 @@ local intake_class = require("core.intake_class")
 local intake_service_class = require("core.intake_service_class")
 local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
+local devloop_dependency_gate = require("devloop.dependency_gate")
 local devloop_logging = require("devloop.logging")
 local devloop_prompts = require("devloop.prompts")
 local devloop_state = require("devloop.state")
@@ -154,6 +155,10 @@ function M.install(target)
   select_request.install(target)
   target.default_intake = default_intake
   install_intake_surface(target)
+  target.github_graphql_queries = devloop_dependency_gate.github_graphql_queries
+  target.render_github_graphql_query = devloop_dependency_gate.render_github_graphql_query
+  target.github_graphql = devloop_dependency_gate.github_graphql
+  target.dependency_gate = devloop_dependency_gate.new(target).dependency_gate
 end
 
 M.install(M)

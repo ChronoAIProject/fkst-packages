@@ -204,6 +204,14 @@ local function run_with(fakes)
       verify_issue_claim = function()
         return fake.claim ~= false
       end,
+      dependency_gate = fake.dependency_gate or function()
+        return {
+          ok = true,
+          kind = "satisfied",
+          reason = "satisfied",
+          unmet = {},
+        }
+      end,
       child_status = function(_core, child_ref)
         local key = tostring(child_ref.issue_number or child_ref.proposal_id or "")
         local result = (fake.child_statuses or {})[key] or fake.child_status or "running"
@@ -309,6 +317,74 @@ local tests = {
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:lineage:v1", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:materialization:v1", 1, true) == nil)
+  end,
+
+  test_unsatisfied_origin_dependency_holds_before_child_materialization = function()
+    local gate_calls = 0
+    local generator_calls = 0
+    local raised = run_with({
+      dependency_gate = function(gate_repo, gate_issue_number)
+        gate_calls = gate_calls + 1
+        t.eq(gate_repo, repo)
+        t.eq(gate_issue_number, origin_issue)
+        return {
+          ok = false,
+          kind = "waiting",
+          reason = "waiting-on-dependency",
+          unmet = { 41 },
+        }
+      end,
+      spawn_codex = function()
+        generator_calls = generator_calls + 1
+        return { exit_code = 0, stdout = '{"title":"Unexpected","body":"Unexpected."}' }
+      end,
+    })
+
+    t.eq(gate_calls, 1)
+    t.eq(generator_calls, 0)
+    t.eq(#raised, 0)
+  end,
+
+  test_unresolvable_origin_dependency_fails_closed_before_child_materialization = function()
+    local raised = run_with({
+      dependency_gate = function()
+        return {
+          ok = false,
+          kind = "unresolvable",
+          reason = "blockedby-truncated",
+          unmet = { origin_issue },
+        }
+      end,
+    })
+
+    t.eq(#raised, 0)
+  end,
+
+  test_origin_dependency_release_materializes_child_on_next_poll = function()
+    local gate = {
+      ok = false,
+      kind = "waiting",
+      reason = "waiting-on-dependency",
+      unmet = { 41 },
+    }
+    local function dependency_gate()
+      return gate
+    end
+
+    local held = run_with({ dependency_gate = dependency_gate })
+    t.eq(#held, 0)
+
+    gate = {
+      ok = true,
+      kind = "satisfied",
+      reason = "satisfied",
+      unmet = {},
+    }
+    local released = run_with({ dependency_gate = dependency_gate })
+    local creates = only_queue(released, "github-proxy.github_issue_create_request")
+    t.eq(#released, 1)
+    t.eq(#creates, 1)
+    t.eq(creates[1].payload.parent, origin_issue)
   end,
 
   -- Regression (found by real dogfood): a GENERATED first slot has no prior

@@ -579,12 +579,8 @@ merged_child_landed_on_upstream = function(dept, issue, state, delegation, curre
           error("github-devloop: awaiting-pr-rollup-receipt-invalid: merged rollup PR metadata is incomplete")
         end
         if tostring(candidate.head_repository) == tostring(issue.repo) then
-          git_mechanics.run_required(
-            git_commands.git_fetch_pr_head_ref("origin", candidate.number, 60),
-            "awaiting-pr rollup receipt fetch"
-          )
           local fetched = git_mechanics.run_required(
-            git_commands.git_fetch_head_commit(30),
+            git_commands.git_fetch_pr_head_oid("origin", candidate.number, 60),
             "awaiting-pr rollup receipt head"
           )
           local fetched_head = contract_strings.trim(fetched.stdout)

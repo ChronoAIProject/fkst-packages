@@ -124,7 +124,7 @@ return {
   test_observe_pr_fixing_conflict_replays_current_fixing_round = function()
     local fixing_version = version .. "/fix/1"
     local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
-    local review_dedup_key = "observe-pr-conflict/" .. proposal_id .. "/" .. version .. "/7"
+    local review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
     local comments = {
       m_builders.pr_origin_marker(proposal_id, "42", branch, fixing_version, "dev"),
       core.state_marker(proposal_id, "fixing", fixing_version),
@@ -158,6 +158,54 @@ return {
     t.eq(fixing_raise.payload.review_dedup_key, review_dedup_key)
   end,
 
+  test_observe_pr_dirty_advanced_head_routes_legacy_fix_feedback_to_review_meta = function()
+    local fixing_version = version .. "/fix/1"
+    local reviewed_head_sha = "119ef6fd"
+    local current_head_sha = "333ba5dc"
+    local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, reviewed_head_sha)
+    local review_dedup_key = devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
+    local comments = {
+      m_builders.pr_origin_marker(proposal_id, "42", branch, fixing_version, "dev"),
+      core.state_marker(proposal_id, "fixing", fixing_version),
+      m_builders.merge_gate_marker(proposal_id,
+        7,
+        fixing_version,
+        review_proposal_id,
+        review_dedup_key,
+        reviewed_head_sha,
+        nil,
+        "mergeable-conflicting"
+      ),
+      '<!-- fkst:github-devloop:review-meta:v1 proposal="' .. proposal_id
+        .. '" dedup="meta-dedup" action="fix" version="' .. fixing_version
+        .. '" gap="missing binding" -->',
+    }
+    entity_read_mocks.mock_pr_view_selector(t, {
+      repo = repo,
+      number = 7,
+      comments = comments,
+      head = branch,
+      head_sha = current_head_sha,
+      base_branch = "dev",
+      state = "OPEN",
+      mergeable = "CONFLICTING",
+      merge_state = "DIRTY",
+    }, entity_read_mocks.pr_origin_selector)
+
+    local result = run_observe_pr_mergeability("observe-pr-incomplete-fix-feedback")
+    t.eq(result.exit_code, 0, result.stderr)
+    local comment = find_raise(
+      result.raises, "github-proxy.github_pr_comment_request")
+    local label = find_raise(
+      result.raises, "github-proxy.github_issue_label_request")
+    t.is_true(comment ~= nil)
+    t.is_true(label ~= nil)
+    t.is_true(comment.payload.body:find('state="review-meta"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find(
+      "legacy-fix-feedback-unbound", 1, true) ~= nil)
+    t.is_nil(find_causal_raise(result, "devloop_fixing"))
+  end,
+
   test_observe_pr_conflict_redrive_is_idempotent_when_fixing_marker_visible = function()
     local fix_version = version .. "/fix/1"
     local review_proposal_id = devloop_base.pr_review_proposal_id(repo, 7, version, "def456")
@@ -168,7 +216,7 @@ return {
         7,
         fix_version,
         review_proposal_id,
-        "observe-pr-conflict/" .. proposal_id .. "/" .. version .. "/7",
+        devloop_base.pr_review_consensus_dedup_key(review_proposal_id),
         "def456",
         nil,
         "mergeable-conflicting"

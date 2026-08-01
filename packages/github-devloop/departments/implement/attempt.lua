@@ -5,6 +5,7 @@ local core = require("core")
 local devloop_commands = require("devloop.commands")
 local devloop_logging = require("devloop.logging")
 local harvest = require("departments.implement.harvest")
+local implementation_result = require("departments.implement.implementation_result")
 local implement_caps = require("implement_department_caps")
 local implement_profile = require("departments.implement.profile")
 local proof_attempt = require("departments.implement.proof_attempt")
@@ -113,7 +114,11 @@ local function dispatch_prompt(args, framing, profile, target)
       args.current,
       framing,
       args.content_fetch,
-      profile
+      profile,
+      {
+        implementation_version = args.ready.dedup_key,
+        attempt = args.attempt,
+      }
     ), nil, nil
   end
   local timeout_seconds = workflow_codex.with_resolved_timeout("implement", {}).timeout
@@ -221,6 +226,43 @@ local function run_attempt(args)
         args.repo, args.issue_number, args.ready, args.branches.integration, args.branch,
         args.base_head, args.worktree, args.attempt, args.codex_started_at, args.exec_ref, head_sha
       )
+    end
+
+    if proof == nil then
+      local receipt, receipt_err = implementation_result.decode(result.stdout, {
+        proposal_id = args.ready.proposal_id,
+        implementation_version = args.ready.dedup_key,
+        attempt = args.attempt,
+      })
+      if receipt ~= nil and receipt.outcome == "cannot-implement-here" then
+        return harvest.implementation_refusal_outcome(
+          args.ready,
+          receipt,
+          args.attempt,
+          args.codex_started_at,
+          args.exec_ref,
+          args.base_head
+        )
+      end
+      if receipt == nil and tostring(result.stdout or "") ~= "" then
+        local invalid_detail = "Invalid typed result envelope: " .. tostring(receipt_err)
+        devloop_logging.log_codex_result(
+          "implement", args.ready.proposal_id, "implement", result, nil, invalid_detail, {
+            error_class = "invalid-implementation-result",
+            queue = args.event_queue,
+            source_ref = args.ready.source_ref,
+            terminal = false,
+          })
+        return harvest.impl_failed_outcome(
+          args.ready,
+          "invalid-implementation-result",
+          invalid_detail,
+          args.attempt,
+          args.codex_started_at,
+          args.exec_ref,
+          args.base_head
+        )
+      end
     end
 
     local detail = tostring(result.stdout or "")

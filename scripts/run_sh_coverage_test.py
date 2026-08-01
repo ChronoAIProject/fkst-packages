@@ -149,6 +149,8 @@ class RunShComposedConformanceHarness:
         for name in (
             "run.sh",
             "bin_bootstrap.sh",
+            "local_iteration_result.sh",
+            "run_bin.sh",
             "host_run.sh",
             "host_entry.sh",
             "composed_manifest.sh",

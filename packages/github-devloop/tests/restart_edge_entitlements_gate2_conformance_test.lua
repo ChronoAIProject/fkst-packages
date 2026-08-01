@@ -34,8 +34,14 @@ local expected_new_apply_effects = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
     "git.push:implementation-branch",
   },
+  ["github-devloop/implementing/autonomous/implementation_refused"] = {
+    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
+  },
   ["github-devloop/implementing/operator_reentry/reimplement_impl_failed"] = {
     "github-proxy.github_issue_comment_request", "devloop_ready",
+  },
+  ["github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal"] = {
+    "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
   },
   ["github-devloop/ready/canonicalization/legacy_ready_rederive"] = {
     "github-proxy.github_issue_comment_request", "github-proxy.github_issue_label_request",
@@ -86,7 +92,7 @@ end
 return {
   test_issue_owner_every_canonical_edge_has_closed_effect_entitlements = function()
     local edges = owner_projection.edges(owner, rows, inventories)
-    t.eq(#edges, 26)
+    t.eq(#edges, 28)
     for _, edge in ipairs(edges) do
       assert_closed(edge)
       local expected = expected_new_apply_effects[edge.id]

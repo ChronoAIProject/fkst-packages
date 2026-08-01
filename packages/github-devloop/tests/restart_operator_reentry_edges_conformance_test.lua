@@ -32,6 +32,8 @@ local blocked_open_pr_id =
   "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr"
 local blocked_timeout_without_pr_id =
   "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr"
+local blocked_implementation_refusal_id =
+  "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal"
 local cas_metadata_golden = {
   [blocked_open_pr_id] = {
     cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
@@ -41,11 +43,16 @@ local cas_metadata_golden = {
     cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
     cas_variant = "blocked_to_implementing",
   },
+  [blocked_implementation_refusal_id] = {
+    cas_policy_id = "cas.legacy_implement_activation_handoff_v1",
+    cas_variant = "blocked_to_implementing",
+  },
 }
 local pending_order_goldens = {
   ["github-devloop/implementing/operator_reentry/reimplement_impl_failed"] = { participates = true, predecessor_state = "impl-failed" },
   [blocked_open_pr_id] = { participates = false },
   [blocked_timeout_without_pr_id] = { participates = false },
+  [blocked_implementation_refusal_id] = { participates = false },
 }
 
 local function implement_activation_entitlements(edge_id)
@@ -263,7 +270,7 @@ local function run_reimplement_case(case)
       t.eq(tonumber(reentry.pr_number), 7)
     else
       boundary = reentry.terminal_reason
-      t.eq(boundary, "implementing-timeout-without-pr")
+      t.eq(boundary, case.expected_boundary)
     end
   else
     t.eq(reentry, nil)
@@ -314,6 +321,30 @@ local function observe_blocked_open_pr_reimplement()
   })
 end
 
+local function observe_blocked_implementation_refusal_reimplement()
+  local event = h.reached()
+  local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
+  return run_reimplement_case({
+    name = "restart-operator-reentry-blocked-implementation-refusal",
+    event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } }),
+    labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
+    source_state = "blocked",
+    expected_boundary = "implementation-refusal",
+    comments = {
+      core.state_marker(proposal_id, "blocked", ready_version),
+      core.implement_attempt_marker(proposal_id, ready_version, 1, "100"),
+      core.implementation_refusal_marker(
+        proposal_id,
+        ready_version,
+        "precursor-missing",
+        "The generated parser required by this implementation is absent.",
+        1
+      ),
+      trusted_command("reimplement", "IC_reimplement_blocked_implementation_refusal"),
+    },
+  })
+end
+
 local function observe_blocked_timeout_reimplement()
   local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:blocked" } })
   local inner_version = "github-devloop/issue/owner/repo/42/intake/2226"
@@ -328,6 +359,7 @@ local function observe_blocked_timeout_reimplement()
     event = event,
     labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
     source_state = "blocked",
+    expected_boundary = "implementing-timeout-without-pr",
     comments = {
       core.state_marker(proposal_id, "implementing", ready_version),
       core.state_marker(proposal_id, "blocked", blocked_version),
@@ -654,7 +686,7 @@ local function assert_observed_inventory_edge(index, observed)
   local snapshot = copy_value(operator_reentry_inventory)
   local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
   assert_operator_reentry_shape(authored)
-  t.eq(#authored, 3)
+  t.eq(#authored, 4)
   assert_symmetric_edge_sets({ observed }, { authored[index] })
   assert_same_value(operator_reentry_inventory, snapshot)
 end
@@ -672,13 +704,21 @@ return {
     assert_observed_inventory_edge(3, observe_blocked_timeout_reimplement())
   end,
 
+  test_issue_blocked_implementation_refusal_operator_reentry_matches_production_apply_decision = function()
+    assert_observed_inventory_edge(4, observe_blocked_implementation_refusal_reimplement())
+  end,
+
   test_issue_blocked_operator_reentry_cas_metadata_references_declared_policies = function()
     local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
     local edges_by_id = {}
     for _, edge in ipairs(authored) do
       edges_by_id[edge.id] = edge
     end
-    for _, id in ipairs({ blocked_open_pr_id, blocked_timeout_without_pr_id }) do
+    for _, id in ipairs({
+      blocked_open_pr_id,
+      blocked_timeout_without_pr_id,
+      blocked_implementation_refusal_id,
+    }) do
       local edge = edges_by_id[id]
       local expected = cas_metadata_golden[id]
       t.is_true(edge ~= nil)
@@ -697,6 +737,7 @@ return {
     t.eq(authored[1].id, "github-devloop/implementing/operator_reentry/reimplement_impl_failed")
     t.eq(authored[2].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_open_pr")
     t.eq(authored[3].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_implementing_timeout_without_pr")
+    t.eq(authored[4].id, "github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal")
 
     local repeated = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
     assert_operator_reentry_shape(repeated)

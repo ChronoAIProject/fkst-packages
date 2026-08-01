@@ -399,6 +399,36 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
   }, ready.source_ref)
 end
 
+function C.build_implementation_refusal_comment_request(
+    M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref)
+  local rendered_reason = M.require_supported_implementation_refusal_reason(reason)
+  local marker = M.implementation_refusal_marker(
+    ready.proposal_id, ready.dedup_key, rendered_reason, evidence, attempt)
+  local state_marker = M.state_marker(ready.proposal_id, "blocked", ready.dedup_key)
+  local attempt_marker = M.implement_attempt_marker(
+    ready.proposal_id, ready.dedup_key, attempt, started_at, exec_ref)
+  local safe_evidence = devloop_base.neutralize_untrusted_comment_text(evidence)
+  return m_claims.attach_issue_claim({
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = issue_number,
+    body = "github-devloop implementation blocked: " .. rendered_reason
+      .. "\n\nEvidence:\n" .. safe_evidence
+      .. "\n\n" .. state_marker
+      .. "\n" .. attempt_marker
+      .. "\n" .. marker,
+    dedup_key = base_ids.dedup_key({
+      "implement",
+      "comment",
+      "implementation-refusal",
+      tostring(rendered_reason),
+      tostring(attempt),
+      tostring(ready.dedup_key),
+    }),
+    source_ref = base_ids.normalize_source_ref(ready.source_ref),
+  }, ready.source_ref)
+end
+
 function C.build_merging_comment_request(M, repo, merge_ready)
   return entity_lib.build_entity_comment_request({
     kind = "pr",

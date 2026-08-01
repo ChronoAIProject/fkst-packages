@@ -10,6 +10,7 @@ local replay_fields = require("devloop.replay_fields")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
 
 local repo = "owner/repo"
 local proposal_id = "github-devloop/issue/owner/repo/42"
@@ -692,5 +693,55 @@ return {
     t.eq(find_raise(implemented.raises, "github-proxy.github_issue_label_request").payload.add_labels[1], "fkst-dev:implementing")
     t.eq(h.count_calls("repos/owner/repo/issues/comments/IC_dependency_release_ready"), 1)
     t.eq(h.count_calls("codex exec"), 1)
+  end,
+
+  -- The dependency backstop in departments/implement/main.lua runs BEFORE the
+  -- `state.state == "implementing"` skip-stale guard. A redelivered devloop_ready
+  -- for an issue that already advanced to `implementing` must not be pulled back
+  -- into the ready-phase `dependency_wait` gate: that is a phase-rank regression
+  -- with no generation bump, and a transient blocker read failure (gh-failed) is
+  -- precisely when it fires.
+  test_implementing_is_not_regressed_to_dependency_wait_when_blocker_read_fails = function()
+    local ready = ready_at(version)
+    local implementing_version = core.implementation_attempt_version(ready.dedup_key)
+    local branch = h.deterministic_branch_for(ready)
+    local delegation = "g" .. tostring(core.implementation_delegation_generation(implementing_version))
+    mock_blocked_by_failure(42)
+    mock_implement_issue({ "fkst-dev:enabled", "fkst-dev:implementing" }, {
+      core.state_marker(proposal_id, "ready", version),
+      core.state_marker(proposal_id, "implementing", implementing_version),
+      core.implement_attempt_marker(proposal_id, implementing_version, 1, "2026-06-03T01:01:00Z"),
+      m_builders.implementing_marker(proposal_id, implementing_version, branch, "def456", "dev", "abc123"),
+      m_builders.pr_delegation_marker(
+        proposal_id,
+        "github-devloop/pr/owner/repo/7",
+        7,
+        implementing_version,
+        delegation
+      ),
+    })
+    t.mock_command("git fetch 'origin' '" .. branch .. "'", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("refs/remotes/'origin'/'" .. branch .. "'^{commit}", {
+      stdout = "def456\n",
+      stderr = "",
+      exit_code = 0,
+    })
+
+    local result = h.run_implement(ready, h.opts("ready-split-regression-advanced-implement"))
+    t.eq(result.exit_code, 0)
+    t.eq(marker_body(result.raises, "ready-split-canonicalized:v1"), nil)
+    t.eq(marker_body(result.raises, "dependency-wait:v1"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
+    t.eq(h.count_calls(core.gh_blocked_by_cmd(repo, 42)), 0)
+  end,
+
+  test_all_lifecycle_states_have_positive_stage_rank = function()
+    for state_name in pairs(devloop_state.lifecycle_state_set()) do
+      t.is_true(devloop_state.stage_rank(state_name) > 0)
+    end
   end,
 }

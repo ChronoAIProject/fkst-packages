@@ -440,6 +440,25 @@ local function process_origin(core, deps, repo, issue_number, event, catalog, un
       return terminal(core, deps, repo, issue_number, origin, decision.state or "error", decision.reason_code or "frontier-terminal", unit)
     end
     if decision.action == "materialize" then
+      local resolve_dependencies = deps.dependency_gate or core.dependency_gate
+      if type(resolve_dependencies) ~= "function" then
+        error("github-devloop-workflow: dependency-gate-unavailable: workflow materialization requires the shared dependency gate")
+      end
+      local dependency = resolve_dependencies(repo, issue_number)
+      if type(dependency) ~= "table" then
+        error("github-devloop-workflow: dependency-gate-invalid-result: shared dependency gate returned an invalid result")
+      end
+      if dependency.ok ~= true then
+        reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
+        unit.log_decision(
+          origin,
+          "frontier",
+          "dependency-gate",
+          "skip-wait(" .. tostring(dependency.kind or "unresolvable") .. ")",
+          dependency.reason or "dependency-unresolved"
+        )
+        return "wait"
+      end
       local outcome = perform_materialize(core, deps, repo, issue_number, origin, blueprint_fact, record, current_digest, facts, current, decision, event, unit)
       if outcome ~= "terminal" then
         reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)

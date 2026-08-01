@@ -7,18 +7,29 @@ local payloads_predicates = require("devloop.payloads.predicates")
 local payloads_shared = require("devloop.payloads.shared")
 local C = {}
 
-local function is_supported_redrive_delivery(payload)
-  if payload.redrive_delivery == nil then
+local function is_supported_delivery_identity(payload)
+  local redrive = payload.redrive_delivery ~= nil
+  local operator_reimplement = payload.operator_reimplement_delivery ~= nil
+  if redrive and operator_reimplement then
+    return false
+  end
+  if not redrive and not operator_reimplement then
     return payload.implementation_version == nil
   end
   if payload.implementation_version == nil then
     return false
   end
+  local helper = operator_reimplement
+    and payloads_shared.ready_operator_reimplement_delivery_dedup_key
+    or payloads_shared.ready_redrive_delivery_dedup_key
+  local delivery = operator_reimplement
+    and payload.operator_reimplement_delivery
+    or payload.redrive_delivery
   local ok, expected = pcall(
-    payloads_shared.ready_redrive_delivery_dedup_key,
+    helper,
     payload.proposal_id,
     payload.implementation_version,
-    payload.redrive_delivery
+    delivery
   )
   return ok and payload.dedup_key == expected
 end
@@ -30,12 +41,15 @@ local function is_supported_blocked_reimplement(payload)
     or reentry.from_state ~= "blocked"
     or not devloop_base.is_safe_proposal_ref(payload.proposal_id, reentry.impl_version)
     or not devloop_base.is_safe_proposal_ref(payload.proposal_id, reentry.state_version)
-    or reentry.impl_version ~= payload.dedup_key then
+    or reentry.impl_version ~= (payload.implementation_version or payload.dedup_key) then
     return false
   end
   if reentry.terminal_reason == "implementing-timeout-without-pr" then
     local round = tonumber(reentry.timeout_round)
     return reentry.pr_number == nil and round ~= nil and round >= 1 and round == math.floor(round)
+  end
+  if reentry.terminal_reason == "implementation-refusal" then
+    return reentry.pr_number == nil and reentry.timeout_round == nil
   end
   return reentry.terminal_reason == nil and forge_validators.is_positive_pr_number(reentry.pr_number)
 end
@@ -48,7 +62,7 @@ function C.is_supported_ready(M, payload)
       payload.proposal_id,
       payload.implementation_version or payload.dedup_key
     )
-    and is_supported_redrive_delivery(payload)
+    and is_supported_delivery_identity(payload)
     and (payload.framing == nil or strings.is_bounded_string(payload.framing, M._max_framing_len))
     and (payload.operator_reentry == nil or is_supported_blocked_reimplement(payload))
     and (payload.ready_hand_off == nil
