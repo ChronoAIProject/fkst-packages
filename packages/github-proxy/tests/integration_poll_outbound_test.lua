@@ -205,7 +205,7 @@ return {
     t.eq(#observed_issue_raises(second.raises), 2)
   end,
 
-  test_inbound_poll_observes_cold_issue_deferred_by_replay_budget = function()
+  test_inbound_poll_bounds_cold_issue_observations_by_replay_budget = function()
     local event = { queue = "github_poll_tick", payload = {}, ts = "cold-observed-poll" }
     local run_opts = opts("cold-observed-replay-budget", {
       FKST_GITHUB_PROXY_REPLAY_BUDGET = "1",
@@ -215,6 +215,7 @@ return {
     mock_issue_list(issue_list_from({
       issue_json(42, "2026-06-03T01:02:00Z"),
       issue_json(43, "2026-06-03T01:03:00Z"),
+      issue_json(44, "2026-06-03T01:04:00Z"),
     }))
     mock_pr_list("[]\n")
 

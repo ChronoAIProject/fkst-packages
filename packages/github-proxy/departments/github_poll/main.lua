@@ -78,7 +78,8 @@ local function partition_replay(replay_candidates, budget)
   for index, item in ipairs(replay_candidates) do
     if index <= budget then
       table.insert(allowed, item)
-    elseif is_observed_issue_snapshot(item.entity_type, item.entity) then
+    elseif #deferred_observed < budget
+      and is_observed_issue_snapshot(item.entity_type, item.entity) then
       table.insert(deferred_observed, item)
     end
   end
