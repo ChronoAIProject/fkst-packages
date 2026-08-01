@@ -158,7 +158,7 @@ return {
     t.eq(fixing_raise.payload.review_dedup_key, review_dedup_key)
   end,
 
-  test_observe_pr_dirty_advanced_head_fails_closed_on_incomplete_fix_feedback = function()
+  test_observe_pr_dirty_advanced_head_routes_legacy_fix_feedback_to_review_meta = function()
     local fixing_version = version .. "/fix/1"
     local reviewed_head_sha = "119ef6fd"
     local current_head_sha = "333ba5dc"
@@ -193,10 +193,17 @@ return {
     }, entity_read_mocks.pr_origin_selector)
 
     local result = run_observe_pr_mergeability("observe-pr-incomplete-fix-feedback")
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
-    t.eq(core.error_class_from_message(result.error), "fix-feedback-missing-review-proposal-id")
-    t.is_nil(tostring(result.error):find("skip-foreign", 1, true))
+    t.eq(result.exit_code, 0, result.stderr)
+    local comment = find_raise(
+      result.raises, "github-proxy.github_pr_comment_request")
+    local label = find_raise(
+      result.raises, "github-proxy.github_issue_label_request")
+    t.is_true(comment ~= nil)
+    t.is_true(label ~= nil)
+    t.is_true(comment.payload.body:find('state="review-meta"', 1, true) ~= nil)
+    t.is_true(comment.payload.body:find(
+      "legacy-fix-feedback-unbound", 1, true) ~= nil)
+    t.is_nil(find_causal_raise(result, "devloop_fixing"))
   end,
 
   test_observe_pr_conflict_redrive_is_idempotent_when_fixing_marker_visible = function()
