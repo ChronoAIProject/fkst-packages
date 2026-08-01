@@ -46,10 +46,12 @@ return function(M, h)
       redrive_opens_generation = true,
     },
     terminal = false,
-    to_states = { "awaiting-pr", "impl-failed" },
+    to_states = { "awaiting-pr", "blocked", "impl-failed" },
     driving_queue = "devloop_ready",
     observe_surfaces = { issue = true, liveness_scan = true },
-    output_obligation = obligation({ "state:v1 awaiting-pr", "state:v1 impl-failed" }, { "awaiting-pr", "impl-failed" }),
+    output_obligation = obligation(
+      { "state:v1 awaiting-pr", "state:v1 blocked", "state:v1 impl-failed" },
+      { "awaiting-pr", "blocked", "impl-failed" }),
     temporal_obligations = {
       {
         obligation_id = "github-devloop/issue/implementing/response-with-deadline",
@@ -83,7 +85,7 @@ return function(M, h)
       state_kind = "worker",
       liveness_class = "implementing.active",
       input_fact_family = "ready/devloop_ready",
-      output_postcondition_family = "revision_published",
+      output_postcondition_family = "implementation_attempt_result",
       phase_rank = devloop_state.stage_rank("implementing"),
       lineage_keys = { "state.version", "implementing.dedup", "source_ref" },
       successors = {
@@ -95,7 +97,16 @@ return function(M, h)
           cas_variant = "implementing_to_awaiting_pr",
           transition_effect_entitlements = effect_entitlements("revision_published"),
           pending_order = { participates = true, predecessor_state = "implementing" },
-          postcondition_family = "revision_published",
+          postcondition_family = "implementation_attempt_result",
+          monotonic = true,
+        },
+        {
+          state = "blocked",
+          output_variant = "implementation_refused",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("implementation_refused"),
+          pending_order = { participates = true, predecessor_state = "implementing" },
+          postcondition_family = "implementation_attempt_result",
           monotonic = true,
         },
         {

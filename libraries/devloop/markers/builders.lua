@@ -11,7 +11,7 @@ local valid_round = shared.valid_round
 local strings = shared.strings
 local safe_marker_attr = shared.safe_marker_attr
 
-function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blocking_gap, reason)
+function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blocking_gap, reason, feedback)
   local fields = ""
   if action ~= nil then
     if not devloop_base._is_review_meta_action(action) then
@@ -27,7 +27,11 @@ function C.review_meta_marker(issue_proposal_id, dedup_key, action, version, blo
     if gap == "" or not strings.is_bounded_string(gap, devloop_base._max_blocking_gap_len) then
       error("github-devloop: invalid review-meta gap")
     end
+    feedback = shared.parse_fix_feedback_fact(feedback)
     fields = fields .. '" gap="' .. gap
+      .. '" review_proposal="' .. tostring(feedback.review_proposal_id)
+      .. '" review_dedup="' .. tostring(feedback.review_dedup_key)
+      .. '" head_sha="' .. tostring(feedback.reviewed_head_sha)
   elseif action == "spec-amendment" then
     fields = fields .. '" reason="blocked-pending-spec'
   end
@@ -393,7 +397,7 @@ function C.pr_base_unmanaged_marker(proposal_id, pr_number, pr_base, integration
     .. '" -->'
 end
 
-function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logical_identity)
+function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logical_identity, framing)
   if decision ~= "approve" and decision ~= "reject" then
     error("github-devloop: invalid decision")
   end
@@ -404,11 +408,19 @@ function C.result_marker(proposal_id, decision, dedup_key, decision_reason, logi
     error("github-devloop: unexpected approve decision reason")
   end
   local reason_attr = decision_reason and ('" reason="' .. decision_reason) or ""
+  local framing_attr = ""
+  if framing ~= nil then
+    if not shared.strings.is_bounded_string(framing, devloop_base._max_framing_len) then
+      error("github-devloop: invalid result framing")
+    end
+    framing_attr = '" framing="' .. shared.encode_exact_marker_attr(framing)
+  end
   return '<!-- fkst:github-devloop:result:v1 proposal="' .. tostring(proposal_id)
     .. '" decision="' .. decision
     .. reason_attr
     .. '" dedup="' .. tostring(dedup_key)
     .. (logical_identity and '" lineage="' .. tostring(logical_identity) or "")
+    .. framing_attr
     .. '" -->'
 end
 

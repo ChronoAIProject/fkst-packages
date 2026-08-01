@@ -39,7 +39,7 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
     and tostring(reached.effect_version) ~= tostring(reached.dedup_key)
     and logical_identity
     or nil
-  local marker = m_builders.result_marker(reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason, marker_lineage)
+  local marker = m_builders.result_marker(reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason, marker_lineage, reached.framing)
   local canonical_state = state_name or "ready"
   local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready"
     or canonical_state == "declined" and "result-marker,declined-label,premise-refuted"
@@ -75,6 +75,9 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
       marker_version = tostring(reached.effect_version or reached.dedup_key),
       source_ref = base_ids.normalize_source_ref(reached.source_ref),
     }
+    if reached.framing ~= nil then
+      request.handoff.framing = reached.framing
+    end
   end
   return request
 end
@@ -390,6 +393,36 @@ function C.build_impl_failure_comment_request(M, repo, issue_number, ready, reas
       "failure",
       safe_reason,
       tostring(retry_attempt),
+      tostring(ready.dedup_key),
+    }),
+    source_ref = base_ids.normalize_source_ref(ready.source_ref),
+  }, ready.source_ref)
+end
+
+function C.build_implementation_refusal_comment_request(
+    M, repo, issue_number, ready, reason, evidence, attempt, started_at, exec_ref)
+  local rendered_reason = M.require_supported_implementation_refusal_reason(reason)
+  local marker = M.implementation_refusal_marker(
+    ready.proposal_id, ready.dedup_key, rendered_reason, evidence, attempt)
+  local state_marker = M.state_marker(ready.proposal_id, "blocked", ready.dedup_key)
+  local attempt_marker = M.implement_attempt_marker(
+    ready.proposal_id, ready.dedup_key, attempt, started_at, exec_ref)
+  local safe_evidence = devloop_base.neutralize_untrusted_comment_text(evidence)
+  return m_claims.attach_issue_claim({
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = issue_number,
+    body = "github-devloop implementation blocked: " .. rendered_reason
+      .. "\n\nEvidence:\n" .. safe_evidence
+      .. "\n\n" .. state_marker
+      .. "\n" .. attempt_marker
+      .. "\n" .. marker,
+    dedup_key = base_ids.dedup_key({
+      "implement",
+      "comment",
+      "implementation-refusal",
+      tostring(rendered_reason),
+      tostring(attempt),
       tostring(ready.dedup_key),
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),

@@ -32,6 +32,7 @@ local spec = {
   },
   fanout = { "devloop_liveness_tick" },
   stall_window = "30s",
+  retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
 local function should_reinject_pr_base_unmanaged_heal(origin, current, state)
@@ -140,51 +141,74 @@ local function act_liveness_scan(event)
     liveness_scan.liveness_scan_log_deferred("deadline", { entity_cap = limits.entity_cap })
     return
   end
-  local prs = liveness_scan.liveness_scan_list_open_prs(core, repo, timeout, entity_list_cache.entity_list_poll_key(event))
-  local activations, deferred_by_cap, cursor_key, cursor, total = liveness_scan.liveness_scan_activation_slice(repo, "pr", prs, LIVENESS_SCAN_CURSOR_PREFIX)
-  local processed = 0
-  local attempted = 0
-
-  for _, activation in ipairs(activations) do
-    if not sweep_bounds.sweep_has_budget(deadline) then
-      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
-      liveness_scan.liveness_scan_log_deferred("deadline", {
-        listed_prs = #prs,
-        processed = processed,
-        deferred = (#activations - processed) + deferred_by_cap,
-        entity_cap = limits.entity_cap,
-      })
-      return
-    end
-
-    attempted = attempted + 1
-    local should_reinject, defer_reason = should_reinject_pr(repo, activation.entity, limits, deadline, current_now_seconds)
-    if defer_reason == "deadline" then
-      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
-      liveness_scan.liveness_scan_log_deferred("deadline", {
-        listed_prs = #prs,
-        processed = processed,
-        deferred = (#activations - processed) + deferred_by_cap,
-        entity_cap = limits.entity_cap,
-      })
-      return
-    end
-    processed = processed + 1
-    if should_reinject then
-      liveness_scan.liveness_scan_reinject(repo, activation.entity, "pr", event and event.ts)
-    end
-  end
-
-  liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
-
-  if deferred_by_cap > 0 then
-    liveness_scan.liveness_scan_log_deferred("cap", {
-      listed_prs = #prs,
-      processed = processed,
-      deferred = deferred_by_cap,
+  local prs, list_deferred = liveness_scan.liveness_scan_list_open_prs(core, repo, timeout, entity_list_cache.entity_list_poll_key(event))
+  if list_deferred ~= nil then
+    liveness_scan.liveness_scan_log_deferred(list_deferred.reason, {
+      error_class = list_deferred.error_class,
       entity_cap = limits.entity_cap,
     })
+    return
   end
+  local cursor_lock_key = liveness_scan.liveness_scan_cursor_key(repo, LIVENESS_SCAN_CURSOR_PREFIX)
+  return with_lock(cursor_lock_key, function()
+    local activations, deferred_by_cap, cursor_key, cursor, total = liveness_scan.liveness_scan_activation_slice(repo, "pr", prs, LIVENESS_SCAN_CURSOR_PREFIX)
+    local processed = 0
+    local attempted = 0
+
+    for _, activation in ipairs(activations) do
+      if not sweep_bounds.sweep_has_budget(deadline) then
+        liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
+        liveness_scan.liveness_scan_log_deferred("deadline", {
+          listed_prs = #prs,
+          processed = processed,
+          deferred = (#activations - processed) + deferred_by_cap,
+          entity_cap = limits.entity_cap,
+        })
+        return
+      end
+
+      attempted = attempted + 1
+      local call_ok, should_reinject, defer_reason = pcall(
+        should_reinject_pr,
+        repo,
+        activation.entity,
+        limits,
+        deadline,
+        current_now_seconds
+      )
+      if not call_ok then
+        -- Isolate the failed PR in the existing reliable per-PR consumer so the sweep can continue.
+        liveness_scan.liveness_scan_reinject(repo, activation.entity, "pr", event and event.ts)
+        should_reinject = false
+      end
+      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
+      if defer_reason == "deadline" then
+        liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
+        liveness_scan.liveness_scan_log_deferred("deadline", {
+          listed_prs = #prs,
+          processed = processed,
+          deferred = (#activations - processed) + deferred_by_cap,
+          entity_cap = limits.entity_cap,
+        })
+        return
+      end
+      processed = processed + 1
+      if should_reinject then
+        liveness_scan.liveness_scan_reinject(repo, activation.entity, "pr", event and event.ts)
+      end
+    end
+
+    liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
+
+    if deferred_by_cap > 0 then
+      liveness_scan.liveness_scan_log_deferred("cap", {
+        listed_prs = #prs,
+        processed = processed,
+        deferred = deferred_by_cap,
+        entity_cap = limits.entity_cap,
+      })
+    end
+  end)
 end
 
 return saga.department(spec, {

@@ -368,14 +368,14 @@ return {
     t.eq(type(operations), "table")
     t.eq(type(operations.dependency_blocked_by), "string")
     t.eq(operations.dependency_blocked_by:find("blockedBy(first:50)", 1, true) ~= nil, true)
-    t.eq(operations.dependency_blocked_by:find("nodes{number state stateReason repository{nameWithOwner}}", 1, true) ~= nil, true)
+    t.eq(operations.dependency_blocked_by:find("nodes{number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}}}", 1, true) ~= nil, true)
     t.eq(
       core.render_github_graphql_query("dependency_blocked_by", {
         owner = "owner",
         name = "repo",
         issue_number = 42,
       }),
-      '{repository(owner:"owner",name:"repo"){issue(number:42){blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner}}}}}}'
+      '{repository(owner:"owner",name:"repo"){issue(number:42){number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}} blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}}}}}}}'
     )
   end,
 

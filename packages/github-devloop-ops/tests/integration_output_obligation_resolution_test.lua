@@ -517,6 +517,8 @@ return {
     t.is_true(closed ~= nil)
     t.eq(closed.argv[4], tostring(escalation_issue_number))
     t.eq(closed.argv[6], repo)
+    t.eq(closed.argv[7], "--reason")
+    t.eq(closed.argv[8], "completed")
   end,
 
   test_observe_tick_dry_run_does_not_close_after_visible_receipt = function()

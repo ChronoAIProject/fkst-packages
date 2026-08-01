@@ -524,8 +524,8 @@ local function capture_implement(fixture)
     end
     return original_log_raise(dept, proposal_id, raised_queue, raised_payload)
   end, restorations)
-  replace(devloop_commands, "gh_issue_close", function(repo, issue_number, timeout)
-    local result = github.issue_close(repo, issue_number, timeout)
+  replace(devloop_commands, "gh_issue_close", function(repo, issue_number, disposition, timeout)
+    local result = github.issue_close(repo, issue_number, disposition, timeout)
     table.insert(effect_sequence, { kind = "adapter", effect_id = fixture.adapter_effect_id })
     return result
   end, restorations)

@@ -27,6 +27,10 @@ names internally. Composed packages are first-class packages that adapt or combi
 queues and declare those siblings in `[event_deps]` so composed conformance can test the union
 graph.
 
+## Prerequisites
+
+- Git 2.39.5 or newer.
+
 ## Quickstart
 
 Clone this repository, then configure a local `fkst-framework` binary:

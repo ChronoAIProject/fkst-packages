@@ -76,21 +76,26 @@ freshness or conflict checks required for a born-green pull request. It must be 
 invocation. Put multiple steps in a repository-owned executable, Make target, or task-runner target
 instead of shell control operators in the environment value.
 
-The gate owns the meaning of a nonzero result. When tests ran and established a semantic failure, it
-must print this exact line to stdout or stderr before exiting nonzero:
+The gate owns the meaning of its result. On every catchable process completion it must print exactly
+one v2 result line to stdout or stderr. The closed verdict and fault-class pairs are:
 
 ```text
-FKST_LOCAL_ITERATION_RESULT:v1:SEMANTIC_FAIL
+FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE
+FKST_LOCAL_ITERATION_RESULT:v2:FAIL:SEMANTIC
+FKST_LOCAL_ITERATION_RESULT:v2:FAIL:CONFIGURATION
+FKST_LOCAL_ITERATION_RESULT:v2:FAIL:TOOLCHAIN
+FKST_LOCAL_ITERATION_RESULT:v2:FAIL:INFRASTRUCTURE
+FKST_LOCAL_ITERATION_RESULT:v2:UNKNOWN:UNKNOWN
 ```
 
-When the gate could not determine test health, it may print
-`FKST_LOCAL_ITERATION_RESULT:v1:UNKNOWN`. Exit zero is `PASS`; the optional explicit form is
-`FKST_LOCAL_ITERATION_RESULT:v1:PASS`. A timeout, an untyped nonzero exit, malformed or conflicting
-declarations, and a declaration inconsistent with the exit status are all `UNKNOWN`. The platform
-never assigns domain meaning to a raw nonzero code. It retries only an unknown base verification once,
-then fails closed without publishing or attributing the candidate. Repository-owned wrappers must
-translate underlying tool-specific statuses into this contract and leave their diagnostic output
-visible so an exhausted `UNKNOWN` retains its reason.
+`PASS:NONE` is the only zero-exit declaration. `FAIL:SEMANTIC` means completed tests or checks proved
+the candidate invalid. `CONFIGURATION`, `TOOLCHAIN`, and `INFRASTRUCTURE` preserve deterministic
+non-candidate failures without attributing them to the implementation. `UNKNOWN:UNKNOWN` is reserved
+for failures the producer cannot classify. A timeout, an untyped nonzero exit, malformed, duplicate,
+or conflicting declarations, and a declaration inconsistent with the exit status are all `UNKNOWN`.
+The platform never assigns domain meaning to a raw nonzero code. It retries only an unknown base
+verification once, then fails closed without publishing or attributing the candidate. Repository-owned
+wrappers must aggregate nested results into one top-level declaration and leave diagnostics visible.
 
 Host activation validates the command from `FKST_HOST_ROOT` before replacing an existing supervisor.
 Activation fails closed when the direct executable is missing, non-executable, or the command shape is

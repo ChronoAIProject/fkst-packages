@@ -33,6 +33,8 @@ local function supported_handoff(payload)
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.version)
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.marker_version)
     and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
+    and (handoff.framing == nil
+      or strings.is_bounded_string(handoff.framing, devloop_base._max_framing_len))
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len) then
     return handoff
   end
@@ -71,6 +73,7 @@ local function act_handoff(event)
       source_ref = handoff.source_ref,
       include_ready_hand_off = true,
       ready_comment_id = payload.comment_id,
+      framing = handoff.framing,
     })
     devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = "ready", version = ready.dedup_key }, "comment-written", "devloop_ready", "applied(own-write-comment-id)", "ready marker comment write was acknowledged")
     devloop_logging.log_raise("comment_handoff", handoff.proposal_id, "devloop_ready", ready)

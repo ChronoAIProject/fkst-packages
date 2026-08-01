@@ -71,6 +71,9 @@ local function trusted_passthrough(_core, comments)
 end
 
 local function noop_log() end
+local function fail_on_raise()
+  error("materialize parent ledger unit test unexpectedly raised an effect")
+end
 
 return {
   -- THE FIX: a slot that already has a "created" fact must be skipped, so the
@@ -79,7 +82,7 @@ return {
     local facts = { generated_fact(), created_fact() }
     local current = { comments = { issue_created_comment(CHILD_DEDUP, 90) } }
     local wrote = actions.maybe_write_created_from_existing_child(
-      core, {}, repo, 42, origin, blueprint_fact, record, facts, current, trusted_passthrough, noop_log
+      core, {}, repo, 42, origin, blueprint_fact, record, facts, current, trusted_passthrough, noop_log, fail_on_raise
     )
     t.is_true(not wrote)
   end,
@@ -98,7 +101,7 @@ return {
       search_created_issue = function()
         return nil
       end,
-    }, repo, 42, origin, blueprint_fact, record, facts, current, trusted_passthrough, noop_log)
+    }, repo, 42, origin, blueprint_fact, record, facts, current, trusted_passthrough, noop_log, fail_on_raise)
     t.is_true(not wrote)
   end,
 }

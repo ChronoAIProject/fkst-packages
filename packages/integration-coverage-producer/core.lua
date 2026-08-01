@@ -2,15 +2,7 @@ local M = {}
 
 local strings = require("contract.strings")
 local forge_strings = require("forge.strings")
-
-local limits = {
-  repo = 200,
-  title = 240,
-  body = 12000,
-  dedup_key = 512,
-  source_ref_kind = 80,
-  source_ref_ref = 200,
-}
+local limits = require("contract.github_issue_create").limits()
 
 function M.trim(value)
   return strings.trim(value)

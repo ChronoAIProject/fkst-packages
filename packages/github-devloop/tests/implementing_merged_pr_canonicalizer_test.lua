@@ -219,7 +219,7 @@ return {
       return tostring(payload.body or ""):find('state="merged"', 1, true) ~= nil
     end)
     t.is_true(close_comment ~= nil)
-    t.eq(count_calls("gh issue close 42 --repo owner/repo"), 1)
+    t.eq(count_calls("gh issue close 42 --repo owner/repo --reason completed"), 1)
   end,
 
   test_issue_poll_open_child_with_json_null_merged_at_does_not_canonicalize_parent = function()

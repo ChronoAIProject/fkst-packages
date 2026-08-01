@@ -169,8 +169,31 @@ local function pr_close_argv(repo, pr_number)
   return { "gh", "pr", "close", tostring(pr_number), "--repo", tostring(repo) }
 end
 
-local function issue_close_argv(repo, issue_number)
-  return { "gh", "issue", "close", tostring(issue_number), "--repo", tostring(repo) }
+local function issue_close_argv(repo, issue_number, disposition)
+  if type(disposition) ~= "table" then
+    error("forge.github: explicit issue close disposition is required", 0)
+  end
+  local argv = { "gh", "issue", "close", tostring(issue_number), "--repo", tostring(repo) }
+  if disposition.kind == "completed" then
+    table.insert(argv, "--reason")
+    table.insert(argv, "completed")
+    return argv
+  end
+  if disposition.kind == "not_planned" then
+    table.insert(argv, "--reason")
+    table.insert(argv, "not planned")
+    return argv
+  end
+  if disposition.kind == "duplicate" then
+    local duplicate_of = tonumber(disposition.duplicate_of)
+    if duplicate_of == nil or duplicate_of < 1 or duplicate_of ~= math.floor(duplicate_of) then
+      error("forge.github: duplicate issue close disposition requires a positive duplicate_of issue number", 0)
+    end
+    table.insert(argv, "--duplicate-of")
+    table.insert(argv, tostring(duplicate_of))
+    return argv
+  end
+  error("forge.github: unsupported issue close disposition: " .. tostring(disposition.kind), 0)
 end
 
 local function pr_merge_argv(repo, pr_number, head_sha)
@@ -521,8 +544,8 @@ function M.install(handle)
     return handle._exec(pr_close_argv(repo, pr_number), timeout, "gh pr close", stdout_policy.write_response())
   end
 
-  function handle.issue_close(repo, issue_number, timeout)
-    return handle._exec(issue_close_argv(repo, issue_number), timeout, "gh issue close", stdout_policy.write_response())
+  function handle.issue_close(repo, issue_number, disposition, timeout)
+    return handle._exec(issue_close_argv(repo, issue_number, disposition), timeout, "gh issue close", stdout_policy.write_response())
   end
 
   function handle.pr_merge(repo, pr_number, head_sha, timeout)

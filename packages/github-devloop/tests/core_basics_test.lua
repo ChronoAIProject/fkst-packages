@@ -163,6 +163,22 @@ return {
     t.eq(fields[1], "error_class=codex-failed")
     t.is_true(fields[2]:find("^fingerprint=fp%-") ~= nil)
   end,
+  test_log_error_fact_rejects_missing_context = function()
+    local ok, err = pcall(function()
+      core.log_error_fact(
+        "error",
+        "implement",
+        "github-devloop/issue/owner/repo/42",
+        "STALE_VERSION_MISMATCH",
+        "stale-version-mismatch",
+        "devloop_ready",
+        "ready event does not match current implementing version"
+      )
+    end)
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("log_error_fact context must be a table", 1, true) ~= nil)
+  end,
   test_log_codex_result_emits_structured_failure_line = function()
     local captured = {}
     local old_log = log

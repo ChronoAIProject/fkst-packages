@@ -13,7 +13,19 @@ local exec_sync = exec_sync
 local M = {}
 
 -- One recovery follows the initial observation; the second UNKNOWN exhausts fail-closed.
-local MAX_BASE_VERIFICATION_ATTEMPTS = 2
+local MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS = 2
+
+local local_iteration_failure_reasons = {
+  CONFIGURATION_FAIL = "local-iteration-configuration-failed",
+  TOOLCHAIN_FAIL = "local-iteration-toolchain-failed",
+  INFRASTRUCTURE_FAIL = "local-iteration-infrastructure-failed",
+}
+
+local base_local_iteration_failure_reasons = {
+  BASE_CONFIGURATION_FAIL = "base-local-iteration-configuration-failed",
+  BASE_TOOLCHAIN_FAIL = "base-local-iteration-toolchain-failed",
+  BASE_INFRASTRUCTURE_FAIL = "base-local-iteration-infrastructure-failed",
+}
 
 local function implementation_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref)
   return {
@@ -66,6 +78,22 @@ local function impl_failed_outcome(ready, reason, detail, attempt, started_at, e
 end
 
 M.impl_failed_outcome = impl_failed_outcome
+
+function M.implementation_refusal_outcome(ready, receipt, attempt, started_at, exec_ref, base_sha)
+  return {
+    kind = "implementation-refusal",
+    ready = ready,
+    reason = receipt.reason,
+    evidence = receipt.evidence,
+    receipt = receipt,
+    attempt = attempt,
+    started_at = started_at,
+    exec_ref = exec_ref,
+    finished_at = now(),
+    base_sha = base_sha,
+    outcome = "refused: " .. tostring(receipt.reason),
+  }
+end
 
 function M.local_iteration_check(worktree)
   local command = "cd " .. devloop_base._shell_single_quote(worktree)
@@ -206,6 +234,17 @@ local function run_local_iteration_check(ready, worktree)
   return result.kind == "PASS", command_detail(check), result
 end
 
+local function run_candidate_local_iteration_check(ready, worktree)
+  local green, detail, result
+  for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
+    green, detail, result = run_local_iteration_check(ready, worktree)
+    if result.kind ~= "UNKNOWN" then
+      return green, detail, result, verification_attempt
+    end
+  end
+  return green, detail, result, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS
+end
+
 local function base_probe_detail(probe)
   local fields = {
     "base_sha=" .. tostring(probe and probe.base_sha or ""),
@@ -220,7 +259,7 @@ local function base_probe_detail(probe)
   end
   if probe and probe.verification_attempt ~= nil then
     table.insert(fields, "verification_attempt=" .. tostring(probe.verification_attempt)
-      .. "/" .. tostring(MAX_BASE_VERIFICATION_ATTEMPTS))
+      .. "/" .. tostring(MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS))
   end
   if probe and probe.head_readback ~= nil then
     table.insert(fields, "head_readback=" .. tostring(probe.head_readback))
@@ -277,19 +316,27 @@ function M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
 end
 
 function M.after_codex_success(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, head_sha)
-  local green, verify_detail, candidate_result = run_local_iteration_check(ready, worktree)
+  local green, verify_detail, candidate_result, candidate_verification_attempt =
+    run_candidate_local_iteration_check(ready, worktree)
   if not green then
+    local typed_failure_reason = local_iteration_failure_reasons[candidate_result.kind]
+    if typed_failure_reason ~= nil then
+      return impl_failed_outcome(ready, typed_failure_reason, verify_detail,
+        attempt, started_at, exec_ref, base_head)
+    end
     if candidate_result.kind ~= "SEMANTIC_FAIL" then
       return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate",
         "candidate_result=" .. tostring(candidate_result.kind)
           .. "\ncandidate_result_reason=" .. tostring(candidate_result.reason)
+          .. "\ncandidate_verification_attempt=" .. tostring(candidate_verification_attempt)
+          .. "/" .. tostring(MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS)
           .. "\n" .. tostring(verify_detail),
         attempt, started_at, exec_ref, base_head)
     end
 
     local base_probe = nil
     local verdict = "INDETERMINATE"
-    for verification_attempt = 1, MAX_BASE_VERIFICATION_ATTEMPTS do
+    for verification_attempt = 1, MAX_LOCAL_ITERATION_VERIFICATION_ATTEMPTS do
       local probe_tag = tostring(attempt) .. "-verification-" .. tostring(verification_attempt)
       base_probe = M.base_local_iteration_probe(worktree, base_head, probe_tag)
       base_probe.verification_attempt = verification_attempt
@@ -314,6 +361,11 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
     if verdict == "BASE_RED" then
       return impl_failed_outcome(ready, "base-local-iteration-failed", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
     end
+    local typed_base_failure_reason = base_local_iteration_failure_reasons[verdict]
+    if typed_base_failure_reason ~= nil then
+      return impl_failed_outcome(ready, typed_base_failure_reason, base_probe_detail(base_probe),
+        attempt, started_at, exec_ref, base_head)
+    end
     return impl_failed_outcome(ready, "local-iteration-attribution-indeterminate", base_probe_detail(base_probe), attempt, started_at, exec_ref, base_head)
   end
   local verified_head = head_sha or M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
@@ -327,20 +379,18 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
   end
   local dirty = tostring(status.stdout or "") ~= ""
   local existing_head = M.clean_branch_head(base_head, branch)
+  local progress_head = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
+    or existing_head
   local green = false
   local verify_detail = ""
-  if dirty or existing_head ~= nil then
+  if progress_head ~= nil then
     green, verify_detail = run_local_iteration_check(ready, worktree)
   end
-  if green then
-    local head_sha = dirty and M.commit_dirty_worktree(repo, issue_number, ready, worktree, branch)
-      or existing_head
-    if head_sha ~= nil then
-      return implementation_outcome(ready, worktree, branch, head_sha, integration_branch, base_head, attempt, started_at, exec_ref)
-    end
+  if green and progress_head ~= nil then
+    return implementation_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref)
   end
-  if existing_head ~= nil then
-    return checkpoint_outcome(ready, worktree, branch, existing_head, integration_branch, base_head, attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr)
+  if progress_head ~= nil then
+    return checkpoint_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr)
   end
   return impl_failed_outcome(ready, "codex-failed", stderr, attempt, started_at, exec_ref, base_head)
 end

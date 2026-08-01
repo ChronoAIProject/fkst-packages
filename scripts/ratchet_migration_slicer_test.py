@@ -39,7 +39,7 @@ class FakeGithubClient:
         self.search_results: dict[tuple[str, str], list[dict[str, object]]] = {}
         self.created: list[dict[str, object]] = []
         self.comments: list[tuple[int, str]] = []
-        self.closed: list[int] = []
+        self.closed: list[tuple[int, str]] = []
 
     def issue_view(self, repo: str, number: int, fields: str) -> dict[str, object]:
         self.viewed = (repo, number, fields)
@@ -70,8 +70,8 @@ class FakeGithubClient:
         })
         return number
 
-    def issue_close(self, repo: str, number: int) -> None:
-        self.closed.append(number)
+    def issue_close(self, repo: str, number: int, disposition: str) -> None:
+        self.closed.append((number, disposition))
         self.parent["state"] = "CLOSED"
 
 
@@ -704,7 +704,7 @@ class RatchetMigrationSlicerTest(unittest.TestCase):
         )
 
         self.assertEqual(real.action, "closed-parent")
-        self.assertEqual(real_client.closed, [979])
+        self.assertEqual(real_client.closed, [(979, "completed")])
 
     def test_code_dedup_allowlist_maps_duplicate_group_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

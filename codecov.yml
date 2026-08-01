@@ -1,11 +1,16 @@
 # Codecov configuration for fkst-packages.
 #
-# Coverage on Codecov is VISUALIZATION, not a merge gate. The canonical
-# fkst.lua.coverage.v1 artifact and the migration/coverage-uncovered ratchet
-# (scripts/check_repo_coverage.py) remain the enforcement authority, and merge
-# authority is the PR-diff review consensus -- never an external service. The
-# status checks below are informational so Codecov never blocks a merge,
-# consistent with the CI upload step's fail_ci_if_error: false.
+# Coverage on Codecov is VISUALIZATION, not a merge gate. Merge authority is the
+# PR-diff review consensus -- never an external service. The status checks below
+# are informational so Codecov never blocks a merge, consistent with the CI upload
+# step's fail_ci_if_error: false.
+#
+# Coverage is not gated anywhere in this repository, so do not read a green
+# codecov check as a coverage threshold being met -- an informational check always
+# reports success. The canonical fkst.lua.coverage.v1 artifact feeds both this
+# visualization and the migration/coverage-uncovered ratchet
+# (scripts/check_repo_coverage.py), but that ratchet is advisory by maintainer
+# direction (#1222) and does not fail CI.
 
 coverage:
   precision: 2

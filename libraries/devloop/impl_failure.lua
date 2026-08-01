@@ -9,6 +9,7 @@ M.MAX_RETRY_ATTEMPTS = 100000
 
 local auto_retryable_reasons = {
   ["codex-failed"] = true,
+  ["lean-proof-repair-needed"] = true,
   ["non-descendant-head"] = true,
 }
 

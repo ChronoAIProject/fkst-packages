@@ -1,5 +1,9 @@
 local h = require("tests.devloop_helpers")
+local config = require("devloop.config")
+local implement_department = require("departments.implement.main")
+local m_claims = require("devloop.claims")
 local payloads_builders = require("devloop.payloads.builders")
+local testing = require("testkit_internal.testing")
 local t = h.t
 local core = h.core
 local opts = h.opts
@@ -21,6 +25,64 @@ local find_raise = h.find_raise
 local codex_status = require("tests.codex_status_helpers")
 local m_builders = require("devloop.markers.builders")
 local payloads_shared = require("devloop.payloads.shared")
+
+local function run_implement_with_logs(payload)
+  local previous_log = log
+  local previous_branch_config = config.branch_config
+  local previous_managed_bot_logins = m_claims.managed_bot_logins
+  local captured = {}
+  log = {
+    info = function(message) table.insert(captured, tostring(message)) end,
+    warn = function(message) table.insert(captured, tostring(message)) end,
+    error = function(message) table.insert(captured, tostring(message)) end,
+  }
+  config.branch_config = function()
+    return { upstream = "dev", integration = "dev" }
+  end
+  m_claims.managed_bot_logins = function()
+    return {}
+  end
+  local ok, result = pcall(function()
+    return testing.run_fake(implement_department, {
+      queue = "devloop_ready",
+      payload = payload,
+    })
+  end)
+  log = previous_log
+  config.branch_config = previous_branch_config
+  m_claims.managed_bot_logins = previous_managed_bot_logins
+  if not ok then
+    error(result, 0)
+  end
+  return result, captured
+end
+
+local function find_version_mismatch_log(logs)
+  for _, message in ipairs(logs) do
+    if message:find("tag=STALE_VERSION_MISMATCH", 1, true) ~= nil then
+      return message
+    end
+  end
+  return nil
+end
+
+local function assert_version_mismatch_fact(message, attempt, terminal)
+  local function require_field(field)
+    if type(message) ~= "string" or message:find(field, 1, true) == nil then
+      error("missing rendered error fact field " .. field .. ": " .. tostring(message), 2)
+    end
+  end
+
+  require_field("error_class=stale-version-mismatch")
+  require_field("source_ref=external:owner/repo#issue/42")
+  require_field("attempt=" .. tostring(attempt))
+  require_field("terminal=" .. tostring(terminal))
+  require_field(
+    "queue=devloop_ready error=ready event does not match current implementing version"
+  )
+  t.is_nil(message:find("error_class=devloop_ready", 1, true))
+  t.is_nil(message:find("error=table:", 1, true))
+end
 
 local function stale_attempt_started_at()
   return tostring(now() - 7201)
@@ -517,7 +579,9 @@ return {
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
 
     local result = run_implement(double_wrapped, opts("implement-726-double-wrapped-redrive"))
-    t.eq(result.exit_code, 1)
+    -- #2908: a version mismatch must be skipped gracefully (exit 0), never error()
+    -- out of the pipeline, which dead-letters and crash-loops the queue.
+    t.eq(result.exit_code, 0)
     t.eq(count_calls("codex exec"), 0)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.eq(comment ~= nil, true)
@@ -534,9 +598,12 @@ return {
       core.implement_version_mismatch_marker(event.proposal_id, event.dedup_key, retry_version, 2),
     })
 
-    local result = run_implement(event, opts("implement-721-version-mismatch-budget"))
-    t.eq(result.exit_code, 1)
+    local result, logs = run_implement_with_logs(event)
+    -- #2908: budget exhausted -> fail-closed skip-stale, but return cleanly
+    -- (exit 0) with no further raises, never a fatal error() / dead-letter.
+    t.is_nil(result.failure)
     t.eq(#result.raises, 0)
+    assert_version_mismatch_fact(find_version_mismatch_log(logs), 3, true)
   end,
 
   test_implementing_version_mismatch_persists_skip_stale_attempt = function()
@@ -547,11 +614,14 @@ return {
       core.implement_attempt_marker(event.proposal_id, retry_version, 2, stale_attempt_started_at()),
     })
 
-    local result = run_implement(event, opts("implement-721-version-mismatch-persist"))
-    t.eq(result.exit_code, 1)
+    local result, logs = run_implement_with_logs(event)
+    -- #2908: within budget -> persist the mismatch attempt marker and skip
+    -- gracefully (exit 0), never error() out of the pipeline.
+    t.is_nil(result.failure)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.eq(comment ~= nil, true)
     t.eq(core.implement_version_mismatch_attempt_count({ comment.payload.body }, event.proposal_id, event.dedup_key, retry_version), 1)
+    assert_version_mismatch_fact(find_version_mismatch_log(logs), 1, false)
   end,
 
   test_observe_skips_implementing_state_marker_without_progress_facts = function()

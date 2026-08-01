@@ -227,7 +227,68 @@ local function checkpoint_comment(result)
   end)
 end
 
+local function last_command_call_index(needle)
+  local found = nil
+  for index, call in ipairs(t.command_calls()) do
+    if tostring(call.rendered or ""):find(needle, 1, true) ~= nil then
+      found = index
+    end
+  end
+  return found
+end
+
 return {
+  test_dirty_timeout_progress_is_committed_before_verification_and_pushed_as_wip_checkpoint = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    mock_issue_implement({ "fkst-dev:ready" })
+    mock_fresh_implement_worktree()
+    mock_implement_codex(124, "partial progress remains dirty", "codex timed out")
+    mock_git_status(" M packages/github-devloop/core.lua\n")
+    t.mock_command("rev-list --count", {
+      stdout = "0\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = "local verification failed",
+      exit_code = 1,
+    })
+    mock_git_commit(checkpoint_head, branch)
+    mock_real_write_mode()
+    t.mock_command("push origin HEAD:refs/heads/" .. branch, {
+      stdout = "pushed " .. branch .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+
+    local first = run_implement(event, opts("implement-dirty-timeout-checkpoint", { FKST_GITHUB_WRITE = "1" }))
+
+    t.eq(first.exit_code, 0, "dirty timeout checkpoint pass exits successfully")
+    t.eq(count_calls("impl-failed"), 0, "dirty timeout checkpoint pass does not terminalize")
+    local checkpoint = checkpoint_comment(first)
+    t.is_true(checkpoint ~= nil)
+    local checkpoint_fact = m_facts.implement_checkpoint_fact(
+      { checkpoint.payload.body },
+      event.proposal_id,
+      event.dedup_key
+    )
+    t.eq(checkpoint_fact.head_sha, checkpoint_head)
+    t.eq(count_calls("push origin HEAD:refs/heads/"), 1)
+    local verification_call = last_command_call_index("scripts/run.sh test-affected")
+    local add_call = last_command_call_index("add -A")
+    local commit_call = last_command_call_index("commit -m")
+    t.is_true(verification_call ~= nil)
+    t.is_true(add_call ~= nil and add_call < commit_call)
+    t.is_true(commit_call ~= nil and commit_call < verification_call)
+  end,
+
   test_timeout_self_committed_progress_is_pushed_as_wip_checkpoint = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
