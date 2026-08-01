@@ -168,6 +168,7 @@ local function assert_checkpoint_without_verified_handoff(result, event, expecte
     event.dedup_key
   )
   t.eq(fact.head_sha, expected_head)
+  t.eq(fact.reason, "verification-indeterminate")
   t.eq(find_comment_with(result.raises, "fkst:github-devloop:impl-failure:v1"), nil)
   t.eq(find_comment_with(result.raises, "github-devloop implementation output published"), nil)
   t.eq(find_comment_with(result.raises, 'state="awaiting-pr"'), nil)

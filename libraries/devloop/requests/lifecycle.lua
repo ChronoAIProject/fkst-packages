@@ -280,7 +280,7 @@ function C.build_implementing_state_comment_request(M, repo, issue_number, ready
   }, ready.source_ref)
 end
 
-function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail)
+function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: invalid checkpoint branch")
   end
@@ -301,7 +301,16 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
     text = "Checkpoint pushed after implementation timeout."
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
-  local checkpoint_marker = m_builders.implement_checkpoint_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha, attempt or 1)
+  local checkpoint_marker = m_builders.implement_checkpoint_marker(
+    ready.proposal_id,
+    ready.dedup_key,
+    branch,
+    head_sha,
+    base_branch,
+    base_sha,
+    attempt or 1,
+    reason
+  )
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",

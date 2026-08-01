@@ -653,6 +653,7 @@ function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
       local marker_head_sha = marker_attr(marker, "head_sha")
       local marker_base_branch = marker_attr(marker, "base_branch")
       local marker_base_sha = marker_attr(marker, "base_sha")
+      local marker_reason = marker_attr(marker, "reason")
       local attempt = tonumber(marker_attr(marker, "attempt"))
       if marker_proposal == proposal_id
         and marker_dedup == tostring(dedup_key)
@@ -670,6 +671,7 @@ function C.implement_checkpoint_fact(comments, proposal_id, dedup_key)
           head_sha = marker_head_sha,
           base_branch = marker_base_branch,
           base_sha = marker_base_sha,
+          reason = marker_reason,
           attempt = attempt,
           comment_created_at = parsers_misc._comment_created_at(comment),
         }

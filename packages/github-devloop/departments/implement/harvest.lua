@@ -45,6 +45,7 @@ local function implementation_outcome(ready, worktree, branch, head_sha, base_br
 end
 
 local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
+  local checkpoint_reason = reason or "codex-failed"
   return {
     kind = "implement-checkpoint",
     ready = ready,
@@ -58,7 +59,8 @@ local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch
     exec_ref = exec_ref,
     finished_at = now(),
     detail = detail,
-    outcome = "checkpointed: " .. tostring(reason or "codex-failed"),
+    reason = checkpoint_reason,
+    outcome = "checkpointed: " .. tostring(checkpoint_reason),
   }
 end
 
