@@ -176,10 +176,10 @@ local function act_liveness_scan(event)
         deadline,
         current_now_seconds
       )
-      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
       if not call_ok then
         error(should_reinject, 0)
       end
+      liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
       if defer_reason == "deadline" then
         liveness_scan.liveness_scan_update_cursor(cursor_key, cursor, total, attempted)
         liveness_scan.liveness_scan_log_deferred("deadline", {
