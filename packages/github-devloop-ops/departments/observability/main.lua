@@ -10,6 +10,7 @@ local output_obligation_resolution = require("departments.observability.output_o
 local ports = require("forge.ports")
 local queue_starvation = require("devloop.queue_starvation")
 local reaper = require("departments.observability.reaper")
+local terminal_retirement = require("departments.observability.terminal_retirement")
 local topology = require("departments.observability.topology")
 local devloop_logging = require("devloop.logging")
 local queue = require("devloop.queue")
@@ -106,6 +107,21 @@ function core.observe_devloop_entities(event, github)
   local queue_starvation_result = skipped_control_result("partial-observations")
   local conflict_hotspot = { facts = 0, hotspots = 0, raised = 0, action = "skipped", reason = "partial-observations" }
   for _, entity in ipairs(observed.list or {}) do
+    local retirement = terminal_retirement.reconcile(
+      github,
+      repo,
+      entity,
+      limits,
+      deadline
+    )
+    if retirement ~= nil then
+      devloop_logging.log_raise(
+        "terminal_retirement",
+        retirement.fact.proposal_id,
+        retirement.queue,
+        retirement.payload
+      )
+    end
     local resolution = output_obligation_resolution.reconcile(
       core,
       github,
