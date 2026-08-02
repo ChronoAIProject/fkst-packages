@@ -62,13 +62,13 @@ return {
     t.eq(decision.elapsed_minutes, 1439)
   end,
 
-  test_non_bot_comment_after_declined_marker_is_ineligible = function()
+  test_non_bot_comment_after_declined_marker_with_same_timestamp_is_ineligible = function()
     local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-08-01T00:00:00Z")
     local issue = declined_issue("2026-07-30T00:00:00Z", {
       {
         body = "New evidence is available.",
         author_login = "alice",
-        created_at = "2026-07-30T12:00:00Z",
+        created_at = "2026-07-30T00:00:00Z",
       },
     })
 
@@ -78,11 +78,26 @@ return {
     t.eq(decision.reason, "post-terminal-non-bot-comment")
   end,
 
+  test_later_noncanonical_state_marker_does_not_override_current_terminal_version = function()
+    local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-08-01T00:00:00Z")
+    local issue = declined_issue("2026-07-30T00:00:00Z", {
+      bot_comment(
+        core.state_marker(proposal_id, "thinking", terminal_version),
+        "2026-07-30T12:00:00Z"
+      ),
+    })
+
+    local decision = terminal_retirement.decide(issue, expected_terminal(), now_seconds)
+
+    t.eq(decision.decision, "eligible")
+    t.eq(decision.action, "receipt")
+  end,
+
   test_newer_trusted_state_marker_invalidates_observed_terminal_version = function()
     local now_seconds = contract_time.iso_timestamp_epoch_seconds("2026-08-01T00:00:00Z")
     local issue = declined_issue("2026-07-30T00:00:00Z", {
       bot_comment(
-        core.state_marker(proposal_id, "blocked", terminal_version .. "/newer"),
+        core.state_marker(proposal_id, "blocked", terminal_version .. "/reimplement/1"),
         "2026-07-30T12:00:00Z"
       ),
     })

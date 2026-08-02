@@ -51,43 +51,27 @@ local function recorded_decline_reason(comments, proposal_id, terminal_version)
   return nil
 end
 
-local function terminal_marker_created_at(comments, proposal_id, terminal_version)
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(state_marker_pattern) do
-      if marker_shared.marker_attr(marker, "proposal") == proposal_id
-        and marker_shared.marker_attr(marker, "state") == "declined"
-        and marker_shared.marker_attr(marker, "version") == terminal_version then
-        return parsers_misc._comment_created_at(comment)
+local function terminal_marker_position(comments, proposal_id, terminal_version)
+  for index, comment in ipairs(comments or {}) do
+    if parsers_misc._is_trusted_comment(comment) then
+      for marker in parsers_misc._comment_body(comment):gmatch(state_marker_pattern) do
+        if marker_shared.marker_attr(marker, "proposal") == proposal_id
+          and marker_shared.marker_attr(marker, "state") == "declined"
+          and marker_shared.marker_attr(marker, "version") == terminal_version then
+          return index, parsers_misc._comment_created_at(comment)
+        end
       end
     end
   end
-  return nil
+  return nil, nil
 end
 
-local function has_later_state_marker(comments, proposal_id, terminal_marker_seconds)
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    local created_seconds = contract_time.iso_timestamp_epoch_seconds(
-      parsers_misc._comment_created_at(comment)
-    )
-    for marker in parsers_misc._comment_body(comment):gmatch(state_marker_pattern) do
-      if marker_shared.marker_attr(marker, "proposal") == proposal_id
-        and (created_seconds == nil or created_seconds > terminal_marker_seconds) then
-        return true
-      end
-    end
-  end
-  return false
-end
-
-local function has_post_terminal_non_bot_comment(comments, marker_seconds)
+local function has_post_terminal_non_bot_comment(comments, terminal_marker_index)
   local trusted_bot = devloop_base.strip_bot_login_suffix(devloop_base.trusted_bot_login())
-  for _, comment in ipairs(comments or {}) do
-    local author = devloop_base.strip_bot_login_suffix(parsers_misc._comment_author_login(comment))
-    if author ~= trusted_bot then
-      local created_seconds = contract_time.iso_timestamp_epoch_seconds(
-        parsers_misc._comment_created_at(comment)
-      )
-      if created_seconds == nil or created_seconds > marker_seconds then
+  for index, comment in ipairs(comments or {}) do
+    if index > terminal_marker_index then
+      local author = devloop_base.strip_bot_login_suffix(parsers_misc._comment_author_login(comment))
+      if author ~= trusted_bot then
         return true
       end
     end
@@ -163,14 +147,15 @@ function M.decide(issue, expected, now_seconds)
   if not devloop_state.is_current_state(issue.comments, proposal_id, "declined", terminal_version) then
     return ineligible("terminal-changed")
   end
-  local marker_created_at = terminal_marker_created_at(issue.comments, proposal_id, terminal_version)
+  local marker_index, marker_created_at = terminal_marker_position(
+    issue.comments,
+    proposal_id,
+    terminal_version
+  )
   local marker_seconds = contract_time.iso_timestamp_epoch_seconds(marker_created_at)
   local current_seconds = tonumber(now_seconds)
   if marker_seconds == nil or current_seconds == nil or current_seconds < marker_seconds then
     return ineligible("terminal-clock-invalid")
-  end
-  if has_later_state_marker(issue.comments, proposal_id, marker_seconds) then
-    return ineligible("terminal-changed")
   end
   local elapsed_minutes = math.floor((current_seconds - marker_seconds) / 60)
   if elapsed_minutes < common.terminal_retirement_dwell_minutes.declined then
@@ -180,7 +165,7 @@ function M.decide(issue, expected, now_seconds)
   if decline_reason == nil then
     return ineligible("decline-reason-missing", elapsed_minutes)
   end
-  if has_post_terminal_non_bot_comment(issue.comments, marker_seconds) then
+  if has_post_terminal_non_bot_comment(issue.comments, marker_index) then
     return ineligible("post-terminal-non-bot-comment", elapsed_minutes)
   end
 
