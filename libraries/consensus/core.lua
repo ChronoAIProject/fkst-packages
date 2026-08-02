@@ -1,6 +1,6 @@
 local M = {}
 local angle_answers = require("consensus.angle_answers")
-local context_manifest = require("consensus.context_manifest")
+local context_manifest_module = require("consensus.context_manifest")
 local codex = require("workflow_internal.codex")
 local env = require("workflow_internal.env")
 local error_facts = require("contract.error_facts")
@@ -15,7 +15,7 @@ local max_key_len = 200
 local max_title_len = 240
 local max_body_len = 12000
 local max_context_len = 8000
-local max_content_fetch_len = context_manifest.max_content_fetch_len
+local max_content_fetch_len = context_manifest_module.max_content_fetch_len
 local max_reply_len = angle_answers.max_reply_len
 local max_framing_len = 1000
 local max_gap_len = 240
@@ -101,7 +101,15 @@ local function has_content_fetch(proposal)
     and proposal.content_fetch ~= ""
 end
 
+local context_manifest = nil
 local function resolve_content_manifest(content_fetch, runtime_root)
+  if context_manifest == nil then
+    context_manifest = context_manifest_module.new({
+      file = file,
+      cache_get = cache_get,
+      cache_set = cache_set,
+    })
+  end
   return context_manifest.resolve(content_fetch, runtime_root, max_key_len)
 end
 

@@ -431,4 +431,6 @@ function M.new(deps)
   return helpers
 end
 
+M.materialize_context_bundle = materialize_context_bundle
+
 return M

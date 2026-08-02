@@ -1,4 +1,5 @@
 local reach_test_helper = require("tests.reach_test_helpers")
+local context_manifest_module = require("consensus.context_manifest")
 local t = fkst.test
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
@@ -103,6 +104,18 @@ local function read_cache(key, run_opts)
 end
 
 return {
+  test_missing_file_primitive_reports_injection_failure_not_unreadable_file = function()
+    local ok, err = pcall(context_manifest_module.new, {
+      cache_get = function() return nil end,
+      cache_set = function() end,
+    })
+
+    t.eq(ok, false)
+    t.is_true(tostring(err):find("sdk-primitive-unavailable", 1, true) ~= nil)
+    t.is_true(tostring(err):find("injected file primitive is unavailable", 1, true) ~= nil)
+    t.is_true(tostring(err):find("runtime context manifest file is unreadable", 1, true) == nil)
+  end,
+
   test_cache_miss_rebuilds_and_repopulates_readable_context_manifest = function()
     local proposal_id = "github-devloop/issue/owner/repo/398"
     local version = "intake-4145248277"

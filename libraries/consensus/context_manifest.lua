@@ -22,7 +22,7 @@ local function manifest_paths(manifest)
   return paths
 end
 
-local function assert_manifest_files_readable(manifest)
+local function assert_manifest_files_readable(manifest, read_file)
   local paths = manifest_paths(manifest)
   if #paths == 0 then
     error("consensus: context-manifest-invalid: runtime context manifest has no readable file paths")
@@ -34,7 +34,7 @@ local function assert_manifest_files_readable(manifest)
     if path_text:sub(-#notice_suffix) == notice_suffix then
       has_notice = true
     end
-    local readable = pcall(file.read, path)
+    local readable = pcall(read_file, path)
     if not readable then
       error("consensus: stale-generation-context: error_class=" .. stale_generation_context_error_class
         .. " runtime context manifest file is unreadable path=" .. path_text)
@@ -86,7 +86,7 @@ local function context_generation_parts(path, context_root)
   return generation_dir, proposal_dir, version_dir
 end
 
-local function matching_context_generations(key, context_root)
+local function matching_context_generations(key, context_root, list_files)
   local relative = key:sub(#context_manifest_cache_prefix + 1)
   local proposal_segment, version_segment = relative:match("^(.*)/([^/]+)$")
   if proposal_segment == nil then
@@ -95,7 +95,7 @@ local function matching_context_generations(key, context_root)
 
   local matches = {}
   local files_by_generation = {}
-  for _, path in ipairs(file.list(context_root)) do
+  for _, path in ipairs(list_files(context_root)) do
     local generation_dir, proposal_dir, version_dir = context_generation_parts(path, context_root)
     if generation_dir ~= nil
       and cache_segment_matches_directory(proposal_segment, proposal_dir, false)
@@ -164,14 +164,14 @@ local function generation_manifest(generation_dir, files, require_pr_context)
   return table.concat(lines, "\n")
 end
 
-local function manifest_passes_existing_validations(manifest)
+local function manifest_passes_existing_validations(manifest, read_file)
   if #manifest > max_content_fetch_len then
     return false
   end
-  return pcall(assert_manifest_files_readable, manifest)
+  return pcall(assert_manifest_files_readable, manifest, read_file)
 end
 
-local function rebuild_content_manifest(key, runtime_root)
+local function rebuild_content_manifest(key, runtime_root, read_file, list_files)
   if key:sub(1, #context_manifest_cache_prefix) ~= context_manifest_cache_prefix then
     return nil
   end
@@ -180,7 +180,11 @@ local function rebuild_content_manifest(key, runtime_root)
     error("consensus: runtime-root-read-failed: FKST_RUNTIME_ROOT is invalid")
   end
 
-  local matches, files_by_generation, proposal_segment = matching_context_generations(key, root .. "/context")
+  local matches, files_by_generation, proposal_segment = matching_context_generations(
+    key,
+    root .. "/context",
+    list_files
+  )
   if #matches == 0 then
     return nil
   end
@@ -192,7 +196,7 @@ local function rebuild_content_manifest(key, runtime_root)
   for _, generation_dir in ipairs(matches) do
     local manifest = generation_manifest(generation_dir, files_by_generation[generation_dir], require_pr_context)
     manifests[generation_dir] = manifest
-    if manifest_passes_existing_validations(manifest) then
+    if manifest_passes_existing_validations(manifest, read_file) then
       table.insert(valid, generation_dir)
     end
   end
@@ -205,33 +209,57 @@ local function rebuild_content_manifest(key, runtime_root)
   return nil
 end
 
-function M.resolve(content_fetch, runtime_root, max_key_len)
-  local value = tostring(content_fetch or "")
-  local key = value:match("^runtime%-cache:(.+)$")
-  if key == nil then
-    return value
+local function required_function(container, field, primitive_name)
+  local value = type(container) == "table" and container[field] or nil
+  if type(value) ~= "function" then
+    error("consensus: sdk-primitive-unavailable: injected " .. primitive_name .. " primitive is unavailable", 3)
   end
-  if not strings.is_path_safe_key(key, max_key_len) then
-    error("consensus: context-cache-key-invalid: invalid runtime context cache key")
+  return value
+end
+
+function M.new(primitives)
+  local file_primitive = type(primitives) == "table" and primitives.file or nil
+  if type(file_primitive) ~= "table" then
+    error("consensus: sdk-primitive-unavailable: injected file primitive is unavailable", 2)
   end
-  local manifest = cache_get(key)
-  local rebuilt = false
-  if type(manifest) ~= "string" or manifest == "" then
-    manifest = rebuild_content_manifest(key, runtime_root)
-    rebuilt = true
+  local read_file = required_function(file_primitive, "read", "file.read")
+  local list_files = required_function(file_primitive, "list", "file.list")
+  local read_cache = required_function(primitives, "cache_get", "cache_get")
+  local write_cache = required_function(primitives, "cache_set", "cache_set")
+
+  local instance = {}
+
+  function instance.resolve(content_fetch, runtime_root, max_key_len)
+    local value = tostring(content_fetch or "")
+    local key = value:match("^runtime%-cache:(.+)$")
+    if key == nil then
+      return value
+    end
+    if not strings.is_path_safe_key(key, max_key_len) then
+      error("consensus: context-cache-key-invalid: invalid runtime context cache key")
+    end
+    local manifest = read_cache(key)
+    local rebuilt = false
+    if type(manifest) ~= "string" or manifest == "" then
+      manifest = rebuild_content_manifest(key, runtime_root, read_file, list_files)
+      rebuilt = true
+    end
+    if type(manifest) ~= "string" or manifest == "" then
+      error("consensus: stale-generation-context: error_class=" .. stale_generation_context_error_class
+        .. " runtime context files are unavailable")
+    end
+    if #manifest > max_content_fetch_len then
+      error("consensus: context-manifest-invalid: runtime context manifest is overlong")
+    end
+    assert_manifest_files_readable(manifest, read_file)
+    if rebuilt then
+      write_cache(key, manifest)
+    end
+    return manifest
   end
-  if type(manifest) ~= "string" or manifest == "" then
-    error("consensus: stale-generation-context: error_class=" .. stale_generation_context_error_class
-      .. " runtime context files are unavailable")
-  end
-  if #manifest > max_content_fetch_len then
-    error("consensus: context-manifest-invalid: runtime context manifest is overlong")
-  end
-  assert_manifest_files_readable(manifest)
-  if rebuilt then
-    cache_set(key, manifest)
-  end
-  return manifest
+
+  instance.max_content_fetch_len = max_content_fetch_len
+  return instance
 end
 
 M.max_content_fetch_len = max_content_fetch_len
