@@ -95,9 +95,8 @@ function M.decode(raw, expected)
     if not implementation_refusal.is_supported_reason(value.reason) then
       return nil, "reason must be one of " .. implementation_refusal.reasons_text()
     end
-    if not strings.is_bounded_string(value.evidence, devloop_base._max_blocking_gap_len)
-      or trim(value.evidence) == "" then
-      return nil, "evidence must be a non-empty bounded string"
+    if not implementation_refusal.is_valid_evidence(value.evidence) then
+      return nil, "evidence must be a non-empty string"
     end
     receipt.reason = value.reason
     receipt.evidence = value.evidence
