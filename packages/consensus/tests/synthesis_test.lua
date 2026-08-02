@@ -284,6 +284,28 @@ return {
     t.is_nil(prompt:find("{{", 1, true))
   end,
 
+  test_build_synthesis_prompt_repair_embeds_typed_parse_failure = function()
+    local prompt = core.build_synthesis_prompt(proposal(), {}, {}, {
+      repair = true,
+      prior_result = { stdout = "malformed synthesis" },
+      parse_failure = {
+        reason = "findings-record-overlong",
+        actual_bytes = synthesis_contract.findings_record_max_bytes + 1,
+        limit_bytes = synthesis_contract.findings_record_max_bytes,
+      },
+    })
+
+    t.is_true(prompt:find(
+      "Parser diagnostic: reason=findings-record-overlong actual_bytes="
+        .. tostring(synthesis_contract.findings_record_max_bytes + 1)
+        .. " limit_bytes="
+        .. tostring(synthesis_contract.findings_record_max_bytes)
+        .. ".",
+      1,
+      true
+    ) ~= nil)
+  end,
+
   test_build_synthesis_prompt_repair_embeds_previous_output_neutralized = function()
     local prompt = core.build_synthesis_prompt(proposal({ verdict_mode = "gate" }), {
       p1("teleology", "approve"),
