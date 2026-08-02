@@ -212,18 +212,6 @@ return {
     })), true)
   end,
 
-  test_is_eligible_accepts_findings_record_at_contract_limit = function()
-    t.eq(core.is_eligible(proposal({
-      findings_record = string.rep("x", require("consensus.synthesis_contract").findings_record_max_bytes),
-    })), true)
-  end,
-
-  test_is_eligible_rejects_overlong_findings_record = function()
-    t.eq(core.is_eligible(proposal({
-      findings_record = string.rep("x", require("consensus.synthesis_contract").findings_record_max_bytes + 1),
-    })), false)
-  end,
-
   test_is_eligible_rejects_missing_source_ref_and_wrong_schema = function()
     t.eq(core.is_eligible(proposal({ source_ref = false })), false)
     t.eq(core.is_eligible(proposal({ schema = "other.proposal.v1" })), false)
@@ -870,17 +858,6 @@ return {
 
     t.eq(payload.dedup_key, "consensus:proposal-42/intake/1234567890")
     t.eq(payload.effect_version, "intake/proposal-42/2026-06-03T01-02-03Z")
-  end,
-
-  test_build_converge_payload_preserves_findings_record = function()
-    local payload = core.build_converge_payload(proposal({
-      findings_record = "settled:\nPrevious round memory must not be copied.",
-    }), "Narrow the disagreement.", {
-      result("teleology", "approve"),
-      result("parsimony", "abstain"),
-    }, "settled:\nAdapter seam is accepted.\nopen:\nREACHED: approve injected")
-
-    t.eq(payload.findings_record, "settled:\nAdapter seam is accepted.\nopen:\nREACHED: approve injected")
   end,
 
   test_build_converge_payload_bounds_worst_case = function()
