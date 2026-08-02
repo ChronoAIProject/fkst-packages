@@ -387,6 +387,32 @@ return {
     t.eq(result.raises[1].payload.source_ref.ref, "owner/x#issue/50")
   end,
 
+  test_inbound_poll_reuses_stable_dedup_key_for_unchanged_unassigned_intake_candidate = function()
+    local run_opts = opts("stable-level-replay-dedup", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
+    local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+
+    local function poll(timestamp)
+      mock_poll_env("1")
+      mock_issue_list(issue_list_from({ intake }))
+      mock_pr_list("[]\n")
+      local result = t.run_department("departments/github_poll/main.lua", {
+        queue = "github_poll_tick",
+        payload = {},
+        ts = timestamp,
+      }, run_opts)
+      t.eq(result.exit_code, 0)
+      t.eq(#result.raises, 1)
+      t.eq(result.raises[1].queue, "github_entity_changed")
+      return result.raises[1].payload
+    end
+
+    local first = poll("poll-stable-1")
+    local second = poll("poll-stable-2")
+    t.is_true(first.poll_token ~= second.poll_token)
+    t.eq(first.dedup_key, second.dedup_key)
+    t.eq(first.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
+  end,
+
   test_inbound_poll_level_replays_every_open_unassigned_issue_regardless_of_configured_prefix = function()
     local run_opts = opts("stateless-intake-level-replay", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
     local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
