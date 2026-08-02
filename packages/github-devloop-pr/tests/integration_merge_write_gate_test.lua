@@ -62,7 +62,42 @@ local function mock_current_base_not_contained()
   })
 end
 
+local function mock_current_base_contained()
+  t.mock_command("git fetch origin dev", { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git rev-parse --verify 'refs/remotes/origin/dev^{commit}'", {
+    stdout = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git merge-base --is-ancestor aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa def456", {
+    stdout = "",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 return {
+  test_initial_stale_mergeability_holds_without_fixing = function()
+    local event = h.merge_ready()
+    mock_current_base_contained()
+    h.mock_bot_env()
+    h.mock_write_env("1")
+    h.mock_write_env("1")
+    h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
+    h.mock_pr_merge({ origin_marker(event) }, "devloop-owner-repo-42-01HY", event.reviewed_head_sha,
+      "OPEN", "owner/repo", false, "CONFLICTING", "DIRTY")
+
+    local result = run_write_time_recheck(event, "merge-initial-stale-conflicting")
+
+    t.eq(result.exit_code, 0, failure_text(result))
+    t.eq(#result.raises, 1)
+    t.eq(h.find_raise(result.raises, "devloop_fixing"), nil)
+    t.eq(h.count_calls("gh pr merge"), 0)
+    local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="mergeable-conflicting"', 1, true) ~= nil)
+  end,
+
   test_write_time_conflicting_mergeability_moves_back_to_fixing = function()
     local event = h.merge_ready()
     mock_current_base_not_contained()
@@ -77,19 +112,33 @@ return {
     t.eq(h.find_causal_raise(result, "devloop_fixing").payload.gate_failure_excerpt, "mergeable-conflicting")
   end,
 
-  test_write_time_unknown_mergeability_retries_without_fixing = function()
+  test_write_time_unknown_mergeability_holds_without_fixing = function()
     local event = h.merge_ready()
     prepare_write_time_recheck(event, nil, "UNKNOWN", "CLEAN")
 
     local result = run_write_time_recheck(event, "merge-write-time-unknown")
 
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
+    t.eq(result.exit_code, 0, failure_text(result))
+    t.eq(#result.raises, 1)
     t.eq(h.count_calls("gh pr merge"), 0)
-    t.is_true(
-      failure_text(result):find("write-time-merge-wait", 1, true) ~= nil,
-      failure_text(result)
-    )
+    local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="mergeable-unknown"', 1, true) ~= nil)
+  end,
+
+  test_write_time_stale_mergeability_holds_without_fixing = function()
+    local event = h.merge_ready()
+    mock_current_base_contained()
+    prepare_write_time_recheck(event, nil, "CONFLICTING", "CLEAN")
+
+    local result = run_write_time_recheck(event, "merge-write-time-stale-conflicting")
+
+    t.eq(result.exit_code, 0, failure_text(result))
+    t.eq(#result.raises, 1)
+    t.eq(h.count_calls("gh pr merge"), 0)
+    local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="mergeable-conflicting"', 1, true) ~= nil)
   end,
 
   test_write_time_missing_high_risk_evidence_retries = function()

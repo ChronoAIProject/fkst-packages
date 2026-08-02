@@ -572,7 +572,7 @@ return {
     })
 
     local result = run_merge(event, opts("merge-ci-red-synthetic-rollup-sha", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     local comment_body = find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body
     t.is_true(comment_body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
@@ -596,7 +596,7 @@ return {
     })
 
     local result = run_merge(event, opts("merge-ci-red-sha-mismatch", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
+    t.eq(result.exit_code, 0)
     t.eq(find_raise(result.raises, "devloop_fixing"), nil)
     t.eq(count_calls("gh pr merge"), 0)
   end,

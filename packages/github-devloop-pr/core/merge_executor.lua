@@ -138,7 +138,6 @@ local function raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, curren
   return with_current_classification(repo, merge_ready.pr_number, expected_head, function(classification)
     local admission = raise_fixing(repo, issue_number, merge_ready, current_state, nil, "own-ci-red", queue_position, classification)
     if admission.kind == "not-own-ci" then
-      log_gate(merge_ready, "hold", admission.reason)
       return ci_wait.hold(core, merge_ready, repo, admission.current_pr, {
         kind = "CI_WAIT",
         reason = admission.reason,
@@ -501,10 +500,12 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       end
       local mergeable, mergeable_reason = check_runs.pr_mergeable(current_pr)
       if not mergeable and check_runs.is_not_mergeable_reason(mergeable_reason) then
-        local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+        local stale_mergeability = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
         if stale_mergeability then
-          log_gate(merge_ready, "dry-run", stale_reason)
-          error("github-devloop: mergeability-stale: merge wait on stale " .. tostring(mergeable_reason) .. "; retrying")
+          return ci_wait.hold(core, merge_ready, repo, current_pr, {
+            kind = "MERGEABILITY_WAIT",
+            reason = mergeable_reason,
+          })
         end
         if not write_enabled then
           log_gate(merge_ready, "dry-run", "speculative fix requires FKST_GITHUB_WRITE=1")
@@ -566,13 +567,17 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       return
     end
     if not check_runs.is_not_mergeable_reason(mergeable_reason) then
-      log_gate(merge_ready, "dry-run", mergeable_reason)
-      error("github-devloop: merge-gate-wait: merge wait on " .. tostring(mergeable_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, current_pr, {
+        kind = "MERGEABILITY_WAIT",
+        reason = mergeable_reason,
+      })
     end
-    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
+    local stale_mergeability = should_wait_for_stale_mergeability(current_pr, branches, mergeable_reason)
     if stale_mergeability then
-      log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: mergeability-stale: merge wait on stale " .. tostring(mergeable_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, current_pr, {
+        kind = "MERGEABILITY_WAIT",
+        reason = mergeable_reason,
+      })
     end
     log_gate(merge_ready, "fixing", mergeable_reason)
     raise_fixing(repo, issue_number, merge_ready, state, current_pr, mergeable_reason, queue_position)
@@ -612,7 +617,10 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       else
         log_gate(merge_ready, "dry-run", rollup_reason)
       end
-      error("github-devloop: merge-ci-wait: merge wait on " .. tostring(rollup_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, current_pr, {
+        kind = "CI_WAIT",
+        reason = rollup_reason,
+      })
     end
     log_gate(merge_ready, "fixing", rollup_reason)
     raise_fixing(repo, issue_number, merge_ready, state, current_pr, rollup_reason, queue_position)
@@ -726,26 +734,28 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and parsers_misc.is_ci_wait_reason(merge_reason) then
-    log_gate(merge_ready, "hold", merge_reason)
-    ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
+    return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
       kind = "CI_WAIT",
       reason = merge_reason,
     })
-    return
   end
   if not merge_ok and check_runs.is_not_mergeable_reason(merge_reason) then
-    local stale_mergeability, stale_reason = should_wait_for_stale_mergeability(merge_rechecked_pr, branches, merge_reason)
+    local stale_mergeability = should_wait_for_stale_mergeability(merge_rechecked_pr, branches, merge_reason)
     if stale_mergeability then
-      log_gate(merge_ready, "dry-run", stale_reason)
-      error("github-devloop: write-time-mergeability-stale: merge wait on write-time stale " .. tostring(merge_reason) .. "; retrying")
+      return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr, {
+        kind = "MERGEABILITY_WAIT",
+        reason = merge_reason,
+      })
     end
     log_gate(merge_ready, "fixing", merge_reason)
     raise_fixing(repo, issue_number, merge_ready, rechecked_state, merge_rechecked_pr, merge_reason, queue_position)
     return
   end
   if not merge_ok and (merge_reason == "rollup-pending" or merge_reason == "mergeable-unknown") then
-    log_gate(merge_ready, "dry-run", merge_reason)
-    error("github-devloop: write-time-merge-wait: merge wait on write-time " .. tostring(merge_reason) .. "; retrying")
+    return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
+      kind = merge_reason == "mergeable-unknown" and "MERGEABILITY_WAIT" or "CI_WAIT",
+      reason = merge_reason,
+    })
   end
   if not merge_ok and tostring(merge_reason or ""):find("retry%-pending%(high%-risk%-review%-evidence", 1) ~= nil then
     devloop_logging.log_cas_decision("merge", merge_ready.proposal_id, rechecked_state, "merge-ready", "merging", merge_reason, "trusted high-risk review evidence marker is not visible")
