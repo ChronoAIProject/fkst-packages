@@ -115,6 +115,7 @@
 {"path":"packages/github-devloop-ops/core/ensure_repo.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/error_facts.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/failure_triage.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
+{"path":"packages/github-devloop-ops/core/output_obligation_resolution.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/observability_bounds.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/state_gap.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/departments/dead_letter/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}

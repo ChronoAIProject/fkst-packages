@@ -129,7 +129,7 @@ function C.implementing_marker(proposal_id, dedup_key, branch, head_sha, base_br
     .. '" -->'
 end
 
-function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha, base_branch, base_sha, attempt)
+function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha, base_branch, base_sha, attempt, reason)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: invalid checkpoint branch")
   end
@@ -146,6 +146,7 @@ function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha,
   if n == nil or n < 1 or n ~= math.floor(n) then
     error("github-devloop: invalid checkpoint attempt")
   end
+  local safe_reason = strings.sanitize_key(reason or "codex-failed", false):gsub("/", "-")
   return '<!-- fkst:github-devloop:implement-checkpoint:v1 proposal="' .. tostring(proposal_id)
     .. '" dedup="' .. tostring(dedup_key)
     .. '" branch="' .. tostring(branch)
@@ -154,6 +155,7 @@ function C.implement_checkpoint_marker(proposal_id, dedup_key, branch, head_sha,
     .. '" base_sha="' .. tostring(base_sha)
     .. '" attempt="' .. tostring(n)
     .. '" outcome="wip'
+    .. '" reason="' .. tostring(safe_reason)
     .. '" -->'
 end
 

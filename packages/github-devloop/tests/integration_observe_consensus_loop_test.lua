@@ -530,8 +530,8 @@ return {
 
     local result = run_result(current, opts("result-marker"))
     t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 0)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_comment_request"), nil)
+    t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request").payload.expected_state, "ready")
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
   end,
 

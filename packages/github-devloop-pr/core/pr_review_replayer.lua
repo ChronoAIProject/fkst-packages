@@ -337,7 +337,8 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
 end
 
 local function review_meta_decision_fact(facts, current_pr)
-  return m_facts.review_meta_decision_fact(comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version)
+  return m_facts.review_meta_replay_decision_fact(
+    comments_for_pr_facts(facts, current_pr), facts.proposal_id, facts.state.version)
 end
 
 local function replay_review_meta_result(dept, issue, state, row, facts, tools)
