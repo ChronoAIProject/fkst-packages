@@ -213,13 +213,17 @@ return {
       "reached:reject reject the unsafe diff\n⟦FKST:GAP⟧ missing regression test",
     }
     local call_count = 0
+    local repair_failure = nil
     local parsed = synthesis.parse_or_retry({
       verdict_mode = "gate",
       p1_results = {},
       p2_results = {
         { verdict = "reject", blocking_gap = "missing regression test" },
       },
-      build_prompt = function(repair)
+      build_prompt = function(repair, _, failure)
+        if repair then
+          repair_failure = failure
+        end
         return repair and "repair" or "first"
       end,
       spawn_sync = function()
@@ -230,6 +234,7 @@ return {
 
     t.eq(call_count, 2)
     t.eq(parsed.blocking_gap, "missing regression test")
+    t.eq(repair_failure.reason, "reject-gap-not-grounded")
   end,
 
   test_parse_or_retry_passes_overlong_findings_diagnostic_to_repair = function()
