@@ -305,7 +305,7 @@ return {
     end
   end,
 
-  test_lean_proof_local_verification_failure_never_hands_off = function()
+  test_lean_proof_unknown_local_verification_checkpoints_without_handoff = function()
     local ready, accepted = proof_event()
     local branch = devloop_base.implement_branch("owner/repo", "42", ready.dedup_key)
     h.mock_issue_implement({ "fkst-dev:ready", "fkst-dev:thinking" }, {
@@ -327,10 +327,14 @@ return {
         exit_code = 2,
       })
     end
+    h.mock_git_commit("def456", branch)
 
     local result = h.run_implement(ready, h.opts("lean-proof-local-gate-red"))
-    t.is_true(find_comment(result.raises,
-      "github-devloop implementation failed: local-iteration-attribution-indeterminate") ~= nil)
+    local checkpoint = find_comment(result.raises, "fkst:github-devloop:implement-checkpoint:v1")
+    t.is_true(checkpoint ~= nil)
+    t.is_true(checkpoint.payload.body:find("candidate_result=UNKNOWN", 1, true) ~= nil)
+    t.is_true(checkpoint.payload.body:find("local iteration runner unavailable", 1, true) ~= nil)
+    t.eq(find_comment(result.raises, "fkst:github-devloop:impl-failure:v1"), nil)
     t.eq(count_comments(result.raises, "github-devloop implementation output published"), 0)
   end,
 }

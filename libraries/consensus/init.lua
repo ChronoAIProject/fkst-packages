@@ -103,6 +103,15 @@ local function spawn_angle(proposal, angle, runtime_root, invocation_id)
   return dispatch_codex(proposal, prompt, worktree, "consensus", tostring(angle), nil, invocation_id)
 end
 
+local function with_runtime_context_root(proposal, runtime_root)
+  local value = {}
+  for key, field in pairs(proposal) do
+    value[key] = field
+  end
+  value._runtime_context_root = runtime_root
+  return value
+end
+
 local function decide(proposal, invocation_id)
   local angle_results = {}
   local handles = {}
@@ -116,6 +125,7 @@ local function decide(proposal, invocation_id)
   end
 
   local runtime_root = read_runtime_root()
+  proposal = with_runtime_context_root(proposal, runtime_root)
   for _, angle in ipairs(angles) do
     table.insert(handles, spawn_angle(proposal, angle, runtime_root, invocation_id))
   end
@@ -246,19 +256,7 @@ function M.reach(proposal, options)
     return memoized
   end
 
-  local ok, result = pcall(decide, proposal, invocation_id)
-  if not ok then
-    if core.is_stale_generation_context_error(result) then
-      log.warn(
-        "consensus dept=decide tag=STALE_GENERATION_CONTEXT"
-          .. " proposal_id=" .. tostring(invocation_id)
-          .. " dedup_key=" .. tostring(proposal.dedup_key)
-          .. " error_class=" .. core.stale_generation_context_error_class()
-      )
-      return nil
-    end
-    error(result)
-  end
+  local result = decide(proposal, invocation_id)
 
   with_lock(cache_key, function()
     memoized = result_memo.load(cache_key, proposal.dedup_key)
