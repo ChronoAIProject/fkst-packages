@@ -107,7 +107,7 @@ function M.new(deps)
     if prune_result.exit_code ~= 0 then
       return
     end
-    t.mock_command("[ -d ", path_result)
+    t.mock_command("[ -e ", path_result)
     if path_result.exit_code ~= 1 then
       return
     end

@@ -71,6 +71,15 @@ local function worktree_is_registered(stdout, worktree)
   return false
 end
 
+local function path_entry_exists_cmd(path)
+  local value = tostring(path or "")
+  if value == "" or value:find("[\r\n]") ~= nil then
+    error("github-devloop: invalid path")
+  end
+  local quoted = devloop_base._shell_single_quote(value)
+  return "[ -e " .. quoted .. " ] || [ -L " .. quoted .. " ]"
+end
+
   function C.git_status(worktree, timeout)
     return support.git().status_porcelain(worktree, timeout)
   end
@@ -266,16 +275,16 @@ end
     if command_failed(prune) then
       return cleanup_failure("prune", prune, remove_result)
     end
-    local directory = S.run_path_is_directory(nil, value, timeout)
-    if type(directory) ~= "table" or (directory.exit_code ~= 0 and directory.exit_code ~= 1) then
-      return cleanup_failure("path-check", directory, remove_result)
+    local path_entry = exec_sync({ cmd = path_entry_exists_cmd(value), timeout = timeout or 30 })
+    if type(path_entry) ~= "table" or (path_entry.exit_code ~= 0 and path_entry.exit_code ~= 1) then
+      return cleanup_failure("path-check", path_entry, remove_result)
     end
-    if directory.exit_code == 0 then
+    if path_entry.exit_code == 0 then
       return cleanup_failure(
         "postcondition",
         { stdout = "", stderr = "", exit_code = 1 },
         remove_result,
-        "directory still exists: " .. value
+        "path still exists: " .. value
       )
     end
     local list = C.git_worktree_list(timeout)

@@ -16,6 +16,11 @@ local function worktree_list(path)
   return "worktree " .. path .. "\nHEAD abc123\nbranch refs/heads/devloop/test\n\n"
 end
 
+local function path_entry_exists_cmd(path)
+  local quoted = "'" .. tostring(path):gsub("'", "'\\''") .. "'"
+  return "[ -e " .. quoted .. " ] || [ -L " .. quoted .. " ]"
+end
+
 local function mock_force_clean(options)
   local opts = options or {}
   local remove_result = opts.remove_result or result(0)
@@ -33,7 +38,7 @@ local function mock_force_clean(options)
   if prune_result.exit_code ~= 0 then
     return
   end
-  t.mock_command(core.path_is_directory_cmd(worktree), path_result)
+  t.mock_command(path_entry_exists_cmd(worktree), path_result)
   if path_result.exit_code ~= 1 then
     return
   end
@@ -116,14 +121,15 @@ return {
     t.is_true(actual.stderr:find("git metadata is busy", 1, true) ~= nil)
   end,
 
-  test_force_clean_rejects_a_directory_that_remains_present = function()
+  test_force_clean_rejects_a_path_entry_including_a_dangling_symlink = function()
     mock_force_clean({
       path_result = result(0),
     })
 
     local actual = core.git_worktree_force_clean(worktree, 60)
 
-    assert_failure(actual, "postcondition", "directory still exists")
+    assert_failure(actual, "postcondition", "path still exists")
+    t.eq(count_calls("[ -L "), 1)
   end,
 
   test_force_clean_preserves_registration_read_diagnostics = function()
