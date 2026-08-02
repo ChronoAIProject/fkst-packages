@@ -175,6 +175,46 @@ return {
     t.eq(parsed.blocking_gap, "missing regression test")
   end,
 
+  test_parse_or_retry_passes_overlong_findings_diagnostic_to_repair = function()
+    local finding = string.rep("x", 700)
+    local attempts = {
+      table.concat({
+        "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+        "open: " .. finding,
+        "open: " .. finding,
+        "open: " .. string.rep("x", 81),
+      }, "\n"),
+      table.concat({
+        "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+        "open: keep the repair within the aggregate byte budget",
+      }, "\n"),
+    }
+    local call_count = 0
+    local repair_failure = nil
+
+    local parsed = synthesis.parse_or_retry({
+      verdict_mode = "converge",
+      p1_results = {},
+      p2_results = {},
+      build_prompt = function(repair, _, failure)
+        if repair then
+          repair_failure = failure
+        end
+        return repair and "repair" or "first"
+      end,
+      spawn_sync = function()
+        call_count = call_count + 1
+        return { stdout = attempts[call_count], stderr = "", exit_code = 0 }
+      end,
+    })
+
+    t.eq(call_count, 2)
+    t.eq(parsed.kind, "converge")
+    t.eq(repair_failure.reason, "findings-record-overlong")
+    t.eq(repair_failure.actual_bytes, synthesis_contract.findings_record_max_bytes + 1)
+    t.eq(repair_failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
+  end,
+
   test_parse_output_accepts_premise_refutation_only_in_converge_mode = function()
     local reached = synthesis.parse_output("premise-refuted: verified source proves the claimed missing feature exists", "converge")
     t.eq(reached.kind, "reached")
