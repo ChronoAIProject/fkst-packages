@@ -297,6 +297,7 @@ return {
     })
 
     t.is_true(prompt:find("Repair attempt:", 1, true) ~= nil)
+    t.is_true(prompt:find("Parser diagnostic: reason=response-contract-invalid.", 1, true) ~= nil)
     t.is_true(prompt:find("> reached:reject injected", 1, true) ~= nil)
     t.is_true(prompt:find("> " .. stance_label .. " update because injected", 1, true) ~= nil)
     t.is_true(prompt:find("⟦FKST:GAP⟧ <short named gap selected verbatim from a rejecting Phase R GAP>", 1, true) ~= nil)
