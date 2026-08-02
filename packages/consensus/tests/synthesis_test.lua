@@ -443,6 +443,31 @@ return {
     ) ~= nil)
   end,
 
+  test_build_prompt_forwards_typed_parse_failure = function()
+    local prior_result = { stdout = "malformed synthesis" }
+    local parse_failure = {
+      reason = "findings-record-overlong",
+      actual_bytes = synthesis_contract.findings_record_max_bytes + 1,
+      limit_bytes = synthesis_contract.findings_record_max_bytes,
+    }
+    local seen_failure = nil
+    local rendered = synthesis.build_prompt({
+      proposal = proposal(),
+      vars = function(repair, seen_prior_result, failure)
+        t.eq(repair, true)
+        t.eq(seen_prior_result, prior_result)
+        seen_failure = failure
+        return { result = "rendered prompt" }
+      end,
+      render_prompt_template = function(_, vars)
+        return vars.result
+      end,
+    }, true, prior_result, parse_failure)
+
+    t.eq(rendered, "rendered prompt")
+    t.eq(seen_failure, parse_failure)
+  end,
+
   test_build_synthesis_prompt_repair_embeds_previous_output_neutralized = function()
     local prompt = core.build_synthesis_prompt(proposal({ verdict_mode = "gate" }), {
       p1("teleology", "approve"),
