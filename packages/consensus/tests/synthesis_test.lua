@@ -60,6 +60,40 @@ local function assert_parse_rejected(output, verdict_mode)
   t.eq(failure.reason, "response-contract-invalid")
 end
 
+local function repeat_to_byte_length(token, byte_length)
+  local token_bytes = #token
+  local repetitions = math.floor(byte_length / token_bytes)
+  return string.rep(token, repetitions) .. string.rep("x", byte_length - repetitions * token_bytes)
+end
+
+local function synthesis_output_with_findings_bytes(byte_length, token)
+  local entry_count = nil
+  local total_text_bytes = nil
+  for candidate = 1, 32 do
+    local label_and_separator_bytes = candidate * #"open:\n" + (candidate - 1) * #"\n"
+    local candidate_text_bytes = byte_length - label_and_separator_bytes
+    if candidate_text_bytes >= candidate and math.ceil(candidate_text_bytes / candidate) <= 600 then
+      entry_count = candidate
+      total_text_bytes = candidate_text_bytes
+      break
+    end
+  end
+  if entry_count == nil then
+    error("test fixture cannot represent the requested findings byte length")
+  end
+
+  local lines = {
+    "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+  }
+  for index = 1, entry_count do
+    local entries_left = entry_count - index + 1
+    local text_bytes = math.floor(total_text_bytes / entries_left)
+    total_text_bytes = total_text_bytes - text_bytes
+    table.insert(lines, "open: " .. repeat_to_byte_length(token or "x", text_bytes))
+  end
+  return table.concat(lines, "\n")
+end
+
 return {
   test_parse_output_accepts_reached_and_converge = function()
     local reached = synthesis.parse_output("reached:approve use the synthesis framing\nverified-move: angle=parsimony phase=P2 citation=teleology purpose claim")
@@ -90,19 +124,12 @@ return {
   end,
 
   test_parse_output_reports_overlong_aggregate_findings = function()
-    local finding = string.rep("x", 700)
-    local at_limit = synthesis.parse_output(table.concat({
-      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
-      "open: " .. finding,
-      "open: " .. finding,
-      "open: " .. string.rep("x", 80),
-    }, "\n"))
-    local over_limit = table.concat({
-      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
-      "open: " .. finding,
-      "open: " .. finding,
-      "open: " .. string.rep("x", 81),
-    }, "\n")
+    local at_limit = synthesis.parse_output(synthesis_output_with_findings_bytes(
+      synthesis_contract.findings_record_max_bytes
+    ))
+    local over_limit = synthesis_output_with_findings_bytes(
+      synthesis_contract.findings_record_max_bytes + 1
+    )
 
     local parsed, failure = synthesis.parse_output(over_limit)
 
@@ -114,19 +141,14 @@ return {
   end,
 
   test_parse_output_measures_aggregate_findings_in_utf8_bytes = function()
-    local finding = string.rep("café", 140)
-    local at_limit = synthesis.parse_output(table.concat({
-      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
-      "open: " .. finding,
-      "open: " .. finding,
-      "open: " .. string.rep("café", 16),
-    }, "\n"))
-    local parsed, failure = synthesis.parse_output(table.concat({
-      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
-      "open: " .. finding,
-      "open: " .. finding,
-      "open: " .. string.rep("café", 16) .. "x",
-    }, "\n"))
+    local at_limit = synthesis.parse_output(synthesis_output_with_findings_bytes(
+      synthesis_contract.findings_record_max_bytes,
+      "café"
+    ))
+    local parsed, failure = synthesis.parse_output(synthesis_output_with_findings_bytes(
+      synthesis_contract.findings_record_max_bytes + 1,
+      "café"
+    ))
 
     t.eq(#at_limit.findings_record, synthesis_contract.findings_record_max_bytes)
     t.is_nil(parsed)
