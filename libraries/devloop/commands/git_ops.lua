@@ -25,6 +25,52 @@ function S.run_path_is_directory(_M, path, timeout)
   return exec_sync({ cmd = C.path_is_directory_cmd(path), timeout = timeout or 30 })
 end
 
+local function command_detail(result)
+  if type(result) ~= "table" then
+    return "missing command result"
+  end
+  local detail = tostring(result.stderr or "")
+  if detail == "" then
+    detail = tostring(result.stdout or "")
+  end
+  if detail == "" then
+    detail = "exit_code=" .. tostring(result.exit_code)
+  end
+  return detail
+end
+
+local function command_failed(result)
+  return type(result) ~= "table" or tonumber(result.exit_code) ~= 0
+end
+
+local function cleanup_failure(phase, result, remove_result, detail)
+  local exit_code = type(result) == "table" and tonumber(result.exit_code) or nil
+  if exit_code == nil or exit_code == 0 then
+    exit_code = 1
+  end
+  local diagnostics = {
+    "github-devloop: worktree-force-clean " .. phase .. " failed: "
+      .. tostring(detail or command_detail(result)),
+  }
+  if command_failed(remove_result) then
+    table.insert(diagnostics, "initial git worktree remove failed: " .. command_detail(remove_result))
+  end
+  return {
+    stdout = type(result) == "table" and tostring(result.stdout or "") or "",
+    stderr = table.concat(diagnostics, "; "),
+    exit_code = exit_code,
+  }
+end
+
+local function worktree_is_registered(stdout, worktree)
+  for line in (tostring(stdout or "") .. "\n"):gmatch("([^\n]*)\n") do
+    if line:match("^worktree%s+(.+)$") == worktree then
+      return true
+    end
+  end
+  return false
+end
+
   function C.git_status(worktree, timeout)
     return support.git().status_porcelain(worktree, timeout)
   end
@@ -208,10 +254,41 @@ end
     if value == "" or value:find("[\r\n]") ~= nil then
       error("github-devloop: invalid worktree path")
     end
-    support.git().worktree_remove(value, timeout)
+    local remove_result = support.git().worktree_remove(value, timeout)
+    local directory_result = exec_argv({
+      argv = { "rm", "-rf", "--", value },
+      timeout = timeout,
+    })
+    if command_failed(directory_result) then
+      return cleanup_failure("directory-remove", directory_result, remove_result)
+    end
     local prune = C.git_worktree_prune(timeout)
-    if prune.exit_code ~= 0 then
-      return prune
+    if command_failed(prune) then
+      return cleanup_failure("prune", prune, remove_result)
+    end
+    local directory = S.run_path_is_directory(nil, value, timeout)
+    if type(directory) ~= "table" or (directory.exit_code ~= 0 and directory.exit_code ~= 1) then
+      return cleanup_failure("path-check", directory, remove_result)
+    end
+    if directory.exit_code == 0 then
+      return cleanup_failure(
+        "postcondition",
+        { stdout = "", stderr = "", exit_code = 1 },
+        remove_result,
+        "directory still exists: " .. value
+      )
+    end
+    local list = C.git_worktree_list(timeout)
+    if command_failed(list) then
+      return cleanup_failure("registration-check", list, remove_result)
+    end
+    if worktree_is_registered(list.stdout, value) then
+      return cleanup_failure(
+        "postcondition",
+        { stdout = "", stderr = "", exit_code = 1 },
+        remove_result,
+        "worktree is still registered: " .. value
+      )
     end
     return { stdout = "", stderr = "", exit_code = 0 }
   end

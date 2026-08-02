@@ -319,16 +319,7 @@ local function mock_stale_worker_recovery()
       exit_code = 1,
     })
   end
-  t.mock_command("git worktree remove --force", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree prune", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
+  h.mock_force_clean("stale-worker-recovery-worktree")
   t.mock_command("mkdir -p", {
     stdout = "",
     stderr = "",
