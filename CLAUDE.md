@@ -261,7 +261,20 @@ Incident of record (2026-06-17): `mkdir -p X && chmod 0555 X` on a worktree pare
 
 ## 随时可重启 supervise（crash-only restart contract）
 
-**部署即重启、随时可重启：`supervise` 必须能在任何时刻被 SIGKILL + 重启而不丢工作、不造成永久停滞。** 这是 crash-only software（Candea & Fox，见上一节）的硬契约，不是「尽量」。系统不做 drain / 优雅关停 / 在途排空；恢复靠两条既有机制：① **durable 投递**（redb at-least-once + lease/fencing + retry）让在途事件重启后续投；② **从 marker / git / 外部源回源 re-derive**（真相不在内存态）让任何中间态被重新推导、重驱。**重启只换掉 supervise 这一个进程；framework 部门进程与在途 codex 都不重启、不被杀（进程树实测，2026-08-02）。** `dogfood.sh` 的 `stop_one()` 执行的是 **`kill -9 <supervise_pid>`——单个 pid**，不是 `kill -- -<pgid>`、不是进程树杀。而 supervise 之下有**四层**，实测形态：
+**部署即重启、随时可重启：`supervise` 必须能在任何时刻被 SIGKILL + 重启而不丢工作、不造成永久停滞。** 这是 crash-only software（Candea & Fox，见上一节）的硬契约，不是「尽量」。系统不做 drain / 优雅关停 / 在途排空；恢复靠两条既有机制：① **durable 投递**（redb at-least-once + lease/fencing + retry）让在途事件重启后续投；② **从 marker / git / 外部源回源 re-derive**（真相不在内存态）让任何中间态被重新推导、重驱。**重启只换掉 supervise 这一个进程；framework 部门进程与在途 codex 都不重启、不被杀（进程树实测，2026-08-02）。** 终止只发生在**一处**，且是 **`kill -9 <单个 pid>`**，不是 `kill -- -<pgid>`、不是进程树杀。完整调用链（2026-08-02 逐文件核实；早前本节写「`dogfood.sh` 的 `stop_one()` 执行 kill」是**错路径**，`stop_one` 只在缺 durable pidfile 时作迁移桥接跑）：
+
+```
+dogfood.sh sync → restart_one(:585) → launch_with_lock_retry(…,1) → launch_one(:491)
+   args=( $PKGSRC/scripts/run.sh supervise … ) + --restart          (:498/:507)
+   → scripts/run.sh → scripts/host_run.sh  --restart ⇒ HOST_RUN_RESTART=1   (host_run.sh:371)
+       → kill -9 "$pid"      ← 唯一的终止动作，pid 取自 durable pidfile     (host_run.sh:549)
+       → 轮询至多 50 次确认它真死，再删 pidfile                              (:553)
+   → 新 supervise 等 redb 锁释放，最多 5 次退避重试                    (dogfood.sh:559)
+```
+
+**两道等待是刻意的**：先确认旧进程真死再删 pidfile，再让新进程等锁——所以不会出现两个 supervise 抢同一 durable root。另外每次启动都以 `os.setsid()` 让 supervise 成为自己的 session/进程组 leader 并验 `PGID == PID`（打印 `own-pgroup=yes`）：注释记载实测过它曾留在**启动者的进程组**里、会被 `kill -- -<pgid>` 这类组信号误杀——这反证了组杀确实会伤及整棵树，而当前设计刻意不用组杀。
+
+而 supervise 之下有**四层**，实测形态：
 
 ```
 supervise                    fkst-framework supervise --project-root …      (ppid=1，session leader)
@@ -274,7 +287,7 @@ SIGKILL 不向下传播，所以这四层里**只有第一层没了**：departme
 
 **而且这一跳丢了不要紧，这是刻意的设计而非缺陷**：raise 只承载**派生信号**（`derived-only`），`Durable intent goes through filesystem`——真正必须活下来的东西根本不走 raise，而是走文件系统 / marker / git。加上 level-triggered 从源 re-derive 与 liveness sweep 兜底，丢掉的派生信号会被重新推导出来。**所以别把「重启丢消息」当成风险去规避（不重启、攒批次）——它既罕见又已被架构吸收。** 实证（2026-08-02，#3044）：09:08 重启 orphan 了它的 implement codex，codex `exit_code=0` 跑满 63.2 分钟、worktree 完好、产物俱在，丢的只有 harvest 那一次 raise；liveness sweep 于 10:54 / 11:04 两次重驱后，同一份工作在 11:37 正常发布成 PR#3053——**丢一条派生信号，代价是几十分钟的重驱延迟，不是工作丢失。**新 supervise 从 marker re-derive、按 live-defer 心跳变陈**重驱**同血统 codex——orphan 存活 + 重驱可形成**短暂 double-spawn**（#1101 类），由 version-CAS + dedup marker 幂等收口。所有工作幂等、可重入。**纠错（2026-06-19，user-as-oracle）：「重启杀掉在途 codex」是错的——codex 不被杀，只是 orphan；以前这么说/这么写都属误判。** 重启因此是**无害的常规运营动作**（部署新代码、清运行态、换 BIN），随时可做，不需攒批次、不需等"安全窗口"。
 
-**「重启不影响 codex 执行」是已两次实证的机械事实——写任何 restart 叙事之前先逐条过这四条，不许凭感觉推翻：**① SIGKILL 只达 supervise **这一个 pid**（`stop_one()` 是 `kill -9 <pid>`，非进程组/进程树杀）；它下面的 framework 部门进程（`fkst-framework run <pkg>/<dept>`）、codex worker、codex 及其子进程**一个都不重启、不被杀，orphan 后继续执行到完成**（进程树实测 2026-08-02；早期实证 2026-06-19）。② 新 supervise 的 liveness 探针**跨代看得见**旧 runtime root 下的活 orphan 并正确 live-defer——不误判 `codex-run-not-running`、不 double-spawn（实证 2026-07-06：重启后对该 strand 零 timeout-attempt）。③ codex 的产出 = **git push，durable**——重启永远丢不掉一个真正产出的修复；可能丢的只有 completion envelope（#1101 类），由 push 回源重导自愈。④ 因此「重启后无进展」唯一合法的问题是「**那一跑 codex 为什么没有产出 push**」，永远不是「重启影响了它」。实证（2026-07-06）：操作者再犯此归因（把 PR#1908 的 fixing 慢归咎于小时级部署重启），被用户点破；核查确认 ①②③ 全部成立，且错误叙事已污染一个 filed issue（#1918，当日更正）——这就是本清单存在的原因。
+**「重启不影响 codex 执行」是已两次实证的机械事实——写任何 restart 叙事之前先逐条过这四条，不许凭感觉推翻：**① SIGKILL 只达 supervise **这一个 pid**（唯一终止点是 `scripts/host_run.sh:549` 的 `kill -9 "$pid"`，pid 取自 durable pidfile；非进程组/进程树杀）；它下面的 framework 部门进程（`fkst-framework run <pkg>/<dept>`）、codex worker、codex 及其子进程**一个都不重启、不被杀，orphan 后继续执行到完成**（进程树实测 2026-08-02；早期实证 2026-06-19）。② 新 supervise 的 liveness 探针**跨代看得见**旧 runtime root 下的活 orphan 并正确 live-defer——不误判 `codex-run-not-running`、不 double-spawn（实证 2026-07-06：重启后对该 strand 零 timeout-attempt）。③ codex 的产出 = **git push，durable**——重启永远丢不掉一个真正产出的修复；可能丢的只有 completion envelope（#1101 类），由 push 回源重导自愈。④ 因此「重启后无进展」唯一合法的问题是「**那一跑 codex 为什么没有产出 push**」，永远不是「重启影响了它」。实证（2026-07-06）：操作者再犯此归因（把 PR#1908 的 fixing 慢归咎于小时级部署重启），被用户点破；核查确认 ①②③ 全部成立，且错误叙事已污染一个 filed issue（#1918，当日更正）——这就是本清单存在的原因。
 
 **铁律：重启永不作为问题的解释。** 看到重启后某 strand 没进展时，**默认归因不是「重启 churn 掉了它」**——这是违背本契约的偷懒归因，会掩盖真缺陷（活性盲区）。crash-only 下重启理应被 durable + re-derive 吸收；若重启**确实**导致永久丢失/停滞，那必然是一个**活性契约缺陷**（durable 没续投、re-derive 没重导、或「心跳变陈 → re-spawn」链断了），要 root-cause + 提 issue，绝不用「重启影响了它」搪塞，也绝不为「避免 churn」去不重启 / 攒批次（那让进程长跑陈旧代码，反害——见 dogfood「立即重启别攒批次」）。运营随时重启；把工作活下来是**系统的责任**，不是运营的小心翼翼。实证（2026-06-17）：误把一个 fixing-loop 停滞甩锅给「我反复 restart churn 掉 fix codex」，实查发现重启后 fix codex 已被正常 re-spawn（crash-only 生效），真信号是另一处 marker-visibility version-desync——偷懒归因差点掩盖真缺陷。
 
