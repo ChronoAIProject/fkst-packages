@@ -549,6 +549,13 @@ return {
     t.eq(result.raises[1].queue, "consensus_converge")
     t.eq(result.raises[1].payload.narrowed_question, "retry ownership remains unresolved + inspect the retry owner record")
     t.eq(#codex_calls(), 8)
+    local synthesis_call = judgment_call("synthesis")
+    assert_judgment_worktree(synthesis_call, "synthesis")
+    t.is_true(synthesis_call.stdin:find(
+      "The aggregate findings record, including all finding text, labels, and separators, must not exceed 1500 bytes.",
+      1,
+      true
+    ) ~= nil)
     local repair = judgment_call("synthesis-repair")
     assert_judgment_worktree(repair, "synthesis-repair")
     t.is_true(repair.stdin:find("Repair attempt:", 1, true) ~= nil)
@@ -559,7 +566,6 @@ return {
     ) ~= nil)
     assert_judgment_worktree(judgment_call("angle-teleology"), "angle-teleology")
     assert_judgment_worktree(judgment_call("rebuttal-teleology"), "rebuttal-teleology")
-    assert_judgment_worktree(judgment_call("synthesis"), "synthesis")
     t.is_true(repair.stdin:find("You are running in an empty runtime scratch directory", 1, true) ~= nil)
     assert_judgment_dir_created_without_permission_control(8)
   end,
