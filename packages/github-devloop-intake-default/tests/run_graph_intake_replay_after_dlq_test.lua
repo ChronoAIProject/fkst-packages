@@ -252,24 +252,6 @@ local function find_raise_from_step(step, queue)
 end
 
 local function observe_snapshot(deliveries, dead_letters)
-  local selected_deliveries = deliveries or json.decode("[]")
-  local selected_dead_letters = dead_letters or json.decode("[]")
-  local live_delivery = nil
-  for _, row in ipairs(selected_deliveries) do
-    if row.queue == target_queue and row.dept == target_dept then
-      live_delivery = row
-      break
-    end
-  end
-  local terminal_dead_letter = nil
-  for _, row in ipairs(selected_dead_letters) do
-    if row.queue == target_queue
-      and row.dept == target_dept
-      and (terminal_dead_letter == nil
-        or tonumber(row.dead_at_ms or 0) >= tonumber(terminal_dead_letter.dead_at_ms or 0)) then
-      terminal_dead_letter = row
-    end
-  end
   return {
     schema_version = 1,
     generated_at_ms = 1781830860000,
@@ -282,10 +264,8 @@ local function observe_snapshot(deliveries, dead_letters)
     limits = { max_deliveries = 10000, max_dead_letters = 10000 },
     truncated = { deliveries = false, dead_letters = false },
     queues = json.decode("[]"),
-    deliveries = selected_deliveries,
-    dead_letters = selected_dead_letters,
-    live_delivery = live_delivery,
-    terminal_dead_letter = terminal_dead_letter,
+    deliveries = deliveries or json.decode("[]"),
+    dead_letters = dead_letters or json.decode("[]"),
   }
 end
 
