@@ -22,6 +22,9 @@
 3. **反证优先看、不跳过**：`MSG=framework ok` / `EXIT=0` / CI 绿 / 测试实跑是权威反证，与叙事冲突时信反证、查叙事；30 秒实测胜过一串自洽推理。
 4. **别人（含用户、含 oracle）给的「事实」若是未核实的推断，对我仍是假设**——喂下游 / 下结论前自己核实；给 oracle 喂未核实前提 = 制造 correlated 幻觉。
 5. **先想最平淡的非-bug 解释**：压力下噪声极易被读成证据；「该状态本就正常」往往比「这是个 bug」更接近实事。
+6. **禁止模糊语气——软化词把猜测伪装成信息（措辞层硬门，无例外）**：「也许 / 可能 / 很可能 / 应该是 / 大概 / 估计 / 似乎 / 看起来是 / 我觉得 / 按理说 / 理论上 / 猜测是」这类词，让一条**零证据的猜测读起来像一条发现**——下游（人或 agent）无法区分「已核实」与「我编的」，于是猜测被当事实消费，再被拿去驱动 file / 实现 / 归因 / 喂 oracle。上面 1–5 条管「你有没有核实」，**这一条管「没核实的东西该怎么说」**：那是前五条唯一的漏洞，因为软化词不触发任何门就把未核实内容送了出去。**陈述性结论里一律不得出现这类词。** 只有两种合法说法：① **有证据**——给出结论并同时指到源头（`file:line` / 命令输出 / marker 及其作者与时间 / CI 记录 / EXIT）；② **无证据**——显式标 `ASSUMED-UNVERIFIED` / `UNKNOWN` / 「未核实的线索」，并**不拿它驱动任何动作**。**不确定完全合法，含糊地表达不确定不合法**：显式标记会挡住行动，软化词会伪装成信息溜过去。本条同等适用于对外文本（issue / PR / commit / comment）与对话回复；「我不知道」「查不到日志，结论停在 UNKNOWN」是合格答案，「大概是 X」不是。
+
+**实证（2026-08-02，本条的来源）**：按用户指令提「退役 `fkst: reintake`」，我为这个结论写了三条支撑，**没有一条是先核实再写的**：① 「它与 `blocked` 上已列的 `github_issue_create_request[*]` 等价、属冗余第二条路」——**假**，那是 decompose 效果，产出带 `Parent issue: #N` 的子 issue（`core/restart/transitions/blocked.lua:95-98`、`github-devloop-decompose/core/decompose.lua:75`）；② 「`reintake` 是同 issue 原地重裁的唯一机制」——**假**，`premise_correction` 是第二个已实现 producer，`github-devloop-intake/departments/admission/main.lua:234,265` 检测并另发候选、`core/admission.lua:22` 保留同一 issue 派生 `proposal_id`、`run_graph_premise_correction_smoke_test.lua:193` 专门验证同血统重裁，于是「`grep reintake == 0`」这条验收**可以通过而能力仍在**；③ 「5 个 issue 纯粹在修它」——**夸大**，只有 #2810 与其 fork #2820 专属，其余三个讲的是 operator command 恢复总体。前两条各产出一个被 consensus `premise-refuted` 驳回的 issue（#3042 / #3046）。**根不是三个事实碰巧错了，是「用户要这个」被当成了「可以为它编造论证」的许可**——先有结论、再倒着找理由，而每条理由都以「这应该是……」的语气写出，读起来像已核实。正解：核实不了就说核实不了，把**已核实的事实**交还决策者，绝不第三次编一个新框架。**指令是行动的授权，不是任何前提的证据。**
 
 这门**统一并命名**了已有的「核实数据再建叙事」「competence 轴·审证据不审叙事」「BEAUTY GATE·ground-truth 非代理」「HARD GATE 快筛②」——都是实事求是的不同面。违背它产出的东西（错 issue / 错叙事 / 错修复）须整体撤回，不抢救「kernel」。
 
