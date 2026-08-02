@@ -220,7 +220,7 @@ return {
 
   test_is_eligible_rejects_overlong_findings_record = function()
     t.eq(core.is_eligible(proposal({
-      findings_record = string.rep("x", 1501),
+      findings_record = string.rep("x", require("consensus.synthesis_contract").findings_record_max_bytes + 1),
     })), false)
   end,
 
