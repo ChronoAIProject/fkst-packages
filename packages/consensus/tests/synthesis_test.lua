@@ -55,8 +55,9 @@ local function p2(angle, verdict, stance, peer_claim, stdout)
 end
 
 local function assert_parse_rejected(output, verdict_mode)
-  local parsed = synthesis.parse_output(output, verdict_mode)
+  local parsed, failure = synthesis.parse_output(output, verdict_mode)
   t.is_nil(parsed)
+  t.eq(failure.reason, "response-contract-invalid")
 end
 
 return {
