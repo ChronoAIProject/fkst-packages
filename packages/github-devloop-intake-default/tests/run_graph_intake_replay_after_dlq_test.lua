@@ -266,6 +266,9 @@ local function observe_snapshot(deliveries, dead_letters)
     queues = json.decode("[]"),
     deliveries = deliveries or json.decode("[]"),
     dead_letters = dead_letters or json.decode("[]"),
+    -- run_graph shares one mock response across snapshot and lineage calls.
+    live_delivery = deliveries and deliveries[1] or nil,
+    terminal_dead_letter = dead_letters and dead_letters[1] or nil,
   }
 end
 
@@ -333,6 +336,7 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     mock_devloop_observe_issue_read()
     mock_context_bundle()
     mock_codex_failure()
+    t.mock_observe(observe_snapshot())
     local first = run_poll(16)
 
     graph.assert_covers(first, {

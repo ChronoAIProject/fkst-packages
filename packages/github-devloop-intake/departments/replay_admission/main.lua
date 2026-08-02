@@ -35,10 +35,7 @@ local function act_issue_observed(context, event)
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   with_lock(lock_key, function()
-    local terminal, precondition_reason, observe_snapshot = replay_authorization.terminal_precondition(
-      entity.source_ref,
-      entity.poll_token
-    )
+    local terminal, precondition_reason, lineage = replay_authorization.terminal_precondition(entity.source_ref)
     if terminal == nil then
       admission_shared.reconcile_capacity(context, repo, proposal_id, "replay_admission")
       devloop_logging.log_cas_decision("replay_admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(precondition_reason or "not-authorized"), "intake replay terminal precondition failed")
@@ -50,8 +47,7 @@ local function act_issue_observed(context, event)
     local progress_visible = admission_shared.has_trusted_progress(current, proposal_id)
     local authorization, reason = replay_authorization.authorize(current, proposal_id, entity.source_ref, {
       has_trusted_progress = progress_visible,
-      observe_snapshot = observe_snapshot,
-      poll_token = entity.poll_token,
+      lineage = lineage,
       terminal = terminal,
     })
     if authorization == nil then

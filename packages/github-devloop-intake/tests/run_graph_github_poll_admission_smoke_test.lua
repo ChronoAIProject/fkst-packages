@@ -43,6 +43,14 @@ local function mock_proxy_poll_lists()
   })
 end
 
+local function mock_empty_delivery_snapshot()
+  t.mock_observe({
+    truncated = { deliveries = false, dead_letters = false },
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
+  })
+end
+
 local function mock_admission_issue_view()
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = repo,
@@ -121,6 +129,7 @@ return {
     mock_env()
     mock_proxy_poll_lists()
     mock_admission_issue_view()
+    mock_empty_delivery_snapshot()
 
     local trace = graph.require_quiescent(graph.run("github-proxy.github_poll", { max_steps = 4 }))
     graph.assert_covers(trace, {
@@ -166,6 +175,7 @@ return {
     mock_labelled_poll_snapshot()
     mock_other_authored_admission_view()
     mock_other_authored_admission_view()
+    mock_empty_delivery_snapshot()
     t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
       stdout = "",
       stderr = "transient peer discovery failure",
