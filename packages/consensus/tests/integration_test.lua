@@ -602,6 +602,9 @@ return {
     t.eq(#result.raises, 0)
     t.is_true(tostring(result.error):find("synthesis-unparseable", 1, true) ~= nil)
     t.eq(#codex_calls(), 8)
+    t.is_true(judgment_call("synthesis-repair").stdin:find(
+      "Parser diagnostic: reason=response-contract-invalid.", 1, true
+    ) ~= nil)
   end,
 
   test_synthesis_repair_worker_failure_fails_closed_as_codex_failed = function()
