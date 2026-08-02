@@ -1,4 +1,5 @@
 local devloop_base = require("devloop.base")
+local consensus_core = require("consensus.core")
 local h = require("tests.devloop_helpers")
 local execution_start = require("devloop.execution_start")
 local graph = require("testkit.graph")
@@ -89,7 +90,12 @@ local function mock_execute_start_issue()
 end
 
 local function mock_consensus_approval()
-  for _ = 1, 3 do
+  for _ = 1, 5 do
+    t.mock_command(consensus_core.checkout_root_exists_cmd("."), {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
     t.mock_command("mkdir -p", {
       stdout = "",
       stderr = "",
@@ -103,13 +109,68 @@ local function mock_consensus_approval()
   end
 end
 
+local function mock_consensus_result_issue()
+  entity_read_mocks.mock_issue_read_with_defaults(
+    t,
+    { "fkst-dev:thinking" },
+    { core.state_marker(proposal_id, "thinking", request_dedup_key) },
+    {
+      repo = repo,
+      number = issue_number,
+      title = "Add retry backoff to failed widget sync",
+      updated_at = "2026-06-03T01:02:03Z",
+      state = "OPEN",
+      times = 1,
+    }
+  )
+  t.mock_command(core.gh_blocked_by_cmd(repo, issue_number), {
+    stdout = '{"data":{"repository":{"issue":{"blockedBy":{"totalCount":0,"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}\n',
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
+local function mock_github_proxy_writes()
+  for _ = 1, 2 do
+    for _, command in ipairs({
+      "gh api --paginate --slurp repos/owner/repo/issues/42/comments?per_page=100",
+      "gh api --paginate --slurp 'repos/owner/repo/issues/42/comments?per_page=100'",
+    }) do
+      t.mock_command(command, {
+        stdout = "[[]]\n",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    t.mock_command("gh api --method POST repos/owner/repo/issues/42/comments --field 'body=", {
+      stdout = '{"id":123456,"body":"created","user":{"login":"fkst-test-bot"}}\n',
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+  for _ = 1, 2 do
+    t.mock_command("gh label list --repo owner/repo --limit 1000 --json name", {
+      stdout = '[{"name":"fkst-dev:thinking"},{"name":"fkst-dev:ready"}]\n',
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("gh issue edit 42 --repo owner/repo", {
+      stdout = "",
+      stderr = "",
+      exit_code = 0,
+    })
+  end
+end
+
 return {
   test_run_graph_execution_request_handoffs_to_execute_start = function()
     local request = execution_request()
     mock_env()
     mock_execute_start_issue()
-    h.mock_context_bundle(request)
     mock_consensus_approval()
+    mock_consensus_result_issue()
+    mock_github_proxy_writes()
+    h.mock_context_bundle(request)
 
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 8 }))
     graph.assert_covers(trace, {
