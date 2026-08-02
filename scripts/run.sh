@@ -464,6 +464,23 @@ run_quiet_keep() {
 
 load_composed_test_roots() { local script; script="$(bash "$ROOT/scripts/composed_test_graph_roots.sh" "$1" "$2")" || return 1; eval "$script"; }
 
+# Per-package `--report-json` files are written into a scratch dir and deleted at the end of
+# the run, so no CI run's per-test outcome is inspectable afterwards. When FKST_TEST_REPORT_DIR
+# is set (same shape as FKST_LUA_COVERAGE_OUTPUT), copy them there before cleaning up, so a CI
+# job can upload them as an artifact. Publishing must never change the run's verdict: a copy
+# failure warns and the reports are still removed.
+finish_test_reports() {
+  local dir="$1" dest="${FKST_TEST_REPORT_DIR:-}"
+  if [ -n "$dest" ] && [ -d "$dir" ]; then
+    if mkdir -p "$dest" && cp -R "$dir"/. "$dest"/ 2>/dev/null; then
+      echo "test reports published to $dest"
+    else
+      echo "warning: could not publish test reports to $dest" >&2
+    fi
+  fi
+  rm -rf "$dir"
+}
+
 cmd_test() {
   local target="" ran=0 fail=0 pkg name verbose="${FKST_TEST_VERBOSE:-}" rc pool
   local report_dir coverage_report_dir coverage_file
@@ -563,13 +580,14 @@ cmd_test() {
     else
       [ -n "$LOCAL_ITERATION_RESULT_VERDICT" ] || local_iteration_result_unknown
     fi
-    rm -rf "$report_dir"
+    finish_test_reports "$report_dir"
     echo "FAILED: $fail failure(s) across $ran package(s)" >&2; exit 1
   fi
-  rm -rf "$report_dir"
+  finish_test_reports "$report_dir"
   echo "OK: $ran package(s)"
   local_iteration_result_pass
 }
+
 
 collect_composed_package() {
   local name="$1" pkg dep deps rc
