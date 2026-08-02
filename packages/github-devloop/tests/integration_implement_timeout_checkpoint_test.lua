@@ -76,16 +76,7 @@ local function mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
     stderr = "",
     exit_code = 1,
   })
-  t.mock_command("git worktree remove --force", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree prune", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
+  h.mock_force_clean("remote-checkpoint-worktree")
   t.mock_command("mkdir -p", {
     stdout = "",
     stderr = "",
@@ -164,16 +155,7 @@ local function mock_stale_local_branch_remote_checkpoint_reuse(event, branch, ch
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("git worktree remove --force", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
-  t.mock_command("git worktree prune", {
-    stdout = "",
-    stderr = "",
-    exit_code = 0,
-  })
+  h.mock_force_clean(worktree)
   t.mock_command("mkdir -p", {
     stdout = "",
     stderr = "",
