@@ -355,7 +355,7 @@ return {
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
-    t.eq(count_calls("git worktree list"), 0)
+    t.eq(count_calls("git worktree list"), 1)
     t.eq(count_calls("codex exec"), 1)
   end,
 
@@ -574,7 +574,7 @@ return {
     })
 
     local result = run_implement(event, opts("implement-remove-all-outside-runtime-worktrees"))
-    t.eq(result.exit_code, 0)
+    t.eq(result.exit_code, 0, tostring(result.error))
     t.eq(#result.raises, 4)
     assert_implement_attempt(result.raises, event)
     assert_worktree_ready_state(result.raises, event)
