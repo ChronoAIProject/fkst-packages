@@ -299,7 +299,10 @@ local function act_issue_observed(context, event)
 
   local lock_key = entity_lib.observe_lock_key(repo, issue_number)
   with_lock(lock_key, function()
-    local terminal, precondition_reason, observe_snapshot = replay_authorization.terminal_precondition(entity.source_ref)
+    local terminal, precondition_reason, observe_snapshot = context.replay_authorization.terminal_precondition(
+      entity.source_ref,
+      entity.poll_token
+    )
     if terminal == nil then
       reconcile_capacity(context, repo, proposal_id)
       devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(precondition_reason or "not-authorized"), "intake replay terminal precondition failed")
@@ -309,9 +312,10 @@ local function act_issue_observed(context, event)
     local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
     devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
     local progress_visible = has_trusted_progress(current, proposal_id)
-    local authorization, reason = replay_authorization.authorize(current, proposal_id, entity.source_ref, {
+    local authorization, reason = context.replay_authorization.authorize(current, proposal_id, entity.source_ref, {
       has_trusted_progress = progress_visible,
       observe_snapshot = observe_snapshot,
+      poll_token = entity.poll_token,
       terminal = terminal,
     })
     if authorization == nil then
@@ -340,6 +344,28 @@ local function act_issue_observed(context, event)
     end
 
     once(authorization.once_key, function()
+      local revalidated, revalidation_reason = context.replay_authorization.revalidate(
+        entity.source_ref,
+        authorization.terminal
+      )
+      if not revalidated then
+        if revalidation_reason ~= "live-delivery-present"
+          and revalidation_reason ~= "terminal-dlq-absent"
+          and revalidation_reason ~= "terminal-dlq-changed" then
+          error("github-devloop-intake: replay-revalidation-failed: " .. tostring(revalidation_reason))
+        end
+        reconcile_capacity(context, repo, proposal_id)
+        devloop_logging.log_cas_decision(
+          "admission",
+          proposal_id,
+          { state = nil, version = nil },
+          "observed",
+          "replay-candidate",
+          "skip-" .. tostring(revalidation_reason),
+          "intake replay delivery facts changed before enqueue"
+        )
+        return
+      end
       local payload = admission_core.build_intake_replay_candidate(repo, issue_from_current(issue_number, current), authorization.terminal)
       devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
         "devloop_intake_candidate",
@@ -363,6 +389,7 @@ local function make_department(deps)
     capacity = selected.capacity or intake_capacity.production(core),
     claims = selected.claims or m_claims,
     read_current_issue = selected.read_current_issue or current_issue_from_source_ref,
+    replay_authorization = selected.replay_authorization or replay_authorization,
   }
   local handlers = {
     ["github-proxy.github_entity_changed"] = function(event)
