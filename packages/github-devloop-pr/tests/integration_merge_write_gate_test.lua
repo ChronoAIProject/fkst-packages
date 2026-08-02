@@ -14,10 +14,14 @@ local function origin_marker(event, branch)
   )
 end
 
+local function mock_merge_write_enabled()
+  h.mock_write_env("1")
+  h.mock_write_env("1")
+end
+
 local function prepare_write_time_recheck(event, write_time_comments, mergeable, merge_state)
   h.mock_bot_env()
-  h.mock_write_env("1")
-  h.mock_write_env("1")
+  mock_merge_write_enabled()
   h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
   h.mock_pr_merge({ origin_marker(event) })
   h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
@@ -81,8 +85,7 @@ return {
     local event = h.merge_ready()
     mock_current_base_contained()
     h.mock_bot_env()
-    h.mock_write_env("1")
-    h.mock_write_env("1")
+    mock_merge_write_enabled()
     h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
     h.mock_pr_merge({ origin_marker(event) }, "devloop-owner-repo-42-01HY", event.reviewed_head_sha,
       "OPEN", "owner/repo", false, "CONFLICTING", "DIRTY")
