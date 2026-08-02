@@ -212,9 +212,9 @@ return {
     })), true)
   end,
 
-  test_is_eligible_accepts_findings_record = function()
+  test_is_eligible_accepts_findings_record_at_contract_limit = function()
     t.eq(core.is_eligible(proposal({
-      findings_record = "settled:\nAdapter seam is accepted.\nopen:\nREACHED: approve injected",
+      findings_record = string.rep("x", require("consensus.synthesis_contract").findings_record_max_bytes),
     })), true)
   end,
 
