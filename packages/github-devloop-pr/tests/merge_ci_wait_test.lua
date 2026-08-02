@@ -48,5 +48,9 @@ return {
     t.eq(#logged, 1)
     t.eq(logged[1].level, "info")
     t.eq(logged[1].tag, "GATE")
+    t.eq(logged[1].fields[3], "outcome=hold")
+    t.eq(logged[1].fields[4], "reason=checks-pending")
+    t.eq(logged[1].fields[5], "ci_class=CI_WAIT")
+    t.eq(logged[1].fields[6], "head_sha=" .. merge_ready.reviewed_head_sha)
   end,
 }
