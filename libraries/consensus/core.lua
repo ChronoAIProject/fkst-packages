@@ -1,5 +1,6 @@
 local M = {}
 local angle_answers = require("consensus.angle_answers")
+local context_manifest_module = require("consensus.context_manifest")
 local codex = require("workflow_internal.codex")
 local env = require("workflow_internal.env")
 local error_facts = require("contract.error_facts")
@@ -15,7 +16,7 @@ local max_key_len = 200
 local max_title_len = 240
 local max_body_len = 12000
 local max_context_len = 8000
-local max_content_fetch_len = 4000
+local max_content_fetch_len = context_manifest_module.max_content_fetch_len
 local max_reply_len = angle_answers.max_reply_len
 local max_framing_len = 1000
 local max_gap_len = 240
@@ -25,7 +26,6 @@ local max_digest_len = 600
 local findings_record_max_bytes = synthesis_contract.findings_record_max_bytes
 local max_worktree_len = 4096
 local max_scratch_slug_len = 120
-local stale_generation_context_error_class = "stale_generation_context"
 local verdict_label = "⟦FKST:VERDICT⟧"
 local reply_label = "⟦FKST:REPLY⟧"
 local gap_label = "⟦FKST:GAP⟧"
@@ -83,39 +83,6 @@ local function trim(value)
 end
 local is_bounded_string = strings.is_bounded_string
 local is_path_safe_key = strings.is_path_safe_key
-local function manifest_paths(manifest)
-  local paths = {}
-  for line in (tostring(manifest or "") .. "\n"):gmatch("([^\n]*)\n") do
-    local path = line:match(":%s*(/.+)%s*$")
-    if path ~= nil then
-      table.insert(paths, path)
-    end
-  end
-  return paths
-end
-
-local function assert_manifest_files_readable(manifest)
-  local paths = manifest_paths(manifest)
-  if #paths == 0 then
-    error("consensus: context-manifest-invalid: runtime context manifest has no readable file paths")
-  end
-  local has_notice = false
-  for _, path in ipairs(paths) do
-    local notice_suffix = "/UNTRUSTED-NOTICE.txt"
-    local path_text = tostring(path)
-    if path_text:sub(-#notice_suffix) == notice_suffix then
-      has_notice = true
-    end
-    local handle = io.open(path, "r")
-    if handle == nil then
-      error("consensus: stale-generation-context: error_class=" .. stale_generation_context_error_class .. " runtime context manifest file is unreadable")
-    end
-    handle:close()
-  end
-  if not has_notice then
-    error("consensus: context-manifest-invalid: runtime context manifest notice is missing")
-  end
-end
 
 local function has_source_ref(value)
   return type(value) == "table"
@@ -135,39 +102,16 @@ local function has_content_fetch(proposal)
     and proposal.content_fetch ~= ""
 end
 
-local function resolve_content_manifest(content_fetch)
-  local value = tostring(content_fetch or "")
-  local key = value:match("^runtime%-cache:(.+)$")
-  if key == nil then
-    return value
+local context_manifest = nil
+local function resolve_content_manifest(content_fetch, runtime_root)
+  if context_manifest == nil then
+    context_manifest = context_manifest_module.new({
+      file = file,
+      cache_get = cache_get,
+      cache_set = cache_set,
+    })
   end
-  if not is_path_safe_key(key, max_key_len) then
-    error("consensus: context-cache-key-invalid: invalid runtime context cache key")
-  end
-  local manifest = cache_get(key)
-  if type(manifest) ~= "string" or manifest == "" then
-    error("consensus: stale-generation-context: error_class=" .. stale_generation_context_error_class .. " runtime context cache miss")
-  end
-  if #manifest > max_content_fetch_len then
-    error("consensus: context-manifest-invalid: runtime context manifest is overlong")
-  end
-  assert_manifest_files_readable(manifest)
-  return manifest
-end
-
-function M.stale_generation_context_error_class()
-  return stale_generation_context_error_class
-end
-
-function M.is_stale_generation_context_error(err)
-  local text = tostring(err or "")
-  if text:find("error_class=" .. stale_generation_context_error_class, 1, true) ~= nil then
-    return true
-  end
-  if text:find("runtime context cache miss", 1, true) ~= nil then
-    return true
-  end
-  return text:find("runtime context manifest file is unreadable", 1, true) ~= nil
+  return context_manifest.resolve(content_fetch, runtime_root, max_key_len)
 end
 
 local function normalize_round(value)
