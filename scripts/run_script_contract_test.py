@@ -93,7 +93,13 @@ class RunScriptContractTest(unittest.TestCase):
 
             intent_replay = scripts / "intent_bounded_replay"
             intent_replay.mkdir()
-            for name in ("normalize.py", "compare.py", "semantic_tree.py", "delivery_authorization.py"):
+            for name in (
+                "normalize.py",
+                "compare.py",
+                "semantic_tree.py",
+                "subject.py",
+                "delivery_authorization.py",
+            ):
                 shutil.copy2(root / "scripts" / "intent_bounded_replay" / name, intent_replay / name)
             migration = probe / "migration"
             migration.mkdir()

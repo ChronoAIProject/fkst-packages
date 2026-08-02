@@ -1726,6 +1726,18 @@ Manifest：
 
 `one_use_identity`的唯一 canonical form为 `<pr_number>/<base_sha>/<semantic_tree_sha256>/<semantic_diff_sha256>`。同一 identity不得被另一 manifest复用。
 
+An intent-diff manifest authorizes one immutable semantic subject; it is not a
+rolling attestation for the aggregate integration head. While its allowlist
+entry is absent from the current protected base, CI must find an ancestor of
+`HEAD` that contains the exact current manifest blob, descends from the
+manifest's recorded `base_sha`, and recomputes both declared semantic hashes.
+Later integration commits and forward-merges must preserve that subject by
+ancestry rather than re-bind it to the new merge-base or `HEAD`. The current
+protected base controls only whether the entry is still pending admission: once
+that base contains the allowlist entry, the one-use authorization is
+discharged. A later behavior delta remains independently subject to the normal
+manifest admission gates and cannot reuse the discharged identity.
+
 Manifest不得包含 authoritative exact `head_sha`或 whole-diff self-binding。
 
 Fixed exclusions：

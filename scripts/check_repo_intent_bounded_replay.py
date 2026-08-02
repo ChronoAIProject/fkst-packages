@@ -19,6 +19,11 @@ from intent_bounded_replay.normalize import (
     loads_json,
 )
 from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_tree_sha256
+from intent_bounded_replay.subject import (
+    GIT_SHA_RE,
+    bound_subject_messages,
+    included_subject_messages,
+)
 
 import ratchet_base
 
@@ -59,10 +64,10 @@ PROTECTED_MODULES = (
     "scripts/intent_bounded_replay/normalize.py",
     "scripts/intent_bounded_replay/compare.py",
     "scripts/intent_bounded_replay/semantic_tree.py",
+    "scripts/intent_bounded_replay/subject.py",
 )
 MANIFEST_RE = re.compile(r"(?P<pr>[1-9][0-9]*)\.json")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
-GIT_SHA_RE = re.compile(r"[0-9a-f]{40,64}")
 BASE_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/\-]*")
 SEMANTIC_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@#>;+-]*")
 
@@ -653,28 +658,19 @@ def _bound_manifest_messages(
     messages = _manifest_messages(artifact, relative, int(MANIFEST_RE.fullmatch(Path(relative).name).group("pr")))
     if messages:
         return messages
-    if artifact["base_sha"] != base_sha:
-        messages.append(f"{relative} base_sha must equal protected merge-base {base_sha}")
-    expected_identity = "/".join((
-        str(int(artifact["pr_number"])),
-        artifact["base_sha"],
-        artifact["semantic_tree_sha256"],
-        artifact["semantic_diff_sha256"],
-    ))
-    if artifact["one_use_identity"] != expected_identity:
-        messages.append(f"{relative} one_use_identity is not bound to pr/base/semantic hashes")
-    try:
-        actual_tree = semantic_tree_sha256(root, head_ref)
-        actual_diff = semantic_diff_sha256(root, base_sha, head_ref)
-    except Exception as error:
-        return messages + [f"{relative} cannot recompute semantic hashes: {error}"]
-    for field, actual in (
-        ("semantic_tree_sha256", actual_tree),
-        ("semantic_diff_sha256", actual_diff),
-    ):
-        if artifact[field] != actual:
-            messages.append(f"{relative} {field} mismatch: declared {artifact[field]}, computed {actual}")
-    return messages
+    return bound_subject_messages(root, artifact, relative, base_sha, head_ref)
+
+
+def _included_manifest_messages(
+    root: Path,
+    artifact: dict[str, Any],
+    relative: str,
+    head_ref: str = "HEAD",
+) -> list[str]:
+    messages = _manifest_messages(artifact, relative, int(MANIFEST_RE.fullmatch(Path(relative).name).group("pr")))
+    if messages:
+        return messages
+    return included_subject_messages(root, artifact, relative, head_ref)
 
 
 def _parse_allowlist(source: str, lines: list[str]) -> tuple[set[str], list[str]]:
@@ -878,7 +874,7 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
             if artifact is None
             else [f"cannot resolve protected merge-base for {entry}"]
             if protected_base is None
-            else _bound_manifest_messages(root, artifact, entry, protected_base)
+            else _included_manifest_messages(root, artifact, entry)
         )
         messages.extend(bound_messages)
         if bound_messages or not _step8_complete(root, protected_base, "HEAD"):

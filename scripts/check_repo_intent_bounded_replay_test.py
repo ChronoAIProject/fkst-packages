@@ -147,6 +147,7 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
         self.write(f"{checker.INTENT_DIFF_DIR}/.gitkeep", "")
         self.write("tracked.txt", "base\n")
         self.base = self.commit("base")
+        self.integration_branch = git(self.root, "branch", "--show-current")
 
     def write(self, relative: str, content: str) -> None:
         path = self.root / relative
@@ -198,9 +199,9 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
         )
         self.commit(f"manifest {number}")
 
-    def messages(self) -> list[str]:
+    def messages(self, base_ref: str | None = None) -> list[str]:
         with mock.patch.object(checker, "_admission_trace_messages", return_value=[]), mock.patch.dict(
-            os.environ, {"FKST_RESTART_PREFLIGHT_BASE_REF": self.base}, clear=False,
+            os.environ, {"FKST_RESTART_PREFLIGHT_BASE_REF": base_ref or self.base}, clear=False,
         ):
             return checker.repository_messages(self.root, enforce_base=True)
 
@@ -215,6 +216,35 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
         self.add_growth()
         self.write_manifest(self.manifest())
         self.assertEqual(self.messages(), [])
+
+    def test_manifest_subject_remains_admitted_after_unrelated_successor_commit(self) -> None:
+        self.add_growth()
+        self.write_manifest(self.manifest())
+        self.write("successor.txt", "unrelated integration work\n")
+        self.commit("unrelated successor")
+
+        self.assertEqual(self.messages(), [])
+
+    def test_manifest_subject_remains_admitted_after_dev_forward_merge(self) -> None:
+        self.add_growth()
+        self.write_manifest(self.manifest())
+        git(self.root, "branch", "dev", self.base)
+        git(self.root, "checkout", "-q", "dev")
+        self.write("upstream.txt", "new protected work\n")
+        self.commit("advance dev")
+        git(self.root, "checkout", "-q", self.integration_branch)
+        git(self.root, "merge", "--no-ff", "-m", "forward merge dev", "dev")
+
+        self.assertEqual(self.messages("dev"), [])
+
+    def test_manifest_is_discharged_after_protected_dev_admission(self) -> None:
+        self.add_growth()
+        self.write_manifest(self.manifest())
+        git(self.root, "branch", "dev", "HEAD")
+        self.write("successor.txt", "post-admission work\n")
+        self.commit("post-admission successor")
+
+        self.assertEqual(self.messages("dev"), [])
 
     def test_during_refactor_valid_manifest_growth_is_forbidden(self) -> None:
         self.write("libraries/devloop/restart_effect_seal.lua", "return {}\n")
