@@ -117,18 +117,6 @@ local function raise_changed_item(repo, item, poll_token)
   end)
 end
 
-local function observed_dedup_key(repo, item, poll_token)
-  local entity = item.entity
-  return "github-issue-observed/"
-    .. tostring(repo)
-    .. "/"
-    .. tostring(entity.number)
-    .. "/"
-    .. tostring(entity.updated_at)
-    .. "/"
-    .. tostring(poll_token or now())
-end
-
 local function raise_observed_item(repo, item, poll_token)
   with_lock(item.key, function()
     local entity = item.entity
@@ -139,7 +127,7 @@ local function raise_observed_item(repo, item, poll_token)
         repo = repo,
         number = entity.number,
         updated_at = entity.updated_at,
-        dedup_key = observed_dedup_key(repo, item, poll_token),
+        dedup_key = item_dedup_key(repo, item),
         poll_token = poll_token,
         source = "gh",
         source_ref = core.entity_source_ref(repo, "issue", entity.number),
