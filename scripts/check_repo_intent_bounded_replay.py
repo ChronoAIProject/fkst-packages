@@ -23,6 +23,7 @@ from intent_bounded_replay.subject import (
     GIT_SHA_RE,
     bound_subject_messages,
     included_subject_messages,
+    manifest_subject_commit,
 )
 
 import ratchet_base
@@ -666,11 +667,18 @@ def _included_manifest_messages(
     artifact: dict[str, Any],
     relative: str,
     head_ref: str = "HEAD",
+    manifest_blob: bytes | None = None,
 ) -> list[str]:
     messages = _manifest_messages(artifact, relative, int(MANIFEST_RE.fullmatch(Path(relative).name).group("pr")))
     if messages:
         return messages
-    return included_subject_messages(root, artifact, relative, head_ref)
+    return included_subject_messages(
+        root,
+        artifact,
+        relative,
+        head_ref,
+        manifest_blob=manifest_blob,
+    )
 
 
 def _parse_allowlist(source: str, lines: list[str]) -> tuple[set[str], list[str]]:

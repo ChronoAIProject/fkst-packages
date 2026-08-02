@@ -29,6 +29,7 @@ DELIVERY_DELTA = ";".join([
 
 CHECKER_PATH = "scripts/check_repo_restart_preflight.py"
 ADDED_CHECKER_PATH = "scripts/check_repo_intent_bounded_replay.py"
+SUBJECT_CHECKER_PATH = "scripts/intent_bounded_replay/subject.py"
 SEMANTIC_PATH = "packages/github-devloop/departments/loop/main.lua"
 GRANT_PATH = "migration/restart-cochange-grants/test-promotion.json"
 SECOND_GRANT_PATH = "migration/restart-cochange-grants/second-promotion.json"
@@ -78,6 +79,7 @@ class RestartPreflightTest(unittest.TestCase):
         git(self.root, "add", ".")
         git(self.root, "commit", "-qm", "base")
         self.base = git(self.root, "rev-parse", "HEAD")
+        self.integration_branch = git(self.root, "branch", "--show-current")
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -190,9 +192,14 @@ class RestartPreflightTest(unittest.TestCase):
         (self.root / SEMANTIC_PATH).unlink()
         self.commit()
 
-    def messages(self, *, head_ref: str = "HEAD") -> list[str]:
+    def messages(
+        self,
+        *,
+        base_ref: str | None = None,
+        head_ref: str = "HEAD",
+    ) -> list[str]:
         return preflight.repository_messages(
-            self.root, base_ref=self.base, head_ref=head_ref
+            self.root, base_ref=base_ref or self.base, head_ref=head_ref
         )
 
     def activate_anomaly_transport(
@@ -247,11 +254,17 @@ class RestartPreflightTest(unittest.TestCase):
         if old_authority:
             self.write("libraries/devloop/restart_effect_seal.lua", "return { old_authority = true }\n")
 
-    def write_valid_manifest(self, overrides: dict[str, object] | None = None) -> None:
+    def write_valid_manifest(
+        self,
+        overrides: dict[str, object] | None = None,
+        *,
+        pr_number: int = 123,
+        include_anomaly_transport: bool = True,
+    ) -> None:
         artifact: dict[str, object] = {
             "schema": "fkst.intent-diff.v2",
             "intent": "behavior-change",
-            "pr_number": 123,
+            "pr_number": pr_number,
             "base_sha": self.base,
             "semantic_tree_sha256": semantic_tree_sha256(self.root),
             "semantic_diff_sha256": semantic_diff_sha256(self.root, self.base),
@@ -264,22 +277,26 @@ class RestartPreflightTest(unittest.TestCase):
             "cause": "activate post-terminal R7 anomaly transport",
             "review_reference": "review:r7-test",
             "one_use_identity": "",
-            "anomaly_transport": {
+            "manifest_sha256": "",
+        }
+        if include_anomaly_transport:
+            artifact["anomaly_transport"] = {
                 "qualified_queues": ANOMALY_QUEUES,
                 "ops_dependency": "github-devloop-pr",
                 "ephemeral_consumes": ANOMALY_QUEUES,
                 "ingestion": "github-devloop-ops.observability",
                 "package_visible_delivery_delta": DELIVERY_DELTA,
-            },
-            "manifest_sha256": "",
-        }
+            }
         if overrides:
             artifact.update(overrides)
         artifact["one_use_identity"] = "/".join(str(artifact[field]) for field in (
             "pr_number", "base_sha", "semantic_tree_sha256", "semantic_diff_sha256",
         ))
         artifact["manifest_sha256"] = canonical_artifact_hash_v1(artifact)
-        self.write(MANIFEST, json.dumps(artifact, sort_keys=True) + "\n")
+        self.write(
+            f"migration/intent-diffs/{pr_number}.json",
+            json.dumps(artifact, sort_keys=True) + "\n",
+        )
         self.commit()
 
     def commit_transport(self) -> None:
@@ -301,6 +318,12 @@ class RestartPreflightTest(unittest.TestCase):
 
     def test_checker_and_production_semantics_cochange_fails(self) -> None:
         self.apply_cochange()
+        self.assertTrue(any("checker-checked-cochange" in message for message in self.messages()))
+
+    def test_subject_checker_and_production_semantics_cochange_fails(self) -> None:
+        self.write(SUBJECT_CHECKER_PATH, "# changed subject verifier\n")
+        self.write(SEMANTIC_PATH, CHANGED_SEMANTICS)
+        self.commit()
         self.assertTrue(any("checker-checked-cochange" in message for message in self.messages()))
 
     def test_promotion_grant_absent_still_fails_cochange(self) -> None:
@@ -536,6 +559,42 @@ class RestartPreflightTest(unittest.TestCase):
         self.activate_anomaly_transport()
         self.commit_transport()
         self.write_valid_manifest()
+        self.assertEqual(self.messages(), [])
+
+    def test_anomaly_manifest_subject_survives_unrelated_successor_commit(self) -> None:
+        self.activate_anomaly_transport()
+        self.commit_transport()
+        self.write_valid_manifest()
+        self.write("successor.txt", "unrelated integration work\n")
+        self.commit()
+
+        self.assertEqual(self.messages(), [])
+
+    def test_anomaly_manifest_subject_survives_dev_forward_merge(self) -> None:
+        self.activate_anomaly_transport()
+        self.commit_transport()
+        self.write_valid_manifest()
+        git(self.root, "branch", "dev", self.base)
+        git(self.root, "checkout", "-q", "dev")
+        self.write("upstream.txt", "new protected work\n")
+        self.commit()
+        git(self.root, "checkout", "-q", self.integration_branch)
+        git(self.root, "merge", "--no-ff", "-m", "forward merge dev", "dev")
+
+        self.assertEqual(self.messages(base_ref="dev"), [])
+
+    def test_anomaly_manifest_subject_survives_independently_manifested_successor(self) -> None:
+        self.activate_anomaly_transport()
+        self.commit_transport()
+        self.write_valid_manifest()
+        self.write(
+            "migration/intent-bounded-replay.allowlist",
+            f"# protected allowlist\n{MANIFEST}\nmigration/intent-diffs/124.json\n",
+        )
+        self.write(SEMANTIC_PATH, "return { independent_change = true }\n")
+        self.commit()
+        self.write_valid_manifest(pr_number=124, include_anomaly_transport=False)
+
         self.assertEqual(self.messages(), [])
 
     def test_extra_same_path_anomaly_atom_is_rejected(self) -> None:

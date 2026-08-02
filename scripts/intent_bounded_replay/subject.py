@@ -30,6 +30,7 @@ def manifest_subject_commit(
     artifact: Mapping[str, Any],
     relative: str,
     head_ref: str = "HEAD",
+    manifest_blob: bytes | None = None,
 ) -> str | None:
     """Return a manifest-bearing ancestor matching the declared semantic subject."""
     history = subprocess.run(
@@ -44,7 +45,9 @@ def manifest_subject_commit(
         detail = history.stderr.strip()
         raise RuntimeError(f"git rev-list failed ({history.returncode}): {detail}")
 
-    manifest_blob = (root / relative).read_bytes()
+    expected_blob = (
+        manifest_blob if manifest_blob is not None else (root / relative).read_bytes()
+    )
     for commit in history.stdout.splitlines():
         if GIT_SHA_RE.fullmatch(commit) is None:
             raise RuntimeError(f"git rev-list returned invalid object ID {commit!r}")
@@ -55,7 +58,7 @@ def manifest_subject_commit(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        if historical_blob.returncode != 0 or historical_blob.stdout != manifest_blob:
+        if historical_blob.returncode != 0 or historical_blob.stdout != expected_blob:
             continue
         ancestry = subprocess.run(
             ["git", "merge-base", "--is-ancestor", artifact["base_sha"], commit],
@@ -113,11 +116,18 @@ def included_subject_messages(
     artifact: Mapping[str, Any],
     relative: str,
     head_ref: str = "HEAD",
+    manifest_blob: bytes | None = None,
 ) -> list[str]:
     """Validate that an immutable manifest subject is included in head history."""
     messages = _identity_messages(artifact, relative)
     try:
-        subject_commit = manifest_subject_commit(root, artifact, relative, head_ref)
+        subject_commit = manifest_subject_commit(
+            root,
+            artifact,
+            relative,
+            head_ref,
+            manifest_blob=manifest_blob,
+        )
     except Exception as error:
         return messages + [f"{relative} cannot verify immutable subject inclusion: {error}"]
     if subject_commit is None:

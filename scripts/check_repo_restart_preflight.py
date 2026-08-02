@@ -26,6 +26,7 @@ CHECKER_CONTROLS = {
     "scripts/intent_bounded_replay/compare.py",
     "scripts/intent_bounded_replay/corpus_manifest.json",
     "scripts/intent_bounded_replay/normalize.py",
+    "scripts/intent_bounded_replay/subject.py",
     SEMANTIC_TREE_CONTROL,
 }
 COCHANGE_GRANT_FIELDS = {"schema", "entries", "grant_sha256"}
@@ -398,47 +399,76 @@ def _step8_complete(root: Path, base: str, head_ref: str) -> bool:
 
 
 def _anomaly_manifest(
-    root: Path, base: str, head_ref: str, changed: set[str], paths: list[str],
-) -> dict[str, object] | None:
+    root: Path, head_ref: str, changed: set[str], paths: list[str],
+) -> tuple[dict[str, object], str] | None:
     changed_manifests = sorted(
         path for path in changed
         if re.fullmatch(r"migration/intent-diffs/[1-9][0-9]*\.json", path)
     )
-    if len(changed_manifests) != 1:
-        return None
-    relative = changed_manifests[0]
-    try:
-        artifact = loads_json(_blob(root, head_ref, relative))
-    except Exception:
-        return None
-    if not isinstance(artifact, dict) or "anomaly_transport" not in artifact:
-        return None
     allowlist, allowlist_messages = intent_replay._parse_allowlist(
         intent_replay.ALLOWLIST,
         _text(root, head_ref, intent_replay.ALLOWLIST).splitlines(),
     )
-    if allowlist_messages or relative not in allowlist:
+    if allowlist_messages:
         return None
-    if intent_replay._bound_manifest_messages(root, artifact, relative, base, head_ref):
-        return None
-    identity = artifact["one_use_identity"]
-    for path in paths:
-        if path == relative or re.fullmatch(r"migration/intent-diffs/[1-9][0-9]*\.json", path) is None:
-            continue
+
+    candidates: list[tuple[dict[str, object], str]] = []
+    for relative in changed_manifests:
+        manifest_blob = _blob(root, head_ref, relative)
         try:
-            other = loads_json(_blob(root, head_ref, path))
+            artifact = loads_json(manifest_blob)
         except Exception:
             continue
-        if isinstance(other, dict) and other.get("one_use_identity") == identity:
+        if not isinstance(artifact, dict) or "anomaly_transport" not in artifact:
+            continue
+        if relative not in allowlist or intent_replay._included_manifest_messages(
+            root,
+            artifact,
+            relative,
+            head_ref,
+            manifest_blob,
+        ):
             return None
-    return artifact
+        subject_commit = intent_replay.manifest_subject_commit(
+            root,
+            artifact,
+            relative,
+            head_ref,
+            manifest_blob=manifest_blob,
+        )
+        if subject_commit is None:
+            return None
+        identity = artifact["one_use_identity"]
+        for path in paths:
+            if path == relative or re.fullmatch(
+                r"migration/intent-diffs/[1-9][0-9]*\.json", path
+            ) is None:
+                continue
+            try:
+                other = loads_json(_blob(root, head_ref, path))
+            except Exception:
+                continue
+            if isinstance(other, dict) and other.get("one_use_identity") == identity:
+                return None
+        candidates.append((artifact, subject_commit))
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _r7_anomaly_admitted(
-    root: Path, base: str, head_ref: str, changed: set[str], paths: list[str],
+    root: Path, head_ref: str, changed: set[str], paths: list[str],
 ) -> bool:
-    artifact = _anomaly_manifest(root, base, head_ref, changed, paths)
-    if artifact is None or not _step8_complete(root, base, head_ref):
+    subject = _anomaly_manifest(root, head_ref, changed, paths)
+    if subject is None:
+        return False
+    artifact, subject_head = subject
+    subject_base = artifact["base_sha"]
+    if not isinstance(subject_base, str) or not _step8_complete(
+        root, subject_base, subject_head
+    ):
+        return False
+    try:
+        subject_changed = _changed_paths(root, subject_base, subject_head)
+    except RuntimeError:
         return False
 
     owner_produces: Counter[str] = Counter()
@@ -447,22 +477,30 @@ def _r7_anomaly_admitted(
         owner = department.split(".", 1)[0]
         owner_produces.update(
             _qualify_queue(owner, queue)
-            for queue in _added_lua_values(root, base, head_ref, path, "produces").elements()
+            for queue in _added_lua_values(
+                root, subject_base, subject_head, path, "produces"
+            ).elements()
         )
         deliveries.update(
-            _raise_records(_text(root, head_ref, path), path)
-            - _raise_records(_text(root, base, path), path)
+            _raise_records(_text(root, subject_head, path), path)
+            - _raise_records(_text(root, subject_base, path), path)
         )
-    consumes = _added_lua_values(root, base, head_ref, R7_OPS_DEPARTMENT, "consumes")
-    ephemeral = _added_lua_values(root, base, head_ref, R7_OPS_DEPARTMENT, "ephemeral")
-    dependencies = _event_dependencies(_text(root, head_ref, R7_OPS_MANIFEST)) - _event_dependencies(
-        _text(root, base, R7_OPS_MANIFEST)
+    consumes = _added_lua_values(
+        root, subject_base, subject_head, R7_OPS_DEPARTMENT, "consumes"
+    )
+    ephemeral = _added_lua_values(
+        root, subject_base, subject_head, R7_OPS_DEPARTMENT, "ephemeral"
+    )
+    dependencies = _event_dependencies(
+        _text(root, subject_head, R7_OPS_MANIFEST)
+    ) - _event_dependencies(
+        _text(root, subject_base, R7_OPS_MANIFEST)
     )
     sinks: Counter[str] = Counter()
     for path, owner in R7_SINK_INVENTORIES.items():
         sinks.update(
-            _sink_records(_text(root, head_ref, path), owner)
-            - _sink_records(_text(root, base, path), owner)
+            _sink_records(_text(root, subject_head, path), owner)
+            - _sink_records(_text(root, subject_base, path), owner)
         )
 
     expected_deliveries = {
@@ -478,7 +516,7 @@ def _r7_anomaly_admitted(
         and dependencies == {"github-devloop-pr"}
     )
     semantic_changed = {
-        path for path in changed
+        path for path in subject_changed
         if path.endswith((".lua", ".toml"))
         and path.startswith(("packages/github-devloop/", "packages/github-devloop-pr/", "packages/github-devloop-ops/"))
         and "/tests/" not in path
@@ -488,7 +526,11 @@ def _r7_anomaly_admitted(
         for field in ("changed_row_ids", "changed_edge_ids", "changed_policy_ids")
     )
     no_durable_or_grant_path = all(
-        not _new_matches(pattern, _text(root, base, path), _text(root, head_ref, path))
+        not _new_matches(
+            pattern,
+            _text(root, subject_base, path),
+            _text(root, subject_head, path),
+        )
         for path in R7_PRODUCTION_PATHS
         for pattern in (DURABLE_TRANSPORT_RE, GRANT_TRANSPORT_RE)
     )
@@ -626,7 +668,7 @@ def _anomaly_activation_messages(
             messages.append(
                 f"anomaly-transport-activation: {path} activates restart anomaly production, ingestion, dependency, or delivery during refactor"
             )
-    if messages and _r7_anomaly_admitted(root, base, head_ref, changed, _tracked_paths(root, head_ref)):
+    if messages and _r7_anomaly_admitted(root, head_ref, changed, _tracked_paths(root, head_ref)):
         return []
     return messages
 
