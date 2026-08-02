@@ -786,7 +786,7 @@ return {
     t.eq(find_raise(result.raises, "devloop_merge_queue_tick"), nil)
   end,
 
-  test_merge_queue_chained_unknown_mergeability_retries_to_completion = function()
+  test_merge_queue_chained_unknown_mergeability_holds_then_completes = function()
     local next = event_for_pr(8, 43, "2026-06-03T00-01-00Z", "fed789")
     mock_bot_env()
     mock_write_env_many(64)
@@ -794,15 +794,21 @@ return {
     mock_queue_list({ 8 })
     mock_queue_pr(next, "2026-06-03T01:01:00Z")
     mock_claimed_issue_for_event(next)
+    mock_diff_name_only(8, { "packages/b.lua" })
     mock_merge_pr_view(next, "OPEN", "UNKNOWN", "CLEAN")
 
     local retry = run_merge_queue_tick(opts("merge-queue-self-requeue-unknown", {
       FKST_GITHUB_WRITE = "1",
       FKST_GITHUB_REPO = "owner/repo",
     }))
-    t.eq(retry.exit_code, 1)
+    t.eq(retry.exit_code, 0, tostring(retry.error or retry.stderr))
+    t.eq(#retry.raises, 1)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(find_raise(retry.raises, "devloop_fixing"), nil)
+    t.eq(find_raise(retry.raises, "devloop_merge_queue_tick"), nil)
+    local wait_comment = find_raise(retry.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="mergeable-unknown"', 1, true) ~= nil)
 
     mock_bot_env()
     mock_write_env_many(64)
