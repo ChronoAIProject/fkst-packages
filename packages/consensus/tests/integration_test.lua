@@ -572,6 +572,7 @@ return {
     local repair = judgment_call("synthesis-repair")
     assert_judgment_worktree(repair, "synthesis-repair")
     t.is_true(repair.stdin:find("Repair attempt:", 1, true) ~= nil)
+    t.is_true(repair.stdin:find("> converge: retry ownership remains unresolved", 1, true) ~= nil)
     t.is_true(repair.stdin:find(
       "Parser diagnostic: reason=findings-record-overlong actual_bytes="
         .. tostring(synthesis_contract.findings_record_max_bytes + 1)
