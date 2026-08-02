@@ -238,6 +238,39 @@ return {
     t.eq(repair_failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
   end,
 
+  test_parse_or_retry_passes_worker_exit_diagnostic_to_repair = function()
+    local call_count = 0
+    local repair_failure = nil
+
+    local parsed = synthesis.parse_or_retry({
+      verdict_mode = "converge",
+      p1_results = {},
+      p2_results = {},
+      build_prompt = function(repair, _, failure)
+        if repair then
+          repair_failure = failure
+        end
+        return repair and "repair" or "first"
+      end,
+      spawn_sync = function()
+        call_count = call_count + 1
+        if call_count == 1 then
+          return { stdout = "", stderr = "worker failed", exit_code = 17 }
+        end
+        return {
+          stdout = "converge: dependency semantics remain disputed + inspect the blockedBy native relation\nopen: retain the concrete worker failure",
+          stderr = "",
+          exit_code = 0,
+        }
+      end,
+    })
+
+    t.eq(call_count, 2)
+    t.eq(parsed.kind, "converge")
+    t.eq(repair_failure.reason, "synthesis-worker-nonzero")
+    t.eq(repair_failure.exit_code, 17)
+  end,
+
   test_parse_output_accepts_premise_refutation_only_in_converge_mode = function()
     local reached = synthesis.parse_output("premise-refuted: verified source proves the claimed missing feature exists", "converge")
     t.eq(reached.kind, "reached")
