@@ -548,13 +548,17 @@ return {
       "open: " .. finding,
       "open: " .. string.rep("x", final_finding_len),
     }, "\n"))
-    mock_synthesis_repair("converge: retry ownership remains unresolved + inspect the retry owner record")
+    mock_synthesis_repair(table.concat({
+      "converge: retry ownership remains unresolved + inspect the retry owner record",
+      "open: keep repaired findings within the aggregate byte budget",
+    }, "\n"))
 
     local result = run_decide(proposal(), opts("split-synthesis-repair"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 1)
     t.eq(result.raises[1].queue, "consensus_converge")
     t.eq(result.raises[1].payload.narrowed_question, "retry ownership remains unresolved + inspect the retry owner record")
+    t.eq(result.raises[1].payload.findings_record, "open:\nkeep repaired findings within the aggregate byte budget")
     t.eq(#codex_calls(), 8)
     local synthesis_call = judgment_call("synthesis")
     assert_judgment_worktree(synthesis_call, "synthesis")
