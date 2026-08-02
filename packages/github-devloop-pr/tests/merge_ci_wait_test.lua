@@ -42,7 +42,11 @@ return {
 
     t.eq(result, nil)
     t.eq(#raised, 1)
+    t.eq(raised[1].proposal_id, merge_ready.proposal_id)
     t.eq(raised[1].queue, "github-proxy.github_pr_comment_request")
+    t.eq(raised[1].payload.pr_number, merge_ready.pr_number)
+    t.eq(raised[1].payload.source_ref.kind, "external")
+    t.eq(raised[1].payload.source_ref.ref, "owner/repo#pr/" .. tostring(merge_ready.pr_number))
     t.is_true(raised[1].payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find('reason="checks-pending"', 1, true) ~= nil)
     t.eq(#logged, 1)
