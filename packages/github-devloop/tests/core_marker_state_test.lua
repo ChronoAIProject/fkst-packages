@@ -189,7 +189,7 @@ return {
       '<!-- fkst:github-devloop:result:v1 proposal="github-devloop/issue/owner/repo/42" decision="approve" dedup="consensus:github-devloop/issue/owner/repo/42/v1" -->'
     )
 
-    local label = requests_labels.build_result_label_request("owner/repo", "42", reached())
+    local label = requests_labels.build_result_state_label_request("owner/repo", "42", reached(), "ready")
     t.eq(label.schema, "github-proxy.label.v1")
     t.eq(label.add_labels[1], "fkst-dev:ready")
     t.eq(label.label_colors["fkst-dev:ready"], "0E8A16")
@@ -759,6 +759,26 @@ return {
     local current = core.current_state(comments, proposal_id)
     t.eq(current.state, "thinking")
     t.eq(current.version, "v1")
+  end,
+  test_route_current_returns_declared_route_and_marker_metadata = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "consensus:github-devloop/issue/owner/repo/42/2026-07-28T01-02-03Z"
+    local comments = { core.state_marker(proposal_id, "blocked", version) }
+    local blocked_route = {
+      kind = "terminal",
+      state = "blocked",
+    }
+
+    local routed = core.route_current(comments, proposal_id, {
+      blocked = blocked_route,
+    })
+    t.eq(routed.route, blocked_route)
+    t.eq(routed.version, version)
+    t.is_nil(routed.state)
+
+    local unmatched = core.route_current(comments, proposal_id, {})
+    t.is_nil(unmatched.route)
+    t.eq(unmatched.version, version)
   end,
   test_current_state_ignores_authorless_state_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"

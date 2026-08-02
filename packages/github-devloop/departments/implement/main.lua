@@ -15,6 +15,7 @@ local refusal_publication = require("departments.implement.refusal_publication")
 local forks = require("devloop.forks")
 local slice_gate = require("departments.implement.slice_gate")
 local substrate_pin = require("departments.implement.substrate_pin")
+local cache_preparation = require("departments.implement.cache_preparation")
 local transitions = require("departments.implement.transitions")
 local worktree_lifecycle = require("departments.implement.worktree")
 local attempt_runner = require("departments.implement.attempt")
@@ -44,7 +45,10 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local MAX_IMPLEMENT_ATTEMPTS = 2
-local MAX_VERSION_MISMATCH_DELIVERIES = 3
+-- Single source of truth lives in core (implement_attempt.lua); the liveness anti-spin
+-- (libraries/devloop/liveness/timeout.lua) reads the same constant so re-drive and
+-- receiver agree on the budget.
+local MAX_VERSION_MISMATCH_DELIVERIES = core.max_implement_version_mismatch_deliveries
 local spec = {
   consumes = { "devloop_ready" },
   produces = {
@@ -273,6 +277,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
   local merge_clean = merge_integration_for_implementation(worktree, branches.integration, base_head)
   merge_clean = external_pr_bridge.provision(worktree, bridge_marker, ready.proposal_id) and merge_clean
   substrate_pin.refresh(worktree, branch, base_head, merge_clean)
+  cache_preparation.run(worktree)
 
   local codex_started_at = now()
   local exec_ref = core.implement_exec_ref(ready.proposal_id, ready.dedup_key)
@@ -361,7 +366,8 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
       outcome.attempt,
       outcome.started_at,
       outcome.exec_ref,
-      outcome.detail
+      outcome.detail,
+      outcome.reason
     )
     devloop_logging.log_raise("implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", request)
     return
