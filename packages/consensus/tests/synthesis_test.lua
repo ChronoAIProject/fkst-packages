@@ -113,6 +113,28 @@ return {
     t.eq(failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
   end,
 
+  test_parse_output_measures_aggregate_findings_in_utf8_bytes = function()
+    local finding = string.rep("界", 230)
+    local at_limit = synthesis.parse_output(table.concat({
+      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+      "open: " .. finding,
+      "open: " .. finding,
+      "open: " .. string.rep("界", 33) .. "x",
+    }, "\n"))
+    local parsed, failure = synthesis.parse_output(table.concat({
+      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+      "open: " .. finding,
+      "open: " .. finding,
+      "open: " .. string.rep("界", 33) .. "xy",
+    }, "\n"))
+
+    t.eq(#at_limit.findings_record, synthesis_contract.findings_record_max_bytes)
+    t.is_nil(parsed)
+    t.eq(failure.reason, "findings-record-overlong")
+    t.eq(failure.actual_bytes, synthesis_contract.findings_record_max_bytes + 1)
+    t.eq(failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
+  end,
+
   test_settled_findings_without_verified_move_are_unverified_memory = function()
     local converge = synthesis.parse_output(table.concat({
       "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
