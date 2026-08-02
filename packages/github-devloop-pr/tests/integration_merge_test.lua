@@ -693,7 +693,7 @@ return {
     t.eq(fixing_payload.gate_failure_excerpt, "merge-state-dirty")
   end,
 
-  test_merge_unstable_pending_rollup_errors_for_retry_without_fixing = function()
+  test_merge_unstable_pending_rollup_holds_without_fixing = function()
     local event = merge_ready()
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     local rollup_json = '[{"__typename":"CheckRun","completedAt":null,"conclusion":null,"detailsUrl":"https://example.invalid/checks/verify","name":"verify","startedAt":"2026-06-03T02:03:04Z","status":"IN_PROGRESS","workflowName":"ci"}]'
@@ -704,13 +704,15 @@ return {
     mock_pr_merge_rollup({ origin_marker }, rollup_json, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "UNSTABLE")
 
     local result = run_merge(event, opts("merge-unstable-pending-rollup", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(find_raise(result.raises, "devloop_fixing"), nil)
+    t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(count_calls("gh issue close"), 0)
   end,
 
-  test_merge_unknown_mergeability_errors_for_retry_without_fixing = function()
+  test_merge_unknown_mergeability_holds_without_fixing = function()
     local event = merge_ready()
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     mock_bot_env()
@@ -720,8 +722,10 @@ return {
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "UNKNOWN", "CLEAN")
 
     local result = run_merge(event, opts("merge-unknown-mergeability", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(find_raise(result.raises, "devloop_fixing"), nil)
+    t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(count_calls("gh issue close"), 0)
   end,
@@ -854,7 +858,7 @@ return {
     t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
   end,
 
-  test_merge_pending_checks_errors_for_retry_without_advance = function()
+  test_merge_pending_checks_holds_without_advance = function()
     local event = merge_ready()
     local origin_marker = m_builders.pr_origin_marker(event.proposal_id, "42", "devloop-owner-repo-42-01HY", event.version, "dev")
     mock_bot_env()
@@ -864,8 +868,10 @@ return {
     mock_pr_merge({ origin_marker }, "devloop-owner-repo-42-01HY", "def456", "OPEN", "owner/repo", false, "MERGEABLE", "CLEAN", "PENDING", "")
 
     local result = run_merge(event, opts("merge-pending-checks", { FKST_GITHUB_WRITE = "1" }))
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(find_raise(result.raises, "devloop_fixing"), nil)
+    t.is_true(find_raise(result.raises, "github-proxy.github_pr_comment_request").payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
     t.eq(count_calls("gh pr merge"), 0)
   end,
 

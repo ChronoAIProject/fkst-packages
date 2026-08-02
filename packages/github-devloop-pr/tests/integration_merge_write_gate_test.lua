@@ -77,19 +77,19 @@ return {
     t.eq(h.find_causal_raise(result, "devloop_fixing").payload.gate_failure_excerpt, "mergeable-conflicting")
   end,
 
-  test_write_time_unknown_mergeability_retries_without_fixing = function()
+  test_write_time_unknown_mergeability_holds_without_fixing = function()
     local event = h.merge_ready()
     prepare_write_time_recheck(event, nil, "UNKNOWN", "CLEAN")
 
     local result = run_write_time_recheck(event, "merge-write-time-unknown")
 
-    t.eq(result.exit_code, 1)
-    t.eq(#result.raises, 0)
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    t.eq(h.find_raise(result.raises, "devloop_fixing"), nil)
     t.eq(h.count_calls("gh pr merge"), 0)
-    t.is_true(
-      failure_text(result):find("write-time-merge-wait", 1, true) ~= nil,
-      failure_text(result)
-    )
+    local comment_raise = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(comment_raise ~= nil)
+    t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
   end,
 
   test_write_time_missing_high_risk_evidence_retries = function()
