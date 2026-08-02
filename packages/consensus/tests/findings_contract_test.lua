@@ -36,6 +36,15 @@ return {
     t.eq(core.is_eligible(proposal(findings)), false)
   end,
 
+  test_is_eligible_measures_multibyte_findings_in_bytes = function()
+    local two_byte_character = "é"
+    local findings = string.rep(two_byte_character, synthesis_contract.findings_record_max_bytes / 2)
+
+    t.eq(#findings, synthesis_contract.findings_record_max_bytes)
+    t.eq(core.is_eligible(proposal(findings)), true)
+    t.eq(core.is_eligible(proposal(findings .. "x")), false)
+  end,
+
   test_build_converge_payload_preserves_findings_record_at_contract_limit = function()
     local findings = string.rep("x", synthesis_contract.findings_record_max_bytes)
     local payload = core.build_converge_payload(
