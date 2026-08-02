@@ -124,7 +124,7 @@ return {
   end,
 
   test_parse_output_reports_overlong_aggregate_findings = function()
-    local at_limit = synthesis.parse_output(synthesis_output_with_findings_bytes(
+    local at_limit, at_limit_failure = synthesis.parse_output(synthesis_output_with_findings_bytes(
       synthesis_contract.findings_record_max_bytes
     ))
     local over_limit = synthesis_output_with_findings_bytes(
@@ -134,6 +134,7 @@ return {
     local parsed, failure = synthesis.parse_output(over_limit)
 
     t.eq(#at_limit.findings_record, synthesis_contract.findings_record_max_bytes)
+    t.is_nil(at_limit_failure)
     t.is_nil(parsed)
     t.eq(failure.reason, "findings-record-overlong")
     t.eq(failure.actual_bytes, synthesis_contract.findings_record_max_bytes + 1)
@@ -141,7 +142,7 @@ return {
   end,
 
   test_parse_output_measures_aggregate_findings_in_utf8_bytes = function()
-    local at_limit = synthesis.parse_output(synthesis_output_with_findings_bytes(
+    local at_limit, at_limit_failure = synthesis.parse_output(synthesis_output_with_findings_bytes(
       synthesis_contract.findings_record_max_bytes,
       "café"
     ))
@@ -151,6 +152,7 @@ return {
     ))
 
     t.eq(#at_limit.findings_record, synthesis_contract.findings_record_max_bytes)
+    t.is_nil(at_limit_failure)
     t.is_nil(parsed)
     t.eq(failure.reason, "findings-record-overlong")
     t.eq(failure.actual_bytes, synthesis_contract.findings_record_max_bytes + 1)
