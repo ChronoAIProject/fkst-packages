@@ -7,9 +7,12 @@ M.spec = {
 
 function pipeline(event)
   local payload = event.payload or {}
-  cache_set(payload.key, payload.value)
+  if payload.value ~= nil then
+    cache_set(payload.key, payload.value)
+  end
   raise("cache_seeded", {
     key = payload.key,
+    value = cache_get(payload.key),
   })
 end
 
