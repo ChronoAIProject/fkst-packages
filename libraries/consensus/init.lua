@@ -195,10 +195,11 @@ local function decide(proposal, invocation_id)
     verdict_mode = verdict_mode,
     p1_results = angle_results,
     p2_results = rebuttal_results,
-    build_prompt = function(repair, prior_result)
+    build_prompt = function(repair, prior_result, parse_failure)
       return core.build_synthesis_prompt(proposal, angle_results, rebuttal_results, {
         repair = repair,
         prior_result = prior_result,
+        parse_failure = parse_failure,
       })
     end,
     spawn_sync = function(_kind, prompt)

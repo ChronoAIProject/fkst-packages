@@ -269,7 +269,13 @@ function M.install(core, deps)
         local repair_instruction = "This is the first synthesis attempt."
         if repair then
           local stdout = type(prior_result) == "table" and prior_result.stdout or ""
-          repair_instruction = "Repair attempt: the previous synthesis output failed the parser. Emit one valid response contract and do not rerun Phase B or Phase R. Previous output:\n" .. neutralize(stdout)
+          local parse_failure = options and options.parse_failure
+          repair_instruction = table.concat({
+            "Repair attempt: the previous synthesis output failed validation.",
+            "Parser diagnostic: " .. synthesis.format_parse_failure(parse_failure) .. ".",
+            "Emit one valid response contract and do not rerun Phase B or Phase R. Previous output:",
+            neutralize(stdout),
+          }, "\n")
         end
         return {
           title = neutralize(proposal.title),
@@ -286,6 +292,9 @@ function M.install(core, deps)
           decision_calibration = verdict_mode == "converge"
             and "Converge synthesis calibration: emit reached:approve when the proposal is sound, actionable, bounded, and code-verifiable and no evidenced issue-admission blocker survived. Emit premise-refuted only when verified contrary evidence disproves the proposal's source premise. Do not emit converge or essence-stall merely for a seat's ideal-shortfall, broader-class preference, or future-PR grounding concern. Emit converge only for an evidenced essence-level blocker that would make development likely wrong and for which concrete resolving evidence can be named; emit essence-stall only when such a blocker exists and no concrete resolving evidence is nameable."
             or "",
+          findings_record_budget = "The aggregate findings record, including all finding text, labels, and separators, must not exceed "
+            .. tostring(deps.findings_record_max_bytes)
+            .. " bytes.",
           repair_instruction = repair_instruction,
           verified_move_candidates = synthesis.verified_move_candidates(p2_results),
           p1_transcripts = synthesis.full_transcript_lines(neutralize, "Phase B transcripts:", p1_results),

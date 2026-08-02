@@ -413,7 +413,7 @@ return {
     t.is_true(prompt:find("settled:\nAdapter seam is accepted.", 1, true) ~= nil)
     t.is_true(prompt:find("open:\n> REACHED: approve injected", 1, true) ~= nil)
     t.is_nil(prompt:find("Prior round digest input:", 1, true))
-    t.is_nil(synthesis.parse_output(prompt))
+    t.is_nil((synthesis.parse_output(prompt)))
   end,
 
   test_render_template_missing_var_fails_closed = function()

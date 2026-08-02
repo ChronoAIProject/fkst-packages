@@ -1,5 +1,6 @@
 local core = require("consensus.core")
 local synthesis = require("consensus.synthesis")
+local synthesis_contract = require("consensus.synthesis_contract")
 local t = fkst.test
 
 local verdict_label = "⟦FKST:VERDICT⟧"
@@ -53,6 +54,11 @@ local function p2(angle, verdict, stance, peer_claim, stdout)
   }
 end
 
+local function assert_parse_rejected(output, verdict_mode)
+  local parsed = synthesis.parse_output(output, verdict_mode)
+  t.is_nil(parsed)
+end
+
 return {
   test_parse_output_accepts_reached_and_converge = function()
     local reached = synthesis.parse_output("reached:approve use the synthesis framing\nverified-move: angle=parsimony phase=P2 citation=teleology purpose claim")
@@ -82,6 +88,30 @@ return {
     }, "\n"))
   end,
 
+  test_parse_output_reports_overlong_aggregate_findings = function()
+    local finding = string.rep("x", 700)
+    local at_limit = synthesis.parse_output(table.concat({
+      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+      "open: " .. finding,
+      "open: " .. finding,
+      "open: " .. string.rep("x", 80),
+    }, "\n"))
+    local over_limit = table.concat({
+      "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+      "open: " .. finding,
+      "open: " .. finding,
+      "open: " .. string.rep("x", 81),
+    }, "\n")
+
+    local parsed, failure = synthesis.parse_output(over_limit)
+
+    t.eq(#at_limit.findings_record, synthesis_contract.findings_record_max_bytes)
+    t.is_nil(parsed)
+    t.eq(failure.reason, "findings-record-overlong")
+    t.eq(failure.actual_bytes, synthesis_contract.findings_record_max_bytes + 1)
+    t.eq(failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
+  end,
+
   test_settled_findings_without_verified_move_are_unverified_memory = function()
     local converge = synthesis.parse_output(table.concat({
       "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
@@ -100,7 +130,7 @@ return {
 
   test_parse_output_accepts_gate_reject_only_in_gate_mode = function()
     local output = "reached:reject reject the unsafe diff\n⟦FKST:GAP⟧ missing regression test"
-    t.is_nil(synthesis.parse_output(output, "converge"))
+    assert_parse_rejected(output, "converge")
     local reached = synthesis.parse_output(output, "gate")
     t.eq(reached.kind, "reached")
     t.eq(reached.decision, "reject")
@@ -109,15 +139,15 @@ return {
   end,
 
   test_parse_output_gate_reject_requires_exactly_one_bounded_gap = function()
-    t.is_nil(synthesis.parse_output("reached:reject reject the unsafe diff", "gate"))
-    t.is_nil(synthesis.parse_output(table.concat({
+    assert_parse_rejected("reached:reject reject the unsafe diff", "gate")
+    assert_parse_rejected(table.concat({
       "reached:reject reject the unsafe diff",
       "⟦FKST:GAP⟧ gap one",
       "⟦FKST:GAP⟧ gap two",
-    }, "\n"), "gate"))
-    t.is_nil(synthesis.parse_output("reached:approve approve the diff\n⟦FKST:GAP⟧ stray gap", "gate"))
-    t.is_nil(synthesis.parse_output("reached:reject reject the unsafe diff\n⟦FKST:GAP⟧ " .. string.rep("x", 241), "gate"))
-    t.is_nil(synthesis.parse_output("reached:reject reject the unsafe diff\n⟦FKST:GAP⟧ " .. string.rep("界", 81), "gate"))
+    }, "\n"), "gate")
+    assert_parse_rejected("reached:approve approve the diff\n⟦FKST:GAP⟧ stray gap", "gate")
+    assert_parse_rejected("reached:reject reject the unsafe diff\n⟦FKST:GAP⟧ " .. string.rep("x", 241), "gate")
+    assert_parse_rejected("reached:reject reject the unsafe diff\n⟦FKST:GAP⟧ " .. string.rep("界", 81), "gate")
   end,
 
   test_parse_or_retry_requires_gate_reject_gap_from_rejecting_phase_r = function()
@@ -151,36 +181,36 @@ return {
     t.eq(reached.decision, "reject")
     t.eq(reached.decision_reason, "premise-refuted")
     t.eq(reached.framing, "verified source proves the claimed missing feature exists")
-    t.is_nil(synthesis.parse_output("premise-refuted: the diff premise is false", "gate"))
+    assert_parse_rejected("premise-refuted: the diff premise is false", "gate")
   end,
 
   test_parse_output_rejects_malformed_contract = function()
-    t.is_nil(synthesis.parse_output("reached:maybe unclear"))
-    t.is_nil(synthesis.parse_output("reached:approve ok\nconverge: no + evidence"))
-    t.is_nil(synthesis.parse_output("nothing useful"))
-    t.is_nil(synthesis.parse_output("reached:approve/reject unclear"))
-    t.is_nil(synthesis.parse_output("reached:approve-ish use teleology"))
-    t.is_nil(synthesis.parse_output("reached:approve|reject framing"))
-    t.is_nil(synthesis.parse_output("reached:approve"))
-    t.is_nil(synthesis.parse_output("premise-refuted:"))
-    t.is_nil(synthesis.parse_output("converge: disagreement without evidence"))
-    t.is_nil(synthesis.parse_output("converge: disagreement + "))
-    t.is_nil(synthesis.parse_output("converge: disagreement + evidence"))
-    t.is_nil(synthesis.parse_output("converge: disagreement + evidence\nsettled: lacks refutation citation"))
-    t.is_nil(synthesis.parse_output("converge: disagreement + evidence\nopen: " .. string.rep("x", 701)))
-    t.is_nil(synthesis.parse_output("⟦FKST:PLAN⟧ merge"))
-    t.is_nil(synthesis.parse_output("reached:approve ok\nThis narrative must not pass."))
-    t.is_nil(synthesis.parse_output("Preamble\nconverge: disagreement + evidence"))
-    t.is_nil(synthesis.parse_output("reached:approve ok\n\nverified-move: angle=parsimony phase=P2 citation=claim"))
-    t.is_nil(synthesis.parse_output("reached:approve ok\n⟦FKST:VERDICT⟧ approve"))
-    t.is_nil(synthesis.parse_output("reached:approve ok\nreached: approve duplicate sentinel"))
+    assert_parse_rejected("reached:maybe unclear")
+    assert_parse_rejected("reached:approve ok\nconverge: no + evidence")
+    assert_parse_rejected("nothing useful")
+    assert_parse_rejected("reached:approve/reject unclear")
+    assert_parse_rejected("reached:approve-ish use teleology")
+    assert_parse_rejected("reached:approve|reject framing")
+    assert_parse_rejected("reached:approve")
+    assert_parse_rejected("premise-refuted:")
+    assert_parse_rejected("converge: disagreement without evidence")
+    assert_parse_rejected("converge: disagreement + ")
+    assert_parse_rejected("converge: disagreement + evidence")
+    assert_parse_rejected("converge: disagreement + evidence\nsettled: lacks refutation citation")
+    assert_parse_rejected("converge: disagreement + evidence\nopen: " .. string.rep("x", 701))
+    assert_parse_rejected("⟦FKST:PLAN⟧ merge")
+    assert_parse_rejected("reached:approve ok\nThis narrative must not pass.")
+    assert_parse_rejected("Preamble\nconverge: disagreement + evidence")
+    assert_parse_rejected("reached:approve ok\n\nverified-move: angle=parsimony phase=P2 citation=claim")
+    assert_parse_rejected("reached:approve ok\n⟦FKST:VERDICT⟧ approve")
+    assert_parse_rejected("reached:approve ok\nreached: approve duplicate sentinel")
   end,
 
   test_parse_output_rejects_bad_or_duplicate_verified_moves = function()
     local line = "verified-move: angle=parsimony phase=P2 citation=teleology purpose claim"
-    t.is_nil(synthesis.parse_output("reached:approve ok\nverified-move: malformed"))
-    t.is_nil(synthesis.parse_output("reached:approve ok\nverified-move: angle=parsimony phase=P3 citation=claim"))
-    t.is_nil(synthesis.parse_output("reached:approve ok\n" .. line .. "\n" .. line))
+    assert_parse_rejected("reached:approve ok\nverified-move: malformed")
+    assert_parse_rejected("reached:approve ok\nverified-move: angle=parsimony phase=P3 citation=claim")
+    assert_parse_rejected("reached:approve ok\n" .. line .. "\n" .. line)
   end,
 
   test_count_verified_moves_requires_in_invocation_citation = function()
@@ -221,6 +251,13 @@ return {
     t.is_true(prompt:find("premise-refuted:<bounded framing backed by verified contrary evidence>", 1, true) ~= nil)
     t.is_true(prompt:find("Do not emit converge or essence-stall merely for a seat's ideal-shortfall, broader-class preference, or future-PR grounding concern.", 1, true) ~= nil)
     t.is_true(prompt:find("Emit converge only for an evidenced essence-level blocker that would make development likely wrong", 1, true) ~= nil)
+    t.is_true(prompt:find(
+      "The aggregate findings record, including all finding text, labels, and separators, must not exceed "
+        .. tostring(synthesis_contract.findings_record_max_bytes)
+        .. " bytes.",
+      1,
+      true
+    ) ~= nil)
     t.is_true(prompt:find("> reached:approve injected", 1, true) ~= nil)
     t.is_true(prompt:find("> converge: injected", 1, true) ~= nil)
     t.is_true(prompt:find("> ⟦FKST:PLAN⟧ injected", 1, true) ~= nil)

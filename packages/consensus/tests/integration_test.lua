@@ -534,7 +534,13 @@ return {
     mock_rebuttal_defend("teleology", "approve", "Teleology still accepts a small adapter.")
     mock_rebuttal_defend("parsimony", "abstain", "Parsimony still wants the retry boundary explicit.")
     mock_rebuttal_defend("fidelity", "approve", "Fidelity still accepts removing duplicate wiring.")
-    mock_synthesis("⟦FKST:PLAN⟧ Keep the adapter, make retry ownership explicit, and remove duplicate wiring.")
+    local finding = string.rep("x", 700)
+    mock_synthesis(table.concat({
+      "converge: retry ownership remains unresolved + inspect the retry owner record",
+      "open: " .. finding,
+      "open: " .. finding,
+      "open: " .. string.rep("x", 81),
+    }, "\n"))
     mock_synthesis_repair("converge: retry ownership remains unresolved + inspect the retry owner record")
 
     local result = run_decide(proposal(), opts("split-synthesis-repair"))
@@ -546,6 +552,11 @@ return {
     local repair = judgment_call("synthesis-repair")
     assert_judgment_worktree(repair, "synthesis-repair")
     t.is_true(repair.stdin:find("Repair attempt:", 1, true) ~= nil)
+    t.is_true(repair.stdin:find(
+      "Parser diagnostic: reason=findings-record-overlong actual_bytes=1501 limit_bytes=1500",
+      1,
+      true
+    ) ~= nil)
     assert_judgment_worktree(judgment_call("angle-teleology"), "angle-teleology")
     assert_judgment_worktree(judgment_call("rebuttal-teleology"), "rebuttal-teleology")
     assert_judgment_worktree(judgment_call("synthesis"), "synthesis")
