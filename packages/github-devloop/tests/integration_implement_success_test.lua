@@ -119,16 +119,7 @@ local function mock_base_probe(worktree, options)
   local base_probe = worktree .. "-base-probe"
   local values = options or {}
   for _ = 1, 2 do
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    h.mock_force_clean(base_probe)
   end
   t.mock_command("mkdir -p", {
     stdout = "",

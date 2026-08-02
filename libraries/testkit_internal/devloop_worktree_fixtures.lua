@@ -82,6 +82,38 @@ function M.new(deps)
     })
   end
 
+  local function command_result(exit_code, stderr, stdout)
+    return {
+      stdout = stdout or "",
+      stderr = stderr or "",
+      exit_code = exit_code,
+    }
+  end
+
+  local function mock_force_clean(worktree, options)
+    local opts = options or {}
+    local remove_result = opts.remove_result or command_result(0)
+    local directory_result = opts.directory_result or command_result(0)
+    local prune_result = opts.prune_result or command_result(0)
+    local path_result = opts.path_result or command_result(1)
+    local list_result = opts.list_result or command_result(0)
+
+    t.mock_command("git worktree remove --force", remove_result)
+    t.mock_command("rm -rf --", directory_result)
+    t.mock_command("git worktree prune", prune_result)
+    if directory_result.exit_code ~= 0 then
+      return
+    end
+    if prune_result.exit_code ~= 0 then
+      return
+    end
+    t.mock_command("[ -e ", path_result)
+    if path_result.exit_code ~= 1 then
+      return
+    end
+    t.mock_command("git worktree list --porcelain", list_result)
+  end
+
   local function shell_quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
   end
@@ -152,16 +184,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add -b", {
       stdout = "",
@@ -204,16 +227,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(worktree)
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add -B", {
       stdout = "",
@@ -288,16 +302,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(worktree, opts.force_clean)
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add", {
       stdout = "",
@@ -404,16 +409,7 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(runtime .. "/worktrees/devloop-owner-repo-42-01HY")
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add", {
       stdout = "",
@@ -465,8 +461,8 @@ function M.new(deps)
       stderr = "",
       exit_code = 0,
     })
-    for _ = 1, 2 do
-      t.mock_command("[ -d ", {
+    for _, stale in ipairs({ stale_one, stale_two }) do
+      t.mock_command("[ -d '" .. stale .. "' ]", {
         stdout = "",
         stderr = "",
         exit_code = 0,
@@ -477,16 +473,7 @@ function M.new(deps)
         exit_code = 0,
       })
     end
-    t.mock_command("git worktree remove --force", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("git worktree prune", {
-      stdout = "",
-      stderr = "",
-      exit_code = 0,
-    })
+    mock_force_clean(runtime .. "/worktrees/devloop-owner-repo-42-01HY")
     mock_worktree_parent_mkdir()
     t.mock_command("git worktree add", {
       stdout = "",
@@ -856,6 +843,7 @@ function M.new(deps)
 
   local fixtures = {
     mock_setup_worktree = mock_setup_worktree,
+    mock_force_clean = mock_force_clean,
     deterministic_branch_for = deterministic_branch_for,
     mock_fresh_implement_worktree = mock_fresh_implement_worktree,
     mock_fresh_external_pr_implement_worktree = mock_fresh_external_pr_implement_worktree,
