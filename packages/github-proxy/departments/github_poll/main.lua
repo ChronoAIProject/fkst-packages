@@ -84,17 +84,17 @@ local function replay_allowance(replay_candidates, budget)
   return allowed
 end
 
-local function item_dedup_key(repo, item, delivery_index)
+local function item_dedup_key(repo, item, delivery_index, queue)
   local entity = item.entity
   local base_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
-  return delivery_index.key_for(changed_queue, base_key)
+  return delivery_index.key_for(queue, base_key)
 end
 
 local function raise_changed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
     local entity = item.entity
     if item.level_replay or cache_get(item.key) ~= entity.updated_at then
-      local dedup_key = item_dedup_key(repo, item, delivery_index)
+      local dedup_key = item_dedup_key(repo, item, delivery_index, changed_queue)
       -- At-least-once: raise before cache_set. If this process crashes
       -- before the write, the next tick raises the same dedup_key again.
       raise("github_entity_changed", {
@@ -122,17 +122,6 @@ local function raise_changed_item(repo, item, poll_token, delivery_index)
   end)
 end
 
-local function observed_dedup_key(repo, item, delivery_index)
-  local entity = item.entity
-  local base_key = "github-issue-observed/"
-    .. tostring(repo)
-    .. "/"
-    .. tostring(entity.number)
-    .. "/"
-    .. tostring(entity.updated_at)
-  return delivery_index.key_for(observed_queue, base_key)
-end
-
 local function raise_observed_item(repo, item, poll_token, delivery_index)
   with_lock(item.key, function()
     local entity = item.entity
@@ -143,7 +132,7 @@ local function raise_observed_item(repo, item, poll_token, delivery_index)
         repo = repo,
         number = entity.number,
         updated_at = entity.updated_at,
-        dedup_key = observed_dedup_key(repo, item, delivery_index),
+        dedup_key = item_dedup_key(repo, item, delivery_index, observed_queue),
         poll_token = poll_token,
         source = "gh",
         source_ref = core.entity_source_ref(repo, "issue", entity.number),

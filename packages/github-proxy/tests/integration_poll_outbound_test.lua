@@ -387,13 +387,14 @@ return {
     t.eq(result.raises[1].payload.source_ref.ref, "owner/x#issue/50")
   end,
 
-  test_inbound_poll_reuses_stable_dedup_key_for_unchanged_unassigned_intake_candidate = function()
+  test_inbound_poll_reuses_stable_entity_version_dedup_keys_across_raise_paths = function()
     local run_opts = opts("stable-level-replay-dedup", { FKST_GITHUB_PROXY_REPLAY_BUDGET = "1" })
     local intake = '{"number":50,"title":"Issue 50","html_url":"https://github.example/owner/x/issues/50","updated_at":"2026-06-03T01:04:00Z","state":"open","author":{"login":"fkst-test-bot"},"labels":[{"name":"bug"}],"assignees":[]}'
+    local managed = issue_json(42, "2026-06-03T01:02:00Z")
 
     local function poll(timestamp)
       mock_poll_env("1")
-      mock_issue_list(issue_list_from({ intake }))
+      mock_issue_list(issue_list_from({ managed, intake }))
       mock_pr_list("[]\n")
       local result = t.run_department("departments/github_poll/main.lua", {
         queue = "github_poll_tick",
@@ -401,16 +402,31 @@ return {
         ts = timestamp,
       }, run_opts)
       t.eq(result.exit_code, 0)
-      t.eq(#result.raises, 1)
-      t.eq(result.raises[1].queue, "github_entity_changed")
-      return result.raises[1].payload
+      t.eq(#result.raises, 2)
+      return result
     end
 
+    poll("poll-stable-0")
     local first = poll("poll-stable-1")
     local second = poll("poll-stable-2")
-    t.is_true(first.poll_token ~= second.poll_token)
-    t.eq(first.dedup_key, second.dedup_key)
-    t.eq(first.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
+    local first_changed = changed_raises(first.raises)
+    local second_changed = changed_raises(second.raises)
+    local first_observed = observed_issue_raises(first.raises)
+    local second_observed = observed_issue_raises(second.raises)
+
+    t.eq(#first_changed, 1)
+    t.eq(#second_changed, 1)
+    t.eq(first_changed[1].payload.number, 50)
+    t.is_true(first_changed[1].payload.poll_token ~= second_changed[1].payload.poll_token)
+    t.eq(first_changed[1].payload.dedup_key, second_changed[1].payload.dedup_key)
+    t.eq(first_changed[1].payload.dedup_key, "owner/x#issue#50@2026-06-03T01:04:00Z")
+
+    t.eq(#first_observed, 1)
+    t.eq(#second_observed, 1)
+    t.eq(first_observed[1].payload.number, 42)
+    t.is_true(first_observed[1].payload.poll_token ~= second_observed[1].payload.poll_token)
+    t.eq(first_observed[1].payload.dedup_key, second_observed[1].payload.dedup_key)
+    t.eq(first_observed[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:00Z")
   end,
 
   test_inbound_poll_level_replays_every_open_unassigned_issue_regardless_of_configured_prefix = function()
@@ -448,7 +464,7 @@ return {
     t.eq(second_changed[1].payload.dedup_key, first.raises[1].payload.dedup_key)
     local second_observed = observed_issue_raises(second.raises)
     t.eq(#second_observed, 1)
-    t.eq(second_observed[1].payload.dedup_key, "github-issue-observed/owner/x/42/2026-06-03T01:02:00Z")
+    t.eq(second_observed[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:00Z")
 
     mock_poll_env("1", "fkst-class:")
     mock_issue_list(issue_list_from({
