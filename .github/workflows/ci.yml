@@ -95,9 +95,22 @@ jobs:
         env:
           BIN: ${{ github.workspace }}/fkst-substrate/target/debug/fkst-framework
           FKST_LUA_COVERAGE_OUTPUT: ${{ github.workspace }}/.fkst/run/lua-coverage/coverage.json
+          FKST_TEST_REPORT_DIR: ${{ github.workspace }}/.fkst/run/test-reports
         run: |
           test -x "$BIN"
           scripts/run.sh test
+
+      # Per-test outcomes exist in every run as `--report-json` files and were discarded with
+      # their scratch dir, so a CI run's per-test results could not be inspected afterwards and
+      # the summary counts were the only surviving evidence. Uploaded on failure too — that is
+      # the case where they are actually needed.
+      - name: Upload test reports artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: .fkst/run/test-reports
+          if-no-files-found: warn
 
       - name: Upload Lua coverage artifact
         uses: actions/upload-artifact@v4
