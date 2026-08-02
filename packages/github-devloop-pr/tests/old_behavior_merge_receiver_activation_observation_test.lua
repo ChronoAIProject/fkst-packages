@@ -574,10 +574,20 @@ local function capture(fixture)
   return ra.record({ dept = "merge", fixture = fixture, result = result, captured = captured, event = event,
     prefix = PREFIX, site = SITE, source_state = "merge-ready", boundary = "entry_acceptor",
     evidence_path = fixture.evidence_path or "packages/github-devloop-pr/core/merge_executor.lua",
-  })
+  }), captured
 end
 
 return {
+  test_external_ci_hold_logs_only_hold = function()
+    local _, captured = capture(DELEGATION_FIXTURES[1])
+    local hold_seen = false
+    for _, gate in ipairs(captured.gates) do
+      if gate.outcome == "hold" then hold_seen = true end
+      t.eq(gate.outcome == "fixing", false, "external CI must not be logged as fixing")
+    end
+    t.is_true(hold_seen, "external CI must be logged as hold")
+  end,
+
   test_verified_merge_sink_consumes_exact_eligible_now_grant = function()
     local restart_effects = require("core.restart_effects")
     local original = restart_effects.verify_grant
