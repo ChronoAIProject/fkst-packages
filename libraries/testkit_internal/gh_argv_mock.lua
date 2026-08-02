@@ -919,16 +919,6 @@ local function install_legacy_command_renderers(core)
   core.git_worktree_list_cmd = core.git_worktree_list_cmd or function()
     return "git worktree list --porcelain"
   end
-  core.git_worktree_remove_cmd = core.git_worktree_remove_cmd or function(worktree)
-    return "git worktree remove --force " .. shell_single_quote(worktree)
-  end
-  core.git_worktree_prune_cmd = core.git_worktree_prune_cmd or function()
-    return "git worktree prune"
-  end
-  core.git_worktree_force_clean_cmd = core.git_worktree_force_clean_cmd or function(worktree)
-    local quoted = shell_single_quote(worktree)
-    return "git worktree remove --force " .. quoted .. " 2>/dev/null; rm -rf " .. quoted .. "; git worktree prune"
-  end
 end
 
 local function gh_issue_view_entity_command(repo, issue_number)
