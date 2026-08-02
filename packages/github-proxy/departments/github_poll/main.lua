@@ -80,20 +80,16 @@ local function replay_allowance(replay_candidates, budget)
   return allowed
 end
 
-local function item_dedup_key(repo, item, poll_token)
+local function item_dedup_key(repo, item)
   local entity = item.entity
-  local dedup_key = core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
-  if item.level_replay then
-    return dedup_key .. "/poll/" .. tostring(poll_token or now())
-  end
-  return dedup_key
+  return core.entity_dedup_key(repo, item.entity_type, entity.number, entity.updated_at)
 end
 
 local function raise_changed_item(repo, item, poll_token)
   with_lock(item.key, function()
     local entity = item.entity
     if item.level_replay or cache_get(item.key) ~= entity.updated_at then
-      local dedup_key = item_dedup_key(repo, item, poll_token)
+      local dedup_key = item_dedup_key(repo, item)
       -- At-least-once: raise before cache_set. If this process crashes
       -- before the write, the next tick raises the same dedup_key again.
       raise("github_entity_changed", {
