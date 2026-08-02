@@ -1,4 +1,5 @@
 local core = require("consensus.core")
+local synthesis_contract = require("consensus.synthesis_contract")
 local reach_test_helper = require("tests.reach_test_helpers")
 local t = fkst.test
 require("tests.cache_seed_helpers")
@@ -538,11 +539,14 @@ return {
     mock_rebuttal_defend("parsimony", "abstain", "Parsimony still wants the retry boundary explicit.")
     mock_rebuttal_defend("fidelity", "approve", "Fidelity still accepts removing duplicate wiring.")
     local finding = string.rep("x", 700)
+    local finding_prefix = "open:\n"
+    local final_finding_len = synthesis_contract.findings_record_max_bytes + 1
+      - (2 * (#finding_prefix + #finding) + #finding_prefix + 2 * #"\n")
     mock_synthesis(table.concat({
       "converge: retry ownership remains unresolved + inspect the retry owner record",
       "open: " .. finding,
       "open: " .. finding,
-      "open: " .. string.rep("x", 81),
+      "open: " .. string.rep("x", final_finding_len),
     }, "\n"))
     mock_synthesis_repair("converge: retry ownership remains unresolved + inspect the retry owner record")
 
@@ -555,7 +559,9 @@ return {
     local synthesis_call = judgment_call("synthesis")
     assert_judgment_worktree(synthesis_call, "synthesis")
     t.is_true(synthesis_call.stdin:find(
-      "The aggregate findings record, including all finding text, labels, and separators, must not exceed 1500 bytes.",
+      "The aggregate findings record, including all finding text, labels, and separators, must not exceed "
+        .. tostring(synthesis_contract.findings_record_max_bytes)
+        .. " bytes.",
       1,
       true
     ) ~= nil)
@@ -563,7 +569,10 @@ return {
     assert_judgment_worktree(repair, "synthesis-repair")
     t.is_true(repair.stdin:find("Repair attempt:", 1, true) ~= nil)
     t.is_true(repair.stdin:find(
-      "Parser diagnostic: reason=findings-record-overlong actual_bytes=1501 limit_bytes=1500",
+      "Parser diagnostic: reason=findings-record-overlong actual_bytes="
+        .. tostring(synthesis_contract.findings_record_max_bytes + 1)
+        .. " limit_bytes="
+        .. tostring(synthesis_contract.findings_record_max_bytes),
       1,
       true
     ) ~= nil)
