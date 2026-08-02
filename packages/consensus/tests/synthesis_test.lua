@@ -95,6 +95,10 @@ local function synthesis_output_with_findings_bytes(byte_length, token)
 end
 
 return {
+  test_findings_record_budget_matches_approved_contract = function()
+    t.eq(synthesis_contract.findings_record_max_bytes, 1500)
+  end,
+
   test_parse_output_accepts_reached_and_converge = function()
     local reached = synthesis.parse_output("reached:approve use the synthesis framing\nverified-move: angle=parsimony phase=P2 citation=teleology purpose claim")
     t.eq(reached.kind, "reached")
