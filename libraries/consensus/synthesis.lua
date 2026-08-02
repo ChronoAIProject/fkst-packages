@@ -532,9 +532,9 @@ function M.to_decision_result(proposal, p1_results, p2_results, parsed, caps)
   }
 end
 
-function M.build_prompt(ctx, repair, prior_result)
+function M.build_prompt(ctx, repair, prior_result, parse_failure)
   local prompt = require("consensus.prompts.synthesis")
-  local vars = ctx.vars(repair, prior_result)
+  local vars = ctx.vars(repair, prior_result, parse_failure)
   return ctx.render_prompt_template(prompt.template, vars, ctx.proposal)
 end
 

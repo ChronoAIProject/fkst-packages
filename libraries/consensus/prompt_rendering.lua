@@ -255,7 +255,7 @@ function M.install(core, deps)
       render_prompt_template = function(template, vars, target_proposal)
         return core.render_prompt_template(template, vars, target_proposal)
       end,
-      vars = function(repair, prior_result)
+      vars = function(repair, prior_result, parse_failure)
         local context_block = ""
         if proposal.context ~= nil and proposal.context ~= "" then
           context_block = "Context:\n" .. neutralize(proposal.context)
@@ -269,7 +269,6 @@ function M.install(core, deps)
         local repair_instruction = "This is the first synthesis attempt."
         if repair then
           local stdout = type(prior_result) == "table" and prior_result.stdout or ""
-          local parse_failure = options and options.parse_failure
           repair_instruction = table.concat({
             "Repair attempt: the previous synthesis output failed validation.",
             "Parser diagnostic: " .. synthesis.format_parse_failure(parse_failure) .. ".",
@@ -301,7 +300,7 @@ function M.install(core, deps)
           p2_transcripts = synthesis.full_transcript_lines(neutralize, "Phase R transcripts:", p2_results),
         }
       end,
-    }, options and options.repair, options and options.prior_result)
+    }, options and options.repair, options and options.prior_result, options and options.parse_failure)
   end
 end
 
