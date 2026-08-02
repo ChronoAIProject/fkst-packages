@@ -226,7 +226,7 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
 
         self.assertEqual(self.messages(), [])
 
-    def test_manifest_subject_resolves_to_earliest_matching_ancestor(self) -> None:
+    def test_manifest_subject_resolves_to_unique_introduction(self) -> None:
         self.add_growth()
         artifact = self.manifest()
         self.write_manifest(artifact)
@@ -249,6 +249,18 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
             ),
             introduced,
         )
+
+    def test_manifest_mutation_does_not_replace_the_admitted_subject(self) -> None:
+        self.add_growth()
+        artifact = self.manifest()
+        self.write_manifest(artifact)
+        artifact["review_reference"] = "review:replacement"
+        artifact["manifest_sha256"] = canonical_artifact_hash_v1(artifact)
+        self.write_manifest(artifact)
+
+        messages = self.messages()
+        self.assertTrue(any("immutable subject" in message for message in messages))
+        self.assertTrue(any("grows" in message for message in messages))
 
     def test_manifest_subject_remains_admitted_after_dev_forward_merge(self) -> None:
         self.add_growth()

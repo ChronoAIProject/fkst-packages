@@ -1729,16 +1729,18 @@ Manifest：
 An intent-diff manifest authorizes one immutable semantic subject; it is not a
 rolling attestation for the aggregate integration head. While its allowlist
 entry is absent from the current protected base, CI must find an ancestor of
-`HEAD` that contains the exact current manifest blob, descends from the
-manifest's recorded `base_sha`, and recomputes both declared semantic hashes.
-CI resolves the oldest such subject in topological history and requires its
-merge-base with the current protected base to equal the recorded `base_sha`.
-Later integration commits and forward-merges must preserve that subject by
-ancestry rather than re-bind it to the new merge-base or `HEAD`. The current
-protected base controls only whether the entry is still pending admission: once
-that base contains the allowlist entry, the one-use authorization is
-discharged. A later behavior delta remains independently subject to the normal
-manifest admission gates and cannot reuse the discharged identity.
+`HEAD` at the manifest path's unique introduction. That introduction must
+contain the exact current manifest blob, descend from the manifest's recorded
+`base_sha`, and recompute both declared semantic hashes. A later replacement or
+delete-and-readd cannot become a new subject anchor. CI requires the
+introduction commit's merge-base with the current protected base to equal the
+recorded `base_sha`. Later integration commits and forward-merges must preserve
+that subject by ancestry rather than re-bind it to the new merge-base or
+`HEAD`. The current protected base controls only whether the entry is still
+pending admission: once that base contains the allowlist entry, the one-use
+authorization is discharged. A later behavior delta remains independently
+subject to the normal manifest admission gates and cannot reuse the discharged
+identity.
 
 Manifest不得包含 authoritative exact `head_sha`或 whole-diff self-binding。
 

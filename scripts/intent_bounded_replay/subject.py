@@ -33,14 +33,16 @@ def manifest_subject_commit(
     head_ref: str = "HEAD",
     manifest_blob: bytes | None = None,
 ) -> str | None:
-    """Return a manifest-bearing ancestor matching the declared semantic subject."""
+    """Return the unique manifest introduction when it matches the declared subject."""
     history = subprocess.run(
         [
             "git",
-            "rev-list",
+            "log",
+            "--format=%H",
             "--reverse",
             "--topo-order",
             "--full-history",
+            "--diff-filter=A",
             head_ref,
             "--",
             relative,
@@ -53,48 +55,51 @@ def manifest_subject_commit(
     )
     if history.returncode != 0:
         detail = history.stderr.strip()
-        raise RuntimeError(f"git rev-list failed ({history.returncode}): {detail}")
+        raise RuntimeError(f"git log failed ({history.returncode}): {detail}")
 
+    introductions = history.stdout.splitlines()
+    if len(introductions) != 1:
+        return None
+    commit = introductions[0]
+    if GIT_SHA_RE.fullmatch(commit) is None:
+        raise RuntimeError(f"git log returned invalid object ID {commit!r}")
     expected_blob = (
         manifest_blob if manifest_blob is not None else (root / relative).read_bytes()
     )
-    for commit in history.stdout.splitlines():
-        if GIT_SHA_RE.fullmatch(commit) is None:
-            raise RuntimeError(f"git rev-list returned invalid object ID {commit!r}")
-        historical_blob = subprocess.run(
-            ["git", "show", f"{commit}:{relative}"],
-            cwd=root,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+    historical_blob = subprocess.run(
+        ["git", "show", f"{commit}:{relative}"],
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if historical_blob.returncode != 0 or historical_blob.stdout != expected_blob:
+        return None
+    subject_base = subprocess.run(
+        ["git", "merge-base", commit, protected_base],
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if subject_base.returncode != 0:
+        detail = subject_base.stderr.strip()
+        raise RuntimeError(
+            f"git merge-base failed ({subject_base.returncode}): {detail}"
         )
-        if historical_blob.returncode != 0 or historical_blob.stdout != expected_blob:
-            continue
-        subject_base = subprocess.run(
-            ["git", "merge-base", commit, protected_base],
-            cwd=root,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if subject_base.returncode != 0:
-            detail = subject_base.stderr.strip()
-            raise RuntimeError(
-                f"git merge-base failed ({subject_base.returncode}): {detail}"
-            )
-        resolved_base = subject_base.stdout.strip()
-        if GIT_SHA_RE.fullmatch(resolved_base) is None:
-            raise RuntimeError(f"git merge-base returned invalid object ID {resolved_base!r}")
-        if artifact["base_sha"] != resolved_base:
-            continue
-        if (
-            artifact["semantic_tree_sha256"] == semantic_tree_sha256(root, commit)
-            and artifact["semantic_diff_sha256"]
-            == semantic_diff_sha256(root, artifact["base_sha"], commit)
-        ):
-            return commit
-    return None
+    resolved_base = subject_base.stdout.strip()
+    if GIT_SHA_RE.fullmatch(resolved_base) is None:
+        raise RuntimeError(f"git merge-base returned invalid object ID {resolved_base!r}")
+    if artifact["base_sha"] != resolved_base:
+        return None
+    if (
+        artifact["semantic_tree_sha256"] != semantic_tree_sha256(root, commit)
+        or artifact["semantic_diff_sha256"]
+        != semantic_diff_sha256(root, artifact["base_sha"], commit)
+    ):
+        return None
+    return commit
 
 
 def included_subject_messages(
