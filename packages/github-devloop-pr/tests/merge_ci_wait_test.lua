@@ -20,6 +20,7 @@ return {
       end,
     }, { payload = {} })
 
+    t.eq(result.failure, nil)
     t.eq(result.result.status, "hold")
     t.eq(result.result.reason, "ci-unknown")
     t.eq(#result.raises, 1)
