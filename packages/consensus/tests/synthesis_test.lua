@@ -114,18 +114,18 @@ return {
   end,
 
   test_parse_output_measures_aggregate_findings_in_utf8_bytes = function()
-    local finding = string.rep("界", 230)
+    local finding = string.rep("café", 140)
     local at_limit = synthesis.parse_output(table.concat({
       "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
       "open: " .. finding,
       "open: " .. finding,
-      "open: " .. string.rep("界", 33) .. "x",
+      "open: " .. string.rep("café", 16),
     }, "\n"))
     local parsed, failure = synthesis.parse_output(table.concat({
       "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
       "open: " .. finding,
       "open: " .. finding,
-      "open: " .. string.rep("界", 33) .. "xy",
+      "open: " .. string.rep("café", 16) .. "x",
     }, "\n"))
 
     t.eq(#at_limit.findings_record, synthesis_contract.findings_record_max_bytes)
