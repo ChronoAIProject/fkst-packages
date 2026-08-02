@@ -21,9 +21,7 @@ from intent_bounded_replay.normalize import (
 from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_tree_sha256
 from intent_bounded_replay.subject import (
     GIT_SHA_RE,
-    bound_subject_messages,
     included_subject_messages,
-    manifest_subject_commit,
 )
 
 import ratchet_base
@@ -649,23 +647,11 @@ def _manifest_messages(
     return messages
 
 
-def _bound_manifest_messages(
-    root: Path,
-    artifact: dict[str, Any],
-    relative: str,
-    base_sha: str,
-    head_ref: str = "HEAD",
-) -> list[str]:
-    messages = _manifest_messages(artifact, relative, int(MANIFEST_RE.fullmatch(Path(relative).name).group("pr")))
-    if messages:
-        return messages
-    return bound_subject_messages(root, artifact, relative, base_sha, head_ref)
-
-
 def _included_manifest_messages(
     root: Path,
     artifact: dict[str, Any],
     relative: str,
+    protected_base: str,
     head_ref: str = "HEAD",
     manifest_blob: bytes | None = None,
 ) -> list[str]:
@@ -676,6 +662,7 @@ def _included_manifest_messages(
         root,
         artifact,
         relative,
+        protected_base,
         head_ref,
         manifest_blob=manifest_blob,
     )
@@ -882,7 +869,7 @@ def repository_messages(root: Path, enforce_base: bool = False) -> list[str]:
             if artifact is None
             else [f"cannot resolve protected merge-base for {entry}"]
             if protected_base is None
-            else _included_manifest_messages(root, artifact, entry)
+            else _included_manifest_messages(root, artifact, entry, protected_base)
         )
         messages.extend(bound_messages)
         if bound_messages or not _step8_complete(root, protected_base, "HEAD"):

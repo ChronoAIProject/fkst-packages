@@ -603,6 +603,15 @@ class RestartPreflightTest(unittest.TestCase):
         self.write_valid_manifest()
         self.assertTrue(any("anomaly-transport-activation" in message for message in self.messages()))
 
+    def test_extra_anomaly_atom_after_manifest_is_rejected(self) -> None:
+        self.activate_anomaly_transport()
+        self.commit_transport()
+        self.write_valid_manifest()
+        self.activate_anomaly_transport(extra_queue=True)
+        self.commit()
+
+        self.assertTrue(any("anomaly-transport-activation" in message for message in self.messages()))
+
     def test_unused_manifest_authorization_atom_is_rejected(self) -> None:
         self.activate_anomaly_transport()
         self.commit_transport()

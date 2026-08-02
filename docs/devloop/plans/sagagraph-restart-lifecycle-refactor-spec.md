@@ -1731,6 +1731,8 @@ rolling attestation for the aggregate integration head. While its allowlist
 entry is absent from the current protected base, CI must find an ancestor of
 `HEAD` that contains the exact current manifest blob, descends from the
 manifest's recorded `base_sha`, and recomputes both declared semantic hashes.
+CI resolves the oldest such subject in topological history and requires its
+merge-base with the current protected base to equal the recorded `base_sha`.
 Later integration commits and forward-merges must preserve that subject by
 ancestry rather than re-bind it to the new merge-base or `HEAD`. The current
 protected base controls only whether the entry is still pending admission: once

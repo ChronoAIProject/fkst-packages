@@ -15,6 +15,7 @@ from typing import Any, Iterable
 
 import check_repo_intent_bounded_replay as intent_replay
 from intent_bounded_replay.normalize import loads_json
+from intent_bounded_replay.subject import manifest_subject_commit
 
 INVENTORY = "migration/restart-lifecycle.inventory.json"
 SEMANTIC_TREE_CONTROL = "scripts/intent_bounded_replay/semantic_tree.py"
@@ -399,7 +400,7 @@ def _step8_complete(root: Path, base: str, head_ref: str) -> bool:
 
 
 def _anomaly_manifest(
-    root: Path, head_ref: str, changed: set[str], paths: list[str],
+    root: Path, base: str, head_ref: str, changed: set[str], paths: list[str],
 ) -> tuple[dict[str, object], str] | None:
     changed_manifests = sorted(
         path for path in changed
@@ -425,14 +426,16 @@ def _anomaly_manifest(
             root,
             artifact,
             relative,
+            base,
             head_ref,
             manifest_blob,
         ):
             return None
-        subject_commit = intent_replay.manifest_subject_commit(
+        subject_commit = manifest_subject_commit(
             root,
             artifact,
             relative,
+            base,
             head_ref,
             manifest_blob=manifest_blob,
         )
@@ -455,21 +458,50 @@ def _anomaly_manifest(
 
 
 def _r7_anomaly_admitted(
-    root: Path, head_ref: str, changed: set[str], paths: list[str],
+    root: Path, base: str, head_ref: str, changed: set[str], paths: list[str],
 ) -> bool:
-    subject = _anomaly_manifest(root, head_ref, changed, paths)
+    subject = _anomaly_manifest(root, base, head_ref, changed, paths)
     if subject is None:
         return False
     artifact, subject_head = subject
     subject_base = artifact["base_sha"]
     if not isinstance(subject_base, str) or not _step8_complete(
         root, subject_base, subject_head
-    ):
+    ) or not _step8_complete(root, base, head_ref):
         return False
+
+    subject_delta = _r7_anomaly_delta(root, subject_base, subject_head)
+    current_delta = _r7_anomaly_delta(root, base, head_ref)
+    if subject_delta is None or current_delta is None:
+        return False
+
+    subject_exact, subject_changed, subject_safe, subject_atoms = subject_delta
+    current_exact, _, current_safe, current_atoms = current_delta
+    subject_only = subject_changed == R7_PRODUCTION_PATHS and all(
+        artifact[field] == []
+        for field in ("changed_row_ids", "changed_edge_ids", "changed_policy_ids")
+    )
+    authorized_atoms = artifact["anomaly_transport"]
+    return (
+        subject_exact
+        and current_exact
+        and subject_only
+        and subject_safe
+        and current_safe
+        and authorized_atoms == subject_atoms
+        and authorized_atoms == current_atoms
+    )
+
+
+def _r7_anomaly_delta(
+    root: Path,
+    base: str,
+    head_ref: str,
+) -> tuple[bool, set[str], bool, dict[str, object]] | None:
     try:
-        subject_changed = _changed_paths(root, subject_base, subject_head)
+        changed = _changed_paths(root, base, head_ref)
     except RuntimeError:
-        return False
+        return None
 
     owner_produces: Counter[str] = Counter()
     deliveries: Counter[str] = Counter()
@@ -478,29 +510,29 @@ def _r7_anomaly_admitted(
         owner_produces.update(
             _qualify_queue(owner, queue)
             for queue in _added_lua_values(
-                root, subject_base, subject_head, path, "produces"
+                root, base, head_ref, path, "produces"
             ).elements()
         )
         deliveries.update(
-            _raise_records(_text(root, subject_head, path), path)
-            - _raise_records(_text(root, subject_base, path), path)
+            _raise_records(_text(root, head_ref, path), path)
+            - _raise_records(_text(root, base, path), path)
         )
     consumes = _added_lua_values(
-        root, subject_base, subject_head, R7_OPS_DEPARTMENT, "consumes"
+        root, base, head_ref, R7_OPS_DEPARTMENT, "consumes"
     )
     ephemeral = _added_lua_values(
-        root, subject_base, subject_head, R7_OPS_DEPARTMENT, "ephemeral"
+        root, base, head_ref, R7_OPS_DEPARTMENT, "ephemeral"
     )
     dependencies = _event_dependencies(
-        _text(root, subject_head, R7_OPS_MANIFEST)
+        _text(root, head_ref, R7_OPS_MANIFEST)
     ) - _event_dependencies(
-        _text(root, subject_base, R7_OPS_MANIFEST)
+        _text(root, base, R7_OPS_MANIFEST)
     )
     sinks: Counter[str] = Counter()
     for path, owner in R7_SINK_INVENTORIES.items():
         sinks.update(
-            _sink_records(_text(root, subject_head, path), owner)
-            - _sink_records(_text(root, subject_base, path), owner)
+            _sink_records(_text(root, head_ref, path), owner)
+            - _sink_records(_text(root, base, path), owner)
         )
 
     expected_deliveries = {
@@ -516,20 +548,16 @@ def _r7_anomaly_admitted(
         and dependencies == {"github-devloop-pr"}
     )
     semantic_changed = {
-        path for path in subject_changed
+        path for path in changed
         if path.endswith((".lua", ".toml"))
         and path.startswith(("packages/github-devloop/", "packages/github-devloop-pr/", "packages/github-devloop-ops/"))
         and "/tests/" not in path
     }
-    no_other_behavior = semantic_changed == R7_PRODUCTION_PATHS and all(
-        artifact[field] == []
-        for field in ("changed_row_ids", "changed_edge_ids", "changed_policy_ids")
-    )
     no_durable_or_grant_path = all(
         not _new_matches(
             pattern,
-            _text(root, subject_base, path),
-            _text(root, subject_head, path),
+            _text(root, base, path),
+            _text(root, head_ref, path),
         )
         for path in R7_PRODUCTION_PATHS
         for pattern in (DURABLE_TRANSPORT_RE, GRANT_TRANSPORT_RE)
@@ -541,7 +569,7 @@ def _r7_anomaly_admitted(
         "ingestion": R7_INGESTION if consumes else "",
         "package_visible_delivery_delta": ";".join(sorted(deliveries, key=lambda item: item.encode("utf-8"))),
     }
-    return exact_shape and no_other_behavior and no_durable_or_grant_path and artifact["anomaly_transport"] == actual_atoms
+    return exact_shape, semantic_changed, no_durable_or_grant_path, actual_atoms
 
 
 def _inventory_contract(
@@ -668,7 +696,9 @@ def _anomaly_activation_messages(
             messages.append(
                 f"anomaly-transport-activation: {path} activates restart anomaly production, ingestion, dependency, or delivery during refactor"
             )
-    if messages and _r7_anomaly_admitted(root, head_ref, changed, _tracked_paths(root, head_ref)):
+    if messages and _r7_anomaly_admitted(
+        root, base, head_ref, changed, _tracked_paths(root, head_ref)
+    ):
         return []
     return messages
 

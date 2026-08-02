@@ -22,6 +22,7 @@ from intent_bounded_replay.normalize import (
     loads_json,
 )
 from intent_bounded_replay.semantic_tree import semantic_diff_sha256, semantic_tree_sha256
+from intent_bounded_replay.subject import manifest_subject_commit
 
 
 ZERO_HASH = "0" * 64
@@ -225,6 +226,30 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
 
         self.assertEqual(self.messages(), [])
 
+    def test_manifest_subject_resolves_to_earliest_matching_ancestor(self) -> None:
+        self.add_growth()
+        artifact = self.manifest()
+        self.write_manifest(artifact)
+        introduced = git(self.root, "rev-parse", "HEAD")
+        git(self.root, "branch", "dev", self.base)
+        git(self.root, "checkout", "-q", "dev")
+        self.write("upstream.txt", "temporary protected state\n")
+        self.commit("temporary protected state")
+        (self.root / "upstream.txt").unlink()
+        self.commit("restore protected state")
+        git(self.root, "checkout", "-q", self.integration_branch)
+        git(self.root, "merge", "--no-ff", "-m", "forward merge dev", "dev")
+
+        self.assertEqual(
+            manifest_subject_commit(
+                self.root,
+                artifact,
+                f"{checker.INTENT_DIFF_DIR}/123.json",
+                self.base,
+            ),
+            introduced,
+        )
+
     def test_manifest_subject_remains_admitted_after_dev_forward_merge(self) -> None:
         self.add_growth()
         self.write_manifest(self.manifest())
@@ -275,6 +300,22 @@ class ManifestGrowthAdmissionTest(unittest.TestCase):
         self.add_growth()
         artifact = self.manifest(base_sha="f" * 40)
         self.write_manifest(artifact)
+        self.assertTrue(any("grows" in message for message in self.messages()))
+
+    def test_reachable_non_protected_base_does_not_admit_growth(self) -> None:
+        older_base = self.base
+        self.write("protected.txt", "new protected baseline\n")
+        self.base = self.commit("advance protected baseline")
+        self.add_growth()
+        artifact = self.manifest()
+        artifact["base_sha"] = older_base
+        artifact["semantic_diff_sha256"] = semantic_diff_sha256(self.root, older_base)
+        artifact["one_use_identity"] = "/".join(str(artifact[field]) for field in (
+            "pr_number", "base_sha", "semantic_tree_sha256", "semantic_diff_sha256",
+        ))
+        artifact["manifest_sha256"] = canonical_artifact_hash_v1(artifact)
+        self.write_manifest(artifact)
+
         self.assertTrue(any("grows" in message for message in self.messages()))
 
     def test_reused_one_use_identity_does_not_admit_growth(self) -> None:

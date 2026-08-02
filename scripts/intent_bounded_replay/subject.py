@@ -29,12 +29,22 @@ def manifest_subject_commit(
     root: Path,
     artifact: Mapping[str, Any],
     relative: str,
+    protected_base: str,
     head_ref: str = "HEAD",
     manifest_blob: bytes | None = None,
 ) -> str | None:
     """Return a manifest-bearing ancestor matching the declared semantic subject."""
     history = subprocess.run(
-        ["git", "rev-list", "--full-history", head_ref, "--", relative],
+        [
+            "git",
+            "rev-list",
+            "--reverse",
+            "--topo-order",
+            "--full-history",
+            head_ref,
+            "--",
+            relative,
+        ],
         cwd=root,
         check=False,
         stdout=subprocess.PIPE,
@@ -60,21 +70,24 @@ def manifest_subject_commit(
         )
         if historical_blob.returncode != 0 or historical_blob.stdout != expected_blob:
             continue
-        ancestry = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", artifact["base_sha"], commit],
+        subject_base = subprocess.run(
+            ["git", "merge-base", commit, protected_base],
             cwd=root,
             check=False,
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        if ancestry.returncode == 1:
-            continue
-        if ancestry.returncode != 0:
-            detail = ancestry.stderr.strip()
+        if subject_base.returncode != 0:
+            detail = subject_base.stderr.strip()
             raise RuntimeError(
-                f"git merge-base --is-ancestor failed ({ancestry.returncode}): {detail}"
+                f"git merge-base failed ({subject_base.returncode}): {detail}"
             )
+        resolved_base = subject_base.stdout.strip()
+        if GIT_SHA_RE.fullmatch(resolved_base) is None:
+            raise RuntimeError(f"git merge-base returned invalid object ID {resolved_base!r}")
+        if artifact["base_sha"] != resolved_base:
+            continue
         if (
             artifact["semantic_tree_sha256"] == semantic_tree_sha256(root, commit)
             and artifact["semantic_diff_sha256"]
@@ -84,37 +97,11 @@ def manifest_subject_commit(
     return None
 
 
-def bound_subject_messages(
-    root: Path,
-    artifact: Mapping[str, Any],
-    relative: str,
-    base_sha: str,
-    head_ref: str = "HEAD",
-) -> list[str]:
-    """Validate a live candidate against its explicit protected base and head."""
-    messages = _identity_messages(artifact, relative)
-    if artifact["base_sha"] != base_sha:
-        messages.append(f"{relative} base_sha must equal protected merge-base {base_sha}")
-    try:
-        actual_tree = semantic_tree_sha256(root, head_ref)
-        actual_diff = semantic_diff_sha256(root, base_sha, head_ref)
-    except Exception as error:
-        return messages + [f"{relative} cannot recompute semantic hashes: {error}"]
-    for field, actual in (
-        ("semantic_tree_sha256", actual_tree),
-        ("semantic_diff_sha256", actual_diff),
-    ):
-        if artifact[field] != actual:
-            messages.append(
-                f"{relative} {field} mismatch: declared {artifact[field]}, computed {actual}"
-            )
-    return messages
-
-
 def included_subject_messages(
     root: Path,
     artifact: Mapping[str, Any],
     relative: str,
+    protected_base: str,
     head_ref: str = "HEAD",
     manifest_blob: bytes | None = None,
 ) -> list[str]:
@@ -125,6 +112,7 @@ def included_subject_messages(
             root,
             artifact,
             relative,
+            protected_base,
             head_ref,
             manifest_blob=manifest_blob,
         )
