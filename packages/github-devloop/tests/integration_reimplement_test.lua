@@ -773,26 +773,42 @@ return {
   test_wrong_layer_refusal_blocks_then_reimplements_from_trusted_fact = function()
     run_refusal_reimplementation_case(
       "wrong-layer",
-      "The requested engine primitive belongs in fkst-substrate.")
+      "`fkst.observe()` provides no cross-request snapshot isolation, and `raise()` only buffers in-process; durable publish occurs later in the supervisor after `once` returns. Package-side revalidation therefore leaves the prohibited check-to-enqueue race. The required producer-owned atomic version validation needs an engine primitive in `fkst-substrate`, while this repository explicitly owns only Lua package behavior. `scripts/run.sh test-affected` passed with `FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE`; the worktree remains clean.")
   end,
 
   test_already_satisfied_refusal_blocks_then_reimplements_from_trusted_fact = function()
     run_refusal_reimplementation_case(
       "already-satisfied",
-      "Repository ground truth already contains the requested behavior.")
+      "HEAD aba2a4da already has `github-devloop-ops.observability` consume both `restart_transition_anomaly` queues ephemerally, with composition dependencies and regression coverage introduced atomically by 9b0f6aff. `scripts/run.sh test-affected` exited 0: 22 packages and composed conformance 31/31 passed. The worktree is clean, so no scoped change is justified.")
   end,
 
-  test_invalid_typed_refusal_preserves_the_decoder_rejection = function()
-    assert_invalid_implementation_result("implement-invalid-typed-refusal", function(event, ready)
-      return implementation_receipt(
+  test_missing_outcome_fails_closed_as_invalid_implementation_result = function()
+    assert_invalid_implementation_result("implement-missing-outcome", function(event, ready)
+      local raw = implementation_receipt(
         event,
         ready.dedup_key,
         "cannot-implement-here",
         1,
         "wrong-layer",
-        string.rep("e", core._max_blocking_gap_len + 1)
+        "The requested engine primitive belongs in fkst-substrate."
       )
-    end, "evidence must be a non-empty bounded string")
+      return (raw:gsub('"outcome":"cannot%-implement%-here",', ""))
+    end, "outcome must be changes-produced or cannot-implement-here")
+  end,
+
+  test_unsupported_reason_fails_closed_as_invalid_implementation_result = function()
+    assert_invalid_implementation_result("implement-unsupported-refusal-reason", function(event, ready)
+      return implementation_receipt(
+        event, ready.dedup_key, "cannot-implement-here", 1, "scope-mismatch",
+        "The requested engine primitive belongs in another scope.")
+    end, "reason must be one of precursor-missing, wrong-layer, already-satisfied")
+  end,
+
+  test_blank_evidence_fails_closed_as_invalid_implementation_result = function()
+    assert_invalid_implementation_result("implement-blank-refusal-evidence", function(event, ready)
+      return implementation_receipt(
+        event, ready.dedup_key, "cannot-implement-here", 1, "wrong-layer", "   ")
+    end, "evidence must be a non-empty string")
   end,
 
   test_whitespace_only_result_preserves_the_decoder_rejection = function()
