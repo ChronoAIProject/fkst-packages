@@ -71,6 +71,23 @@ return {
     t.eq(payload.findings_record, findings)
   end,
 
+  test_build_converge_payload_rejects_multibyte_findings_over_contract_limit = function()
+    local two_byte_character = "é"
+    local findings = string.rep(two_byte_character, synthesis_contract.findings_record_max_bytes / 2) .. "x"
+    local ok, failure = pcall(function()
+      core.build_converge_payload(
+        proposal(nil),
+        "Narrow the disagreement.",
+        angle_results(),
+        findings
+      )
+    end)
+
+    t.eq(#findings, synthesis_contract.findings_record_max_bytes + 1)
+    t.eq(ok, false)
+    t.is_true(tostring(failure):find("consensus: findings-record-invalid: findings_record is overlong", 1, true) ~= nil)
+  end,
+
   test_build_converge_payload_rejects_overlong_findings_record = function()
     local findings = string.rep("x", synthesis_contract.findings_record_max_bytes + 1)
     local ok, failure = pcall(function()
