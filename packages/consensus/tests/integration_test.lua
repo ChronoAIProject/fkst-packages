@@ -542,11 +542,13 @@ return {
     local finding_prefix = "open:\n"
     local final_finding_len = synthesis_contract.findings_record_max_bytes + 1
       - (2 * (#finding_prefix + #finding) + #finding_prefix + 2 * #"\n")
+    local final_finding = string.rep("é", math.floor(final_finding_len / #"é"))
+      .. string.rep("x", final_finding_len % #"é")
     mock_synthesis(table.concat({
       "converge: retry ownership remains unresolved + inspect the retry owner record",
       "open: " .. finding,
       "open: " .. finding,
-      "open: " .. string.rep("x", final_finding_len),
+      "open: " .. final_finding,
     }, "\n"))
     mock_synthesis_repair(table.concat({
       "converge: retry ownership remains unresolved + inspect the retry owner record",
