@@ -32,6 +32,7 @@ local spec = {
   },
   fanout = { "devloop_liveness_tick" },
   stall_window = "30s",
+  retry = { max_attempts = 12, base = "5s", cap = "30s" },
 }
 
 local function should_reinject_pr_base_unmanaged_heal(origin, current, state)
@@ -176,7 +177,25 @@ local function act_liveness_scan(event)
       )
       liveness_scan.liveness_scan_update_cursor(cursor_key, cursor_progress, attempted)
       if not call_ok then
-        error(should_reinject, 0)
+        local failed_proposal_id =
+          entity_lib.pr_proposal_id(repo, activation.entity.number)
+        devloop_logging.log_error_fact(
+          "error",
+          "liveness_scan",
+          failed_proposal_id,
+          "ENTITY_FAILURE",
+          devloop_logging.error_class_from_message(should_reinject),
+          event and event.queue,
+          should_reinject,
+          {
+            source_ref = entity_lib.pr_source_ref(repo, activation.entity.number),
+            attempt = event and event.attempt,
+            terminal = false,
+          }
+        )
+        liveness_scan.liveness_scan_reinject(
+          repo, activation.entity, "pr", event and event.ts)
+        should_reinject = false
       end
       if defer_reason == "deadline" then
         liveness_scan.liveness_scan_log_deferred("deadline", {
