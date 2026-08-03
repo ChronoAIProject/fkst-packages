@@ -21,7 +21,7 @@ local function is_supported_delivery_identity(payload)
   end
   local helper = operator_reimplement
     and payloads_shared.ready_operator_reimplement_delivery_dedup_key
-    or payloads_shared.ready_redrive_delivery_dedup_key
+    or payloads_shared.issue_redrive_delivery_dedup_key
   local delivery = operator_reimplement
     and payload.operator_reimplement_delivery
     or payload.redrive_delivery

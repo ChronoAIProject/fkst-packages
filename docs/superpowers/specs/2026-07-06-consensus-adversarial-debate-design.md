@@ -1,7 +1,11 @@
 # Consensus Adversarial Debate — Design Spec
 
 Date: 2026-07-06
-Status: synthesis complete; pending user review
+Status: PARTIALLY IMPLEMENTED (verified 2026-08-04). The `blind / rebuttal / synthesis` phase model
+from Sections 4.2, 4.4, and 4.5 landed in the `consensus` workspace library
+(`libraries/consensus/core.lua:12`). Section 4.9's `nyxid oracle ask --no-wait` escalation dispatch
+and Section 4.10's `oracle_consulted` / `oracle_addressed` provenance fields did not land;
+`libraries/consensus/` contains no implementation surface for those identifiers.
 Companion: `2026-07-06-consensus-adversarial-debate-record.md` (full verbatim debate record — the 留痕 this spec's conclusions are audited against)
 
 ## 1. Purpose and provenance of this spec

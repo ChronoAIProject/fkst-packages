@@ -372,6 +372,18 @@ function M.admission_trace_artifact(schema, owner, family, corpus_hash, fixtures
   return artifact
 end
 
+function M.admission_trace_output_path(filename)
+  if type(filename) ~= "string"
+    or filename:match("^[A-Za-z0-9][A-Za-z0-9._-]*$") == nil then
+    error("R9 admission trace output filename is invalid", 0)
+  end
+  local root = os.getenv("FKST_R9_TRACE_ROOT") or os.getenv("FKST_RUNTIME_ROOT")
+  if type(root) ~= "string" or root == "" or root:find("[\r\n]") ~= nil then
+    error("R9 admission trace output root is invalid", 0)
+  end
+  return root:gsub("/+$", "") .. "/" .. filename
+end
+
 local R11_CAUSE = "R11.queue_dialogue_to_sync_consensus_call"
 local R11_MANIFEST_PATH = "migration/intent-diffs/2775.json"
 local R11_DELIVERY_ATOMS = {

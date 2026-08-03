@@ -192,7 +192,11 @@ def run_library_b_specific(c, config: check_repo_config.CheckRepoConfig, violati
         c.add(violations, "G-FANOUT-ONLY", message)
     for message in check_repo_restart_preflight.repository_messages(root):
         c.add(violations, "G-RESTART-PREFLIGHT", message)
-    for message in check_repo_intent_bounded_replay.repository_messages(root, enforce_base=True):
+    for message in check_repo_intent_bounded_replay.repository_messages(
+        root,
+        enforce_base=True,
+        trace_root=check_repo_intent_bounded_replay.trace_root_from_environment(),
+    ):
         c.add(violations, "G-INTENT-BOUNDED-REPLAY", message)
     c.check_github_content_ingress(root, violations)
     c.check_ownership_gate_claim_owner(root, violations)

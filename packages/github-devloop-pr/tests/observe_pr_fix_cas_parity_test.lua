@@ -15,7 +15,9 @@ local FAMILY = "observe-pr-fix"
 local SCHEMA = "restart-observe-pr-fix-trace.v1"
 local EDGE_ID = OWNER .. "/pr-open/autonomous/not_mergeable_repair"
 local CORPUS_PATH = "migration/intent_bounded_replay/corpus/observe-pr-fix.json"
-local NEW_TRACE_PATH = ".fkst/run/r9-observe-pr-fix-new-trace.json"
+local NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-observe-pr-fix-new-trace.json"
+)
 
 local COMMENT_EFFECT_ID = "github-proxy.github_pr_comment_request"
 local LABEL_EFFECT_ID = "github-proxy.github_issue_label_request"
