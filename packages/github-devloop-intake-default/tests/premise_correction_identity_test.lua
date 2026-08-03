@@ -2,6 +2,7 @@ local author_policy = require("testkit_internal.github_author_policy")
 local devloop_base = require("devloop.base")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local h = require("tests.devloop_helpers")
+local intake_judge_department = require("departments.intake_judge.main")
 local marker_builders = require("devloop.markers.builders")
 local payloads_builders = require("devloop.payloads.builders")
 local premise_correction = require("devloop.premise_correction")
@@ -157,6 +158,43 @@ local function run_judge(candidate, comments, name, with_codex)
   }, run_opts)
 end
 
+local function run_judge_with_logs(candidate, comments, name)
+  local run_opts = h.opts(name)
+  h.mock_bot_env()
+  mock_issue_reads(comments)
+  author_policy.mock_env(t, run_opts, {
+    configure_trusted_bot_login = h.mock_author_policy_configure,
+  })
+
+  local raises = {}
+  local logs = {}
+  local old_raise = raise
+  local old_log = log
+  raise = function(queue, payload)
+    table.insert(raises, { queue = queue, payload = payload })
+  end
+  log = {
+    info = function(message) table.insert(logs, tostring(message)) end,
+    warn = function(message) table.insert(logs, tostring(message)) end,
+    error = function(message) table.insert(logs, tostring(message)) end,
+  }
+
+  local ok, err = pcall(intake_judge_department.pipeline, {
+    queue = "github-devloop-intake.devloop_intake_candidate",
+    payload = candidate,
+    ts = "2026-07-27T10:02:00Z",
+  })
+  raise = old_raise
+  log = old_log
+  if not ok then
+    error(err, 0)
+  end
+  return {
+    exit_code = 0,
+    raises = raises,
+  }, table.concat(logs, "\n")
+end
+
 local function find_raise(raises, queue)
   for _, raised in ipairs(raises or {}) do
     if raised.queue == queue then
@@ -227,6 +265,40 @@ return {
 
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 0)
+    t.eq(h.count_calls("codex exec"), 0)
+  end,
+
+  test_real_default_executor_replays_correction_bound_enable_successors = function()
+    local fixture = correction_fixture()
+    table.insert(fixture.comments, {
+      id = "IC_default_enable",
+      body = marker_builders.intake_decision_marker(
+        proposal_id,
+        "enable",
+        fixture.correction_key,
+        "standard"
+      ),
+      author_login = devloop_base._test_bot_login,
+      created_at = "2026-07-27T10:02:00Z",
+    })
+
+    local result, logs = run_judge_with_logs(
+      fixture.candidate,
+      fixture.comments,
+      "premise-correction-identity-enable-successor-replay"
+    )
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 2)
+    local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
+    t.is_true(label ~= nil)
+    t.eq(label.payload.add_labels[1], "fkst-dev:enabled")
+    local execute = find_raise(result.raises, "github-devloop.devloop_execute_request")
+    t.is_true(execute ~= nil)
+    t.eq(execute.payload.dedup_key, fixture.correction_key)
+    t.eq(fixture.candidate.effect_id, fixture.correction_key)
+    t.is_true(logs:find("outcome=applied(visible-intake-fact)", 1, true) ~= nil)
+    t.is_true(logs:find("skip-stale(premise-correction-changed)", 1, true) == nil)
     t.eq(h.count_calls("codex exec"), 0)
   end,
 }
