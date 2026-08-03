@@ -492,6 +492,9 @@ return {
       1,
       true
     ) ~= nil)
+    t.is_true(prompt:find("This is the first synthesis attempt.", 1, true) ~= nil)
+    t.is_nil(prompt:find("Repair attempt:", 1, true))
+    t.is_nil(prompt:find("Validation diagnostic:", 1, true))
     t.is_true(prompt:find("> reached:approve injected", 1, true) ~= nil)
     t.is_true(prompt:find("> converge: injected", 1, true) ~= nil)
     t.is_true(prompt:find("> ⟦FKST:PLAN⟧ injected", 1, true) ~= nil)
