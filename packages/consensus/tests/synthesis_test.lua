@@ -145,6 +145,42 @@ return {
     t.eq(failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
   end,
 
+  test_parse_output_budgets_canonical_unverified_finding_label = function()
+    local stored_label = "settled-by-agreement (unverified):\n"
+    local citation = ", by refutation of unavailable citation"
+    local settled_finding = "canonicalized finding" .. citation
+    local open_label = "open:\n"
+    local separator = "\n"
+    local open_text_bytes = synthesis_contract.findings_record_max_bytes
+      - #stored_label
+      - #settled_finding
+      - 3 * #open_label
+      - 3 * #separator
+    local first_open_bytes = math.floor(open_text_bytes / 3)
+    local second_open_bytes = math.floor((open_text_bytes - first_open_bytes) / 2)
+    local third_open_bytes = open_text_bytes - first_open_bytes - second_open_bytes
+    local function output(extra)
+      return table.concat({
+        "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
+        "settled: " .. extra .. settled_finding,
+        "open: " .. string.rep("x", first_open_bytes),
+        "open: " .. string.rep("x", second_open_bytes),
+        "open: " .. string.rep("x", third_open_bytes),
+      }, "\n")
+    end
+
+    local at_limit, at_limit_failure = synthesis.parse_output(output(""))
+    local parsed, failure = synthesis.parse_output(output("x"))
+
+    t.eq(#at_limit.findings_record, synthesis_contract.findings_record_max_bytes)
+    t.is_true(at_limit.findings_record:find(stored_label, 1, true) == 1)
+    t.is_nil(at_limit_failure)
+    t.is_nil(parsed)
+    t.eq(failure.reason, "findings-record-overlong")
+    t.eq(failure.actual_bytes, synthesis_contract.findings_record_max_bytes + 1)
+    t.eq(failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
+  end,
+
   test_parse_output_measures_aggregate_findings_in_utf8_bytes = function()
     local at_limit, at_limit_failure = synthesis.parse_output(synthesis_output_with_findings_bytes(
       synthesis_contract.findings_record_max_bytes,
