@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_base = require("devloop.base")
+local devloop_state = require("devloop.state")
 local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
@@ -18,12 +19,50 @@ local base_branch = "dev"
 local head_sha = "0123456789abcdef0123456789abcdef01234567"
 local merge_commit_sha = "1111111111111111111111111111111111111111"
 
+-- Incident evidence captured from #2828's fetched history and target base 27650f79.
+local INCIDENT_2828_DIAGNOSIS = {
+  proposal_id = "github-devloop/issue/ChronoAIProject/fkst-packages/2828",
+  selected_marker = {
+    state = "implementing",
+    version = "ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549/loop/1",
+    created_at = "2026-07-28T04:33:29Z",
+  },
+  losing_marker = {
+    state = "dependency_wait",
+    version = "consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549/ready-split/1",
+    created_at = "2026-07-30T02:44:44Z",
+  },
+  child_terminal = {
+    state = "closed-unmerged",
+    observed_at = "2026-08-03T08:47:40Z",
+  },
+  pre_fix_decision = {
+    route = "maybe_canonicalize_implementing_merged_delegated_pr -> canonicalize_implementing_merged_delegated_pr",
+    outcome = "skip-pending(canonical-child-pr-merged-missing)",
+    reason = "delegated child PR is not canonically merged by GitHub",
+    source = "27650f79ac600537390fcae5e22bd8a7cd0988cc:packages/github-devloop/core/awaiting_pr_replayer.lua:315",
+  },
+}
+
 local function comment(body, created_at)
   return {
     body = body,
     author_login = core._test_bot_login,
     created_at = created_at or "2026-06-03T01:00:00Z",
   }
+end
+
+local function incident_2828_authoritative_state()
+  local selected = INCIDENT_2828_DIAGNOSIS.selected_marker
+  local losing = INCIDENT_2828_DIAGNOSIS.losing_marker
+  return devloop_state.current_state({
+    comment(core.state_marker(INCIDENT_2828_DIAGNOSIS.proposal_id,
+      selected.state,
+      selected.version), selected.created_at),
+    comment(core.state_marker(INCIDENT_2828_DIAGNOSIS.proposal_id,
+      losing.state,
+      losing.version), losing.created_at),
+  }, INCIDENT_2828_DIAGNOSIS.proposal_id)
 end
 
 local function parent_comments(state, extra_comments)
@@ -214,6 +253,14 @@ local function count_calls(needle)
 end
 
 return {
+  test_incident_2828_authoritative_diagnosis_is_recorded = function()
+    local state = incident_2828_authoritative_state()
+
+    t.eq(state.state, "implementing")
+    t.eq(state.version,
+      "ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549/loop/1")
+  end,
+
   test_pr_entity_change_merged_child_canonicalizes_implementing_parent_to_awaiting_pr = function()
     local result = run_pr_observe("MERGED", "2026-06-03T02:05:04Z")
 
@@ -254,11 +301,12 @@ return {
   end,
 
   test_issue_poll_closed_unmerged_child_recovers_missing_handoff_then_reimplements_once = function()
+    local incident_state = incident_2828_authoritative_state()
     local first = run_terminal_child_poll(
-      "implementing",
+      incident_state.state,
       { "fkst-dev:enabled", "fkst-dev:implementing" },
       nil,
-      "closed-unmerged",
+      INCIDENT_2828_DIAGNOSIS.child_terminal.state,
       "CLOSED",
       "implementing-closed-unmerged-canonicalize"
     )
