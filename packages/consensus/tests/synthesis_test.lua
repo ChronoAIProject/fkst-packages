@@ -351,6 +351,10 @@ return {
     t.eq(parsed.kind, "converge")
     t.eq(repair_failure.reason, "synthesis-worker-nonzero")
     t.eq(repair_failure.exit_code, 17)
+    t.eq(
+      synthesis.format_parse_failure(repair_failure),
+      "reason=synthesis-worker-nonzero exit_code=17"
+    )
   end,
 
   test_parse_output_accepts_premise_refutation_only_in_converge_mode = function()
