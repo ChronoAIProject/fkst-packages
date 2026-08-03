@@ -56,6 +56,7 @@ return {
       t.eq(origin.proposal_id, proposal_id)
       t.eq(origin.repo, "owner/repo")
       t.eq(origin.issue_number, "42")
+      t.is_nil(origin.pr_number)
       t.eq(origin.branch, stale_branch)
       t.eq(origin.impl_version, implementation_version)
       t.eq(origin.base_branch, stale_base_branch)
