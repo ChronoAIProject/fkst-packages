@@ -280,6 +280,8 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   t.eq(scan_raises[1].payload.dedup_key, "github-external-pr-intake/owner/repo/pr/7")
   t.eq(scan_raises[1].payload.source_ref.kind, "external")
   t.eq(scan_raises[1].payload.source_ref.ref, "owner/repo#pr/7")
+  t.is_nil(scan_raises[1].payload.comments)
+  t.is_nil(scan_raises[1].payload.pr_origin)
   t.eq(count_kind(scan_github.operations, "issue_assign"), 0)
   t.eq(count_kind(scan_github.operations, "issue_create"), 0)
   t.eq(count_kind(scan_github.operations, "pr_comment"), 0)
