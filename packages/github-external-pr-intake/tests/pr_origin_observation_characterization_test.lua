@@ -62,12 +62,13 @@ local function pr_json(pr)
     .. '],"assignees":[' .. table.concat(assignees, ",") .. "]}"
 end
 
-local function fake_github(pr)
+local function fake_github(pr, authorized_login)
   local operations = {}
   local handle = { operations = operations }
+  authorized_login = authorized_login or "trusted-contributor"
 
   function handle.is_authorized_author(login)
-    return login == "trusted-contributor"
+    return login == authorized_login
   end
 
   function handle.pr_list(repo, timeout)
@@ -338,6 +339,27 @@ return {
         created_at = "2026-06-03T01:02:03Z",
       }, managed, 1780459324), true)
     end)
+  end,
+
+  test_external_intake_raises_mixed_case_managed_bot_author_as_external_candidate = function()
+    local pr = production_pr("fkst-test-bot[bot]", "feature/contrib", "dev")
+    pr.author_login = "Other-Bot[bot]"
+    local github = fake_github(pr, pr.author_login)
+
+    local logs, raises = run_event(github, {
+      queue = "github-external-pr-intake.external_pr_scan",
+      payload = { schema = "github-external-pr-intake.v1" },
+    }, false)
+
+    t.eq(#raises, 1)
+    t.eq(raises[1].queue, "external_pr_candidate")
+    t.eq(raises[1].payload.repo, "owner/repo")
+    t.eq(raises[1].payload.number, 7)
+    t.eq(raises[1].payload.source_ref.ref, "owner/repo#pr/7")
+    t.eq(count_kind(github.operations, "issue_assign"), 0)
+    t.eq(count_kind(github.operations, "issue_create"), 0)
+    t.eq(count_kind(github.operations, "pr_comment"), 0)
+    t.eq(logs_contain(logs, "action=skip-"), false)
   end,
 
   test_trusted_current_pr_origin_comment_is_ignored_by_intake = function()
