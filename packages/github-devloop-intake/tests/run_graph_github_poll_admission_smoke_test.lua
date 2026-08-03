@@ -43,6 +43,14 @@ local function mock_proxy_poll_lists()
   })
 end
 
+local function mock_empty_delivery_snapshot()
+  t.mock_observe({
+    truncated = { deliveries = false, dead_letters = false },
+    deliveries = json.decode("[]"),
+    dead_letters = json.decode("[]"),
+  })
+end
+
 local function mock_admission_issue_view()
   entity_read_mocks.mock_issue_view_selector(t, {
     repo = repo,
@@ -121,6 +129,7 @@ return {
     mock_env()
     mock_proxy_poll_lists()
     mock_admission_issue_view()
+    mock_empty_delivery_snapshot()
 
     local trace = graph.require_quiescent(graph.run("github-proxy.github_poll", { max_steps = 4 }))
     graph.assert_covers(trace, {
@@ -130,7 +139,13 @@ return {
 
     local spec = require("departments.admission.main").spec
     t.eq(spec.consumes[1], "github-proxy.github_entity_changed")
+    t.eq(#spec.consumes, 1)
     t.eq(spec.produces[1], "devloop_intake_candidate")
+
+    local replay_spec = require("departments.replay_admission.main").spec
+    t.eq(replay_spec.consumes[1], "github-proxy.github_issue_observed")
+    t.eq(#replay_spec.consumes, 1)
+    t.eq(replay_spec.produces[1], "devloop_intake_candidate")
 
     local _, admission_index = graph.require_delivery(trace, {
       queue = "github-proxy.github_entity_changed",
@@ -160,6 +175,7 @@ return {
     mock_labelled_poll_snapshot()
     mock_other_authored_admission_view()
     mock_other_authored_admission_view()
+    mock_empty_delivery_snapshot()
     t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
       stdout = "",
       stderr = "transient peer discovery failure",

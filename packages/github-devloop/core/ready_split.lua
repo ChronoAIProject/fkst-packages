@@ -59,15 +59,13 @@ function M.build_ready_split_transition_batch(repo, issue_number, proposal_id, f
     }),
     source_ref = base_ids.normalize_source_ref(source_ref),
   }, source_ref)
-  if to_state == "ready" then
-    comment_request.handoff = {
-      kind = "github-devloop.ready",
-      proposal_id = proposal_id,
-      version = to_version,
-      marker_version = to_version,
-      source_ref = base_ids.normalize_source_ref(source_ref),
-    }
-  end
+  comment_request.handoff = {
+    kind = to_state == "ready" and "github-devloop.ready" or "github-devloop.ready-split-label",
+    proposal_id = proposal_id,
+    version = to_version,
+    marker_version = to_version,
+    source_ref = base_ids.normalize_source_ref(source_ref),
+  }
   local comment_body_prefix = "github-devloop ready split canonicalized"
     .. "\n\n" .. comment_strings.comment_string(M, "reason_inline_label")
     .. tostring(gate and gate.reason or "ready_split_rederive")
@@ -102,15 +100,40 @@ function M.build_ready_split_transition_batch(repo, issue_number, proposal_id, f
     comment_request = comment_request,
     comment_body_prefix = comment_body_prefix,
     comment_body_suffix = comment_body_suffix,
+    defer_label_until_comment_written = true,
   })
 end
 
-local function emit_ready_split_transition(dept, proposal_id, batch)
-  devloop_state.emit_projected_state_transition_batch(
-    batch,
-    dept,
-    proposal_id
+function M.raise_ready_split_effects(dept, issue, proposal_id, from_version, to_state, to_version, gate, label_dedup_key, additional_raised)
+  if to_state ~= "ready" and to_state ~= "dependency_wait" then
+    error("github-devloop: ready-split-target-invalid: target must be ready or dependency_wait")
+  end
+  local transition_batch = M.build_ready_split_transition_batch(
+    issue.repo,
+    issue.number,
+    proposal_id,
+    from_version,
+    to_state,
+    to_version,
+    gate,
+    label_dedup_key,
+    issue.source_ref
   )
+  local emitted = {
+    "github-proxy.github_issue_comment_request",
+  }
+  for _, queue in ipairs(additional_raised or {}) do
+    table.insert(emitted, queue)
+  end
+  devloop_logging.log_apply(
+    dept,
+    proposal_id,
+    to_state,
+    to_version,
+    ready_split_label_changes(to_state),
+    emitted
+  )
+  devloop_state.emit_projected_state_transition_batch(transition_batch, dept, proposal_id)
 end
 
 function M.canonicalize_legacy_ready_dependency_wait(dept, issue, state, facts)
@@ -139,24 +162,8 @@ function M.canonicalize_legacy_ready_dependency_wait(dept, issue, state, facts)
   local label_dedup_key = to_state == "dependency_wait"
     and base_ids.dedup_key({ "dependency", "label", "hold", tostring(proposal_id), tostring(to_version), tostring(gate.kind) })
     or base_ids.dedup_key({ "dependency", "label", "clear", tostring(proposal_id), tostring(to_version) })
-  local transition_batch = M.build_ready_split_transition_batch(
-    issue.repo,
-    issue.number,
-    proposal_id,
-    state.version,
-    to_state,
-    to_version,
-    gate,
-    label_dedup_key,
-    issue.source_ref
-  )
-  local label_changes = ready_split_label_changes(to_state)
   devloop_logging.log_cas_decision(dept, proposal_id, state, "ready", to_state, "applied(ready-split-canonicalized)", gate.reason or "ready_split_rederive")
-  devloop_logging.log_apply(dept, proposal_id, to_state, to_version, label_changes, {
-    "github-proxy.github_issue_comment_request",
-    "github-proxy.github_issue_label_request",
-  })
-  emit_ready_split_transition(dept, proposal_id, transition_batch)
+  M.raise_ready_split_effects(dept, issue, proposal_id, state.version, to_state, to_version, gate, label_dedup_key)
   return true
 end
 
@@ -204,26 +211,11 @@ end
 
 local function raise_dependency_release(M, dept, issue, proposal_id, state, command_comment_request, gate, release_fact)
   local ready_version = M.ready_split_version(state.version)
-  local transition_batch = M.build_ready_split_transition_batch(
-    issue.repo,
-    issue.number,
-    proposal_id,
-    state.version,
-    "ready",
-    ready_version,
-    gate,
-    base_ids.dedup_key({ "dependency", "label", "clear", tostring(proposal_id), tostring(state.version) }),
-    issue.source_ref
-  )
-  local raised = {
-    "github-proxy.github_issue_comment_request",
-    "github-proxy.github_issue_label_request",
-  }
-  local label_changes = ready_split_label_changes("ready")
-  if release_fact == nil then table.insert(raised, "github-proxy.github_issue_comment_request") end
-  if command_comment_request ~= nil then table.insert(raised, "github-proxy.github_issue_comment_request") end
-  devloop_logging.log_apply(dept, proposal_id, "ready", ready_version, label_changes, raised)
-  emit_ready_split_transition(dept, proposal_id, transition_batch)
+  local additional_raised = {}
+  if release_fact == nil then table.insert(additional_raised, "github-proxy.github_issue_comment_request") end
+  if command_comment_request ~= nil then table.insert(additional_raised, "github-proxy.github_issue_comment_request") end
+  M.raise_ready_split_effects(dept, issue, proposal_id, state.version, "ready", ready_version, gate,
+    base_ids.dedup_key({ "dependency", "label", "clear", tostring(proposal_id), tostring(state.version) }), additional_raised)
   if command_comment_request ~= nil then
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", command_comment_request)
   end
@@ -339,24 +331,9 @@ function M.replay_ready_state(dept, issue, state, row, facts)
   end
   if not gate.ok then
     local dep_version = M.ready_split_version(state.version)
-    local transition_batch = M.build_ready_split_transition_batch(
-      issue.repo,
-      issue.number,
-      proposal_id,
-      state.version,
-      "dependency_wait",
-      dep_version,
-      gate,
-      base_ids.dedup_key({ "dependency", "label", "hold", tostring(proposal_id), tostring(dep_version), tostring(gate.kind) }),
-      issue.source_ref
-    )
-    local label_changes = ready_split_label_changes("dependency_wait")
     devloop_logging.log_cas_decision(dept, proposal_id, state, "ready", "dependency_wait", "hold-dependency-reappeared", gate.reason)
-    devloop_logging.log_apply(dept, proposal_id, "dependency_wait", dep_version, label_changes, {
-      "github-proxy.github_issue_comment_request",
-      "github-proxy.github_issue_label_request",
-    })
-    emit_ready_split_transition(dept, proposal_id, transition_batch)
+    M.raise_ready_split_effects(dept, issue, proposal_id, state.version, "dependency_wait", dep_version, gate,
+      base_ids.dedup_key({ "dependency", "label", "hold", tostring(proposal_id), tostring(dep_version), tostring(gate.kind) }))
     return true
   end
   local ready_comment_id = devloop_state.ready_hand_off_comment_id(

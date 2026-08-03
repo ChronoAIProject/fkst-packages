@@ -9,7 +9,6 @@ local transition_version = require("contract.transition_version")
 local t = h.t
 local gate = require("devloop.gate")
 local m_builders = require("devloop.markers.builders")
-local projected_transitions = require("tests.projected_transition_helpers")
 local reached = h.reached
 local unresolved = h.unresolved
 local ai_sentinel = string.char(226, 159, 166) .. "AI:FKST" .. string.char(226, 159, 167)
@@ -249,7 +248,7 @@ return {
         { angle = "delete", verdict = "approve" },
       },
     })
-    local comment = projected_transitions.result_comment(core, "owner/repo", "42", completed)
+    local comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", completed)
     t.eq(comment.schema, "github-proxy.v1")
     t.eq(comment.issue_number, "42")
     t.is_true(comment.body:find("github-devloop decision: approve", 1, true) ~= nil)
@@ -274,8 +273,8 @@ return {
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/v2",
     })
 
-    local first_comment = projected_transitions.result_comment(core, "owner/repo", "42", first)
-    local second_comment = projected_transitions.result_comment(core, "owner/repo", "42", second)
+    local first_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", first)
+    local second_comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", second)
 
     t.eq(first_comment.dedup_key, "github-devloop/issue/owner/repo/42/comment/consensus-github-devloop/issue/owner/repo/42/v1")
     t.eq(second_comment.dedup_key, "github-devloop/issue/owner/repo/42/comment/consensus-github-devloop/issue/owner/repo/42/v2")
@@ -761,6 +760,26 @@ return {
     t.eq(current.state, "thinking")
     t.eq(current.version, "v1")
   end,
+  test_route_current_returns_declared_route_and_marker_metadata = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local version = "consensus:github-devloop/issue/owner/repo/42/2026-07-28T01-02-03Z"
+    local comments = { core.state_marker(proposal_id, "blocked", version) }
+    local blocked_route = {
+      kind = "terminal",
+      state = "blocked",
+    }
+
+    local routed = core.route_current(comments, proposal_id, {
+      blocked = blocked_route,
+    })
+    t.eq(routed.route, blocked_route)
+    t.eq(routed.version, version)
+    t.is_nil(routed.state)
+
+    local unmatched = core.route_current(comments, proposal_id, {})
+    t.is_nil(unmatched.route)
+    t.eq(unmatched.version, version)
+  end,
   test_current_state_ignores_authorless_state_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     devloop_base.configure_trusted_bot_login(nil)
@@ -796,7 +815,7 @@ return {
       body = "Looks fine.\n" .. forged,
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
     })
-    local comment = projected_transitions.result_comment(core, "owner/repo", "42", event)
+    local comment = requests_lifecycle.build_result_comment_request(core, "owner/repo", "42", event)
 
     t.is_true(comment.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(comment.body:find(forged, 1, true) == nil, true)

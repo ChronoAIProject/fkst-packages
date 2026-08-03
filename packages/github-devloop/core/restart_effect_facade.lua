@@ -84,8 +84,11 @@ local function valid_consensus_result_args(args)
     and type(args.to_state) == "string"
 end
 
-local function serialize_consensus_result_effects(args)
-  return requests_lifecycle.build_result_transition_effects(
+local function serialize_consensus_result_comment(args)
+  if not valid_consensus_result_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return requests_lifecycle.build_result_comment_request(
     args.core,
     args.repo,
     args.issue_number,
@@ -94,26 +97,16 @@ local function serialize_consensus_result_effects(args)
   )
 end
 
-local function serialize_consensus_result_comment(args)
-  if not valid_consensus_result_args(args) then
-    return nil, "invalid-serializer-arguments"
-  end
-  return serialize_consensus_result_effects(args)
-end
-
 local function serialize_consensus_result_label(args)
   if not valid_consensus_result_args(args) then
     return nil, "invalid-serializer-arguments"
   end
-  local _, label_request = serialize_consensus_result_effects(args)
-  return label_request
-end
-
-local function serialize_consensus_result_batch(args)
-  if not valid_consensus_result_args(args) then
-    return nil, "invalid-serializer-arguments"
-  end
-  return serialize_consensus_result_effects(args)
+  return requests_labels.build_result_state_label_request(
+    args.repo,
+    args.issue_number,
+    args.reached,
+    args.to_state
+  )
 end
 
 local function serialize_awaiting_pr_comment(args)
@@ -406,7 +399,6 @@ local SERIALIZERS_BY_FAMILY = {
 
 local BATCH_SERIALIZERS_BY_FAMILY = {
   ["awaiting-pr-exit"] = serialize_awaiting_pr_exit_batch,
-  ["consensus-result"] = serialize_consensus_result_batch,
 }
 
 local PROJECTED_TRANSITION_EFFECT_IDS = {

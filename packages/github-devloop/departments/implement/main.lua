@@ -4,7 +4,6 @@ local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
-local devloop_state = require("devloop.state")
 local parsers_issue = require("devloop.parsers.issue")
 local core = require("core")
 local queue = require("devloop.queue")
@@ -46,7 +45,10 @@ local devloop_logging = require("devloop.logging")
 local devloop_state = require("devloop.state")
 local devloop_commands = require("devloop.commands")
 local MAX_IMPLEMENT_ATTEMPTS = 2
-local MAX_VERSION_MISMATCH_DELIVERIES = 3
+-- Single source of truth lives in core (implement_attempt.lua); the liveness anti-spin
+-- (libraries/devloop/liveness/timeout.lua) reads the same constant so re-drive and
+-- receiver agree on the budget.
+local MAX_VERSION_MISMATCH_DELIVERIES = core.max_implement_version_mismatch_deliveries
 local spec = {
   consumes = { "devloop_ready" },
   produces = {
@@ -364,7 +366,8 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
       outcome.attempt,
       outcome.started_at,
       outcome.exec_ref,
-      outcome.detail
+      outcome.detail,
+      outcome.reason
     )
     devloop_logging.log_raise("implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", request)
     return
@@ -592,32 +595,13 @@ local function process_ready_event(event)
       if not gate.ok then
         local inner_ready_version = core.ready_payload_inner_version(ready.dedup_key)
         local dep_version = core.ready_split_version(inner_ready_version)
-        local transition_batch = core.build_ready_split_transition_batch(
-          repo,
-          issue_number,
-          ready.proposal_id,
-          inner_ready_version,
-          "dependency_wait",
-          dep_version,
-          gate,
-          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }),
-          ready.source_ref
-        )
-        local add_labels, remove_labels = devloop_state.state_label_changes("dependency_wait")
-        table.insert(add_labels, devloop_base._blocked_on_dependency_label)
         devloop_logging.log_cas_decision("implement", ready.proposal_id, state, "ready", "dependency_wait", "hold-dependency-backstop", gate.reason)
-        devloop_logging.log_apply("implement", ready.proposal_id, "dependency_wait", dep_version, {
-          add = add_labels,
-          remove = remove_labels,
-        }, {
-          "github-proxy.github_issue_comment_request",
-          "github-proxy.github_issue_label_request",
-        })
-        devloop_state.emit_projected_state_transition_batch(
-          transition_batch,
-          "implement",
-          ready.proposal_id
-        )
+        core.raise_ready_split_effects("implement", {
+          repo = repo,
+          number = issue_number,
+          source_ref = ready.source_ref,
+        }, ready.proposal_id, inner_ready_version, "dependency_wait", dep_version, gate,
+          base_ids.dedup_key({ "dependency", "label", "hold", tostring(ready.proposal_id), tostring(dep_version), tostring(gate.kind) }))
         return
       end
     end

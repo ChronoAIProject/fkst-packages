@@ -24,7 +24,6 @@ local PROJECTED_STATE_MARKER_TARGETS = {
   dependency_wait = true,
   ready = true,
 }
-local PROJECTED_STATE_MARKER_GRANT = {}
 local PROJECTED_STATE_TRANSITION_BATCHES = setmetatable({}, { __mode = "k" })
 local PROJECTED_STATE_TRANSITION_BATCH_METATABLE = {
   __metatable = "sealed",
@@ -33,12 +32,7 @@ local PROJECTED_STATE_TRANSITION_BATCH_METATABLE = {
   end,
 }
 
-function C.state_marker(proposal_id, state, version, effects, grant)
-  if PROJECTED_STATE_MARKER_TARGETS[state]
-    and grant ~= PROJECTED_STATE_MARKER_GRANT
-    and not (type(fkst) == "table" and type(fkst.test) == "table") then
-    error("github-devloop: state-marker-projection-required: use build_projected_state_transition_batch")
-  end
+function C.state_marker(proposal_id, state, version, effects)
   if not C.is_state(state) then
     error("github-devloop: invalid state")
   end
@@ -110,16 +104,23 @@ function C.build_projected_state_transition_batch(args)
     args.proposal_id,
     args.state,
     args.version,
-    args.effects,
-    PROJECTED_STATE_MARKER_GRANT
+    args.effects
   )
   local comment_request = copy_value(args.comment_request)
   comment_request.body = args.comment_body_prefix .. marker .. args.comment_body_suffix
+  local defer_label_until_comment_written = args.defer_label_until_comment_written == true
+  if defer_label_until_comment_written then
+    if type(comment_request.handoff) ~= "table" or comment_request.handoff.label_request ~= nil then
+      error("github-devloop: projected-state-transition-batch-invalid: deferred label requires an empty handoff label slot")
+    end
+    comment_request.handoff.label_request = copy_value(label_request)
+  end
 
   local batch = setmetatable({}, PROJECTED_STATE_TRANSITION_BATCH_METATABLE)
   PROJECTED_STATE_TRANSITION_BATCHES[batch] = {
     comment_request = comment_request,
     label_request = label_request,
+    defer_label_until_comment_written = defer_label_until_comment_written,
   }
   return batch
 end
@@ -130,7 +131,9 @@ function C.emit_projected_state_transition_batch(batch, dept, proposal_id)
     error("github-devloop: projected-state-transition-batch-invalid: batch is unsealed or foreign")
   end
   devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", record.comment_request)
-  devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", record.label_request)
+  if not record.defer_label_until_comment_written then
+    devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", record.label_request)
+  end
 end
 
 local function marker_stage_rank(marker, state)
@@ -233,6 +236,18 @@ end
 
 function C.current_state(comments, proposal_id)
   return derive_current_marker(comments, proposal_id)
+end
+
+function C.route_current(comments, proposal_id, routes)
+  if type(routes) ~= "table" then
+    error("github-devloop: invalid current state routes")
+  end
+  local current = derive_current_marker(comments, proposal_id) or {}
+  return {
+    route = routes[current.state],
+    version = current.version,
+    marker_created_at = current.marker_created_at,
+  }
 end
 
 function C.current_issue_observation_is_terminal(comments, proposal_id)
@@ -425,7 +440,7 @@ end
 
 
 function S.install(M)
-  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
+  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "route_current", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
 end
 C.install = S.install
 

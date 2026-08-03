@@ -1,6 +1,5 @@
 local entity_lib = require("devloop.entity")
 local devloop_state = require("devloop.state")
-local requests_labels = require("devloop.requests.labels")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
@@ -34,80 +33,53 @@ function C.build_observe_comment_request(M, issue, proposal)
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
   }, issue.source_ref)
 end
-function C.build_result_transition_effects(M, repo, issue_number, reached, state_name)
-  local canonical_state = state_name or "ready"
+function C.build_result_comment_request(M, repo, issue_number, reached, state_name)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
   local marker_lineage = reached.effect_version ~= nil
     and tostring(reached.effect_version) ~= tostring(reached.dedup_key)
     and logical_identity
     or nil
   local marker = m_builders.result_marker(reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason, marker_lineage, reached.framing)
-  local function build_comment_request(state_marker)
-    local body_text = devloop_base.neutralize_untrusted_comment_text(reached.body or "")
-    local verdict_summary = shared.build_verdict_summary(M, reached.angle_results)
-    local display_decision = reached.decision == "reject"
-      and "decline: " .. tostring(reached.decision_reason)
-      or tostring(reached.decision)
-    local body = comment_strings.comment_string(M, "decision_prefix") .. display_decision
-    if verdict_summary ~= nil then
-      body = body .. "\n" .. verdict_summary
-    end
-    local body_prefix = body .. "\n\n" .. body_text .. "\n\n"
-    local body_suffix = "\n" .. marker .. "\n" .. ai_sentinel
-    local request = m_claims.attach_issue_claim({
-      schema = "github-proxy.v1",
-      repo = repo,
-      issue_number = issue_number,
-      body = state_marker ~= nil and body_prefix .. state_marker .. body_suffix or nil,
-      dedup_key = base_ids.dedup_key({ tostring(reached.proposal_id), "comment", logical_identity }),
-      source_ref = base_ids.normalize_source_ref(reached.source_ref),
-    }, reached.source_ref)
-    if canonical_state == "ready" then
-      request.handoff = {
-        kind = "github-devloop.ready",
-        proposal_id = reached.proposal_id,
-        version = reached.dedup_key,
-        marker_version = tostring(reached.effect_version or reached.dedup_key),
-        source_ref = base_ids.normalize_source_ref(reached.source_ref),
-      }
-      if reached.framing ~= nil then
-        request.handoff.framing = reached.framing
-      end
-    end
-    return request, body_prefix, body_suffix
-  end
-
-  if canonical_state == "ready" or canonical_state == "dependency_wait" then
-    local effects = canonical_state == "ready"
-      and "result-marker,ready-label,devloop-ready"
-      or "result-marker,ready-label,dependency-hold"
-    local comment_request, comment_body_prefix, comment_body_suffix = build_comment_request(nil)
-    return devloop_state.build_projected_state_transition_batch({
-      repo = repo,
-      issue_number = issue_number,
-      proposal_id = reached.proposal_id,
-      state = canonical_state,
-      version = tostring(reached.effect_version or reached.dedup_key),
-      effects = effects,
-      label_dedup_key = requests_labels.result_label_dedup_key(reached),
-      source_ref = reached.source_ref,
-      remove_labels = { devloop_base._blocked_on_dependency_label },
-      comment_request = comment_request,
-      comment_body_prefix = comment_body_prefix,
-      comment_body_suffix = comment_body_suffix,
-    })
-  end
-  local effects = canonical_state == "declined"
-    and "result-marker,declined-label,premise-refuted"
+  local canonical_state = state_name or "ready"
+  local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready"
+    or canonical_state == "declined" and "result-marker,declined-label,premise-refuted"
     or "result-marker,ready-label,dependency-hold"
-  local state_marker = M.state_marker(
-    reached.proposal_id,
-    canonical_state,
-    tostring(reached.effect_version or reached.dedup_key),
-    effects
-  )
-  return build_comment_request(state_marker),
-    requests_labels.build_result_state_label_request(repo, issue_number, reached, canonical_state)
+  local state_marker = M.state_marker(reached.proposal_id, canonical_state, tostring(reached.effect_version or reached.dedup_key), effects)
+  local body_text = devloop_base.neutralize_untrusted_comment_text(reached.body or "")
+  local verdict_summary = shared.build_verdict_summary(M, reached.angle_results)
+  local display_decision = reached.decision == "reject"
+    and "decline: " .. tostring(reached.decision_reason)
+    or tostring(reached.decision)
+  local body = comment_strings.comment_string(M, "decision_prefix") .. display_decision
+  if verdict_summary ~= nil then
+    body = body .. "\n" .. verdict_summary
+  end
+  body = body
+    .. "\n\n" .. body_text
+    .. "\n\n" .. state_marker
+    .. "\n" .. marker
+    .. "\n" .. ai_sentinel
+  local request = m_claims.attach_issue_claim({
+    schema = "github-proxy.v1",
+    repo = repo,
+    issue_number = issue_number,
+    body = body,
+    dedup_key = base_ids.dedup_key({ tostring(reached.proposal_id), "comment", logical_identity }),
+    source_ref = base_ids.normalize_source_ref(reached.source_ref),
+  }, reached.source_ref)
+  if canonical_state == "ready" then
+    request.handoff = {
+      kind = "github-devloop.ready",
+      proposal_id = reached.proposal_id,
+      version = reached.dedup_key,
+      marker_version = tostring(reached.effect_version or reached.dedup_key),
+      source_ref = base_ids.normalize_source_ref(reached.source_ref),
+    }
+    if reached.framing ~= nil then
+      request.handoff.framing = reached.framing
+    end
+  end
+  return request
 end
 function C.build_result_divergence_comment_request(repo, issue_number, reached, first_decision)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
@@ -308,7 +280,7 @@ function C.build_implementing_state_comment_request(M, repo, issue_number, ready
   }, ready.source_ref)
 end
 
-function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail)
+function C.build_implement_checkpoint_comment_request(M, repo, issue_number, ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
   if not forge_validators.is_git_ref_safe(branch) then
     error("github-devloop: invalid checkpoint branch")
   end
@@ -329,7 +301,17 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
     text = "Checkpoint pushed after implementation timeout."
   end
   text = devloop_base.neutralize_untrusted_comment_text(text)
-  local checkpoint_marker = m_builders.implement_checkpoint_marker(ready.proposal_id, ready.dedup_key, branch, head_sha, base_branch, base_sha, attempt or 1)
+  local checkpoint_reason = strings.sanitize_key(reason or "codex-failed", false):gsub("/", "-")
+  local checkpoint_marker = m_builders.implement_checkpoint_marker(
+    ready.proposal_id,
+    ready.dedup_key,
+    branch,
+    head_sha,
+    base_branch,
+    base_sha,
+    attempt or 1,
+    checkpoint_reason
+  )
   local attempt_marker = M.implement_attempt_marker(ready.proposal_id, ready.dedup_key, attempt or 1, started_at or "", exec_ref)
   return m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
@@ -351,6 +333,7 @@ function C.build_implement_checkpoint_comment_request(M, repo, issue_number, rea
       tostring(ready.dedup_key),
       tostring(attempt or 1),
       tostring(head_sha),
+      checkpoint_reason,
     }),
     source_ref = base_ids.normalize_source_ref(ready.source_ref),
   }, ready.source_ref)

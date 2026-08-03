@@ -1,5 +1,5 @@
 -- Non-circularity contract: production truth comes from the real
--- consensus_result department's CAS probe and the first result-marker guard.
+-- consensus_result department's CAS probe and the divergent result-marker guard.
 -- Effect repair and legacy CAS logs are separate post-admission observations.
 -- This test never computes the expected admission with a transition helper.
 
@@ -229,9 +229,12 @@ local function emitted_state(result)
   return nil
 end
 
--- Projected result-effect repair treats the marker and label as one batch: if either the
--- result marker or state-label hint is missing, production emits both effects. Disposition
--- must therefore be derived from all observed raises, not only the comment body.
+-- Production's result-effect repair (raise_result_effects) has TWO independent guards: a
+-- COMMENT re-raise when the result marker is absent, and a LABEL re-raise when the ready
+-- label hint is missing. Effect-completeness is (marker present AND label present), so a
+-- present-marker/missing-label drift is still incomplete and repairs the LABEL only (no
+-- comment). Disposition must therefore be derived from ALL observed raises, not only the
+-- comment body, or a label-only repair is mis-classified as effect-idempotent.
 local function label_repaired(result)
   for _, raised in ipairs(result.raises or {}) do
     if raised.queue == "github-proxy.github_issue_label_request" then
@@ -307,8 +310,8 @@ local function assert_catalog_matches_observed_admission(fixture)
   end)
 
   if fixture.first_result_gate then
-    t.eq(#probes, 0, fixture.name .. ": first-result gate precedes CAS")
-    t.eq(#result.raises, 0, fixture.name .. ": admitted result is a no-op")
+    t.eq(#probes, 0, fixture.name .. ": complete first result precedes CAS")
+    t.eq(#result.raises, 0, fixture.name .. ": complete first result is a no-op")
     t.eq(legacy_log_outcome(decisions), "skip-idempotent(first-result)", fixture.name .. ": first-result outcome")
     t.eq(grant_mints, 0, fixture.name .. ": first-result gate mints no grant")
     return
@@ -510,7 +513,7 @@ local TRACE_FIXTURES = {
     post_admission_disposition = "effect-repair(ready)",
     legacy_log_outcome = "applied(result effects incomplete)",
     effect_state = "ready",
-    expected_raise_count = 2,
+    expected_raise_count = 1,
   },
 }
 
@@ -866,15 +869,15 @@ return {
       current_version = V_EQUAL,
       incoming_version = V_EQUAL,
       result_marker_visible = true,
-      first_result_gate = true,
       labels = { "fkst-dev:enabled" },
       probe_outcome = "idempotent",
       admission_status = "idempotent",
       admission_reason_code = "already-at-target",
-      boundary_call_count = 0,
-      post_admission_disposition = "not-admitted",
-      legacy_log_outcome = "skip-idempotent(first-result)",
+      boundary_call_count = 2,
+      post_admission_disposition = "effect-repair(label)",
+      legacy_log_outcome = "applied(result effects incomplete)",
       effect_state = nil,
+      expected_raise_count = 1,
     })
   end,
 
