@@ -448,6 +448,23 @@ return {
     ) ~= nil)
   end,
 
+  test_build_synthesis_prompt_repair_embeds_worker_failure = function()
+    local prompt = core.build_synthesis_prompt(proposal(), {}, {}, {
+      repair = true,
+      prior_result = { stdout = "" },
+      parse_failure = {
+        reason = "synthesis-worker-nonzero",
+        exit_code = 17,
+      },
+    })
+
+    t.is_true(prompt:find(
+      "Parser diagnostic: reason=synthesis-worker-nonzero exit_code=17.",
+      1,
+      true
+    ) ~= nil)
+  end,
+
   test_build_prompt_forwards_typed_parse_failure = function()
     local prior_result = { stdout = "malformed synthesis" }
     local parse_failure = {
