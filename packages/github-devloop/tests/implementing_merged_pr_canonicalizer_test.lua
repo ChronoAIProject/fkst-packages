@@ -19,22 +19,41 @@ local base_branch = "dev"
 local head_sha = "0123456789abcdef0123456789abcdef01234567"
 local merge_commit_sha = "1111111111111111111111111111111111111111"
 
--- Incident evidence captured from #2828's fetched history and target base 27650f79.
+-- Incident evidence captured from the cited GitHub comments and target base 27650f79.
 local INCIDENT_2828_DIAGNOSIS = {
   proposal_id = "github-devloop/issue/ChronoAIProject/fkst-packages/2828",
   selected_marker = {
     state = "implementing",
     version = "ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549/loop/1",
     created_at = "2026-07-28T04:33:29Z",
+    source = {
+      comment_id = "IC_kwDOSwWu288AAAABL_u8eQ",
+      url = "https://github.com/ChronoAIProject/fkst-packages/issues/2828#issuecomment-5099994233",
+      author_login = "ElonSG",
+      marker_body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/2828" state="implementing" version="ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549/loop/1" stage_rank="600" marker_order_key="ready-consensus-github-devloo-002128467225/000000000001/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000600" -->',
+    },
   },
   losing_marker = {
     state = "dependency_wait",
     version = "consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549/ready-split/1",
     created_at = "2026-07-30T02:44:44Z",
+    source = {
+      comment_id = "IC_kwDOSwWu288AAAABMYUS-w",
+      url = "https://github.com/ChronoAIProject/fkst-packages/issues/2828#issuecomment-5125772027",
+      author_login = "ElonSG",
+      marker_body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/2828" state="dependency_wait" version="consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549/ready-split/1" stage_rank="500" marker_order_key="consensus-github-devloop-issu-001794078222/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000001/000000000500" effects="ready-split-canonicalized" -->',
+    },
   },
   child_terminal = {
     state = "closed-unmerged",
-    observed_at = "2026-08-03T08:47:40Z",
+    version = "ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549",
+    observed_at = "2026-08-03T08:47:42Z",
+    source = {
+      comment_id = "5164218051",
+      url = "https://github.com/ChronoAIProject/fkst-packages/pull/2832#issuecomment-5164218051",
+      author_login = "ElonSG",
+      marker_body = '<!-- fkst:github-devloop:state:v1 proposal="github-devloop/issue/ChronoAIProject/fkst-packages/2828" state="closed-unmerged" version="ready/consensus-github-devloop/issue/ChronoAIProject/fkst-packages/2828/intake/2050103549" stage_rank="825" marker_order_key="ready-consensus-github-devloo-002128467225/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000000/000000000825" -->',
+    },
   },
   pre_fix_decision = {
     route = "maybe_canonicalize_implementing_merged_delegated_pr -> canonicalize_implementing_merged_delegated_pr",
@@ -44,10 +63,11 @@ local INCIDENT_2828_DIAGNOSIS = {
   },
 }
 
-local function comment(body, created_at)
+local function comment(body, created_at, author_login, id)
   return {
+    id = id,
     body = body,
-    author_login = core._test_bot_login,
+    author_login = author_login or core._test_bot_login,
     created_at = created_at or "2026-06-03T01:00:00Z",
   }
 end
@@ -55,14 +75,19 @@ end
 local function incident_2828_authoritative_state()
   local selected = INCIDENT_2828_DIAGNOSIS.selected_marker
   local losing = INCIDENT_2828_DIAGNOSIS.losing_marker
-  return devloop_state.current_state({
-    comment(core.state_marker(INCIDENT_2828_DIAGNOSIS.proposal_id,
-      selected.state,
-      selected.version), selected.created_at),
-    comment(core.state_marker(INCIDENT_2828_DIAGNOSIS.proposal_id,
-      losing.state,
-      losing.version), losing.created_at),
+  local previous_trusted_login = devloop_base.configured_trusted_bot_login()
+  devloop_base.configure_trusted_bot_login(selected.source.author_login)
+  local ok, state = pcall(devloop_state.current_state, {
+    comment(selected.source.marker_body, selected.created_at,
+      selected.source.author_login, selected.source.comment_id),
+    comment(losing.source.marker_body, losing.created_at,
+      losing.source.author_login, losing.source.comment_id),
   }, INCIDENT_2828_DIAGNOSIS.proposal_id)
+  devloop_base.configure_trusted_bot_login(previous_trusted_login)
+  if not ok then
+    error(state)
+  end
+  return state
 end
 
 local function parent_comments(state, extra_comments)
@@ -253,6 +278,26 @@ local function count_calls(needle)
 end
 
 return {
+  test_incident_2828_sources_are_verifiable = function()
+    t.eq(INCIDENT_2828_DIAGNOSIS.selected_marker.source.comment_id,
+      "IC_kwDOSwWu288AAAABL_u8eQ")
+    t.eq(INCIDENT_2828_DIAGNOSIS.selected_marker.source
+      and INCIDENT_2828_DIAGNOSIS.selected_marker.source.url,
+      "https://github.com/ChronoAIProject/fkst-packages/issues/2828#issuecomment-5099994233")
+    t.eq(INCIDENT_2828_DIAGNOSIS.selected_marker.source.author_login, "ElonSG")
+    t.eq(INCIDENT_2828_DIAGNOSIS.losing_marker.source.comment_id,
+      "IC_kwDOSwWu288AAAABMYUS-w")
+    t.eq(INCIDENT_2828_DIAGNOSIS.losing_marker.source
+      and INCIDENT_2828_DIAGNOSIS.losing_marker.source.url,
+      "https://github.com/ChronoAIProject/fkst-packages/issues/2828#issuecomment-5125772027")
+    t.eq(INCIDENT_2828_DIAGNOSIS.losing_marker.source.author_login, "ElonSG")
+    t.eq(INCIDENT_2828_DIAGNOSIS.child_terminal.source.comment_id, "5164218051")
+    t.eq(INCIDENT_2828_DIAGNOSIS.child_terminal.source
+      and INCIDENT_2828_DIAGNOSIS.child_terminal.source.url,
+      "https://github.com/ChronoAIProject/fkst-packages/pull/2832#issuecomment-5164218051")
+    t.eq(INCIDENT_2828_DIAGNOSIS.child_terminal.source.author_login, "ElonSG")
+  end,
+
   test_incident_2828_authoritative_diagnosis_is_recorded = function()
     local state = incident_2828_authoritative_state()
 
