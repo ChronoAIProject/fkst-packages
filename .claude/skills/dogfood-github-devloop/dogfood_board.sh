@@ -102,6 +102,15 @@ lifecycle_board_fact() { # $1 issue-number
   printf '%s\n' "$fact"
 }
 
+lifecycle_board_condition() { # $1 fact-json
+  printf '%s' "$1" | jq -er '
+    select((.state | type) == "string" and (.state | length) > 0)
+    | select((.condition_started_at | type) == "string" and (.condition_started_at | length) > 0)
+    | [.state, .condition_started_at]
+    | @tsv
+  '
+}
+
 # Project a PR's OWN authoritative github-devloop state:v1 markers into a board fact,
 # symmetric with lifecycle_board_fact (issues). A PR's markers are keyed to the PARENT
 # issue's proposal, so the origin is SELF-DISCOVERED from the PR's own state:v1 marker
@@ -193,13 +202,13 @@ board_one() { # $1 name, $2 stale_hours
   fi
   echo "── issues (by fkst-dev state) ──"
   local issue_rows issue_rc
-  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.updated_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
+  issue_rows=$(gh api "repos/$REPO/issues?state=open&per_page=100" --jq '.[]|select(.pull_request==null)|([.labels[].name]|map(select(startswith("fkst-dev:")and .!="fkst-dev:enabled"))) as $labels|(([.labels[].name]|index("fkst-dashboard"))!=null) as $dash|"\(.number)\t\(.created_at)\t\(if ($labels|length)>0 then ($labels|join(",")) elif $dash then "__fkst_dashboard__" else "__fkst_stateless__" end)\t\(.title[0:38])"' 2>/dev/null); issue_rc=$?
   if [ "$issue_rc" -ne 0 ]; then
     echo "  ⚠ BOARD FETCH FAILED (issues: gh api exit $issue_rc) — GitHub REST likely down; cross-check: gh issue list --repo $REPO --state open"
   else
-  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num upd label title; do
+  printf '%s\n' "$issue_rows" | while IFS=$'\t' read -r num created label title; do
     [ -z "$num" ] && continue
-    local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$upd")) / 3600 )); st="$(issue_primary_state "$label")"
+    local a st cls workflow_fact lifecycle_fact lifecycle_override; a=$(( (now - $(epoch_utc "$created")) / 3600 )); st="$(issue_primary_state "$label")"
     if [ "$label" = "__fkst_dashboard__" ]; then
       # fkst-dashboard is an intentionally long-lived tracked surface (intake decision=track), not pipeline work — never STRANDED
       st="dashboard"; cls="✓ dashboard (tracked)"
@@ -215,9 +224,26 @@ board_one() { # $1 name, $2 stale_hours
       cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")"
       case "$st:$cls" in
         awaiting-pr:*|*:⚠*)
-          if lifecycle_fact=$(lifecycle_board_fact "$num") && lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
-            st="${lifecycle_override%%$'\t'*}"
-            cls="${lifecycle_override#*$'\t'}"
+          if lifecycle_fact=$(lifecycle_board_fact "$num"); then
+            local condition condition_started_at
+            if condition=$(lifecycle_board_condition "$lifecycle_fact"); then
+              st="${condition%%$'\t'*}"
+              condition_started_at="${condition#*$'\t'}"
+              a=$(( (now - $(epoch_utc "$condition_started_at")) / 3600 ))
+              if lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
+                st="${lifecycle_override%%$'\t'*}"
+                cls="${lifecycle_override#*$'\t'}"
+              else
+                cls="$(issue_recency_class "$num" "$label" "$st" "$a" "$stale" "$openpr")"
+              fi
+            elif lifecycle_override=$(lifecycle_board_reclassify "$lifecycle_fact" "$a"); then
+              st="${lifecycle_override%%$'\t'*}"
+              cls="${lifecycle_override#*$'\t'}"
+            elif [ "$st" != "awaiting-pr" ]; then
+              cls="⚠ CONDITION-ONSET-UNAVAILABLE $st"
+            fi
+          elif [ "$st" != "awaiting-pr" ]; then
+            cls="⚠ CONDITION-ONSET-UNAVAILABLE $st"
           fi
           ;;
       esac
