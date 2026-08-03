@@ -175,10 +175,10 @@ local function assert_department_success(result, name)
     result.error or result.stderr or (result.failure and result.failure.error)))
 end
 
-local function mock_base_probe(outcome)
+local function mock_base_probe(worktree, outcome)
+  local probe_worktree = worktree .. "-base-probe"
   for _ = 1, 2 do
-    t.mock_command("git worktree remove --force", { stdout = "", stderr = "", exit_code = 0 })
-    t.mock_command("git worktree prune", { stdout = "", stderr = "", exit_code = 0 })
+    h.mock_force_clean(probe_worktree)
   end
   t.mock_command("mkdir -p", { stdout = "", stderr = "", exit_code = 0 })
   t.mock_command("git worktree add --detach", {
@@ -199,7 +199,7 @@ local function run_initial_typed_failure(event, outcome, name, base_outcome)
   mock_issue_implement_view_only({ "fkst-dev:ready", "fkst-dev:thinking" }, {
     core.state_marker(event.proposal_id, "ready", ready.dedup_key),
   }, 3)
-  mock_fresh_implement_worktree()
+  local worktree = mock_fresh_implement_worktree()
   t.mock_command("codex exec", { stdout = "implemented", stderr = "", exit_code = 0 })
   mock_git_status(" M packages/github-devloop/core.lua\n")
   t.mock_command("scripts/run.sh test-affected", {
@@ -208,7 +208,7 @@ local function run_initial_typed_failure(event, outcome, name, base_outcome)
     exit_code = 1,
   })
   if outcome == "SEMANTIC_FAIL" then
-    mock_base_probe(base_outcome or "PASS")
+    mock_base_probe(worktree, base_outcome or "PASS")
   end
 
   local result = run_implement(ready, opts(name))
