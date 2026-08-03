@@ -212,7 +212,7 @@ local function build_awaiting_pr_canonicalization_comment_request(issue, state, 
     blocked = "blocked state",
   })[child_state.state]
   if terminal_event == nil then
-    error("github-devloop: awaiting-pr-canonicalization-child-nonterminal")
+    error("github-devloop: invalid-terminal-child: awaiting-pr canonicalization requires a terminal child state")
   end
   local body = "github-devloop canonicalized delegated PR handoff after child " .. terminal_event
     .. "\n\nDelegated PR: #" .. tostring(delegation.pr_number)
@@ -292,15 +292,48 @@ function M.awaiting_pr_exit_transition_status(issue, proposal_id, state, to_stat
   return decision.status, snapshot, decision
 end
 
+local terminal_milestones = { "merged", "closed-unmerged", "blocked" }
+local terminal_requires_canonical_merge = { merged = true }
+local terminal_generation = {
+  ["closed-unmerged"] = closed_unmerged_generation,
+}
+
+local function child_reached(current_pr, delegation, milestone, lineage_base)
+  return devloop_state.reached(current_pr.comments, delegation.proposal_id, milestone, {
+    domain = "github-devloop-pr",
+    lineage_base = lineage_base,
+  })
+end
+
+local function monotone_terminal_child(state, delegation, current_pr)
+  for _, milestone in ipairs(terminal_milestones) do
+    if child_reached(current_pr, delegation, milestone, state.version) then
+      return { state = milestone, version = delegation.version }
+    end
+  end
+  for _, milestone in ipairs(terminal_milestones) do
+    if child_reached(current_pr, delegation, milestone) then
+      return nil, "skip-stale(child-state-lineage)", "child terminal state does not match parent delegation lineage"
+    end
+  end
+  if child_reached(current_pr, delegation, "pr-open", state.version) then
+    return nil, "skip-pending(child-nonterminal)", "delegated child PR is not terminal"
+  end
+  if child_reached(current_pr, delegation, "pr-open") then
+    return nil, "skip-stale(child-state-lineage)", "child state does not match parent delegation lineage"
+  end
+  return nil, "skip-pending(child-terminal-missing)", "delegated child PR has no trusted terminal marker or canonical merged state"
+end
+
 local function resolve_delegated_terminal_child(issue, state, delegation, current_pr, observed_child_state)
-  local child_state = observed_child_state
-    or entity_lib.current_entity_state(current_pr.comments, delegation.proposal_id)
   local canonical_merged_state = canonical_merged_child_state(issue, state, delegation, current_pr)
-  if canonical_merged_state ~= nil then
-    child_state = canonical_merged_state
+  local child_state = canonical_merged_state or observed_child_state
+  local outcome, reason
+  if child_state == nil then
+    child_state, outcome, reason = monotone_terminal_child(state, delegation, current_pr)
   end
   if child_state == nil or child_state.state == nil then
-    return nil, "skip-pending(child-terminal-missing)", "delegated child PR has no trusted terminal marker or canonical merged state"
+    return nil, outcome or "skip-pending(child-terminal-missing)", reason or "delegated child PR has no trusted terminal marker or canonical merged state"
   end
   if child_terminal_states[child_state.state] ~= true then
     return nil, "skip-pending(child-nonterminal)", "delegated child PR is not terminal"
@@ -308,12 +341,13 @@ local function resolve_delegated_terminal_child(issue, state, delegation, curren
   if not child_lineage_matches_delegation(state, delegation, child_state) then
     return nil, "skip-stale(child-state-lineage)", "child terminal state does not match parent delegation lineage"
   end
-  if child_state.state == "merged" and canonical_merged_state == nil then
+  if terminal_requires_canonical_merge[child_state.state] and canonical_merged_state == nil then
     return nil, "skip-pending(canonical-child-pr-merged-missing)", "delegated child PR has a merged marker but is not canonically merged by GitHub"
   end
   local generation = nil
-  if child_state.state == "closed-unmerged" then
-    generation = closed_unmerged_generation(issue, state, current_pr)
+  local generation_resolver = terminal_generation[child_state.state]
+  if generation_resolver ~= nil then
+    generation = generation_resolver(issue, state, current_pr)
     if generation == nil then
       return nil, "skip-stale(child-branch-lineage)", "closed child PR is not on a deterministic original or replacement implementation branch"
     end
@@ -388,7 +422,7 @@ function M.canonicalize_implementing_terminal_delegated_pr(dept, issue, state, f
   end
 
   local add_labels, remove_labels = devloop_state.state_label_changes("awaiting-pr")
-  local applied_outcome = terminal_child.child_state.state == "merged"
+  local applied_outcome = terminal_child.canonical_merged_state ~= nil
     and "applied(merged-delegated-pr-canonicalized)"
     or "applied(terminal-delegated-pr-canonicalized)"
   devloop_logging.log_cas_decision(dept, proposal_id, state, "implementing", "awaiting-pr", applied_outcome, "trusted terminal PR child made missing parent handoff visible")
