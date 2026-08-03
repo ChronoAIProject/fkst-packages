@@ -57,6 +57,20 @@ return {
     t.eq(payload.findings_record, findings)
   end,
 
+  test_build_converge_payload_measures_multibyte_findings_in_bytes = function()
+    local two_byte_character = "é"
+    local findings = string.rep(two_byte_character, synthesis_contract.findings_record_max_bytes / 2)
+    local payload = core.build_converge_payload(
+      proposal(nil),
+      "Narrow the disagreement.",
+      angle_results(),
+      findings
+    )
+
+    t.eq(#payload.findings_record, synthesis_contract.findings_record_max_bytes)
+    t.eq(payload.findings_record, findings)
+  end,
+
   test_build_converge_payload_rejects_overlong_findings_record = function()
     local findings = string.rep("x", synthesis_contract.findings_record_max_bytes + 1)
     local ok, failure = pcall(function()
