@@ -1,29 +1,25 @@
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
-local parsers_issue = require("devloop.parsers.issue")
 local core = require("core")
 local operator_commands = require("devloop.operator_commands")
 local queue = require("devloop.queue")
 local saga = require("workflow.saga")
 local m_facts = require("devloop.markers.facts")
 local devloop_logging = require("devloop.logging")
-local devloop_commands = require("devloop.commands")
 local config = require("devloop.config")
-local entity_lib = require("devloop.entity")
 local admission_core = require("core.admission")
-local intake_capacity = require("core.intake_capacity")
-local replay_authorization = require("core.replay_authorization")
+local admission_shared = require("core.admission_shared")
 local premise_correction = require("devloop.premise_correction")
 
 local spec = {
-  consumes = { "github-proxy.github_entity_changed", "github-proxy.github_issue_observed" },
+  consumes = { "github-proxy.github_entity_changed" },
   produces = {
     "devloop_intake_candidate",
     "github-proxy.github_issue_comment_request",
     "github-proxy.github_issue_create_request",
   },
-  fanout = { "github-proxy.github_entity_changed", "github-proxy.github_issue_observed", "devloop_intake_candidate" },
+  fanout = { "github-proxy.github_entity_changed", "devloop_intake_candidate" },
   stall_window = "30s",
 }
 
@@ -38,19 +34,7 @@ local function raise_reintake_refusal(repo, issue_number, proposal_id, command, 
   devloop_logging.log_raise("admission", proposal_id, "github-proxy.github_issue_comment_request", request)
 end
 
-local function reconcile_capacity(context, repo, proposal_id)
-  local reconciled, reason = context.capacity.reconcile(repo, proposal_id)
-  devloop_logging.log_cas_decision(
-    "admission",
-    proposal_id,
-    { state = nil, version = nil },
-    "capacity-grant",
-    "capacity-grant",
-    reconciled and "reconciled" or "deferred",
-    reason
-  )
-  return reconciled
-end
+local reconcile_capacity = admission_shared.reconcile_capacity
 
 local function claim_with_capacity(context, authorize, repo, issue_number, current, proposal_id, admission, detail)
   local granted, reason = authorize(repo, issue_number, current, proposal_id)
@@ -154,42 +138,7 @@ local function done(_event)
   return false
 end
 
-local function current_issue_from_source_ref(source_ref, updated_at)
-  local repo, issue_number = devloop_base.parse_issue_source_ref(source_ref)
-  if repo == nil or issue_number == nil then
-    return nil, nil, nil, "invalid issue source_ref"
-  end
-  local view = devloop_commands.gh_issue_view_intake_judge(repo, issue_number, 30)
-  if view.exit_code ~= 0 then
-    error("github-devloop-intake: gh-issue-admission-view-failed: gh issue admission view failed: " .. tostring(view.stderr))
-  end
-  local current = parsers_issue.parse_issue_view_intake_judge(core, view.stdout)
-  current.updated_at = current.updated_at or updated_at
-  current.number = issue_number
-  return repo, issue_number, current, nil
-end
-
-local function has_trusted_progress(current, proposal_id)
-  if core.should_skip_known_intake_issue(current.labels) then
-    return true, "active devloop label is visible"
-  end
-  if m_facts.has_intake_decision_marker(current.comments, proposal_id) then
-    return true, "trusted intake decision marker is already visible"
-  end
-  if m_facts.has_state_marker(current.comments, proposal_id) then
-    return true, "trusted state marker is already visible"
-  end
-  return false, nil
-end
-
-local function issue_from_current(issue_number, current)
-  return {
-    number = issue_number,
-    title = current.title,
-    body = current.body,
-    updated_at = current.updated_at,
-  }
-end
+local issue_from_current = admission_shared.issue_from_current
 
 local function initial_claim_is_in_milestone_scope(context, repo, current, poll_key)
   local admission, detail = settled_claim_admission(context, repo, current, poll_key)
@@ -283,72 +232,6 @@ local function admit_issue_event(context, event, entity)
   end
 end
 
-local function act_issue_observed(context, event)
-  local entity = event.payload or {}
-  devloop_logging.log_entry("admission", event, "github-devloop/intake-observed", devloop_logging.payload_field(entity, "dedup_key"))
-  if entity.type ~= "issue" then
-    return
-  end
-  local repo, issue_number = devloop_base.parse_issue_source_ref(entity.source_ref)
-  if repo == nil or issue_number == nil then
-    devloop_logging.log_cas_decision("admission", "unknown", { state = nil, version = nil }, "observed", "candidate", "skip-foreign(source_ref)", "invalid issue source_ref")
-    return
-  end
-  local proposal_id = base_ids.proposal_id(repo, issue_number)
-  devloop_base.assert_trusted_bot_configured()
-
-  local lock_key = entity_lib.observe_lock_key(repo, issue_number)
-  with_lock(lock_key, function()
-    local terminal, precondition_reason, lineage = replay_authorization.terminal_precondition(entity.source_ref)
-    if terminal == nil then
-      reconcile_capacity(context, repo, proposal_id)
-      devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(precondition_reason or "not-authorized"), "intake replay terminal precondition failed")
-      return
-    end
-
-    local _, _, current = context.read_current_issue(entity.source_ref, entity.updated_at)
-    devloop_logging.log_forged_markers("admission", proposal_id, current.comments)
-    local progress_visible = has_trusted_progress(current, proposal_id)
-    local authorization, reason = replay_authorization.authorize(current, proposal_id, entity.source_ref, {
-      has_trusted_progress = progress_visible,
-      lineage = lineage,
-      terminal = terminal,
-    })
-    if authorization == nil then
-      reconcile_capacity(context, repo, proposal_id)
-      devloop_logging.log_cas_decision("admission", proposal_id, { state = nil, version = nil }, "observed", "replay-candidate", "skip-" .. tostring(reason or "not-authorized"), "intake replay precondition failed")
-      return
-    end
-
-    local capacity_granted, capacity_reason = context.capacity.authorize(
-      repo,
-      issue_number,
-      current,
-      proposal_id
-    )
-    if not capacity_granted then
-      devloop_logging.log_cas_decision(
-        "admission",
-        proposal_id,
-        { state = nil, version = nil },
-        "observed",
-        "replay-candidate",
-        "skip-capacity",
-        capacity_reason
-      )
-      return
-    end
-
-    once(authorization.once_key, function()
-      local payload = admission_core.build_intake_replay_candidate(repo, issue_from_current(issue_number, current), authorization.terminal)
-      devloop_logging.log_apply("admission", proposal_id, nil, nil, { add = {}, remove = {} }, {
-        "devloop_intake_candidate",
-      })
-      devloop_logging.log_raise("admission", proposal_id, "devloop_intake_candidate", payload)
-    end)
-  end)
-end
-
 local function act_entity_changed(context, event)
   local entity = event.payload or {}
   if entity.type ~= "issue" then
@@ -358,18 +241,10 @@ local function act_entity_changed(context, event)
 end
 
 local function make_department(deps)
-  local selected = deps or {}
-  local context = {
-    capacity = selected.capacity or intake_capacity.production(core),
-    claims = selected.claims or m_claims,
-    read_current_issue = selected.read_current_issue or current_issue_from_source_ref,
-  }
+  local context = admission_shared.make_context(deps)
   local handlers = {
     ["github-proxy.github_entity_changed"] = function(event)
       return act_entity_changed(context, event)
-    end,
-    ["github-proxy.github_issue_observed"] = function(event)
-      return act_issue_observed(context, event)
     end,
   }
   local function act(event)
