@@ -138,7 +138,6 @@ local function raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, curren
   return with_current_classification(repo, merge_ready.pr_number, expected_head, function(classification)
     local admission = raise_fixing(repo, issue_number, merge_ready, current_state, nil, "own-ci-red", queue_position, classification)
     if admission.kind == "not-own-ci" then
-      log_gate(merge_ready, "hold", admission.reason)
       return ci_wait.hold(core, merge_ready, repo, admission.current_pr, {
         kind = "CI_WAIT",
         reason = admission.reason,
@@ -569,7 +568,6 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       return
     end
     if not check_runs.is_not_mergeable_reason(mergeable_reason) then
-      log_gate(merge_ready, "hold", mergeable_reason)
       return ci_wait.hold(core, merge_ready, repo, current_pr, {
         kind = "CI_WAIT",
         reason = mergeable_reason,
@@ -735,7 +733,6 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and parsers_misc.is_ci_wait_reason(merge_reason) then
-    log_gate(merge_ready, "hold", merge_reason)
     return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
       kind = "CI_WAIT",
       reason = merge_reason,
@@ -752,7 +749,6 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and (merge_reason == "rollup-pending" or merge_reason == "mergeable-unknown") then
-    log_gate(merge_ready, "hold", merge_reason)
     return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
       kind = "CI_WAIT",
       reason = merge_reason,

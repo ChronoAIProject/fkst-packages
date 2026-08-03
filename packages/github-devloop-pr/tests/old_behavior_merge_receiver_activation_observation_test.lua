@@ -580,12 +580,12 @@ end
 return {
   test_external_ci_hold_logs_only_hold = function()
     local _, captured = capture(DELEGATION_FIXTURES[1])
-    local hold_seen = false
+    local hold_count = 0
     for _, gate in ipairs(captured.gates) do
-      if gate.outcome == "hold" then hold_seen = true end
+      if gate.outcome == "hold" then hold_count = hold_count + 1 end
       t.eq(gate.outcome == "fixing", false, "external CI must not be logged as fixing")
     end
-    t.is_true(hold_seen, "external CI must be logged as hold")
+    t.eq(hold_count, 1, "external CI must produce one canonical hold outcome")
   end,
 
   test_verified_merge_sink_consumes_exact_eligible_now_grant = function()
