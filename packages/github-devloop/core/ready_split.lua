@@ -26,7 +26,7 @@ local function ready_split_canonicalized_marker(proposal_id, from_version, to_ve
     .. '" -->'
 end
 
-local function build_ready_split_canonicalized_comment_request(M, repo, issue_number, proposal_id, from_version, to_state, to_version, gate, source_ref)
+local function build_ready_split_canonicalized_comment_request(M, repo, issue_number, proposal_id, from_version, to_state, to_version, gate, label_request, source_ref)
   local state_effects = to_state == "ready" and "result-marker,ready-label,devloop-ready" or "ready-split-canonicalized"
   local markers = ready_split_canonicalized_marker(proposal_id, from_version, to_version, to_state, gate and gate.reason or "ready_split_rederive")
     .. "\n" .. devloop_state.state_marker(proposal_id, to_state, to_version, state_effects)
@@ -43,15 +43,14 @@ local function build_ready_split_canonicalized_comment_request(M, repo, issue_nu
     dedup_key = base_ids.dedup_key({ "ready-split", "canonicalized", tostring(proposal_id), tostring(from_version), tostring(to_version) }),
     source_ref = base_ids.normalize_source_ref(source_ref),
   }, source_ref)
-  if to_state == "ready" then
-    request.handoff = {
-      kind = "github-devloop.ready",
-      proposal_id = proposal_id,
-      version = to_version,
-      marker_version = to_version,
-      source_ref = base_ids.normalize_source_ref(source_ref),
-    }
-  end
+  request.handoff = {
+    kind = to_state == "ready" and "github-devloop.ready" or "github-devloop.ready-split-label",
+    proposal_id = proposal_id,
+    version = to_version,
+    marker_version = to_version,
+    label_request = label_request,
+    source_ref = base_ids.normalize_source_ref(source_ref),
+  }
   return request
 end
 
@@ -84,11 +83,11 @@ function M.raise_ready_split_effects(dept, issue, proposal_id, from_version, to_
     to_state,
     to_version,
     gate,
+    label_request,
     issue.source_ref
   )
   local emitted = {
     "github-proxy.github_issue_comment_request",
-    "github-proxy.github_issue_label_request",
   }
   for _, queue in ipairs(additional_raised or {}) do
     table.insert(emitted, queue)
@@ -98,7 +97,6 @@ function M.raise_ready_split_effects(dept, issue, proposal_id, from_version, to_
     remove = label_request.remove_labels,
   }, emitted)
   devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", comment_request)
-  devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", label_request)
 end
 
 function M.canonicalize_legacy_ready_dependency_wait(dept, issue, state, facts)

@@ -259,15 +259,24 @@ local function assert_ready_split_effects(raises, to_state, to_version, blocked_
   local effects = to_state == "ready"
     and "result-marker,ready-label,devloop-ready"
     or "ready-split-canonicalized"
-  local body = marker_body(raises, "ready-split-canonicalized:v1")
+  local comment_raise = find_raise(raises, "github-proxy.github_issue_comment_request", function(payload)
+    return type(payload.body) == "string"
+      and payload.body:find("ready-split-canonicalized:v1", 1, true) ~= nil
+  end)
+  t.is_true(comment_raise ~= nil)
+  local body = comment_raise.payload.body
   t.is_true(body ~= nil)
   t.is_true(body:find(core.state_marker(proposal_id, to_state, to_version, effects), 1, true) ~= nil)
 
-  local label_raise = find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
+  local direct_label_raise = find_raise(raises, "github-proxy.github_issue_label_request", function(payload)
     return payload.expected_state == to_state and payload.expected_version == to_version
   end)
-  t.is_true(label_raise ~= nil)
-  local request = label_raise.payload
+  t.eq(direct_label_raise, nil)
+  local handoff = comment_raise.payload.handoff
+  t.is_true(type(handoff) == "table")
+  t.eq(handoff.kind, to_state == "ready" and "github-devloop.ready" or "github-devloop.ready-split-label")
+  local request = handoff.label_request
+  t.is_true(type(request) == "table")
   t.is_true(h.has_value(request.add_labels, "fkst-dev:ready"))
   t.eq(h.has_value(request.add_labels, devloop_base._blocked_on_dependency_label), blocked_label_added)
   t.eq(h.has_value(request.remove_labels, devloop_base._blocked_on_dependency_label), not blocked_label_added)
@@ -517,7 +526,7 @@ return {
     local result = run_implement(ready)
     t.eq(result.exit_code, 0)
     t.eq(count_queue(result.raises, "github-proxy.github_issue_comment_request"), 1)
-    t.eq(count_queue(result.raises, "github-proxy.github_issue_label_request"), 1)
+    t.eq(count_queue(result.raises, "github-proxy.github_issue_label_request"), 0)
     local body = marker_body(result.raises, "ready-split-canonicalized:v1")
     local inner_version = core.ready_payload_inner_version(ready.dedup_key)
     local next_split_version = core.ready_split_version(inner_version)
@@ -538,7 +547,23 @@ return {
 
     local result = run_observe_with_issue(h.issue())
     t.eq(result.exit_code, 0)
-    assert_ready_split_effects(result.raises, "dependency_wait", core.ready_split_version(version), true)
+    local split_version = core.ready_split_version(version)
+    assert_ready_split_effects(result.raises, "dependency_wait", split_version, true)
+
+    local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return type(payload.body) == "string"
+        and payload.body:find('state="dependency_wait"', 1, true) ~= nil
+    end)
+    local handoff = run_comment_handoff_from_request(
+      comment.payload,
+      "IC_dependency_wait_split",
+      "ready-split-regression-dependency-wait-comment-handoff"
+    )
+    t.eq(handoff.exit_code, 0)
+    t.eq(find_raise(handoff.raises, "devloop_ready"), nil)
+    local label = state_label_request(handoff.raises, "dependency_wait", split_version)
+    t.is_true(label ~= nil)
+    t.is_true(h.has_value(label.payload.add_labels, devloop_base._blocked_on_dependency_label))
   end,
 
   test_legacy_ready_unresolvable_hold_canonicalizes_to_dependency_wait = function()
@@ -717,6 +742,9 @@ return {
       "ready-split-regression-release-comment-handoff"
     )
     t.eq(handoff.exit_code, 0)
+    local label = state_label_request(handoff.raises, "ready", split_version)
+    t.is_true(label ~= nil)
+    t.is_true(h.has_value(label.payload.remove_labels, devloop_base._blocked_on_dependency_label))
     local ready = find_raise(handoff.raises, "devloop_ready")
     t.is_true(ready ~= nil)
     t.eq(ready.payload.ready_hand_off.comment_id, "IC_dependency_release_ready")
