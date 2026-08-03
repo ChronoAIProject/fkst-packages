@@ -143,19 +143,29 @@ function M.read_current_for_candidate(package_core, dept, repo, issue_number, ca
   end
 
   local correction_pair = nil
+  local applied_correction_key = nil
   if candidate.premise_fingerprint ~= nil and candidate.correction_fingerprint ~= nil then
     local latest_decline = m_facts.intake_decision_fact(current.comments, candidate.proposal_id)
     local current_correction = premise_correction.matching_correction_fact(current.comments, latest_decline)
     if current_correction == nil
       or current_correction.premise_fingerprint ~= candidate.premise_fingerprint
       or current_correction.correction_fingerprint ~= candidate.correction_fingerprint then
-      devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-stale(premise-correction-changed)", "premise correction candidate must match the latest trusted decline and source comment")
-      return nil
+      -- Once the corrected decision marker is visible, intake_decision_fact returns that
+      -- decision instead of the decline it superseded, so matching_correction_fact can no
+      -- longer locate the source decline. Recognising the already-applied identity keeps
+      -- successor replay reachable; without it a lost child-to-parent raise would strand the
+      -- issue with a visible marker and no successors.
+      if latest_decline == nil or tostring(latest_decline.dedup_key or "") ~= tostring(candidate.effect_id or "") then
+        devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-stale(premise-correction-changed)", "premise correction candidate must match the latest trusted decline and source comment")
+        return nil
+      end
+      applied_correction_key = candidate.effect_id
+    else
+      correction_pair = {
+        premise_fingerprint = current_correction.premise_fingerprint,
+        correction_fingerprint = current_correction.correction_fingerprint,
+      }
     end
-    correction_pair = {
-      premise_fingerprint = current_correction.premise_fingerprint,
-      correction_fingerprint = current_correction.correction_fingerprint,
-    }
   end
 
   local decision_dedup_key = devloop_base.intake_decision_dedup_key(
@@ -166,6 +176,8 @@ function M.read_current_for_candidate(package_core, dept, repo, issue_number, ca
   )
   if correction_pair ~= nil then
     decision_dedup_key = premise_correction.decision_dedup_key(decision_dedup_key, correction_pair)
+  elseif applied_correction_key ~= nil then
+    decision_dedup_key = applied_correction_key
   end
   if correction_pair ~= nil and tostring(candidate.effect_id or "") ~= tostring(decision_dedup_key) then
     devloop_logging.log_cas_decision(dept, candidate.proposal_id, { state = nil, version = nil }, "candidate", "enable|track|decline", "skip-stale(premise-correction-dedup-changed)", "premise correction candidate effect identity no longer matches source facts")
