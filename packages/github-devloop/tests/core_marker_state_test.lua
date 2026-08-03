@@ -200,7 +200,8 @@ return {
     t.is_true(h.has_value(label.remove_labels, "fkst-dev:merge-ready"))
     t.is_true(h.has_value(label.remove_labels, "fkst-dev:fixing"))
     t.is_true(h.has_value(label.remove_labels, "fkst-dev:impl-failed"))
-    t.eq(#label.remove_labels, 13)
+    t.is_true(h.has_value(label.remove_labels, "fkst-dev:blocked-on-dependency"))
+    t.eq(#label.remove_labels, 14)
     t.eq(label.issue_number, "42")
     t.eq(label.dedup_key, "github-devloop/issue/owner/repo/42/label/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z")
 

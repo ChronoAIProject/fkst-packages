@@ -790,23 +790,23 @@ local function process_issue_event(event)
         return
       end
       local label_state = issue_label_projection_state(issue_state, link, snapshot)
-      local add_labels, remove_labels = devloop_state.state_label_reconcile_changes(current.labels, label_state.state)
-      if #add_labels > 0 or #remove_labels > 0 then
-        local label_request = requests_labels.build_state_label_request(issue.repo,
-          issue.number,
-          label_state.state,
+      local label_request = requests_labels.build_state_label_request(issue.repo,
+        issue.number,
+        label_state.state,
+        proposal_id,
+        label_state.version,
+        base_ids.dedup_key({
+          "reconcile",
+          "label",
           proposal_id,
-          label_state.version,
-          base_ids.dedup_key({
-            "reconcile",
-            "label",
-            proposal_id,
-            label_state.state,
-            tostring(label_state.version or "unversioned"),
-          }),
-          issue.source_ref,
-          current.labels
-        )
+          label_state.state,
+          tostring(label_state.version or "unversioned"),
+        }),
+        issue.source_ref,
+        current.labels
+      )
+      local add_labels, remove_labels = label_request.add_labels, label_request.remove_labels
+      if #add_labels > 0 or #remove_labels > 0 then
         devloop_logging.log_apply("observe_issue", proposal_id, label_state.state, label_state.version, { add = add_labels, remove = remove_labels }, {
           "github-proxy.github_issue_label_request",
         })

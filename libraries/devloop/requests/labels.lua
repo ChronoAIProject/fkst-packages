@@ -59,6 +59,31 @@ local function state_marker_guard(proposal_id, state, version, marker_target)
   return guard
 end
 
+local function has_label(labels, expected)
+  for _, label in ipairs(labels or {}) do
+    if tostring(label) == expected then
+      return true
+    end
+  end
+  return false
+end
+
+local function append_unique(labels, value)
+  if not has_label(labels, value) then
+    table.insert(labels, value)
+  end
+end
+
+local function apply_projected_dependency_label(to_state, current_labels, add_labels, remove_labels)
+  local dependency_label = devloop_base._blocked_on_dependency_label
+  local dependency_label_visible = has_label(current_labels, dependency_label)
+  if to_state == "dependency_wait" and (current_labels == nil or not dependency_label_visible) then
+    append_unique(add_labels, dependency_label)
+  elseif to_state == "ready" and (current_labels == nil or dependency_label_visible) then
+    append_unique(remove_labels, dependency_label)
+  end
+end
+
 function C.build_state_label_request(repo, issue_number, to_state, proposal_id, state_marker_version, dedup_key_value, source_ref, current_labels, marker_target)
   if proposal_id == nil or state_marker_version == nil then
     error("github-devloop: state label request requires proposal_id and state marker version")
@@ -69,6 +94,7 @@ function C.build_state_label_request(repo, issue_number, to_state, proposal_id, 
   else
     add_labels, remove_labels = state_labels.state_label_changes(to_state)
   end
+  apply_projected_dependency_label(to_state, current_labels, add_labels, remove_labels)
   local guard_target = marker_target or {
     kind = "issue",
     number = issue_number,

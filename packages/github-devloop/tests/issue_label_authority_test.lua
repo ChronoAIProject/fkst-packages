@@ -157,7 +157,7 @@ return {
     t.is_true(observe_body:find("issue_label_projection_state(issue_state, link, snapshot)", 1, true) ~= nil)
     t.is_true(observe_body:find('issue_state.state == "pr-open"', 1, true) ~= nil)
     t.is_true(observe_body:find("linked_open_pr(snapshot, link.pr_number)", 1, true) ~= nil)
-    t.is_true(observe_body:find("state_label_reconcile_changes", 1, true) ~= nil)
+    t.is_true(observe_body:find("build_state_label_request", 1, true) ~= nil)
     t.is_true(observe_body:find("github-proxy.github_issue_label_request", 1, true) ~= nil)
   end,
 }

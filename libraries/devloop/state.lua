@@ -23,11 +23,9 @@ end
 local PROJECTED_STATE_CONFIG = {
   dependency_wait = {
     handoff_kind = "github-devloop.ready-split-label",
-    dependency_label_change = "add",
   },
   ready = {
     handoff_kind = "github-devloop.ready",
-    dependency_label_change = "remove",
   },
 }
 
@@ -79,14 +77,6 @@ function C.build_projected_transition_comment_handoff(args)
     args.label_dedup_key,
     source_ref
   )
-  if projected.dependency_label_change == "add" then
-    table.insert(label_request.add_labels, devloop_base._blocked_on_dependency_label)
-    label_request.label_colors = label_request.label_colors or {}
-    label_request.label_colors[devloop_base._blocked_on_dependency_label] =
-      devloop_base._label_colors[devloop_base._blocked_on_dependency_label]
-  else
-    table.insert(label_request.remove_labels, devloop_base._blocked_on_dependency_label)
-  end
 
   local request = m_claims.attach_issue_claim({
     schema = "github-proxy.v1",

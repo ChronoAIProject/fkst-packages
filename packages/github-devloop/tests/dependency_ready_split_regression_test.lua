@@ -574,6 +574,44 @@ return {
     t.is_true(h.has_value(label.payload.add_labels, devloop_base._blocked_on_dependency_label))
   end,
 
+  test_ready_projection_repairs_stale_dependency_auxiliary_label = function()
+    mock_observe_issue(
+      { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
+      {
+        trusted_comment("IC_ready_visible", h.state_marker(
+          proposal_id, "ready", version, "result-marker,ready-label,devloop-ready"
+        )),
+      }
+    )
+    mock_blocked_by(42, {})
+
+    local result = run_observe()
+    t.eq(result.exit_code, 0)
+    local label = state_label_request(result.raises, "ready", version)
+    t.is_true(label ~= nil)
+    t.is_true(h.has_value(label.payload.remove_labels, devloop_base._blocked_on_dependency_label))
+  end,
+
+  test_dependency_wait_projection_repairs_missing_dependency_auxiliary_label = function()
+    mock_observe_issue(
+      { "fkst-dev:enabled", "fkst-dev:ready" },
+      {
+        trusted_comment("IC_dependency_wait_visible", h.state_marker(proposal_id, "dependency_wait", version)),
+        "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
+          .. core.dependency_wait_marker(proposal_id, version, { 55 }),
+      }
+    )
+    mock_blocked_by(42, { { number = 55 } })
+    mock_blocked_by(55, {})
+    mock_blocker_issue(55, "ready")
+
+    local result = run_observe()
+    t.eq(result.exit_code, 0)
+    local label = state_label_request(result.raises, "dependency_wait", version)
+    t.is_true(label ~= nil)
+    t.is_true(h.has_value(label.payload.add_labels, devloop_base._blocked_on_dependency_label))
+  end,
+
   test_legacy_ready_unresolvable_hold_canonicalizes_to_dependency_wait = function()
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:impl-failed", "fkst-dev:blocked-on-dependency" },
