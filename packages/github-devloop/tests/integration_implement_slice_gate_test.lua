@@ -83,7 +83,7 @@ return {
   test_noncanonical_migration_slice_exits_before_implementation = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_marker(event.proposal_id, "ready", event.dedup_key),
     }, {
       body = slice_body(),
     })

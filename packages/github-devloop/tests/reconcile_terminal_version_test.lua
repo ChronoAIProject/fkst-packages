@@ -69,7 +69,7 @@ return {
     local event = reconcile()
     local state_version = "github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418"
     mock_issue_reconcile({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", state_version),
+      h.state_marker(event.proposal_id, "thinking", state_version),
     })
 
     local result = run_reconcile(event, opts("reconcile-terminal-thinking"))
@@ -78,7 +78,7 @@ return {
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     local version = conv_reconcile.reconcile_terminal_state_version(state_version, event.round)
     t.eq(catalog_versioned_status({ state = "thinking", version = state_version }, { "thinking" }, "blocked", version), "apply")
-    t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)
 
     mock_issue_reconcile({ "fkst-dev:blocked" }, { comment.body })
     local idempotent = run_reconcile(event, opts("reconcile-terminal-thinking-idempotent"))
@@ -90,7 +90,7 @@ return {
     local event = reconcile()
     local state_version = conv_reconcile.reconcile_terminal_state_version("github-devloop/issue/owner/repo/42/2026-06-14T05-22-55Z/intake/1287859418", event.round)
     mock_issue_reconcile({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", state_version),
+      h.state_marker(event.proposal_id, "ready", state_version),
     })
 
     local ready_result = run_reconcile(event, opts("reconcile-terminal-ready"))
@@ -98,7 +98,7 @@ return {
     t.eq(#ready_result.raises, 0)
 
     mock_issue_reconcile({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "implementing", state_version),
+      h.state_marker(event.proposal_id, "implementing", state_version),
     })
 
     local implementing_result = run_reconcile(event, opts("reconcile-terminal-implementing"))
@@ -142,7 +142,7 @@ return {
     )
     mock_issue_reconcile({ "fkst-dev:implementing" }, {
       {
-        body = core.state_marker(proposal_id, "implementing", state_version),
+        body = h.state_marker(proposal_id, "implementing", state_version),
         author_login = "fkst-test-bot",
         created_at = "2026-06-03T00:00:00Z",
       },

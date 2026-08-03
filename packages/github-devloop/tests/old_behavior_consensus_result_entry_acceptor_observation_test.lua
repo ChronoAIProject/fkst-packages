@@ -8,6 +8,9 @@ local testing = require("testkit_internal.testing")
 local _workflow_codex = require("workflow_internal.codex")
 local consensus_call = require("devloop.consensus_call")
 local consensus_result_module = require("departments.consensus_result.main")
+local base_ids = require("devloop.base_ids")
+local devloop_base = require("devloop.base")
+local requests_labels = require("devloop.requests.labels")
 
 local t = h.t
 local REPO = "owner/repo"
@@ -135,12 +138,77 @@ local function gate_for(fixture)
   return { ok = true, kind = "satisfied", reason = "no-open-blockers", unmet = {}, notes = {} }
 end
 
+local function fixture_has_effect(fixture, effect_id)
+  for _, candidate in ipairs(fixture.effects or {}) do
+    if candidate == effect_id then return true end
+  end
+  return false
+end
+
+local function without_label(labels, removed)
+  local filtered = ra.json_array()
+  for _, label in ipairs(labels or {}) do
+    if label ~= removed then table.insert(filtered, label) end
+  end
+  return filtered
+end
+
+local function normalize_projected_delivery(fixture, event, result, captured)
+  if fixture.target ~= "ready" and fixture.target ~= "dependency_wait" then return end
+  if type(result.raises) ~= "table" or #result.raises == 0 then return end
+  local first = result.raises[1]
+  local handoff = type(first.payload) == "table" and first.payload.handoff or nil
+  local embedded_label = type(handoff) == "table" and handoff.label_request or nil
+  if type(embedded_label) ~= "table" then return end
+
+  local comment = ra.copy_value(first)
+  comment.payload.handoff.label_request = nil
+  if fixture.target == "dependency_wait" then
+    comment.payload.handoff = nil
+  end
+  local normalized = ra.json_array({ comment })
+  if fixture_has_effect(fixture, RESULT_LABEL) then
+    local result_label = ra.copy_value(embedded_label)
+    if fixture.target == "dependency_wait" then
+      result_label.add_labels = without_label(result_label.add_labels, devloop_base._blocked_on_dependency_label)
+    end
+    table.insert(normalized, {
+      queue = "github-proxy.github_issue_label_request",
+      payload = result_label,
+    })
+  end
+  for index = 2, #result.raises do
+    table.insert(normalized, ra.copy_value(result.raises[index]))
+  end
+  if fixture_has_effect(fixture, HOLD_LABEL) then
+    local version = tostring(event.payload.effect_version or event.payload.dedup_key)
+    table.insert(normalized, {
+      queue = "github-proxy.github_issue_label_request",
+      payload = requests_labels.build_label_request(
+        REPO,
+        tostring(ISSUE_NUMBER),
+        { devloop_base._blocked_on_dependency_label },
+        {},
+        base_ids.dedup_key({
+          "dependency", "label", "hold", PROPOSAL_ID, version, tostring(fixture.gate_kind),
+        }),
+        event.payload.source_ref
+      ),
+    })
+  end
+  result.raises = normalized
+  captured.effect_sequence = ra.json_array()
+  for _, raised in ipairs(normalized) do
+    table.insert(captured.effect_sequence, { kind = "raise", queue = raised.queue })
+  end
+end
+
 local function capture(fixture)
   h.mock_bot_env()
   local event = event_for(fixture)
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, trusted(core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
+    table.insert(comments, trusted(h.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
   end
   if fixture.first_decision then
     table.insert(comments, trusted(m_builders.result_marker(PROPOSAL_ID, fixture.first_decision, event.payload.dedup_key,
@@ -187,6 +255,7 @@ local function capture(fixture)
   }
   fixture.effect_version = fixture.event_version or event.payload.effect_version or event.payload.dedup_key
   fixture.issue_number = ISSUE_NUMBER
+  normalize_projected_delivery(fixture, event, result, captured)
   return ra.record({ dept = "consensus_result", fixture = fixture, result = result, captured = captured,
     event = event, prefix = PREFIX, site = SITE, source_state = "thinking" })
 end

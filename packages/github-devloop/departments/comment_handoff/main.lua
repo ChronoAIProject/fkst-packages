@@ -26,7 +26,7 @@ local function same_value(left, right)
   return tostring(left or "") == tostring(right or "")
 end
 
-local function ready_split_label_request(payload, handoff, expected_state)
+local function projected_label_request(payload, handoff, expected_state)
   local request = handoff.label_request
   local guard = type(request) == "table" and request.marker_guard or nil
   local guard_expected = type(guard) == "table" and guard.expected or nil
@@ -72,8 +72,7 @@ local function supported_handoff(payload)
     and (handoff.framing == nil
       or strings.is_bounded_string(handoff.framing, devloop_base._max_framing_len))
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len) then
-    if handoff.label_request == nil
-      or ready_split_label_request(payload, handoff, "ready") ~= nil then
+    if projected_label_request(payload, handoff, "ready") ~= nil then
       return handoff
     end
     return nil
@@ -83,7 +82,7 @@ local function supported_handoff(payload)
     and devloop_base.is_safe_consensus_result_ref(handoff.proposal_id, handoff.marker_version)
     and strings.is_bounded_string(handoff.version, devloop_base._max_dedup_len)
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len)
-    and ready_split_label_request(payload, handoff, "dependency_wait") ~= nil then
+    and projected_label_request(payload, handoff, "dependency_wait") ~= nil then
     return handoff
   end
   if handoff.kind == "github-devloop.reconcile"
@@ -115,10 +114,8 @@ local function act_handoff(event)
 
   devloop_logging.log_entry("comment_handoff", event, handoff.proposal_id, payload.dedup_key)
   if handoff.kind == "github-devloop.ready" then
-    if handoff.label_request ~= nil then
-      devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
-        "github-proxy.github_issue_label_request", handoff.label_request)
-    end
+    devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
+      "github-proxy.github_issue_label_request", handoff.label_request)
     local ready = payloads_builders.build_devloop_ready_payload(core, {
       proposal_id = handoff.proposal_id,
       dedup_key = handoff.marker_version,

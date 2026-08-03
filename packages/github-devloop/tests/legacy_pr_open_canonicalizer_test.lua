@@ -25,7 +25,7 @@ local function mock_linked_pr(state, comments)
     number = 7,
 	    comments = comments or {
 	      render_comment(m_builders.pr_origin_marker(proposal_id, 42, branch, impl_version, "dev")
-	        .. "\n" .. core.state_marker(proposal_id, "pr-open", impl_version)),
+	        .. "\n" .. h.state_marker(proposal_id, "pr-open", impl_version)),
 	    },
     head = branch,
     head_sha = "def456",
@@ -43,7 +43,7 @@ end
 return {
   test_legacy_issue_pr_open_with_open_pr_canonicalizes_to_awaiting_pr = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "OPEN", {
-      core.state_marker(proposal_id, "pr-open", impl_version),
+      h.state_marker(proposal_id, "pr-open", impl_version),
       pr_link(),
     })
     mock_linked_pr("OPEN")
@@ -64,7 +64,7 @@ return {
 
   test_awaiting_pr_issue_is_idempotent_for_legacy_canonicalizer = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:awaiting-pr" }, "OPEN", {
-      core.state_marker(proposal_id, "awaiting-pr", impl_version),
+      h.state_marker(proposal_id, "awaiting-pr", impl_version),
       m_builders.pr_delegation_marker(proposal_id, pr_proposal_id, 7, impl_version, "g1"),
     })
     mock_linked_pr("OPEN")
@@ -77,7 +77,7 @@ return {
 
   test_legacy_pr_open_without_link_fails_closed_without_canonicalizing = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "OPEN", {
-      core.state_marker(proposal_id, "pr-open", impl_version),
+      h.state_marker(proposal_id, "pr-open", impl_version),
     })
 
     local result = run_observe(issue({ labels = { "fkst-dev:enabled", "fkst-dev:pr-open" } }), opts("legacy-pr-open-canonicalize-missing-link"))
@@ -88,7 +88,7 @@ return {
 
   test_legacy_pr_open_with_closed_linked_pr_fails_closed_without_canonicalizing = function()
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "OPEN", {
-      core.state_marker(proposal_id, "pr-open", impl_version),
+      h.state_marker(proposal_id, "pr-open", impl_version),
       pr_link(),
     })
     mock_linked_pr("CLOSED")

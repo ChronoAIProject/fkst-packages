@@ -31,12 +31,12 @@ end
 local function parent_comments(opts)
   local options = opts or {}
   local comments = {
-    comment(core.state_marker(parent, "awaiting-pr", version), core._test_bot_login, "2026-06-03T01:02:03Z"),
+    comment(h.state_marker(parent, "awaiting-pr", version), core._test_bot_login, "2026-06-03T01:02:03Z"),
     comment(m_builders.pr_delegation_marker(parent, child_pr, pr_number, version, delegation), core._test_bot_login, "2026-06-03T01:03:03Z"),
   }
   if options.blocked_visible == true then
     table.insert(comments, comment(
-      core.state_marker(parent, "blocked", transition_version.next_blocked(version, "child-pr-blocked")),
+      h.state_marker(parent, "blocked", transition_version.next_blocked(version, "child-pr-blocked")),
       core._test_bot_login,
       "2026-06-03T01:05:03Z"
     ))
@@ -48,7 +48,7 @@ local function child_blocked_comments()
   return {
     comment(
       m_builders.pr_origin_marker(parent, issue_number, original_branch, version, integration_branch)
-        .. "\n" .. core.state_marker(parent, "blocked", version),
+        .. "\n" .. h.state_marker(parent, "blocked", version),
       core._test_bot_login,
       "2026-06-03T01:04:03Z"
     ),

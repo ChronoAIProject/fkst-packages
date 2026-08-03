@@ -109,7 +109,7 @@ return {
     local row = restart_transition_row("implementing")
     local state = state_for(event)
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
     }
 
     local before_budget = facts_for(event, comments, contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:00:00Z"))
@@ -157,7 +157,7 @@ return {
     local row = restart_transition_row("implementing")
     local state = state_for(event)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T00:59:00Z"))
     with_codex_runs({
       {
@@ -186,7 +186,7 @@ return {
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", timeout_version),
+      h.state_marker(event.proposal_id, "implementing", timeout_version),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
     with_codex_runs({
       {
@@ -237,7 +237,7 @@ return {
     local row = restart_transition_row("implementing")
     local state = state_for(event)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T00:59:00Z"))
     with_codex_run_status({
       running = {},
@@ -270,7 +270,7 @@ return {
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", timeout_version),
+      h.state_marker(event.proposal_id, "implementing", timeout_version),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
     with_codex_runs({}, function()
       local eval = m_rae.actionable_epoch_resolve(core, row, state, facts, facts.now_seconds)
@@ -291,7 +291,7 @@ return {
     local row = restart_transition_row("implementing")
     local state = state_for(event)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:00:00Z"))
     local original = fkst.codex_runs
     fkst.codex_runs = function()
@@ -322,7 +322,7 @@ return {
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", timeout_version),
+      h.state_marker(event.proposal_id, "implementing", timeout_version),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
     local original = fkst.codex_runs
     fkst.codex_runs = function()
@@ -375,7 +375,7 @@ return {
     local row = restart_transition_row("implementing")
     local state = state_for(event)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:00:00Z"))
     with_codex_runs({
       {
@@ -400,7 +400,7 @@ return {
     end)
     with_codex_runs({}, function()
       local recovered = facts_for(event, {
-        core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+        h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T01:00:00Z"))
       local eval = m_rae.actionable_epoch_resolve(core, row, state, recovered, recovered.now_seconds)
       t.eq(eval.status, "actionable")
@@ -419,7 +419,7 @@ return {
     local timeout_version = event.dedup_key .. "/timeout/implementing/2"
     local state = state_for(event, timeout_version)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", timeout_version),
+      h.state_marker(event.proposal_id, "implementing", timeout_version),
     }, contract_time.iso_timestamp_epoch_seconds("2026-06-03T03:00:00Z"))
     with_codex_runs({
       {
@@ -473,7 +473,7 @@ return {
     local row = restart_transition_row("implementing")
     local state = state_for(event, retry_version)
     local facts = facts_for(event, {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
+      h.state_marker(event.proposal_id, "implementing", retry_version),
     })
     with_codex_runs({
       {

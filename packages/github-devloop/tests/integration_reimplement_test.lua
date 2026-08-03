@@ -110,7 +110,7 @@ end
 local function impl_failed_comments(event, reason, attempt, command)
   local version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
   local comments = {
-    core.state_marker(event.proposal_id, "impl-failed", version),
+    h.state_marker(event.proposal_id, "impl-failed", version),
     core.impl_failure_marker(event.proposal_id, version, reason or "codex-failed", attempt),
   }
   if command ~= nil then
@@ -130,7 +130,7 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id,
+    h.state_marker(event.proposal_id,
       initial_attempt == 1 and "ready" or "implementing", ready.dedup_key),
   }
   if initial_attempt == 1 then
@@ -176,7 +176,7 @@ local function run_refusal_reimplementation_case(reason, evidence, initial_attem
   t.is_true(refusal_comment.payload.body:find(evidence, 1, true) ~= nil,
     reason .. ": typed refusal evidence was not preserved")
   t.is_true(refusal_comment.payload.body:find(
-    core.state_marker(event.proposal_id, "blocked", ready.dedup_key), 1, true) ~= nil,
+    h.state_marker(event.proposal_id, "blocked", ready.dedup_key), 1, true) ~= nil,
     reason .. ": typed refusal did not publish blocked state")
   t.is_true(refusal_comment.payload.body:find(
     "fkst:github-devloop:implement-attempt:v1", 1, true) ~= nil,
@@ -261,7 +261,7 @@ local function run_first_clean_implementation_attempt(name, build_stdout)
   local event = reached()
   local ready = payloads_builders.build_devloop_ready_payload(core, event)
   local ready_comments = {
-    core.state_marker(event.proposal_id, "ready", ready.dedup_key),
+    h.state_marker(event.proposal_id, "ready", ready.dedup_key),
   }
   mock_issue_implement_view_only({ "fkst-dev:ready" }, ready_comments, 3)
   mock_existing_empty_implement_worktree({ impl_version = ready.dedup_key })
@@ -375,7 +375,7 @@ return {
     local command = trusted_command("IC_reimplement_blocked")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
       m_builders.pr_link_marker(event.proposal_id, 7, "devloop-owner-repo-42-01HY", ready_version, "dev"),
-      core.state_marker(event.proposal_id, "blocked", blocked_version),
+      h.state_marker(event.proposal_id, "blocked", blocked_version),
       command,
     })
     mock_linked_pr_state({}, "OPEN")
@@ -403,7 +403,7 @@ return {
     local ready_version = payloads_builders.build_devloop_ready_payload(core, event).dedup_key
     local command = trusted_command("IC_reimplement_blocked_unlinked")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:blocked" }, "OPEN", {
-      core.state_marker(event.proposal_id, "blocked", ready_version .. "/review-loop/3"),
+      h.state_marker(event.proposal_id, "blocked", ready_version .. "/review-loop/3"),
       command,
     })
 
@@ -421,7 +421,7 @@ return {
     local ready = payloads_builders.build_devloop_ready_payload(core, event)
     ready.impl_retry_attempt = 2
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, {
-      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
+      h.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
       core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
     })
     mock_existing_empty_implement_worktree({
@@ -431,11 +431,11 @@ return {
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", ready.dedup_key))
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, {
-      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
+      h.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
       core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
     })
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, {
-      core.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
+      h.state_marker(event.proposal_id, "impl-failed", ready.dedup_key),
       core.impl_failure_marker(event.proposal_id, ready.dedup_key, "codex-failed", 1),
     })
 
@@ -443,7 +443,7 @@ return {
     t.eq(result.exit_code, 0)
     local comment = find_worktree_ready_comment(result.raises)
     t.is_true(comment ~= nil)
-    t.is_true(comment.payload.body:find(core.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
+    t.is_true(comment.payload.body:find(h.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
     t.eq(m_facts.implementing_fact({ comment.payload.body }, event.proposal_id, ready.dedup_key .. "/reimplement/2"), nil)
   end,
 
@@ -514,7 +514,7 @@ return {
     }
     mock_issue_implement_raw({ "fkst-dev:blocked" }, {
       m_builders.pr_link_marker(event.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
-      core.state_marker(event.proposal_id, "blocked", blocked_version),
+      h.state_marker(event.proposal_id, "blocked", blocked_version),
     })
     mock_existing_empty_implement_worktree({
       impl_version = ready.dedup_key .. "/reimplement/2",
@@ -524,18 +524,18 @@ return {
     mock_git_commit(nil, devloop_base.implement_branch("owner/repo", "42", ready.dedup_key))
     mock_issue_implement_raw({ "fkst-dev:blocked" }, {
       m_builders.pr_link_marker(event.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
-      core.state_marker(event.proposal_id, "blocked", blocked_version),
+      h.state_marker(event.proposal_id, "blocked", blocked_version),
     })
     mock_issue_implement_raw({ "fkst-dev:blocked" }, {
       m_builders.pr_link_marker(event.proposal_id, 7, "devloop-owner-repo-42-01HY", ready.dedup_key, "dev"),
-      core.state_marker(event.proposal_id, "blocked", blocked_version),
+      h.state_marker(event.proposal_id, "blocked", blocked_version),
     })
 
     local result = run_implement(ready, opts("implement-blocked-reimplement-success"))
     t.eq(result.exit_code, 0)
     local comment = find_worktree_ready_comment(result.raises)
     t.is_true(comment ~= nil)
-    t.is_true(comment.payload.body:find(core.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
+    t.is_true(comment.payload.body:find(h.state_marker(event.proposal_id, "implementing", ready.dedup_key .. "/reimplement/2"), 1, true) ~= nil)
     t.eq(m_facts.implementing_fact({ comment.payload.body }, event.proposal_id, ready.dedup_key .. "/reimplement/2"), nil)
   end,
 
@@ -553,8 +553,8 @@ return {
       timeout_round = 3,
     }
     mock_issue_implement_raw({ "fkst-dev:blocked" }, {
-      core.state_marker(event.proposal_id, "implementing", ready.dedup_key),
-      core.state_marker(event.proposal_id, "blocked", blocked_version),
+      h.state_marker(event.proposal_id, "implementing", ready.dedup_key),
+      h.state_marker(event.proposal_id, "blocked", blocked_version),
       conv_reconcile.timeout_reconcile_marker(event.proposal_id, ready.dedup_key, "implementing", 3, "drop", {
         terminal_version = blocked_version,
         from_state = "implementing",

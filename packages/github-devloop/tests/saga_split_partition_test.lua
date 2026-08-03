@@ -7,7 +7,7 @@ local contract = core.pr_partition_contract
 local proposal_id = "github-devloop/issue/owner/repo/42"
 
 local function marker(state, version)
-  return core.state_marker(proposal_id, state, version or ("2026-06-03T01-02-03Z/" .. state))
+  return h.state_marker(proposal_id, state, version or ("2026-06-03T01-02-03Z/" .. state))
 end
 
 local function has_value(values, expected)

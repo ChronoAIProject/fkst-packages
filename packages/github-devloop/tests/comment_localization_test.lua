@@ -186,7 +186,7 @@ return {
     local issue_comments = {
       {
         body = "lorem ipsum " .. cjk_probe .. "\n"
-          .. core.state_marker(issue_proposal_id, "ready", issue_version)
+          .. h.state_marker(issue_proposal_id, "ready", issue_version)
           .. "\n" .. m_builders.result_marker(issue_proposal_id, "approve", "consensus:v1")
           .. "\n" .. core.dependency_wait_marker(issue_proposal_id, issue_version, { 7 }),
         author_login = devloop_base.trusted_bot_login(),
@@ -195,7 +195,7 @@ return {
     local review_comments = {
       {
         body = "noise only " .. cjk_probe .. "\n"
-          .. core.state_marker(issue_proposal_id, "fixing", issue_version .. "/fix/1")
+          .. h.state_marker(issue_proposal_id, "fixing", issue_version .. "/fix/1")
           .. "\n"
           .. m_builders.review_result_marker(review_proposal_id, issue_proposal_id, "reject", review_dedup_key, 1, "missing guard")
           .. "\n" .. m_builders.merge_ready_marker(issue_proposal_id, 7, issue_version, review_proposal_id, review_dedup_key, "def456")

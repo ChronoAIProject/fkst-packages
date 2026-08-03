@@ -52,13 +52,13 @@ end
 local function visible_child_comments(event, branch)
   return {
     m_builders.pr_origin_marker(event.proposal_id, 42, branch, event.dedup_key, "dev")
-      .. "\n" .. core.state_marker(event.proposal_id, "pr-open", event.dedup_key),
+      .. "\n" .. h.state_marker(event.proposal_id, "pr-open", event.dedup_key),
   }
 end
 
 local function visible_issue_comments(event, branch)
   return {
-    core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+    h.state_marker(event.proposal_id, "implementing", event.dedup_key),
     m_builders.implementing_marker(event.proposal_id, event.dedup_key, branch, implementation_head, "dev", base_head),
     m_builders.pr_delegation_marker(event.proposal_id, "github-devloop/pr/owner/repo/7", 7, event.dedup_key, "g1"),
   }
@@ -107,7 +107,7 @@ end
 
 local function mock_bridge_issue(event)
   mock_issue_implement({ "fkst-dev:ready" }, {
-    core.state_marker(event.proposal_id, "ready", event.dedup_key),
+    h.state_marker(event.proposal_id, "ready", event.dedup_key),
   }, {
     body = bridge_issue_body(),
     author_login = "fkst-test-bot",

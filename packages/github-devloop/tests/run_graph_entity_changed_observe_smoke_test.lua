@@ -66,7 +66,7 @@ local function mock_blocked_issue_with_stale_label()
     t,
     { "fkst-dev:enabled", "fkst-dev:thinking" },
     {
-      core.state_marker(proposal_id, "blocked", blocked_version),
+      h.state_marker(proposal_id, "blocked", blocked_version),
     },
     {
       repo = repo,

@@ -106,7 +106,7 @@ local state_gap_golden = {
 
 local function state_comment(state_name, created_at)
   return {
-    body = core.state_marker(proposal_id, state_name, "v1"),
+    body = h.state_marker(proposal_id, state_name, "v1"),
     author_login = "fkst-test-bot",
     created_at = created_at,
   }

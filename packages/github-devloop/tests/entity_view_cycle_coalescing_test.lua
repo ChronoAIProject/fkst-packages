@@ -99,7 +99,7 @@ local function mock_issue_state()
     labels = { "fkst-dev:enabled", "fkst-dev:thinking" },
     comments = {
       {
-        body = core.state_marker(proposal_id, "thinking", version),
+        body = h.state_marker(proposal_id, "thinking", version),
         author_login = "fkst-test-bot",
         created_at = recent_iso(60),
       },
@@ -122,7 +122,7 @@ return {
       local state = number == delegated_issue_number and "awaiting-pr" or "thinking"
       local issue_comments = {
         {
-          body = core.state_marker(issue_proposal, state, version .. "-" .. tostring(number)),
+          body = h.state_marker(issue_proposal, state, version .. "-" .. tostring(number)),
           author_login = "fkst-test-bot",
           created_at = recent_iso(60),
         },
@@ -164,7 +164,7 @@ return {
       comments = {
         {
           body = m_builders.pr_origin_marker(proposal_for(delegated_issue_number), delegated_issue_number, "devloop-owner-repo-44-01HY", version .. "-" .. tostring(delegated_issue_number), "dev")
-            .. "\n" .. core.state_marker(pr_proposal_for(delegated_pr_number), "reviewing", version .. "-" .. tostring(delegated_issue_number)),
+            .. "\n" .. h.state_marker(pr_proposal_for(delegated_pr_number), "reviewing", version .. "-" .. tostring(delegated_issue_number)),
           author_login = "fkst-test-bot",
           created_at = recent_iso(58),
         },

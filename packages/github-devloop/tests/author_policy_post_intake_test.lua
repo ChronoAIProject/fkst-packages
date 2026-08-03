@@ -14,7 +14,7 @@ return {
       findings_record = "open:\nneeds another round",
     })
     h.mock_issue_loop({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", event.dedup_key),
+      h.state_marker(event.proposal_id, "thinking", event.dedup_key),
     }, {
       author_login = "org-member",
     })

@@ -217,7 +217,7 @@ end
 local function fixture_comments(event, fixture)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(
+    table.insert(comments, h.state_marker(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version or V_CURRENT

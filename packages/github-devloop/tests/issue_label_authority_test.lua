@@ -50,6 +50,74 @@ local function contains_value(values, expected)
 end
 
 return {
+  test_projected_state_markers_require_the_canonical_comment_handoff_command = function()
+    local marker = core.state_marker
+    local projected_state = "dependency_wait"
+    local direct_ok, direct_error = pcall(
+      core.state_marker,
+      "github-devloop/issue/owner/repo/42",
+      "ready",
+      "v1"
+    )
+    local aliased_ok, aliased_error = pcall(
+      marker,
+      "github-devloop/issue/owner/repo/42",
+      "ready",
+      "v1"
+    )
+    local dynamic_ok, dynamic_error = pcall(
+      marker,
+      "github-devloop/issue/owner/repo/42",
+      projected_state,
+      "v1"
+    )
+    local ordinary_ok = pcall(
+      marker,
+      "github-devloop/issue/owner/repo/42",
+      "blocked",
+      "v1"
+    )
+
+    t.eq(direct_ok, false)
+    t.is_true(tostring(direct_error):find("projected-state-comment-handoff-required", 1, true) ~= nil)
+    t.eq(aliased_ok, false)
+    t.is_true(tostring(aliased_error):find("projected-state-comment-handoff-required", 1, true) ~= nil)
+    t.eq(dynamic_ok, false)
+    t.is_true(tostring(dynamic_error):find("projected-state-comment-handoff-required", 1, true) ~= nil)
+    t.eq(ordinary_ok, true)
+  end,
+
+  test_projected_transition_command_returns_one_complete_comment_handoff = function()
+    local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
+    local request = core.build_projected_transition_comment_handoff({
+      repo = "owner/repo",
+      issue_number = 42,
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      state = "dependency_wait",
+      version = "v1",
+      effects = "result-marker,ready-label,dependency-hold",
+      comment_body_prefix = "projected transition\n\n",
+      comment_body_suffix = "\nresult fact",
+      comment_dedup_key = "projected/comment/v1",
+      label_dedup_key = "projected/label/v1",
+      source_ref = source_ref,
+    })
+
+    t.eq(request.schema, "github-proxy.v1")
+    t.is_true(request.body:find('state="dependency_wait"', 1, true) ~= nil)
+    t.is_true(request.body:find("result fact", 1, true) ~= nil)
+    t.eq(request.label_request, nil)
+    t.eq(request.handoff.kind, "github-devloop.ready-split-label")
+    local label = request.handoff.label_request
+    t.eq(label.require_marker_guard, true)
+    t.eq(label.expected_state, "dependency_wait")
+    t.eq(label.expected_version, "v1")
+    t.eq(label.marker_guard.match.proposal, "github-devloop/issue/owner/repo/42")
+    t.is_true(contains_value(label.add_labels, "fkst-dev:ready"))
+    t.is_true(contains_value(label.add_labels, "fkst-dev:blocked-on-dependency"))
+    t.is_true(contains_value(label.remove_labels, "fkst-dev:impl-failed"))
+  end,
+
   test_observe_issue_reconciles_pr_open_label_when_backing_pr_exists = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"

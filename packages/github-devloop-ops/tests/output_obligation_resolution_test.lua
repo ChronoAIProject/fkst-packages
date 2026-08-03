@@ -132,7 +132,7 @@ local function linked_pr_comments(state, version, extra_comments, fields)
       metadata.origin_impl_version or ready_version,
       metadata.origin_base_branch or "dev"
     )),
-    bot_comment(core.state_marker(proposal_id, state, version)),
+    bot_comment(h.state_marker(proposal_id, state, version)),
   }
   for _, comment in ipairs(extra_comments or {}) do
     table.insert(comments, comment)

@@ -35,7 +35,7 @@ end
 
 local function impl_failed_comments(event, ready_version, command, earlier_comments)
   local comments = {
-    core.state_marker(event.proposal_id, "impl-failed", ready_version),
+    h.state_marker(event.proposal_id, "impl-failed", ready_version),
     core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed", 2),
   }
   for _, comment in ipairs(earlier_comments or {}) do
@@ -80,7 +80,7 @@ end
 local function admit_reimplementation(event, ready, name)
   local logical_version = ready.implementation_version
   local comments = {
-    core.state_marker(event.proposal_id, "impl-failed", logical_version),
+    h.state_marker(event.proposal_id, "impl-failed", logical_version),
     core.impl_failure_marker(event.proposal_id, logical_version, "codex-failed", 2),
   }
   for _ = 1, 3 do

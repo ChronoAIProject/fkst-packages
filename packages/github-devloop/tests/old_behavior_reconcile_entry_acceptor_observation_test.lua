@@ -127,7 +127,7 @@ local function capture(fixture)
   local event = event_for(fixture)
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, trusted(core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
+    table.insert(comments, trusted(h.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
   end
   if fixture.reconcile_marker then
     local version = conv_reconcile.reconcile_terminal_state_version(THINKING_VERSION, event.payload.round)

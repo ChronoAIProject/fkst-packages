@@ -5,6 +5,7 @@ local core = require("core")
 local actions = require("core.materialize.actions")
 local graph = require("testkit.graph")
 local gh_argv = require("testkit_internal.gh_argv_mock")
+local projected_state_fixture = require("testkit_internal.projected_state_fixture")
 local base_ids = require("devloop.base_ids")
 local m_builders = require("devloop.markers.builders")
 local github_commands = require("forge.github").new(function() end)
@@ -378,7 +379,8 @@ local function mock_origin_dependency(blocker_state)
       origin_blocker_issue,
       "Workflow origin blocker",
       { "fkst-dev:" .. blocker_milestone },
-      { { body = core.state_marker(blocker_proposal, blocker_milestone, "blocker-version") } },
+      { { body = projected_state_fixture.state_marker(
+        core, base_ids, blocker_proposal, blocker_milestone, "blocker-version") } },
       blocker_state
     ),
     stderr = "",

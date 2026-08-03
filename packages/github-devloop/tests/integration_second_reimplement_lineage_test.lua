@@ -29,7 +29,7 @@ end
 local function second_round_comments(event, base_version, command)
   local replacement_version = base_version .. "/reimplement/2"
   local comments = {
-    core.state_marker(event.proposal_id, "impl-failed", replacement_version),
+    h.state_marker(event.proposal_id, "impl-failed", replacement_version),
     core.impl_failure_marker(event.proposal_id, replacement_version, "codex-failed", 2),
   }
   if command ~= nil then
@@ -92,7 +92,7 @@ return {
     ready.dedup_key = first_replacement_version
     ready.impl_retry_attempt = 3
     local comments = {
-      core.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
+      h.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
       core.impl_failure_marker(event.proposal_id, first_replacement_version, "codex-failed", 1),
     }
     mock_issue_implement_raw({ "fkst-dev:impl-failed" }, comments)
@@ -104,7 +104,7 @@ return {
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find("invalid-version-lineage", 1, true) ~= nil)
     t.is_true(comment.payload.body:find(
-      core.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
+      h.state_marker(event.proposal_id, "impl-failed", first_replacement_version),
       1,
       true
     ) ~= nil)
@@ -158,7 +158,7 @@ return {
     local comment = find_worktree_ready_comment(result.raises)
     t.is_true(comment ~= nil)
     t.is_true(comment.payload.body:find(
-      core.state_marker(event.proposal_id, "implementing", base_version .. "/reimplement/3"),
+      h.state_marker(event.proposal_id, "implementing", base_version .. "/reimplement/3"),
       1,
       true
     ) ~= nil)

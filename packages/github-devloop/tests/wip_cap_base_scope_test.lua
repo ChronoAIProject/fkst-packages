@@ -53,7 +53,7 @@ end
 local function mock_wip_state(issue_number, state_name, base_branch)
   local proposal_id = base_ids.proposal_id(REPO, issue_number)
   local version = "ready/consensus-github-devloop/issue/owner/repo/" .. tostring(issue_number) .. "/intake/1/loop/1"
-  local comments = { render_comment(core.state_marker(proposal_id, state_name, version)) }
+  local comments = { render_comment(h.state_marker(proposal_id, state_name, version)) }
   if base_branch ~= nil then
     local branch = "devloop/issue/owner/repo/" .. tostring(issue_number) .. "/work"
     table.insert(comments, render_comment(m_builders.pr_link_marker(proposal_id, issue_number + 500, branch, version, base_branch)))

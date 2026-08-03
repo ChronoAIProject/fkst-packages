@@ -88,6 +88,27 @@ local function facade()
   })
 end
 
+local function consensus_facade()
+  return restart_effect_facade.make({
+    family = "consensus-result",
+    verify_grant = restart_effects.verify_grant,
+    sink_inventory = require("core.restart.sink_inventory"),
+  })
+end
+
+local function projected_result_args()
+  return {
+    core = core,
+    repo = "owner/repo",
+    issue_number = 42,
+    reached = h.reached({
+      dedup_key = VERSION,
+      effect_version = VERSION,
+    }),
+    to_state = "ready",
+  }
+end
+
 local function emit_args(proposal)
   return {
     core = core,
@@ -101,6 +122,31 @@ local function emit_args(proposal)
 end
 
 return {
+  test_projected_transition_rejects_before_command_construction_without_both_grants = function()
+    local snapshot = sealed_snapshot()
+    local effect, reason = consensus_facade().emit_projected_transition(nil, snapshot, nil)
+
+    t.eq(effect, nil)
+    t.eq(reason, "invalid-grant")
+  end,
+
+  test_projected_transition_consumes_both_grants_before_returning_complete_handoff = function()
+    local snapshot = sealed_snapshot()
+    local grant = real_grant(snapshot)
+    local request = consensus_facade().emit_projected_transition(
+      grant,
+      snapshot,
+      projected_result_args()
+    )
+
+    t.is_true(request ~= nil)
+    t.is_true(request.body:find('state="ready"', 1, true) ~= nil)
+    t.eq(request.handoff.kind, "github-devloop.ready")
+    t.eq(request.handoff.label_request.expected_state, "ready")
+    t.eq(restart_effects.verify_grant(grant, COMMENT_EFFECT_ID, snapshot), false)
+    t.eq(restart_effects.verify_grant(grant, LABEL_EFFECT_ID, snapshot), false)
+  end,
+
   test_emit_without_grant_rejects_before_serialization = function()
     local effect, reason = facade().emit(nil, COMMENT_EFFECT_ID, {}, nil)
 

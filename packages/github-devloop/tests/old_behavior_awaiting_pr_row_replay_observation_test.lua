@@ -78,7 +78,7 @@ local function next_state_version(fixture)
 end
 
 local function parent_comments(fixture)
-  local comments = json_array({ trusted_comment(core.state_marker(PROPOSAL_ID, "awaiting-pr", VERSION)) })
+  local comments = json_array({ trusted_comment(h.state_marker(PROPOSAL_ID, "awaiting-pr", VERSION)) })
   if fixture.delegation ~= false then
     table.insert(comments, trusted_comment(m_builders.pr_delegation_marker(
       PROPOSAL_ID,
@@ -102,7 +102,7 @@ local function child_comments(fixture)
     ), "2026-06-03T01:03:00Z"),
   })
   if fixture.child_marker ~= false then
-    table.insert(comments, trusted_comment(core.state_marker(
+    table.insert(comments, trusted_comment(h.state_marker(
       PROPOSAL_ID,
       fixture.child_state,
       fixture.child_version or VERSION
@@ -198,10 +198,40 @@ local function effect_id_list(effects)
   return ids
 end
 
+local function without_value(values, removed)
+  local filtered = json_array()
+  for _, value in ipairs(values or {}) do
+    if value ~= removed then table.insert(filtered, value) end
+  end
+  return filtered
+end
+
 local function effect_observations(raises)
+  local normalized = json_array()
+  for _, raised in ipairs(raises or {}) do
+    local command = copy_value(raised)
+    local handoff = type(command.payload) == "table" and command.payload.handoff or nil
+    local label_request = type(handoff) == "table" and handoff.label_request or nil
+    if type(label_request) == "table" then
+      handoff.label_request = nil
+      if handoff.kind == "github-devloop.ready" then
+        label_request.remove_labels = without_value(
+          label_request.remove_labels,
+          devloop_base._blocked_on_dependency_label
+        )
+      end
+      table.insert(normalized, command)
+      table.insert(normalized, {
+        queue = "github-proxy.github_issue_label_request",
+        payload = label_request,
+      })
+    else
+      table.insert(normalized, command)
+    end
+  end
   local emitted = json_array()
   local writes = json_array()
-  for ordinal, raised in ipairs(raises) do
+  for ordinal, raised in ipairs(normalized) do
     local effect_id
     local sink_kind
     if raised.queue == "github-proxy.github_issue_comment_request" then
@@ -299,7 +329,8 @@ local function capture_runtime(fixture)
   t.eq(#dispatch.decisions, 1, fixture.name .. ": one row-local replay disposition")
   t.eq(dispatch.decisions[1].outcome, fixture.expected_disposition, fixture.name .. ": exact replay decision")
   t.eq(dispatch.decisions[1].to_state, expected_target, fixture.name .. ": exact replay target")
-  t.eq(#dispatch.raises, #expected_effect_ids, fixture.name .. ": row-local effect count")
+  local delivery_count = fixture.expected_target == "ready" and 1 or #expected_effect_ids
+  t.eq(#dispatch.raises, delivery_count, fixture.name .. ": row-local effect count")
   t.eq(ledger_calls, fixture.expected_ledger_calls or 0, fixture.name .. ": autonomy ledger call count")
   return event, captured, dispatch
 end
@@ -404,7 +435,7 @@ local function assert_exact_target_marker_skew_is_not_production_reachable()
   for _, fixture in ipairs(FIXTURES) do
     if fixture.expected_target ~= nil then
       local comments = parent_comments(fixture)
-      table.insert(comments, trusted_comment(core.state_marker(PROPOSAL_ID, fixture.expected_target, next_state_version(fixture)), "2099-01-01T00:00:02Z"))
+      table.insert(comments, trusted_comment(h.state_marker(PROPOSAL_ID, fixture.expected_target, next_state_version(fixture)), "2099-01-01T00:00:02Z"))
       local derived = devloop_state.current_state(comments, PROPOSAL_ID)
       t.eq(derived.state, fixture.expected_target, fixture.name .. ": visible target marker changes production-derived state before replay")
     end

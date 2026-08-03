@@ -17,7 +17,7 @@ local function source_ref()
 end
 
 local function state_marker()
-  return core.state_marker(
+  return h.state_marker(
     "github-devloop/issue/owner/repo/42",
     "thinking",
     base_version
@@ -83,7 +83,7 @@ end
 
 local function mock_github_proxy_writes(blocked_version)
   local blocked_comments = '[[{"id":123457,"body":"'
-    .. h.json_string(core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version))
+    .. h.json_string(h.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version))
     .. '","user":{"login":"fkst-test-bot"}}]]\n'
   for _, command in ipairs({
     "gh api --paginate --slurp repos/owner/repo/issues/42/comments?per_page=100",

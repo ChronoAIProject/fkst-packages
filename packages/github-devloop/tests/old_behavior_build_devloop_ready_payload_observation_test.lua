@@ -63,7 +63,7 @@ local FIXTURES = {
     labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
     comments = function()
       return json_array({
-        trusted_comment(core.state_marker(PROPOSAL_ID, "impl-failed", READY_VERSION), "IC_state_impl_failed"),
+        trusted_comment(h.state_marker(PROPOSAL_ID, "impl-failed", READY_VERSION), "IC_state_impl_failed"),
         trusted_comment(core.impl_failure_marker(PROPOSAL_ID, READY_VERSION, "codex-failed", 2), "IC_impl_failure"),
         trusted_reimplement_command("IC_reimplement_impl_failed"),
       })
@@ -84,7 +84,7 @@ local FIXTURES = {
           READY_VERSION,
           "dev"
         ), "IC_pr_link"),
-        trusted_comment(core.state_marker(PROPOSAL_ID, "blocked", BLOCKED_REVIEW_VERSION), "IC_state_blocked_pr"),
+        trusted_comment(h.state_marker(PROPOSAL_ID, "blocked", BLOCKED_REVIEW_VERSION), "IC_state_blocked_pr"),
         trusted_reimplement_command("IC_reimplement_blocked_pr"),
       })
     end,
@@ -109,8 +109,8 @@ local FIXTURES = {
     labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
     comments = function()
       return json_array({
-        trusted_comment(core.state_marker(PROPOSAL_ID, "implementing", READY_VERSION), "IC_state_implementing"),
-        trusted_comment(core.state_marker(PROPOSAL_ID, "blocked", BLOCKED_TIMEOUT_VERSION), "IC_state_blocked_timeout"),
+        trusted_comment(h.state_marker(PROPOSAL_ID, "implementing", READY_VERSION), "IC_state_implementing"),
+        trusted_comment(h.state_marker(PROPOSAL_ID, "blocked", BLOCKED_TIMEOUT_VERSION), "IC_state_blocked_timeout"),
         trusted_comment(conv_reconcile.timeout_reconcile_marker(
           PROPOSAL_ID,
           READY_VERSION,

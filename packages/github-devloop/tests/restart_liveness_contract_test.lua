@@ -337,12 +337,12 @@ return {
           {
             author_login = "fkst-test-bot",
             created_at = "2026-06-03T10:31:00Z",
-            body = core.state_marker(parent_proposal_id, "reviewing", version),
+            body = h.state_marker(parent_proposal_id, "reviewing", version),
           },
           {
             author_login = "fkst-test-bot",
             created_at = "2026-06-03T10:30:00Z",
-            body = core.state_marker(entity_lib.pr_proposal_id("owner/repo", 99), "merged", version),
+            body = h.state_marker(entity_lib.pr_proposal_id("owner/repo", 99), "merged", version),
           },
         },
       },
@@ -372,7 +372,7 @@ return {
           {
             author_login = "fkst-test-bot",
             created_at = "2026-06-03T10:30:00Z",
-            body = core.state_marker(parent_proposal_id, "merged", version),
+            body = h.state_marker(parent_proposal_id, "merged", version),
           },
         },
       },

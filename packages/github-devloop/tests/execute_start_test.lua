@@ -75,7 +75,7 @@ local function assert_execution_effects(raises, request)
     "thinking",
     request.dedup_key,
   }))
-  t.is_true(comment.body:find(core.state_marker(request.proposal_id, "thinking", request.dedup_key), 1, true) ~= nil)
+  t.is_true(comment.body:find(h.state_marker(request.proposal_id, "thinking", request.dedup_key), 1, true) ~= nil)
   t.eq(comment.source_ref.ref, "owner/repo#issue/42")
 
   local label = raises[2].payload

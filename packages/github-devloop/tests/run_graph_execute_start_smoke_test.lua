@@ -93,7 +93,7 @@ local function mock_consensus_result_issue()
   entity_read_mocks.mock_issue_read_with_defaults(
     t,
     { "fkst-dev:thinking" },
-    { core.state_marker(proposal_id, "thinking", request_dedup_key) },
+    { h.state_marker(proposal_id, "thinking", request_dedup_key) },
     {
       repo = repo,
       number = issue_number,
@@ -173,7 +173,7 @@ return {
     t.eq(comment.schema, "github-proxy.v1")
     t.eq(comment.repo, repo)
     t.eq(tostring(comment.issue_number), tostring(issue_number))
-    t.is_true(comment.body:find(core.state_marker(proposal_id, "thinking", request_dedup_key), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_marker(proposal_id, "thinking", request_dedup_key), 1, true) ~= nil)
 
     local label = step.raises[2].payload
     t.eq(label.schema, "github-proxy.label.v1")

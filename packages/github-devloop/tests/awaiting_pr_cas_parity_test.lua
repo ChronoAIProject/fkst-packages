@@ -167,7 +167,7 @@ local function parent_comments(fixture)
   local comments = {}
   if fixture.current_state ~= nil then
     table.insert(comments, comment(
-      core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version),
+      h.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version),
       "2026-06-03T01:02:03Z"
     ))
   end
@@ -193,7 +193,7 @@ local function child_comments(fixture)
     BASE_BRANCH
   )
   if fixture.child_state ~= nil then
-    body = body .. "\n" .. core.state_marker(PROPOSAL_ID, fixture.child_state, version)
+    body = body .. "\n" .. h.state_marker(PROPOSAL_ID, fixture.child_state, version)
   end
   if fixture.child_state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, PROPOSAL_ID, PR_NUMBER, version, HEAD_SHA)

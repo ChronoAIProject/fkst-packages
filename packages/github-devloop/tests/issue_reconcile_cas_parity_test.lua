@@ -52,7 +52,7 @@ local function run_production(options)
   local event = options.event or reconcile_event(options.base_version)
   local comments = {}
   if options.current_state ~= nil then
-    table.insert(comments, core.state_marker(
+    table.insert(comments, h.state_marker(
       event.proposal_id,
       options.current_state,
       options.current_version

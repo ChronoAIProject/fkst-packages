@@ -342,7 +342,7 @@ local function mock_wip_stop()
   t.mock_command(core.gh_issue_view_state_cmd(REPO, WIP_ISSUE_NUMBER), {
     stdout = string.format(
       '{"title":"WIP","state":"OPEN","labels":[{"name":"fkst-dev:implementing"}],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
-      render_comment(core.state_marker(holder_proposal, "implementing", holder_version))
+      render_comment(h.state_marker(holder_proposal, "implementing", holder_version))
     ),
     stderr = "",
     exit_code = 0,
@@ -396,7 +396,7 @@ end
 local function fixture_comments(fixture, event)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
   end
   if fixture.impl_failure then
     table.insert(comments, core.impl_failure_marker(PROPOSAL_ID, event.dedup_key, "codex-failed", 1))
@@ -436,7 +436,7 @@ local function mock_case(fixture, event)
     mock_wip_stop()
   end
   if fixture.handoff_visible_version ~= nil then
-    local visible_marker = core.state_marker(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
+    local visible_marker = h.state_marker(PROPOSAL_ID, "ready", fixture.handoff_visible_version)
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_implement_cas_handoff'", {
       stdout = '{"body":"' .. h.json_string(visible_marker) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",

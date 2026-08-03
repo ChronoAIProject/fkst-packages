@@ -93,7 +93,7 @@ end
 
 local function state_comment(target_repo, issue_number, state_name, author_login)
   return {
-    body = core.state_marker(base_ids.proposal_id(target_repo, issue_number), state_name, "v-" .. tostring(issue_number)),
+    body = h.state_marker(base_ids.proposal_id(target_repo, issue_number), state_name, "v-" .. tostring(issue_number)),
     author_login = author_login or "fkst-test-bot",
   }
 end
@@ -138,7 +138,7 @@ return {
         author_login = "fkst-test-bot",
       },
       {
-        body = core.state_marker(link.proposal_id, "merged", "merge-version-7"),
+        body = h.state_marker(link.proposal_id, "merged", "merge-version-7"),
         author_login = "fkst-test-bot",
       },
       {

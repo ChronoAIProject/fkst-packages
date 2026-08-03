@@ -299,8 +299,8 @@ return {
 
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local current = core.current_state({
-      core.state_marker(proposal_id, "awaiting-pr", ordering_base),
-      core.state_marker(proposal_id, "blocked", first),
+      h.state_marker(proposal_id, "awaiting-pr", ordering_base),
+      h.state_marker(proposal_id, "blocked", first),
     }, proposal_id)
     t.eq(current.state, "blocked")
     t.eq(current.version, first)

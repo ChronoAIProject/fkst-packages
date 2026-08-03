@@ -27,7 +27,7 @@ end
 
 local function parent_comments(state, extra_comments)
   local comments = {
-    comment(core.state_marker(parent, state or "implementing", version), "2026-06-03T01:02:03Z"),
+    comment(h.state_marker(parent, state or "implementing", version), "2026-06-03T01:02:03Z"),
     comment(m_builders.pr_delegation_marker(parent, child_pr, pr_number, version, "g1"), "2026-06-03T01:03:03Z"),
   }
   for _, extra in ipairs(extra_comments or {}) do

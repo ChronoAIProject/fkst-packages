@@ -474,7 +474,7 @@ return {
     }
     local comments = {
       trusted_comment(core.implement_attempt_marker(proposal_id, first_version, 1, "100"), "2026-06-03T01:00:00Z", 1001),
-      trusted_comment(core.state_marker(proposal_id, "blocked", first_version), "2026-06-03T01:10:00Z", 1002),
+      trusted_comment(h.state_marker(proposal_id, "blocked", first_version), "2026-06-03T01:10:00Z", 1002),
       trusted_comment(core.implement_attempt_marker(proposal_id, second_version, 2, "200"), "2026-06-03T01:20:00Z", 1003),
       trusted_comment(m_builders.merged_marker(core, proposal_id, "7", second_version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1004),
     }
@@ -537,7 +537,7 @@ return {
     }
     local comments = {
       trusted_comment(core.implement_attempt_marker(proposal_id, first_version, 1, "100"), "2026-06-03T01:00:00Z", 1001),
-      trusted_comment(core.state_marker(proposal_id, "blocked", first_version), "2026-06-03T01:10:00Z", 1002),
+      trusted_comment(h.state_marker(proposal_id, "blocked", first_version), "2026-06-03T01:10:00Z", 1002),
       trusted_comment(core.implement_attempt_marker(proposal_id, second_version, 2, "200"), "2026-06-03T01:20:00Z", 1003),
       trusted_comment(autonomy_ledger.autonomy_result_marker(autonomy_record), "2026-06-03T01:31:00Z", 1005),
       trusted_comment(m_builders.merged_marker(core, proposal_id, "7", second_version, head_sha, autonomy_record), "2026-06-03T01:30:00Z", 1004),

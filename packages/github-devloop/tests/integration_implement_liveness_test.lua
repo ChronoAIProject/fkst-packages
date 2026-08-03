@@ -110,7 +110,7 @@ end
 local function implementing_comments(event, extra)
   local branch = deterministic_branch_for(event)
   local comments = {
-    core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+    h.state_marker(event.proposal_id, "implementing", event.dedup_key),
   }
   for _, comment in ipairs(extra or {}) do
     table.insert(comments, comment)
@@ -161,7 +161,7 @@ return {
     local event = ready()
     local run_opts = opts("implement-invalid-result-error-class")
     mock_issue_implement({ "fkst-dev:ready" }, {
-      core.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_marker(event.proposal_id, "ready", event.dedup_key),
     })
     mock_existing_empty_implement_worktree({ impl_version = event.dedup_key })
     mock_implement_codex(0, '{"schema":"github-devloop.implementation-result.v1",'
@@ -225,7 +225,7 @@ return {
     local branch = deterministic_branch_for(event)
     local fact = m_builders.implementing_marker(event.proposal_id, event.dedup_key, branch, "abc123", "dev", "abc123")
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_attempt_started_at()),
       fact,
     }
@@ -241,7 +241,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_attempt_started_at()),
       m_builders.pr_link_marker(event.proposal_id, 7, branch, event.dedup_key, "dev"),
     }
@@ -257,7 +257,7 @@ return {
     local event = ready()
     local run_opts = opts("implement-ready-redelivery-after-state")
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       live_implement_attempt_marker(event, run_opts, 1),
     }
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
@@ -331,7 +331,7 @@ return {
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request")
     t.eq(label.payload.add_labels[1], "fkst-dev:impl-failed")
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-    t.is_true(comment.payload.body:find(core.state_marker(current.proposal_id, "impl-failed", current.dedup_key), 1, true) ~= nil)
+    t.is_true(comment.payload.body:find(h.state_marker(current.proposal_id, "impl-failed", current.dedup_key), 1, true) ~= nil)
   end,
 
   test_implementing_liveness_redrive_rejects_tampered_delivery_identity = function()
@@ -352,7 +352,7 @@ return {
     local event = liveness_redrive_ready(current)
     local branch = deterministic_branch_for(current)
     local comments = {
-      core.state_marker(current.proposal_id, "implementing", current.dedup_key),
+      h.state_marker(current.proposal_id, "implementing", current.dedup_key),
       m_builders.implementing_marker(current.proposal_id, current.dedup_key, branch, "abc123", "dev", "abc123"),
     }
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
@@ -379,7 +379,7 @@ return {
     local current = ready()
     local run_opts = opts("observe-implement-live-attempt-budget-owner")
     local comments = {
-      recent_comment(core.state_marker(current.proposal_id, "implementing", current.dedup_key)),
+      recent_comment(h.state_marker(current.proposal_id, "implementing", current.dedup_key)),
       live_implement_attempt_marker(current, run_opts, 1),
     }
 
@@ -465,7 +465,7 @@ return {
   test_observe_reraises_implement_after_attempt_liveness_expires = function()
     local event = ready()
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 7201)),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", comments)
@@ -486,7 +486,7 @@ return {
     local event = ready()
     local run_opts = opts("observe-implement-live")
     local comments = {
-      recent_comment(core.state_marker(event.proposal_id, "implementing", event.dedup_key)),
+      recent_comment(h.state_marker(event.proposal_id, "implementing", event.dedup_key)),
       live_implement_attempt_marker(event, run_opts, 1),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", comments)
@@ -502,7 +502,7 @@ return {
     })
     local branch = deterministic_branch_for(event)
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       m_builders.implementing_marker(event.proposal_id, event.dedup_key, branch, "abc123", "dev", "abc123"),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", comments)
@@ -528,7 +528,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     local stuck = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 7201)),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", stuck)
@@ -541,7 +541,7 @@ return {
     -- implementing marker. With the fix it advances (re-runs codex, opens a PR);
     -- before the fix it skip-staled (codex never runs, zero progress, forever).
     local rerun = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_attempt_started_at()),
     }
     mock_issue_implement({ "fkst-dev:implementing" }, rerun)
@@ -562,7 +562,7 @@ return {
     local event = ready()
     local retry_version = core.implementation_attempt_version(event.dedup_key, 2)
     local stuck = {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
+      h.state_marker(event.proposal_id, "implementing", retry_version),
       core.implement_attempt_marker(event.proposal_id, retry_version, 2, tostring(now() - 7201)),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", stuck)
@@ -580,7 +580,7 @@ return {
     local retry_version = core.implementation_attempt_version(event.dedup_key, 2)
     local branch = deterministic_branch_for(event)
     local stuck = {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
+      h.state_marker(event.proposal_id, "implementing", retry_version),
       core.implement_attempt_marker(event.proposal_id, retry_version, 2, tostring(now() - 7201)),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", stuck)
@@ -590,7 +590,7 @@ return {
     t.eq(reraised ~= nil, true)
 
     local progress = {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
+      h.state_marker(event.proposal_id, "implementing", retry_version),
       core.implement_attempt_marker(event.proposal_id, retry_version, 2, stale_attempt_started_at()),
       m_builders.implementing_marker(event.proposal_id, retry_version, branch, "abc123", "dev", "abc123"),
     }
@@ -610,7 +610,7 @@ return {
       source_ref = event.source_ref,
     })
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_attempt_started_at()),
     }
     mock_issue_implement({ "fkst-dev:implementing" }, comments)
@@ -629,7 +629,7 @@ return {
     local event = ready()
     local retry_version = core.implementation_attempt_version(event.dedup_key, 2)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
+      h.state_marker(event.proposal_id, "implementing", retry_version),
       core.implement_attempt_marker(event.proposal_id, retry_version, 2, stale_attempt_started_at()),
       core.implement_version_mismatch_marker(event.proposal_id, event.dedup_key, retry_version, 1),
       core.implement_version_mismatch_marker(event.proposal_id, event.dedup_key, retry_version, 2),
@@ -647,7 +647,7 @@ return {
     local event = ready()
     local retry_version = core.implementation_attempt_version(event.dedup_key, 2)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      core.state_marker(event.proposal_id, "implementing", retry_version),
+      h.state_marker(event.proposal_id, "implementing", retry_version),
       core.implement_attempt_marker(event.proposal_id, retry_version, 2, stale_attempt_started_at()),
     })
 
@@ -666,7 +666,7 @@ return {
       dedup_key = "ready/consensus-github-devloop/issue/owner/repo/42/2026-01-01T00-00-00Z",
     })
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", comments)
 
@@ -681,7 +681,7 @@ return {
     })
     local branch = deterministic_branch_for(event)
     local comments = {
-      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
       m_builders.implementing_marker(event.proposal_id, event.dedup_key, branch, "abc123", "dev", "abc123"),
     }
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:implementing" }, "OPEN", comments)

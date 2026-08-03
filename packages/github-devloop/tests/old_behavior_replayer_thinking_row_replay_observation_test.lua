@@ -94,7 +94,7 @@ end
 local function comments_for(fixture)
   local comments = json_array({
     trusted_comment(
-      core.state_marker(PROPOSAL_ID, "thinking", BASE_VERSION),
+      h.state_marker(PROPOSAL_ID, "thinking", BASE_VERSION),
       MARKER_CREATED_AT
     ),
   })

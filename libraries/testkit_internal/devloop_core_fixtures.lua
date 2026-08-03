@@ -2,6 +2,7 @@ local M = {}
 
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local author_policy = require("testkit_internal.github_author_policy")
+local projected_state_fixture = require("testkit_internal.projected_state_fixture")
 
 local function configure_test_bot_login(login)
   local ok, devloop_base = pcall(require, "devloop.base")
@@ -28,6 +29,7 @@ end
 function M.new(deps)
   deps = deps or {}
   local core = deps.core or error("testkit_internal.devloop_core_fixtures: deps.core is required")
+  local base_ids = deps.base_ids or error("testkit_internal.devloop_core_fixtures: deps.base_ids is required")
   local t = deps.t or fkst.test
 
   gh_argv.install(t, core)
@@ -96,6 +98,9 @@ function M.new(deps)
     t = t,
     has_value = has_value,
     source_ref = source_ref,
+    state_marker = function(proposal_id, state, version, effects)
+      return projected_state_fixture.state_marker(core, base_ids, proposal_id, state, version, effects)
+    end,
     issue = issue,
     reached = reached,
     unresolved = unresolved,

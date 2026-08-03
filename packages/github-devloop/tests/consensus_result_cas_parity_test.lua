@@ -186,7 +186,7 @@ local function source_for_fixture(fixture)
   })
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, core.state_marker(event.proposal_id, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_marker(event.proposal_id, fixture.current_state, fixture.current_version))
   end
   if fixture.result_marker_visible then
     table.insert(comments, m_builders.result_marker(
@@ -357,8 +357,10 @@ local function assert_catalog_matches_observed_admission(fixture)
   t.eq(disposition, fixture.post_admission_disposition, fixture.name .. ": post-admission disposition")
   t.eq(legacy_log_outcome(decisions), fixture.legacy_log_outcome, fixture.name .. ": legacy log outcome axis")
   t.eq(emitted_state(result), fixture.effect_state, fixture.name .. ": captured effect state")
-  t.eq(grant_mints, observed.status == "apply" and 1 or 0,
-    fixture.name .. ": grant mint count follows apply admission only")
+  local projected_repair = (source.target_state == "ready" or source.target_state == "dependency_wait")
+    and #result.raises > 0
+  t.eq(grant_mints, (observed.status == "apply" or projected_repair) and 1 or 0,
+    fixture.name .. ": grant mint count covers apply admission and projected repair")
 
   local actual = catalog.resolve(POLICY_ID, evidence_from_source(source), projection)
   t.eq(actual.status, observed.status, fixture.name .. ": admission status parity")
@@ -519,6 +521,23 @@ local TRACE_FIXTURES = {
 local trace_write = observation_support.admission_trace_write
 local trace_writes = observation_support.admission_trace_writes
 
+local function normalized_trace_writes(raises)
+  local normalized = json_array()
+  for _, raised in ipairs(raises or {}) do
+    local command = observation_support.copy_value(raised)
+    local handoff = type(command.payload) == "table" and command.payload.handoff
+    local label_request = type(handoff) == "table" and handoff.label_request
+    if type(label_request) == "table" then
+      handoff.label_request = nil
+      table.insert(normalized, command)
+      table.insert(normalized, { queue = "github-proxy.github_issue_label_request", payload = label_request })
+    else
+      table.insert(normalized, command)
+    end
+  end
+  return trace_writes(normalized)
+end
+
 local function trace_fixture(
   fixture,
   status,
@@ -614,7 +633,7 @@ local function assert_thinking_trace_equality()
     local production = assert_catalog_matches_observed_admission(fixture)
     local new_fixture, normalized_admission = new_trace_fixture(fixture, production)
     local old_writes = production.observed.status == "apply"
-      and trace_writes(production.result.raises)
+      and normalized_trace_writes(production.result.raises)
       or json_array()
     table.insert(old_fixtures, trace_fixture(
       fixture,
@@ -850,11 +869,9 @@ return {
     })
   end,
 
-  -- present-marker/missing-label drift: result marker visible (comment suppressed) but the
-  -- ready label hint missing, so completeness is still false and production repairs the
-  -- LABEL only. The admission is still idempotent; the disposition is a label-only repair,
-  -- which a comment-only observer would mis-classify as effect-idempotent (green-but-wrong).
-  test_consensus_result_target_label_only_incomplete_repairs_via_label = function()
+  -- Present-marker/missing-label drift re-emits the complete projected command so the
+  -- acknowledged comment remains the sole owner of the guarded label projection.
+  test_consensus_result_target_label_only_incomplete_repairs_via_projected_command = function()
     assert_catalog_matches_observed_admission({
       name = "consensus-result-target-label-only-incomplete",
       current_state = "ready",
@@ -866,9 +883,9 @@ return {
       admission_status = "idempotent",
       admission_reason_code = "already-at-target",
       boundary_call_count = 2,
-      post_admission_disposition = "effect-repair(label)",
+      post_admission_disposition = "effect-repair(ready)",
       legacy_log_outcome = "applied(result effects incomplete)",
-      effect_state = nil,
+      effect_state = "ready",
       expected_raise_count = 1,
     })
   end,

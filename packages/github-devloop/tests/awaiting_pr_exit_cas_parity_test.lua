@@ -12,6 +12,7 @@ local testing = require("testkit_internal.testing")
 local t = h.t
 local core = h.core
 local canonical_json = observation_support.canonical_json
+local copy_value = observation_support.copy_value
 local awaiting_pr_replayer = require("awaiting_pr_replay")
 
 local INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
@@ -77,7 +78,7 @@ local function parent_issue(fixture)
     number = ISSUE_NUMBER,
     source_ref = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER),
     comments = {
-      trusted_comment(core.state_marker(PROPOSAL_ID, "awaiting-pr", VERSION)),
+      trusted_comment(h.state_marker(PROPOSAL_ID, "awaiting-pr", VERSION)),
       trusted_comment(m_builders.pr_delegation_marker(
         PROPOSAL_ID,
         pr_proposal_id(fixture),
@@ -103,7 +104,7 @@ local function child_pr(fixture)
         VERSION,
         fixture.base_branch
       ), "2026-06-03T01:03:00Z"),
-      trusted_comment(core.state_marker(
+      trusted_comment(h.state_marker(
         PROPOSAL_ID,
         fixture.child_state,
         VERSION
@@ -170,6 +171,14 @@ local function frozen_old_writes(fixture)
   error("frozen OLD awaiting-pr exit observation is missing for " .. fixture.name, 0)
 end
 
+local function without_value(values, removed)
+  local filtered = {}
+  for _, value in ipairs(values or {}) do
+    if value ~= removed then table.insert(filtered, value) end
+  end
+  return filtered
+end
+
 local function run_apply(fixture)
   h.mock_bot_env()
   if fixture.closes_issue then
@@ -218,7 +227,7 @@ local function run_apply(fixture)
   config.branch_config = original_branch_config
   if not ok then error(result, 0) end
 
-  t.eq(#result.raises, 2, fixture.name .. ": comment then label")
+  t.eq(#result.raises, fixture.target == "ready" and 1 or 2, fixture.name .. ": projected delivery count")
   t.eq(
     h.count_calls("gh issue close 42 --repo owner/repo") - close_calls_before,
     fixture.closes_issue and 1 or 0,
@@ -229,6 +238,22 @@ end
 
 local function assert_apply_fixture(fixture)
   local writes = run_apply(fixture)
+  if fixture.target == "ready" then
+    local command = copy_value(writes[1])
+    local label_request = command.payload.handoff.label_request
+    command.payload.handoff.label_request = nil
+    label_request.remove_labels = without_value(
+      label_request.remove_labels,
+      devloop_base._blocked_on_dependency_label
+    )
+    writes = {
+      command,
+      {
+        queue = "github-proxy.github_issue_label_request",
+        payload = label_request,
+      },
+    }
+  end
   t.eq(
     canonical_json(writes),
     canonical_json(frozen_old_writes(fixture)),

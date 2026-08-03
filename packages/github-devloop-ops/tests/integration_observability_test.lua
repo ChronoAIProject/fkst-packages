@@ -386,7 +386,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local summary = summary_log(capture_observability_logs())
@@ -407,7 +407,7 @@ return {
     mock_pr_list({})
     mock_issue_view({
       render_comment(core.state_marker(proposal_id, "blocked", "2099-01-01T00-00-00Z"), "mallory"),
-      render_comment(core.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local result = run_observability()
@@ -436,7 +436,7 @@ return {
       { number = 8, state = "closed" },
     })
     mock_issue_view({
-      render_comment(core.state_marker(open_proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_marker(open_proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local summary = summary_log(capture_observability_logs())
@@ -685,7 +685,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", version), "fkst-test-bot"),
+      render_comment(h.state_marker(proposal_id, "ready", version), "fkst-test-bot"),
       render_comment(wait_marker(proposal_id, version, { 7 }), "fkst-test-bot"),
     })
 
@@ -749,7 +749,7 @@ return {
     for _, candidate in ipairs(candidates) do
       if candidate.kind == "issue" then
         mock_issue_view({
-          render_comment(core.state_marker("github-devloop/issue/owner/repo/" .. tostring(candidate.number), "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot"),
+          render_comment(h.state_marker("github-devloop/issue/owner/repo/" .. tostring(candidate.number), "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot"),
         }, nil, { number = candidate.number })
       else
         mock_pr_view({}, { number = candidate.number })
@@ -785,7 +785,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local logs = capture_observability_logs()

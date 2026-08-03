@@ -140,7 +140,7 @@ return {
     t.eq(facts[1].round, 2)
     t.eq(conv_rounds.max_converge_round(facts), 2)
 
-    local forged = core.state_marker(proposal_id, "blocked", base_version .. "/loop/99")
+    local forged = h.state_marker(proposal_id, "blocked", base_version .. "/loop/99")
     local forged_converge_marker = conv_rounds.converge_round_marker(proposal_id,
       base_version,
       sr_digest,
@@ -211,7 +211,7 @@ return {
     local comment = core.build_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-semantic-progress-after-3-rounds")
     t.is_true(comment.body:find("github-devloop reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:reconcile:v1", 1, true) ~= nil)
-    t.is_true(comment.body:find(core.state_marker(proposal_id, "blocked", base_version .. "/loop/3"), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_marker(proposal_id, "blocked", base_version .. "/loop/3"), 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
   end,
 
@@ -257,7 +257,7 @@ return {
     local comment = core.build_review_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-semantic-progress-after-3-review-rounds")
     t.is_true(comment.body:find("github-devloop review reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:review-reconcile:v1", 1, true) ~= nil)
-    t.is_true(comment.body:find(core.state_marker(issue_proposal_id, "blocked", issue_version .. "/review-loop/3"), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_marker(issue_proposal_id, "blocked", issue_version .. "/review-loop/3"), 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
   end,
 
@@ -305,7 +305,7 @@ return {
     local comment = core.build_fix_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "fix-loop-max-rounds-after-4-rounds")
     t.is_true(comment.body:find("github-devloop fix reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:fix-reconcile:v1", 1, true) ~= nil)
-    t.is_true(comment.body:find(core.state_marker(issue_proposal_id, "blocked", issue_version), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_marker(issue_proposal_id, "blocked", issue_version), 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
   end,
 
@@ -591,7 +591,7 @@ return {
     t.is_true(failure_comment.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
     t.is_true(failure_comment.body:find("No files changed.", 1, true) ~= nil)
 
-    local forged = core.state_marker(ready.proposal_id, "blocked", "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
+    local forged = h.state_marker(ready.proposal_id, "blocked", "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
     local forged_failure = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged)
     t.is_true(forged_failure.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(forged_failure.body:find(forged, 1, true) == nil, true)

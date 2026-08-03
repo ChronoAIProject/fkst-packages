@@ -71,6 +71,23 @@ local function count_calls(needle)
   return h.count_calls(needle)
 end
 
+local function run_comment_handoff(request)
+  return t.run_department("departments/comment_handoff/main.lua", {
+    queue = "github-proxy.github_comment_written",
+    payload = {
+      schema = "github-proxy.comment-written.v1",
+      repo = request.repo,
+      target = "issue",
+      issue_number = request.issue_number,
+      comment_id = "IC_awaiting_pr_ready",
+      request_dedup_key = request.dedup_key,
+      dedup_key = request.dedup_key .. "/written/IC_awaiting_pr_ready",
+      source_ref = request.source_ref,
+      handoff = request.handoff,
+    },
+  }, h.opts("awaiting-pr-ready-comment-handoff"))
+end
+
 local function mock_issue_close()
   t.mock_command("gh issue close", {
     stdout = "closed\n",
@@ -91,7 +108,7 @@ local function parent_comments(fields)
   local state = f.state or "awaiting-pr"
   local state_version = f.version or version
   local comments = {
-    comment(core.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
+    comment(h.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
   }
   if f.delegation ~= false then
     table.insert(comments, comment(m_builders.pr_delegation_marker(f.parent or parent,
@@ -110,7 +127,7 @@ local function child_comments(state, child_version, opts)
   local base_branch = options.base_branch or integration_branch
   local branch = options.branch or original_branch
   local body = m_builders.pr_origin_marker(parent, issue_number, branch, effective_version, base_branch)
-    .. "\n" .. core.state_marker(parent, state, effective_version)
+    .. "\n" .. h.state_marker(parent, state, effective_version)
   if state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
   end
@@ -128,7 +145,7 @@ end
 local function child_merged_comments_with_kept_promotion()
   return {
     comment(m_builders.pr_origin_marker(parent, issue_number, original_branch, version, integration_branch)
-      .. "\n" .. core.state_marker(parent, "merged", version)
+      .. "\n" .. h.state_marker(parent, "merged", version)
       .. "\n" .. m_builders.merged_marker(core, parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
   }
 end
@@ -616,6 +633,17 @@ return {
     t.eq(resume.payload.handoff.proposal_id, parent)
     t.eq(resume.payload.handoff.version, replacement_version)
     t.eq(resume.payload.handoff.marker_version, replacement_version)
+    t.eq(count_raises(result.raises, "github-proxy.github_issue_label_request"), 0)
+    t.eq(resume.payload.handoff.label_request.expected_state, "ready")
+
+    local handoff = run_comment_handoff(resume.payload)
+    t.eq(handoff.exit_code, 0)
+    local label = find_raise(handoff.raises, "github-proxy.github_issue_label_request")
+    t.is_true(label ~= nil)
+    t.is_true(h.has_value(label.payload.add_labels, "fkst-dev:ready"))
+    t.is_true(h.has_value(label.payload.remove_labels, "fkst-dev:impl-failed"))
+    t.is_true(h.has_value(label.payload.remove_labels, "fkst-dev:blocked-on-dependency"))
+    t.is_true(find_raise(handoff.raises, "devloop_ready") ~= nil)
   end,
 
   test_replacement_child_closed_unmerged_blocks_without_second_replacement = function()
@@ -651,7 +679,7 @@ return {
   test_child_blocked_replay_is_idempotent_when_target_marker_is_visible = function()
     local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     local comments = parent_comments()
-    table.insert(comments, comment(core.state_marker(parent, "blocked", blocked_version), core._test_bot_login, "2026-06-03T01:05:03Z"))
+    table.insert(comments, comment(h.state_marker(parent, "blocked", blocked_version), core._test_bot_login, "2026-06-03T01:05:03Z"))
     local state = {
       state = "awaiting-pr",
       version = version,

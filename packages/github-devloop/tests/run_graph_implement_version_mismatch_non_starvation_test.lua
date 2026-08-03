@@ -110,7 +110,7 @@ local function stale_issue_comments()
   local child_pr = entity_lib.pr_proposal_id(repo, stale_pr_number)
   local diverged_version = core.implementation_attempt_version(stale_version, 2)
   return {
-    trusted_comment(core.state_marker(stale_proposal_id, "implementing", stale_version)),
+    trusted_comment(h.state_marker(stale_proposal_id, "implementing", stale_version)),
     trusted_comment(core.implement_attempt_marker(
       stale_proposal_id,
       stale_version,
@@ -156,7 +156,7 @@ end
 
 local function dead_worker_issue_comments()
   return {
-    trusted_comment(core.state_marker(stale_proposal_id, "implementing", stale_version)),
+    trusted_comment(h.state_marker(stale_proposal_id, "implementing", stale_version)),
     trusted_comment(core.implement_attempt_marker(
       stale_proposal_id,
       stale_version,
@@ -170,7 +170,7 @@ end
 local function divergent_issue_comments()
   local child_pr = entity_lib.pr_proposal_id(repo, stale_pr_number)
   return {
-    trusted_comment(core.state_marker(stale_proposal_id, "implementing", stale_version)),
+    trusted_comment(h.state_marker(stale_proposal_id, "implementing", stale_version)),
     trusted_comment(core.implement_attempt_marker(
       stale_proposal_id,
       stale_version,
@@ -190,7 +190,7 @@ end
 
 local function healthy_issue_comments()
   return {
-    trusted_comment(core.state_marker(healthy_proposal_id, "implementing", healthy_version)),
+    trusted_comment(h.state_marker(healthy_proposal_id, "implementing", healthy_version)),
     trusted_comment(core.implement_attempt_marker(
       healthy_proposal_id,
       healthy_version,
@@ -240,7 +240,7 @@ local function created_child_comments()
       stale_branch,
       stale_version,
       "dev"
-    ) .. "\n" .. core.state_marker(stale_proposal_id, "pr-open", stale_version)),
+    ) .. "\n" .. h.state_marker(stale_proposal_id, "pr-open", stale_version)),
   }
 end
 

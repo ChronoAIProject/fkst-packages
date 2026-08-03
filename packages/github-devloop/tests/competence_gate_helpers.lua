@@ -2,6 +2,22 @@ local core = require("core")
 local operator_commands = require("devloop.operator_commands")
 local M = setmetatable({}, { __index = core })
 
+local function projected_state_marker(proposal_id, state, version)
+  local request = core.build_projected_transition_comment_handoff({
+    repo = "owner/repo",
+    issue_number = 42,
+    proposal_id = proposal_id,
+    state = state,
+    version = version,
+    comment_body_prefix = "",
+    comment_body_suffix = "",
+    comment_dedup_key = "competence/fixture/comment/" .. tostring(version),
+    label_dedup_key = "competence/fixture/label/" .. tostring(version),
+    source_ref = { kind = "external", ref = "owner/repo#issue/42" },
+  })
+  return assert(request.body:match("<!%-%- fkst:github%-devloop:state:v1.-%-%->"))
+end
+
 local required_negative_controls = {
   "001-release-replay-uses-split-version",
   "002-queue-wait-extra-successor",
@@ -81,7 +97,7 @@ local function operator_dependency_waiver_contract(opts)
     blocker_number,
     "operator-waiver"
   )
-  local forbidden_ready_marker = M.state_marker(proposal_id, "ready", version)
+  local forbidden_ready_marker = projected_state_marker(proposal_id, "ready", version)
   local request = nil
   if options.operator_dependency_waiver_request_body == nil then
     request = operator_commands.build_operator_issue_dependency_waiver_comment_request(
@@ -228,7 +244,7 @@ local challenge_fixtures = {
       local proposal_id = "github-devloop/issue/owner/repo/42"
       local version = "ready/base/dependency-wait"
       return M.competence_gate_errors(M.restart_transition_table(), {
-        operator_dependency_waiver_request_body = "waived\n" .. M.state_marker(proposal_id, "ready", version),
+        operator_dependency_waiver_request_body = "waived\n" .. projected_state_marker(proposal_id, "ready", version),
         proposal_id = proposal_id,
         version = version,
         blocker_number = 60,

@@ -24,20 +24,32 @@ local function fold_by_engine_dedup(raised_batches)
   return folded
 end
 
-local function apply_label_requests(initial_labels, raises)
+local function apply_label_requests(initial_labels, raises, current_state)
   local labels = {}
   for _, label in ipairs(initial_labels or {}) do
     labels[tostring(label)] = true
   end
-  for _, raised in ipairs(raises) do
-    if raised.queue == "github-proxy.github_issue_label_request" then
-      local payload = raised.payload or {}
+  local function apply(payload)
+    local guard = type(payload) == "table" and payload.marker_guard or nil
+    local expected = type(guard) == "table" and guard.expected or nil
+    if type(expected) == "table" and expected.state ~= current_state then
+      return
+    end
       for _, label in ipairs(payload.remove_labels or {}) do
         labels[tostring(label)] = nil
       end
       for _, label in ipairs(payload.add_labels or {}) do
         labels[tostring(label)] = true
       end
+  end
+  for _, raised in ipairs(raises) do
+    if raised.queue == "github-proxy.github_issue_label_request" then
+      apply(raised.payload or {})
+    elseif raised.queue == "github-proxy.github_issue_comment_request"
+      and type(raised.payload) == "table"
+      and type(raised.payload.handoff) == "table"
+      and type(raised.payload.handoff.label_request) == "table" then
+      apply(raised.payload.handoff.label_request)
     end
   end
   return labels
@@ -56,7 +68,7 @@ end
 return {
   test_consensus_result_divergent_same_lineage_folds_comment_and_label_until_first_ack = function()
     local approve = reached()
-    local source_marker = core.state_marker(approve.proposal_id, "thinking", approve.dedup_key)
+    local source_marker = h.state_marker(approve.proposal_id, "thinking", approve.dedup_key)
     mock_issue_result({ "fkst-dev:thinking" }, { source_marker })
 
     local applied = run_result(approve, opts("visibility-race-first-approve"))
@@ -64,7 +76,8 @@ return {
     local approved_comment = find_raise(applied.raises, "github-proxy.github_issue_comment_request")
     local approved_label = find_raise(applied.raises, "github-proxy.github_issue_label_request")
     t.is_true(approved_comment ~= nil)
-    t.is_true(approved_label ~= nil)
+    t.is_nil(approved_label)
+    t.eq(approved_comment.payload.handoff.label_request.expected_state, "ready")
     t.is_true(approved_comment.payload.body:find(m_builders.result_marker(approve.proposal_id, "approve", approve.dedup_key), 1, true) ~= nil)
 
     local reject = reached({
@@ -82,7 +95,7 @@ return {
     t.is_true(rejected_comment ~= nil)
     t.is_true(rejected_label ~= nil)
     t.eq(rejected_comment.payload.dedup_key, approved_comment.payload.dedup_key)
-    t.eq(rejected_label.payload.dedup_key, approved_label.payload.dedup_key)
+    t.eq(rejected_label.payload.dedup_key, approved_comment.payload.handoff.label_request.dedup_key)
     t.eq(rejected_label.payload.add_labels[1], "fkst-dev:declined")
     t.is_true(rejected_comment.payload.body:find('state="declined"', 1, true) ~= nil)
     t.is_true(rejected_comment.payload.body:find("fkst:github-devloop:result-divergence:v1", 1, true) == nil)
@@ -94,8 +107,9 @@ return {
     -- longer claims full closure; the next level poll re-derives from visible
     -- markers and labels.
     local folded = fold_by_engine_dedup({ applied.raises, raced.raises })
-    local folded_labels = apply_label_requests({ "fkst-dev:thinking" }, folded)
-    t.eq(core.current_state(bodies_for_comments(folded), approve.proposal_id).state, "ready")
+    local folded_state = core.current_state(bodies_for_comments(folded), approve.proposal_id).state
+    local folded_labels = apply_label_requests({ "fkst-dev:thinking" }, folded, folded_state)
+    t.eq(folded_state, "ready")
     t.eq(folded_labels["fkst-dev:ready"], true)
     t.is_nil(folded_labels["fkst-dev:declined"])
   end,

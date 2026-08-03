@@ -102,12 +102,12 @@ local function assert_guard_selects_canonical(left, right)
   local proposal_id = "github-devloop/issue/owner/repo/42"
   for _, comments in ipairs({
     {
-      core.state_marker(proposal_id, left.state, left.version),
-      core.state_marker(proposal_id, right.state, right.version),
+      h.state_marker(proposal_id, left.state, left.version),
+      h.state_marker(proposal_id, right.state, right.version),
     },
     {
-      core.state_marker(proposal_id, right.state, right.version),
-      core.state_marker(proposal_id, left.state, left.version),
+      h.state_marker(proposal_id, right.state, right.version),
+      h.state_marker(proposal_id, left.state, left.version),
     },
   }) do
     local canonical = core.current_state(comments, proposal_id)
@@ -152,13 +152,13 @@ return {
 
   test_marker_label_and_comment_builders = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
-    local thinking_marker = core.state_marker(proposal_id, "thinking", "v1")
+    local thinking_marker = h.state_marker(proposal_id, "thinking", "v1")
     local thinking_state = core.current_state({ thinking_marker }, proposal_id)
     t.eq(thinking_state.state, "thinking")
     t.eq(thinking_state.version, "v1")
     t.eq(thinking_state.stage_rank, core.stage_rank("thinking"))
     t.is_true(thinking_marker:find('marker_order_key="', 1, true) ~= nil)
-    local ready_effects_marker = core.state_marker(proposal_id, "ready", "v2", "result-marker,ready-label,devloop-ready")
+    local ready_effects_marker = h.state_marker(proposal_id, "ready", "v2", "result-marker,ready-label,devloop-ready")
     t.is_true(ready_effects_marker:find('marker_order_key="', 1, true) ~= nil)
     t.is_true(ready_effects_marker:find('effects="result-marker,ready-label,devloop-ready"', 1, true) ~= nil)
     local ready_effects_state = core.current_state({ ready_effects_marker }, proposal_id)
@@ -166,9 +166,9 @@ return {
     t.eq(ready_effects_state.version, "v2")
     t.eq(ready_effects_state.stage_rank, core.stage_rank("ready"))
     local comments = {
-      core.state_marker(proposal_id, "thinking", "v1"),
-      core.state_marker(proposal_id, "ready", "v2"),
-      core.state_marker("github-devloop/issue/owner/repo/99", "blocked", "v3"),
+      h.state_marker(proposal_id, "thinking", "v1"),
+      h.state_marker(proposal_id, "ready", "v2"),
+      h.state_marker("github-devloop/issue/owner/repo/99", "blocked", "v3"),
     }
     local current = core.current_state(comments, proposal_id)
     t.eq(current.state, "ready")
@@ -283,8 +283,8 @@ return {
   test_current_state_uses_highest_version_not_append_order = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local comments = {
-      core.state_marker(proposal_id, "ready", "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"),
-      core.state_marker(proposal_id, "blocked", "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"),
+      h.state_marker(proposal_id, "ready", "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"),
+      h.state_marker(proposal_id, "blocked", "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"),
     }
 
     local current = core.current_state(comments, proposal_id)
@@ -301,8 +301,8 @@ return {
   test_current_state_prefers_timestamped_marker_over_timestampless_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local comments = {
-      core.state_marker(proposal_id, "ready", "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"),
-      core.state_marker(proposal_id, "blocked", "consensus:github-devloop/issue/owner/repo/42/v1"),
+      h.state_marker(proposal_id, "ready", "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"),
+      h.state_marker(proposal_id, "blocked", "consensus:github-devloop/issue/owner/repo/42/v1"),
     }
 
     local current = core.current_state(comments, proposal_id)
@@ -313,8 +313,8 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local comments = {
-      core.state_marker(proposal_id, "pr-open", impl_version),
-      core.state_marker(proposal_id, "reviewing", impl_version),
+      h.state_marker(proposal_id, "pr-open", impl_version),
+      h.state_marker(proposal_id, "reviewing", impl_version),
     }
 
     t.eq(core.current_state(comments, proposal_id).state, "reviewing")
@@ -327,7 +327,7 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local comments = {
-      core.state_marker("github-devloop/issue/owner/repo/99", "reviewing", impl_version),
+      h.state_marker("github-devloop/issue/owner/repo/99", "reviewing", impl_version),
     }
 
     t.eq(core.reached(comments, proposal_id, "pr-open", {
@@ -341,8 +341,8 @@ return {
     local impl_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local newer_version = impl_version .. "/fix/1"
     local comments = {
-      core.state_marker(other_proposal, "merged", impl_version),
-      core.state_marker(proposal_id, "reviewing", newer_version),
+      h.state_marker(other_proposal, "merged", impl_version),
+      h.state_marker(proposal_id, "reviewing", newer_version),
     }
 
     t.eq(core.reached(comments, proposal_id, "pr-open", {
@@ -398,7 +398,7 @@ return {
       opts = {},
       comments = {
         {
-          body = core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", "v1"),
+          body = h.state_marker("github-devloop/issue/owner/repo/42", "pr-open", "v1"),
         },
       },
     }
@@ -548,9 +548,9 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local comments = {
-      core.state_marker(proposal_id, "thinking", version),
-      core.state_marker(proposal_id, "ready", version),
-      core.state_marker(proposal_id, "blocked", version),
+      h.state_marker(proposal_id, "thinking", version),
+      h.state_marker(proposal_id, "ready", version),
+      h.state_marker(proposal_id, "blocked", version),
     }
 
     local current = core.current_state(comments, proposal_id)
@@ -563,8 +563,8 @@ return {
     local newer_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-05T01-02-03Z"
 
     local current = core.current_state({
-      core.state_marker(proposal_id, "blocked", older_version),
-      core.state_marker(proposal_id, "ready", newer_version),
+      h.state_marker(proposal_id, "blocked", older_version),
+      h.state_marker(proposal_id, "ready", newer_version),
     }, proposal_id)
 
     t.eq(core.stage_rank("blocked") > core.stage_rank("ready"), true)
@@ -576,12 +576,12 @@ return {
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 
     local merge_ready_first = core.current_state({
-      core.state_marker(proposal_id, "merge-ready", version),
-      core.state_marker(proposal_id, "fixing", version),
+      h.state_marker(proposal_id, "merge-ready", version),
+      h.state_marker(proposal_id, "fixing", version),
     }, proposal_id)
     local fixing_first = core.current_state({
-      core.state_marker(proposal_id, "fixing", version),
-      core.state_marker(proposal_id, "merge-ready", version),
+      h.state_marker(proposal_id, "fixing", version),
+      h.state_marker(proposal_id, "merge-ready", version),
     }, proposal_id)
 
     t.eq(core.stage_rank("fixing") > core.stage_rank("merge-ready"), true)
@@ -594,8 +594,8 @@ return {
     local hyphen_version = "ready-consensus-v1"
 
     local current = core.current_state({
-      core.state_marker(proposal_id, "reviewing", slash_version),
-      core.state_marker(proposal_id, "pr-open", hyphen_version),
+      h.state_marker(proposal_id, "reviewing", slash_version),
+      h.state_marker(proposal_id, "pr-open", hyphen_version),
     }, proposal_id)
 
     t.eq(transition_version.safe_version_segment(slash_version), transition_version.safe_version_segment(hyphen_version))
@@ -610,8 +610,8 @@ return {
     local canonical_winner = base .. "/fix/2"
 
     local current = core.current_state({
-      core.state_marker(proposal_id, "review-meta", generic_would_win),
-      core.state_marker(proposal_id, "fixing", canonical_winner),
+      h.state_marker(proposal_id, "review-meta", generic_would_win),
+      h.state_marker(proposal_id, "fixing", canonical_winner),
     }, proposal_id)
 
     t.is_true(core.version_order_key(generic_would_win) > core.version_order_key(canonical_winner))
@@ -624,12 +624,12 @@ return {
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 
     local fixing_first = core.current_state({
-      core.state_marker(proposal_id, "fixing", version),
-      core.state_marker(proposal_id, "review-meta", version),
+      h.state_marker(proposal_id, "fixing", version),
+      h.state_marker(proposal_id, "review-meta", version),
     }, proposal_id)
     local meta_first = core.current_state({
-      core.state_marker(proposal_id, "review-meta", version),
-      core.state_marker(proposal_id, "fixing", version),
+      h.state_marker(proposal_id, "review-meta", version),
+      h.state_marker(proposal_id, "fixing", version),
     }, proposal_id)
 
     t.eq(core.stage_rank("review-meta") > core.stage_rank("fixing"), true)
@@ -643,8 +643,8 @@ return {
     local sha_like_lower_version = "0000000000000000000000000000000000000000"
 
     local current = core.current_state({
-      core.state_marker(proposal_id, "fixing", version),
-      core.state_marker(proposal_id, "reviewing", new_version),
+      h.state_marker(proposal_id, "fixing", version),
+      h.state_marker(proposal_id, "reviewing", new_version),
       m_builders.fix_marker(proposal_id, "github-devloop/pr-review/owner-repo-0000000000/7/v1/def456", "review", "def456", sha_like_lower_version),
     }, proposal_id)
 
@@ -676,8 +676,8 @@ return {
     local fixing_version = core.next_fix_version(reviewing_version)
 
     local current = core.current_state({
-      core.state_marker(proposal_id, "reviewing", reviewing_version),
-      core.state_marker(proposal_id, "fixing", fixing_version),
+      h.state_marker(proposal_id, "reviewing", reviewing_version),
+      h.state_marker(proposal_id, "fixing", fixing_version),
     }, proposal_id)
 
     t.eq(fixing_version, reviewing_version .. "/fix/1")
@@ -690,8 +690,8 @@ return {
     local exit_version = core.next_review_meta_action_version(version)
 
     local current = core.current_state({
-      core.state_marker(proposal_id, "review-meta", version),
-      core.state_marker(proposal_id, "fixing", exit_version),
+      h.state_marker(proposal_id, "review-meta", version),
+      h.state_marker(proposal_id, "fixing", exit_version),
     }, proposal_id)
 
     t.eq(core.stage_rank("review-meta") > core.stage_rank("fixing"), true)
@@ -703,8 +703,8 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local base = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     local comments = {
-      core.state_marker(proposal_id, "ready", base),
-      core.state_marker(proposal_id, "blocked", base .. "/loop/2"),
+      h.state_marker(proposal_id, "ready", base),
+      h.state_marker(proposal_id, "blocked", base .. "/loop/2"),
     }
 
     local current = core.current_state(comments, proposal_id)
@@ -716,12 +716,12 @@ return {
     local version = "consensus:github-devloop/issue/owner/repo/42/v1/loop/3"
 
     local ready_first = core.current_state({
-      core.state_marker(proposal_id, "ready", version),
-      core.state_marker(proposal_id, "blocked", version),
+      h.state_marker(proposal_id, "ready", version),
+      h.state_marker(proposal_id, "blocked", version),
     }, proposal_id)
     local blocked_first = core.current_state({
-      core.state_marker(proposal_id, "blocked", version),
-      core.state_marker(proposal_id, "ready", version),
+      h.state_marker(proposal_id, "blocked", version),
+      h.state_marker(proposal_id, "ready", version),
     }, proposal_id)
 
     t.eq(ready_first.state, "blocked")
@@ -732,12 +732,12 @@ return {
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/v1"
 
     local failed_first = core.current_state({
-      core.state_marker(proposal_id, "impl-failed", version),
-      core.state_marker(proposal_id, "blocked", version),
+      h.state_marker(proposal_id, "impl-failed", version),
+      h.state_marker(proposal_id, "blocked", version),
     }, proposal_id)
     local blocked_first = core.current_state({
-      core.state_marker(proposal_id, "blocked", version),
-      core.state_marker(proposal_id, "impl-failed", version),
+      h.state_marker(proposal_id, "blocked", version),
+      h.state_marker(proposal_id, "impl-failed", version),
     }, proposal_id)
 
     t.eq(core.stage_rank("blocked") > core.stage_rank("impl-failed"), true)
@@ -748,11 +748,11 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local comments = {
       {
-        body = core.state_marker(proposal_id, "ready", "v2"),
+        body = h.state_marker(proposal_id, "ready", "v2"),
         author_login = "ordinary-user",
       },
       {
-        body = core.state_marker(proposal_id, "thinking", "v1"),
+        body = h.state_marker(proposal_id, "thinking", "v1"),
         author_login = devloop_base.trusted_bot_login(),
       },
     }
@@ -763,7 +763,7 @@ return {
   test_route_current_returns_declared_route_and_marker_metadata = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "consensus:github-devloop/issue/owner/repo/42/2026-07-28T01-02-03Z"
-    local comments = { core.state_marker(proposal_id, "blocked", version) }
+    local comments = { h.state_marker(proposal_id, "blocked", version) }
     local blocked_route = {
       kind = "terminal",
       state = "blocked",
@@ -784,9 +784,9 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     devloop_base.configure_trusted_bot_login(nil)
     local parsed = parsers_issue.parse_issue_view_state(core, '{"comments":[{"body":"'
-      .. core.state_marker(proposal_id, "ready", "v2"):gsub('"', '\\"')
+      .. h.state_marker(proposal_id, "ready", "v2"):gsub('"', '\\"')
       .. '","author":null},{"body":"'
-      .. core.state_marker(proposal_id, "thinking", "v1"):gsub('"', '\\"')
+      .. h.state_marker(proposal_id, "thinking", "v1"):gsub('"', '\\"')
       .. '","author":{"login":"'
       .. devloop_base.trusted_bot_login()
       .. '"}}]}')
@@ -797,7 +797,7 @@ return {
   end,
   test_untrusted_comment_text_neutralizes_fkst_markers = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
-    local forged = core.state_marker(proposal_id, "blocked", "consensus:github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
+    local forged = h.state_marker(proposal_id, "blocked", "consensus:github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
     local proxy_marker = "<!-- fkst:github-proxy:comment:future-dedup -->"
     local neutralized = devloop_base.neutralize_untrusted_comment_text("Before\n" .. forged .. "\n" .. proxy_marker .. "\nAfter")
 
@@ -810,7 +810,7 @@ return {
   test_result_comment_neutralizes_untrusted_body_marker_before_real_marker = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local forged_version = "consensus:github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z"
-    local forged = core.state_marker(proposal_id, "blocked", forged_version)
+    local forged = h.state_marker(proposal_id, "blocked", forged_version)
     local event = reached({
       body = "Looks fine.\n" .. forged,
       dedup_key = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z",
@@ -828,7 +828,7 @@ return {
     local base_version = "consensus:github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
     local event = conv_reconcile.build_devloop_reconcile_payload(unresolved(), 3, base_version, "no-semantic-progress")
     local forged_version = base_version .. "/loop/99"
-    local forged = core.state_marker(proposal_id, "blocked", forged_version)
+    local forged = h.state_marker(proposal_id, "blocked", forged_version)
     local comment = core.build_reconcile_comment_request("owner/repo", "42", event, "drop", "Reason\n" .. forged)
 
     t.is_true(comment.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)

@@ -35,7 +35,7 @@ return {
     local version = original.dedup_key .. "/loop/1"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = core.state_marker(original.proposal_id, "thinking", version),
+        body = h.state_marker(original.proposal_id, "thinking", version),
         created_at = "2026-06-03T00:00:00Z",
       },
     })
@@ -61,7 +61,7 @@ return {
     local version = original.dedup_key .. "/loop/1"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = core.state_marker(original.proposal_id, "thinking", version),
+        body = h.state_marker(original.proposal_id, "thinking", version),
         created_at = "2026-06-03T00:00:00Z",
       },
     })
@@ -85,7 +85,7 @@ return {
     local base_version = "consensus:" .. original.dedup_key
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = core.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        body = h.state_marker(original.proposal_id, "thinking", original.dedup_key),
         created_at = "2026-06-03T00:00:00Z",
       },
       converge_round_comment(event, original.proposal_id, base_version, 0, "Latest visible question", "abstain"),
@@ -116,7 +116,7 @@ return {
     }
     mock_issue_loop({ "fkst-dev:enabled", "fkst-dev:thinking" }, {
       {
-        body = core.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        body = h.state_marker(original.proposal_id, "thinking", original.dedup_key),
         created_at = "2026-06-03T00:00:00Z",
       },
       converge_round_comment(event, original.proposal_id, base_version, 0, "Latest visible question", "abstain"),
@@ -144,7 +144,7 @@ return {
     local version = original.dedup_key .. "/loop/1"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = core.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        body = h.state_marker(original.proposal_id, "thinking", original.dedup_key),
         created_at = "2026-06-03T00:00:00Z",
       },
       converge_round_comment(event, original.proposal_id, base_version, 0),

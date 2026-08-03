@@ -150,7 +150,7 @@ local function pr_fixture(state, version)
         ready_version,
         "dev"
       )),
-      bot_comment(core.state_marker(proposal_id, state, version)),
+      bot_comment(h.state_marker(proposal_id, state, version)),
     },
   }
 end

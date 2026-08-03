@@ -73,7 +73,7 @@ local REDRIVE_FIXTURES = {
     end,
     comments = function(event)
       return {
-        core.state_marker(event.proposal_id, "thinking", BASE_VERSION),
+        h.state_marker(event.proposal_id, "thinking", BASE_VERSION),
         round_marker(event, 0, { findings_record = "open:\nfirst resolvable finding" }),
       }
     end,
@@ -91,7 +91,7 @@ local REDRIVE_FIXTURES = {
     end,
     comments = function(event)
       return {
-        core.state_marker(event.proposal_id, "thinking", BASE_VERSION),
+        h.state_marker(event.proposal_id, "thinking", BASE_VERSION),
         round_marker(event, 1, { findings_record = "open:\nsecond resolvable finding" }),
       }
     end,

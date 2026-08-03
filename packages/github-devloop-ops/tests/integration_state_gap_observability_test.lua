@@ -202,7 +202,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.state_marker(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(core.state_marker(proposal_id, "blocked", "v1"), "mallory", "2026-06-03T01:01:00Z"),
       render_comment(core.state_marker(proposal_id, "implementing", "v1"), "fkst-test-bot", "2026-06-03T03:10:00Z"),
     })
@@ -225,7 +225,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.state_marker(proposal_id, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(wait_marker(proposal_id, "v1", { 7 }), "fkst-test-bot", "2026-06-03T01:05:00Z"),
       render_comment(wait_marker(proposal_id, "v1", { 8 }), "mallory", "2026-06-03T01:06:00Z"),
       render_comment(core.state_marker(proposal_id, "implementing", "v1"), "fkst-test-bot", "2026-06-03T01:50:00Z"),
@@ -245,11 +245,11 @@ return {
     mock_all_issue_lists({ 42, 43 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(core.state_marker(proposal_42, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.state_marker(proposal_42, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(core.state_marker(proposal_42, "implementing", "v1"), "fkst-test-bot", "2026-06-03T03:10:00Z"),
     }, 42)
     mock_issue_view({
-      render_comment(core.state_marker(proposal_43, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
+      render_comment(h.state_marker(proposal_43, "ready", "v1"), "fkst-test-bot", "2026-06-03T01:00:00Z"),
       render_comment(core.state_marker(proposal_43, "implementing", "v1"), "fkst-test-bot", "2026-06-03T01:10:00Z"),
     }, 43)
 

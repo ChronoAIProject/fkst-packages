@@ -55,21 +55,22 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
   version = version or result_version(reached)
   local declined = reached.decision == "reject"
   to_state = to_state or (declined and "declined" or gate and gate.ok and "ready" or "dependency_wait")
+  local projected = to_state == "ready" or to_state == "dependency_wait"
+  if projected and granted_payloads == nil then
+    error("github-devloop: projected-result-grant-required: projected result command requires both restart grants")
+  end
   local comment_request = granted_payloads and granted_payloads[COMMENT_EFFECT_ID]
     or requests_lifecycle.build_result_comment_request(core, repo, issue_number, reached, to_state)
-  local label_request = granted_payloads and granted_payloads[LABEL_EFFECT_ID]
+  local label_request = projected
+    and comment_request.handoff.label_request
+    or granted_payloads and granted_payloads[LABEL_EFFECT_ID]
     or requests_labels.build_result_state_label_request(repo, issue_number, reached, to_state)
   local dependency_comment_request = nil
-  local dependency_label_request = nil
   local dependency_release_comment_request = nil
   local dependency_hold_visible = consensus_result_caps.dependency_hold_fact(
     current.comments,
     reached.proposal_id
   ) ~= nil
-  local dependency_label_visible = devloop_state.has_label(
-    current.labels,
-    devloop_base._blocked_on_dependency_label
-  )
   if not declined and not gate.ok then
     local marker = gate.kind == "cycle"
       and consensus_result_caps.dependency_cycle_marker(reached.proposal_id, version)
@@ -89,13 +90,6 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
       marker,
       reached.source_ref
     )
-    dependency_label_request = requests_labels.build_label_request(repo,
-      issue_number,
-      { devloop_base._blocked_on_dependency_label },
-      {},
-      base_ids.dedup_key({ "dependency", "label", "hold", tostring(reached.proposal_id), version, tostring(gate.kind) }),
-      reached.source_ref
-    )
   elseif not declined and consensus_result_caps.dependency_gate_has_notes(gate) then
     dependency_release_comment_request = requests_lifecycle.build_dependency_release_comment_request(core,
       repo,
@@ -106,15 +100,21 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
       reached.source_ref
     )
   end
-  if to_state == "ready" then
-    table.insert(label_request.remove_labels, devloop_base._blocked_on_dependency_label)
-  end
-
   local raised = {}
-  if not devloop_state.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason) then
+  local result_marker_visible = devloop_state.has_result_marker(
+    current.comments,
+    reached.proposal_id,
+    reached.decision,
+    reached.dedup_key,
+    reached.decision_reason
+  )
+  local label_matches = devloop_state.state_label_hint_matches(current.labels, to_state)
+  local comment_required = not result_marker_visible or (projected and not label_matches)
+  local label_required = not projected and not label_matches
+  if comment_required then
     table.insert(raised, "github-proxy.github_issue_comment_request")
   end
-  if not devloop_state.state_label_hint_matches(current.labels, to_state) then
+  if label_required then
     table.insert(raised, "github-proxy.github_issue_label_request")
   end
   if not declined and gate.ok then
@@ -125,26 +125,27 @@ local function raise_result_effects(repo, issue_number, reached, current, state,
     if dependency_comment_request ~= nil and not dependency_hold_visible then
       table.insert(raised, "github-proxy.github_issue_comment_request")
     end
-    if dependency_label_request ~= nil and not dependency_label_visible then
-      table.insert(raised, "github-proxy.github_issue_label_request")
-    end
   end
   local add_labels, remove_labels = devloop_state.state_label_changes(to_state)
   devloop_logging.log_apply("consensus_result", reached.proposal_id, to_state, version, { add = add_labels, remove = remove_labels }, raised)
 
-  if not devloop_state.has_result_marker(current.comments, reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason) then
+  local result_marker_visible_at_emit = devloop_state.has_result_marker(
+    current.comments,
+    reached.proposal_id,
+    reached.decision,
+    reached.dedup_key,
+    reached.decision_reason
+  )
+  if not result_marker_visible_at_emit or (projected and not label_matches) then
     devloop_logging.log_raise("consensus_result", reached.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
   end
-  if not devloop_state.state_label_hint_matches(current.labels, to_state) then
+  if label_required then
     devloop_logging.log_raise("consensus_result", reached.proposal_id, "github-proxy.github_issue_label_request", label_request)
   end
   if not declined and not gate.ok then
     devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", "dependency_wait", "hold-dependency", gate.reason)
     if dependency_comment_request ~= nil and not dependency_hold_visible then
       devloop_logging.log_raise("consensus_result", reached.proposal_id, "github-proxy.github_issue_comment_request", dependency_comment_request)
-    end
-    if dependency_label_request ~= nil and not dependency_label_visible then
-      devloop_logging.log_raise("consensus_result", reached.proposal_id, "github-proxy.github_issue_label_request", dependency_label_request)
     end
     return
   end
@@ -203,6 +204,15 @@ local function granted_result_payloads(snapshot, decision, args)
   end
 
   local payloads = {}
+  if args.to_state == "ready" or args.to_state == "dependency_wait" then
+    local payload, rejection = facade.emit_projected_transition(grant, snapshot, args)
+    if payload == nil then
+      error("github-devloop: restart-effect-facade-rejected: consensus result projected transition rejected: "
+        .. tostring(rejection))
+    end
+    payloads[COMMENT_EFFECT_ID] = payload
+    return payloads
+  end
   for _, effect_id in ipairs(decision.granted_effect_ids) do
     local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
     if payload == nil then
@@ -344,6 +354,16 @@ local function make_department(ports)
             devloop_logging.log_cas_decision("consensus_result", reached.proposal_id, state, "thinking", to_state, "skip-idempotent(result effects complete)", "all declared result effects are derivable")
             return
           end
+          local granted_payloads = nil
+          if to_state == "ready" or to_state == "dependency_wait" then
+            granted_payloads = granted_result_payloads(snapshot, decision, {
+              core = core,
+              repo = repo,
+              issue_number = issue_number,
+              reached = reached,
+              to_state = to_state,
+            })
+          end
           raise_result_effects(
             repo,
             issue_number,
@@ -353,7 +373,8 @@ local function make_department(ports)
             gate,
             "applied(result effects incomplete)",
             decision.incoming_version,
-            to_state
+            to_state,
+            granted_payloads
           )
           return
         end

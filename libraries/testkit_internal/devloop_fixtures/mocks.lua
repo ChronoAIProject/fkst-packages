@@ -11,6 +11,7 @@ function M.new(ctx, funcs)
   local has_value = ctx.has_value
   local reviewing = funcs.reviewing
   local pr_link_marker_for_fix = funcs.pr_link_marker_for_fix
+  local state_marker_fixture = funcs.state_marker
 
   local function json_string(value)
     return tostring(value)
@@ -57,7 +58,7 @@ function M.new(ctx, funcs)
         if label == "fkst-dev:thinking" then
           state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "thinking", default_marker_version)
         elseif label == "fkst-dev:ready" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "ready", default_marker_version)
+          state_marker = state_marker_fixture("github-devloop/issue/owner/repo/42", "ready", default_marker_version)
         elseif label == "fkst-dev:implementing" then
           state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "implementing", default_marker_version)
         elseif label == "fkst-dev:pr-open" then
@@ -145,7 +146,7 @@ function M.new(ctx, funcs)
     end
     local state = state_from_labels(labels)
     if state ~= nil and not has_explicit_state_marker then
-      table.insert(rendered, core.state_marker("github-devloop/issue/owner/repo/42", state, default_marker_version))
+      table.insert(rendered, state_marker_fixture("github-devloop/issue/owner/repo/42", state, default_marker_version))
     end
     return rendered
   end

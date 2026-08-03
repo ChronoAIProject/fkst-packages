@@ -167,19 +167,27 @@ local function resume_terminal_markers(issue, next_state, delegation, current_pr
     .. "\n" .. autonomy_ledger.autonomy_result_marker(autonomy_record)
 end
 
-local function build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
+local function resume_label_dedup_key(delegation, next_state)
+  return base_ids.dedup_key({
+    "awaiting-pr",
+    "label",
+    tostring(delegation.proposal_id),
+    tostring(delegation.pr_number),
+    tostring(delegation.delegation),
+    tostring(next_state.to_state),
+    tostring(next_state.version),
+  })
+end
+
+local function resume_comment_parts(issue, state, next_state, child_state, delegation, current_pr)
   local source_ref = issue.source_ref or entity_lib.issue_source_ref(issue.repo, issue.number)
-  local state_marker = devloop_state.state_marker(delegation.proposal_id, next_state.to_state, next_state.version)
-  local request = entity_lib.build_entity_comment_request({
-    kind = "issue",
-    repo = issue.repo,
-    number = issue.number,
-  }, "github-devloop resumed parent issue from delegated PR child state"
+  local body_prefix = "github-devloop resumed parent issue from delegated PR child state"
     .. "\n\nChild PR: #" .. tostring(delegation.pr_number)
     .. "\nChild state: " .. tostring(child_state.state)
     .. "\nReason: " .. tostring(next_state.reason)
-    .. "\n\n" .. state_marker
-    .. resume_terminal_markers(issue, next_state, delegation, current_pr), base_ids.dedup_key({
+    .. "\n\n"
+  local body_suffix = resume_terminal_markers(issue, next_state, delegation, current_pr)
+  local dedup_key = base_ids.dedup_key({
     "awaiting-pr",
     "resume",
     tostring(delegation.proposal_id),
@@ -189,17 +197,45 @@ local function build_resume_comment_request(issue, state, next_state, child_stat
     tostring(child_state.state),
     tostring(next_state.to_state),
     tostring(next_state.version),
-  }), source_ref)
-  if next_state.to_state == "ready" then
-    request.handoff = {
-      kind = "github-devloop.ready",
-      proposal_id = delegation.proposal_id,
-      version = next_state.version,
-      marker_version = next_state.version,
-      source_ref = source_ref,
-    }
+  })
+  return source_ref, body_prefix, body_suffix, dedup_key
+end
+
+local function build_resume_projected_comment_handoff(issue, state, next_state, child_state, delegation, current_pr)
+  if next_state.to_state ~= "ready" and next_state.to_state ~= "dependency_wait" then
+    error("github-devloop: awaiting-pr-projected-target-invalid: projected parent target is invalid")
   end
-  return request
+  local source_ref, body_prefix, body_suffix, dedup_key = resume_comment_parts(
+    issue, state, next_state, child_state, delegation, current_pr)
+  return devloop_state.build_projected_transition_comment_handoff({
+    repo = issue.repo,
+    issue_number = issue.number,
+    proposal_id = delegation.proposal_id,
+    state = next_state.to_state,
+    version = next_state.version,
+    comment_body_prefix = body_prefix,
+    comment_body_suffix = body_suffix,
+    comment_dedup_key = dedup_key,
+    label_dedup_key = resume_label_dedup_key(delegation, next_state),
+    source_ref = source_ref,
+  })
+end
+S.build_resume_projected_comment_handoff = build_resume_projected_comment_handoff
+
+local function build_resume_comment_request(issue, state, next_state, child_state, delegation, current_pr)
+  if next_state.to_state == "ready" then
+    return build_resume_projected_comment_handoff(
+      issue, state, next_state, child_state, delegation, current_pr)
+  end
+  local source_ref, body_prefix, body_suffix, dedup_key = resume_comment_parts(
+    issue, state, next_state, child_state, delegation, current_pr)
+  return entity_lib.build_entity_comment_request({
+    kind = "issue",
+    repo = issue.repo,
+    number = issue.number,
+  }, body_prefix
+    .. devloop_state.state_marker(delegation.proposal_id, next_state.to_state, next_state.version)
+    .. body_suffix, dedup_key, source_ref)
 end
 S.build_resume_comment_request = build_resume_comment_request
 
@@ -479,13 +515,22 @@ function M.replay_awaiting_pr_state(dept, issue, state, row, facts)
     proposal_id = proposal_id,
   }
   local effects = {}
-  for _, effect_id in ipairs(decision.granted_effect_ids) do
-    local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+  if next_state.to_state == "ready" or next_state.to_state == "dependency_wait" then
+    local payload, rejection = facade.emit_projected_transition(grant, snapshot, args)
     if payload == nil then
-      error("github-devloop: restart-effect-facade-rejected: awaiting-pr exit effect "
-        .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      error("github-devloop: restart-effect-facade-rejected: awaiting-pr projected transition rejected: "
+        .. tostring(rejection))
     end
-    table.insert(effects, { queue = effect_id, payload = payload })
+    table.insert(effects, { queue = "github-proxy.github_issue_comment_request", payload = payload })
+  else
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: awaiting-pr exit effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+    end
   end
 
   local add_labels, remove_labels = devloop_state.state_label_changes(next_state.to_state)

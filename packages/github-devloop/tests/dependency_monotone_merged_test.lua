@@ -93,7 +93,7 @@ return {
   test_regressed_current_cursors_do_not_hide_trusted_merged_milestones = function()
     local labels = { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" }
     local dependent_comments = {
-      core.state_marker(dependent_proposal_id, "dependency_wait", dependent_version),
+      h.state_marker(dependent_proposal_id, "dependency_wait", dependent_version),
       core.dependency_wait_marker(dependent_proposal_id, dependent_version, { 51, 52 }),
     }
     entity_read_mocks.mock_issue_read_forms(t, {
@@ -117,8 +117,8 @@ return {
 
     local issue_blocker_id = base_ids.proposal_id(repo, 51)
     mock_blocker_issue(51, {
-      core.state_marker(issue_blocker_id, "merged", "v-1"),
-      core.state_marker(issue_blocker_id, "ready", "v-2"),
+      h.state_marker(issue_blocker_id, "merged", "v-1"),
+      h.state_marker(issue_blocker_id, "ready", "v-2"),
     })
 
     local pr_blocker_id = base_ids.proposal_id(repo, 52)
@@ -130,7 +130,7 @@ return {
       base_branch = "dev",
     }
     mock_blocker_issue(52, {
-      core.state_marker(pr_blocker_id, "pr-open", link.impl_version),
+      h.state_marker(pr_blocker_id, "pr-open", link.impl_version),
       m_builders.pr_link_marker(
         link.proposal_id,
         link.pr_number,
@@ -151,9 +151,9 @@ return {
             link.impl_version,
             link.base_branch
           ),
-          core.state_marker(link.proposal_id, "merged", "v-1"),
+          h.state_marker(link.proposal_id, "merged", "v-1"),
           m_builders.merged_marker(core, link.proposal_id, link.pr_number, "v-1", "def456"),
-          core.state_marker(link.proposal_id, "fixing", "v-2"),
+          h.state_marker(link.proposal_id, "fixing", "v-2"),
         })
         .. ']}\n',
       stderr = "",

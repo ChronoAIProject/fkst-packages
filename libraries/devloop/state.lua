@@ -1,5 +1,6 @@
 local base_ids = require("devloop.base_ids")
 local requests_labels = require("devloop.requests.labels")
+local m_claims = require("devloop.claims")
 local parsers_misc = require("devloop.parsers.misc")
 local payloads_predicates = require("devloop.payloads.predicates")
 local restart_metadata = require("devloop.restart_metadata")
@@ -19,22 +20,96 @@ local function marker_attrs(marker)
   return attrs
 end
 
-function C.state_marker(proposal_id, state, version, effects)
+local PROJECTED_STATE_CONFIG = {
+  dependency_wait = {
+    handoff_kind = "github-devloop.ready-split-label",
+    dependency_label_change = "add",
+  },
+  ready = {
+    handoff_kind = "github-devloop.ready",
+    dependency_label_change = "remove",
+  },
+}
+
+local function render_state_marker(proposal_id, state, version, effects)
   if not C.is_state(state) then
     error("github-devloop: invalid state")
   end
-  local effects_field = ""
-  if effects ~= nil and tostring(effects) ~= "" then
-    effects_field = ' effects="' .. tostring(effects):gsub('"', "'") .. '"'
-  end
-  return '<!-- fkst:github-devloop:state:v1 proposal="' .. tostring(proposal_id)
+  local marker = '<!-- fkst:github-devloop:state:v1 proposal="' .. tostring(proposal_id)
     .. '" state="' .. tostring(state)
     .. '" version="' .. tostring(version)
     .. '" stage_rank="' .. tostring(C.stage_rank(state))
     .. '" marker_order_key="' .. C.marker_order_key(version, state)
     .. '"'
-    .. effects_field
-    .. ' -->'
+  if effects ~= nil and tostring(effects) ~= "" then
+    marker = marker .. ' effects="' .. tostring(effects):gsub('"', "'") .. '"'
+  end
+  return marker .. ' -->'
+end
+
+function C.state_marker(proposal_id, state, version, effects)
+  if PROJECTED_STATE_CONFIG[state] ~= nil then
+    error("github-devloop: projected-state-comment-handoff-required: use build_projected_transition_comment_handoff")
+  end
+  return render_state_marker(proposal_id, state, version, effects)
+end
+
+function C.build_projected_transition_comment_handoff(args)
+  local projected = type(args) == "table" and PROJECTED_STATE_CONFIG[args.state] or nil
+  if type(args) ~= "table"
+    or type(args.repo) ~= "string"
+    or args.issue_number == nil
+    or type(args.proposal_id) ~= "string"
+    or projected == nil
+    or args.version == nil
+    or type(args.comment_body_prefix) ~= "string"
+    or type(args.comment_body_suffix) ~= "string"
+    or type(args.comment_dedup_key) ~= "string"
+    or type(args.label_dedup_key) ~= "string" then
+    error("github-devloop: projected-state-comment-handoff-invalid")
+  end
+
+  local source_ref = base_ids.normalize_source_ref(args.source_ref)
+  local label_request = requests_labels.build_state_label_request(
+    args.repo,
+    args.issue_number,
+    args.state,
+    args.proposal_id,
+    args.version,
+    args.label_dedup_key,
+    source_ref
+  )
+  if projected.dependency_label_change == "add" then
+    table.insert(label_request.add_labels, devloop_base._blocked_on_dependency_label)
+    label_request.label_colors = label_request.label_colors or {}
+    label_request.label_colors[devloop_base._blocked_on_dependency_label] =
+      devloop_base._label_colors[devloop_base._blocked_on_dependency_label]
+  else
+    table.insert(label_request.remove_labels, devloop_base._blocked_on_dependency_label)
+  end
+
+  local request = m_claims.attach_issue_claim({
+    schema = "github-proxy.v1",
+    repo = args.repo,
+    issue_number = args.issue_number,
+    body = args.comment_body_prefix
+      .. render_state_marker(args.proposal_id, args.state, args.version, args.effects)
+      .. args.comment_body_suffix,
+    dedup_key = args.comment_dedup_key,
+    source_ref = source_ref,
+  }, source_ref)
+  request.handoff = {
+    kind = projected.handoff_kind,
+    proposal_id = args.proposal_id,
+    version = tostring(args.handoff_version or args.version),
+    marker_version = tostring(args.version),
+    label_request = label_request,
+    source_ref = source_ref,
+  }
+  if args.framing ~= nil then
+    request.handoff.framing = args.framing
+  end
+  return request
 end
 
 local function marker_stage_rank(marker, state)
@@ -341,7 +416,7 @@ end
 
 
 function S.install(M)
-  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "route_current", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
+  for _, n in ipairs({"_compare_transition_versions", "_strip_latest_fix_version_suffix", "build_projected_transition_comment_handoff", "build_reconcile_state_label_request", "cas_outcome", "comment_bodies", "compare_phase", "compare_state_marker_order", "current_state", "fix_version_from_review_version", "has_blocked_label", "has_decision_terminal_label", "has_fixing_label", "has_impl_failed_label", "has_implementing_label", "has_label", "has_merge_ready_label", "has_merged_label", "has_merging_label", "has_pr_open_label", "has_ready_label", "has_result_marker", "has_review_meta_label", "has_reviewing_label", "has_state_marker", "has_terminal_label", "has_thinking_label", "is_at_or_after", "is_loop_terminal", "is_state", "is_state_label", "issue_state_order", "lifecycle_state_set", "marker_order_key", "next_fix_version", "next_review_loop_version", "next_review_meta_action_version", "reached", "ready_hand_off_comment_id", "route_current", "stage_rank", "state_label", "state_label_changes", "state_label_hint_matches", "state_label_reconcile_changes", "state_marker", "state_marker_comment_id", "state_order", "state_successors", "timeout_lineage_matches_current", "version_fix_round", "version_loop_round", "version_order_key", "version_ready_split_round", "version_reimplement_round", "version_review_loop_round", "version_review_meta_action_round", "version_timeout_round", "version_updated_at"}) do M[n] = C[n] end
 end
 C.install = S.install
 

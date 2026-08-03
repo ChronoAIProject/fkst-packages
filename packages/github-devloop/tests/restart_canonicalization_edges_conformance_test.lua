@@ -208,7 +208,7 @@ local function mock_blocker_issue(number, state)
   local blocker_proposal = base_ids.proposal_id(repo, number)
   t.mock_command(core.gh_issue_view_observe_cmd(repo, number), {
     stdout = '{"state":"OPEN","comments":['
-      .. render_comment(core.state_marker(blocker_proposal, state, "v-" .. tostring(number)))
+      .. render_comment(h.state_marker(blocker_proposal, state, "v-" .. tostring(number)))
       .. '],"author":{"login":"fkst-test-bot"}}\n',
     stderr = "",
     exit_code = 0,
@@ -253,7 +253,7 @@ local function observe_ready_split(target)
   local comments
   if target == "ready" then
     comments = {
-      core.state_marker(proposal_id, "ready", ready_version),
+      h.state_marker(proposal_id, "ready", ready_version),
       "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
         .. core.dependency_wait_marker(proposal_id, ready_version, { 53 }),
     }
@@ -263,7 +263,7 @@ local function observe_ready_split(target)
     mock_blocker_issue(53, "merged")
   else
     comments = {
-      core.state_marker(proposal_id, "ready", ready_version),
+      h.state_marker(proposal_id, "ready", ready_version),
       "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
         .. core.dependency_unresolvable_marker(proposal_id, ready_version, { issue_number }),
     }
@@ -290,7 +290,7 @@ end
 
 local function parent_comments(state)
   return {
-    core.state_marker(proposal_id, state, impl_version),
+    h.state_marker(proposal_id, state, impl_version),
     m_builders.pr_delegation_marker(proposal_id, pr_proposal_id, pr_number, impl_version, "g1"),
   }
 end
@@ -364,7 +364,7 @@ end
 
 local function observe_legacy_pr_open()
   local comments = {
-    core.state_marker(proposal_id, "pr-open", impl_version),
+    h.state_marker(proposal_id, "pr-open", impl_version),
     m_builders.pr_link_marker(proposal_id, pr_number, branch, impl_version, base_branch),
   }
   h.mock_issue_state({ "fkst-dev:enabled", "fkst-dev:pr-open" }, "OPEN", comments)
@@ -373,7 +373,7 @@ local function observe_legacy_pr_open()
     number = pr_number,
     comments = {
       h.render_comment(m_builders.pr_origin_marker(proposal_id, issue_number, branch, impl_version, base_branch)
-        .. "\n" .. core.state_marker(proposal_id, "pr-open", impl_version)),
+        .. "\n" .. h.state_marker(proposal_id, "pr-open", impl_version)),
     },
     head = branch,
     head_sha = "def456",
