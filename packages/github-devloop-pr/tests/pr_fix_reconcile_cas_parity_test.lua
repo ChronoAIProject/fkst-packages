@@ -30,8 +30,9 @@ local BOUNDED_FIX_VARIANT = "bounded_fix_to_blocked"
 local OWNER = core.restart_package_name
 local FIX_RECONCILE_CORPUS_PATH =
   "migration/intent_bounded_replay/corpus/pr-fix-reconcile.json"
-local FIX_RECONCILE_NEW_TRACE_PATH =
-  ".fkst/run/r9-pr-fix-reconcile-new-trace.json"
+local FIX_RECONCILE_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-fix-reconcile-new-trace.json"
+)
 
 local V_OLDER = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-02T01-02-03Z/fix/1/fix/2/fix/3"
 local V_EQUAL = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z/fix/1/fix/2/fix/3"
