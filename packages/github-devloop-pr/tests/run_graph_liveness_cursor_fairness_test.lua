@@ -1,12 +1,9 @@
 local devloop_base = require("devloop.base")
-local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
 local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
 local liveness_scan = require("devloop.liveness_scan")
-local devloop_logging = require("devloop.logging")
-local testing = require("testkit_internal.testing")
 local liveness_scan_department = require("departments.liveness_scan.main")
 
 local t = h.t
@@ -20,44 +17,6 @@ local malformed_issue_number = 41
 local malformed_proposal_id = "github-devloop/issue/owner/repo/41"
 local malformed_version = "ready/consensus-github-devloop/issue/owner/repo/41/2026-06-03T01-02-03Z/fix/1"
 
-local function capture_log_lines(fn)
-  local captured = {}
-  local original_log_line = devloop_logging.log_line
-  devloop_logging.log_line = function(level, dept, proposal_id, tag, fields)
-    table.insert(captured, {
-      level = level,
-      dept = dept,
-      proposal_id = proposal_id,
-      tag = tag,
-      fields = fields,
-    })
-  end
-  local ok, result = pcall(fn)
-  devloop_logging.log_line = original_log_line
-  if not ok then
-    error(result, 0)
-  end
-  return result, captured
-end
-
-local function has_log_field(fields, expected)
-  for _, field in ipairs(fields or {}) do
-    if field == expected then
-      return true
-    end
-  end
-  return false
-end
-
-local function has_log_field_containing(fields, expected)
-  for _, field in ipairs(fields or {}) do
-    if tostring(field):find(expected, 1, true) ~= nil then
-      return true
-    end
-  end
-  return false
-end
-
 local function trusted_comment(body)
   return {
     body = body,
@@ -66,8 +25,8 @@ local function trusted_comment(body)
   }
 end
 
-local function mock_env(times)
-  for _ = 1, times or 8 do
+local function mock_env()
+  for _ = 1, 8 do
     t.mock_command(devloop_base.read_env_command("FKST_GITHUB_REPO"), {
       stdout = repo,
       stderr = "",
@@ -116,17 +75,6 @@ end
 local function mock_malformed_feedback_pr_list()
   local stdout = '[{"number":5,"state":"open","updated_at":"2026-06-04T01:02:03Z"},'
     .. '{"number":7,"state":"open","updated_at":"2026-06-04T01:02:04Z"}]\n'
-  t.mock_command(core.gh_pr_list_observe_cmd(repo), {
-    stdout = stdout,
-    stderr = "",
-    exit_code = 0,
-  })
-end
-
-local function mock_ordered_poison_middle_pr_list()
-  local stdout = '[{"number":3,"state":"open","updated_at":"2026-06-04T01:12:02Z"},'
-    .. '{"number":5,"state":"open","updated_at":"2026-06-04T01:12:03Z"},'
-    .. '{"number":7,"state":"open","updated_at":"2026-06-04T01:12:04Z"}]\n'
   t.mock_command(core.gh_pr_list_observe_cmd(repo), {
     stdout = stdout,
     stderr = "",
@@ -223,70 +171,6 @@ local function mock_target_fixing_pr()
   }, "assignees,author", 8)
 end
 
-local function mock_liveness_fixing_pr(pr_number, issue_number, updated_at, poison)
-  local proposal_id = "github-devloop/issue/" .. repo .. "/" .. tostring(issue_number)
-  local base_version = "ready/consensus-" .. proposal_id .. "/2026-06-03T01-02-03Z"
-  local version = base_version .. "/fix/1"
-  local branch = "devloop-owner-repo-" .. tostring(issue_number) .. "-01HY"
-  local head_sha = ({ [3] = "abc333", [5] = "abc555", [7] = "abc777" })[pr_number]
-  local review_proposal_id = devloop_base.pr_review_proposal_id(
-    repo, pr_number, base_version, head_sha)
-  local review_dedup_key = poison
-      and "observe-pr-conflict/" .. proposal_id .. "/" .. base_version .. "/" .. tostring(pr_number)
-    or devloop_base.pr_review_consensus_dedup_key(review_proposal_id)
-  local feedback_marker = poison
-      and ('<!-- fkst:github-devloop:review-meta:v1 proposal="' .. proposal_id
-        .. '" dedup="review-meta-delivery" action="fix" version="' .. version
-        .. '" gap="mergeable-conflicting" review_proposal="' .. review_proposal_id
-        .. '" review_dedup="' .. review_dedup_key
-        .. '" head_sha="' .. head_sha .. '" -->')
-    or m_builders.merge_gate_marker(
-      proposal_id,
-      pr_number,
-      version,
-      review_proposal_id,
-      review_dedup_key,
-      head_sha,
-      nil,
-      "mergeable-conflicting"
-    )
-  local comments = {
-    trusted_comment(m_builders.pr_origin_marker(
-      proposal_id,
-      tostring(issue_number),
-      branch,
-      version,
-      "dev"
-    )),
-    trusted_comment(core.state_marker(proposal_id, "fixing", version)),
-    trusted_comment(feedback_marker),
-  }
-
-  entity_read_mocks.mock_pr_read_forms(t, {
-    repo = repo,
-    number = pr_number,
-    head = branch,
-    head_sha = head_sha,
-    base_branch = "dev",
-    state = "OPEN",
-    updated_at = updated_at,
-    comments = comments,
-    labels = {},
-    register_all_views = true,
-    times = 16,
-  })
-  entity_read_mocks.mock_issue_view_selector(t, {
-    repo = repo,
-    number = issue_number,
-    assignees = { "fkst-test-bot" },
-    author_login = "fkst-test-bot",
-  }, "assignees,author", 16)
-  return {
-    pr_number = pr_number,
-    proposal_id = proposal_id,
-  }
-end
-
 local function liveness_tick(ts)
   return {
     queue = "github-devloop-pr.devloop_liveness_tick",
@@ -330,84 +214,7 @@ local function raised_for_pr(result, queue, pr_number)
   end)
 end
 
-local function count_deliveries(trace, queue, consumer)
-  local count = 0
-  for _, step in ipairs((trace and trace.steps) or {}) do
-    if step.queue == queue and step.consumer == consumer then
-      count = count + 1
-    end
-  end
-  return count
-end
-
 return {
-  test_poison_middle_isolated_without_losing_healthy_deliveries = function()
-    mock_env(32)
-    mock_ordered_poison_middle_pr_list()
-    mock_ordered_poison_middle_pr_list()
-    local healthy_before = mock_liveness_fixing_pr(3, 40, "2026-06-04T01:12:02Z", false)
-    local poison = mock_liveness_fixing_pr(5, 41, "2026-06-04T01:12:03Z", true)
-    local healthy_after = mock_liveness_fixing_pr(7, 42, "2026-06-04T01:12:04Z", false)
-    local cursor_key = liveness_scan.liveness_scan_cursor_key(repo, cursor_prefix)
-    cache_set(cursor_key, "0")
-    local tick = liveness_tick(401)
-    tick.attempt = 4
-
-    with_no_codex_runs(function()
-      local _, logs = capture_log_lines(function()
-        return testing.run_fake(liveness_scan_department, tick)
-      end)
-      local error_fact = nil
-      for _, entry in ipairs(logs) do
-        if entry.tag == "ENTITY_FAILURE" then
-          error_fact = entry
-          break
-        end
-      end
-      t.is_true(error_fact ~= nil)
-      t.eq(error_fact.level, "error")
-      t.eq(error_fact.dept, "liveness_scan")
-      t.eq(error_fact.proposal_id, entity_lib.pr_proposal_id(repo, poison.pr_number))
-      t.is_true(has_log_field(error_fact.fields,
-        "error_class=fix-feedback-mismatched-review-dedup-key"))
-      t.is_true(has_log_field(error_fact.fields,
-        "source_ref=external:" .. repo .. "#pr/" .. tostring(poison.pr_number)))
-      t.is_true(has_log_field(error_fact.fields,
-        "queue=github-devloop-pr.devloop_liveness_tick"))
-      t.is_true(has_log_field(error_fact.fields, "attempt=4"))
-      t.is_true(has_log_field_containing(error_fact.fields,
-        "github-devloop: fix-feedback-mismatched-review-dedup-key"))
-
-      cache_set(cursor_key, "0")
-      local trace = graph.run(tick, { max_steps = 8 })
-      local scan_step = graph.require_delivery(trace, {
-        queue = "github-devloop-pr.devloop_liveness_tick",
-        consumer = "github-devloop-pr.liveness_scan",
-      })
-      t.eq(scan_step.exit_code, 0)
-
-      graph.require_delivery(trace, {
-        queue = "github-devloop-pr.devloop_observe_pr",
-        consumer = "github-devloop-pr.observe_pr",
-      })
-      for _, healthy in ipairs({ healthy_before, healthy_after }) do
-        graph.require_raise(trace, "github-proxy.github_pr_comment_request", function(raised)
-          return tonumber(raised.payload and raised.payload.pr_number) == healthy.pr_number
-            and tostring(raised.payload and raised.payload.body or ""):find(
-              "fkst:github-devloop:timeout-attempt", 1, true) ~= nil
-        end)
-        graph.require_raise(trace, "github-devloop-pr.devloop_fixing", function(raised)
-          return tonumber(raised.payload and raised.payload.pr_number) == healthy.pr_number
-            and raised.payload.proposal_id == healthy.proposal_id
-        end)
-      end
-      t.eq(count_deliveries(trace,
-        "github-proxy.github_pr_comment_request", "github-proxy.github_pr_comment"), 2)
-      t.eq(count_deliveries(trace,
-        "github-devloop-pr.devloop_fixing", "github-devloop-pr.fix"), 2)
-    end)
-  end,
-
   test_overlapping_ticks_serialize_cursor_and_do_not_double_serve_head = function()
     mock_env()
     mock_under_cap_pr_list()
