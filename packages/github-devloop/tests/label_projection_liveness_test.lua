@@ -30,7 +30,7 @@ end
 
 local function mock_issue_list()
   t.mock_command(core.gh_issue_list_observe_cmd(repo), {
-    stdout = '[{"number":42,"title":"Projection mismatch","state":"open","updated_at":"2026-06-03T01:02:03Z"}]\n',
+    stdout = '[{"number":42,"title":"Projection mismatch","state":"open","updated_at":"2026-06-03T01:02:03Z","author":{"login":"fkst-test-bot"}}]\n',
     stderr = "",
     exit_code = 0,
   })
@@ -132,6 +132,8 @@ return {
     t.eq(scanned.exit_code, 0)
     local redrive = h.find_raise(scanned.raises, "devloop_observe_issue")
     t.is_true(redrive ~= nil, "scan queues=" .. raise_queue_names(scanned.raises))
+    t.eq(redrive.payload.title, "Projection mismatch")
+    t.eq(redrive.payload.source_ref.ref, "owner/repo#issue/42")
 
     mock_issue(labels, comments)
     local observed = h.run_observe(redrive.payload, h.opts("label-projection-terminal-observe"))
