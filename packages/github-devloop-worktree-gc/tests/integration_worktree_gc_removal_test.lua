@@ -7,8 +7,10 @@ local testing = require("testkit_internal.testing")
 local git_fake = require("forge.git_fake")
 local github_fake = require("forge.github_fake")
 local base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
 local devloop_state = require("devloop.state")
 local marker_builders = require("devloop.markers.builders")
+local projected_state_fixture = require("testkit_internal.projected_state_fixture")
 local worktree_gc = require("departments.worktree_gc.main")
 local t = fkst.test
 
@@ -81,7 +83,9 @@ local function running_row(issue, dedup, role)
 end
 
 local function issue_fixture(issue_number, state_name, lifecycle_marker)
-  local marker_body = devloop_state.state_marker(
+  local marker_body = projected_state_fixture.state_marker(
+    devloop_state,
+    base_ids,
     "github-devloop/issue/" .. REPO .. "/" .. tostring(issue_number),
     state_name,
     "dedup-current"

@@ -7,6 +7,7 @@ local graph = require("testkit.graph")
 local gh_argv = require("testkit_internal.gh_argv_mock")
 local projected_state_fixture = require("testkit_internal.projected_state_fixture")
 local base_ids = require("devloop.base_ids")
+local devloop_state = require("devloop.state")
 local m_builders = require("devloop.markers.builders")
 local github_commands = require("forge.github").new(function() end)
 gh_argv.install(t, core)
@@ -380,7 +381,7 @@ local function mock_origin_dependency(blocker_state)
       "Workflow origin blocker",
       { "fkst-dev:" .. blocker_milestone },
       { { body = projected_state_fixture.state_marker(
-        core, base_ids, blocker_proposal, blocker_milestone, "blocker-version") } },
+        devloop_state, base_ids, blocker_proposal, blocker_milestone, "blocker-version") } },
       blocker_state
     ),
     stderr = "",
@@ -815,8 +816,8 @@ return {
     local ready_version = "consensus:" .. created_child .. "/materialized"
     local ready_comment = {
       id = "IC_materialized_child_ready",
-      body = core.state_marker(
-        created_child,
+      body = projected_state_fixture.state_marker(
+        devloop_state, base_ids, created_child,
         "ready",
         ready_version,
         "result-marker,ready-label,devloop-ready"
@@ -825,7 +826,7 @@ return {
     }
     local child_labels = { "fkst-dev:enabled", "fkst-dev:ready" }
     mock_env()
-    mock_write_mode("", 18)
+    mock_write_mode("", 19)
     mock_child_issue_reads(
       created_child_issue,
       create.payload.title,
