@@ -4,6 +4,7 @@ local conv_reconcile = require("devloop.convergence.reconcile")
 local C = {}
 local transition_version = require("contract.transition_version")
 local devloop_logging = require("devloop.logging")
+local payloads_shared = require("devloop.payloads.shared")
 local v_validate_proposal = require("devloop.validators.validate_proposal")
 
 local function latest_converge_round(caps, comments, proposal_id, state_version, source_ref)
@@ -141,6 +142,21 @@ function C.replay(caps, dept, issue, state, row, facts, log_skip, log_defer, rai
     now_seconds = facts.now_seconds or now(),
   }) then
     return log_defer(dept, proposal_id, state, row.from_state, row.driving_queue, "skip-idempotent(live-exec-ref)", "matching consensus codex run is still live")
+  end
+  if facts.redrive_delivery ~= nil then
+    proposal.effect_version = proposal.dedup_key
+    proposal.redrive_delivery = {
+      generation_key = facts.redrive_delivery.generation_key,
+      attempt = facts.redrive_delivery.attempt,
+    }
+    proposal.dedup_key = payloads_shared.issue_redrive_delivery_dedup_key(
+      proposal_id,
+      proposal.effect_version,
+      proposal.redrive_delivery
+    )
+    if not v_validate_proposal.validate_proposal(proposal) then
+      error("github-devloop: thinking-redrive-proposal-invalid: generated redrive proposal violates its contract")
+    end
   end
   devloop_logging.log_cas_decision(dept, proposal_id, state, row.from_state, row.driving_queue, "applied(replay)", "replaying consensus proposal from trusted state facts")
   return raise_effects(dept, proposal_id, "thinking", proposal.dedup_key, { add = {}, remove = {} }, {

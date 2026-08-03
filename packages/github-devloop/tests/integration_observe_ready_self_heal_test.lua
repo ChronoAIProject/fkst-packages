@@ -257,7 +257,8 @@ return {
     t.eq(#result.raises, 2)
     local proposal = find_raise(result.raises, "devloop_consensus_request").payload
     t.eq(proposal.proposal_id, original.proposal_id)
-    t.eq(proposal.dedup_key, original.dedup_key)
+    t.eq(proposal.effect_version, original.dedup_key)
+    t.is_true(proposal.dedup_key ~= original.dedup_key)
     t.eq(proposal.source_ref.ref, "owner/repo#issue/42")
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)

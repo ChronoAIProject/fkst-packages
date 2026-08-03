@@ -48,9 +48,9 @@ function C.bounded_control_text(value, limit)
   return text
 end
 
-function C.ready_redrive_delivery_dedup_key(proposal_id, implementation_version, redrive_delivery)
-  if not devloop_base.is_safe_proposal_ref(proposal_id, implementation_version) then
-    error("github-devloop: invalid implementation redrive version")
+function C.issue_redrive_delivery_dedup_key(proposal_id, effect_version, redrive_delivery)
+  if not devloop_base.is_safe_proposal_ref(proposal_id, effect_version) then
+    error("github-devloop: invalid issue redrive effect version")
   end
   if type(redrive_delivery) ~= "table"
     or not strings.is_path_safe_key(redrive_delivery.generation_key, devloop_base._max_dedup_len) then
@@ -61,7 +61,7 @@ function C.ready_redrive_delivery_dedup_key(proposal_id, implementation_version,
     error("github-devloop: invalid implementation redrive attempt")
   end
   return base_ids.dedup_key({
-    implementation_version,
+    effect_version,
     "delivery-redrive",
     redrive_delivery.generation_key,
     tostring(attempt),
