@@ -1,4 +1,5 @@
 local entity_lib = require("devloop.entity")
+local devloop_base = require("devloop.base")
 local h = require("tests.devloop_helpers")
 local entity_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
@@ -12,7 +13,7 @@ local pr_number = 7
 local parent = "github-devloop/issue/owner/repo/42"
 local child_pr = "github-devloop/pr/owner/repo/7"
 local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
-local branch = "devloop-owner-repo-42-01HY"
+local branch = devloop_base.implement_branch(repo, issue_number, version)
 local base_branch = "dev"
 local head_sha = "0123456789abcdef0123456789abcdef01234567"
 local merge_commit_sha = "1111111111111111111111111111111111111111"
@@ -36,10 +37,14 @@ local function parent_comments(state, extra_comments)
   return comments
 end
 
-local function pr_comments()
-  return {
+local function pr_comments(child_state)
+  local comments = {
     comment(m_builders.pr_origin_marker(parent, issue_number, branch, version, base_branch), "2026-06-03T01:04:03Z"),
   }
+  if child_state ~= nil then
+    table.insert(comments, comment(core.state_marker(parent, child_state, version), "2026-06-03T02:05:04Z"))
+  end
+  return comments
 end
 
 local function mock_env(write_mode)
@@ -65,11 +70,11 @@ local function issue_fields(state, labels, extra_comments)
   }
 end
 
-local function pr_fields(pr_state, merged_at)
+local function pr_fields(pr_state, merged_at, child_state)
   return {
     repo = repo,
     number = pr_number,
-    comments = pr_comments(),
+    comments = pr_comments(child_state),
     head = branch,
     head_sha = head_sha,
     merge_commit_sha = merge_commit_sha,
@@ -80,6 +85,13 @@ local function pr_fields(pr_state, merged_at)
     times = 1,
     register_all_views = true,
   }
+end
+
+local function mock_closed_unmerged_reads(state, labels, extra_comments)
+  entity_mocks.mock_issue_read_forms(t, issue_fields(state, labels, extra_comments))
+  local child = pr_fields("CLOSED", nil, "closed-unmerged")
+  entity_mocks.mock_pr_read_forms(t, child)
+  entity_mocks.mock_pr_view_selector(t, child, entity_mocks.pr_origin_selector, 1)
 end
 
 local function mock_reads(pr_state, merged_at, state, labels, extra_comments)
@@ -169,6 +181,25 @@ local function run_issue_close_poll(canonicalization_body)
   }, h.opts("implementing-merged-pr-canonicalizer-close-poll"))
 end
 
+local function run_closed_unmerged_poll(state, labels, extra_comments, fixture)
+  mock_env()
+  mock_closed_unmerged_reads(state, labels, extra_comments)
+  return t.run_department("departments/observe_issue/main.lua", {
+    queue = "github-proxy.github_entity_changed",
+    payload = {
+      schema = "github-proxy.v1",
+      type = "issue",
+      repo = repo,
+      number = issue_number,
+      title = "Implement decision recorder",
+      state = "OPEN",
+      updated_at = "2026-06-03T02:10:04Z",
+      dedup_key = "owner/repo#issue#42@2026-06-03T02:10:04Z",
+      source_ref = entity_lib.issue_source_ref(repo, issue_number),
+    },
+  }, h.opts(fixture))
+end
+
 local function find_raise(raises, queue, predicate)
   for _, raised in ipairs(raises or {}) do
     if raised.queue == queue and (predicate == nil or predicate(raised.payload or {}, raised)) then
@@ -220,6 +251,50 @@ return {
     end)
     t.is_true(close_comment ~= nil)
     t.eq(count_calls("gh issue close 42 --repo owner/repo --reason completed"), 1)
+  end,
+
+  test_issue_poll_closed_unmerged_child_recovers_missing_handoff_then_reimplements_once = function()
+    local first = run_closed_unmerged_poll(
+      "implementing",
+      { "fkst-dev:enabled", "fkst-dev:implementing" },
+      nil,
+      "implementing-closed-unmerged-canonicalize"
+    )
+
+    t.eq(first.exit_code, 0)
+    local canonicalization = find_raise(first.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find('state="awaiting-pr"', 1, true) ~= nil
+    end)
+    t.is_true(canonicalization ~= nil)
+
+    local second = run_closed_unmerged_poll(
+      "awaiting-pr",
+      { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+      { comment(canonicalization.payload.body, "2026-06-03T02:11:04Z") },
+      "awaiting-pr-closed-unmerged-resume"
+    )
+
+    t.eq(second.exit_code, 0)
+    local resumed = find_raise(second.raises, "github-proxy.github_issue_comment_request", function(payload)
+      local body = tostring(payload.body or "")
+      return body:find('state="ready"', 1, true) ~= nil
+        and body:find("/reimplement/1", 1, true) ~= nil
+    end)
+    t.is_true(resumed ~= nil)
+
+    local third = run_closed_unmerged_poll(
+      "ready",
+      { "fkst-dev:enabled", "fkst-dev:ready" },
+      {
+        comment(canonicalization.payload.body, "2026-06-03T02:11:04Z"),
+        comment(resumed.payload.body, "2026-06-03T02:12:04Z"),
+      },
+      "ready-closed-unmerged-idempotent-repoll"
+    )
+
+    t.eq(third.exit_code, 0)
+    t.eq(find_raise(third.raises, "github-proxy.github_issue_comment_request"), nil)
+    t.eq(find_raise(third.raises, "github-proxy.github_issue_label_request"), nil)
   end,
 
   test_issue_poll_open_child_with_json_null_merged_at_does_not_canonicalize_parent = function()
