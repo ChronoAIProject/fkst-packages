@@ -222,6 +222,15 @@ local function count_kind(operations, kind)
   return count
 end
 
+local function first_kind(operations, kind)
+  for _, operation in ipairs(operations or {}) do
+    if operation.kind == kind then
+      return operation
+    end
+  end
+  return nil
+end
+
 local function logs_contain(logs, needle)
   for _, message in ipairs(logs or {}) do
     if message:find(needle, 1, true) ~= nil then
@@ -267,6 +276,23 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   t.eq(count_kind(candidate_github.operations, "issue_create"), 1)
   t.eq(count_kind(candidate_github.operations, "pr_comment"), 1)
   t.eq(count_kind(candidate_github.operations, "issue_close"), 0)
+
+  local assign = first_kind(candidate_github.operations, "issue_assign")
+  t.eq(assign.login, "fkst-test-bot")
+
+  local create = first_kind(candidate_github.operations, "issue_create")
+  t.eq(create.title, "Integrate external PR #7 from @trusted-contributor")
+  t.is_true(create.body:find(
+    '<!-- fkst:github-external-pr-intake:external-pr-bridge:v1 repo="owner/repo" pr="7" source_ref="external:owner/repo#pr/7" -->',
+    1,
+    true
+  ) ~= nil)
+
+  local bridge_comment = first_kind(candidate_github.operations, "pr_comment")
+  t.eq(
+    bridge_comment.body,
+    '<!-- fkst:github-external-pr-intake:external-pr-bridge:v1 repo="owner/repo" pr="7" source_ref="external:owner/repo#pr/7" issue="77" -->\n'
+  )
   t.is_true(logs_contain(candidate_logs, "action=created-bridge"))
   t.eq(logs_contain(candidate_logs, "action=skip-"), false)
 end
