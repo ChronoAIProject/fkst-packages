@@ -35,15 +35,19 @@ function M.hold(core, merge_ready, repo, current_pr, classification)
     source_ref
   )
   devloop_logging.log_raise("merge", merge_ready.proposal_id, "github-proxy.github_pr_comment_request", comment_request)
-  devloop_logging.log_line("info", "merge", merge_ready.proposal_id, "GATE", {
+  local gate_fields = {
     "pr=" .. tostring(merge_ready.pr_number),
     "version=" .. tostring(merge_ready.version),
     "outcome=hold",
     "reason=" .. reason,
     "ci_class=" .. tostring(classification and classification.kind or ""),
     "head_sha=" .. tostring(current_pr and current_pr.head_sha or ""),
-  })
-  return nil
+  }
+  if merge_ready._merge_pass ~= nil then
+    table.insert(gate_fields, "pass=" .. tostring(merge_ready._merge_pass))
+  end
+  devloop_logging.log_line("info", "merge", merge_ready.proposal_id, "GATE", gate_fields)
+  return { status = "hold", reason = reason }
 end
 
 return M
