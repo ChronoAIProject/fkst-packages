@@ -90,6 +90,7 @@ return {
     local comment_raise = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(comment_raise ~= nil)
     t.is_true(comment_raise.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find('reason="mergeable-unknown"', 1, true) ~= nil)
   end,
 
   test_write_time_missing_high_risk_evidence_retries = function()
