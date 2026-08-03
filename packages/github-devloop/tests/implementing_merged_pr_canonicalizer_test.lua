@@ -87,9 +87,9 @@ local function pr_fields(pr_state, merged_at, child_state)
   }
 end
 
-local function mock_closed_unmerged_reads(state, labels, extra_comments)
+local function mock_terminal_child_reads(state, labels, extra_comments, child_state, pr_state)
   entity_mocks.mock_issue_read_forms(t, issue_fields(state, labels, extra_comments))
-  local child = pr_fields("CLOSED", nil, "closed-unmerged")
+  local child = pr_fields(pr_state, nil, child_state)
   entity_mocks.mock_pr_read_forms(t, child)
   entity_mocks.mock_pr_view_selector(t, child, entity_mocks.pr_origin_selector, 1)
 end
@@ -181,9 +181,9 @@ local function run_issue_close_poll(canonicalization_body)
   }, h.opts("implementing-merged-pr-canonicalizer-close-poll"))
 end
 
-local function run_closed_unmerged_poll(state, labels, extra_comments, fixture)
+local function run_terminal_child_poll(state, labels, extra_comments, child_state, pr_state, fixture)
   mock_env()
-  mock_closed_unmerged_reads(state, labels, extra_comments)
+  mock_terminal_child_reads(state, labels, extra_comments, child_state, pr_state)
   return t.run_department("departments/observe_issue/main.lua", {
     queue = "github-proxy.github_entity_changed",
     payload = {
@@ -254,10 +254,12 @@ return {
   end,
 
   test_issue_poll_closed_unmerged_child_recovers_missing_handoff_then_reimplements_once = function()
-    local first = run_closed_unmerged_poll(
+    local first = run_terminal_child_poll(
       "implementing",
       { "fkst-dev:enabled", "fkst-dev:implementing" },
       nil,
+      "closed-unmerged",
+      "CLOSED",
       "implementing-closed-unmerged-canonicalize"
     )
 
@@ -267,10 +269,12 @@ return {
     end)
     t.is_true(canonicalization ~= nil)
 
-    local second = run_closed_unmerged_poll(
+    local second = run_terminal_child_poll(
       "awaiting-pr",
       { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
       { comment(canonicalization.payload.body, "2026-06-03T02:11:04Z") },
+      "closed-unmerged",
+      "CLOSED",
       "awaiting-pr-closed-unmerged-resume"
     )
 
@@ -282,19 +286,55 @@ return {
     end)
     t.is_true(resumed ~= nil)
 
-    local third = run_closed_unmerged_poll(
+    local third = run_terminal_child_poll(
       "ready",
       { "fkst-dev:enabled", "fkst-dev:ready" },
       {
         comment(canonicalization.payload.body, "2026-06-03T02:11:04Z"),
         comment(resumed.payload.body, "2026-06-03T02:12:04Z"),
       },
+      "closed-unmerged",
+      "CLOSED",
       "ready-closed-unmerged-idempotent-repoll"
     )
 
     t.eq(third.exit_code, 0)
     t.eq(find_raise(third.raises, "github-proxy.github_issue_comment_request"), nil)
     t.eq(find_raise(third.raises, "github-proxy.github_issue_label_request"), nil)
+  end,
+
+  test_issue_poll_blocked_child_recovers_missing_handoff_then_blocks_parent = function()
+    local first = run_terminal_child_poll(
+      "implementing",
+      { "fkst-dev:enabled", "fkst-dev:implementing" },
+      nil,
+      "blocked",
+      "OPEN",
+      "implementing-blocked-child-canonicalize"
+    )
+
+    t.eq(first.exit_code, 0)
+    local canonicalization = find_raise(first.raises, "github-proxy.github_issue_comment_request", function(payload)
+      local body = tostring(payload.body or "")
+      return body:find('state="awaiting-pr"', 1, true) ~= nil
+        and body:find("after child blocked state", 1, true) ~= nil
+    end)
+    t.is_true(canonicalization ~= nil)
+
+    local second = run_terminal_child_poll(
+      "awaiting-pr",
+      { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
+      { comment(canonicalization.payload.body, "2026-06-03T02:11:04Z") },
+      "blocked",
+      "OPEN",
+      "awaiting-pr-blocked-child-resume"
+    )
+
+    t.eq(second.exit_code, 0)
+    local blocked = find_raise(second.raises, "github-proxy.github_issue_comment_request", function(payload)
+      return tostring(payload.body or ""):find('state="blocked"', 1, true) ~= nil
+    end)
+    t.is_true(blocked ~= nil)
   end,
 
   test_issue_poll_open_child_with_json_null_merged_at_does_not_canonicalize_parent = function()
