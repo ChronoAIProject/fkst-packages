@@ -84,5 +84,6 @@ return {
 
     t.is_true(tostring(first[1].payload.dedup_key or "") ~= "")
     t.eq(first[1].payload.dedup_key, second[1].payload.dedup_key)
+    t.eq(first[1].payload.body, second[1].payload.body)
   end,
 }
