@@ -340,19 +340,19 @@ return {
     end)
   end,
 
-  test_trusted_current_pr_origin_comment_does_not_change_intake_outcome = function()
+  test_trusted_current_pr_origin_comment_is_ignored_by_intake = function()
     assert_origin_comment_does_not_change_outcome("fkst-test-bot[bot]", "feature/contrib", "dev")
   end,
 
-  test_trusted_stale_pr_origin_comment_does_not_change_intake_outcome = function()
+  test_trusted_stale_pr_origin_comment_is_ignored_by_intake = function()
     assert_origin_comment_does_not_change_outcome("fkst-test-bot[bot]", "feature/previous", "main")
   end,
 
-  test_peer_bot_current_pr_origin_comment_does_not_change_intake_outcome = function()
+  test_peer_bot_current_pr_origin_comment_is_ignored_by_intake = function()
     assert_origin_comment_does_not_change_outcome("other-bot[bot]", "feature/contrib", "dev")
   end,
 
-  test_peer_bot_stale_pr_origin_comment_does_not_change_intake_outcome = function()
+  test_peer_bot_stale_pr_origin_comment_is_ignored_by_intake = function()
     assert_origin_comment_does_not_change_outcome("other-bot[bot]", "feature/previous", "main")
   end,
 }
