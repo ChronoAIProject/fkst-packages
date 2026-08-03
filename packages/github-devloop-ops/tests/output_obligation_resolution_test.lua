@@ -382,7 +382,7 @@ return {
     t.eq(malformed_lineage.reason, "source-lineage-mismatch")
   end,
 
-  test_live_source_decision_table_selects_rereview_reintake_or_wait = function()
+  test_live_source_decision_table_selects_rereview_terminal_or_wait = function()
     local fact = classify(escalation_issue())
     local linked_source = source_with_pr_delegation()
 
@@ -413,16 +413,17 @@ return {
       t.eq(active.reason, "linked-pr-active")
     end
 
-    local reintake = core.output_obligation_resolution_decision(
+    local terminal = core.output_obligation_resolution_decision(
       fact,
       escalation_issue(),
       live_source_issue(),
       { comments = {}, prs = {}, absent_prs = {} }
     )
-    t.eq(reintake.decision, "abandon-recreate")
-    t.eq(reintake.action, "command")
-    t.eq(reintake.request.issue_number, source_issue_number)
-    t.is_true(reintake.request.body:find("fkst: reintake", 1, true) == 1)
+    t.eq(terminal.decision, "lineage-not-planned")
+    t.eq(terminal.kind, "not_planned")
+    t.eq(terminal.reason, "source-lineage-abandoned-no-live-pr")
+    t.eq(terminal.action, "receipt")
+    t.eq(terminal.request.issue_number, escalation_issue_number)
 
     local terminal_pr = core.output_obligation_resolution_decision(
       fact,
@@ -430,8 +431,9 @@ return {
       linked_source,
       linked_pr_snapshot("merged", pr_blocked_version, { external_state = "MERGED" })
     )
-    t.eq(terminal_pr.decision, "abandon-recreate")
-    t.eq(terminal_pr.action, "command")
+    t.eq(terminal_pr.decision, "lineage-not-planned")
+    t.eq(terminal_pr.kind, "not_planned")
+    t.eq(terminal_pr.action, "receipt")
   end,
 
   test_rereview_requires_exact_applied_response_and_command_derived_reentry = function()
@@ -534,20 +536,6 @@ return {
     t.is_true(changed.request.body:find('head_sha="' .. replacement_head .. '"', 1, true) ~= nil)
   end,
 
-  test_refused_reintake_advances_only_its_command_epoch = function()
-    local issue, source = escalation_issue(), live_source_issue()
-    local fact = classify(issue)
-    local no_prs = { comments = source.comments, prs = {}, absent_prs = {} }
-    local first = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    local refusal = operator_commands.build_output_obligation_command_write_refusal_body(first.request.body, "linked-pr-active")
-    source.comments = append_comment(source.comments, command_comment({ body = refusal }, "IC_reintake_refused"))
-    local retried = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    t.eq(retried.decision, "abandon-recreate")
-    t.eq(retried.action, "command")
-    t.is_true(retried.request.dedup_key ~= first.request.dedup_key)
-    t.is_true(retried.request.body:find('authorization_epoch="2"', 1, true) ~= nil)
-  end,
-
   test_multiple_correlated_rereview_commands_wait_without_another_effect = function()
     local issue = escalation_issue()
     local fact = classify(issue)
@@ -609,115 +597,7 @@ return {
     t.eq(decision.reason, "linked-pr-active")
   end,
 
-  test_reintake_requires_exact_applied_response_and_fresh_intake_generation = function()
-    local issue = escalation_issue()
-    local fact = classify(issue)
-    local source = live_source_issue()
-    local no_prs = { comments = source.comments, prs = {}, absent_prs = {} }
-    local first = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    local command = command_comment(first.request, "IC_reintake_recovery", "2026-07-27T12:30:00Z")
-    source.comments = append_comment(source.comments, command)
-
-    local command_only = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    t.eq(command_only.action, "wait")
-    t.eq(command_only.reason, "command-response-pending")
-
-    local command_fact = operator_commands.operator_command_fact(source.comments, "reintake")
-    source.comments = append_comment(source.comments, bot_comment(
-      operator_commands.operator_command_marker(command_fact, "applied", "reintake")
-    ))
-    local applied_only = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    t.eq(applied_only.action, "wait")
-    t.eq(applied_only.reason, "reintake-generation-pending")
-
-    local effective_updated_at = operator_commands.reintake_effect_updated_at(
-      source,
-      command_fact,
-      source.comments,
-      proposal_id
-    )
-    local expected_intake_dedup = devloop_base.intake_decision_dedup_key(
-      proposal_id,
-      source,
-      command_fact,
-      effective_updated_at
-    )
-    source.comments = append_comment(source.comments, bot_comment(
-      marker_builders.intake_decision_marker(
-        proposal_id,
-        "enable",
-        expected_intake_dedup,
-        "standard"
-      )
-    ))
-    local decision_only = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    t.eq(decision_only.action, "wait")
-    t.eq(decision_only.reason, "reintake-generation-pending")
-
-    source.comments = append_comment(source.comments, bot_comment(
-      core.state_marker(proposal_id, "thinking", expected_intake_dedup)
-    ))
-    local receipt = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    t.eq(receipt.decision, "abandon-recreate")
-    t.eq(receipt.action, "receipt")
-    t.is_true(receipt.request.body:find('decision="abandon-recreate"', 1, true) ~= nil)
-
-    issue.comments = {
-      bot_comment(core.output_obligation_resolution_receipt_marker(fact, "abandon-recreate")),
-    }
-    local close = core.output_obligation_resolution_decision(fact, issue, source, no_prs)
-    t.eq(close.decision, "abandon-recreate")
-    t.eq(close.action, "close")
-  end,
-
-  test_existing_reintake_revalidates_same_lineage_pr_quiescence = function()
-    local issue = escalation_issue()
-    local fact = classify(issue)
-    local source = source_with_pr_delegation()
-    local quiescent = linked_pr_snapshot("merged", pr_blocked_version, { external_state = "MERGED" })
-    local first = core.output_obligation_resolution_decision(fact, issue, source, quiescent)
-    local command = command_comment(first.request, "IC_reintake_pr_drift", "2026-07-27T12:30:00Z")
-    source.comments = append_comment(source.comments, command)
-    local command_fact = operator_commands.operator_command_fact(source.comments, "reintake")
-    source.comments = append_comment(source.comments, bot_comment(
-      operator_commands.operator_command_marker(command_fact, "applied", "reintake")
-    ))
-    local effective_updated_at = operator_commands.reintake_effect_updated_at(
-      source,
-      command_fact,
-      source.comments,
-      proposal_id
-    )
-    local expected_intake_dedup = devloop_base.intake_decision_dedup_key(
-      proposal_id,
-      source,
-      command_fact,
-      effective_updated_at
-    )
-    source.comments = append_comment(source.comments, bot_comment(
-      marker_builders.intake_decision_marker(
-        proposal_id,
-        "enable",
-        expected_intake_dedup,
-        "standard"
-      )
-    ))
-    source.comments = append_comment(source.comments, bot_comment(
-      core.state_marker(proposal_id, "thinking", expected_intake_dedup)
-    ))
-
-    local drifted = core.output_obligation_resolution_decision(
-      fact,
-      issue,
-      source,
-      linked_pr_snapshot("fixing", pr_blocked_version)
-    )
-    t.eq(drifted.decision, nil)
-    t.eq(drifted.action, "wait")
-    t.eq(drifted.reason, "linked-pr-active")
-  end,
-
-  test_different_generation_active_pr_does_not_block_old_lineage_reintake = function()
+  test_different_generation_active_pr_does_not_block_current_lineage_terminal = function()
     local new_generation = "intake/github-devloop/issue/owner/repo/42/new-generation"
     local decision = core.output_obligation_resolution_decision(
       classify(escalation_issue()),
@@ -728,11 +608,12 @@ return {
         origin_impl_version = new_generation,
       })
     )
-    t.eq(decision.decision, "abandon-recreate")
-    t.eq(decision.action, "command")
+    t.eq(decision.decision, "lineage-not-planned")
+    t.eq(decision.kind, "not_planned")
+    t.eq(decision.action, "receipt")
   end,
 
-  test_incoherent_linked_pr_cannot_authorize_rereview_or_reintake = function()
+  test_incoherent_linked_pr_cannot_authorize_rereview_or_terminal = function()
     local fact = classify(escalation_issue())
     local source = source_with_pr_delegation()
     local cases = {

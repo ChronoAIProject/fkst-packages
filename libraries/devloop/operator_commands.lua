@@ -452,16 +452,11 @@ function C.output_obligation_live_command_authorization(fact, source_issue, snap
       ),
     }, nil
   end
-  if not marker_facts.has_intake_decision_marker(source_issue.comments, fact.proposal_id)
-    or devloop_base.is_intake_held(source_issue.labels)
-    or C.reintake_has_active_devloop_state(
-      source_issue.labels,
-      source_issue.comments,
-      fact.proposal_id
-    ) then
-    return nil, "reintake-precondition-failed"
-  end
-  return { decision = "abandon-recreate" }, nil
+  return {
+    decision = "lineage-not-planned",
+    kind = "not_planned",
+    reason = "source-lineage-abandoned-no-live-pr",
+  }, nil
 end
 
 function C.reintake_has_active_devloop_state(labels, comments, proposal_id)
