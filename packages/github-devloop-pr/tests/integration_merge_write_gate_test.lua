@@ -19,7 +19,7 @@ local function mock_merge_write_enabled()
   h.mock_write_env("1")
 end
 
-local function prepare_write_time_recheck(event, write_time_comments, mergeable, merge_state)
+local function prepare_write_time_recheck(event, write_time_comments, mergeable, merge_state, rollup_state, rollup_conclusion)
   h.mock_bot_env()
   mock_merge_write_enabled()
   h.mock_issue_merge({ "fkst-dev:merge-ready" }, h.merge_comments(event))
@@ -34,7 +34,9 @@ local function prepare_write_time_recheck(event, write_time_comments, mergeable,
     "owner/repo",
     false,
     mergeable or "MERGEABLE",
-    merge_state or "CLEAN"
+    merge_state or "CLEAN",
+    rollup_state,
+    rollup_conclusion
   )
 end
 
@@ -127,6 +129,21 @@ return {
     local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
     t.is_true(wait_comment.payload.body:find('reason="mergeable-unknown"', 1, true) ~= nil)
+  end,
+
+  test_write_time_blocked_pending_ci_holds_without_fixing = function()
+    local event = h.merge_ready()
+    prepare_write_time_recheck(event, nil, "MERGEABLE", "BLOCKED", "IN_PROGRESS", "")
+
+    local result = run_write_time_recheck(event, "merge-write-time-blocked-pending")
+
+    t.eq(result.exit_code, 0, failure_text(result))
+    t.eq(#result.raises, 1)
+    t.eq(h.find_raise(result.raises, "devloop_fixing"), nil)
+    t.eq(h.count_calls("gh pr merge"), 0)
+    local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="merge-state-blocked"', 1, true) ~= nil)
   end,
 
   test_write_time_stale_mergeability_holds_without_fixing = function()

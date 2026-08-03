@@ -43,6 +43,15 @@ local function capture_hold(kind, reason, merge_pass)
 end
 
 return {
+  test_mergeability_wait_reason_is_positive_and_excludes_actionable_conflicts = function()
+    t.is_true(ci_wait.is_mergeability_wait_reason("mergeable-unknown"))
+    t.is_true(ci_wait.is_mergeability_wait_reason("merge-state-blocked"))
+    t.is_true(ci_wait.is_mergeability_wait_reason("missing-mergeability"))
+    t.eq(ci_wait.is_mergeability_wait_reason("mergeable-conflicting"), false)
+    t.eq(ci_wait.is_mergeability_wait_reason("merge-state-dirty"), false)
+    t.eq(ci_wait.is_mergeability_wait_reason("write-time-pr-fact-changed"), false)
+  end,
+
   test_ci_hold_emits_one_wait_fact_and_returns_cleanly = function()
     local merge_ready, result, raised, logged = capture_hold("CI_WAIT", "checks-pending")
 
