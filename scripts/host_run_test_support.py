@@ -43,14 +43,17 @@ def run_bounded(
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
+    cleanup_attempted = False
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as error:
+        cleanup_attempted = True
         kill_process_group(process)
         stdout, stderr = process.communicate(timeout=timeout)
         error.stdout = stdout
         error.stderr = stderr
         raise
     finally:
-        kill_process_group(process)
+        if not cleanup_attempted:
+            kill_process_group(process)
     return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
