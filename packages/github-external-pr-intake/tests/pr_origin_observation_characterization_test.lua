@@ -288,10 +288,14 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   t.eq(assign.repo, "owner/repo")
   t.eq(assign.issue_number, 7)
   t.eq(assign.login, "fkst-test-bot")
+  t.eq(assign.timeout, 30)
 
   local create = first_kind(candidate_github.operations, "issue_create")
   t.eq(create.repo, "owner/repo")
   t.eq(create.title, "Integrate external PR #7 from @trusted-contributor")
+  t.eq(#create.labels, 0)
+  t.eq(#create.assignees, 0)
+  t.eq(create.timeout, 30)
   t.is_true(create.body:find(
     '<!-- fkst:github-external-pr-intake:external-pr-bridge:v1 repo="owner/repo" pr="7" source_ref="external:owner/repo#pr/7" -->',
     1,
@@ -302,6 +306,7 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   local bridge_comment = first_kind(candidate_github.operations, "pr_comment")
   t.eq(bridge_comment.repo, "owner/repo")
   t.eq(bridge_comment.pr_number, 7)
+  t.eq(bridge_comment.timeout, 30)
   t.eq(
     bridge_comment.body,
     '<!-- fkst:github-external-pr-intake:external-pr-bridge:v1 repo="owner/repo" pr="7" source_ref="external:owner/repo#pr/7" issue="77" -->\n'

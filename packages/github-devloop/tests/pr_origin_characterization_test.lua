@@ -60,6 +60,8 @@ return {
       t.eq(origin.base_branch, stale_base_branch)
       t.eq(pr.headRefName, "feature/current")
       t.eq(pr.baseRefName, "dev")
+      t.eq(origin.branch == pr.headRefName, false)
+      t.eq(origin.base_branch == pr.baseRefName, false)
     end)
   end,
 
