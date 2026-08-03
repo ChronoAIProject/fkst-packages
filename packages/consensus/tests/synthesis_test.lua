@@ -212,6 +212,15 @@ return {
       .. tostring(synthesis_contract.findings_record_max_bytes))
   end,
 
+  test_format_parse_failure_only_renders_nonnegative_integer_fields = function()
+    t.eq(synthesis.format_parse_failure({
+      reason = "findings-record-overlong",
+      actual_bytes = -1,
+      limit_bytes = synthesis_contract.findings_record_max_bytes + 0.5,
+      exit_code = 17,
+    }), "reason=findings-record-overlong exit_code=17")
+  end,
+
   test_settled_findings_without_verified_move_are_unverified_memory = function()
     local converge = synthesis.parse_output(table.concat({
       "converge: dependency semantics remain disputed + inspect the blockedBy native relation",
