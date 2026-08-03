@@ -69,9 +69,10 @@ return {
       return { stdout = "Peer-Bot[bot]", stderr = "", exit_code = 0 }
     end)
     t.eq(managed["peer-bot"], true)
+    t.eq(github_author_policy.is_managed_bot_login("pEeR-BoT[bot]", managed), true)
 
     with_trusted_bot("trusted-bot", function()
-      local pr = production_pr("Peer-Bot[bot]")
+      local pr = production_pr("pEeR-BoT[bot]")
       t.is_nil(m_facts.pr_origin_fact(pr.comments))
     end)
   end,

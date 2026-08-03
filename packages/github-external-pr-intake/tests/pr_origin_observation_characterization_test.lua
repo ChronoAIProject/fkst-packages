@@ -324,8 +324,10 @@ end
 
 return {
   test_external_login_comparison_treats_mixed_case_managed_bot_as_external = function()
+    local managed = { ["managed-bot"] = true }
     t.eq(core.strip_bot_login_suffix("Managed-Bot[bot]"), "Managed-Bot")
-    t.eq(core.is_managed_bot_login("Managed-Bot[bot]", { ["managed-bot"] = true }), false)
+    t.eq(core.is_managed_bot_login("managed-bot[bot]", managed), true)
+    t.eq(core.is_managed_bot_login("Managed-Bot[bot]", managed), false)
 
     with_env({ FKST_EXTERNAL_PR_BRIDGE_MIN_AGE_SECONDS = "" }, function()
       t.eq(core.is_external_candidate({
@@ -334,7 +336,7 @@ return {
         author_login = "Managed-Bot[bot]",
         head_ref_name = "feature/contrib",
         created_at = "2026-06-03T01:02:03Z",
-      }, { ["managed-bot"] = true }, 1780459324), true)
+      }, managed, 1780459324), true)
     end)
   end,
 
