@@ -495,6 +495,11 @@ return {
     })
 
     t.is_true(prompt:find(
+      "Repair attempt: the previous synthesis attempt failed.",
+      1,
+      true
+    ) ~= nil)
+    t.is_true(prompt:find(
       "Validation diagnostic: reason=synthesis-worker-nonzero exit_code=17.",
       1,
       true

@@ -270,7 +270,7 @@ function M.install(core, deps)
         if repair then
           local stdout = type(prior_result) == "table" and prior_result.stdout or ""
           repair_instruction = table.concat({
-            "Repair attempt: the previous synthesis output failed validation.",
+            "Repair attempt: the previous synthesis attempt failed.",
             "Validation diagnostic: " .. synthesis.format_parse_failure(parse_failure) .. ".",
             "Emit one valid response contract and do not rerun Phase B or Phase R. Previous output:",
             neutralize(stdout),
