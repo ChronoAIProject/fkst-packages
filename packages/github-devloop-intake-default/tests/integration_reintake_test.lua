@@ -299,36 +299,6 @@ return {
     t.eq(count_calls("codex exec"), 1)
   end,
 
-  test_judge_reintake_rejudges_terminal_declined_issue = function()
-    local command = trusted_reintake_command("IC_reintake_declined_judge")
-    command.created_at = "2026-06-04T03:00:00Z"
-    local declined_created_at = "2026-06-04T04:00:00Z"
-    local payload = reintake_candidate(command)
-    payload.effect_id = expected_decision_key(payload, command, declined_created_at)
-    payload.dedup_key = core.intake_candidate_delivery_dedup_key(payload.proposal_id, payload.effect_id, payload.effect_id)
-    payload.reintake_effect_updated_at = declined_created_at
-    mock_bot_env()
-    mock_intake_judge_view({ "fkst-dev:enabled", "fkst-dev:declined" }, {
-      m_builders.intake_decision_marker(payload.proposal_id, "decline", payload.effect_id, "standard"),
-      command,
-      trusted_comment(core.state_marker(
-        payload.proposal_id,
-        "declined",
-        payload.proposal_id .. "/2026-06-04T04-00-00Z/declined"
-      ), declined_created_at),
-    })
-    mock_intake_codex("⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Reintake starts a fresh generation after a terminal decline.")
-
-    local result = run_judge(payload, opts("intake-reintake-terminal-declined"))
-
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 4)
-    t.is_true(find_comment_body(result.raises, "operator command accepted: reintake") ~= nil)
-    t.is_true(find_comment_body(result.raises, 'decision="enable"') ~= nil)
-    assert_execution_request_chain(result.raises, payload, command)
-    t.eq(count_calls("codex exec"), 1)
-  end,
-
   test_judge_reintake_refuses_after_blocked_then_newer_active_marker_with_stale_labels = function()
     local command = trusted_reintake_command("IC_reintake_current_active")
     local payload = reintake_candidate(command)
@@ -345,7 +315,7 @@ return {
     t.eq(#result.raises, 1)
     local refusal = find_comment_body(result.raises, "operator command refused")
     t.is_true(refusal ~= nil)
-    t.is_true(refusal.body:find("reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state", 1, true) ~= nil)
+    t.is_true(refusal.body:find("reintake requires terminal blocked or no active devloop state", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 0)
   end,
 
@@ -378,7 +348,7 @@ return {
     t.eq(#result.raises, 1)
     local refusal = find_comment_body(result.raises, "operator command refused")
     t.is_true(refusal ~= nil)
-    t.is_true(refusal.body:find("reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state", 1, true) ~= nil)
+    t.is_true(refusal.body:find("reintake requires terminal blocked or no active devloop state", 1, true) ~= nil)
     t.is_true(refusal.body:find("use rereview, reready, or reimplement", 1, true) ~= nil)
     t.eq(count_calls("codex exec"), 0)
   end,

@@ -232,26 +232,12 @@ end
 local function fact_value(core, row, state, family, successor)
   if family == "dependency-gate" then
     if successor == "ready" or successor == "implementing" then
-      return { kind = "satisfied", reason = "all-blockers-closed", unmet = {} }
+      return { ok = true, kind = "satisfied", reason = "all-blockers-closed", unmet = {} }
     end
     if successor == "blocked" then
-      return {
-        kind = "verified_cannot_proceed",
-        hold_kind = "unresolvable",
-        reason = "cross-repo-blocker",
-        unmet = { 99 },
-        proof = {
-          kind = "cross-repo-blocker",
-          repo = REPO,
-          issue_number = ISSUE_NUMBER,
-          blocker_repo = "other/repo",
-          blocker_number = 99,
-          target_repo = REPO,
-          target_issue_number = ISSUE_NUMBER,
-        },
-      }
+      return { ok = false, kind = "unresolvable", reason = "dependency-gate-stale", unmet = { 99 } }
     end
-    return { kind = "waiting", hold_kind = "waiting", reason = "waiting-on-dependency", unmet = { 99 } }
+    return { ok = false, kind = "waiting", reason = "waiting-on-dependency", unmet = { 99 } }
   end
   if family == "dependency-wait" then
     return {
@@ -291,8 +277,6 @@ local function fact_value(core, row, state, family, successor)
       proposal_id = ISSUE_PROPOSAL,
       dedup_key = state.version,
       reason = "codex-failed",
-      fault_class = "UNKNOWN",
-      retryable = true,
       attempt = 1,
     }
   end
@@ -459,14 +443,7 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
   elseif family == "implementing" then
     table.insert(entity.comments, comment(core, m_builders.implementing_marker(ISSUE_PROPOSAL, state.version, BRANCH, HEAD_SHA, BASE_BRANCH, BASE_SHA), "2026-06-03T01:03:07Z"))
   elseif family == "impl-failure" then
-    table.insert(entity.comments, comment(core, core.impl_failure_marker(
-      ISSUE_PROPOSAL,
-      state.version,
-      value.reason or "codex-failed",
-      value.attempt or 1,
-      value.fault_class,
-      value.retryable
-    ), "2026-06-03T01:03:07Z"))
+    table.insert(entity.comments, comment(core, core.impl_failure_marker(ISSUE_PROPOSAL, state.version, value.reason or "codex-failed", value.attempt or 1), "2026-06-03T01:03:07Z"))
   elseif family == "decomposed" then
     table.insert(entity.comments, comment(core, decompose_lib.decomposed_marker(ISSUE_PROPOSAL, state.version, PR_NUMBER, value.count or 1), "2026-06-03T01:03:08Z"))
   elseif family == "fix-feedback" then
@@ -481,7 +458,13 @@ local function install_marker(core, entity, state, family, value, is_synthetic)
       table.insert(entity.comments, comment(core, m_builders.merge_gate_marker(ISSUE_PROPOSAL, PR_NUMBER, state.version, value.review_proposal_id, value.review_dedup_key, HEAD_SHA, BASE_SHA, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
     end
   elseif family == "review-meta" then
-    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(ISSUE_PROPOSAL, value.review_dedup_key, value.action, state.version, value.blocking_gap or "behavioral-fixture"), "2026-06-03T01:03:09Z"))
+    table.insert(entity.comments, comment(core, m_builders.review_meta_marker(ISSUE_PROPOSAL,
+      value.review_dedup_key,
+      value.action,
+      state.version,
+      value.blocking_gap or "behavioral-fixture",
+      nil,
+      value.action == "fix" and value or nil), "2026-06-03T01:03:09Z"))
   elseif family == "review-converge-round" then
     local digest = convergence_shared.source_ref_digest(PR_SOURCE_REF)
     if value.action == "block" then

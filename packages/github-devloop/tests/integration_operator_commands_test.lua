@@ -63,7 +63,7 @@ local function thinking_converge_comments(event, rounds, command)
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
   }
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version),
+    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
   }
   for n = 1, rounds do
     table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
@@ -86,7 +86,7 @@ local function thinking_changing_converge_comments(event, rounds, command)
   local base_version = payloads_builders.build_proposal(event).dedup_key
   local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
   local comments = {
-    core.state_marker(proposal_id, "thinking", base_version),
+    core.state_marker(proposal_id, "thinking", base_version .. "/loop/" .. tostring(rounds)),
   }
   for n = 1, rounds do
     table.insert(comments, conv_rounds.converge_round_marker(proposal_id,
@@ -332,8 +332,7 @@ return {
     local command = trusted_issue_command("reimplement", "IC_issue_reimplement")
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:impl-failed" }, "OPEN", {
       core.state_marker(event.proposal_id, "impl-failed", ready_version),
-      core.impl_failure_marker(
-        event.proposal_id, ready_version, "codex-failed", nil, "UNKNOWN", true),
+      core.impl_failure_marker(event.proposal_id, ready_version, "codex-failed"),
       command,
     })
 

@@ -444,21 +444,17 @@ local function process_origin(core, deps, repo, issue_number, event, catalog, un
       if type(resolve_dependencies) ~= "function" then
         error("github-devloop-workflow: dependency-gate-unavailable: workflow materialization requires the shared dependency gate")
       end
-      local dependency_is_satisfied = deps.dependency_gate_is_satisfied or core.dependency_gate_is_satisfied
-      if type(dependency_is_satisfied) ~= "function" then
-        error("github-devloop-workflow: dependency-gate-predicate-unavailable: workflow materialization requires the shared dependency predicate")
-      end
       local dependency = resolve_dependencies(repo, issue_number)
       if type(dependency) ~= "table" then
         error("github-devloop-workflow: dependency-gate-invalid-result: shared dependency gate returned an invalid result")
       end
-      if not dependency_is_satisfied(dependency) then
+      if dependency.ok ~= true then
         reconcile_active_projection(repo, issue_number, origin, terminal_fact, current.labels, label_projection, unit)
         unit.log_decision(
           origin,
           "frontier",
           "dependency-gate",
-          "skip-wait(" .. tostring(dependency.kind or "unavailable") .. ")",
+          "skip-wait(" .. tostring(dependency.kind or "unresolvable") .. ")",
           dependency.reason or "dependency-unresolved"
         )
         return "wait"

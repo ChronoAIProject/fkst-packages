@@ -131,8 +131,7 @@ local function sink_probe_cases()
       id = "r9-shadow-impl-failed-retry", event = impl_failed_retry,
       labels = { "fkst-dev:impl-failed" },
       comments = { core.state_marker(impl_failed_retry.proposal_id, "impl-failed", impl_failed_retry.dedup_key),
-        core.impl_failure_marker(
-          impl_failed_retry.proposal_id, impl_failed_retry.dedup_key, "codex-failed", 1, "UNKNOWN", true) },
+        core.impl_failure_marker(impl_failed_retry.proposal_id, impl_failed_retry.dedup_key, "codex-failed", 1) },
       entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
         git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
     },

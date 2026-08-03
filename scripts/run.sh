@@ -211,7 +211,6 @@ cmd_check() {
     'python3 -B "$ROOT/scripts/composed_manifest_test.py"'
     'python3 -B "$ROOT/scripts/board_test.py"'
     'python3 -B "$ROOT/scripts/dogfood_board_test.py"'
-    'python3 -B "$ROOT/scripts/dogfood_split_test.py"'
     'python3 -B "$ROOT/scripts/durable_health_test.py"'
     'python3 -B "$ROOT/scripts/tmp_receipt_sweep_test.py"'
     'python3 -B "$ROOT/scripts/doctor_test.py"'

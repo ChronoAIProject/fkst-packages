@@ -206,6 +206,7 @@ local function run_with(fakes)
       end,
       dependency_gate = fake.dependency_gate or function()
         return {
+          ok = true,
           kind = "satisfied",
           reason = "satisfied",
           unmet = {},
@@ -327,6 +328,7 @@ local tests = {
         t.eq(gate_repo, repo)
         t.eq(gate_issue_number, origin_issue)
         return {
+          ok = false,
           kind = "waiting",
           reason = "waiting-on-dependency",
           unmet = { 41 },
@@ -347,7 +349,8 @@ local tests = {
     local raised = run_with({
       dependency_gate = function()
         return {
-          kind = "unavailable",
+          ok = false,
+          kind = "unresolvable",
           reason = "blockedby-truncated",
           unmet = { origin_issue },
         }
@@ -359,6 +362,7 @@ local tests = {
 
   test_origin_dependency_release_materializes_child_on_next_poll = function()
     local gate = {
+      ok = false,
       kind = "waiting",
       reason = "waiting-on-dependency",
       unmet = { 41 },
@@ -371,6 +375,7 @@ local tests = {
     t.eq(#held, 0)
 
     gate = {
+      ok = true,
       kind = "satisfied",
       reason = "satisfied",
       unmet = {},

@@ -261,8 +261,7 @@ return {
   test_implement_impl_failure_replay_skips_before_ready_gate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:impl-failed" }, {
-      core.impl_failure_marker(
-        event.proposal_id, event.dedup_key, "codex-failed", nil, "UNKNOWN", true),
+      core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed"),
     })
 
     local result = run_implement(event, opts("implement-impl-failure-replay"))
@@ -276,8 +275,7 @@ return {
   test_implement_impl_failure_marker_skips_before_label_gate = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:thinking" }, {
-      core.impl_failure_marker(
-        event.proposal_id, event.dedup_key, "codex-failed", nil, "UNKNOWN", true),
+      core.impl_failure_marker(event.proposal_id, event.dedup_key, "codex-failed"),
     })
 
     local result = run_implement(event, opts("implement-impl-failure-marker-replay"))

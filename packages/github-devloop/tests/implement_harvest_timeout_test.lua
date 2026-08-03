@@ -32,24 +32,6 @@ local function last_command_call_index(needle)
 end
 
 return {
-  test_candidate_local_iteration_exports_base_for_configured_command = function()
-    t.mock_command('printf %s "$FKST_DEVLOOP_LOCAL_TEST_COMMAND"', {
-      stdout = "make preflight",
-      stderr = "",
-      exit_code = 0,
-    })
-    t.mock_command("make preflight", {
-      stdout = "",
-      stderr = "FKST_LOCAL_ITERATION_RESULT:v2:PASS:NONE\n",
-      exit_code = 0,
-    })
-
-    harvest.local_iteration_check("/tmp/fkst worktree", "abc123")
-
-    local call = t.command_calls()[#t.command_calls()]
-    t.eq(call.rendered, "cd '/tmp/fkst worktree' && export BASE='abc123' && make preflight")
-  end,
-
   test_successful_committed_head_with_unknown_verification_is_checkpointed = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
@@ -127,8 +109,6 @@ return {
     local add_call = last_command_call_index("add -A")
     local commit_call = last_command_call_index("commit -m")
     t.is_true(verification_call ~= nil)
-    local verification = t.command_calls()[verification_call]
-    t.is_true(verification.rendered:find("export BASE='abc123'", 1, true) ~= nil)
     t.is_true(add_call ~= nil and add_call < commit_call)
     t.is_true(commit_call ~= nil and commit_call < verification_call)
   end,

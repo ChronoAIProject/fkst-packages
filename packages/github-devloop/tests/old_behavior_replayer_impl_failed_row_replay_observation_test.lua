@@ -86,18 +86,15 @@ local function issue_event()
   }
 end
 
-local function legacy_impl_failure_marker(fixture)
-  return '<!-- fkst:github-devloop:impl-failure:v1 proposal="' .. PROPOSAL_ID
-    .. '" reason="' .. fixture.failure_reason
-    .. '" attempt="' .. tostring(fixture.failure_attempt)
-    .. '" dedup="' .. VERSION
-    .. '" -->'
-end
-
 local function comments_for(fixture)
   return json_array({
     trusted_comment(core.state_marker(PROPOSAL_ID, "impl-failed", VERSION)),
-    trusted_comment(legacy_impl_failure_marker(fixture), "2099-01-01T00:00:01Z"),
+    trusted_comment(core.impl_failure_marker(
+      PROPOSAL_ID,
+      VERSION,
+      fixture.failure_reason,
+      fixture.failure_attempt
+    ), "2099-01-01T00:00:01Z"),
   })
 end
 

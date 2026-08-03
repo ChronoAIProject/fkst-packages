@@ -486,6 +486,7 @@ local function maybe_apply_issue_dependency_waiver_command(issue, proposal_id, c
     current = current,
     command_comment_request = comment_request,
     dependency_gate = {
+      ok = true,
       kind = "satisfied",
       reason = "dependency-waiver",
       notes = {
