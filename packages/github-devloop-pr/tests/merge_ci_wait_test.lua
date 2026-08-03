@@ -43,13 +43,30 @@ local function capture_hold(kind, reason, merge_pass)
 end
 
 return {
-  test_mergeability_wait_reason_is_positive_and_excludes_actionable_conflicts = function()
-    t.is_true(ci_wait.is_mergeability_wait_reason("mergeable-unknown"))
-    t.is_true(ci_wait.is_mergeability_wait_reason("merge-state-blocked"))
-    t.is_true(ci_wait.is_mergeability_wait_reason("missing-mergeability"))
-    t.eq(ci_wait.is_mergeability_wait_reason("mergeable-conflicting"), false)
-    t.eq(ci_wait.is_mergeability_wait_reason("merge-state-dirty"), false)
-    t.eq(ci_wait.is_mergeability_wait_reason("write-time-pr-fact-changed"), false)
+  test_mergeability_wait_reason_accepts_only_mergeability_wait_families = function()
+    for _, reason in ipairs({
+      "missing-pr",
+      "missing-mergeability",
+      "mergeable-unknown",
+      "merge-state-behind",
+      "merge-state-blocked",
+      "merge-state-unstable",
+    }) do
+      t.is_true(ci_wait.is_mergeability_wait_reason(reason), reason)
+    end
+
+    for _, reason in ipairs({
+      "mergeable-conflicting",
+      "mergeable-false",
+      "merge-state-conflicting",
+      "merge-state-dirty",
+      "head-sha-mismatch",
+      "pr-not-open",
+      "merge-confirmation-pending",
+      "write-time-pr-fact-changed",
+    }) do
+      t.eq(ci_wait.is_mergeability_wait_reason(reason), false, reason)
+    end
   end,
 
   test_ci_hold_emits_one_wait_fact_and_returns_cleanly = function()
