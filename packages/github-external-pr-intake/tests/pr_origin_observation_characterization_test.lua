@@ -323,7 +323,7 @@ local function with_env(values, fn)
 end
 
 return {
-  test_external_login_comparison_preserves_case_and_admits_mixed_case_managed_bot = function()
+  test_external_login_comparison_treats_mixed_case_managed_bot_as_external = function()
     t.eq(core.strip_bot_login_suffix("Managed-Bot[bot]"), "Managed-Bot")
     t.eq(core.is_managed_bot_login("Managed-Bot[bot]", { ["managed-bot"] = true }), false)
 
