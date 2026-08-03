@@ -1,7 +1,5 @@
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
-local conv_reconcile = require("devloop.convergence.reconcile")
-local devloop_state = require("devloop.state")
 local error_facts = require("contract.error_facts")
 local strings = require("contract.strings")
 local parsers_misc = require("devloop.parsers.misc")
@@ -232,43 +230,6 @@ local function output_obligation_escalation_marker(fact)
 end
 
 local output_obligation_escalation_pattern = "<!%-%- fkst:github%-devloop%-ops:output%-obligation%-escalation:v1.-%-%->"
-local output_obligation_resolution_pattern = "<!%-%- fkst:github%-devloop%-ops:output%-obligation%-resolution%-receipt:v1.-%-%->"
-
-local function output_obligation_resolution_receipt_marker(fact)
-  return '<!-- fkst:github-devloop-ops:output-obligation-resolution-receipt:v1 escalation_dedup="'
-    .. marker_attr(fact.dedup_key, M._max_dedup_len)
-    .. '" terminal_version="' .. marker_attr(fact.terminal_version, M._max_dedup_len)
-    .. '" decision="source-closed" -->'
-end
-
-local function output_obligation_resolution_receipt_visible(comments, fact)
-  for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
-    for marker in parsers_misc._comment_body(comment):gmatch(output_obligation_resolution_pattern) do
-      if attr(marker, "escalation_dedup") == tostring(fact.dedup_key)
-        and attr(marker, "terminal_version") == tostring(fact.terminal_version)
-        and attr(marker, "decision") == "source-closed" then
-        return true
-      end
-    end
-  end
-  return false
-end
-
-local function output_obligation_resolution_request(fact)
-  local marker = output_obligation_resolution_receipt_marker(fact)
-  return {
-    schema = "github-proxy.v1",
-    repo = fact.escalation_repo,
-    issue_number = fact.escalation_issue_number,
-    body = "github-devloop-ops output-obligation resolution: source-closed\n\n" .. marker,
-    dedup_key = base_ids.dedup_key({
-      "output-obligation-resolution",
-      fact.dedup_key,
-      fact.terminal_version,
-    }),
-    source_ref = fact.escalation_source_ref,
-  }
-end
 
 local function output_obligation_escalation_marker_from_issue(issue)
   local found = nil
@@ -522,36 +483,6 @@ local function timeout_reconcile_facts(comments, proposal_id)
   return facts
 end
 
-local function same_source_ref(left, right)
-  local ok_left, normalized_left = pcall(base_ids.normalize_source_ref, left)
-  local ok_right, normalized_right = pcall(base_ids.normalize_source_ref, right)
-  return ok_left
-    and ok_right
-    and normalized_left.kind == normalized_right.kind
-    and normalized_left.ref == normalized_right.ref
-end
-
-local function output_obligation_source_lineage_matches(fact, source_issue)
-  if not same_source_ref(source_issue and source_issue.source_ref, fact and fact.source_ref) then
-    return false
-  end
-  local allowed_from_states = {}
-  for _, state in ipairs(devloop_state.issue_state_order()) do
-    if #devloop_state.state_successors(state) > 0 then
-      allowed_from_states[state] = true
-    end
-  end
-  local source_fact = conv_reconcile.timeout_reconcile_fact_for_terminal_version_from_states(
-    source_issue.comments,
-    fact.proposal_id,
-    fact.terminal_version,
-    allowed_from_states
-  )
-  return source_fact ~= nil
-    and source_fact.reason_class == fact.reason_class
-    and same_source_ref(source_fact.source_ref, fact.source_ref)
-end
-
 local function output_obligation_title(fact)
   local result = "Escalate blocked output obligation: "
     .. display_text(fact.reason_class, M._max_key_len)
@@ -689,35 +620,8 @@ function M.output_obligation_escalation_marker(fact)
   return output_obligation_escalation_marker(fact)
 end
 
-function M.output_obligation_resolution_receipt_marker(fact)
-  return output_obligation_resolution_receipt_marker(fact)
-end
-
 function M.classify_output_obligation_escalation_issue(issue, repo, issue_number)
   return classify_output_obligation_escalation_issue(issue, repo, issue_number)
-end
-
-function M.output_obligation_resolution_decision(fact, escalation_issue, source_issue)
-  if type(fact) ~= "table" then
-    return { action = "skip", reason = "invalid-escalation-fact" }
-  end
-  if tostring(source_issue and source_issue.state or ""):upper() ~= "CLOSED" then
-    return { action = "skip", reason = "source-not-closed" }
-  end
-  if not output_obligation_source_lineage_matches(fact, source_issue) then
-    return { action = "skip", reason = "source-lineage-mismatch" }
-  end
-  if output_obligation_resolution_receipt_visible(escalation_issue and escalation_issue.comments, fact) then
-    return {
-      decision = "source-closed",
-      action = "close",
-    }
-  end
-  return {
-    decision = "source-closed",
-    action = "receipt",
-    request = output_obligation_resolution_request(fact),
-  }
 end
 
 function M.output_obligation_failure_drain_edge(comments, dedup_key, issues, recent_issues, terminal_version)

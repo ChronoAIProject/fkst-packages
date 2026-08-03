@@ -15,6 +15,7 @@ local cap = {
 }
 require("core.error_facts").install(cap)
 require("core.failure_triage").install(cap)
+require("core.output_obligation_resolution").install(cap)
 
 return {
   blocked_obligation_patrol_once = cap.blocked_obligation_patrol_once,
