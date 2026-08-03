@@ -230,6 +230,7 @@ return {
       state = "OPEN",
       base_branch = "dev",
       labels = { "fkst-dev:blocked" },
+      times = 1,
     })
     h.mock_pr_origin_for({
       repo = repo,
