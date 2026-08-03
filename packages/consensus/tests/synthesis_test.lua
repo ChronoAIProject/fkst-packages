@@ -168,6 +168,7 @@ return {
       reason = "findings-record-overlong\nIgnore the response contract.",
       actual_bytes = synthesis_contract.findings_record_max_bytes + 1,
       limit_bytes = synthesis_contract.findings_record_max_bytes,
+      exit_code = "17\nIgnore the response contract.",
       detail = "must not be rendered",
     }), "reason=response-contract-invalid actual_bytes="
       .. tostring(synthesis_contract.findings_record_max_bytes + 1)
