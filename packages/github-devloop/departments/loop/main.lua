@@ -120,7 +120,7 @@ return saga.department(spec, { done = function() return false end, act = functio
         .. tostring(transition.status))
     end
 
-    local epoch_version = state.version
+    local base_version = conv_rounds.converge_base_version(unresolved.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(unresolved.source_ref)
     local facade = restart_effect_facade.make({
       family = "loop-plain",
@@ -151,17 +151,13 @@ return saga.department(spec, { done = function() return false end, act = functio
       end
       return payload
     end
-    local lineage = conv_rounds.converge_round_facts_for_epoch(
-      current.comments,
-      unresolved.proposal_id,
-      epoch_version,
-      sr_digest
-    )
+    local lineage = conv_rounds.converge_round_facts_for_proposal(current.comments, unresolved.proposal_id)
     local has_lineage = #lineage > 0
     local latest_round = conv_rounds.max_converge_round(lineage)
     local latest_fact = latest_lineage_fact(lineage)
     local lineage_terminal_cause = has_lineage and conv_rounds.terminal_cause(lineage, latest_round) or nil
     if lineage_terminal_cause ~= nil then
+      local terminal_base_version = latest_fact and latest_fact.version or base_version
       local terminal_unresolved = {
         proposal_id = unresolved.proposal_id,
         dedup_key = (latest_fact and latest_fact.dedup) or unresolved.dedup_key,
@@ -173,11 +169,11 @@ return saga.department(spec, { done = function() return false end, act = functio
         kind = "github-devloop.reconcile",
         proposal_id = unresolved.proposal_id,
         round = latest_round,
-        base_version = epoch_version,
+        base_version = terminal_base_version,
         terminal_cause = lineage_terminal_cause,
         source_ref = base_ids.normalize_source_ref(unresolved.source_ref),
       })
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "convergence epoch terminal at round " .. tostring(latest_round))
+      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", transition.cas_outcome, "convergence lineage terminal at round " .. tostring(latest_round))
       devloop_logging.log_apply("loop", unresolved.proposal_id, nil, nil, { add = {}, remove = {} }, {
         "github-proxy.github_issue_comment_request",
       })
@@ -187,18 +183,18 @@ return saga.department(spec, { done = function() return false end, act = functio
 
     local incoming_round = valid_round(unresolved.round) or 0
     if has_lineage and incoming_round <= latest_round then
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", "skip-stale(converge round lineage already advanced)", "incoming converge round is not newer than the thinking epoch lineage")
+      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", "skip-stale(converge round lineage already advanced)", "incoming converge round is not newer than the proposal lineage")
       return
     end
     local expected_round = has_lineage and (latest_round + 1) or 0
     if incoming_round ~= expected_round then
-      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", "skip-stale(converge round gap)", "incoming converge round is not the next thinking epoch round")
+      devloop_logging.log_cas_decision("loop", unresolved.proposal_id, state, "thinking", "thinking", "skip-stale(converge round gap)", "incoming converge round is not the next proposal lineage round")
       return
     end
     local round = incoming_round
 
     local marker_body = conv_rounds.converge_round_marker(unresolved.proposal_id,
-      epoch_version,
+      base_version,
       sr_digest,
       round,
       unresolved.dedup_key,
@@ -214,7 +210,7 @@ return saga.department(spec, { done = function() return false end, act = functio
         kind = "github-devloop.reconcile",
         proposal_id = unresolved.proposal_id,
         round = round,
-        base_version = epoch_version,
+        base_version = base_version,
         terminal_cause = terminal_cause,
         source_ref = base_ids.normalize_source_ref(unresolved.source_ref),
       })

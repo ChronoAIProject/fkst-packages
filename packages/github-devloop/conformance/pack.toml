@@ -26,23 +26,23 @@ severity = "error"
 kind = "text_require_regex"
 include = ["departments/loop/main.lua"]
 pattern = "conv_rounds\\.terminal_cause\\s*\\(\\s*lineage_with_current\\s*,\\s*round\\s*\\)"
-message = "convergence continuation must use the typed terminal classifier over the trusted thinking epoch marker lineage"
+message = "convergence continuation must use the typed terminal classifier over the proposal-wide marker lineage"
 
 [[rules]]
-id = "convergence.requires-epoch-round-facts"
+id = "convergence.requires-stable-round-facts"
 severity = "error"
 kind = "text_require_regex"
 include = ["departments/loop/main.lua"]
-pattern = "(?s)local\\s+epoch_version\\s*=\\s*state\\.version.*local\\s+lineage\\s*=\\s*conv_rounds\\.converge_round_facts_for_epoch\\s*\\(\\s*current\\.comments\\s*,\\s*unresolved\\.proposal_id\\s*,\\s*epoch_version\\s*,\\s*sr_digest\\s*\\)"
-message = "convergence round cap and stale detection must derive from converge-round:v1 facts keyed by the exact trusted thinking epoch version and source_ref"
+pattern = "local\\s+lineage\\s*=\\s*conv_rounds\\.converge_round_facts_for_proposal\\s*\\(\\s*current\\.comments\\s*,\\s*unresolved\\.proposal_id\\s*\\)"
+message = "convergence round cap and stale detection must derive from the proposal-wide converge-round:v1 marker stream keyed only by proposal_id"
 
 [[rules]]
-id = "convergence.forbids-proposal-wide-lineage"
+id = "convergence.forbids-boundary-round-cap"
 severity = "error"
 kind = "text_forbid_regex"
 include = ["departments/loop/main.lua"]
-pattern = "converge_round_facts_for_(?:proposal|source)\\s*\\(|converge_budget_round\\s*\\("
-message = "convergence cap and true-stall checks must not use proposal-wide or source-only lineage"
+pattern = "converge_round_facts\\s*\\(\\s*current\\.comments\\s*,\\s*unresolved\\.proposal_id\\s*,\\s*base_version\\s*,\\s*sr_digest\\s*\\)|has_converge_round_marker\\s*\\("
+message = "convergence cap and true-stall checks must not use version/source_ref boundary facts"
 
 [[rules]]
 id = "gate-dsl.literal-return"

@@ -204,18 +204,13 @@ function M.previous_receipt(comments, expected)
         target = expected.target,
         checker_command = expected.checker_command,
       })
-      local failure = receipt ~= nil and impl_failure.fact(
-        devloop_base._max_key_len,
-        { comment },
-        receipt.proposal_id,
-        receipt.implementation_version
-      ) or nil
+      local marker = receipt ~= nil and '<!-- fkst:github-devloop:impl-failure:v1 proposal="'
+        .. receipt.proposal_id .. '" reason="' .. repair_reason .. '" attempt="'
+        .. tostring(receipt.attempt) .. '" dedup="' .. receipt.implementation_version .. '" -->' or nil
       if receipt ~= nil
         and receipt.status == "repair-needed"
         and receipt.attempt < tonumber(expected.before_attempt or 1)
-        and failure ~= nil
-        and failure.reason == repair_reason
-        and failure.attempt == receipt.attempt
+        and body:find(marker, 1, true) ~= nil
         and (best == nil or receipt.attempt > best.attempt) then
         best = receipt
         best_raw = raw

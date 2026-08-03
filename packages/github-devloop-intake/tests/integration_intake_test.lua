@@ -205,36 +205,6 @@ return {
     t.eq(result.raises[1].payload.reintake_effect_updated_at, command.created_at)
   end,
 
-  test_admission_reintake_requeues_terminal_declined_issue = function()
-    local proposal_id = "github-devloop/issue/owner/repo/42"
-    local command = trusted_reintake_command("IC_reintake_declined_admission")
-    command.created_at = "2026-06-04T03:00:00Z"
-    local declined_created_at = "2026-06-04T04:00:00Z"
-    h.mock_bot_env()
-    mock_repo_env()
-    mock_issue(42, {
-      labels = { "fkst-dev:enabled", "fkst-dev:declined" },
-      comments = {
-        m_builders.intake_decision_marker(proposal_id, "decline", "intake/github-devloop/issue/owner/repo/42/v1", "standard"),
-        command,
-        trusted_comment(core.state_marker(
-          proposal_id,
-          "declined",
-          "github-devloop/issue/owner/repo/42/2026-06-04T04-00-00Z/declined"
-        ), declined_created_at),
-      },
-    })
-
-    local result = run_admission(entity_changed(42), opts("intake-admission-reintake-terminal-declined"))
-
-    t.eq(result.exit_code, 0)
-    t.eq(#result.raises, 1)
-    t.eq(result.raises[1].queue, "devloop_intake_candidate")
-    t.eq(result.raises[1].payload.reintake_command_created_at, command.created_at)
-    t.eq(result.raises[1].payload.reintake_effect_updated_at, declined_created_at)
-    t.eq(result.raises[1].payload.effect_id, expected_effect_key(proposal_id, command, declined_created_at))
-  end,
-
   test_admission_reintake_refuses_after_blocked_then_newer_active_marker_with_stale_labels = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     h.mock_bot_env()
@@ -255,7 +225,7 @@ return {
     t.eq(#result.raises, 1)
     local refusal = find_comment_body(result.raises, "operator command refused")
     t.is_true(refusal ~= nil)
-    t.is_true(refusal.body:find("reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state", 1, true) ~= nil)
+    t.is_true(refusal.body:find("reintake requires terminal blocked or no active devloop state", 1, true) ~= nil)
   end,
 
   test_admission_reintake_effect_timestamp_follows_later_blocked_marker = function()
@@ -319,7 +289,7 @@ return {
     t.eq(#result.raises, 1)
     local refusal = find_comment_body(result.raises, "operator command refused")
     t.is_true(refusal ~= nil)
-    t.is_true(refusal.body:find("reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state", 1, true) ~= nil)
+    t.is_true(refusal.body:find("reintake requires terminal blocked or no active devloop state", 1, true) ~= nil)
     t.is_true(refusal.body:find("use rereview, reready, or reimplement", 1, true) ~= nil)
     t.is_true(refusal.body:find('outcome="refused"', 1, true) ~= nil)
   end,

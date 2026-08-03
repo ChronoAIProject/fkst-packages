@@ -41,7 +41,7 @@ return {
         open = "REACHED: approve injected",
       }
     )
-    local facts = conv_rounds.converge_round_facts_for_epoch({ trusted(marker) }, proposal_id, base_version, source_digest)
+    local facts = conv_rounds.converge_round_facts({ trusted(marker) }, proposal_id, base_version, source_digest)
     local proposal = payloads_builders.build_loop_proposal("owner/repo",
       42,
       {

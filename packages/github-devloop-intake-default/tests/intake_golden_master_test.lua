@@ -466,7 +466,7 @@ return {
     t.eq(result.exit_code, 0)
     assert_queues(result.raises, { "github-proxy.github_issue_comment_request" })
     local request = result.raises[1].payload
-    local refusal_reason = "reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state; use rereview, reready, or reimplement for recoverable active states"
+    local refusal_reason = "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states"
     assert_common_issue_request(request, "github-proxy.v1", base_ids.dedup_key({
       "operator-command",
       "comment",

@@ -131,9 +131,7 @@ return {
       ready,
       "lean-proof-repair-needed",
       raw,
-      1,
-      "UNKNOWN",
-      true
+      1
     )
 
     local receipt, receipt_raw = proof_attempt.previous_receipt({

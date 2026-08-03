@@ -729,7 +729,6 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 1, base_version .. "/loop/1", event.narrowed_question, event.angle_digests),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 2, base_version .. "/loop/2", event.narrowed_question, event.angle_digests),
     })
@@ -768,7 +767,6 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 0, base_version, "Question 0", varying_digest(0), "open:\nfirst resolvable finding"),
     })
 
@@ -794,7 +792,6 @@ return {
     local base_version = conv_rounds.converge_base_version(event.dedup_key)
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 1, event.dedup_key, nil, nil),
     })
 
@@ -818,7 +815,6 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", base_version),
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 4, base_version .. "/loop/4", event.narrowed_question, event.angle_digests),
     })
 
@@ -891,16 +887,14 @@ return {
 
   test_reconcile_drop_blocks_thinking_issue = function()
     local event = reconcile()
-    mock_issue_reconcile({ "fkst-dev:thinking" }, {
-      core.state_marker(event.proposal_id, "thinking", event.base_version),
-    })
+    mock_issue_reconcile({ "fkst-dev:thinking" })
 
     local result = run_reconcile(event, opts("reconcile-drop"))
     t.eq(result.exit_code, 0)
     t.eq(#result.raises, 2)
     local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request").payload
     local label = find_raise(result.raises, "github-proxy.github_issue_label_request").payload
-    local version = conv_reconcile.reconcile_terminal_state_version(event.base_version, event.round)
+    local version = conv_reconcile.reconcile_terminal_state_version(default_marker_version, event.round)
     t.is_true(comment.body:find("github-devloop reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("no-semantic-progress-after-3-rounds", 1, true) ~= nil)
     t.is_true(comment.body:find(core.state_marker(event.proposal_id, "blocked", version), 1, true) ~= nil)

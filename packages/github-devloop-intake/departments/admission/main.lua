@@ -97,7 +97,7 @@ local function handle_pending_reintake(context, repo, issue, current, proposal_i
   end
   if core.reintake_has_active_devloop_state(current.labels, current.comments, proposal_id) then
     reconcile_capacity(context, repo, proposal_id)
-    raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires a terminal lifecycle state, blocked recovery hold, or no active devloop state; use rereview, reready, or reimplement for recoverable active states", source_ref)
+    raise_reintake_refusal(repo, issue.number, proposal_id, command, "reintake requires terminal blocked or no active devloop state; use rereview, reready, or reimplement for recoverable active states", source_ref)
     return true
   end
   local claim_admission, claim_detail = settled_claim_admission(context, repo, current, poll_key)

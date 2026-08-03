@@ -4,7 +4,6 @@ return {
   dependency_cycle_marker = function(...) return core.dependency_cycle_marker(...) end,
   dependency_gate = function(...) return core.dependency_gate(...) end,
   dependency_gate_has_notes = function(...) return core.dependency_gate_has_notes(...) end,
-  dependency_gate_is_satisfied = function(...) return core.dependency_gate_is_satisfied(...) end,
   dependency_hold_fact = function(...) return core.dependency_hold_fact(...) end,
   dependency_unresolvable_marker = function(...) return core.dependency_unresolvable_marker(...) end,
   dependency_wait_marker = function(...) return core.dependency_wait_marker(...) end,
