@@ -72,7 +72,7 @@ local pending_order_goldens = {
   ["github-devloop/implementing/operator_reentry/reimplement_blocked_implementation_refusal"] = no,
   ["github-devloop/dependency_wait/canonicalization/legacy_ready_dependency_hold"] = yes("ready"),
   ["github-devloop/ready/canonicalization/legacy_ready_rederive"] = no,
-  ["github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr"] = yes("implementing"),
+  ["github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr"] = yes("implementing"),
   ["github-devloop/awaiting-pr/canonicalization/legacy_pr_open_delegation"] = no,
 }
 
