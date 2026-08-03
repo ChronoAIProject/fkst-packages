@@ -98,10 +98,14 @@ function C.liveness_scan_state_is_non_terminal(M, state)
   return row ~= nil and row.terminal ~= true
 end
 
-function C.liveness_scan_should_reinject_state(M, proposal_id, state)
+function C.liveness_scan_should_reinject_state(M, proposal_id, state, labels)
   if state == nil or state.state == nil then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, { state = nil, version = nil }, "tick", "observe", "skip-no-state", "no current restart state marker")
     return false
+  end
+  if type(labels) == "table" and not M.state_label_hint_matches(labels, state.state) then
+    devloop_logging.log_cas_decision("liveness_scan", proposal_id, state, "tick", "observe", "reinject-label-projection", "current issue state label does not match the canonical state marker")
+    return true, "label-projection-mismatch"
   end
   if not C.liveness_scan_state_is_non_terminal(M, state) then
     devloop_logging.log_cas_decision("liveness_scan", proposal_id, state, "tick", "observe", "skip-terminal", "current restart state is terminal or unknown")
