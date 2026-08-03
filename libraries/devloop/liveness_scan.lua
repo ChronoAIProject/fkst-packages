@@ -51,27 +51,22 @@ function C.liveness_scan_is_timeout_result(M, result)
     and (tonumber(result.exit_code) == 124 or M.error_fact_class({ message = result.stderr }) == "timeout")
 end
 
-local function activation_cursor_key(activation)
-  return activation and activation.entity and activation.entity.number
-end
-
-local function parse_activation_cursor_state(value)
-  local cursor, high_water = tostring(value or ""):match("^v1/(%d+)/(%d+)$")
-  return tonumber(cursor), tonumber(high_water)
-end
-
-local function render_activation_cursor_state(cursor, high_water)
-  return "v1/" .. tostring(cursor) .. "/" .. tostring(high_water)
-end
-
-function C.liveness_scan_update_cursor(cursor_key, cursor_progress, processed)
+function C.liveness_scan_update_cursor(cursor_key, cursor, total, processed)
   if cursor_key == nil then
     return
   end
-  local next_cursor, next_high_water = sweep_bounds.sweep_cursor_advance(cursor_progress, processed)
-  if next_cursor ~= nil and next_high_water ~= nil then
-    cache_set(cursor_key, render_activation_cursor_state(next_cursor, next_high_water))
+  local state = type(cursor) == "table" and cursor or {}
+  local attempted = tonumber(processed) or 0
+  local remaining = tonumber(state.remaining) or 0
+  if attempted >= remaining then
+    cache_set(cursor_key, "0")
+    return
   end
+  local last_attempted = tonumber(state.activation_numbers and state.activation_numbers[attempted])
+  if attempted > 0 and last_attempted ~= nil then
+    state.last_number = last_attempted
+  end
+  cache_set(cursor_key, tostring(state.last_number or 0) .. ":" .. tostring(state.high_water or 0))
 end
 
 function C.liveness_scan_build_observe_payload(repo, entity, kind, tick)
@@ -217,13 +212,21 @@ local function sort_by_number(items)
   return items
 end
 
-local function entities_in_cursor_cycle(activations, cursor, high_water)
+local function decode_scan_cursor(value)
+  local last_number, high_water = tostring(value or ""):match("^(%d+):(%d+)$")
+  last_number = tonumber(last_number)
+  high_water = tonumber(high_water)
+  if last_number == nil or high_water == nil or last_number > high_water then
+    return 0, nil
+  end
+  return last_number, high_water
+end
+
+local function entities_in_cursor_cycle(activations, last_number, high_water)
   local eligible = {}
   for _, activation in ipairs(activations) do
     local number = tonumber(activation.entity and activation.entity.number)
-    if number ~= nil
-      and (cursor == nil or number > cursor)
-      and number <= high_water then
+    if number ~= nil and number > last_number and number <= high_water then
       table.insert(eligible, activation)
     end
   end
@@ -237,30 +240,37 @@ function C.liveness_scan_activation_slice(repo, kind, items, cursor_prefix)
   end
   local total = #activations
   local cursor_key = C.liveness_scan_cursor_key(repo, cursor_prefix)
-  local cursor, high_water = parse_activation_cursor_state(cache_get(cursor_key))
+  local last_number, high_water = decode_scan_cursor(cache_get(cursor_key))
   local current_high_water = total > 0 and tonumber(activations[total].entity.number) or 0
   if high_water == nil then
-    cursor = nil
     high_water = current_high_water
   end
-  local eligible = entities_in_cursor_cycle(activations, cursor, high_water)
+  local eligible = entities_in_cursor_cycle(activations, last_number, high_water)
   if total > 0 and #eligible == 0 then
-    cursor = nil
+    last_number = 0
     high_water = current_high_water
-    eligible = entities_in_cursor_cycle(activations, cursor, high_water)
+    eligible = entities_in_cursor_cycle(activations, last_number, high_water)
   end
-  local bounded, deferred, _, _, cursor_progress = sweep_bounds.sweep_cursor_batch(
-    eligible,
-    cursor,
-    LIVENESS_SCAN_MAX_PER_TICK,
-    LIVENESS_SCAN_MAX_PER_TICK,
-    activation_cursor_key,
-    high_water
-  )
+
+  local bounded = {}
+  local activation_numbers = {}
+  for index, activation in ipairs(eligible) do
+    if index > LIVENESS_SCAN_MAX_PER_TICK then
+      break
+    end
+    table.insert(bounded, activation)
+    table.insert(activation_numbers, tonumber(activation.entity.number))
+  end
+  local deferred = math.max(0, #eligible - #bounded)
   if deferred > 0 then
     devloop_logging.log_cas_decision("liveness_scan", "github-devloop/liveness-scan", { state = nil, version = nil }, "tick", "observe", "deferred-cap", tostring(deferred) .. " open entities deferred by LIVENESS_SCAN_MAX_PER_TICK")
   end
-  return bounded, deferred, cursor_key, cursor_progress
+  return bounded, deferred, cursor_key, {
+    last_number = last_number,
+    high_water = high_water,
+    activation_numbers = activation_numbers,
+    remaining = #eligible,
+  }, total
 end
 
 function C.liveness_scan_reinject(repo, entity, kind, tick)

@@ -131,6 +131,9 @@ local function marker_guard_allows_write(payload, repo, kind, number, add_labels
   local comments = core.fetch_marker_guard_comments(repo, guard_kind, guard_number)
   local ok, reason = core.marker_guard_current(comments, payload.marker_guard, bot_login)
   if not ok then
+    if reason == "marker-guard-pending" then
+      error("github-proxy: marker-guard-pending: observed marker version precedes expected marker version")
+    end
     if state_label_write
       and reason == "marker-guard-missing"
       and same_entity(kind, number, guard_kind, guard_number) then

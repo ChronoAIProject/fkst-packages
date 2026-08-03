@@ -21,7 +21,10 @@ return {
     t.eq(trace.raised[1].payload.repo, "owner/x")
     t.eq(trace.raised[1].payload.number, 42)
     t.eq(trace.raised[1].payload.updated_at, "2026-06-03T01:02:03Z")
-    t.eq(trace.raised[1].payload.dedup_key, "owner/x#issue#42@2026-06-03T01:02:03Z")
+    t.eq(
+      trace.raised[1].payload.dedup_key,
+      "owner/x#issue#42@2026-06-03T01:02:03Z"
+    )
     t.eq(trace.raised[1].payload.source_ref.ref, "owner/x#issue/42")
     t.eq(trace.raised[2].queue:match("([^.]+)$"), "github_entity_changed")
     t.eq(trace.raised[2].payload.schema, "github-proxy.v1")
