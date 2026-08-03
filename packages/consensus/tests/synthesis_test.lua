@@ -329,6 +329,33 @@ return {
     t.eq(repair_failure.limit_bytes, synthesis_contract.findings_record_max_bytes)
   end,
 
+  test_parse_or_retry_accepts_exact_findings_budget_without_repair = function()
+    local call_count = 0
+    local repair_prompt_requested = false
+
+    local parsed = synthesis.parse_or_retry({
+      verdict_mode = "converge",
+      p1_results = {},
+      p2_results = {},
+      build_prompt = function(repair)
+        repair_prompt_requested = repair_prompt_requested or repair
+        return repair and "repair" or "first"
+      end,
+      spawn_sync = function()
+        call_count = call_count + 1
+        return {
+          stdout = synthesis_output_with_findings_bytes(synthesis_contract.findings_record_max_bytes),
+          stderr = "",
+          exit_code = 0,
+        }
+      end,
+    })
+
+    t.eq(call_count, 1)
+    t.eq(repair_prompt_requested, false)
+    t.eq(#parsed.findings_record, synthesis_contract.findings_record_max_bytes)
+  end,
+
   test_parse_or_retry_passes_worker_exit_diagnostic_to_repair = function()
     local call_count = 0
     local repair_failure = nil
