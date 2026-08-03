@@ -33,7 +33,7 @@ local RESTART_INVENTORY_PATH = "migration/restart-lifecycle.inventory.json"
 local OLD_APPLY_OBSERVATION_ID = "writer:github-devloop:awaiting-pr-enter/merged-delegated-pr-canonicalized/awaiting-pr/apply/applied(merged-delegated-pr-canonicalized)/awaiting-pr"
 local AWAITING_PR_NEW_TRACE_PATH = ".fkst/run/r9-awaiting-pr-new-trace.json"
 local OWNER = core.restart_package_name
-local IMPLEMENTING_SHADOW_VARIANT = "implementing_merged_delegated_pr"
+local IMPLEMENTING_SHADOW_VARIANT = "implementing_terminal_delegated_pr"
 
 local POLICY_ID = "cas.legacy_awaiting_pr_v1"
 local REPO = "owner/repo"
@@ -443,7 +443,7 @@ local function assert_shadow_case(fixture)
   t.eq(result.exit_code, fixture.expected_exit_code or 0, fixture.name .. ": department exit code")
 end
 
-local TRACE_EDGE_ID = OWNER .. "/awaiting-pr/canonicalization/implementing_merged_delegated_pr"
+local TRACE_EDGE_ID = OWNER .. "/awaiting-pr/canonicalization/implementing_terminal_delegated_pr"
 local TRACE_FIXTURES = {
   { fixture_id = "source-equal-apply", current_state = "implementing", current_version = V_EQUAL },
   { fixture_id = "source-marker-missing-pending", current_state = "ready", current_version = V_EQUAL },
@@ -514,7 +514,7 @@ local function run_production_trace_fixture(fixture)
   end
   local result, probes, _, boundary_calls = observe_department(function()
     local ok, failure = pcall(
-      awaiting_pr_replayer.canonicalize_implementing_merged_delegated_pr,
+      awaiting_pr_replayer.canonicalize_implementing_terminal_delegated_pr,
       "observe_issue",
       issue,
       state,
@@ -552,7 +552,7 @@ local function decide_trace(fixture, incoming_version, fingerprint)
     generation = "r9-awaiting-pr:generation",
   })
   local decided = restart_effects.decide_transition(snapshot, {
-    semantic_variant = "implementing_merged_delegated_pr",
+    semantic_variant = "implementing_terminal_delegated_pr",
     target = "awaiting-pr",
     incoming_version = incoming_version,
   })
@@ -595,6 +595,7 @@ local function new_trace_fixture(fixture, probe, admission)
         version = FROZEN_OLD_APPLY.version,
         delegation = FROZEN_OLD_APPLY.delegation,
       },
+      child_state = { state = "merged" },
     }
     local full_writes = json_array()
     for ordinal, effect_id in ipairs(decided.granted_effect_ids) do
