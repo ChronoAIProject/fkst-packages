@@ -273,6 +273,7 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   t.eq(count_kind(scan_github.operations, "issue_assign"), 0)
   t.eq(count_kind(scan_github.operations, "issue_create"), 0)
   t.eq(count_kind(scan_github.operations, "pr_comment"), 0)
+  t.eq(count_kind(scan_github.operations, "issue_close"), 0)
   t.eq(logs_contain(scan_logs, "action=skip-"), false)
 
   local candidate_github = fake_github(production_pr(signer, branch, base_branch))
