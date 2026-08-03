@@ -204,6 +204,14 @@ local function run_with(fakes)
       verify_issue_claim = function()
         return fake.claim ~= false
       end,
+      dependency_gate = fake.dependency_gate or function()
+        return {
+          ok = true,
+          kind = "satisfied",
+          reason = "satisfied",
+          unmet = {},
+        }
+      end,
       child_status = function(_core, child_ref)
         local key = tostring(child_ref.issue_number or child_ref.proposal_id or "")
         local result = (fake.child_statuses or {})[key] or fake.child_status or "running"
@@ -212,21 +220,25 @@ local function run_with(fakes)
         end
         return result
       end,
-      load_blueprint = function(_ctx, workflow_id)
+      load_blueprints = function()
         if fake.workflow_missing then
-          return nil
-        end
-        if tostring(workflow_id) ~= "workflow-one" then
-          return nil
+          return { valid = {} }
         end
         return {
-          path = "test-workflow.json",
-          blueprint = fake.blueprint or blueprint(),
+          valid = {
+            ["workflow-one"] = {
+              path = "test-workflow.json",
+              blueprint = fake.blueprint or blueprint(),
+            },
+          },
         }
       end,
       spawn_codex = fake.spawn_codex,
       content_fetch = fake.content_fetch,
       release_done_claim = fake.release_done_claim or function()
+        return true
+      end,
+      close_done_origin = fake.close_done_origin or function()
         return true
       end,
       read_created_issue = fake.read_created_issue,
@@ -305,6 +317,74 @@ local tests = {
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:lineage:v1", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("Implement the first static step.", 1, true) ~= nil)
     t.is_true(raised[1].payload.body:find("fkst:github-devloop-workflow:materialization:v1", 1, true) == nil)
+  end,
+
+  test_unsatisfied_origin_dependency_holds_before_child_materialization = function()
+    local gate_calls = 0
+    local generator_calls = 0
+    local raised = run_with({
+      dependency_gate = function(gate_repo, gate_issue_number)
+        gate_calls = gate_calls + 1
+        t.eq(gate_repo, repo)
+        t.eq(gate_issue_number, origin_issue)
+        return {
+          ok = false,
+          kind = "waiting",
+          reason = "waiting-on-dependency",
+          unmet = { 41 },
+        }
+      end,
+      spawn_codex = function()
+        generator_calls = generator_calls + 1
+        return { exit_code = 0, stdout = '{"title":"Unexpected","body":"Unexpected."}' }
+      end,
+    })
+
+    t.eq(gate_calls, 1)
+    t.eq(generator_calls, 0)
+    t.eq(#raised, 0)
+  end,
+
+  test_unresolvable_origin_dependency_fails_closed_before_child_materialization = function()
+    local raised = run_with({
+      dependency_gate = function()
+        return {
+          ok = false,
+          kind = "unresolvable",
+          reason = "blockedby-truncated",
+          unmet = { origin_issue },
+        }
+      end,
+    })
+
+    t.eq(#raised, 0)
+  end,
+
+  test_origin_dependency_release_materializes_child_on_next_poll = function()
+    local gate = {
+      ok = false,
+      kind = "waiting",
+      reason = "waiting-on-dependency",
+      unmet = { 41 },
+    }
+    local function dependency_gate()
+      return gate
+    end
+
+    local held = run_with({ dependency_gate = dependency_gate })
+    t.eq(#held, 0)
+
+    gate = {
+      ok = true,
+      kind = "satisfied",
+      reason = "satisfied",
+      unmet = {},
+    }
+    local released = run_with({ dependency_gate = dependency_gate })
+    local creates = only_queue(released, "github-proxy.github_issue_create_request")
+    t.eq(#released, 1)
+    t.eq(#creates, 1)
+    t.eq(creates[1].payload.parent, origin_issue)
   end,
 
   -- Regression (found by real dogfood): a GENERATED first slot has no prior
@@ -762,12 +842,13 @@ local tests = {
     t.is_true(raised[1].payload.body:find('reason_code="impossible-ledger"', 1, true) ~= nil)
   end,
 
-  test_done_terminal_releases_self_only_claim = function()
+  test_done_terminal_releases_and_closes_only_after_marker_and_label_are_visible = function()
     local first_spec = generated_spec("first")
     local second_spec = generated_spec("second")
     local first_ref = { kind = "external", ref = repo .. "#issue/108" }
     local released = nil
-    local raised = run_with({
+    local closed = nil
+    local first = run_with({
       current = issue({
         comment(blueprint_marker()),
         created_comment("first", materialization.EMPTY_PREDECESSOR_REF_DIGEST, first_spec, 108),
@@ -785,11 +866,63 @@ local tests = {
         }
         return true
       end,
+      close_done_origin = function()
+        closed = true
+        return true
+      end,
     })
-    t.eq(#raised, 1)
+    local terminal_comments = only_queue(first, "github-proxy.github_issue_comment_request")
+    t.eq(#terminal_comments, 1)
+    t.eq(released, nil)
+    t.eq(closed, nil)
+
+    local projection = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(terminal_comments[1].payload.body),
+      }),
+      release_done_claim = function()
+        released = true
+        return true
+      end,
+      close_done_origin = function()
+        closed = true
+        return true
+      end,
+    })
+    t.eq(#only_queue(projection, "github-proxy.github_issue_label_request"), 1)
+    t.eq(released, nil)
+    t.eq(closed, nil)
+
+    local completed = run_with({
+      current = issue({
+        comment(blueprint_marker()),
+        comment(terminal_comments[1].payload.body),
+      }, { labels = { "fkst-dev:merged" } }),
+      release_done_claim = function(_core, release_repo, release_issue, release_origin)
+        released = {
+          repo = release_repo,
+          issue = release_issue,
+          origin = release_origin,
+        }
+        return true
+      end,
+      close_done_origin = function(_core, close_repo, close_issue, close_origin)
+        closed = {
+          repo = close_repo,
+          issue = close_issue,
+          origin = close_origin,
+        }
+        return true
+      end,
+    })
+    t.eq(#completed, 0)
     t.eq(released.repo, repo)
     t.eq(released.issue, origin_issue)
     t.eq(released.origin, origin)
+    t.eq(closed.repo, repo)
+    t.eq(closed.issue, origin_issue)
+    t.eq(closed.origin, origin)
   end,
 }
 

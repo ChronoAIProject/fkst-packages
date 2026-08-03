@@ -368,14 +368,14 @@ return {
     t.eq(type(operations), "table")
     t.eq(type(operations.dependency_blocked_by), "string")
     t.eq(operations.dependency_blocked_by:find("blockedBy(first:50)", 1, true) ~= nil, true)
-    t.eq(operations.dependency_blocked_by:find("nodes{number state stateReason repository{nameWithOwner}}", 1, true) ~= nil, true)
+    t.eq(operations.dependency_blocked_by:find("nodes{number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}}}", 1, true) ~= nil, true)
     t.eq(
       core.render_github_graphql_query("dependency_blocked_by", {
         owner = "owner",
         name = "repo",
         issue_number = 42,
       }),
-      '{repository(owner:"owner",name:"repo"){issue(number:42){blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner}}}}}}'
+      '{repository(owner:"owner",name:"repo"){issue(number:42){number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}} blockedBy(first:50){totalCount pageInfo{hasNextPage} nodes{number state stateReason repository{nameWithOwner} duplicateOf{number state stateReason repository{nameWithOwner}}}}}}}'
     )
   end,
 
@@ -644,10 +644,9 @@ return {
     t.eq(has_queue(cascaded.raises, "devloop_ready"), false)
     t.is_true(ready_handoff_raise(cascaded.raises) ~= nil)
     t.is_true(has_marker(cascaded.raises, "fkst:github-devloop:dependency-release:v1"))
-    local clear = find_raise(cascaded.raises, "github-proxy.github_issue_label_request", function(payload)
-      return h.has_value(payload.remove_labels, "fkst-dev:blocked-on-dependency")
-    end)
+    local clear = ready_handoff_raise(cascaded.raises).payload.handoff.label_request
     t.is_true(clear ~= nil)
+    t.is_true(h.has_value(clear.remove_labels, "fkst-dev:blocked-on-dependency"))
   end,
 
   test_legacy_ready_cycle_hold_canonicalizes_to_dependency_wait = function()
@@ -767,10 +766,9 @@ return {
     t.is_true(ready_handoff_raise(released.raises) ~= nil)
     t.is_true(has_marker(released.raises, "fkst:github-devloop:dependency-release:v1"))
     t.is_true(has_marker(released.raises, "fkst:github-devloop:dependency-void:v1"))
-    local clear = find_raise(released.raises, "github-proxy.github_issue_label_request", function(payload)
-      return h.has_value(payload.remove_labels, "fkst-dev:blocked-on-dependency")
-    end)
+    local clear = ready_handoff_raise(released.raises).payload.handoff.label_request
     t.is_true(clear ~= nil)
+    t.is_true(h.has_value(clear.remove_labels, "fkst-dev:blocked-on-dependency"))
   end,
 
   test_consensus_result_holds_completed_blocker_without_waiver = function()
@@ -934,10 +932,9 @@ return {
     t.eq(has_queue(released.raises, "devloop_ready"), false)
     t.is_true(ready_handoff_raise(released.raises) ~= nil)
     t.is_true(has_marker(released.raises, "fkst:github-devloop:dependency-release:v1"))
-    local clear = find_raise(released.raises, "github-proxy.github_issue_label_request", function(payload)
-      return h.has_value(payload.remove_labels, "fkst-dev:blocked-on-dependency")
-    end)
+    local clear = ready_handoff_raise(released.raises).payload.handoff.label_request
     t.is_true(clear ~= nil)
+    t.is_true(h.has_value(clear.remove_labels, "fkst-dev:blocked-on-dependency"))
   end,
 
   test_old_gh_failed_wait_hold_rechecks_and_releases_on_next_poll = function()

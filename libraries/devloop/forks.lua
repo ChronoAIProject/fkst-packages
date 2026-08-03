@@ -1,5 +1,6 @@
 local devloop_base = require("devloop.base")
-local m_claims = require("devloop.claims")
+local parsers_shared = require("devloop.parsers.shared")
+local github_author_policy = require("devloop.github_author_policy")
 local parsers_misc = require("devloop.parsers.misc")
 local parsers_issue = require("devloop.parsers.issue")
 local base_ids = require("devloop.base_ids")
@@ -15,7 +16,7 @@ function F.managed_fork_trust_set(core, bot_login, managed)
       if trusted then trust_set[login] = true end
     end
   elseif type(core) == "table" then
-    for login, trusted in pairs(m_claims.managed_bot_logins() or {}) do
+    for login, trusted in pairs(github_author_policy.managed_bot_logins() or {}) do
       if trusted then trust_set[login] = true end
     end
   end
@@ -151,8 +152,8 @@ function F.fork_origin_fact(core, entity, managed)
   if type(entity) ~= "table" then
     return nil
   end
-  local trust_set = F.managed_fork_trust_set(core, m_claims.claim_owner(), managed)
-  if m_claims.is_managed_bot_login(m_claims.issue_author_login(entity), trust_set) then
+  local trust_set = F.managed_fork_trust_set(core, github_author_policy.claim_owner(), managed)
+  if github_author_policy.is_managed_bot_login(parsers_shared.issue_author_login(entity), trust_set) then
     local body_fact = fork_origin_fact_from_text(core, entity.body)
     if body_fact ~= nil then
       return body_fact
@@ -209,7 +210,7 @@ function F.build_fork_issue_create_request(core, repo, issue_number, current, so
   if tostring(current and current.state or ""):upper() ~= "OPEN" then
     return nil, "original-closed"
   end
-  local author_login = m_claims.issue_author_login(current)
+  local author_login = parsers_shared.issue_author_login(current)
   if author_login == nil or #author_login > max_login_len then
     return nil, "author-unknown"
   end
@@ -220,7 +221,7 @@ function F.build_fork_issue_create_request(core, repo, issue_number, current, so
     repo = tostring(repo),
     title = F.fork_issue_title(issue_number, current and current.title),
     body = F.fork_issue_body(repo, issue_number, author_login, normalized),
-    assignees = { m_claims.claim_owner() },
+    assignees = { github_author_policy.claim_owner() },
     dedup_key = dedup_key,
     external_effect_saga = "fork-and-block",
     external_effect_step = "create-fork",

@@ -1,4 +1,3 @@
-local m_claims = require("devloop.claims")
 local C = {}
 local shared = require("devloop.parsers.shared")
 local parsers_misc = require("devloop.parsers.misc")
@@ -25,8 +24,8 @@ function C.issue_state_from_json(M, decoded)
     labels = labels,
     comments = parsers_misc.comments_from_json(decoded.comments),
     state = decoded.state,
-    assignees = m_claims.assignee_logins(decoded.assignees),
-    author_login = m_claims.issue_author_login(decoded),
+    assignees = shared.assignee_logins(decoded.assignees),
+    author_login = shared.issue_author_login(decoded),
   }
 end
 
@@ -50,8 +49,8 @@ function C.parse_issue_list_intake(M, stdout, limit)
         created_at = issue.createdAt or issue.created_at,
         updated_at = issue.updatedAt or issue.updated_at,
         labels = shared.label_names(issue.labels),
-        assignees = m_claims.assignee_logins(issue.assignees),
-        author_login = m_claims.issue_author_login(issue),
+        assignees = shared.assignee_logins(issue.assignees),
+        author_login = shared.issue_author_login(issue),
       })
     end
   end)
@@ -121,7 +120,7 @@ function C.parse_issue_view_result(M, stdout)
   return {
     labels = state.labels,
     comments = state.comments,
-    assignees = m_claims.assignee_logins(decoded.assignees),
+    assignees = shared.assignee_logins(decoded.assignees),
     author_login = state.author_login,
   }
 end
@@ -190,7 +189,7 @@ function C.parse_issue_view_implement(M, stdout)
   local result = C.parse_issue_view_meta(M, stdout)
   result.body = tostring(decoded.body or "")
   result.state = decoded.state
-  result.author_login = m_claims.issue_author_login(decoded)
+  result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
@@ -213,8 +212,8 @@ end
 function C.parse_issue_view_review(M, stdout)
   local decoded = json.decode(stdout or "{}")
   local result = C.parse_issue_view_meta(M, stdout)
-  result.assignees = m_claims.assignee_logins(decoded.assignees)
-  result.author_login = m_claims.issue_author_login(decoded)
+  result.assignees = shared.assignee_logins(decoded.assignees)
+  result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
@@ -238,8 +237,8 @@ end
 function C.parse_issue_view_review_loop(M, stdout)
   local decoded = json.decode(stdout or "{}")
   local result = C.parse_issue_view_meta(M, stdout)
-  result.assignees = m_claims.assignee_logins(decoded.assignees)
-  result.author_login = m_claims.issue_author_login(decoded)
+  result.assignees = shared.assignee_logins(decoded.assignees)
+  result.author_login = shared.issue_author_login(decoded)
   return result
 end
 
@@ -261,8 +260,8 @@ function C.parse_issue_view_observe(M, stdout)
     state_reason = decoded.stateReason or decoded.state_reason,
     labels = shared.label_names(decoded.labels),
     comments = parsers_misc.comments_from_json(decoded.comments),
-    assignees = m_claims.assignee_logins(decoded.assignees),
-    author_login = m_claims.issue_author_login(decoded),
+    assignees = shared.assignee_logins(decoded.assignees),
+    author_login = shared.issue_author_login(decoded),
   }
 end
 

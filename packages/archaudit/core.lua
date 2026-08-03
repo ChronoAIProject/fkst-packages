@@ -3,19 +3,12 @@ local M = {}
 local strings = require("contract.strings")
 local forge_strings = require("forge.strings")
 local error_facts = require("contract.error_facts")
+local github_proxy_limits = require("contract.github_issue_create").limits()
 
 local file_limit = 240
 local rule_limit = 80
 local why_limit = 1000
 local fix_limit = 1000
-local github_proxy_limits = {
-  repo = 200,
-  title = 240,
-  body = 12000,
-  dedup_key = 512,
-  source_ref_kind = 80,
-  source_ref_ref = 200,
-}
 local observe_schema_version = 1
 local audit_due_staleness_seconds = 24 * 60 * 60
 local audit_poll_interval_seconds = 30 * 60

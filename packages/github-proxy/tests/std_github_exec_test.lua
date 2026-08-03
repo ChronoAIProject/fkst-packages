@@ -207,6 +207,25 @@ return {
     assert(seen.rate_pool == nil, "git exec must not pass rate_pool")
   end,
 
+  test_git_object_type_uses_cat_file_type_argv = function()
+    local seen
+    local handle = git.new(function(opts)
+      seen = opts
+      return { stdout = "blob\n", stderr = "", exit_code = 0 }
+    end)
+
+    local result = handle.object_type("refs/heads/proof-task", "lean-toolchain", 30)
+
+    assert_argv_equal(seen.argv, {
+      "git",
+      "cat-file",
+      "-t",
+      "refs/heads/proof-task:lean-toolchain",
+    }, "git object type")
+    assert(seen.timeout == 30, "object type timeout is forwarded")
+    assert(result.stdout == "blob\n")
+  end,
+
   test_git_exec_rejects_non_git_program = function()
     local handle = git.new(function(_opts)
       error("exec must not be called for adapter misuse")
@@ -392,6 +411,40 @@ return {
 
     assert(ok == false)
     assert(err.class == "gh-command-failed")
+  end,
+
+  test_github_issue_close_requires_and_renders_explicit_disposition = function()
+    local calls = {}
+    local handle = gh.new(function(opts)
+      table.insert(calls, opts)
+      return { stdout = "", stderr = "", exit_code = 0 }
+    end, { trusted_author_policy = disabled_policy })
+
+    handle.issue_close("owner/repo", 41, { kind = "completed" }, 31)
+    handle.issue_close("owner/repo", 42, { kind = "not_planned" }, 32)
+    handle.issue_close("owner/repo", 43, { kind = "duplicate", duplicate_of = 41 }, 33)
+
+    assert_argv_equal(
+      calls[1].argv,
+      { "gh", "issue", "close", "41", "--repo", "owner/repo", "--reason", "completed" },
+      "issue_close completed"
+    )
+    assert_argv_equal(
+      calls[2].argv,
+      { "gh", "issue", "close", "42", "--repo", "owner/repo", "--reason", "not planned" },
+      "issue_close not planned"
+    )
+    assert_argv_equal(
+      calls[3].argv,
+      { "gh", "issue", "close", "43", "--repo", "owner/repo", "--duplicate-of", "41" },
+      "issue_close duplicate"
+    )
+
+    local ok, err = pcall(function()
+      handle.issue_close("owner/repo", 44, nil, 34)
+    end)
+    assert(ok == false)
+    assert(tostring(err):find("explicit issue close disposition is required", 1, true) ~= nil)
   end,
 
   test_github_entity_methods_build_argv = function()
@@ -580,6 +633,91 @@ return {
       assert(call.cmd == nil, "comment method must not pass cmd")
       assert(call.rate_pool == nil, "comment method must not pass rate_pool")
     end
+  end,
+
+  test_git_fetch_pr_head_oid_uses_floor_compatible_exact_argv = function()
+    -- README prerequisites declare git >= 2.39.5. These exact argv assertions reject
+    -- the known-bad fetch --porcelain flag, but cannot prove that an arbitrary future
+    -- flag preserves that floor; a real-git floor CI lane is the escalation if needed.
+    local oid = "0123456789abcdef0123456789abcdef01234567"
+    local calls = {}
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end
+      return {
+        stdout = oid .. "\n",
+        stderr = "",
+        exit_code = 0,
+      }
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert_argv_equal(calls[1].argv, {
+      "git",
+      "fetch",
+      "--no-write-fetch-head",
+      "origin",
+      "+refs/pull/7/head:refs/fkst/pr/7",
+    }, "fetch_pr_head_oid fetch")
+    assert(#calls == 2, "fetch_pr_head_oid must fetch and then resolve the local ref")
+    assert_argv_equal(calls[2].argv, {
+      "git",
+      "rev-parse",
+      "--verify",
+      "refs/fkst/pr/7^{commit}",
+    }, "fetch_pr_head_oid rev-parse")
+    assert(calls[1].timeout == 42, "fetch_pr_head_oid fetch timeout mismatch")
+    assert(calls[2].timeout == 42, "fetch_pr_head_oid rev-parse timeout mismatch")
+    assert(result.stdout == oid .. "\n", "fetch_pr_head_oid must return the resolved OID")
+    assert(result.stderr == "", "fetch_pr_head_oid must return rev-parse stderr")
+    assert(result.exit_code == 0, "fetch_pr_head_oid must return rev-parse success")
+  end,
+
+  test_git_fetch_pr_head_oid_preserves_fetch_failure = function()
+    local calls = {}
+    local fetch_failure = { stdout = "", stderr = "fetch failed", exit_code = 128 }
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      return fetch_failure
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert_argv_equal(calls[1].argv, {
+      "git",
+      "fetch",
+      "--no-write-fetch-head",
+      "origin",
+      "+refs/pull/7/head:refs/fkst/pr/7",
+    }, "failed fetch_pr_head_oid fetch")
+    assert(#calls == 1, "failed fetch_pr_head_oid must not run a fallback command")
+    assert(result == fetch_failure, "failed fetch_pr_head_oid must return the fetch result unchanged")
+  end,
+
+  test_git_fetch_pr_head_oid_propagates_rev_parse_failure = function()
+    local calls = {}
+    local rev_parse_failure = { stdout = "", stderr = "missing ref", exit_code = 128 }
+    local handle = git.new(function(opts)
+      table.insert(calls, opts)
+      if #calls == 1 then
+        return { stdout = "", stderr = "", exit_code = 0 }
+      end
+      return rev_parse_failure
+    end)
+
+    local result = handle.fetch_pr_head_oid("origin", 7, 42)
+
+    assert(#calls == 2, "successful fetch must be followed by rev-parse")
+    assert_argv_equal(calls[2].argv, {
+      "git",
+      "rev-parse",
+      "--verify",
+      "refs/fkst/pr/7^{commit}",
+    }, "failed fetch_pr_head_oid rev-parse")
+    assert(result == rev_parse_failure, "fetch_pr_head_oid must propagate rev-parse failure")
   end,
 
   test_git_methods_build_argv = function()

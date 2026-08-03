@@ -453,14 +453,37 @@ bin_ensure_fresh() {
 # Prune worktrees + scratch dirs from OLD runtime roots of this dogfood (implement/fix
 # depts create worktrees under the launch runtime scratch, registered in the shared .git; each
 # restart makes a fresh runtime root, orphaning the old registrations — registry leak #500).
+#
+# PRESERVE STILL-REGISTERED GENERATIONS (#2925). A restart SIGKILLs only the supervise; an
+# in-flight codex is ORPHANED and keeps running against its worktree (crash-only contract). This
+# cleaner used to remove the registration and rm -rf the directory anyway, so the orphan kept
+# writing into a deleted path and recreated a partial, UNREGISTERED husk. Harvest then ran `cd`
+# into it, exited nonzero WITHOUT a typed marker, and the run was recorded as a false
+# `impl-failed / local-iteration-attribution-indeterminate` (observed on #2919, and on #2925's own
+# implementation twice). A registered worktree is the ground truth for "someone still owns this",
+# so a generation that still has one is skipped entirely and reported — it is reclaimed on a later
+# pass once its registration is gone. This is the operator-side containment that the #2925 fix
+# (moving implementation worktrees to a stable root) requires to land first; without it, deploying
+# that fix would itself destroy the pre-fix work still in flight.
 clean_stale_runtime_worktrees() { # $1 name, $2 current-rt-to-keep
-  local name="$1" keep="$2" wt d
-  git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
-    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep" \
-    | while read -r wt; do git -C "$PKGSRC" worktree remove --force "$wt" 2>/dev/null; done
+  local name="$1" keep="$2" wt d held
+  held=$(git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+    | grep -F "/dogfood-rt-${name}." | grep -vF "$keep")
+  if [ -n "$held" ]; then
+    echo "  ! preserving $(printf '%s\n' "$held" | wc -l | tr -d ' ') still-registered worktree(s) from older runtime roots (#2925):"
+    printf '%s\n' "$held" | sed 's|^|      |'
+  fi
   git -C "$PKGSRC" worktree prune 2>/dev/null
   for d in "$LOGDIR"/dogfood-rt-"${name}".*; do
-    [ -d "$d" ] && [ "$d" != "$keep" ] && rm -rf "$d" 2>/dev/null
+    [ -d "$d" ] && [ "$d" != "$keep" ] || continue
+    # Skip any generation that still holds a registered worktree; removing it is what
+    # manufactures the husk. Re-read the registry each iteration: `worktree prune` above may
+    # have dropped registrations whose directories are already gone.
+    if git -C "$PKGSRC" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' \
+        | grep -qF "$d/"; then
+      continue
+    fi
+    rm -rf "$d" 2>/dev/null
   done
 }
 
@@ -483,19 +506,36 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   [ -n "$LOCAL_PKGS" ] && args+=(--host-packages "$LOCAL_PKGS")
   [ "$restart" = "1" ] && args+=(--restart)
 
+  # Own-session launch: make the supervise its OWN session/process-group leader. CONFIRMED (ps): the
+  # plain `nohup "${args[@]}" &` launch left the supervise in the LAUNCHER's process group (PGID = the
+  # launching shell's, not its own pid) — vulnerable to any group-directed signal to that pgroup
+  # (`kill -- -<pgid>`). Closing that confirmed foreign-pgroup membership is the point of this change.
+  # [ASSUMED-UNVERIFIED: the recurring out-of-band SIGTERM that forced manual restarts ~every few hours
+  # is *inferred* to be such a group signal on launcher/session/background-task teardown — it was not
+  # caught live. This hardens the confirmed vulnerability; it does NOT prove recurrence-elimination,
+  # which must be observed after this lands.] `nohup` only blocks SIGHUP, not group signals. macOS has
+  # no setsid(1), so wrap in python3 (already required by scripts/run.sh; perl was rejected — it panics
+  # under the automation env's LC_ALL=C.UTF-8 locale). `os.setsid()`+`os.execvp` is IN-PLACE, so $!
+  # below stays the REAL supervise pid and the env-prefix stays scoped to the launch; a failed setsid
+  # raises OSError → nonzero exit → the readiness wait reports the launch failure loud (self-verifying).
   BIN="$BIN" FKST_GITHUB_REPO="$REPO" FKST_GITHUB_WRITE=1 FKST_GITHUB_BOT_LOGIN="$BOT" \
     FKST_GITHUB_PROXY_POLL_LABEL_PREFIX="$GITHUB_PROXY_POLL_LABEL_PREFIX" \
     FKST_DEVLOOP_UPSTREAM_BRANCH="$UPSTREAM_BRANCH" FKST_DEVLOOP_INTEGRATION_BRANCH="$INTEGRATION_BRANCH" \
     FKST_DEVLOOP_ROLLUP_MERGE="$ROLLUP_MERGE" FKST_DEVLOOP_MANAGED_BOT_LOGINS="$MANAGED_BOT_LOGINS" \
     FKST_GITHUB_AUTHORIZE_ORG_MEMBERS="$AUTHORIZE_ORG_MEMBERS" \
     FKST_RATE_POOL_ROOT="$RATE_POOL" \
-    nohup "${args[@]}" > "$log" 2>&1 &
+    nohup python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "${args[@]}" > "$log" 2>&1 &
   local pid=$!
   ln -sf "$log" "$LOGDIR/${name}-sv.log"
   wait_supervise_ready "$pid" "$log"
   local ready_status=$?
   if [ "$ready_status" -eq 0 ]; then
-    echo "[$name] started pid $pid  panic=$(engine_panic_count "$log")  log=$log"
+    # Committed per-launch verification that the own-session daemonization took effect: a session
+    # leader has PGID == PID. If not, setsid silently did not apply and the supervise is back in a
+    # foreign pgroup (the bug this launch fixes) — surface it loud rather than pass a false green.
+    local svpgid; svpgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+    local own="own-pgroup=yes"; [ "$svpgid" = "$pid" ] || own="own-pgroup=NO(WARN: setsid not in effect, pgid=$svpgid — supervise is signal-group-vulnerable)"
+    echo "[$name] started pid $pid  $own  panic=$(engine_panic_count "$log")  log=$log"
   else
     if [ "$ready_status" -eq 1 ]; then
       echo "[$name] FAILED to start; supervise pid $pid exited before readiness; tail:"
@@ -507,11 +547,32 @@ launch_one() { # $1 name, $2 restart flag (0|1)
   fi
 }
 
+# launch_with_lock_retry: launch_one + a bounded retry on the redb lock race ONLY.
+# `restart` is the deploy path and is NOT atomic: it SIGKILLs the old supervise then opens the
+# durable store. That kill does not always release the redb lock in time; the race loser exits with
+# `Database already open. Cannot acquire lock.` leaving NOTHING running — a full outage whose next
+# signal is the following operator wake (incident 2026-08-01, #3001; a plain retry minutes later
+# succeeded first try, so the lock was never genuinely held). Retry ONLY this signature, so a real
+# failure (bad config, panic, missing BIN) still fails fast and loud on the first attempt.
+# Deliberately NOT named launch_one: that name carries the scripts/run.sh supervise delegation that
+# G-DOGFOOD-BOUNDARY audits, and this wrapper must not displace it from the audited surface.
+launch_with_lock_retry() { # $1 name, $2 restart flag (0|1)
+  local attempts=5 i=1 log
+  while :; do
+    launch_one "$1" "$2" && return 0
+    log=$(ls -t "$LOGDIR/${1}-sv-"*.log 2>/dev/null | head -1)
+    [ "$i" -lt "$attempts" ] && [ -n "$log" ] \
+      && grep -q "Database already open. Cannot acquire lock." "$log" 2>/dev/null || return 1
+    echo "[$1] durable lock not yet released by the previous supervise (attempt $i/$attempts); retrying in ${i}s"
+    sleep "$i"; i=$((i + 1))
+  done
+}
+
 start_one() {
   cfg "$1" || return 1
   local existing; existing=$(pidof_df)
   if [ -n "$existing" ]; then echo "[$1] already running (pid $existing) — use restart"; return 0; fi
-  launch_one "$1" 0
+  launch_with_lock_retry "$1" 0
 }
 
 stop_one() {
@@ -534,7 +595,27 @@ restart_one() {
   # One migration bridge: a supervise launched before the host-run contract has no
   # durable pidfile yet, so --restart has nothing to kill on the first upgraded run.
   [ ! -f "$DUR/.fkst-supervise.pid" ] && { stop_one "$1"; sleep 1; }
-  launch_one "$1" 1
+  launch_with_lock_retry "$1" 1
+}
+
+# fmt_uptime <etime>: render `ps -o etime=` ([[DD-]HH:]MM:SS) with EXPLICIT units.
+# The raw format's leading field changes meaning with the field count, so `09:30` (nine minutes) and
+# `09:30:00` (nine hours) look alike at a glance — an operator read a 9m30s supervise uptime as 9h30m
+# and started diagnosing a nine-hour stall on a twelve-minute-old process. The producer owns making
+# this unambiguous; every reader of status/doctor/board gets it for free.
+fmt_uptime() {
+  local et="${1:-}" d=0 h=0 m=0 s=0 rest colons
+  [ -n "$et" ] || { printf '?'; return 0; }
+  rest="$et"
+  case "$rest" in *-*) d=$((10#${rest%%-*})); rest=${rest#*-} ;; esac
+  # `rest` is now [HH:]MM:SS — peel the hour field only when it is actually present, rather than
+  # indexing a fixed offset (a negative subscript would be evaluated even on the branch that discards it)
+  colons=${rest//[^:]/}
+  if [ ${#colons} -ge 2 ]; then h=$((10#${rest%%:*})); rest=${rest#*:}; fi
+  m=$((10#${rest%%:*})); s=$((10#${rest##*:}))
+  if [ "$d" -gt 0 ]; then printf '%dd%02dh' "$d" "$h"
+  elif [ "$h" -gt 0 ]; then printf '%dh%02dm' "$h" "$m"
+  else printf '%dm%02ds' "$m" "$s"; fi
 }
 
 status_one() {
@@ -542,7 +623,7 @@ status_one() {
   local p log; p=$(pidof_df); log=$(latest_log "$1")
   if [ -z "$p" ]; then echo "[$1] STOPPED   (target $REPO)"; return 0; fi
   local et panic last hv pv
-  et=$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')
+  et=$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')")
   panic=$(engine_panic_count "$log")
   last=$(tail -1 "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-44)
   hv=$(git -C "$HOST" rev-parse HEAD 2>/dev/null | cut -c1-8)
@@ -593,7 +674,7 @@ doctor_one() {
     *)            verdict="$st" ;;
   esac
   printf '  %-9s RUNNING pid %s up %s | %s | worktree %s | panic %s\n' "$1" "$p" \
-    "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')" "$verdict" "$(git -C "$PKGSRC" rev-parse --short HEAD 2>/dev/null)" "$panic"
+    "$(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" "$verdict" "$(git -C "$PKGSRC" rev-parse --short HEAD 2>/dev/null)" "$panic"
 }
 
 # durable_health_one <name>: surface redb delivery-queue state (stuck-pending events + dead-letters)
@@ -825,7 +906,7 @@ board_one() { # $1 name, $2 stale_hours
   local stale="$2" now; now=$(date +%s)
   echo "════════════════════════════════════════ $REPO"
   local p; p=$(pidof_df)
-  echo "supervise: $([ -n "$p" ] && echo "pid $p up $(ps -o etime= -p $p 2>/dev/null|tr -d ' ')" || echo 'NOT RUNNING locally') | graphql $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
+  echo "supervise: $([ -n "$p" ] && echo "pid $p up $(fmt_uptime "$(ps -o etime= -p $p 2>/dev/null|tr -d ' ')")" || echo 'NOT RUNNING locally') | graphql $(gh api rate_limit --jq '.resources.graphql.remaining' 2>/dev/null||echo ?)/5000"
   local openpr; openpr=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]|.head.ref' 2>/dev/null | grep -oE '/[0-9]+/' | tr -d '/' | sort -u)
   echo "── PRs (active work · CI · recency) ──"
   # Capture + check gh's exit status so a REST failure (e.g. the HTML 503 page GitHub serves

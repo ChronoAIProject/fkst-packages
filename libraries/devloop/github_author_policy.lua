@@ -15,6 +15,30 @@ local function resolve_github_handle(github_handle)
   return github_handle
 end
 
+-- Single source for the claim owner: normalize the configured bot login so all
+-- downstream comparisons get the bare slug regardless of whether the deployment
+-- configured "<slug>" or "<slug>[bot]". No-op for ordinary user logins.
+function M.claim_owner()
+  return devloop_base.strip_bot_login_suffix(devloop_base.assert_trusted_bot_configured() or devloop_base.trusted_bot_login())
+end
+
+function M.managed_bot_logins(exec)
+  local raw = devloop_base.read_env("FKST_DEVLOOP_MANAGED_BOT_LOGINS", exec)
+  local logins = {}
+  for entry in tostring(raw or ""):gmatch("[^,%s]+") do
+    local login = devloop_base.strip_bot_login_suffix(strings.trim(entry))
+    if login ~= nil and login ~= "" then
+      logins[login] = true
+    end
+  end
+  return logins
+end
+
+function M.is_managed_bot_login(login, managed)
+  local normalized = devloop_base.strip_bot_login_suffix(login)
+  return normalized ~= nil and normalized ~= "" and type(managed) == "table" and managed[normalized] == true
+end
+
 function M.from_logins(logins)
   return content_filter.author_policy_from_logins(logins or {})
 end

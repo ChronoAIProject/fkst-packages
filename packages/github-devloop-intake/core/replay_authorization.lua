@@ -1,18 +1,88 @@
 local base_ids = require("devloop.base_ids")
 local devloop_base = require("devloop.base")
-local intake_replay_activation = require("devloop.intake_replay_activation")
 local m_claims = require("devloop.claims")
 
 local S = {}
 
+local target_queue = "github-devloop-intake.devloop_intake_candidate"
+local target_dept = "github-devloop-intake-default.intake_judge"
+
+local function source_ref_value(source_ref)
+  if type(source_ref) ~= "table" then
+    return nil
+  end
+  return source_ref.ref or source_ref.reference
+end
+
+local function source_ref_kind(source_ref)
+  if type(source_ref) ~= "table" then
+    return nil
+  end
+  local kind = source_ref.kind
+  if kind == "file_watch" then
+    return "file"
+  end
+  if type(kind) == "string" then
+    return string.lower(kind)
+  end
+  return kind
+end
+
+local function matches_lineage(row, source_ref)
+  return type(row) == "table"
+    and row.queue == target_queue
+    and row.dept == target_dept
+    and type(row.source) == "table"
+    and source_ref_kind(row.source) == source_ref_kind(source_ref)
+    and source_ref_value(row.source) == source_ref_value(source_ref)
+end
+
+local function read_lineage(source_ref)
+  if type(fkst) ~= "table" or type(fkst.observe) ~= "function" then
+    return nil, "observe-unavailable"
+  end
+  local ok, result = pcall(function()
+    return fkst.observe({
+      lineage = {
+        queue = target_queue,
+        dept = target_dept,
+        source_ref = source_ref,
+      },
+    })
+  end)
+  if not ok then
+    return nil, "observe-unavailable:" .. tostring(result)
+  end
+  if type(result) ~= "table" then
+    return nil, "observe-unavailable"
+  end
+  return result, nil
+end
+
+local function is_terminal_tombstone(row, source_ref)
+  return matches_lineage(row, source_ref)
+    and type(row.delivery_id) == "string"
+    and row.delivery_id ~= ""
+    and tonumber(row.attempts) ~= nil
+    and tonumber(row.attempts) >= 1
+    and row.permanent == true
+    and row.replayable == false
+end
+
 function S.terminal_precondition(source_ref)
   local normalized = base_ids.normalize_source_ref(source_ref)
-  local snapshot, observe_reason = intake_replay_activation.read_observe_snapshot()
-  if snapshot == nil then
+  local lineage, observe_reason = read_lineage(normalized)
+  if lineage == nil then
     return nil, observe_reason, nil
   end
-  local terminal, reason = intake_replay_activation.terminal_precondition(snapshot, normalized)
-  return terminal, reason, snapshot
+  if matches_lineage(lineage.live_delivery, normalized) then
+    return nil, "live-delivery-present", lineage
+  end
+  local terminal = lineage.terminal_dead_letter
+  if not is_terminal_tombstone(terminal, normalized) then
+    return nil, "terminal-dlq-absent", lineage
+  end
+  return terminal, nil, lineage
 end
 
 function S.successor_key(proposal_id, terminal)
@@ -49,24 +119,20 @@ function S.authorize(current, proposal_id, source_ref, opts)
   end
 
   local normalized = base_ids.normalize_source_ref(source_ref)
-  local snapshot, observe_reason
-  if options.observe_snapshot ~= nil then
-    snapshot, observe_reason = intake_replay_activation.validate_snapshot(options.observe_snapshot)
+  local lineage, observe_reason
+  if options.lineage ~= nil then
+    lineage = options.lineage
   else
-    snapshot, observe_reason = intake_replay_activation.read_observe_snapshot()
+    lineage, observe_reason = read_lineage(normalized)
   end
-  if snapshot == nil then
+  if type(lineage) ~= "table" then
     return nil, observe_reason
   end
-  if intake_replay_activation.matching_live_delivery(snapshot, normalized) ~= nil then
+  if matches_lineage(lineage.live_delivery, normalized) then
     return nil, "live-delivery-present"
   end
-  local terminal = options.terminal
-  if terminal ~= nil and not intake_replay_activation.is_terminal_tombstone(terminal, normalized) then
-    return nil, "terminal-dlq-absent"
-  end
-  terminal = terminal or intake_replay_activation.latest_terminal_tombstone(snapshot, normalized)
-  if terminal == nil then
+  local terminal = options.terminal or lineage.terminal_dead_letter
+  if not is_terminal_tombstone(terminal, normalized) then
     return nil, "terminal-dlq-absent"
   end
 

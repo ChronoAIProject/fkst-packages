@@ -1,6 +1,7 @@
 local M = {}
 local provenance = require("consensus.provenance")
 local strings = require("contract.strings")
+local workflow_sweep = require("workflow_internal.sweep")
 
 local max_field_len = 1000
 local max_findings_record_len = 1500
@@ -10,6 +11,7 @@ local max_verified_moves = 64
 local max_mover_len = 240
 local max_blocking_gap_len = 240
 local gap_label = "⟦FKST:GAP⟧"
+local result_deferred = workflow_sweep.result_deferred
 
 local trim = strings.trim
 
@@ -438,6 +440,9 @@ end
 
 function M.parse_or_retry(ctx)
   local first = ctx.spawn_sync("synthesis", ctx.build_prompt(false))
+  if result_deferred(first) then
+    return first
+  end
   local parsed = nil
   if type(first) == "table" and first.exit_code == 0 then
     parsed = parse_attempt(first.stdout, ctx)
@@ -447,6 +452,9 @@ function M.parse_or_retry(ctx)
   end
 
   local repaired = ctx.spawn_sync("synthesis-repair", ctx.build_prompt(true, first))
+  if result_deferred(repaired) then
+    return repaired
+  end
   if type(repaired) == "table" and repaired.exit_code == 0 then
     parsed = parse_attempt(repaired.stdout, ctx)
   end

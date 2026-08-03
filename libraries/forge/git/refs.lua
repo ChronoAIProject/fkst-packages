@@ -46,6 +46,21 @@ local function fetch_pr_merge_ref_argv(remote, pr_number)
   return fetch_ref_argv(remote, "refs/pull/" .. tostring(pr_number) .. "/merge")
 end
 
+local function pr_head_local_ref(pr_number)
+  return "refs/fkst/pr/" .. tostring(pr_number)
+end
+
+local function fetch_pr_head_oid_argv(remote, pr_number)
+  local local_ref = pr_head_local_ref(pr_number)
+  return {
+    "git",
+    "fetch",
+    "--no-write-fetch-head",
+    tostring(remote),
+    "+refs/pull/" .. tostring(pr_number) .. "/head:" .. local_ref,
+  }
+end
+
 local function ls_remote_ref_argv(remote, ref)
   return { "git", "ls-remote", tostring(remote), tostring(ref) }
 end
@@ -154,6 +169,10 @@ end
 
 local function show_file_argv(ref, path)
   return { "git", "show", tostring(ref) .. ":" .. tostring(path) }
+end
+
+local function object_type_argv(ref, path)
+  return { "git", "cat-file", "-t", tostring(ref) .. ":" .. tostring(path) }
 end
 
 local function diff_name_only_argv(worktree, ref)
@@ -378,6 +397,25 @@ function M.install(handle)
     return handle.fetch_ref_cmd(remote, "refs/pull/" .. tostring(pr_number) .. "/merge")
   end
 
+  function handle.fetch_pr_head_oid(remote, pr_number, timeout)
+    local local_ref = pr_head_local_ref(pr_number)
+    local result = exec_result(
+      handle,
+      fetch_pr_head_oid_argv(remote, pr_number),
+      timeout,
+      "git fetch PR head OID"
+    )
+    if result.exit_code ~= 0 then
+      return result
+    end
+    return exec_result(
+      handle,
+      rev_parse_ref_commit_argv(local_ref),
+      timeout,
+      "git rev-parse PR head OID"
+    )
+  end
+
   function handle.ls_remote_ref(remote, ref, timeout)
     return exec_result(handle, ls_remote_ref_argv(remote, ref), timeout, "git ls-remote ref")
   end
@@ -464,6 +502,10 @@ function M.install(handle)
 
   function handle.show_file(ref, path, timeout)
     return exec_result(handle, show_file_argv(ref, path), timeout, "git show file")
+  end
+
+  function handle.object_type(ref, path, timeout)
+    return exec_result(handle, object_type_argv(ref, path), timeout, "git cat-file object type")
   end
 
   function handle.diff_name_only(worktree, ref, timeout)

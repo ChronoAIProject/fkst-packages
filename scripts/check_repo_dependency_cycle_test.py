@@ -99,15 +99,7 @@ class DependencyCycleGuardTest(unittest.TestCase):
         self.assertEqual(messages, [])
         self.assertEqual(
             self.current_cycles(root),
-            {
-                "devloop.autonomy_ledger <-> devloop.markers.builders <-> devloop.state",
-                "devloop.claims <-> devloop.entity",
-                "devloop.claims <-> devloop.entity <-> devloop.requests.labels <-> devloop.state",
-                "devloop.claims <-> devloop.forks",
-                "devloop.claims <-> devloop.forks <-> devloop.parsers.issue",
-                "devloop.claims <-> devloop.requests.labels <-> devloop.state",
-                "devloop.payloads.predicates <-> devloop.state",
-            },
+            set(),
         )
 
     def test_new_cycle_not_in_allowlist_fails(self) -> None:

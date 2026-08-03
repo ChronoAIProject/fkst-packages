@@ -108,7 +108,7 @@ local function first_line(body)
 end
 
 return {
-  test_retry_attempt_and_replacement_generation_are_independent = function()
+  test_retry_attempt_selects_matching_branch_and_delegation_generation = function()
     t.eq(core.implementation_branch_version(impl_version, 2), impl_version)
     t.eq(core.implementation_attempt_version(impl_version, 2), impl_version .. "/reimplement/2")
     t.eq(core.implementation_delegation_generation(impl_version, 2), 1)
@@ -116,9 +116,9 @@ return {
     t.eq(core.implementation_branch_version(impl_version .. "/reimplement/2", 2), impl_version)
     t.eq(core.implementation_delegation_generation(impl_version .. "/reimplement/2", 2), 1)
 
-    t.eq(core.implementation_branch_version(replacement_version, 2), replacement_version)
-    t.eq(core.implementation_attempt_version(replacement_version, 2), replacement_version)
-    t.eq(core.implementation_delegation_generation(replacement_version, 2), 2)
+    t.eq(core.implementation_branch_version(replacement_version, 2), impl_version)
+    t.eq(core.implementation_attempt_version(replacement_version, 2), impl_version .. "/reimplement/2")
+    t.eq(core.implementation_delegation_generation(replacement_version, 2), 1)
   end,
 
   test_ensure_pr_child_creates_then_adopts_by_branch_and_writes_split_facts = function()
