@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local devloop_state = require("devloop.state")
+local requests_labels = require("devloop.requests.labels")
 local devloop_base = require("devloop.base")
 local base_ids = require("devloop.base_ids")
 local m_claims = require("devloop.claims")
@@ -33,37 +34,29 @@ function C.build_observe_comment_request(M, issue, proposal)
     source_ref = base_ids.normalize_source_ref(issue.source_ref),
   }, issue.source_ref)
 end
-function C.build_result_comment_request(M, repo, issue_number, reached, state_name)
+local function build_result_comment_parts(repo, issue_number, reached, canonical_state, state_marker, rendering)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)
   local marker_lineage = reached.effect_version ~= nil
     and tostring(reached.effect_version) ~= tostring(reached.dedup_key)
     and logical_identity
     or nil
   local marker = m_builders.result_marker(reached.proposal_id, reached.decision, reached.dedup_key, reached.decision_reason, marker_lineage, reached.framing)
-  local canonical_state = state_name or "ready"
-  local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready"
-    or canonical_state == "declined" and "result-marker,declined-label,premise-refuted"
-    or "result-marker,ready-label,dependency-hold"
-  local state_marker = M.state_marker(reached.proposal_id, canonical_state, tostring(reached.effect_version or reached.dedup_key), effects)
   local body_text = devloop_base.neutralize_untrusted_comment_text(reached.body or "")
-  local verdict_summary = shared.build_verdict_summary(M, reached.angle_results)
+  local verdict_summary = rendering.verdict_summary
   local display_decision = reached.decision == "reject"
     and "decline: " .. tostring(reached.decision_reason)
     or tostring(reached.decision)
-  local body = comment_strings.comment_string(M, "decision_prefix") .. display_decision
+  local body = rendering.decision_prefix .. display_decision
   if verdict_summary ~= nil then
     body = body .. "\n" .. verdict_summary
   end
-  body = body
-    .. "\n\n" .. body_text
-    .. "\n\n" .. state_marker
-    .. "\n" .. marker
-    .. "\n" .. ai_sentinel
+  local body_prefix = body .. "\n\n" .. body_text .. "\n\n"
+  local body_suffix = "\n" .. marker .. "\n" .. ai_sentinel
   local request = m_claims.attach_issue_claim({
     schema = "github-proxy.v1",
     repo = repo,
     issue_number = issue_number,
-    body = body,
+    body = state_marker ~= nil and body_prefix .. state_marker .. body_suffix or nil,
     dedup_key = base_ids.dedup_key({ tostring(reached.proposal_id), "comment", logical_identity }),
     source_ref = base_ids.normalize_source_ref(reached.source_ref),
   }, reached.source_ref)
@@ -79,7 +72,68 @@ function C.build_result_comment_request(M, repo, issue_number, reached, state_na
       request.handoff.framing = reached.framing
     end
   end
+  return request, body_prefix, body_suffix
+end
+
+function C.build_result_comment_request(M, repo, issue_number, reached, state_name)
+  local canonical_state = state_name or "ready"
+  local effects = canonical_state == "ready" and "result-marker,ready-label,devloop-ready"
+    or canonical_state == "declined" and "result-marker,declined-label,premise-refuted"
+    or "result-marker,ready-label,dependency-hold"
+  local state_marker = M.state_marker(
+    reached.proposal_id,
+    canonical_state,
+    tostring(reached.effect_version or reached.dedup_key),
+    effects
+  )
+  local request = build_result_comment_parts(
+    repo,
+    issue_number,
+    reached,
+    canonical_state,
+    state_marker,
+    {
+      decision_prefix = comment_strings.comment_string(M, "decision_prefix"),
+      verdict_summary = shared.build_verdict_summary(M, reached.angle_results),
+    }
+  )
   return request
+end
+
+function C.build_result_transition_batch(args)
+  if type(args) ~= "table" or type(args.rendering) ~= "table" then
+    error("github-devloop: result-projected-transition-arguments-invalid")
+  end
+  local reached = args.reached
+  local canonical_state = args.state_name or "ready"
+  if canonical_state ~= "ready" and canonical_state ~= "dependency_wait" then
+    error("github-devloop: result-projected-transition-target-invalid: target must be ready or dependency_wait")
+  end
+  local comment_request, comment_body_prefix, comment_body_suffix = build_result_comment_parts(
+    args.repo,
+    args.issue_number,
+    reached,
+    canonical_state,
+    nil,
+    args.rendering
+  )
+  return devloop_state.build_projected_state_transition_batch({
+    repo = args.repo,
+    issue_number = args.issue_number,
+    proposal_id = reached.proposal_id,
+    state = canonical_state,
+    version = tostring(reached.effect_version or reached.dedup_key),
+    effects = canonical_state == "ready"
+      and "result-marker,ready-label,devloop-ready"
+      or "result-marker,ready-label,dependency-hold",
+    label_dedup_key = requests_labels.result_label_dedup_key(reached),
+    source_ref = reached.source_ref,
+    observed_labels = args.current_labels,
+    remove_labels = canonical_state == "ready" and { devloop_base._blocked_on_dependency_label } or nil,
+    comment_request = comment_request,
+    comment_body_prefix = comment_body_prefix,
+    comment_body_suffix = comment_body_suffix,
+  })
 end
 function C.build_result_divergence_comment_request(repo, issue_number, reached, first_decision)
   local logical_identity = tostring(reached.effect_version or reached.dedup_key)

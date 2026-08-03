@@ -108,9 +108,27 @@ return {
   end,
 
 
-  test_projected_transition_batches_are_sealed_and_emit_owned_effects = function()
+  test_ready_and_dependency_wait_markers_emit_only_through_sealed_projection_batch = function()
     local devloop_state = require("devloop.state")
     local ready_split = read_source("core/ready_split.lua")
+    local test_api = fkst.test
+    fkst.test = nil
+    local emit = devloop_state.state_marker
+    local ready_ok, ready_err = pcall(emit, "github-devloop/issue/owner/repo/42", "ready", "v1")
+    local dependency_ok, dependency_err = pcall(
+      emit,
+      "github-devloop/issue/owner/repo/42",
+      "dependency_wait",
+      "v1"
+    )
+    local blocked_ok = pcall(emit, "github-devloop/issue/owner/repo/42", "blocked", "v1")
+    fkst.test = test_api
+
+    t.eq(ready_ok, false)
+    t.is_true(tostring(ready_err):find("state-marker-projection-required", 1, true) ~= nil)
+    t.eq(dependency_ok, false)
+    t.is_true(tostring(dependency_err):find("state-marker-projection-required", 1, true) ~= nil)
+    t.eq(blocked_ok, true)
 
     local batch = devloop_state.build_projected_state_transition_batch({
       repo = "owner/repo",

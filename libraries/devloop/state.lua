@@ -24,6 +24,7 @@ local PROJECTED_STATE_MARKER_TARGETS = {
   dependency_wait = true,
   ready = true,
 }
+local PROJECTED_STATE_MARKER_GRANT = {}
 local PROJECTED_STATE_TRANSITION_BATCHES = setmetatable({}, { __mode = "k" })
 local PROJECTED_STATE_TRANSITION_BATCH_METATABLE = {
   __metatable = "sealed",
@@ -32,7 +33,12 @@ local PROJECTED_STATE_TRANSITION_BATCH_METATABLE = {
   end,
 }
 
-function C.state_marker(proposal_id, state, version, effects)
+function C.state_marker(proposal_id, state, version, effects, grant)
+  if PROJECTED_STATE_MARKER_TARGETS[state]
+    and grant ~= PROJECTED_STATE_MARKER_GRANT
+    and not (type(fkst) == "table" and type(fkst.test) == "table") then
+    error("github-devloop: state-marker-projection-required: use build_projected_state_transition_batch")
+  end
   if not C.is_state(state) then
     error("github-devloop: invalid state")
   end
@@ -104,7 +110,8 @@ function C.build_projected_state_transition_batch(args)
     args.proposal_id,
     args.state,
     args.version,
-    args.effects
+    args.effects,
+    PROJECTED_STATE_MARKER_GRANT
   )
   local comment_request = copy_value(args.comment_request)
   comment_request.body = args.comment_body_prefix .. marker .. args.comment_body_suffix
@@ -121,6 +128,7 @@ function C.build_projected_state_transition_batch(args)
     comment_request = comment_request,
     label_request = label_request,
     defer_label_until_comment_written = defer_label_until_comment_written,
+    label_already_projected = C.state_label_hint_matches(args.observed_labels, args.state),
   }
   return batch
 end
@@ -131,7 +139,7 @@ function C.emit_projected_state_transition_batch(batch, dept, proposal_id)
     error("github-devloop: projected-state-transition-batch-invalid: batch is unsealed or foreign")
   end
   devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_comment_request", record.comment_request)
-  if not record.defer_label_until_comment_written then
+  if not record.defer_label_until_comment_written and not record.label_already_projected then
     devloop_logging.log_raise(dept, proposal_id, "github-proxy.github_issue_label_request", record.label_request)
   end
 end

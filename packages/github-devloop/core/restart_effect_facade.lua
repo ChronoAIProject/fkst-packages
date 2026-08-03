@@ -4,7 +4,9 @@ local conv_reconcile = require("devloop.convergence.reconcile")
 local entity_lib = require("devloop.entity")
 local requests_labels = require("devloop.requests.labels")
 local requests_lifecycle = require("devloop.requests.lifecycle")
+local requests_shared = require("devloop.requests.shared")
 local restart_effect_facade = require("devloop.restart_effect_facade")
+local comment_strings = require("devloop.strings")
 
 local M = {}
 
@@ -88,6 +90,9 @@ local function serialize_consensus_result_comment(args)
   if not valid_consensus_result_args(args) then
     return nil, "invalid-serializer-arguments"
   end
+  if args.to_state == "ready" or args.to_state == "dependency_wait" then
+    return M.build_consensus_result_batch(args)
+  end
   return requests_lifecycle.build_result_comment_request(
     args.core,
     args.repo,
@@ -107,6 +112,27 @@ local function serialize_consensus_result_label(args)
     args.reached,
     args.to_state
   )
+end
+
+function M.build_consensus_result_batch(args)
+  return requests_lifecycle.build_result_transition_batch({
+    repo = args.repo,
+    issue_number = args.issue_number,
+    reached = args.reached,
+    state_name = args.to_state,
+    current_labels = args.current_labels,
+    rendering = {
+      decision_prefix = comment_strings.comment_string(args.core, "decision_prefix"),
+      verdict_summary = requests_shared.build_verdict_summary(args.core, args.reached.angle_results),
+    },
+  })
+end
+
+local function serialize_consensus_result_batch(args)
+  if not valid_consensus_result_args(args) then
+    return nil, "invalid-serializer-arguments"
+  end
+  return M.build_consensus_result_batch(args)
 end
 
 local function serialize_awaiting_pr_comment(args)
@@ -399,6 +425,7 @@ local SERIALIZERS_BY_FAMILY = {
 
 local BATCH_SERIALIZERS_BY_FAMILY = {
   ["awaiting-pr-exit"] = serialize_awaiting_pr_exit_batch,
+  ["consensus-result"] = serialize_consensus_result_batch,
 }
 
 local PROJECTED_TRANSITION_EFFECT_IDS = {
