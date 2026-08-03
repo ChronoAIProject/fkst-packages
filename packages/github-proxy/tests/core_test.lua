@@ -512,6 +512,50 @@ return {
     t.eq(core.has_trusted_marker(comments, key, "fkst-test-bot"), true)
   end,
 
+  test_marker_guard_distinguishes_observed_behind_from_observed_newer = function()
+    local proposal_id = "github-devloop/issue/owner/repo/42"
+    local older_version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-07-19T00-00-00Z"
+    local expected_version = older_version .. "/ready-split/1"
+    local newer_version = older_version .. "/ready-split/2"
+    local function marker(state, version)
+      return '<!-- fkst:github-devloop:state:v1 proposal="' .. proposal_id
+        .. '" state="' .. state
+        .. '" version="' .. version
+        .. '" -->'
+    end
+    local function comments(body)
+      return {
+        {
+          body = body,
+          author = { login = "fkst-test-bot" },
+        },
+      }
+    end
+    local guard = {
+      namespace = "github-devloop",
+      marker = "state",
+      version = "v1",
+      match = { proposal = proposal_id },
+      expected = {
+        state = "dependency_wait",
+        version = expected_version,
+      },
+      order_by = { "version_order_key" },
+    }
+
+    local behind_ok, behind_reason = core.marker_guard_current(
+      comments(marker("ready", older_version)), guard, "fkst-test-bot"
+    )
+    t.eq(behind_ok, false)
+    t.eq(behind_reason, "marker-guard-pending")
+
+    local newer_ok, newer_reason = core.marker_guard_current(
+      comments(marker("ready", newer_version)), guard, "fkst-test-bot"
+    )
+    t.eq(newer_ok, false)
+    t.eq(newer_reason, "marker-guard-superseded")
+  end,
+
   test_trusted_comment_marker_accepts_github_app_bot_suffix = function()
     -- A GitHub App authored the marker: the REST read path reports a
     -- "<slug>[bot]" login, but FKST_GITHUB_BOT_LOGIN holds the bare GraphQL

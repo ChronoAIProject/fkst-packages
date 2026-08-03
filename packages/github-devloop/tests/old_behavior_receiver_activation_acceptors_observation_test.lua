@@ -241,7 +241,6 @@ local IMPLEMENT_FIXTURES = json_array({
     source_line = 617,
     expected_effect_ids = json_array({
       "comment:issue:dependency-canonicalization",
-      "label:issue:dependency-canonicalization",
     }),
   },
   {
