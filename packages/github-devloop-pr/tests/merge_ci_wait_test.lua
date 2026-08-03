@@ -43,29 +43,27 @@ local function capture_hold(kind, reason, merge_pass)
 end
 
 return {
-  test_mergeability_wait_reason_accepts_only_mergeability_wait_families = function()
-    for _, reason in ipairs({
-      "missing-pr",
-      "missing-mergeability",
-      "mergeable-unknown",
-      "merge-state-behind",
-      "merge-state-blocked",
-      "merge-state-unstable",
+  test_mergeability_wait_requires_the_current_pr_to_produce_the_reason = function()
+    for _, case in ipairs({
+      { pr = nil, reason = "missing-pr" },
+      { pr = {}, reason = "missing-mergeability" },
+      { pr = { mergeable = "UNKNOWN" }, reason = "mergeable-unknown" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "BEHIND" }, reason = "merge-state-behind" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "BLOCKED" }, reason = "merge-state-blocked" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "UNSTABLE" }, reason = "merge-state-unstable" },
     }) do
-      t.is_true(ci_wait.is_mergeability_wait_reason(reason), reason)
+      t.is_true(ci_wait.is_mergeability_wait(case.pr, case.reason), case.reason)
     end
 
-    for _, reason in ipairs({
-      "mergeable-conflicting",
-      "mergeable-false",
-      "merge-state-conflicting",
-      "merge-state-dirty",
-      "head-sha-mismatch",
-      "pr-not-open",
-      "merge-confirmation-pending",
-      "write-time-pr-fact-changed",
+    for _, case in ipairs({
+      { pr = { mergeable = "CONFLICTING" }, reason = "mergeable-conflicting" },
+      { pr = { mergeable = "FALSE" }, reason = "mergeable-false" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "CONFLICTING" }, reason = "merge-state-conflicting" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "DIRTY" }, reason = "merge-state-dirty" },
+      { pr = { mergeable = "UNKNOWN" }, reason = "merge-state-blocked" },
+      { pr = { mergeable = "MERGEABLE", merge_state_status = "BLOCKED" }, reason = "write-time-pr-fact-changed" },
     }) do
-      t.eq(ci_wait.is_mergeability_wait_reason(reason), false, reason)
+      t.eq(ci_wait.is_mergeability_wait(case.pr, case.reason), false, case.reason)
     end
   end,
 
