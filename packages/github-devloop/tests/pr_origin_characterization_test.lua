@@ -51,6 +51,7 @@ return {
       t.eq(devloop_base.strip_bot_login_suffix("tRuStEd-BoT[bot]"), "trusted-bot")
 
       local pr = production_pr("tRuStEd-BoT[bot]")
+      -- Characterize the parser's current comment-only contract, not a freshness policy.
       local origin = m_facts.pr_origin_fact(pr.comments)
 
       t.eq(origin.proposal_id, proposal_id)

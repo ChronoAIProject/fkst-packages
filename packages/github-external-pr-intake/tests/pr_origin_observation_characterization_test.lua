@@ -263,6 +263,7 @@ local function assert_origin_fixture(pr, signer, branch, base_branch)
 end
 
 local function assert_origin_comment_does_not_change_outcome(signer, branch, base_branch)
+  -- Current intake does not consult pr-origin facts; a later policy change must update these outcomes explicitly.
   local scan_pr = production_pr(signer, branch, base_branch)
   assert_origin_fixture(scan_pr, signer, branch, base_branch)
   local scan_github = fake_github(scan_pr)
