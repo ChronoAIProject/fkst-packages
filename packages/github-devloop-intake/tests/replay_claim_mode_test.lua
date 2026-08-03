@@ -1,4 +1,5 @@
 local admission_department = require("departments.admission.main")
+local replay_admission_department = require("departments.replay_admission.main")
 local entity_lib = require("devloop.entity")
 local m_claims = require("devloop.claims")
 local h = require("tests.devloop_helpers")
@@ -108,7 +109,7 @@ return {
     end
     local ok, result = pcall(function()
       return with_claim_mode("label", function()
-        return testing.run_fake_outcome(admission_department.make_department(), observed_issue())
+        return testing.run_fake_outcome(replay_admission_department.make_department(), observed_issue())
       end)
     end)
     fkst.observe = previous_observe
