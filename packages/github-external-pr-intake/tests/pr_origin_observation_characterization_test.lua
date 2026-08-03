@@ -296,6 +296,7 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
     1,
     true
   ) ~= nil)
+  t.is_nil(create.body:find("fkst:github-devloop:pr-origin:v1", 1, true))
 
   local bridge_comment = first_kind(candidate_github.operations, "pr_comment")
   t.eq(bridge_comment.repo, "owner/repo")
