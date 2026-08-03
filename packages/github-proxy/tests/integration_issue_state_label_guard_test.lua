@@ -189,7 +189,7 @@ return {
 
   test_issue_ready_projection_with_dependency_label_applies_as_one_guarded_request = function()
     mock_issue_comment_view({
-      devloop_state.state_marker(proposal_id, "dependency_wait", fresh_version),
+      devloop_state.state_marker(proposal_id, "ready", stale_version),
     })
     mock_label_apply({
       "fkst-dev:ready",
@@ -202,10 +202,19 @@ return {
     })
     table.insert(event.payload.add_labels, "fkst-dev:blocked-on-dependency")
 
-    local result = run_label(event, "issue-ready-dependency-label-guard-current")
+    local pending = run_label(event, "issue-ready-dependency-label-guard-observed-behind")
+
+    t.eq(pending.exit_code, 1)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 1)
+    t.eq(count_calls("gh issue edit"), 0)
+
+    mock_issue_comment_view({
+      devloop_state.state_marker(proposal_id, "dependency_wait", fresh_version),
+    })
+    local result = run_label(event, "issue-ready-dependency-label-guard-retry-current")
 
     t.eq(result.exit_code, 0)
-    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 1)
+    t.eq(count_calls("gh api --paginate --slurp repos/owner/x/issues/42/comments?per_page=100"), 2)
     t.eq(count_calls("gh issue edit"), 1)
     local edit = calls_matching("gh issue edit")[1]
     t.is_true(has_arg_pair(edit.rendered, "--add-label", "fkst-dev:ready"))
