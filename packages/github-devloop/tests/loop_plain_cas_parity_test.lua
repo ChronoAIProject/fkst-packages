@@ -33,7 +33,9 @@ local V_OLDER = "consensus:github-devloop/issue/owner/repo/42/2026-06-02T01-02-0
 local V_DIFFERENT = "consensus:github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
 local TRACE_EDGE_ID = OWNER .. "/thinking/autonomous/consensus-stalled"
 local LOOP_PLAIN_CORPUS_PATH = "migration/intent_bounded_replay/corpus/loop-plain.json"
-local LOOP_PLAIN_NEW_TRACE_PATH = ".fkst/run/r9-loop-plain-new-trace.json"
+local LOOP_PLAIN_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-loop-plain-new-trace.json"
+)
 local canonical_json = observation_support.canonical_json
 local json_array = observation_support.json_array
 

@@ -39,7 +39,9 @@ local V_ORDERING_EQUAL_INCOMING = V_EQUAL .. "/loop/1"
 local FIXED_HEAD = "feedface"
 local TRACE_EDGE_ID = OWNER .. "/fixing/autonomous/revision_published"
 local FIX_CORPUS_PATH = "migration/intent_bounded_replay/corpus/pr-fix.json"
-local FIX_NEW_TRACE_PATH = ".fkst/run/r9-pr-fix-new-trace.json"
+local FIX_NEW_TRACE_PATH = observation_support.admission_trace_output_path(
+  "r9-pr-fix-new-trace.json"
+)
 
 local function fixing_event(version)
   local base = h.fixing()
