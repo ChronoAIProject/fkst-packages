@@ -13,7 +13,7 @@ return {
     t.eq(ci_wait.is_mergeability_wait_reason("write-time-pr-fact-changed"), false)
   end,
 
-  test_hold_returns_same_tagged_outcome_for_each_ci_wait_class = function()
+  test_hold_returns_same_tagged_outcome_for_each_wait_class = function()
     local merge_ready = {
       proposal_id = "github-devloop/issue/owner/repo/42",
       pr_number = 7,
@@ -25,6 +25,8 @@ return {
       { kind = "CI_UNKNOWN", reason = "ci-unknown" },
       { kind = "INTEGRATION_RED", reason = "integration-ci-red" },
       { kind = "EXTERNAL_CI_RED", reason = "external-ci-red" },
+      { kind = "MERGEABILITY_WAIT", reason = "mergeable-unknown" },
+      { kind = "MERGEABILITY_WAIT", reason = "merge-state-blocked" },
     }
 
     for _, case in ipairs(cases) do
