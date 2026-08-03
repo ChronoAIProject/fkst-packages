@@ -3,13 +3,14 @@ local strings = require("contract.strings")
 
 local M = {}
 
-local function copy_without_caller_lineage(proposal)
+local function copy_for_consensus(proposal)
   local value = {}
   for key, field in pairs(proposal) do
     if key ~= "proposal_id" then
       value[key] = field
     end
   end
+  value.dedup_key = proposal.effect_version or proposal.dedup_key
   return value
 end
 
@@ -34,7 +35,7 @@ function M.reach(proposal)
     and not strings.is_path_safe_key(proposal.proposal_id, 200) then
     return nil
   end
-  local result = consensus.reach(copy_without_caller_lineage(proposal), {
+  local result = consensus.reach(copy_for_consensus(proposal), {
     invocation_id = proposal.proposal_id,
   })
   if result == nil then
