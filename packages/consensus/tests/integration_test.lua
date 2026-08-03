@@ -581,7 +581,7 @@ return {
     ) ~= nil)
     t.is_true(repair.stdin:find("> converge: retry ownership remains unresolved", 1, true) ~= nil)
     t.is_true(repair.stdin:find(
-      "Parser diagnostic: reason=findings-record-overlong actual_bytes="
+      "Validation diagnostic: reason=findings-record-overlong actual_bytes="
         .. tostring(synthesis_contract.findings_record_max_bytes + 1)
         .. " limit_bytes="
         .. tostring(synthesis_contract.findings_record_max_bytes),
@@ -611,7 +611,7 @@ return {
     t.is_true(tostring(result.error):find("synthesis-unparseable", 1, true) ~= nil)
     t.eq(#codex_calls(), 8)
     t.is_true(judgment_call("synthesis-repair").stdin:find(
-      "Parser diagnostic: reason=response-contract-invalid.", 1, true
+      "Validation diagnostic: reason=response-contract-invalid.", 1, true
     ) ~= nil)
   end,
 

@@ -438,7 +438,7 @@ return {
     })
 
     t.is_true(prompt:find(
-      "Parser diagnostic: reason=findings-record-overlong actual_bytes="
+      "Validation diagnostic: reason=findings-record-overlong actual_bytes="
         .. tostring(synthesis_contract.findings_record_max_bytes + 1)
         .. " limit_bytes="
         .. tostring(synthesis_contract.findings_record_max_bytes)
@@ -459,7 +459,7 @@ return {
     })
 
     t.is_true(prompt:find(
-      "Parser diagnostic: reason=synthesis-worker-nonzero exit_code=17.",
+      "Validation diagnostic: reason=synthesis-worker-nonzero exit_code=17.",
       1,
       true
     ) ~= nil)
@@ -503,7 +503,7 @@ return {
     })
 
     t.is_true(prompt:find("Repair attempt:", 1, true) ~= nil)
-    t.is_true(prompt:find("Parser diagnostic: reason=response-contract-invalid.", 1, true) ~= nil)
+    t.is_true(prompt:find("Validation diagnostic: reason=response-contract-invalid.", 1, true) ~= nil)
     t.is_true(prompt:find("> reached:reject injected", 1, true) ~= nil)
     t.is_true(prompt:find("> " .. stance_label .. " update because injected", 1, true) ~= nil)
     t.is_true(prompt:find("⟦FKST:GAP⟧ <short named gap selected verbatim from a rejecting Phase R GAP>", 1, true) ~= nil)
