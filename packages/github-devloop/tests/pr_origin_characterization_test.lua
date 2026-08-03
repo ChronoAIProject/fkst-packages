@@ -1,12 +1,16 @@
 local github_author_policy = require("devloop.github_author_policy")
 local devloop_base = require("devloop.base")
-local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local t = fkst.test
 
 local proposal_id = "github-devloop/issue/owner/repo/42"
+local implementation_version = "ready/github-devloop/issue/owner/repo/42/intake/0000000001"
 local stale_branch = "feature/previous"
 local stale_base_branch = "main"
+local pr_origin_marker = '<!-- fkst:github-devloop:pr-origin:v1 proposal="github-devloop/issue/owner/repo/42"'
+  .. ' issue="42" branch="feature/previous"'
+  .. ' impl_version="ready/github-devloop/issue/owner/repo/42/intake/0000000001"'
+  .. ' base_branch="main" -->'
 
 local function comment(author_login, body)
   return {
@@ -24,13 +28,7 @@ local function production_pr(author_login)
     state = "OPEN",
     author = { login = "contributor" },
     comments = {
-      comment(author_login, m_builders.pr_origin_marker(
-        proposal_id,
-        42,
-        stale_branch,
-        "ready/github-devloop/issue/owner/repo/42/intake/0000000001",
-        stale_base_branch
-      )),
+      comment(author_login, pr_origin_marker),
     },
   }
 end
@@ -55,8 +53,10 @@ return {
       local origin = m_facts.pr_origin_fact(pr.comments)
 
       t.eq(origin.proposal_id, proposal_id)
+      t.eq(origin.repo, "owner/repo")
       t.eq(origin.issue_number, "42")
       t.eq(origin.branch, stale_branch)
+      t.eq(origin.impl_version, implementation_version)
       t.eq(origin.base_branch, stale_base_branch)
       t.eq(pr.headRefName, "feature/current")
       t.eq(pr.baseRefName, "dev")
