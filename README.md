@@ -132,10 +132,19 @@ are tested as composed graphs.
 
 Flat packages (`kind = "package"`):
 
-- `consensus`: source-agnostic multi-angle `codex` consensus over abstract `proposal` events,
-  producing `consensus_reached` or bounded `consensus_converge` events.
+- `consensus-tests` (directory `packages/consensus/`): test-harness package that exercises the
+  `consensus` workspace library inside a real engine graph through its `test_reach` and
+  `test_cache_seed` departments. The production consensus engine is the `consensus` workspace
+  library under `libraries/consensus/`, called synchronously as `consensus.reach(proposal)` through
+  a declared `lib_deps` entry; it is not an event-graph package and publishes no `proposal` or
+  `consensus_reached` queues.
+- `autochrono`: maps its own `issue` protocol into a consensus proposal, calls the `consensus`
+  workspace library synchronously through `lib_deps`, and maps the reached result back into its own
+  `reply` protocol.
 - `git-branch-detector`: polls configured remote branch heads on a schedule and emits deduplicated
   `git_ref_changed` fanout facts.
+- `github-devloop-worktree-gc`: reclaims stale devloop worktrees on a scheduled `worktree_gc_tick`
+  raised by its own cron raiser.
 - `github-external-pr-intake`: detects third-party pull requests and creates one normal bridge
   issue for `github-devloop` to process.
 - `github-proxy`: bridges GitHub issue and PR facts into fkst events, and handles dry-run-by-default
@@ -149,8 +158,6 @@ Composed packages (`kind = "package.composed"`):
 
 - `archaudit`: runs repository architecture audits during idle windows and files bounded GitHub
   issue requests for findings.
-- `autochrono`: maps its own `issue` protocol into `consensus.proposal` and maps reached consensus
-  back into its own `reply` protocol.
 - `fkst-substrate-ref-maintainer`: scans package-repository state for substrate reference updates
   and raises GitHub PR comment requests when needed.
 - `frontend-devloop`: declares the UI-application host profile for composing the existing GitHub
@@ -174,6 +181,8 @@ Composed packages (`kind = "package.composed"`):
   materialization on top of the stable devloop atom.
 - `integration-coverage-producer`: scans integration-edge coverage gaps and files bounded issue
   requests for uncovered edges.
+- `marketing-radar`: composes `github-proxy` to ingest `github_entity_changed` facts and produce
+  `radar_weekly_content_generated` plus bounded GitHub issue create requests.
 
 ## Architecture Overview
 
