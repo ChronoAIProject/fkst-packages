@@ -146,6 +146,21 @@ return {
     t.is_true(wait_comment.payload.body:find('reason="merge-state-blocked"', 1, true) ~= nil)
   end,
 
+  test_write_time_pending_ci_holds_without_fixing = function()
+    local event = h.merge_ready()
+    prepare_write_time_recheck(event, nil, "MERGEABLE", "CLEAN", "PENDING", "")
+
+    local result = run_write_time_recheck(event, "merge-write-time-pending")
+
+    t.eq(result.exit_code, 0, failure_text(result))
+    t.eq(#result.raises, 1)
+    t.eq(h.find_raise(result.raises, "devloop_fixing"), nil)
+    t.eq(h.count_calls("gh pr merge"), 0)
+    local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
+    t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('reason="rollup-pending"', 1, true) ~= nil)
+  end,
+
   test_write_time_stale_mergeability_holds_without_fixing = function()
     local event = h.merge_ready()
     mock_current_base_contained()
