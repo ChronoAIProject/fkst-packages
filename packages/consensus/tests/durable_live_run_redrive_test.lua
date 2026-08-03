@@ -335,6 +335,10 @@ return {
       wait_until("all durable redrives to reach acknowledged live-run no-op", function()
         return fixture_logs(root)
       end, function()
+        local ready = count_files(root .. "/redrive-ready")
+        if ready ~= redrive_count then
+          return nil, "completed live-run redrives=" .. tostring(ready)
+        end
         local snapshot, raw = observe(bin, durable_root)
         assert_no_dead_letters(snapshot)
         local redrives = redrive_deliveries(snapshot)
