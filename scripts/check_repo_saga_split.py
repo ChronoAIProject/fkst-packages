@@ -391,6 +391,7 @@ def current_leaks(root: Path, entries: list[InventoryEntry], pr_phase_states: se
     return leaks
 
 
+# Local variants parse typed LeakSite entries for current and dev data.
 def load_allowlist(path: Path) -> set[LeakSite]:
     if not path.exists():
         return set()
