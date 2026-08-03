@@ -3,6 +3,7 @@ local graph = require("testkit.graph")
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local convergence_shared = require("devloop.convergence.shared")
 local conv_rounds = require("devloop.convergence.rounds")
+local conv_reconcile = require("devloop.convergence.reconcile")
 
 local t = h.t
 local core = h.core
@@ -80,10 +81,23 @@ local function mock_runtime_and_context()
   end
 end
 
-local function mock_github_proxy_writes()
-  for _ = 1, 2 do
-    t.mock_command("gh api --paginate --slurp repos/owner/repo/issues/42/comments?per_page=100", {
-      stdout = "[[]]\n",
+local function mock_github_proxy_writes(blocked_version)
+  local blocked_comments = '[[{"id":123457,"body":"'
+    .. h.json_string(core.state_marker("github-devloop/issue/owner/repo/42", "blocked", blocked_version))
+    .. '","user":{"login":"fkst-test-bot"}}]]\n'
+  for _, command in ipairs({
+    "gh api --paginate --slurp repos/owner/repo/issues/42/comments?per_page=100",
+    "gh api --paginate --slurp 'repos/owner/repo/issues/42/comments?per_page=100'",
+  }) do
+    for _ = 1, 2 do
+      t.mock_command(command, {
+        stdout = "[[]]\n",
+        stderr = "",
+        exit_code = 0,
+      })
+    end
+    t.mock_command(command, {
+      stdout = blocked_comments,
       stderr = "",
       exit_code = 0,
     })
@@ -181,8 +195,8 @@ end
 return {
   test_run_graph_no_consensus_handoffs_reconcile_to_blocked = function()
     mock_runtime_and_context()
+    mock_github_proxy_writes(conv_reconcile.reconcile_terminal_state_version(base_version, 3))
     mock_issue_reads()
-    mock_github_proxy_writes()
 
     local trace = graph.require_quiescent(graph.run(initial_event(), { max_steps = 8 }))
     graph.assert_covers(trace, {

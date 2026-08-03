@@ -113,13 +113,15 @@ local function serialize_awaiting_pr_comment(args)
   if type(args) ~= "table"
     or type(args.issue) ~= "table"
     or type(args.state) ~= "table"
-    or type(args.delegation) ~= "table" then
+    or type(args.delegation) ~= "table"
+    or type(args.child_state) ~= "table" then
     return nil, "invalid-serializer-arguments"
   end
   return awaiting_pr_replayer.build_awaiting_pr_canonicalization_comment_request(
     args.issue,
     args.state,
-    args.delegation
+    args.delegation,
+    args.child_state
   )
 end
 

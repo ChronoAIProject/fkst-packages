@@ -230,7 +230,7 @@ local function ensure_managed_issue_claim(issue, proposal_id, current, state)
   return m_claims.claim_issue_for_management(core, "observe_issue", issue.repo, issue.number, current, proposal_id)
 end
 
-local function maybe_canonicalize_implementing_merged_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
+local function maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, issue_state, current_pr, current_pr_delegation)
   if issue_state == nil or issue_state.state ~= "implementing" then
     return false
   end
@@ -241,7 +241,7 @@ local function maybe_canonicalize_implementing_merged_delegated_pr(issue, propos
   if not awaiting_pr_replay.delegation_identity_matches(current_pr_delegation, delegation) then
     current_pr = nil
   end
-  return awaiting_pr_replay.canonicalize_implementing_merged_delegated_pr("observe_issue", issue, issue_state, {
+  return awaiting_pr_replay.canonicalize_implementing_terminal_delegated_pr("observe_issue", issue, issue_state, {
     proposal_id = proposal_id,
     current = current,
     current_issue = current,
@@ -664,7 +664,7 @@ local function process_issue_event(event)
             return
           end
           local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, issue_state.version)
-          if awaiting_pr_replay.canonicalize_implementing_merged_delegated_pr("observe_issue", issue, issue_state, {
+          if awaiting_pr_replay.canonicalize_implementing_terminal_delegated_pr("observe_issue", issue, issue_state, {
             proposal_id = proposal_id,
             current = current,
             current_issue = current,
@@ -782,7 +782,7 @@ local function process_issue_event(event)
       if maybe_apply_issue_reimplement_command(issue, proposal_id, current, state, snapshot) then
         return
       end
-      if maybe_canonicalize_implementing_merged_delegated_pr(issue, proposal_id, current, state, close_current_pr, close_delegation) then
+      if maybe_canonicalize_implementing_terminal_delegated_pr(issue, proposal_id, current, state, close_current_pr, close_delegation) then
         return
       end
       if maybe_canonicalize_legacy_pr_open_issue() then

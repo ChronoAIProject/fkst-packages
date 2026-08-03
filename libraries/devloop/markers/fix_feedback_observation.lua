@@ -77,22 +77,36 @@ local function review_result_fact_from_marker(marker, comment, issue_proposal_id
     end
     fact.blocking_gap = gap
     fact.fix_round = marker_fix_round
+    if fact.review_proposal_id == nil
+      or fact.review_dedup_key == nil
+      or fact.reviewed_head_sha == nil then
+      local result = classified_fact(fact, "review-result")
+      if observe then
+        return result
+      end
+      return shared.parse_fix_feedback_fact(fact)
+    end
+    local canonical_review_dedup =
+      devloop_base.canonical_pr_review_consensus_dedup_for_proposal(
+        fact.review_dedup_key,
+        fact.review_proposal_id
+      )
+    if canonical_review_dedup == nil then
+      return no_match(observe)
+    end
+    fact.review_dedup_key = canonical_review_dedup
+    local _, _, parsed_review_version =
+      devloop_base.parse_pr_review_proposal_id(fact.review_proposal_id)
+    if parsed_review_version ~= transition_version.safe_version_segment(
+        devloop_state._strip_latest_fix_version_suffix(issue_version)) then
+      return no_match(observe)
+    end
     local result = classified_fact(fact, "review-result")
     if result.status ~= "valid" then
       if observe then
         return result
       end
       return shared.parse_fix_feedback_fact(fact)
-    end
-    fact.review_dedup_key = devloop_base.canonical_pr_review_consensus_dedup_for_proposal(
-      fact.review_dedup_key,
-      fact.review_proposal_id
-    )
-    local _, _, parsed_review_version =
-      devloop_base.parse_pr_review_proposal_id(fact.review_proposal_id)
-    if parsed_review_version ~= transition_version.safe_version_segment(
-        devloop_state._strip_latest_fix_version_suffix(issue_version)) then
-      return no_match(observe)
     end
     result.fact = fact
     return observe and result or fact

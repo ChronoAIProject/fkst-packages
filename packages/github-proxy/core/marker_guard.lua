@@ -103,6 +103,17 @@ function S.install(M)
     return 0
   end
 
+  local function compare_version_order(left, right, order_by)
+    for _, key in ipairs(order_by or {}) do
+      if key == "version_order_key"
+        and safe_attr_value(left.version)
+        and safe_attr_value(right.version) then
+        return compare_token(attr_order_value(left, key), attr_order_value(right, key))
+      end
+    end
+    return nil
+  end
+
   function M.normalize_marker_guard(guard)
     if guard == nil then
       return nil, nil
@@ -155,6 +166,10 @@ function S.install(M)
       return false, "marker-guard-missing"
     end
     if not attrs_match(current, normalized.expected) then
+      local version_order = compare_version_order(current, normalized.expected, normalized.order_by)
+      if version_order ~= nil and version_order < 0 then
+        return false, "marker-guard-pending"
+      end
       return false, "marker-guard-superseded"
     end
     return true, nil

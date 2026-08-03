@@ -118,7 +118,7 @@ def awaiting_pr_trace() -> dict[str, object]:
     assert isinstance(fixtures, list)
     fixture = fixtures[0]
     assert isinstance(fixture, dict)
-    edge_id = "github-devloop/awaiting-pr/canonicalization/implementing_merged_delegated_pr"
+    edge_id = "github-devloop/awaiting-pr/canonicalization/implementing_terminal_delegated_pr"
     fixture["edge_id"] = edge_id
     fixture["effect_entitlement_id"] = f"{edge_id}/apply"
     artifact["artifact_sha256"] = canonical_artifact_hash_v1(artifact)
