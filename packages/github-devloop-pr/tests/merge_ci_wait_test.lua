@@ -77,4 +77,12 @@ return {
     t.eq(logged[1].fields[3], "outcome=hold")
     t.eq(logged[1].fields[5], "ci_class=MERGEABILITY_WAIT")
   end,
+
+  test_repeated_ci_hold_reuses_the_same_outbound_identity = function()
+    local _, _, first = capture_hold("CI_WAIT", "checks-pending")
+    local _, _, second = capture_hold("CI_WAIT", "checks-pending")
+
+    t.is_true(tostring(first[1].payload.dedup_key or "") ~= "")
+    t.eq(first[1].payload.dedup_key, second[1].payload.dedup_key)
+  end,
 }
