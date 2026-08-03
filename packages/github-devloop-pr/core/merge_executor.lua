@@ -143,6 +143,9 @@ local function raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, curren
         reason = admission.reason,
       })
     end
+    if admission.kind == "admit" then
+      log_gate(merge_ready, "fixing", admission.reason)
+    end
     return admission
   end, {
     dept = "merge",
@@ -557,12 +560,14 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
       proposal_id = merge_ready.proposal_id,
     })
     if parsers_misc.is_ci_red_reason(gate_reason) then
-      log_gate(merge_ready, "fixing", gate_reason)
-      local _, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
+      local outcome, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
         current_pr.head_sha, queue_position, "gh-pr-merge-ci-classification-failed")
       if mismatch == "head-mismatch" then
         log_gate(merge_ready, "reviewing", "head-sha-mismatch")
         raise_reviewing_for_current_head(repo, issue_number, merge_ready, state, observed_pr, "head-sha-mismatch")
+      end
+      if outcome ~= nil and outcome.status == "hold" then
+        return outcome
       end
       return
     end
@@ -590,12 +595,14 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
   })
   if not rollup_green then
     if rollup_reason == "rollup-red" then
-      log_gate(merge_ready, "fixing", rollup_reason)
-      local _, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
+      local outcome, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, state,
         current_pr.head_sha, queue_position, "gh-pr-merge-ci-classification-failed")
       if mismatch == "head-mismatch" then
         log_gate(merge_ready, "reviewing", "head-sha-mismatch")
         raise_reviewing_for_current_head(repo, issue_number, merge_ready, state, observed_pr, "head-sha-mismatch")
+      end
+      if outcome ~= nil and outcome.status == "hold" then
+        return outcome
       end
       return
     end
@@ -724,12 +731,14 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     return
   end
   if not merge_ok and parsers_misc.is_ci_red_reason(merge_reason) then
-    log_gate(merge_ready, "fixing", merge_reason)
-    local _, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, rechecked_state,
+    local outcome, mismatch, observed_pr = raise_fresh_own_ci_fixing(repo, issue_number, merge_ready, rechecked_state,
       merge_rechecked_pr.head_sha, queue_position, "write-time own-CI classification failed")
     if mismatch == "head-mismatch" then
       log_gate(merge_ready, "reviewing", "head-sha-mismatch")
       raise_reviewing_for_current_head(repo, issue_number, merge_ready, rechecked_state, observed_pr, "head-sha-mismatch")
+    end
+    if outcome ~= nil and outcome.status == "hold" then
+      return outcome
     end
     return
   end
