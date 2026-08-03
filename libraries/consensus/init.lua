@@ -4,12 +4,14 @@ local rebuttal = require("consensus.rebuttal")
 local result_memo = require("consensus.result_memo")
 local synthesis = require("consensus.synthesis")
 local workflow_codex = require("workflow_internal.codex")
+local workflow_sweep = require("workflow_internal.sweep")
 
 local aggregate = core.aggregate
 local build_reached_payload = core.build_reached_payload
 local judgment_scratch_worktree = core.judgment_scratch_worktree
 local parse_angle_output = core.parse_angle_output
 local result_memo_key = core.result_memo_key
+local result_deferred = workflow_sweep.result_deferred
 
 local M = {}
 
@@ -75,11 +77,16 @@ local function codex_identity(proposal, role, angle_lane, invocation_id)
 end
 
 local function defer_live_run(identity)
-  error(
-    "consensus: live-run-active: role=" .. tostring(identity.role)
+  log.info(
+    "consensus dept=reach disposition=drop-redrive reason=live-run-active role=" .. tostring(identity.role)
       .. " proposal_id=" .. tostring(identity.invocation_id)
       .. " dedup_key=" .. tostring(identity.dedup_key)
   )
+  return {
+    deferred = true,
+    reason = "live-run-active",
+    identity = identity,
+  }
 end
 
 local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts, invocation_id)
@@ -89,8 +96,8 @@ local function dispatch_codex(proposal, prompt, worktree, role, angle_lane, opts
     dispatch_opts[key] = value
   end
   local result = workflow_codex.dispatch(run_identity, dispatch_opts)
-  if type(result) == "table" and result.deferred then
-    defer_live_run(run_identity)
+  if result_deferred(result) then
+    return defer_live_run(run_identity)
   end
   return result
 end
@@ -120,14 +127,18 @@ local function decide(proposal, invocation_id)
   for _, angle in ipairs(angles) do
     local run_identity = codex_identity(proposal, "consensus", tostring(angle), invocation_id)
     if workflow_codex.live_run_active(run_identity) then
-      defer_live_run(run_identity)
+      return defer_live_run(run_identity)
     end
   end
 
   local runtime_root = read_runtime_root()
   proposal = with_runtime_context_root(proposal, runtime_root)
   for _, angle in ipairs(angles) do
-    table.insert(handles, spawn_angle(proposal, angle, runtime_root, invocation_id))
+    local handle = spawn_angle(proposal, angle, runtime_root, invocation_id)
+    if result_deferred(handle) then
+      return handle
+    end
+    table.insert(handles, handle)
   end
 
   local results = await_all(handles)
@@ -178,6 +189,11 @@ local function decide(proposal, invocation_id)
         return dispatch_codex(target_proposal, prompt, worktree, role, angle_lane, nil, invocation_id)
       end,
     })
+    for _, handle in ipairs(rebuttal_handles) do
+      if result_deferred(handle) then
+        return handle
+      end
+    end
     local rebuttal_outputs = await_all(rebuttal_handles)
     rebuttal_results = rebuttal.collect(angle_results, rebuttal_outputs, verdict_mode, {
       parse_angle_output = function(stdout, mode)
@@ -222,6 +238,9 @@ local function decide(proposal, invocation_id)
       }, invocation_id)
     end,
   })
+  if result_deferred(parsed) then
+    return parsed
+  end
   return synthesis.to_decision_result(proposal, angle_results, rebuttal_results, parsed, {
     assert_all_angle_answers_valid = function(results, phase)
       return angle_answers.assert_all_valid(results, phase)
@@ -258,6 +277,9 @@ function M.reach(proposal, options)
   end
 
   local result = decide(proposal, invocation_id)
+  if result_deferred(result) then
+    return nil
+  end
 
   with_lock(cache_key, function()
     memoized = result_memo.load(cache_key, proposal.dedup_key)

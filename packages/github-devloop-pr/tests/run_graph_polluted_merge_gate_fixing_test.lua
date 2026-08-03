@@ -134,7 +134,7 @@ end
 
 local function mock_comment_handoff(event, comments)
   local visible_comments = '[[{"id":1,"body":"'
-    .. h.json_string(core.state_marker(event.proposal_id, "fixing", event.version))
+    .. h.json_string(core.state_marker(event.proposal_id, "reviewing", core.next_fix_version(event.version)))
     .. '","user":{"login":"fkst-test-bot"}},{"id":2,"body":"'
     .. h.json_string(comments[1].body)
     .. '","user":{"login":"fkst-test-bot"}},{"id":3,"body":"'
@@ -144,7 +144,7 @@ local function mock_comment_handoff(event, comments)
     "gh api --paginate --slurp repos/owner/repo/issues/7/comments?per_page=100",
     "gh api --paginate --slurp 'repos/owner/repo/issues/7/comments?per_page=100'",
   }) do
-    for _ = 1, 4 do
+    for _ = 1, 5 do
       t.mock_command(command, {
         stdout = visible_comments,
         stderr = "",
