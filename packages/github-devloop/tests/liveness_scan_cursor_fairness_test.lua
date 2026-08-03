@@ -52,7 +52,7 @@ return {
     local reinjected = {}
     local budget_checks = 0
     local list_calls = 0
-    cache_set(cursor_key, "v1/3/4")
+    cache_set(cursor_key, "3:4")
 
     with_patches({
       {
