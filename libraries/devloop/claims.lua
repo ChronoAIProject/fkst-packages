@@ -401,21 +401,21 @@ end
 
 function C.is_self_owned_issue(ownership, owner)
   if type(ownership) ~= "table" then
-    return false
+    return false, nil
   end
   local claim_state = C.issue_claim_state(ownership.assignees, owner, ownership.labels)
   if claim_state == "self" then
-    return true
+    return true, claim_state
   end
   if claim_state ~= "unassigned" then
-    return false
+    return false, claim_state
   end
   -- Unassigned+self-author is intentional for fork-and-block isolation: a different bot login sees author!=self and skips.
   local author = C.issue_author_login(ownership)
   if author == nil then
-    return false
+    return false, claim_state
   end
-  return devloop_base.strip_bot_login_suffix(author) == tostring(owner or "")
+  return devloop_base.strip_bot_login_suffix(author) == tostring(owner or ""), claim_state
 end
 
 function C.read_current_issue_assignees(repo, issue_number)
@@ -494,16 +494,16 @@ function C.verify_pr_review_issue_claim(dept, repo, issue_number, current_issue,
   else
     ownership = C.read_current_issue_ownership(repo, issue_number)
   end
-  if C.is_self_owned_issue(ownership, owner) then
-    return true
+  local self_owned, status = C.is_self_owned_issue(ownership, owner)
+  if self_owned then
+    return true, status
   end
-  local status = C.issue_claim_state(ownership and ownership.assignees, owner, ownership and ownership.labels)
   if status == "other" then
     log_claim(dept, proposal_id, "skip-claimed-by-other", "backing issue assignee claim is held by another login")
   else
     log_claim(dept, proposal_id, "skip-not-owned", "backing issue is not self-owned")
   end
-  return false
+  return false, status
 end
 
 function C.fork_grace_seconds(exec)

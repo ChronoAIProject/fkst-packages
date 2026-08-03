@@ -790,22 +790,33 @@ return {
 
   test_verify_pr_review_issue_claim_predicate_contract = function()
     mock_bot("fkst-test-bot", "")
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
+    local self_assigned, self_assigned_state = m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
       assignees = { "fkst-test-bot" },
       author_login = "human",
-    }, "github-devloop/issue/owner/repo/42"), true)
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
+    }, "github-devloop/issue/owner/repo/42")
+    t.eq(self_assigned, true)
+    t.eq(self_assigned_state, "self")
+
+    local other_assigned, other_assigned_state = m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
       assignees = { "human" },
       author_login = "fkst-test-bot",
-    }, "github-devloop/issue/owner/repo/42"), false)
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
+    }, "github-devloop/issue/owner/repo/42")
+    t.eq(other_assigned, false)
+    t.eq(other_assigned_state, "other")
+
+    local self_authored, self_authored_state = m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
       assignees = {},
       author_login = "fkst-test-bot",
-    }, "github-devloop/issue/owner/repo/42"), true)
-    t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
+    }, "github-devloop/issue/owner/repo/42")
+    t.eq(self_authored, true)
+    t.eq(self_authored_state, "unassigned")
+
+    local unowned, unowned_state = m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", 42, {
       assignees = {},
       author_login = "human",
-    }, "github-devloop/issue/owner/repo/42"), false)
+    }, "github-devloop/issue/owner/repo/42")
+    t.eq(unowned, false)
+    t.eq(unowned_state, "unassigned")
     t.eq(m_claims.verify_pr_review_issue_claim("claim_contract", "owner/repo", nil, nil, "github-devloop/pr/owner/repo/7"), false)
   end,
 
