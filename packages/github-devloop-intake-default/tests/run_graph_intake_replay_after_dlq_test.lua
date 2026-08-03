@@ -251,10 +251,24 @@ local function find_raise_from_step(step, queue)
   return nil
 end
 
-local function lineage_result(live_delivery, terminal_dead_letter)
+local function observe_snapshot(deliveries, dead_letters)
   return {
-    live_delivery = live_delivery,
-    terminal_dead_letter = terminal_dead_letter,
+    schema_version = 1,
+    generated_at_ms = 1781830860000,
+    source = {
+      durable_root = "/tmp/fkst-durable",
+      database = "/tmp/fkst-durable/delivery.redb",
+      read_semantics = "single read transaction",
+      history_semantics = "delivery queue snapshot only",
+    },
+    limits = { max_deliveries = 10000, max_dead_letters = 10000 },
+    truncated = { deliveries = false, dead_letters = false },
+    queues = json.decode("[]"),
+    deliveries = deliveries or json.decode("[]"),
+    dead_letters = dead_letters or json.decode("[]"),
+    -- run_graph shares one mock response across snapshot and lineage calls.
+    live_delivery = deliveries and deliveries[1] or nil,
+    terminal_dead_letter = dead_letters and dead_letters[1] or nil,
   }
 end
 
@@ -306,7 +320,7 @@ end
 local function assert_observed_admission(trace)
   graph.assert_covers(trace, {
     "github-proxy.github_poll_tick -> github-proxy.github_poll",
-    "github-proxy.github_issue_observed -> github-devloop-intake.admission",
+    "github-proxy.github_issue_observed -> github-devloop-intake.replay_admission",
   })
 end
 
@@ -322,6 +336,7 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     mock_devloop_observe_issue_read()
     mock_context_bundle()
     mock_codex_failure()
+    t.mock_observe(observe_snapshot())
     local first = run_poll(16)
 
     graph.assert_covers(first, {
@@ -344,7 +359,7 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     t.is_true(type(judge_step.delivery_id) == "string" and judge_step.delivery_id ~= "")
     t.is_true(admission_step.queue == "github-proxy.github_entity_changed")
 
-    t.mock_observe(lineage_result(live_row(), nil))
+    t.mock_observe(observe_snapshot({ live_row() }, nil))
     seed_proxy_cache()
     mock_proxy_poll_lists({ owner })
     local refetches_before_live_blocked = issue_refetch_call_count()
@@ -356,7 +371,7 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     t.eq(issue_refetch_call_count(), refetches_before_live_blocked)
 
     local terminal = terminal_row(judge_step.delivery_id, 1)
-    t.mock_observe(lineage_result(nil, terminal))
+    t.mock_observe(observe_snapshot(nil, { terminal }))
     seed_proxy_cache()
     mock_proxy_poll_lists({ owner })
     mock_issue_view({ owner }, {})
@@ -385,7 +400,7 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     t.eq(replay_judge.status, "error")
     t.is_true(replay_judge.delivery_id ~= judge_step.delivery_id)
 
-    t.mock_observe(lineage_result(nil, terminal))
+    t.mock_observe(observe_snapshot(nil, { terminal }))
     seed_proxy_cache()
     mock_proxy_poll_lists({ owner })
     mock_issue_view({ owner }, {})
@@ -394,7 +409,7 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     assert_observed_admission(repeated)
     expect_no_candidate(repeated)
 
-    t.mock_observe(lineage_result(nil, terminal))
+    t.mock_observe(observe_snapshot(nil, { terminal }))
     seed_proxy_cache()
     mock_proxy_poll_lists({ owner })
     mock_issue_view({ owner }, {
@@ -405,7 +420,7 @@ return os.getenv("FKST_INTAKE_REPLAY_NESTED") == "1" and {
     assert_observed_admission(progressed)
     expect_no_candidate(progressed)
 
-    t.mock_observe(lineage_result(nil, terminal))
+    t.mock_observe(observe_snapshot(nil, { terminal }))
     seed_proxy_cache()
     mock_proxy_poll_lists({ owner })
     mock_issue_view({ owner }, {
