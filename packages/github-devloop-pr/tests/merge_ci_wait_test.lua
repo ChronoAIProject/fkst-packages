@@ -4,6 +4,15 @@ local testing = require("testkit_internal.testing")
 local t = h.t
 
 return {
+  test_mergeability_wait_reason_excludes_actionable_conflicts = function()
+    t.is_true(ci_wait.is_mergeability_wait_reason("mergeable-unknown"))
+    t.is_true(ci_wait.is_mergeability_wait_reason("merge-state-blocked"))
+    t.is_true(ci_wait.is_mergeability_wait_reason("missing-mergeability"))
+    t.eq(ci_wait.is_mergeability_wait_reason("mergeable-conflicting"), false)
+    t.eq(ci_wait.is_mergeability_wait_reason("merge-state-dirty"), false)
+    t.eq(ci_wait.is_mergeability_wait_reason("write-time-pr-fact-changed"), false)
+  end,
+
   test_hold_returns_same_tagged_outcome_for_each_ci_wait_class = function()
     local merge_ready = {
       proposal_id = "github-devloop/issue/owner/repo/42",

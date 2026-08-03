@@ -25,6 +25,17 @@ function M.should_wait_for_stale_mergeability(core, pr, branches, mergeable_reas
   return false, "current-base-not-contained"
 end
 
+function M.is_mergeability_wait_reason(reason)
+  local text = tostring(reason or "")
+  if check_runs.is_not_mergeable_reason(text) then
+    return false
+  end
+  return text == "missing-pr"
+    or text == "missing-mergeability"
+    or text:find("^mergeable%-") ~= nil
+    or text:find("^merge%-state%-") ~= nil
+end
+
 function M.hold(core, merge_ready, repo, current_pr, classification)
   local reason = tostring(classification and classification.reason or "ci-wait")
   local source_ref = entity_lib.pr_source_ref(repo, merge_ready.pr_number)

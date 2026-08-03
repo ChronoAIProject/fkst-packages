@@ -748,9 +748,9 @@ local function process_merge_ready_locked(repo, issue_number, merge_ready, branc
     raise_fixing(repo, issue_number, merge_ready, rechecked_state, merge_rechecked_pr, merge_reason, queue_position)
     return
   end
-  if not merge_ok and (merge_reason == "rollup-pending" or merge_reason == "mergeable-unknown") then
+  if not merge_ok and ci_wait.is_mergeability_wait_reason(merge_reason) then
     return ci_wait.hold(core, merge_ready, repo, merge_rechecked_pr or rechecked_pr_for_gate, {
-      kind = "CI_WAIT",
+      kind = "MERGEABILITY_WAIT",
       reason = merge_reason,
     })
   end
