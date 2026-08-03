@@ -155,9 +155,11 @@ return {
     t.eq(result.exit_code, 0, failure_text(result))
     t.eq(#result.raises, 1)
     t.eq(h.find_raise(result.raises, "devloop_fixing"), nil)
+    t.eq(h.find_raise(result.raises, "devloop_merge_queue_tick"), nil)
     t.eq(h.count_calls("gh pr merge"), 0)
     local wait_comment = h.find_raise(result.raises, "github-proxy.github_pr_comment_request")
     t.is_true(wait_comment.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait_comment.payload.body:find('kind="CI_WAIT"', 1, true) ~= nil)
     t.is_true(wait_comment.payload.body:find('reason="rollup-pending"', 1, true) ~= nil)
   end,
 
