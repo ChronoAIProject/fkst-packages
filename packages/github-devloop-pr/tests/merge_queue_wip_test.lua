@@ -799,9 +799,11 @@ return {
     t.eq(retry.exit_code, 0)
     t.eq(count_calls("gh pr merge"), 0)
     t.eq(find_raise(retry.raises, "devloop_fixing"), nil)
+    t.eq(find_raise(retry.raises, "devloop_merge_queue_tick"), nil)
     local wait = find_raise(retry.raises, "github-proxy.github_pr_comment_request")
     t.is_true(wait ~= nil)
     t.is_true(wait.payload.body:find("fkst:github-devloop:merge-gate-wait:v1", 1, true) ~= nil)
+    t.is_true(wait.payload.body:find('reason="mergeable-unknown"', 1, true) ~= nil)
 
     mock_bot_env()
     mock_write_env_many(64)
