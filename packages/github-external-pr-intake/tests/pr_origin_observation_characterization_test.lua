@@ -254,8 +254,18 @@ local function candidate_event()
   }
 end
 
+local function assert_origin_fixture(pr, signer, branch, base_branch)
+  t.eq(pr.head_ref_name, "feature/contrib")
+  t.eq(pr.base_ref_name, "dev")
+  t.eq(#pr.comments, 1)
+  t.eq(pr.comments[1].author_login, signer)
+  t.eq(pr.comments[1].body, pr_origin_marker(branch, base_branch))
+end
+
 local function assert_origin_comment_does_not_change_outcome(signer, branch, base_branch)
-  local scan_github = fake_github(production_pr(signer, branch, base_branch))
+  local scan_pr = production_pr(signer, branch, base_branch)
+  assert_origin_fixture(scan_pr, signer, branch, base_branch)
+  local scan_github = fake_github(scan_pr)
   local scan_logs, scan_raises = run_event(scan_github, {
     queue = "github-external-pr-intake.external_pr_scan",
     payload = { schema = "github-external-pr-intake.v1" },
@@ -276,7 +286,9 @@ local function assert_origin_comment_does_not_change_outcome(signer, branch, bas
   t.eq(count_kind(scan_github.operations, "issue_close"), 0)
   t.eq(logs_contain(scan_logs, "action=skip-"), false)
 
-  local candidate_github = fake_github(production_pr(signer, branch, base_branch))
+  local candidate_pr = production_pr(signer, branch, base_branch)
+  assert_origin_fixture(candidate_pr, signer, branch, base_branch)
+  local candidate_github = fake_github(candidate_pr)
   local candidate_logs, candidate_raises = run_event(candidate_github, candidate_event(), true)
 
   t.eq(#candidate_raises, 0)

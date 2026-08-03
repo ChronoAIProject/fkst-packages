@@ -76,6 +76,8 @@ return {
 
     with_trusted_bot("trusted-bot", function()
       local pr = production_pr("pEeR-BoT[bot]")
+      t.eq(pr.comments[1].author.login, "pEeR-BoT[bot]")
+      t.eq(pr.comments[1].body, pr_origin_marker)
       t.is_nil(m_facts.pr_origin_fact(pr.comments))
     end)
   end,
