@@ -47,6 +47,7 @@ end
 return {
   test_pr_origin_fact_accepts_stale_values_from_mixed_case_trusted_signer = function()
     with_trusted_bot("Trusted-Bot[bot]", function()
+      t.eq(devloop_base.configured_trusted_bot_login(), "trusted-bot")
       t.eq(devloop_base.strip_bot_login_suffix("Trusted-Bot[bot]"), "trusted-bot")
       t.eq(devloop_base.strip_bot_login_suffix("tRuStEd-BoT[bot]"), "trusted-bot")
 
