@@ -517,7 +517,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   local refusal_reentry = core.implementation_refusal_fact(current.comments, proposal_id, state.version)
   local blocked_reentry = blocked_open_pr_reentry or timeout_reentry ~= nil or refusal_reentry ~= nil
   if state.state ~= "impl-failed" and not blocked_reentry then
-    local refusal_reason = "reimplement requires impl-failed, blocked state with an open linked PR, or blocked state from implementing timeout without a PR; use reintake for blocked thinking convergence drops. A blocked implementation refusal is eligible only when its trusted current fact has one of these exact reasons: "
+    local refusal_reason = "reimplement requires impl-failed, blocked state with an open linked PR, or blocked state from implementing timeout without a PR; file a new issue for blocked thinking convergence drops. A blocked implementation refusal is eligible only when its trusted current fact has one of these exact reasons: "
       .. core.implementation_refusal_reasons_text()
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "refused(invalid-state)", refusal_reason)
     local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,

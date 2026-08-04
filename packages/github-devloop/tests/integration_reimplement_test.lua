@@ -413,7 +413,7 @@ return {
     local response = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(response.payload.body:find("operator command refused", 1, true) ~= nil)
     t.is_true(response.payload.body:find("reimplement requires impl-failed, blocked state with an open linked PR, or blocked state from implementing timeout without a PR", 1, true) ~= nil)
-    t.is_true(response.payload.body:find("use reintake for blocked thinking convergence drops", 1, true) ~= nil)
+    t.is_true(response.payload.body:find("file a new issue for blocked thinking convergence drops", 1, true) ~= nil)
   end,
 
   test_retry_implementation_writes_attempt_version = function()
