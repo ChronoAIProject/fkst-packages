@@ -39,7 +39,6 @@ libraries/devloop/base_ids.lua:14
 libraries/devloop/base_ids.lua:26
 libraries/devloop/base_ids.lua:92
 libraries/devloop/claims.lua:280
-libraries/devloop/claims.lua:30
 libraries/devloop/claims.lua:517
 libraries/devloop/claims.lua:626
 libraries/devloop/claims.lua:644
@@ -160,12 +159,10 @@ libraries/devloop/git_mechanics.lua:88
 libraries/devloop/git_mechanics.lua:9
 libraries/devloop/github_author_policy.lua:58
 libraries/devloop/github_factory.lua:17
-libraries/devloop/github_factory.lua:25
 libraries/devloop/github_factory.lua:28
 libraries/devloop/github_proxy_entity_view.lua:106
 libraries/devloop/github_proxy_entity_view.lua:111
 libraries/devloop/github_proxy_entity_view.lua:177
-libraries/devloop/github_proxy_entity_view.lua:22
 libraries/devloop/github_proxy_entity_view.lua:302
 libraries/devloop/github_proxy_entity_view.lua:355
 libraries/devloop/github_proxy_entity_view.lua:372
@@ -256,7 +253,6 @@ libraries/devloop/payloads/builders.lua:256
 libraries/devloop/payloads/builders.lua:273
 libraries/devloop/payloads/builders.lua:410
 libraries/devloop/payloads/builders.lua:540
-libraries/devloop/payloads/shared.lua:14
 libraries/devloop/payloads/shared.lua:53
 libraries/devloop/payloads/shared.lua:57
 libraries/devloop/payloads/shared.lua:61
@@ -272,7 +268,6 @@ libraries/devloop/prompts.lua:472
 libraries/devloop/prompts.lua:479
 libraries/devloop/prompts.lua:482
 libraries/devloop/queue_starvation.lua:147
-libraries/devloop/queue_starvation.lua:25
 libraries/devloop/replay_required_facts.lua:188
 libraries/devloop/replay_required_facts.lua:210
 libraries/devloop/replay_required_facts.lua:218
