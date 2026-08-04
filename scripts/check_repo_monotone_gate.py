@@ -29,6 +29,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_config
 import ratchet_base
 
 
@@ -225,19 +226,6 @@ def _mask(chars: list[str], start: int, end: int) -> None:
             chars[index] = " "
 
 
-def _quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
-
 def lua_code_mask(text: str) -> str:
     chars = list(text)
     cursor = 0
@@ -249,7 +237,7 @@ def lua_code_mask(text: str) -> str:
             cursor = end
             continue
         if text[cursor] in {"'", '"'}:
-            end = _quoted_string_end(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             _mask(chars, cursor, end)
             cursor = end
             continue
@@ -545,6 +533,7 @@ def current_violations(root: Path, package_roots: list[Path] | None = None) -> t
     return found, messages
 
 
+# Local variants preserve ordered typed Violation entries for current and dev data.
 def load_allowlist(path: Path) -> list[Violation]:
     if not path.exists():
         return []

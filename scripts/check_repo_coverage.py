@@ -88,6 +88,7 @@ def parse_hash(value: Any, context: str) -> str:
     return value
 
 
+# Local variant: validates JSON objects and returns typed CoverageKey entries.
 def load_allowlist(path: Path) -> set[CoverageKey]:
     if not path.exists():
         return set()

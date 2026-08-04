@@ -254,7 +254,11 @@ local function build_record(fixture)
   local event, captured, dispatch = capture_runtime(fixture)
   local emitted_effects, observable_writes = effect_observations(dispatch.raises)
   t.eq(canonical_json(effect_id_list(emitted_effects)), canonical_json(fixture.expected_effect_ids), fixture.name)
-  local target_version = dispatch.raises[1] and dispatch.raises[1].payload.dedup_key or nil
+  local target_payload = dispatch.raises[1] and dispatch.raises[1].payload or nil
+  local target_version = target_payload and target_payload.dedup_key or nil
+  if fixture.expected_target == "devloop_consensus_request" then
+    target_version = target_payload and target_payload.effect_version or nil
+  end
   return {
     schema = "restart-old-behavior-observation.v2",
     observation_id = OBSERVATION_PREFIX .. fixture.name,
