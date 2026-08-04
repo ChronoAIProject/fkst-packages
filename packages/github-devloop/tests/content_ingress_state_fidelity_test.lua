@@ -65,7 +65,7 @@ end
 
 return {
   test_redacted_shared_entity_view_preserves_real_state_machine_facts = function()
-    local state_marker = h.state_marker(proposal_id, "dependency_wait", version)
+    local state_marker = h.state_comment_request(proposal_id, "dependency_wait", version).body
     local review_marker = m_builders.review_result_marker(review_proposal_id, proposal_id, "approve", review_dedup_key)
     local ready_marker = m_builders.merge_ready_marker(proposal_id, pr_number, version, review_proposal_id, review_dedup_key, head_sha)
     local dependency_wait = core.dependency_wait_marker(proposal_id, version, { 99 }, "waiting", "waiting-on-dependency")

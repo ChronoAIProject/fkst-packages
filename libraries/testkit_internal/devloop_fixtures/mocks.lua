@@ -11,7 +11,7 @@ function M.new(ctx, funcs)
   local has_value = ctx.has_value
   local reviewing = funcs.reviewing
   local pr_link_marker_for_fix = funcs.pr_link_marker_for_fix
-  local state_marker_fixture = funcs.state_marker
+  local state_comment_request_fixture = funcs.state_comment_request
 
   local function json_string(value)
     return tostring(value)
@@ -56,23 +56,41 @@ function M.new(ctx, funcs)
       local state_marker = nil
       for _, label in ipairs(labels or {}) do
         if label == "fkst-dev:thinking" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "thinking", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "thinking", default_marker_version
+          ).body
         elseif label == "fkst-dev:ready" then
-          state_marker = state_marker_fixture("github-devloop/issue/owner/repo/42", "ready", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "ready", default_marker_version
+          ).body
         elseif label == "fkst-dev:implementing" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "implementing", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "implementing", default_marker_version
+          ).body
         elseif label == "fkst-dev:pr-open" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "pr-open", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "pr-open", default_marker_version
+          ).body
         elseif label == "fkst-dev:reviewing" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "reviewing", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "reviewing", default_marker_version
+          ).body
         elseif label == "fkst-dev:merge-ready" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "merge-ready", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "merge-ready", default_marker_version
+          ).body
         elseif label == "fkst-dev:fixing" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "fixing", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "fixing", default_marker_version
+          ).body
         elseif label == "fkst-dev:impl-failed" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "impl-failed", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "impl-failed", default_marker_version
+          ).body
         elseif label == "fkst-dev:blocked" then
-          state_marker = core.state_marker("github-devloop/issue/owner/repo/42", "blocked", default_marker_version)
+          state_marker = state_comment_request_fixture(
+            "github-devloop/issue/owner/repo/42", "blocked", default_marker_version
+          ).body
         end
       end
       if state_marker ~= nil then
@@ -146,7 +164,10 @@ function M.new(ctx, funcs)
     end
     local state = state_from_labels(labels)
     if state ~= nil and not has_explicit_state_marker then
-      table.insert(rendered, state_marker_fixture("github-devloop/issue/owner/repo/42", state, default_marker_version))
+      local marker = state_comment_request_fixture(
+        "github-devloop/issue/owner/repo/42", state, default_marker_version
+      ).body
+      table.insert(rendered, marker)
     end
     return rendered
   end

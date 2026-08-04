@@ -52,11 +52,11 @@ local function run_production(options)
   local event = options.event or reconcile_event(options.base_version)
   local comments = {}
   if options.current_state ~= nil then
-    table.insert(comments, h.state_marker(
+    table.insert(comments, h.state_comment_request(
       event.proposal_id,
       options.current_state,
       options.current_version
-    ))
+    ).body)
   end
   h.mock_bot_env()
   h.mock_issue_reconcile({}, comments)

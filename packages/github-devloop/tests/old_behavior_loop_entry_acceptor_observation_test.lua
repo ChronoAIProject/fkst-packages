@@ -116,9 +116,9 @@ local function capture(fixture)
   if fixture.target == "proposal" then h.mock_context_bundle(event.payload) end
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, h.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment_request(PROPOSAL_ID, fixture.current_state, fixture.current_version).body)
   elseif fixture.payload == nil and fixture.error == nil then
-    table.insert(comments, h.state_marker(PROPOSAL_ID, "thinking", VERSION))
+    table.insert(comments, h.state_comment_request(PROPOSAL_ID, "thinking", VERSION).body)
   end
   for _, fact in ipairs(fixture.prior or {}) do table.insert(comments, round_marker(event, fact)) end
   local model = github_fake.model({ author_policy = { mode = "whitelist", logins = { "fkst-test-bot" } } })

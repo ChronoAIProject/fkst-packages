@@ -312,7 +312,7 @@ return {
 
   test_output_obligation_command_guard_refuses_command_body_drift = function()
     local creates = run_delivery(function(_, request)
-      request.body = request.body:gsub("^fkst: rereview", "fkst: reintake")
+      request.body = request.body:gsub("^fkst: rereview", "fkst: reready")
     end)
     t.eq(creates, 0)
   end,

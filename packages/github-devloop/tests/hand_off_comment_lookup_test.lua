@@ -33,7 +33,7 @@ return {
     local event_version = "ready/consensus-github-devloop/issue/owner/repo/42/intake/123"
     mock_comment_get(
       "IC_ready_by_id",
-      h.state_marker(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready")
+      h.state_comment_request(proposal_id, "ready", marker_version, "result-marker,ready-label,devloop-ready").body
     )
 
     local state, reason = verify({
@@ -61,7 +61,7 @@ return {
   test_reviewing_hand_off_verifies_carried_comment_id_when_comment_list_is_stale = function()
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/intake/123"
-    mock_comment_get("IC_reviewing_by_id", h.state_marker(proposal_id, "reviewing", version))
+    mock_comment_get("IC_reviewing_by_id", h.state_comment_request(proposal_id, "reviewing", version).body)
 
     local state, reason = verify({
       kind = "own-state-marker",
@@ -88,7 +88,7 @@ return {
     local proposal_id = "github-devloop/issue/owner/repo/42"
     local version = "ready/consensus-github-devloop/issue/owner/repo/42/intake/123"
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_expected'", {
-      stdout = '{"id":"IC_other","body":"' .. json_string(h.state_marker(proposal_id, "reviewing", version)) .. '","user":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"id":"IC_other","body":"' .. json_string(h.state_comment_request(proposal_id, "reviewing", version).body) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })

@@ -171,7 +171,7 @@ return {
     local pr_proposal = "github-devloop/pr/owner/repo/7"
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")
     local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-      .. "\n" .. h.state_marker(issue_proposal, "pr-open", impl_version)
+      .. "\n" .. h.state_comment_request(issue_proposal, "pr-open", impl_version).body
     mock_branch_list(7)
 
     local result = core.ensure_pr_child(issue({
@@ -191,7 +191,7 @@ return {
     local pr_proposal = "github-devloop/pr/owner/repo/7"
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")
     local advanced_child = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-      .. "\n" .. h.state_marker(issue_proposal, "reviewing", impl_version .. "/review/1")
+      .. "\n" .. h.state_comment_request(issue_proposal, "reviewing", impl_version .. "/review/1").body
     mock_branch_list(7)
 
     local result = core.ensure_pr_child(issue({
@@ -212,7 +212,7 @@ return {
     local pr_proposal = "github-devloop/pr/owner/repo/7"
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal, 7, impl_version, "g1")
     local terminal_child = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-      .. "\n" .. h.state_marker(issue_proposal, "blocked", transition_version.next_blocked(impl_version, "child-pr-blocked"))
+      .. "\n" .. h.state_comment_request(issue_proposal, "blocked", transition_version.next_blocked(impl_version, "child-pr-blocked")).body
     mock_branch_list(7)
 
     local result = core.ensure_pr_child(issue({
@@ -228,7 +228,7 @@ return {
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(7), 7, impl_version, "g1")
     local matching_origin = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
     local mismatched_origin = m_builders.pr_origin_marker(issue_proposal, issue_number, branch .. "-old", impl_version, base_branch)
-    local advanced_child = matching_origin .. "\n" .. h.state_marker(issue_proposal, "reviewing", impl_version .. "/review/1")
+    local advanced_child = matching_origin .. "\n" .. h.state_comment_request(issue_proposal, "reviewing", impl_version .. "/review/1").body
     mock_branch_list(7, 7, 7)
 
     t.eq(core.ensure_pr_child(issue({
@@ -262,7 +262,7 @@ return {
     t.eq(pr_effect.payload.handoff.version, impl_version)
 
     local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-      .. "\n" .. h.state_marker(issue_proposal, "pr-open", impl_version)
+      .. "\n" .. h.state_comment_request(issue_proposal, "pr-open", impl_version).body
     local second = core.ensure_pr_child(issue({
       comments = { render_comment(issue_effect.payload.body) },
       pr_comments = { render_comment(visible_pr_open) },
@@ -300,7 +300,7 @@ return {
     local old_delegation = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(7), 7, impl_version, "g1")
     local current_delegation = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(8), 8, impl_version, "g2")
 	    local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-	      .. "\n" .. h.state_marker(issue_proposal, "pr-open", impl_version)
+	      .. "\n" .. h.state_comment_request(issue_proposal, "pr-open", impl_version).body
     mock_branch_list(8)
 
     local result = core.ensure_pr_child(issue({
@@ -322,7 +322,7 @@ return {
     local prior_version = impl_version .. "/prior"
     local delegated = m_builders.pr_delegation_marker(issue_proposal, pr_proposal(7), 7, prior_version, "g1")
 	    local visible_pr_open = m_builders.pr_origin_marker(issue_proposal, issue_number, branch, impl_version, base_branch)
-	      .. "\n" .. h.state_marker(issue_proposal, "pr-open", impl_version)
+	      .. "\n" .. h.state_comment_request(issue_proposal, "pr-open", impl_version).body
 
     local result = core.ensure_pr_child(issue({
       comments = { render_comment(delegated) },

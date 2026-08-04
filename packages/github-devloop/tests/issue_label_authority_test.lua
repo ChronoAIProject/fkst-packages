@@ -1,4 +1,7 @@
 local h = require("tests.devloop_helpers")
+local projected_state_fixture = require("testkit_internal.projected_state_fixture")
+local base_ids = require("devloop.base_ids")
+local devloop_state = require("devloop.state")
 local m_builders = require("devloop.markers.builders")
 local t = h.t
 local core = h.core
@@ -50,6 +53,26 @@ local function contains_value(values, expected)
 end
 
 return {
+  test_projected_state_test_fixtures_expose_only_complete_comment_requests = function()
+    t.eq(projected_state_fixture.state_marker, nil)
+    t.eq(h.state_marker, nil)
+
+    local request = projected_state_fixture.comment_request(
+      devloop_state,
+      base_ids,
+      "github-devloop/issue/owner/repo/42",
+      "dependency_wait",
+      "v1",
+      "result-marker,ready-label,dependency-hold"
+    )
+
+    t.eq(request.schema, "github-proxy.v1")
+    t.is_true(request.body:find('state="dependency_wait"', 1, true) ~= nil)
+    t.eq(request.handoff.kind, "github-devloop.ready-split-label")
+    t.eq(request.handoff.label_request.expected_state, "dependency_wait")
+    t.eq(request.handoff.label_request.require_marker_guard, true)
+  end,
+
   test_projected_state_markers_require_the_canonical_comment_handoff_command = function()
     local marker = core.state_marker
     local projected_state = "dependency_wait"
@@ -89,7 +112,7 @@ return {
 
   test_projected_transition_command_returns_one_complete_comment_handoff = function()
     local source_ref = { kind = "external", ref = "owner/repo#issue/42" }
-    local request = core.build_projected_transition_comment_handoff({
+    local request = devloop_state.build_projected_transition_comment_handoff({
       repo = "owner/repo",
       issue_number = 42,
       proposal_id = "github-devloop/issue/owner/repo/42",

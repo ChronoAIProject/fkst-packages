@@ -31,7 +31,7 @@ return {
       findings_record = findings("dependency evidence remains unresolved"),
     })
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      h.state_marker(event.proposal_id, "thinking", base_version),
+      h.state_comment_request(event.proposal_id, "thinking", base_version).body,
     })
 
     local result = run_loop(event, opts("loop-first-evidence-continuation"))
@@ -64,7 +64,7 @@ return {
     })
     local sr_digest = convergence_shared.source_ref_digest(event.source_ref)
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      h.state_marker(event.proposal_id, "thinking", base_version),
+      h.state_comment_request(event.proposal_id, "thinking", base_version).body,
       conv_rounds.converge_round_marker(event.proposal_id, base_version, sr_digest, 0, base_version, "First boundary", angles(0), findings("first resolvable finding")),
     })
 
@@ -99,7 +99,7 @@ return {
     local current_digest = convergence_shared.source_ref_digest(event.source_ref)
     local drift_digest = convergence_shared.source_ref_digest({ kind = "external", ref = "owner/repo#issue/42?drift=1" })
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      h.state_marker(event.proposal_id, "thinking", base_version),
+      h.state_comment_request(event.proposal_id, "thinking", base_version).body,
       {
         body = conv_rounds.converge_round_marker(event.proposal_id, base_version, current_digest, 1, base_version .. "/loop/1", "Forged", angles(1), findings("forged finding")),
         author_login = "ordinary-user",
@@ -127,7 +127,7 @@ return {
       essence_stall = true,
     })
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      h.state_marker(event.proposal_id, "thinking", base_version),
+      h.state_comment_request(event.proposal_id, "thinking", base_version).body,
     })
 
     local result = run_loop(event, opts("loop-essence-stall"))

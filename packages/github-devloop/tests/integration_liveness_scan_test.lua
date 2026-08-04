@@ -254,7 +254,7 @@ end
 
 local function timeout_state_comment(state_name, state_version, created_at)
   return {
-    body = h.state_marker(proposal_id, state_name, state_version),
+    body = h.state_comment_request(proposal_id, state_name, state_version).body,
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
@@ -263,7 +263,7 @@ local function recent_state_comment(state_name, state_version, seconds_ago)
   return timeout_state_comment(state_name, state_version, os.date("!%Y-%m-%dT%H:%M:%SZ", now() - (seconds_ago or 60)))
 end
 local function ready_state_comment(comment_id, state_version, created_at)
-  return { id = comment_id, body = h.state_marker(proposal_id, "ready", state_version, "result-marker,ready-label,devloop-ready"), author_login = "fkst-test-bot", created_at = created_at or "2026-06-03T00:00:00Z" }
+  return { id = comment_id, body = h.state_comment_request(proposal_id, "ready", state_version, "result-marker,ready-label,devloop-ready").body, author_login = "fkst-test-bot", created_at = created_at or "2026-06-03T00:00:00Z" }
 end
 local function timeout_attempt_comment(state_name, state_version, round, created_at)
   return {
@@ -335,7 +335,7 @@ return {
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_issue_state({ "fkst-dev:merged" }, "OPEN", {
-      h.state_marker(proposal_id, "merged", version),
+      h.state_comment_request(proposal_id, "merged", version).body,
     })
     mock_empty_pr_list()
 
@@ -368,7 +368,7 @@ return {
       })
       local fresh_version = state == "implementing" and "ready/2999-01-01T00-00-00Z" or "2999-01-01T00-00-00Z"
       local proposal = base_ids.proposal_id(repo, number)
-      local comments = { { body = h.state_marker(proposal, state, fresh_version), author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" } }
+      local comments = { { body = h.state_comment_request(proposal, state, fresh_version).body, author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" } }
       if state == "implementing" then table.insert(comments, { body = core.implement_attempt_marker(proposal, fresh_version, 1, tostring(now() - 60)), author_login = "fkst-test-bot", created_at = "2999-01-01T00:00:00Z" }) end
       mock_issue_state_number(number, { "fkst-dev:enabled", core.state_label(state) }, "OPEN", comments)
       if row.terminal == false then
@@ -415,7 +415,7 @@ return {
     mock_repo()
     mock_issue_list({ { number = 42, state = "open", updated_at = "2026-06-03T01:02:03Z" } })
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" }, "OPEN", {
-      h.state_marker(proposal_id, "dependency_wait", version),
+      h.state_comment_request(proposal_id, "dependency_wait", version).body,
       core.dependency_wait_marker(proposal_id, version, { 7 }),
     })
     mock_empty_pr_list()
@@ -489,7 +489,7 @@ return {
     t.is_true(proposal ~= nil)
     t.eq(proposal.payload.proposal_id, proposal_id)
     t.eq(core.version_timeout_round(proposal.payload.dedup_key, "thinking"), 0)
-    t.eq(proposal.payload.dedup_key, version)
+    t.is_true(proposal.payload.effect_version == version and proposal.payload.dedup_key ~= version)
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)
     t.is_true(attempt.payload.body:find("fkst:github-devloop:timeout-attempt:v2", 1, true) ~= nil and attempt.payload.body:find('state="thinking"', 1, true) ~= nil)
@@ -545,7 +545,7 @@ return {
     local timeout_version = version .. "/timeout/ready/3"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:ready" }, "OPEN", {
       {
-        body = h.state_marker(proposal_id, "ready", timeout_version),
+        body = h.state_comment_request(proposal_id, "ready", timeout_version).body,
         author_login = "fkst-test-bot",
         created_at = "2026-06-03T01:02:03Z",
       },
@@ -691,7 +691,7 @@ return {
     local run_opts = opts("liveness-scan-implementing-redrive-scan")
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
     local stuck = {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 60), exec_ref),
     }
     mock_repo()
@@ -802,7 +802,7 @@ return {
     }
     local comments = {
       {
-        body = h.state_marker(event.proposal_id, "implementing", timeout_version),
+        body = h.state_comment_request(event.proposal_id, "implementing", timeout_version).body,
         author_login = "fkst-test-bot",
         created_at = "2026-06-03T00:00:00Z",
       },
@@ -870,7 +870,7 @@ return {
     mock_empty_pr_list()
     for number = 1, 101 do
       mock_issue_state_number(number, { "fkst-dev:enabled", "fkst-dev:merged" }, "OPEN", {
-        h.state_marker(base_ids.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
+        h.state_comment_request(base_ids.proposal_id(repo, number), "merged", "v-" .. tostring(number)).body,
       })
     end
 
@@ -896,7 +896,7 @@ return {
     mock_empty_pr_list()
     for number = 1, 101 do
       mock_issue_state_number(number, { "fkst-dev:enabled", "fkst-dev:merged" }, "OPEN", {
-        h.state_marker(base_ids.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
+        h.state_comment_request(base_ids.proposal_id(repo, number), "merged", "v-" .. tostring(number)).body,
       })
     end
 
@@ -930,7 +930,7 @@ return {
       mock_empty_pr_list()
       for number = 1, 250 do
         mock_issue_state_number(number, { "fkst-dev:enabled", "fkst-dev:merged" }, "OPEN", {
-          h.state_marker(base_ids.proposal_id(repo, number), "merged", "v-" .. tostring(number)),
+          h.state_comment_request(base_ids.proposal_id(repo, number), "merged", "v-" .. tostring(number)).body,
         })
       end
 

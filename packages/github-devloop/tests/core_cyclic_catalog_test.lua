@@ -47,8 +47,8 @@ return {
     local review_loop_version = version .. "/review-loop/3"
 
     local current = core.current_state({
-      h.state_marker(proposal_id, "reviewing", version),
-      h.state_marker(proposal_id, "review-meta", review_loop_version),
+      h.state_comment_request(proposal_id, "reviewing", version).body,
+      h.state_comment_request(proposal_id, "review-meta", review_loop_version).body,
     }, proposal_id)
 
     t.eq(core.version_review_loop_round(review_loop_version), 3)

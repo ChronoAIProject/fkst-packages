@@ -196,6 +196,10 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   if issue.source ~= "liveness-scan"
     and state_is_issue_local
     and core.restart_observe_replay_due(row, "issue", state, facts, now()) then
+    local delivery = replayer.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+    if delivery ~= nil then
+      facts.redrive_delivery = delivery
+    end
     return replayer.replay_from_table(core, "observe_issue", issue, state, row, facts)
   end
   if core.restart_row_observable_on(row, "issue")
@@ -517,7 +521,7 @@ local function maybe_apply_issue_reimplement_command(issue, proposal_id, current
   local refusal_reentry = core.implementation_refusal_fact(current.comments, proposal_id, state.version)
   local blocked_reentry = blocked_open_pr_reentry or timeout_reentry ~= nil or refusal_reentry ~= nil
   if state.state ~= "impl-failed" and not blocked_reentry then
-    local refusal_reason = "reimplement requires impl-failed, blocked state with an open linked PR, or blocked state from implementing timeout without a PR; use reintake for blocked thinking convergence drops. A blocked implementation refusal is eligible only when its trusted current fact has one of these exact reasons: "
+    local refusal_reason = "reimplement requires impl-failed, blocked state with an open linked PR, or blocked state from implementing timeout without a PR; file a new issue for blocked thinking convergence drops. A blocked implementation refusal is eligible only when its trusted current fact has one of these exact reasons: "
       .. core.implementation_refusal_reasons_text()
     devloop_logging.log_cas_decision("observe_issue", proposal_id, state, "impl-failed|blocked(open-pr)|blocked(implementing-timeout)|blocked(implementation-refusal)", "implementing", "refused(invalid-state)", refusal_reason)
     local refusal = operator_commands.build_operator_issue_command_refusal_request(issue.repo,

@@ -375,13 +375,17 @@ local function mock_origin_dependency(blocker_state)
   end
   local blocker_proposal = base_ids.proposal_id(repo, origin_blocker_issue)
   local blocker_milestone = blocker_state == "CLOSED" and "merged" or "ready"
+  local blocker_marker = blocker_milestone == "ready"
+    and projected_state_fixture.comment_request(
+      devloop_state, base_ids, blocker_proposal, blocker_milestone, "blocker-version"
+    ).body
+    or devloop_state.state_marker(blocker_proposal, blocker_milestone, "blocker-version")
   t.mock_command(core.gh_issue_view_observe_cmd(repo, origin_blocker_issue), {
     stdout = issue_json(
       origin_blocker_issue,
       "Workflow origin blocker",
       { "fkst-dev:" .. blocker_milestone },
-      { { body = projected_state_fixture.state_marker(
-        devloop_state, base_ids, blocker_proposal, blocker_milestone, "blocker-version") } },
+      { { body = blocker_marker } },
       blocker_state
     ),
     stderr = "",
@@ -816,12 +820,12 @@ return {
     local ready_version = "consensus:" .. created_child .. "/materialized"
     local ready_comment = {
       id = "IC_materialized_child_ready",
-      body = projected_state_fixture.state_marker(
+      body = projected_state_fixture.comment_request(
         devloop_state, base_ids, created_child,
         "ready",
         ready_version,
         "result-marker,ready-label,devloop-ready"
-      ),
+      ).body,
       created_at = os.date("!%Y-%m-%dT%H:%M:%SZ", now()),
     }
     local child_labels = { "fkst-dev:enabled", "fkst-dev:ready" }

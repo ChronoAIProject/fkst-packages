@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_config
 import ratchet_base
 
 
@@ -76,35 +77,6 @@ class VersionSuffixAllowlistEntry:
         return f"{self.path}:{self.line}"
 
 
-def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    return cursor - index + 1, "]" + ("=" * (cursor - index - 1)) + "]"
-
-
-def end_of_long_bracket(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-
-def end_of_quoted_string(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
-
 def mask_span(chars: list[str], start: int, end: int) -> None:
     for index in range(start, min(end, len(chars))):
         if chars[index] != "\n":
@@ -116,25 +88,25 @@ def lua_code_mask(text: str) -> str:
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is None:
                 newline = text.find("\n", cursor)
                 end = len(text) if newline == -1 else newline
             else:
                 opener_len, closer = bracket
-                end = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             mask_span(chars, cursor, end)
             cursor = end
             continue
         if text[cursor] in ("'", '"'):
-            end = end_of_quoted_string(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             mask_span(chars, cursor, end)
             cursor = end
             continue
-        bracket = long_bracket_at(text, cursor)
+        bracket = check_repo_config.lua_long_bracket_at(text, cursor)
         if bracket is not None:
             opener_len, closer = bracket
-            end = end_of_long_bracket(text, cursor + opener_len, closer)
+            end = check_repo_config.lua_long_bracket_end(text, cursor + opener_len, closer)
             mask_span(chars, cursor, end)
             cursor = end
             continue
@@ -147,22 +119,22 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
     cursor = 0
     while cursor < len(text):
         if text.startswith("--", cursor):
-            bracket = long_bracket_at(text, cursor + 2)
+            bracket = check_repo_config.lua_long_bracket_at(text, cursor + 2)
             if bracket is None:
                 newline = text.find("\n", cursor)
                 cursor = len(text) if newline == -1 else newline
             else:
                 opener_len, closer = bracket
-                cursor = end_of_long_bracket(text, cursor + 2 + opener_len, closer)
+                cursor = check_repo_config.lua_long_bracket_end(text, cursor + 2 + opener_len, closer)
             continue
         if text[cursor] in ("'", '"'):
             start = cursor
-            end = end_of_quoted_string(text, cursor)
+            end = check_repo_config.lua_quoted_string_end(text, cursor)
             content_end = end - 1 if end <= len(text) and text[end - 1] == text[cursor] else end
             literals.append(LuaStringLiteral(start=start, end=end, content=text[cursor + 1 : content_end]))
             cursor = end
             continue
-        bracket = long_bracket_at(text, cursor)
+        bracket = check_repo_config.lua_long_bracket_at(text, cursor)
         if bracket is not None:
             start = cursor
             opener_len, closer = bracket
@@ -284,6 +256,7 @@ def sites(root: Path) -> set[VersionSuffixSite]:
     return current
 
 
+# Local variants parse typed VersionSuffixAllowlistEntry records for current and dev data.
 def load_allowlist(path: Path) -> set[VersionSuffixAllowlistEntry]:
     if not path.exists():
         return set()

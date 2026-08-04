@@ -84,7 +84,7 @@ return {
     -- The re-drive would hand implement a version that differs from the authoritative one.
     t.is_true(expected ~= event.dedup_key)
     local stuck = {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 60), exec_ref),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, tostring(now() - 60), exec_ref),
       core.implement_version_mismatch_marker(event.proposal_id, expected, event.dedup_key, 1),
@@ -119,7 +119,7 @@ return {
     local expected = core.implementation_attempt_version(event.dedup_key, 2)
     t.is_true(expected ~= event.dedup_key)
     local stuck = {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, tostring(now() - 60), exec_ref),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, tostring(now() - 60), exec_ref),
       core.implement_version_mismatch_marker(event.proposal_id, expected, event.dedup_key, 1),

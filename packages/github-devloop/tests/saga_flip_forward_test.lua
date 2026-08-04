@@ -113,7 +113,7 @@ local function sink_probe_cases()
   return {
     {
       id = "r9-shadow-implement-success", event = ready_apply, labels = { "fkst-dev:ready" },
-      comments = { h.state_marker(ready_apply.proposal_id, "ready", ready_apply.dedup_key) },
+      comments = { h.state_comment_request(ready_apply.proposal_id, "ready", ready_apply.dedup_key).body },
       same_attempt_handoff = true,
       entitlements = {
         codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
@@ -123,14 +123,14 @@ local function sink_probe_cases()
     {
       id = "r9-shadow-implementing-liveness-retry", event = implementing_retry,
       labels = { "fkst-dev:implementing" }, no_visible_progress = true,
-      comments = { h.state_marker(implementing_retry.proposal_id, "implementing", implementing_retry.dedup_key) },
+      comments = { h.state_comment_request(implementing_retry.proposal_id, "implementing", implementing_retry.dedup_key).body },
       entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
         git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
     },
     {
       id = "r9-shadow-impl-failed-retry", event = impl_failed_retry,
       labels = { "fkst-dev:impl-failed" },
-      comments = { h.state_marker(impl_failed_retry.proposal_id, "impl-failed", impl_failed_retry.dedup_key),
+      comments = { h.state_comment_request(impl_failed_retry.proposal_id, "impl-failed", impl_failed_retry.dedup_key).body,
         core.impl_failure_marker(impl_failed_retry.proposal_id, impl_failed_retry.dedup_key, "codex-failed", 1) },
       entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
         git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
@@ -140,15 +140,15 @@ local function sink_probe_cases()
       labels = { "fkst-dev:blocked" }, issue_read_count = 3,
       comments = { m_builders.pr_link_marker(blocked_open_pr.proposal_id, 7,
         "devloop-owner-repo-42-01HY", blocked_open_pr.dedup_key, "dev"),
-        h.state_marker(blocked_open_pr.proposal_id, "blocked", open_pr_blocked_version) },
+        h.state_comment_request(blocked_open_pr.proposal_id, "blocked", open_pr_blocked_version).body },
       entitlements = { codex = { IMPLEMENT_DISPATCH_ENTITLEMENT_ID },
         git = { IMPLEMENT_PUBLISH_ENTITLEMENT_ID } },
     },
     {
       id = "r9-shadow-reimplement-blocked-implementing-timeout-without-pr", event = blocked_timeout,
       labels = { "fkst-dev:blocked" }, issue_read_count = 3,
-      comments = { h.state_marker(blocked_timeout.proposal_id, "implementing", blocked_timeout.dedup_key),
-        h.state_marker(blocked_timeout.proposal_id, "blocked", timeout_blocked_version),
+      comments = { h.state_comment_request(blocked_timeout.proposal_id, "implementing", blocked_timeout.dedup_key).body,
+        h.state_comment_request(blocked_timeout.proposal_id, "blocked", timeout_blocked_version).body,
         conv_reconcile.timeout_reconcile_marker(blocked_timeout.proposal_id, blocked_timeout.dedup_key,
           "implementing", 3, "drop", { terminal_version = timeout_blocked_version,
             from_state = "implementing", from_version = blocked_timeout.dedup_key,
@@ -206,13 +206,13 @@ end
 local function visible_child_comments(event, branch)
   return {
     m_builders.pr_origin_marker(event.proposal_id, 42, branch, event.dedup_key, "dev")
-      .. "\n" .. h.state_marker(event.proposal_id, "pr-open", event.dedup_key),
+      .. "\n" .. h.state_comment_request(event.proposal_id, "pr-open", event.dedup_key).body,
   }
 end
 
 local function visible_issue_comments(event, branch)
   return {
-    h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+    h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
     m_builders.implementing_marker(event.proposal_id, event.dedup_key, branch, head_sha, "dev", base_sha),
     m_builders.pr_delegation_marker(event.proposal_id, pr_proposal_id, 7, event.dedup_key, "g1"),
   }
@@ -271,7 +271,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
     })
     mock_existing_empty_implement_worktree()
     mock_implement_codex(0, "implemented")

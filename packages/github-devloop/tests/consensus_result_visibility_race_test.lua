@@ -68,7 +68,7 @@ end
 return {
   test_consensus_result_divergent_same_lineage_folds_comment_and_label_until_first_ack = function()
     local approve = reached()
-    local source_marker = h.state_marker(approve.proposal_id, "thinking", approve.dedup_key)
+    local source_marker = h.state_comment_request(approve.proposal_id, "thinking", approve.dedup_key).body
     mock_issue_result({ "fkst-dev:thinking" }, { source_marker })
 
     local applied = run_result(approve, opts("visibility-race-first-approve"))

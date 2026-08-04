@@ -1,9 +1,7 @@
 local base_ids = require("devloop.base_ids")
-local devloop_base = require("devloop.base")
 local devloop_state = require("devloop.state")
 local entity_lib = require("devloop.entity")
 local forge_validators = require("devloop.forge_validators")
-local marker_facts = require("devloop.markers.facts")
 local operator_commands = require("devloop.operator_commands")
 local parsers_misc = require("devloop.parsers.misc")
 
@@ -14,7 +12,6 @@ local receipt_pattern = "<!%-%- fkst:github%-devloop%-ops:output%-obligation%-re
 
 local command_names = {
   ["rereview"] = "rereview",
-  ["abandon-recreate"] = "reintake",
 }
 local function attr(marker, name)
   return tostring(marker or ""):match(tostring(name) .. '="([^"]*)"')
@@ -41,19 +38,36 @@ local function current_source_terminal_matches(fact, source_issue)
   return operator_commands.output_obligation_current_source_terminal_matches(fact, source_issue)
 end
 
-local function resolution_receipt_marker(fact, decision, max_dedup_len)
+local completed_resolutions = {
+  ["source-closed"] = {
+    decision = "source-closed",
+    kind = "completed",
+    reason = "source-closed",
+  },
+  ["rereview"] = {
+    decision = "rereview",
+    kind = "completed",
+    reason = "rereview-reentered",
+  },
+}
+
+local function resolution_receipt_marker(fact, resolution, max_dedup_len)
   return '<!-- fkst:github-devloop-ops:output-obligation-resolution-receipt:v1 escalation_dedup="'
     .. marker_attr(fact.dedup_key, max_dedup_len)
     .. '" terminal_version="' .. marker_attr(fact.terminal_version, max_dedup_len)
-    .. '" decision="' .. marker_attr(decision, max_dedup_len) .. '" -->'
+    .. '" decision="' .. marker_attr(resolution.decision, max_dedup_len)
+    .. '" kind="' .. marker_attr(resolution.kind, max_dedup_len)
+    .. '" reason="' .. marker_attr(resolution.reason, max_dedup_len) .. '" -->'
 end
 
-local function resolution_receipt_visible(comments, fact, decision)
+local function resolution_receipt_visible(comments, fact, resolution)
   for _, comment in ipairs(parsers_misc._trusted_marker_comments(comments)) do
     for marker in parsers_misc._comment_body(comment):gmatch(receipt_pattern) do
       if attr(marker, "escalation_dedup") == tostring(fact.dedup_key)
         and attr(marker, "terminal_version") == tostring(fact.terminal_version)
-        and attr(marker, "decision") == tostring(decision) then
+        and attr(marker, "decision") == tostring(resolution.decision)
+        and attr(marker, "kind") == tostring(resolution.kind)
+        and attr(marker, "reason") == tostring(resolution.reason) then
         return true
       end
     end
@@ -61,34 +75,41 @@ local function resolution_receipt_visible(comments, fact, decision)
   return false
 end
 
-local function resolution_request(fact, decision, max_dedup_len)
-  local marker = resolution_receipt_marker(fact, decision, max_dedup_len)
+local function resolution_request(fact, resolution, max_dedup_len)
+  local marker = resolution_receipt_marker(fact, resolution, max_dedup_len)
   return {
     schema = "github-proxy.v1",
     repo = fact.escalation_repo,
     issue_number = fact.escalation_issue_number,
-    body = "github-devloop-ops output-obligation resolution: " .. decision .. "\n\n" .. marker,
+    body = "github-devloop-ops output-obligation resolution: "
+      .. resolution.decision .. " (" .. resolution.reason .. ")\n\n" .. marker,
     dedup_key = base_ids.dedup_key({
       "output-obligation-resolution",
       fact.dedup_key,
       fact.terminal_version,
-      decision,
+      resolution.decision,
+      resolution.kind,
+      resolution.reason,
     }),
     source_ref = fact.escalation_source_ref,
   }
 end
 
-local function resolved_decision(M, fact, escalation_issue, decision)
-  if resolution_receipt_visible(escalation_issue and escalation_issue.comments, fact, decision) then
+local function resolved_decision(M, fact, escalation_issue, resolution)
+  if resolution_receipt_visible(escalation_issue and escalation_issue.comments, fact, resolution) then
     return {
-      decision = decision,
+      decision = resolution.decision,
+      kind = resolution.kind,
+      reason = resolution.reason,
       action = "close",
     }
   end
   return {
-    decision = decision,
+    decision = resolution.decision,
+    kind = resolution.kind,
+    reason = resolution.reason,
     action = "receipt",
-    request = resolution_request(fact, decision, M._max_dedup_len),
+    request = resolution_request(fact, resolution, M._max_dedup_len),
   }
 end
 
@@ -100,9 +121,7 @@ local function command_correlation_marker(M, fact, decision, fields)
     .. '" decision="' .. marker_attr(decision, M._max_key_len)
     .. '" pr="' .. marker_attr(values.pr_number, M._max_key_len)
     .. '" head_sha="' .. marker_attr(values.head_sha, M._max_key_len)
-    .. '" target_version="' .. marker_attr(values.target_version, M._max_dedup_len)
-    .. '" authorization_epoch="' .. marker_attr(values.authorization_epoch, M._max_key_len)
-    .. '" -->'
+    .. '" target_version="' .. marker_attr(values.target_version, M._max_dedup_len) .. '" -->'
 end
 
 local function command_dedup_key(fact, decision, fields)
@@ -113,13 +132,9 @@ local function command_dedup_key(fact, decision, fields)
     decision,
   }
   local target = fields or {}
-  if decision == "rereview" then
-    table.insert(parts, target.pr_number)
-    table.insert(parts, target.head_sha)
-    table.insert(parts, target.target_version)
-  else
-    table.insert(parts, target.authorization_epoch)
-  end
+  table.insert(parts, target.pr_number)
+  table.insert(parts, target.head_sha)
+  table.insert(parts, target.target_version)
   return base_ids.dedup_key(parts)
 end
 
@@ -298,59 +313,7 @@ local function decide_existing_rereview(M, fact, escalation_issue, snapshot, sou
   if not quiescent then
     return { action = "wait", reason = quiescence_reason }
   end
-  return resolved_decision(M, fact, escalation_issue, "rereview")
-end
-
-local function decide_existing_reintake(M, fact, escalation_issue, source_issue, snapshot, source_fact, existing)
-  local applied, response_reason = applied_response(
-    source_issue.comments,
-    existing.command,
-    "reintake"
-  )
-  if not applied then
-    return { action = "wait", reason = response_reason }
-  end
-  local effective_updated_at = operator_commands.reintake_effect_updated_at(
-    source_issue,
-    existing.command,
-    source_issue.comments,
-    fact.proposal_id
-  )
-  local expected_dedup = devloop_base.intake_decision_dedup_key(
-    fact.proposal_id,
-    source_issue,
-    existing.command,
-    effective_updated_at
-  )
-  local successor_decision = marker_facts.intake_decision_fact(
-    source_issue.comments,
-    fact.proposal_id,
-    expected_dedup
-  )
-  if successor_decision == nil then
-    return { action = "wait", reason = "reintake-generation-pending" }
-  end
-  if successor_decision.decision == "enable" and not devloop_state.reached(
-    source_issue.comments,
-    fact.proposal_id,
-    "thinking",
-    {
-      domain = "github-devloop-issue",
-      lineage_base = expected_dedup,
-    }
-  ) then
-    return { action = "wait", reason = "reintake-generation-pending" }
-  end
-  local quiescent, quiescence_reason = same_lineage_prs_quiescent(
-    fact,
-    source_fact,
-    snapshot,
-    nil
-  )
-  if not quiescent then
-    return { action = "wait", reason = quiescence_reason }
-  end
-  return resolved_decision(M, fact, escalation_issue, "abandon-recreate")
+  return resolved_decision(M, fact, escalation_issue, completed_resolutions.rereview)
 end
 
 local function select_live_decision(M, fact, escalation_issue, source_issue, snapshot, source_fact)
@@ -358,33 +321,14 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
     snapshot,
     fact
   )
-  local reintake_command, reintake_command_reason, refused_reintake_commands = correlated_command(
-    source_issue.comments,
-    fact,
-    "abandon-recreate"
-  )
-  if rereview_command_reason == "ambiguous-command" or reintake_command_reason == "ambiguous-command" then
+  if rereview_command_reason == "ambiguous-command" then
     return { action = "wait", reason = "ambiguous-command" }
-  end
-  if rereview_command ~= nil and reintake_command ~= nil then
-    return { action = "wait", reason = "ambiguous-command-decision" }
   end
   if rereview_command ~= nil then
     if not current_source_terminal_matches(fact, source_issue) then
       return { action = "wait", reason = "source-terminal-changed" }
     end
     return decide_existing_rereview(M, fact, escalation_issue, snapshot, source_fact, rereview_command)
-  end
-  if reintake_command ~= nil then
-    return decide_existing_reintake(
-      M,
-      fact,
-      escalation_issue,
-      source_issue,
-      snapshot,
-      source_fact,
-      reintake_command
-    )
   end
   local authorization, authorization_reason = operator_commands.output_obligation_live_command_authorization(
     fact,
@@ -414,19 +358,16 @@ local function select_live_decision(M, fact, escalation_issue, source_issue, sna
       }
     )
   end
-  return build_command_decision(
-    M,
-    fact,
-    "abandon-recreate",
-    { kind = "issue", repo = fact.source_repo, number = fact.source_issue_number },
-    fact.source_ref,
-    { authorization_epoch = #refused_reintake_commands + 1 }
-  )
+  return resolved_decision(M, fact, escalation_issue, authorization)
 end
 
 function S.install(M)
   function M.output_obligation_resolution_receipt_marker(fact, decision)
-    return resolution_receipt_marker(fact, decision or "source-closed", M._max_dedup_len)
+    local resolution = completed_resolutions[decision or "source-closed"]
+    if resolution == nil then
+      error("github-devloop-ops: output-obligation-resolution-invalid-completed: completed resolution is invalid")
+    end
+    return resolution_receipt_marker(fact, resolution, M._max_dedup_len)
   end
 
   function M.output_obligation_resolution_decision(fact, escalation_issue, source_issue, linked_pr_snapshot)
@@ -437,7 +378,7 @@ function S.install(M)
       if source_lineage_fact(fact, source_issue) == nil then
         return { action = "skip", reason = "source-lineage-mismatch" }
       end
-      return resolved_decision(M, fact, escalation_issue, "source-closed")
+      return resolved_decision(M, fact, escalation_issue, completed_resolutions["source-closed"])
     end
     if tostring(source_issue and source_issue.state or ""):upper() ~= "OPEN" then
       return { action = "wait", reason = "source-not-open" }

@@ -132,11 +132,11 @@ end
 local function capture_current_state_fact()
   h.mock_bot_env()
   local comments = json_array({
-    trusted(h.state_marker(PROPOSAL_ID, "thinking", OLDER_VERSION), "2026-06-03T01:00:00Z"),
-    trusted(h.state_marker(PROPOSAL_ID, "ready", CURRENT_VERSION), "2026-06-03T01:01:00Z"),
-    trusted(h.state_marker("github-devloop/issue/owner/repo/99", "merged", CURRENT_VERSION .. "/loop/9")),
+    trusted(h.state_comment_request(PROPOSAL_ID, "thinking", OLDER_VERSION).body, "2026-06-03T01:00:00Z"),
+    trusted(h.state_comment_request(PROPOSAL_ID, "ready", CURRENT_VERSION).body, "2026-06-03T01:01:00Z"),
+    trusted(h.state_comment_request("github-devloop/issue/owner/repo/99", "merged", CURRENT_VERSION .. "/loop/9").body),
     {
-      body = h.state_marker(PROPOSAL_ID, "blocked", CURRENT_VERSION .. "/loop/10"),
+      body = h.state_comment_request(PROPOSAL_ID, "blocked", CURRENT_VERSION .. "/loop/10").body,
       author_login = "untrusted-user",
       created_at = "2026-06-03T01:02:00Z",
     },

@@ -317,7 +317,7 @@ local function prepare_observe_fixture(fixture, payload)
   })
   t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues/42/comments?per_page=100'", {
     stdout = '[{"id":"IC_receiver_activation_ready","body":"'
-      .. h.json_string(h.state_marker(PROPOSAL_ID, "ready", payload.dedup_key))
+      .. h.json_string(h.state_comment_request(PROPOSAL_ID, "ready", payload.dedup_key).body)
       .. '","user":{"login":"fkst-test-bot"},"created_at":"2099-01-01T00:00:00Z"}]\n',
     stderr = "",
     exit_code = 0,
@@ -330,7 +330,7 @@ local function prepare_implement_fixture(fixture, payload)
     return
   end
   local comments = {
-    h.state_marker(PROPOSAL_ID, "ready", payload.dedup_key),
+    h.state_comment_request(PROPOSAL_ID, "ready", payload.dedup_key).body,
   }
   if fixture.fork_backing_state ~= nil then
     table.insert(comments, forks.fork_origin_marker(

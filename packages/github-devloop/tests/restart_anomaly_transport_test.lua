@@ -6,7 +6,7 @@ local proposal_id = "github-devloop/issue/owner/repo/42"
 
 local function marker(state, version, created_at)
   return {
-    body = h.state_marker(proposal_id, state, version),
+    body = h.state_comment_request(proposal_id, state, version).body,
     author_login = "fkst-test-bot",
     created_at = created_at,
   }

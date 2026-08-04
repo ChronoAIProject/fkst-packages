@@ -189,7 +189,7 @@ return {
 
   test_issue_ready_projection_with_dependency_label_applies_as_one_guarded_request = function()
     mock_issue_comment_view({
-      h.state_marker(proposal_id, "ready", stale_version),
+      h.state_comment_request(proposal_id, "ready", stale_version).body,
     })
     mock_label_apply({
       "fkst-dev:ready",
@@ -209,7 +209,7 @@ return {
     t.eq(count_calls("gh issue edit"), 0)
 
     mock_issue_comment_view({
-      h.state_marker(proposal_id, "dependency_wait", fresh_version),
+      h.state_comment_request(proposal_id, "dependency_wait", fresh_version).body,
     })
     local result = run_label(event, "issue-ready-dependency-label-guard-retry-current")
 

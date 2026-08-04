@@ -335,11 +335,11 @@ local function fixture_comments(event, fixture)
     return {}
   end
   return {
-    h.state_marker(
+    h.state_comment_request(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
-    ),
+    ).body,
   }
 end
 
@@ -555,11 +555,11 @@ local function assert_consensus_result_case(fixture)
   end
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, h.state_marker(
+    table.insert(comments, h.state_comment_request(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
-    ))
+    ).body)
   end
   h.mock_issue_result(labels, comments)
 
@@ -624,11 +624,11 @@ local function assert_dependency_wait_consensus_result_case(fixture)
   end
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, h.state_marker(
+    table.insert(comments, h.state_comment_request(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version
-    ))
+    ).body)
   end
   h.mock_issue_result(labels, comments)
 

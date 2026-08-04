@@ -123,7 +123,7 @@ end
 local function mock_blocker_issue(issue_number, state_name)
   local comments = {}
   if state_name ~= nil then
-    table.insert(comments, h.state_marker(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)))
+    table.insert(comments, h.state_comment_request(base_ids.proposal_id(repo, issue_number), state_name, "v-" .. tostring(issue_number)).body)
   end
   t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
     stdout = '{"state":"OPEN","comments":[' .. issue_comments_json(comments) .. '],"author":{"login":"fkst-test-bot"}}\n',
@@ -155,7 +155,7 @@ local function mock_blocker_issue_with_pr_link(issue_number, pr_number, state_na
   local impl_version = "v-" .. tostring(issue_number)
   local comments = {}
   if state_name ~= nil then
-    table.insert(comments, h.state_marker(blocker_proposal_id, state_name, impl_version))
+    table.insert(comments, h.state_comment_request(blocker_proposal_id, state_name, impl_version).body)
   end
   table.insert(comments, m_builders.pr_link_marker(blocker_proposal_id, pr_number, branch, impl_version, "dev"))
   t.mock_command(core.gh_issue_view_observe_cmd(repo, issue_number), {
@@ -194,7 +194,7 @@ end
 
 local function mock_result_issue(labels, comments)
   h.mock_issue_result(labels or { "fkst-dev:thinking" }, comments or {
-    h.state_marker(proposal_id, "thinking", "2026-06-02T00-00-00Z"),
+    h.state_comment_request(proposal_id, "thinking", "2026-06-02T00-00-00Z").body,
   }, {
     title = "Implement dependency cascade",
   })
@@ -206,13 +206,13 @@ local function mock_observe_issue(labels, comments)
     number = 42,
     labels = labels or { "fkst-dev:enabled", "fkst-dev:ready" },
     comments = comments or {
-      h.state_marker(proposal_id, "ready", version),
+      h.state_comment_request(proposal_id, "ready", version).body,
     },
     times = 1,
   })
   t.mock_command(core.gh_issue_view_entity_cmd(repo, 42), {
     stdout = issue_view_json(labels or { "fkst-dev:enabled", "fkst-dev:ready" }, comments or {
-      h.state_marker(proposal_id, "ready", version),
+      h.state_comment_request(proposal_id, "ready", version).body,
     }),
     stderr = "",
     exit_code = 0,
@@ -222,7 +222,7 @@ end
 local function mock_implement_issue(labels, comments)
   t.mock_command(core.gh_issue_view_implement_cmd(repo, 42), {
     stdout = issue_view_json(labels or { "fkst-dev:ready" }, comments or {
-      h.state_marker(proposal_id, "ready", h.ready().dedup_key),
+      h.state_comment_request(proposal_id, "ready", h.ready().dedup_key).body,
     }),
     stderr = "",
     exit_code = 0,
@@ -485,7 +485,7 @@ return {
     local link = mock_blocker_issue_with_pr_link(31, 32, "pr-open")
     mock_blocker_pr(31, 32, link, {
       m_builders.pr_origin_marker(link.proposal_id, 31, link.branch, link.impl_version, link.base_branch),
-      h.state_marker(link.proposal_id, "merged", "merge-version-7"),
+      h.state_comment_request(link.proposal_id, "merged", "merge-version-7").body,
       m_builders.merged_marker(core, link.proposal_id, 32, "merge-version-7", "def456"),
     })
     local gate = core.dependency_gate(repo, 42)
@@ -499,7 +499,7 @@ return {
     local link = mock_blocker_issue_with_pr_link(33, 34, "pr-open")
     mock_blocker_pr(33, 34, link, {
       m_builders.pr_origin_marker(link.proposal_id, 33, link.branch, link.impl_version, link.base_branch),
-      h.state_marker(link.proposal_id, "merge-ready", "merge-version-7"),
+      h.state_comment_request(link.proposal_id, "merge-ready", "merge-version-7").body,
     })
     local gate = core.dependency_gate(repo, 42)
     t.eq(gate.ok, false)
@@ -631,7 +631,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 53 }),
       }
@@ -653,7 +653,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "ready", version),
+        h.state_comment_request(proposal_id, "ready", version).body,
         "github-devloop dependency hold: cycle\n\nReason: dependency-cycle\n\n"
           .. core.dependency_cycle_marker(proposal_id, version),
       }
@@ -676,7 +676,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "ready", version),
+        h.state_comment_request(proposal_id, "ready", version).body,
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 53 }),
       }
@@ -704,7 +704,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 53 }),
       }
@@ -717,7 +717,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 53 }),
       }
@@ -754,7 +754,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 57 }),
       }
@@ -786,7 +786,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "fkst: dependency-waiver 60",
         "github-devloop dependency hold: waiting\n\nReason: dependency-waiver-required\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 60 }, "waiting", "dependency-waiver-required"),
@@ -816,7 +816,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         dependency_waiver_comment(59),
         "github-devloop dependency hold: waiting\n\nReason: dependency-waiver-required\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 59 }, "waiting", "dependency-waiver-required"),
@@ -838,7 +838,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 7 }),
       }
@@ -874,7 +874,7 @@ return {
 
   test_dependency_hold_fact_reads_marker_semantics_not_prose = function()
     local gh_failed = core.dependency_hold_fact({
-      h.state_marker(proposal_id, "ready", version),
+      h.state_comment_request(proposal_id, "ready", version).body,
       "localized prose and arbitrary reason noise\n\n"
         .. core.dependency_unresolvable_marker(proposal_id, version, { 42 }, "unresolvable", "gh-failed"),
     }, proposal_id)
@@ -883,7 +883,7 @@ return {
     t.eq(gh_failed.reason, "gh-failed")
 
     local old_gh_failed = core.dependency_hold_fact({
-      h.state_marker(proposal_id, "dependency_wait", version),
+      h.state_comment_request(proposal_id, "dependency_wait", version).body,
       "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
         .. core.dependency_wait_marker(proposal_id, version, { 42 }),
     }, proposal_id)
@@ -892,7 +892,7 @@ return {
     t.eq(old_gh_failed.reason, "waiting-on-dependency")
 
     local attr_gh_failed = core.dependency_hold_fact({
-      h.state_marker(proposal_id, "ready", version),
+      h.state_comment_request(proposal_id, "ready", version).body,
       "localized prose and arbitrary reason noise\n\n"
         .. core.dependency_wait_marker(proposal_id, version, { 42 }, "unresolvable", "gh-failed"),
     }, proposal_id)
@@ -901,7 +901,7 @@ return {
     t.eq(attr_gh_failed.reason, "gh-failed")
 
     local cycle = core.dependency_hold_fact({
-      h.state_marker(proposal_id, "ready", version),
+      h.state_comment_request(proposal_id, "ready", version).body,
       "localized prose and arbitrary reason noise\n\n"
         .. core.dependency_cycle_marker(proposal_id, version),
     }, proposal_id)
@@ -921,7 +921,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
           .. core.dependency_unresolvable_marker(proposal_id, version, { 42 }),
       }
@@ -941,7 +941,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "dependency_wait", version),
+        h.state_comment_request(proposal_id, "dependency_wait", version).body,
         "github-devloop dependency hold: unresolvable\n\nReason: gh-failed\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 42 }),
       }
@@ -958,7 +958,7 @@ return {
     mock_observe_issue(
       { "fkst-dev:enabled", "fkst-dev:implementing", "fkst-dev:blocked-on-dependency" },
       {
-        h.state_marker(proposal_id, "implementing", "ready-consensus-github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z"),
+        h.state_comment_request(proposal_id, "implementing", "ready-consensus-github-devloop-issue-owner-repo-42-2026-06-03T01-02-03Z").body,
         "github-devloop dependency hold: waiting\n\nReason: waiting-on-dependency\n\n"
           .. core.dependency_wait_marker(proposal_id, version, { 7 }),
       }

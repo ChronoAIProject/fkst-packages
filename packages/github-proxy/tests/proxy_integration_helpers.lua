@@ -574,8 +574,8 @@ return {
   mock_pr_comment_write = mock_pr_comment_write,
   calls_matching = calls_matching,
   count_calls = count_calls,
-  state_marker = function(proposal_id, state, version, effects)
-    return projected_state_fixture.state_marker(devloop_state, base_ids, proposal_id, state, version, effects)
+  state_comment_request = function(proposal_id, state, version, effects)
+    return projected_state_fixture.comment_request(devloop_state, base_ids, proposal_id, state, version, effects)
   end,
   capture_comment_department_logs = capture_comment_department_logs,
   capture_label_department_logs = capture_label_department_logs,

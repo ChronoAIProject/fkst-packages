@@ -39,7 +39,7 @@ local function source_ref()
 end
 
 local function state_marker(state, version)
-  return h.state_marker(proposal_id, state, version)
+  return h.state_comment_request(proposal_id, state, version).body
 end
 
 local function blocked_by_json()

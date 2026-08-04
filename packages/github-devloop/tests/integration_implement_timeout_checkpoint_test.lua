@@ -277,7 +277,7 @@ return {
       exit_code = 0,
     })
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
     })
 
@@ -332,7 +332,7 @@ return {
       exit_code = 0,
     })
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
     })
 
@@ -357,7 +357,7 @@ return {
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
       m_builders.implement_checkpoint_marker(event.proposal_id, event.dedup_key, branch, checkpoint_head, "dev", "abc123", 1),
     })
@@ -368,7 +368,7 @@ return {
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
     })
 
@@ -391,7 +391,7 @@ return {
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
     })
     mock_remote_branch(branch, checkpoint_head)
@@ -400,7 +400,7 @@ return {
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
     })
 
@@ -421,7 +421,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
@@ -447,7 +447,7 @@ return {
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 2, stale_started_at()),
     })
@@ -480,7 +480,7 @@ return {
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
       m_builders.implement_checkpoint_marker(event.proposal_id, event.dedup_key, branch, checkpoint_head, "dev", "abc123", 1),
     })
@@ -490,7 +490,7 @@ return {
     mock_git_status(" M packages/github-devloop/core.lua\n")
     mock_git_commit("2222222222222222222222222222222222222222", branch)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
     })
 

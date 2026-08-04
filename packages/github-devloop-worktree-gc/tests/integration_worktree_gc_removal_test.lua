@@ -83,13 +83,12 @@ local function running_row(issue, dedup, role)
 end
 
 local function issue_fixture(issue_number, state_name, lifecycle_marker)
-  local marker_body = projected_state_fixture.state_marker(
-    devloop_state,
-    base_ids,
-    "github-devloop/issue/" .. REPO .. "/" .. tostring(issue_number),
-    state_name,
-    "dedup-current"
-  )
+  local proposal_id = "github-devloop/issue/" .. REPO .. "/" .. tostring(issue_number)
+  local marker_body = (state_name == "ready" or state_name == "dependency_wait")
+    and projected_state_fixture.comment_request(
+      devloop_state, base_ids, proposal_id, state_name, "dedup-current"
+    ).body
+    or devloop_state.state_marker(proposal_id, state_name, "dedup-current")
   if lifecycle_marker ~= nil then
     marker_body = marker_body .. "\n" .. lifecycle_marker
   end

@@ -67,7 +67,7 @@ local function prepare_fixture()
     state = "OPEN",
     labels = { "fkst-dev:enabled", "fkst-dev:blocked" },
     comments = {
-      h.state_marker(PROPOSAL_ID, "blocked", VERSION),
+      h.state_comment_request(PROPOSAL_ID, "blocked", VERSION).body,
       m_builders.pr_link_marker(PROPOSAL_ID, PR_NUMBER, BRANCH, VERSION, BASE_BRANCH),
       core.build_fix_reconcile_comment_request(REPO, tostring(ISSUE_NUMBER), {
         proposal_id = PROPOSAL_ID,

@@ -112,7 +112,7 @@ local function mock_all_issue_lists(items)
       exit_code = 0,
     })
   end
-  for _, state in ipairs(core.issue_state_order()) do
+  for _, state in ipairs(core.lifecycle_state_order()) do
     t.mock_command(observe_issue_list_first_command(core.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
 end
@@ -386,14 +386,14 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(h.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_comment_request(proposal_id, "ready", "2026-06-03T01-02-03Z").body, "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local summary = summary_log(capture_observability_logs())
 
     t.is_true(summary ~= nil)
     t.is_true(summary:find("total=1", 1, true) ~= nil)
-    for _, state in ipairs(core.issue_state_order()) do
+    for _, state in ipairs(core.lifecycle_state_order()) do
       local expected = state == "ready" and 1 or 0
       t.is_true(summary:find(state .. "=" .. tostring(expected), 1, true) ~= nil)
     end
@@ -407,7 +407,7 @@ return {
     mock_pr_list({})
     mock_issue_view({
       render_comment(core.state_marker(proposal_id, "blocked", "2099-01-01T00-00-00Z"), "mallory"),
-      render_comment(h.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_comment_request(proposal_id, "ready", "2026-06-03T01-02-03Z").body, "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local result = run_observability()
@@ -436,7 +436,7 @@ return {
       { number = 8, state = "closed" },
     })
     mock_issue_view({
-      render_comment(h.state_marker(open_proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_comment_request(open_proposal_id, "ready", "2026-06-03T01-02-03Z").body, "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local summary = summary_log(capture_observability_logs())
@@ -685,7 +685,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(h.state_marker(proposal_id, "ready", version), "fkst-test-bot"),
+      render_comment(h.state_comment_request(proposal_id, "ready", version).body, "fkst-test-bot"),
       render_comment(wait_marker(proposal_id, version, { 7 }), "fkst-test-bot"),
     })
 
@@ -749,7 +749,7 @@ return {
     for _, candidate in ipairs(candidates) do
       if candidate.kind == "issue" then
         mock_issue_view({
-          render_comment(h.state_marker("github-devloop/issue/owner/repo/" .. tostring(candidate.number), "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot"),
+          render_comment(h.state_comment_request("github-devloop/issue/owner/repo/" .. tostring(candidate.number), "ready", "2026-06-03T01-02-03Z").body, "fkst-test-bot"),
         }, nil, { number = candidate.number })
       else
         mock_pr_view({}, { number = candidate.number })
@@ -785,7 +785,7 @@ return {
     mock_all_issue_lists({ 42 })
     mock_pr_list({})
     mock_issue_view({
-      render_comment(h.state_marker(proposal_id, "ready", "2026-06-03T01-02-03Z"), "fkst-test-bot", "2026-06-03T01:02:03Z"),
+      render_comment(h.state_comment_request(proposal_id, "ready", "2026-06-03T01-02-03Z").body, "fkst-test-bot", "2026-06-03T01:02:03Z"),
     })
 
     local logs = capture_observability_logs()

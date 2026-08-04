@@ -122,6 +122,10 @@ local function live_source_fixture(with_pr)
   return {
     repo = repo,
     number = source_issue_number,
+    source_ref = {
+      kind = "external",
+      ref = "owner/repo#issue/42",
+    },
     state = "OPEN",
     title = "Recover this output obligation",
     body = "Original issue body",
@@ -150,7 +154,7 @@ local function pr_fixture(state, version)
         ready_version,
         "dev"
       )),
-      bot_comment(h.state_marker(proposal_id, state, version)),
+      bot_comment(h.state_comment_request(proposal_id, state, version).body),
     },
   }
 end
@@ -230,7 +234,7 @@ local function mock_census(comments, opts)
   else
     t.mock_command(core.gh_issue_list_observe_cmd(repo, core._enabled_label, 1, true), empty)
   end
-  for _, state in ipairs(core.issue_state_order()) do
+  for _, state in ipairs(core.lifecycle_state_order()) do
     t.mock_command(core.gh_issue_list_observe_cmd(repo, core.state_label(state), 1, true), empty)
   end
   entity_read_mocks.mock_issue_list_command(
@@ -597,7 +601,7 @@ return {
     t.is_true(close_write(model.writes) ~= nil)
   end,
 
-  test_refused_rereview_rederives_same_decision_for_new_head_then_falls_through_to_reintake = function()
+  test_refused_rereview_rederives_same_decision_for_new_head_then_resolves_terminally = function()
     mock_env("1")
     local source = live_source_fixture(true)
     local pr = pr_fixture("blocked", pr_blocked_version)
@@ -672,110 +676,49 @@ return {
       "pr_number",
       pr_number
     ), nil)
-    local reintake = find_target_raise(
+    local receipt = find_target_raise(
       recovery_tick.raises,
       "github-proxy.github_issue_comment_request",
       "issue_number",
-      source_issue_number
+      escalation_issue_number
     )
-    t.is_true(reintake ~= nil)
-    t.is_true(reintake.payload.body:find("fkst: reintake", 1, true) == 1)
-
-    source.comments = append_comment(source.comments, identified_bot_comment(
-      "IC_reintake_refused",
-      operator_commands.build_output_obligation_command_write_refusal_body(
-        reintake.payload.body,
-        "linked-pr-active"
-      )
-    ))
-    pr.comments = pr_fixture("fixing", pr_blocked_version .. "/fix/1").comments
-    pr.state = "OPEN"
-    mock_census({})
-    local active_tick = run_tick(department)
-    t.eq(find_target_raise(active_tick.raises, "github-proxy.github_issue_comment_request", "issue_number", source_issue_number), nil)
-
-    pr.comments = pr_fixture("merged", pr_blocked_version .. "/fix/1/merged").comments
-    pr.state = "MERGED"
-    mock_census({})
-    local reauthorized_tick = run_tick(department)
-    local reauthorized = find_target_raise(
-      reauthorized_tick.raises,
-      "github-proxy.github_issue_comment_request",
-      "issue_number",
-      source_issue_number
-    )
-    t.is_true(reauthorized ~= nil)
-    t.is_true(reauthorized.payload.dedup_key ~= reintake.payload.dedup_key)
+    t.is_true(receipt ~= nil)
+    t.is_true(receipt.payload.body:find('kind="not_planned"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('reason="source-lineage-abandoned-no-live-pr"', 1, true) ~= nil)
   end,
 
-  test_reintake_multitick_recovers_command_applied_generation_receipt_and_close = function()
+  test_no_live_pr_multitick_records_not_planned_receipt_closure_and_idempotent_replay = function()
     mock_env("1")
     local source = live_source_fixture(false)
     local department, model = fake_department({ source_issue = source })
 
+    devloop_base.configure_trusted_bot_login("fkst-test-bot")
+    local escalation = model.issues["owner/repo#issue/900"]
+    local fact = core.classify_output_obligation_escalation_issue(
+      escalation,
+      repo,
+      escalation_issue_number
+    )
+    local terminal = core.output_obligation_resolution_decision(
+      fact,
+      escalation,
+      source,
+      { comments = source.comments, prs = {}, absent_prs = {} }
+    )
+    t.eq(terminal.decision, "lineage-not-planned")
+    t.eq(terminal.kind, "not_planned")
+    t.eq(terminal.reason, "source-lineage-abandoned-no-live-pr")
+    t.eq(terminal.action, "receipt")
+
     mock_census({})
-    local command_tick = run_tick(department)
-    local command_raise = find_target_raise(
-      command_tick.raises,
+    local receipt_tick = run_tick(department)
+    t.eq(#receipt_tick.raises, 1)
+    t.eq(find_target_raise(
+      receipt_tick.raises,
       "github-proxy.github_issue_comment_request",
       "issue_number",
       source_issue_number
-    )
-    t.is_true(command_raise ~= nil)
-    t.is_true(command_raise.payload.body:find("fkst: reintake", 1, true) == 1)
-
-    local command_comment = identified_bot_comment(
-      "IC_reintake_recovery",
-      command_raise.payload.body,
-      "2026-07-27T12:30:00Z"
-    )
-    source.comments = append_comment(source.comments, command_comment)
-    mock_census({})
-    local command_only = run_tick(department)
-    t.eq(find_target_raise(command_only.raises, "github-proxy.github_issue_comment_request", "issue_number", source_issue_number), nil)
-
-    local command_fact = operator_commands.operator_command_fact(source.comments, "reintake")
-    source.comments = append_comment(source.comments, bot_comment(
-      operator_commands.operator_command_marker(command_fact, "applied", "reintake")
-    ))
-    mock_census({})
-    local applied_only = run_tick(department)
-    t.eq(find_target_raise(applied_only.raises, "github-proxy.github_issue_comment_request", "issue_number", escalation_issue_number), nil)
-
-    local effective_updated_at = operator_commands.reintake_effect_updated_at(
-      source,
-      command_fact,
-      source.comments,
-      proposal_id
-    )
-    local expected_intake_dedup = devloop_base.intake_decision_dedup_key(
-      proposal_id,
-      source,
-      command_fact,
-      effective_updated_at
-    )
-    source.comments = append_comment(source.comments, bot_comment(
-      marker_builders.intake_decision_marker(
-        proposal_id,
-        "enable",
-        expected_intake_dedup,
-        "standard"
-      )
-    ))
-    mock_census({})
-    local decision_only = run_tick(department)
-    t.eq(find_target_raise(
-      decision_only.raises,
-      "github-proxy.github_issue_comment_request",
-      "issue_number",
-      escalation_issue_number
     ), nil)
-
-    source.comments = append_comment(source.comments, bot_comment(
-      core.state_marker(proposal_id, "thinking", expected_intake_dedup)
-    ))
-    mock_census({})
-    local receipt_tick = run_tick(department)
     local receipt = find_target_raise(
       receipt_tick.raises,
       "github-proxy.github_issue_comment_request",
@@ -783,12 +726,25 @@ return {
       escalation_issue_number
     )
     t.is_true(receipt ~= nil)
-    t.is_true(receipt.payload.body:find('decision="abandon-recreate"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('decision="lineage-not-planned"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('kind="not_planned"', 1, true) ~= nil)
+    t.is_true(receipt.payload.body:find('reason="source-lineage-abandoned-no-live-pr"', 1, true) ~= nil)
 
     model.issues["owner/repo#issue/900"].comments = { bot_comment(receipt.payload.body) }
     mock_census(model.issues["owner/repo#issue/900"].comments)
-    run_tick(department)
-    t.is_true(close_write(model.writes) ~= nil)
+    local close_tick = run_tick(department)
+    t.eq(#close_tick.raises, 0)
+    local closed = close_write(model.writes)
+    t.is_true(closed ~= nil)
+    t.eq(closed.argv[7], "--reason")
+    t.eq(closed.argv[8], "not planned")
+
+    model.issues["owner/repo#issue/900"].state = "CLOSED"
+    local writes_after_close = #model.writes
+    mock_census(model.issues["owner/repo#issue/900"].comments)
+    local replay = run_tick(department)
+    t.eq(#replay.raises, 0)
+    t.eq(#model.writes, writes_after_close)
   end,
 
   test_active_linked_pr_states_wait_without_effect_across_ticks = function()
@@ -834,7 +790,7 @@ return {
     t.is_true(command.payload.body:find("fkst: rereview", 1, true) == 1)
   end,
 
-  test_live_recovery_dry_run_emits_intent_without_direct_write = function()
+  test_live_terminal_dry_run_emits_receipt_without_direct_write = function()
     mock_env("")
     local source = live_source_fixture(false)
     local department, model = fake_department({ source_issue = source })
@@ -842,14 +798,14 @@ return {
 
     local result = run_tick(department)
 
-    local command = find_target_raise(
+    local receipt = find_target_raise(
       result.raises,
       "github-proxy.github_issue_comment_request",
       "issue_number",
-      source_issue_number
+      escalation_issue_number
     )
-    t.is_true(command ~= nil)
-    t.is_true(command.payload.body:find("fkst: reintake", 1, true) == 1)
+    t.is_true(receipt ~= nil)
+    t.is_true(receipt.payload.body:find('kind="not_planned"', 1, true) ~= nil)
     t.eq(#model.writes, 0)
   end,
 

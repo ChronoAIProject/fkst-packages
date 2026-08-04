@@ -20,7 +20,7 @@ local function bot_comment(body)
 end
 
 local function state_comment(state, version)
-  return bot_comment(h.state_marker(proposal_id, state, version))
+  return bot_comment(h.state_comment_request(proposal_id, state, version).body)
 end
 
 local function timeout_comment()

@@ -240,11 +240,11 @@ end
 local function fixture_comments(event, fixture)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, trusted_comment(h.state_marker(
+    table.insert(comments, trusted_comment(h.state_comment_request(
       PROPOSAL_ID,
       fixture.current_state,
       fixture.current_version
-    )))
+    ).body))
   end
   if fixture.result_marker_visible then
     table.insert(comments, trusted_comment(conv_reconcile.timeout_reconcile_marker(

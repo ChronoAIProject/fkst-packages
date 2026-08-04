@@ -124,7 +124,7 @@ end
 local function assert_worktree_ready_state(raises, event)
   local comment_raise = find_comment_with(raises, "github-devloop implementation worktree ready")
   t.is_true(comment_raise ~= nil)
-  t.is_true(comment_raise.payload.body:find(h.state_marker(event.proposal_id, "implementing", event.dedup_key), 1, true) ~= nil)
+  t.is_true(comment_raise.payload.body:find(h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body, 1, true) ~= nil)
   t.is_true(comment_raise.payload.body:find("fkst:github-devloop:implement-attempt:v1", 1, true) ~= nil)
   t.eq(m_facts.implementing_fact({ comment_raise.payload.body }, event.proposal_id, event.dedup_key), nil)
   t.is_true(find_label_with_added(raises, "fkst-dev:implementing") ~= nil)
@@ -155,7 +155,7 @@ return {
     })
     local newer = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-04T01-02-03Z"
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(old.proposal_id, "ready", newer),
+      h.state_comment_request(old.proposal_id, "ready", newer).body,
     })
 
     local result = run_implement(old, opts("implement-old-ready-after-new-ready"))
@@ -168,7 +168,7 @@ return {
   test_implement_fork_ready_rechecks_closed_origin_before_work = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
       forks.fork_origin_marker("owner/repo", 618, "human", entity_lib.issue_source_ref("owner/repo", 618)),
     })
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", 618), {
@@ -188,7 +188,7 @@ return {
   test_implement_closed_current_issue_skips_before_work = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
     }, { state = "CLOSED" })
 
     local result = run_implement(event, opts("implement-current-closed"))
@@ -203,7 +203,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", default_marker_version),
+      h.state_comment_request(event.proposal_id, "ready", default_marker_version).body,
     })
     mock_fresh_implement_worktree({
       issue_number = 4,
@@ -232,13 +232,13 @@ return {
   test_implement_failure_detail_cannot_forge_higher_state_marker = function()
     local event = ready()
     local branch = deterministic_branch_for(event)
-    local forged = h.state_marker(
+    local forged = h.state_comment_request(
       event.proposal_id,
       "blocked",
       "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z"
-    )
+    ).body
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
     })
     mock_fresh_implement_worktree({ issue_number = 4, impl_version = event.dedup_key })
     mock_implement_codex(9, "", "failure detail\n" .. forged)
@@ -340,7 +340,7 @@ return {
     })
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", default_marker_version),
+      h.state_comment_request(event.proposal_id, "ready", default_marker_version).body,
     }, { number = 4 })
     mock_existing_devloop_worktree("owner-repo-42")
     mock_fresh_implement_worktree({ issue_number = 4, impl_version = event.dedup_key })
@@ -588,7 +588,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       m_builders.pr_link_marker(event.proposal_id, 7, branch, event.dedup_key, "dev"),
     })
 
@@ -603,7 +603,7 @@ return {
     local event = ready()
     local branch = deterministic_branch_for(event)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       m_builders.pr_link_marker(event.proposal_id, 7, branch, event.dedup_key, "dev"),
     })
 
@@ -621,7 +621,7 @@ return {
     local exec_ref = core.implement_exec_ref(event.proposal_id, event.dedup_key)
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
       core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, now(), exec_ref),
     })
 
@@ -639,7 +639,7 @@ return {
     local branch = deterministic_branch_for(event)
     codex_status.seed_implement_codex_run(run_opts, event.proposal_id, event.dedup_key)
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
     })
     mock_existing_dirty_implement_worktree_reuse(nil, branch, "1")
     mock_implement_codex(0, "duplicate implementation should not spawn")
@@ -721,12 +721,12 @@ return {
     }
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_stale'", {
-      stdout = '{"body":"' .. json_string(h.state_marker(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready")) .. '","user":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"body":"' .. json_string(h.state_comment_request(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready").body) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })
     mock_issue_implement_raw({ "fkst-dev:fixing" }, {
-      h.state_marker(event.proposal_id, "fixing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "fixing", event.dedup_key).body,
     })
 
     local result = run_implement(event, opts("implement-ready-hand-off-stale-at-write"))
@@ -791,7 +791,7 @@ return {
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     for _ = 1, 2 do
       t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_1'", {
-        stdout = '{"body":"' .. json_string(h.state_marker(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready")) .. '","user":{"login":"fkst-test-bot"}}\n',
+        stdout = '{"body":"' .. json_string(h.state_comment_request(event.proposal_id, "ready", event.ready_hand_off.marker_version, "result-marker,ready-label,devloop-ready").body) .. '","user":{"login":"fkst-test-bot"}}\n',
         stderr = "",
         exit_code = 0,
       })
@@ -828,7 +828,7 @@ return {
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     for _ = 1, 2 do
       t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_alternate_effects'", {
-        stdout = '{"body":"' .. json_string(h.state_marker(event.proposal_id, "ready", event.ready_hand_off.marker_version, "alternate-ready-producer")) .. '","user":{"login":"fkst-test-bot"}}\n',
+        stdout = '{"body":"' .. json_string(h.state_comment_request(event.proposal_id, "ready", event.ready_hand_off.marker_version, "alternate-ready-producer").body) .. '","user":{"login":"fkst-test-bot"}}\n',
         stderr = "",
         exit_code = 0,
       })
@@ -863,7 +863,7 @@ return {
     }
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_wrong_state'", {
-      stdout = '{"body":"' .. json_string(h.state_marker(event.proposal_id, "reviewing", event.ready_hand_off.marker_version, "alternate-ready-producer")) .. '","user":{"login":"fkst-test-bot"}}\n',
+      stdout = '{"body":"' .. json_string(h.state_comment_request(event.proposal_id, "reviewing", event.ready_hand_off.marker_version, "alternate-ready-producer").body) .. '","user":{"login":"fkst-test-bot"}}\n',
       stderr = "",
       exit_code = 0,
     })
@@ -886,7 +886,7 @@ return {
       ready_comment_id = "IC_ready_original",
     })
     local branch = deterministic_branch_for(redrive)
-    local marker = h.state_marker(redrive.proposal_id, "ready", original_version, "result-marker,ready-label,devloop-ready")
+    local marker = h.state_comment_request(redrive.proposal_id, "ready", original_version, "result-marker,ready-label,devloop-ready").body
     mock_issue_implement_raw({ "fkst-dev:ready" }, {})
     t.mock_command("gh api --method GET 'repos/owner/repo/issues/comments/IC_ready_original'", {
       stdout = '{"body":"' .. json_string(marker) .. '","user":{"login":"fkst-test-bot"}}\n',
@@ -955,13 +955,13 @@ return {
   test_implement_skips_visible_terminal_states = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:impl-failed" }, {
-      h.state_marker(event.proposal_id, "impl-failed", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "impl-failed", event.dedup_key).body,
     })
     local failed_recorded = run_implement(event, opts("implement-already-impl-failed-recorded"))
     t.eq(failed_recorded.exit_code, 0)
     t.eq(#failed_recorded.raises, 0)
 
-    mock_issue_implement({ "fkst-dev:blocked" }, { h.state_marker(event.proposal_id, "blocked", default_marker_version) })
+    mock_issue_implement({ "fkst-dev:blocked" }, { h.state_comment_request(event.proposal_id, "blocked", default_marker_version).body })
     local blocked = run_implement(event, opts("implement-already-blocked"))
     t.eq(blocked.exit_code, 0)
     t.eq(#blocked.raises, 0)

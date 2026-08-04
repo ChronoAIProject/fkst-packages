@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_config
+
 
 INTAKE_PACKAGE = "github-devloop-intake"
 POLICY_SLOT_MANIFEST = Path("scripts/intake_policy_slots.json")
@@ -184,7 +186,7 @@ def lua_code_mask(text: str) -> str:
             continue
         char = text[index]
         if char in {"'", '"'}:
-            end = quoted_string_end(text, index)
+            end = check_repo_config.lua_quoted_string_end(text, index)
             _mask(chars, index, end)
             index = end
             continue
@@ -202,25 +204,12 @@ def lua_string_literals(text: str) -> list[tuple[int, str]]:
             continue
         char = text[index]
         if char in {"'", '"'}:
-            end = quoted_string_end(text, index)
+            end = check_repo_config.lua_quoted_string_end(text, index)
             literals.append((index, text[index + 1:end - 1]))
             index = end
             continue
         index += 1
     return literals
-
-
-def quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == quote:
-            return index + 1
-        index += 1
-    return len(text)
 
 
 def line_number(text: str, index: int) -> int:

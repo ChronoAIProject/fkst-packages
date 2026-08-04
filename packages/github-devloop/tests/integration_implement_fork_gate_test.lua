@@ -79,7 +79,7 @@ return {
   test_noncanonical_fork_exits_before_implementation = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
       forks.fork_origin_marker("owner/repo", original_issue, "human", entity_lib.issue_source_ref("owner/repo", original_issue)),
     })
     t.mock_command(core.gh_issue_view_state_cmd("owner/repo", original_issue), {
@@ -105,7 +105,7 @@ return {
   test_peer_bot_authored_noncanonical_fork_exits_before_implementation = function()
     local event = ready()
     mock_issue_implement({ "fkst-dev:ready" }, {
-      h.state_marker(event.proposal_id, "ready", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
     }, {
       author_login = "ElonSG",
       body = forks.fork_issue_body("owner/repo", original_issue, "human", entity_lib.issue_source_ref("owner/repo", original_issue)),
@@ -153,7 +153,7 @@ return {
     ))
     mock_issue_implement({ "fkst-dev:ready" }, {
       {
-        body = h.state_marker(event.proposal_id, "ready", event.dedup_key),
+        body = h.state_comment_request(event.proposal_id, "ready", event.dedup_key).body,
         author_login = "loning",
       },
     }, {

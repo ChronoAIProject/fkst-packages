@@ -47,7 +47,7 @@ local function mock_dependent_issue()
     number = dependent_number,
     labels = { "fkst-dev:enabled", "fkst-dev:ready", "fkst-dev:blocked-on-dependency" },
     comments = {
-      h.state_marker(dependent_proposal, "dependency_wait", dependent_version),
+      h.state_comment_request(dependent_proposal, "dependency_wait", dependent_version).body,
       core.dependency_wait_marker(dependent_proposal, dependent_version, { blocker_number }),
     },
     assignees = { "fkst-test-bot" },
@@ -61,7 +61,7 @@ local function mock_delegated_blocker_issue()
     number = blocker_number,
     labels = { "fkst-dev:enabled", "fkst-dev:awaiting-pr" },
     comments = {
-      h.state_marker(blocker_proposal, "awaiting-pr", blocker_version),
+      h.state_comment_request(blocker_proposal, "awaiting-pr", blocker_version).body,
       m_builders.pr_delegation_marker(blocker_proposal, child_pr_proposal, child_pr_number, blocker_version, "g1"),
     },
     assignees = { "fkst-test-bot" },
@@ -79,7 +79,7 @@ local function mock_merged_child_pr()
     base_branch = "dev",
     comments = {
       m_builders.pr_origin_marker(blocker_proposal, blocker_number, "devloop-owner-repo-61-01HY", blocker_version, "dev"),
-      h.state_marker(blocker_proposal, "merged", blocker_version),
+      h.state_comment_request(blocker_proposal, "merged", blocker_version).body,
       m_builders.merged_marker(core, blocker_proposal, child_pr_number, blocker_version, child_head_sha),
     },
   }, entity_read_mocks.pr_origin_selector)

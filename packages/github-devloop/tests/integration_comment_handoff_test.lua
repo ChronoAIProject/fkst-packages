@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
+local devloop_state = require("devloop.state")
 local payloads_builders = require("devloop.payloads.builders")
 local v_ready = require("devloop.validators.ready")
 local t = h.t
@@ -8,7 +9,7 @@ local opts = h.opts
 local find_raise = h.find_raise
 
 local function ready_handoff(source_ref, event_version, marker_version, suffix)
-  return core.build_projected_transition_comment_handoff({
+  return devloop_state.build_projected_transition_comment_handoff({
     repo = "owner/repo",
     issue_number = 42,
     proposal_id = "github-devloop/issue/owner/repo/42",

@@ -43,4 +43,37 @@ return {
     t.eq(result.proposal_id, "github-devloop/issue/owner/repo/42")
     t.eq(result.decision, "approve")
   end,
+
+  test_request_uses_effect_version_as_the_consensus_identity = function()
+    local original_reach = consensus.reach
+    local captured = nil
+    consensus.reach = function(value)
+      captured = value
+      return {
+        status = "converge",
+        schema = "consensus.consensus_converge.v1",
+        dedup_key = "consensus:" .. value.dedup_key,
+        effect_version = value.effect_version,
+        source_ref = value.source_ref,
+      }
+    end
+
+    local request = proposal()
+    local logical_version = request.dedup_key
+    request.effect_version = logical_version
+    request.dedup_key = logical_version .. "/delivery-redrive/restart-liveness-v2/1"
+    local ok, result = pcall(function()
+      return consensus_call.reach(request)
+    end)
+    consensus.reach = original_reach
+    if not ok then
+      error(result)
+    end
+
+    t.eq(captured.dedup_key, logical_version)
+    t.eq(captured.effect_version, logical_version)
+    t.eq(result.dedup_key, "consensus:" .. logical_version)
+    t.eq(result.effect_version, logical_version)
+    t.eq(result.proposal_id, request.proposal_id)
+  end,
 }

@@ -48,6 +48,7 @@ class HiddenStateKey:
         return f"{self.package}|{self.row}|{self.fact_family}|{self.successor}"
 
 
+# Local variants parse typed HiddenStateKey entries for current and dev data.
 def load_allowlist(path: Path) -> set[HiddenStateKey]:
     if not path.exists():
         return set()

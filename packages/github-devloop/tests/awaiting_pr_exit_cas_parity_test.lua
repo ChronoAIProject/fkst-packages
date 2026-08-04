@@ -78,7 +78,7 @@ local function parent_issue(fixture)
     number = ISSUE_NUMBER,
     source_ref = entity_lib.issue_source_ref(REPO, ISSUE_NUMBER),
     comments = {
-      trusted_comment(h.state_marker(PROPOSAL_ID, "awaiting-pr", VERSION)),
+      trusted_comment(h.state_comment_request(PROPOSAL_ID, "awaiting-pr", VERSION).body),
       trusted_comment(m_builders.pr_delegation_marker(
         PROPOSAL_ID,
         pr_proposal_id(fixture),
@@ -104,11 +104,11 @@ local function child_pr(fixture)
         VERSION,
         fixture.base_branch
       ), "2026-06-03T01:03:00Z"),
-      trusted_comment(h.state_marker(
+      trusted_comment(h.state_comment_request(
         PROPOSAL_ID,
         fixture.child_state,
         VERSION
-      ), "2026-06-03T01:04:00Z"),
+      ).body, "2026-06-03T01:04:00Z"),
     },
     head_ref_name = fixture.branch,
     base_ref_name = fixture.base_branch,

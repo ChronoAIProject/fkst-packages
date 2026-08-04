@@ -29,6 +29,7 @@ end
 function M.new(deps)
   deps = deps or {}
   local core = deps.core or error("testkit_internal.devloop_core_fixtures: deps.core is required")
+  local state_api = deps.state_api or error("testkit_internal.devloop_core_fixtures: deps.state_api is required")
   local base_ids = deps.base_ids or error("testkit_internal.devloop_core_fixtures: deps.base_ids is required")
   local t = deps.t or fkst.test
 
@@ -98,8 +99,8 @@ function M.new(deps)
     t = t,
     has_value = has_value,
     source_ref = source_ref,
-    state_marker = function(proposal_id, state, version, effects)
-      return projected_state_fixture.state_marker(core, base_ids, proposal_id, state, version, effects)
+    state_comment_request = function(proposal_id, state, version, effects)
+      return projected_state_fixture.comment_request(state_api, base_ids, proposal_id, state, version, effects)
     end,
     issue = issue,
     reached = reached,

@@ -35,7 +35,7 @@ local function entity(labels, comments, extra)
 end
 
 local function state_comment(state, marker_version, created_at)
-  return bot_comment(h.state_marker(proposal_id, state, marker_version or version), created_at)
+  return bot_comment(h.state_comment_request(proposal_id, state, marker_version or version).body, created_at)
 end
 
 local function classify(value, opts)

@@ -35,7 +35,7 @@ return {
     local version = original.dedup_key .. "/loop/1"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = h.state_marker(original.proposal_id, "thinking", version),
+        body = h.state_comment_request(original.proposal_id, "thinking", version).body,
         created_at = "2026-06-03T00:00:00Z",
       },
     })
@@ -61,7 +61,7 @@ return {
     local version = original.dedup_key .. "/loop/1"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = h.state_marker(original.proposal_id, "thinking", version),
+        body = h.state_comment_request(original.proposal_id, "thinking", version).body,
         created_at = "2026-06-03T00:00:00Z",
       },
     })
@@ -72,7 +72,8 @@ return {
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.dedup_key, version)
+    t.eq(proposal.payload.effect_version, version)
+    t.is_true(proposal.payload.dedup_key ~= version)
     t.eq(proposal.payload.round, 1)
     local attempt = find_raise(result.raises, "github-proxy.github_issue_comment_request")
     t.is_true(attempt ~= nil)
@@ -85,7 +86,7 @@ return {
     local base_version = "consensus:" .. original.dedup_key
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = h.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        body = h.state_comment_request(original.proposal_id, "thinking", original.dedup_key).body,
         created_at = "2026-06-03T00:00:00Z",
       },
       converge_round_comment(event, original.proposal_id, base_version, 0, "Latest visible question", "abstain"),
@@ -97,7 +98,8 @@ return {
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.dedup_key, original.dedup_key .. "/loop/1")
+    t.eq(proposal.payload.effect_version, original.dedup_key .. "/loop/1")
+    t.is_true(proposal.payload.dedup_key ~= proposal.payload.effect_version)
     t.eq(proposal.payload.round, 1)
     t.eq(proposal.payload.convergence_question, "Latest visible question")
     t.eq(proposal.payload.findings_record, nil)
@@ -111,12 +113,13 @@ return {
       angle_digests = {
         { angle = "minimal", verdict = "approve", digest = "round-digest-1" },
       },
-      dedup_key = "consensus:" .. proposal.payload.dedup_key,
+      dedup_key = "consensus:" .. proposal.payload.effect_version,
+      effect_version = proposal.payload.effect_version,
       source_ref = proposal.payload.source_ref,
     }
     mock_issue_loop({ "fkst-dev:enabled", "fkst-dev:thinking" }, {
       {
-        body = h.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        body = h.state_comment_request(original.proposal_id, "thinking", original.dedup_key).body,
         created_at = "2026-06-03T00:00:00Z",
       },
       converge_round_comment(event, original.proposal_id, base_version, 0, "Latest visible question", "abstain"),
@@ -144,7 +147,7 @@ return {
     local version = original.dedup_key .. "/loop/1"
     mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", {
       {
-        body = h.state_marker(original.proposal_id, "thinking", original.dedup_key),
+        body = h.state_comment_request(original.proposal_id, "thinking", original.dedup_key).body,
         created_at = "2026-06-03T00:00:00Z",
       },
       converge_round_comment(event, original.proposal_id, base_version, 0),

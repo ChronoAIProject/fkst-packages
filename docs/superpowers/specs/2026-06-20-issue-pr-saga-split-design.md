@@ -1,6 +1,8 @@
 # Decompose github-devloop into per-lifecycle packages (PR split first; 4-package target)
 
-Status: DESIGN — awaiting operator approval before any implementation.
+Status: IMPLEMENTED (verified 2026-08-04). The PR-side package exists at
+`packages/github-devloop-pr/fkst.toml`, and `packages/github-devloop/` retains the issue side.
+The text below is the design record; it is no longer a proposal awaiting approval.
 Date: 2026-06-20
 Author: operator (out-of-band, dogfood), via `sshx` adversarial exploration + operator review.
 

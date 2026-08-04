@@ -108,7 +108,7 @@ function C.build_devloop_ready_payload(M, source)
       generation_key = source.redrive_delivery.generation_key,
       attempt = source.redrive_delivery.attempt,
     }
-    payload.dedup_key = shared.ready_redrive_delivery_dedup_key(
+    payload.dedup_key = shared.issue_redrive_delivery_dedup_key(
       source.proposal_id,
       ready_version,
       payload.redrive_delivery
@@ -425,8 +425,6 @@ function C.build_devloop_intake_candidate_payload(repo, issue_number, updated_at
     proposal_id = proposal_id,
     dedup_key = dedup_key,
     effect_id = effect_id,
-    reintake_command_created_at = opts.reintake_command_created_at,
-    reintake_effect_updated_at = opts.reintake_effect_updated_at,
     premise_fingerprint = opts.premise_fingerprint,
     correction_fingerprint = opts.correction_fingerprint,
     source_ref = source_ref,

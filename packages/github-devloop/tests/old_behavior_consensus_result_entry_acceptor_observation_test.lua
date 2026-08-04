@@ -208,7 +208,7 @@ local function capture(fixture)
   local event = event_for(fixture)
   local comments = ra.json_array()
   if fixture.current_state then
-    table.insert(comments, trusted(h.state_marker(PROPOSAL_ID, fixture.current_state, fixture.current_version)))
+    table.insert(comments, trusted(h.state_comment_request(PROPOSAL_ID, fixture.current_state, fixture.current_version).body))
   end
   if fixture.first_decision then
     table.insert(comments, trusted(m_builders.result_marker(PROPOSAL_ID, fixture.first_decision, event.payload.dedup_key,

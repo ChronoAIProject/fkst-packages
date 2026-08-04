@@ -136,7 +136,7 @@ end
 
 local function state_comment(state_name, state_version, created_at)
   return {
-    body = h.state_marker(proposal_id, state_name, state_version),
+    body = h.state_comment_request(proposal_id, state_name, state_version).body,
     author_login = "fkst-test-bot",
     created_at = created_at or "2026-06-03T00:00:00Z",
   }
@@ -227,7 +227,7 @@ return {
       current = { comments = comments, labels = { "fkst-dev:enabled", "fkst-dev:implementing" } },
       current_pr = {
         comments = {
-          issue_comment(h.state_marker(pr_proposal, "blocked", "child-blocked-version"), "2026-06-03T01:00:00Z"),
+          issue_comment(h.state_comment_request(pr_proposal, "blocked", "child-blocked-version").body, "2026-06-03T01:00:00Z"),
         },
       },
       fresh_current_state = state,

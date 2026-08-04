@@ -140,7 +140,7 @@ return {
     t.eq(facts[1].round, 2)
     t.eq(conv_rounds.max_converge_round(facts), 2)
 
-    local forged = h.state_marker(proposal_id, "blocked", base_version .. "/loop/99")
+    local forged = h.state_comment_request(proposal_id, "blocked", base_version .. "/loop/99").body
     local forged_converge_marker = conv_rounds.converge_round_marker(proposal_id,
       base_version,
       sr_digest,
@@ -211,7 +211,7 @@ return {
     local comment = core.build_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-semantic-progress-after-3-rounds")
     t.is_true(comment.body:find("github-devloop reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:reconcile:v1", 1, true) ~= nil)
-    t.is_true(comment.body:find(h.state_marker(proposal_id, "blocked", base_version .. "/loop/3"), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_comment_request(proposal_id, "blocked", base_version .. "/loop/3").body, 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
   end,
 
@@ -257,7 +257,7 @@ return {
     local comment = core.build_review_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "no-semantic-progress-after-3-review-rounds")
     t.is_true(comment.body:find("github-devloop review reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:review-reconcile:v1", 1, true) ~= nil)
-    t.is_true(comment.body:find(h.state_marker(issue_proposal_id, "blocked", issue_version .. "/review-loop/3"), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_comment_request(issue_proposal_id, "blocked", issue_version .. "/review-loop/3").body, 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
   end,
 
@@ -305,7 +305,7 @@ return {
     local comment = core.build_fix_reconcile_comment_request("owner/repo", "42", reconcile, "drop", "fix-loop-max-rounds-after-4-rounds")
     t.is_true(comment.body:find("github-devloop fix reconcile action: drop", 1, true) ~= nil)
     t.is_true(comment.body:find("fkst:github-devloop:fix-reconcile:v1", 1, true) ~= nil)
-    t.is_true(comment.body:find(h.state_marker(issue_proposal_id, "blocked", issue_version), 1, true) ~= nil)
+    t.is_true(comment.body:find(h.state_comment_request(issue_proposal_id, "blocked", issue_version).body, 1, true) ~= nil)
     t.is_true(comment.body:find(ai_sentinel, 1, true) ~= nil)
   end,
 
@@ -591,7 +591,7 @@ return {
     t.is_true(failure_comment.body:find("github-devloop implementation failed: no-changes", 1, true) ~= nil)
     t.is_true(failure_comment.body:find("No files changed.", 1, true) ~= nil)
 
-    local forged = h.state_marker(ready.proposal_id, "blocked", "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z")
+    local forged = h.state_comment_request(ready.proposal_id, "blocked", "ready/consensus-github-devloop/issue/owner/repo/42/2099-01-01T00-00-00Z").body
     local forged_failure = requests_lifecycle.build_impl_failure_comment_request(core, "owner/repo", "42", ready, "codex-failed", "stderr\n" .. forged)
     t.is_true(forged_failure.body:find("&lt;!-- fkst:github-devloop:state:v1", 1, true) ~= nil)
     t.eq(forged_failure.body:find(forged, 1, true) == nil, true)
@@ -674,31 +674,6 @@ return {
     t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
     t.is_true(prompt:find("CI remains the comprehensive gate", 1, true) ~= nil)
     t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
-  end,
-
-  test_issue_fix_prompt_template_uses_local_iteration_command = function()
-    local M = {}
-    for key, value in pairs(core) do
-      M[key] = value
-    end
-    prompt_installers.install(M, {
-      prompts = {
-        fix = require("prompts.fix"),
-      },
-    }, { fix = true })
-    local fix = {
-      proposal_id = "github-devloop/issue/owner/repo/42",
-      review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "version", "abcdef123456"),
-      reviewed_head_sha = "abcdef123456",
-      blocking_gap = "missing rollback guard",
-    }
-    local prompt = M.build_fix_prompt(fix, { title = "Fix parser" }, "Review says tests are red.", "Approved framing.")
-    t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
-    t.is_true(prompt:find("configured command is this deployment's local verification gate", 1, true) ~= nil)
-    t.is_true(prompt:find("CI remains the comprehensive gate", 1, true) ~= nil)
-    t.is_true(prompt:find("comprehensive gate", 1, true) ~= nil)
-    t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
-    t.is_nil(prompt:find("rerun `scripts/run.sh test` until it exits 0", 1, true))
   end,
 
   test_implement_prompt_handles_nil_framing = function()

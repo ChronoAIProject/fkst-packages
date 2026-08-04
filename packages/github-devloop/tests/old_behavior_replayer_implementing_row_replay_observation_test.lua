@@ -122,7 +122,7 @@ local function comments_for(fixture)
     or (fixture.marker_seconds_ago ~= nil and seconds_ago_timestamp(fixture.marker_seconds_ago))
     or "2000-01-01T00:00:00Z"
   local comments = json_array({
-    trusted_comment(h.state_marker(PROPOSAL_ID, "implementing", VERSION), created_at),
+    trusted_comment(h.state_comment_request(PROPOSAL_ID, "implementing", VERSION).body, created_at),
   })
   if fixture.implementing_fact then
     table.insert(comments, trusted_comment(m_builders.implementing_marker(

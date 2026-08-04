@@ -78,7 +78,7 @@ local function next_state_version(fixture)
 end
 
 local function parent_comments(fixture)
-  local comments = json_array({ trusted_comment(h.state_marker(PROPOSAL_ID, "awaiting-pr", VERSION)) })
+  local comments = json_array({ trusted_comment(h.state_comment_request(PROPOSAL_ID, "awaiting-pr", VERSION).body) })
   if fixture.delegation ~= false then
     table.insert(comments, trusted_comment(m_builders.pr_delegation_marker(
       PROPOSAL_ID,
@@ -102,11 +102,11 @@ local function child_comments(fixture)
     ), "2026-06-03T01:03:00Z"),
   })
   if fixture.child_marker ~= false then
-    table.insert(comments, trusted_comment(h.state_marker(
+    table.insert(comments, trusted_comment(h.state_comment_request(
       PROPOSAL_ID,
       fixture.child_state,
       fixture.child_version or VERSION
-    ), "2026-06-03T01:04:00Z"))
+    ).body, "2026-06-03T01:04:00Z"))
   end
   return comments
 end
@@ -435,7 +435,7 @@ local function assert_exact_target_marker_skew_is_not_production_reachable()
   for _, fixture in ipairs(FIXTURES) do
     if fixture.expected_target ~= nil then
       local comments = parent_comments(fixture)
-      table.insert(comments, trusted_comment(h.state_marker(PROPOSAL_ID, fixture.expected_target, next_state_version(fixture)), "2099-01-01T00:00:02Z"))
+      table.insert(comments, trusted_comment(h.state_comment_request(PROPOSAL_ID, fixture.expected_target, next_state_version(fixture)).body, "2099-01-01T00:00:02Z"))
       local derived = devloop_state.current_state(comments, PROPOSAL_ID)
       t.eq(derived.state, fixture.expected_target, fixture.name .. ": visible target marker changes production-derived state before replay")
     end

@@ -88,7 +88,7 @@ end
 
 local function comments_for(fixture)
   return json_array({
-    trusted_comment(h.state_marker(PROPOSAL_ID, "impl-failed", VERSION)),
+    trusted_comment(h.state_comment_request(PROPOSAL_ID, "impl-failed", VERSION).body),
     trusted_comment(core.impl_failure_marker(
       PROPOSAL_ID,
       VERSION,

@@ -177,6 +177,7 @@ end
 local function capacity_fixture_dependencies()
   return [[
 local base_ids = require("devloop.base_ids")
+local devloop_state = require("devloop.state")
 local projected_state_fixture = require("testkit_internal.projected_state_fixture")
 local claims = require("devloop.claims")
 local commands = require("devloop.commands")
@@ -232,9 +233,13 @@ local function issue(number)
     })
   end
   if dev_state ~= nil and dev_state ~= "" then
+    local state_body = (dev_state == "ready" or dev_state == "dependency_wait")
+      and projected_state_fixture.comment_request(
+        devloop_state, base_ids, proposal_id, dev_state, proposal_id .. "/fixture"
+      ).body
+      or devloop_state.state_marker(proposal_id, dev_state, proposal_id .. "/fixture")
     table.insert(comments, {
-      body = projected_state_fixture.state_marker(
-        core, base_ids, proposal_id, dev_state, proposal_id .. "/fixture"),
+      body = state_body,
       author_login = configured_owner,
       created_at = "2026-07-16T00:00:01Z",
     })

@@ -186,7 +186,7 @@ local function source_for_fixture(fixture)
   })
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, h.state_marker(event.proposal_id, fixture.current_state, fixture.current_version))
+    table.insert(comments, h.state_comment_request(event.proposal_id, fixture.current_state, fixture.current_version).body)
   end
   if fixture.result_marker_visible then
     table.insert(comments, m_builders.result_marker(

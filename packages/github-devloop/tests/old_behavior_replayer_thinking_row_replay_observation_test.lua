@@ -94,7 +94,7 @@ end
 local function comments_for(fixture)
   local comments = json_array({
     trusted_comment(
-      h.state_marker(PROPOSAL_ID, "thinking", BASE_VERSION),
+      h.state_comment_request(PROPOSAL_ID, "thinking", BASE_VERSION).body,
       MARKER_CREATED_AT
     ),
   })
@@ -338,7 +338,7 @@ local function build_record(fixture)
 
   local target_version = nil
   if fixture.expected_target == "devloop_consensus_request" and dispatch.raises[1] ~= nil then
-    target_version = dispatch.raises[1].payload.dedup_key
+    target_version = dispatch.raises[1].payload.effect_version
   elseif fixture.expected_target == "blocked" then
     target_version = dispatch.applies[1] and dispatch.applies[1].version or nil
   end

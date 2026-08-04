@@ -1,5 +1,6 @@
 return require("testkit_internal.devloop_fixtures").new({
   core = require("core"),
+  state_api = require("devloop.state"),
   base_ids = require("devloop.base_ids"),
   entity_read_mocks = require("tests.entity_read_mock_helpers"),
   devloop_base = require("devloop.base"),

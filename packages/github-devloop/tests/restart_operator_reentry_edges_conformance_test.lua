@@ -294,7 +294,7 @@ local function observe_impl_failed_reimplement()
     labels = { "fkst-dev:enabled", "fkst-dev:impl-failed" },
     source_state = "impl-failed",
     comments = {
-      h.state_marker(proposal_id, "impl-failed", ready_version),
+      h.state_comment_request(proposal_id, "impl-failed", ready_version).body,
       core.impl_failure_marker(proposal_id, ready_version, "codex-failed", 2),
       trusted_command("reimplement", "IC_reimplement_impl_failed"),
     },
@@ -312,7 +312,7 @@ local function observe_blocked_open_pr_reimplement()
     source_state = "blocked",
     comments = {
       m_builders.pr_link_marker(proposal_id, 7, "devloop-owner-repo-42-01HY", ready_version, "dev"),
-      h.state_marker(proposal_id, "blocked", blocked_version),
+      h.state_comment_request(proposal_id, "blocked", blocked_version).body,
       trusted_command("reimplement", "IC_reimplement_blocked_open_pr"),
     },
     before_run = function()
@@ -331,7 +331,7 @@ local function observe_blocked_implementation_refusal_reimplement()
     source_state = "blocked",
     expected_boundary = "implementation-refusal",
     comments = {
-      h.state_marker(proposal_id, "blocked", ready_version),
+      h.state_comment_request(proposal_id, "blocked", ready_version).body,
       core.implement_attempt_marker(proposal_id, ready_version, 1, "100"),
       core.implementation_refusal_marker(
         proposal_id,
@@ -361,8 +361,8 @@ local function observe_blocked_timeout_reimplement()
     source_state = "blocked",
     expected_boundary = "implementing-timeout-without-pr",
     comments = {
-      h.state_marker(proposal_id, "implementing", ready_version),
-      h.state_marker(proposal_id, "blocked", blocked_version),
+      h.state_comment_request(proposal_id, "implementing", ready_version).body,
+      h.state_comment_request(proposal_id, "blocked", blocked_version).body,
       conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "implementing", 3, "drop", {
         terminal_version = blocked_version,
         from_state = "implementing",
@@ -472,7 +472,7 @@ local function thinking_converge_comments(event, command)
     { angle = "minimal", verdict = "abstain", digest = "same-digest" },
   }
   local comments = {
-    h.state_marker(proposal_id, "thinking", base_version .. "/loop/7"),
+    h.state_comment_request(proposal_id, "thinking", base_version .. "/loop/7").body,
   }
   for round = 1, 7 do
     table.insert(comments, conv_rounds.converge_round_marker(
@@ -515,7 +515,7 @@ local function observe_ready_reready_row_replay()
   local ready_version = payloads_builders.build_devloop_ready_payload(core, h.reached()).dedup_key
   local comments = {
     trusted_comment(
-      h.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.state_comment_request(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready").body,
       "IC_ready_handoff"
     ),
     trusted_command("reready", "IC_negative_reready_ready"),
@@ -540,7 +540,7 @@ local function observe_dependency_wait_reready_row_replay()
   local event = h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:ready" } })
   local version = "ready/consensus-github-devloop/issue/owner/repo/42/dependency"
   local comments = {
-    h.state_marker(proposal_id, "dependency_wait", version),
+    h.state_comment_request(proposal_id, "dependency_wait", version).body,
     "github-devloop dependency hold: unresolvable\n\n"
       .. core.dependency_unresolvable_marker(proposal_id, version, { 42 }),
     trusted_command("reready", "IC_negative_reready_dependency_wait"),
@@ -566,10 +566,10 @@ local function observe_blocked_reready_row_replay()
   local blocked_version = conv_reconcile.timeout_reconcile_state_version(ready_version, "ready", 3)
   local comments = {
     trusted_comment(
-      h.state_marker(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready"),
+      h.state_comment_request(proposal_id, "ready", ready_version, "result-marker,ready-label,devloop-ready").body,
       "IC_ready_before_timeout"
     ),
-    h.state_marker(proposal_id, "blocked", blocked_version),
+    h.state_comment_request(proposal_id, "blocked", blocked_version).body,
     conv_reconcile.timeout_reconcile_marker(proposal_id, ready_version, "ready", 3, "drop", {
       terminal_version = blocked_version,
       from_state = "ready",
@@ -590,52 +590,6 @@ local function observe_blocked_reready_row_replay()
   applied_cause_evidence(comments, "reready", response.payload.body)
   assert_existing_typed_edge("entry", "ready", "implementing")
   return { kind = "row-replay", command = "reready", source_state = "blocked" }
-end
-
-local function observe_reintake_admission_contract()
-  local command_comment = trusted_command("reintake", "IC_negative_reintake")
-  local active_comments = {
-    h.state_marker(proposal_id, "thinking", "thinking/reintake-refused"),
-    command_comment,
-  }
-  h.mock_issue_state({ "fkst-dev:enabled", "fkst-dev:thinking" }, "OPEN", active_comments)
-  local observed = h.run_observe(
-    h.issue({ labels = { "fkst-dev:enabled", "fkst-dev:thinking" } }),
-    h.opts("restart-operator-negative-reintake-observe-issue")
-  )
-  assert_department_ok(observed, "negative-reintake-observe-issue")
-  t.eq(find_issue_comment(observed.raises, "operator command accepted: reintake"), nil)
-
-  local blocked_comments = {
-    h.state_marker(proposal_id, "blocked", "blocked/reintake-admission"),
-    command_comment,
-  }
-  local command = operator_commands.operator_command_fact(blocked_comments, "reintake")
-  t.is_true(command ~= nil, "negative reintake: trusted command fact missing")
-  t.eq(operator_commands.has_operator_command_response(blocked_comments, command), false)
-
-  t.eq(operator_commands.reintake_has_active_devloop_state(
-    { "fkst-dev:enabled", "fkst-dev:blocked" },
-    blocked_comments,
-    proposal_id
-  ), false)
-
-  local response = operator_commands.build_operator_issue_reintake_comment_request(
-    "owner/repo",
-    42,
-    command,
-    { dedup_key = "intake-candidate/github-devloop/issue/owner/repo/42" },
-    h.issue().source_ref
-  )
-  t.eq(tostring(response.body):find("fkst:github-devloop:state:v1", 1, true), nil)
-  applied_cause_evidence(blocked_comments, "reintake", response.body)
-
-  t.eq(operator_commands.reintake_has_active_devloop_state(
-    { "fkst-dev:enabled", "fkst-dev:thinking" },
-    active_comments,
-    proposal_id
-  ), true)
-  return { kind = "admission", command = "reintake", source_state = nil }
 end
 
 local function assert_negative_witnesses_absent(witnesses, authored)
@@ -767,11 +721,6 @@ return {
   test_issue_blocked_reready_is_row_replay_not_operator_reentry = function()
     local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
     assert_negative_witnesses_absent({ observe_blocked_reready_row_replay() }, authored)
-  end,
-
-  test_issue_reintake_is_admission_not_operator_reentry = function()
-    local authored = restart_edges.extract_operator_reentry_edges(owner, operator_reentry_inventory)
-    assert_negative_witnesses_absent({ observe_reintake_admission_contract() }, authored)
   end,
 
   test_operator_reentry_edge_extractor_fails_closed_on_invalid_inventory = function()

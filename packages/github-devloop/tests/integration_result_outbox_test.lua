@@ -12,7 +12,7 @@ return {
   test_consensus_result_ready_marker_heals_missing_declared_effects = function()
     local current = reached()
     mock_issue_result({ "fkst-dev:thinking" }, {
-      h.state_marker(current.proposal_id, "ready", current.dedup_key),
+      h.state_comment_request(current.proposal_id, "ready", current.dedup_key).body,
     })
 
     local result = run_result(current, opts("result-outbox-ready-marker-missing-effects"))
@@ -30,7 +30,7 @@ return {
   test_consensus_result_ready_marker_skips_when_declared_effects_are_complete = function()
     local current = reached()
     mock_issue_result({ "fkst-dev:ready" }, {
-      h.state_marker(current.proposal_id, "ready", current.dedup_key),
+      h.state_comment_request(current.proposal_id, "ready", current.dedup_key).body,
       m_builders.result_marker(current.proposal_id, current.decision, current.dedup_key),
     })
 
@@ -66,7 +66,7 @@ return {
       dedup_key = consensus_version,
     })
     mock_issue_result({ "fkst-dev:thinking" }, {
-      h.state_marker(current.proposal_id, "thinking", intake_version),
+      h.state_comment_request(current.proposal_id, "thinking", intake_version).body,
     })
 
     local result = run_result(current, opts("result-loop-answers-intake-marker"))
@@ -76,13 +76,13 @@ return {
     t.is_true(comment_raise ~= nil)
     t.eq(comment_raise.payload.handoff.label_request.add_labels[1], "fkst-dev:ready")
     t.eq(find_raise(result.raises, "devloop_ready"), nil)
-    t.is_true(comment_raise.payload.body:find(h.state_marker(current.proposal_id, "ready", consensus_version, "result-marker,ready-label,devloop-ready"), 1, true) ~= nil)
+    t.is_true(comment_raise.payload.body:find(h.state_comment_request(current.proposal_id, "ready", consensus_version, "result-marker,ready-label,devloop-ready").body, 1, true) ~= nil)
   end,
 
   test_consensus_result_first_decision_wins_same_lineage_and_new_generation_applies = function()
     local approve = reached()
     mock_issue_result({ "fkst-dev:thinking" }, {
-      h.state_marker(approve.proposal_id, "thinking", approve.dedup_key),
+      h.state_comment_request(approve.proposal_id, "thinking", approve.dedup_key).body,
     })
     local applied = run_result(approve, opts("result-first-approve"))
     t.eq(applied.exit_code, 0)
@@ -111,7 +111,7 @@ return {
     })
     mock_issue_result({ "fkst-dev:thinking" }, {
       approved_fact,
-      h.state_marker(fresh_reject.proposal_id, "thinking", fresh_version),
+      h.state_comment_request(fresh_reject.proposal_id, "thinking", fresh_version).body,
     })
     local fresh = run_result(fresh_reject, opts("result-new-generation-reject"))
     t.eq(fresh.exit_code, 0)

@@ -217,11 +217,11 @@ end
 local function fixture_comments(event, fixture)
   local comments = {}
   if fixture.current_state ~= nil then
-    table.insert(comments, h.state_marker(
+    table.insert(comments, h.state_comment_request(
       event.proposal_id,
       fixture.current_state,
       fixture.current_version or V_CURRENT
-    ))
+    ).body)
   end
   if fixture.round_marker_visible then
     table.insert(comments, conv_rounds.converge_round_marker(

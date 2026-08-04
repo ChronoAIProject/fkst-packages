@@ -39,11 +39,8 @@ local PROJECTED_FIXTURE_STATES = {
   ready = true,
 }
 
-local function fixture_state_marker(core, state, version, effects, source_ref)
-  if PROJECTED_FIXTURE_STATES[state] ~= true then
-    return devloop_state.state_marker(ISSUE_PROPOSAL, state, version, effects)
-  end
-  local request = core.build_projected_transition_comment_handoff({
+local function fixture_state_comment_request(state, version, effects, source_ref)
+  return devloop_state.build_projected_transition_comment_handoff({
     repo = REPO,
     issue_number = ISSUE_NUMBER,
     proposal_id = ISSUE_PROPOSAL,
@@ -56,7 +53,6 @@ local function fixture_state_marker(core, state, version, effects, source_ref)
     label_dedup_key = "hidden-state/fixture/label/" .. tostring(version),
     source_ref = source_ref,
   })
-  return assert(request.body:match("<!%-%- fkst:github%-devloop:state:v1.-%-%->"))
 end
 local exemption_reason = declarations.exemption_reason
 
@@ -178,13 +174,19 @@ end
 
 local function base_entity(core, row, source_ref)
   local state = state_for(row)
-  local body = fixture_state_marker(
-    core,
-    row.from_state,
-    state.version,
-    "result-marker,ready-label,devloop-ready",
-    source_ref
-  )
+  local body = PROJECTED_FIXTURE_STATES[row.from_state] == true
+    and fixture_state_comment_request(
+      row.from_state,
+      state.version,
+      "result-marker,ready-label,devloop-ready",
+      source_ref
+    ).body
+    or devloop_state.state_marker(
+      ISSUE_PROPOSAL,
+      row.from_state,
+      state.version,
+      "result-marker,ready-label,devloop-ready"
+    )
   local labels = { "fkst-dev:enabled", devloop_state.state_label(row.from_state) }
   return {
     schema = "github-proxy.v1",

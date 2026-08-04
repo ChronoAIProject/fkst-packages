@@ -71,7 +71,7 @@ return {
     local branch = deterministic_branch_for(event)
     local checkpoint_head = "1111111111111111111111111111111111111111"
     mock_issue_implement({ "fkst-dev:implementing" }, {
-      h.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      h.state_comment_request(event.proposal_id, "implementing", event.dedup_key).body,
     })
     mock_git_status(" M packages/github-devloop/core.lua\n")
     t.mock_command("rev-list --count", {

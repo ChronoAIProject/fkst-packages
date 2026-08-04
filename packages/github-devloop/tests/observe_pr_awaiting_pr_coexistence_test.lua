@@ -30,7 +30,7 @@ end
 
 local function awaiting_pr_comments()
   return {
-    h.state_marker(issue_proposal_id, "awaiting-pr", impl_version),
+    h.state_comment_request(issue_proposal_id, "awaiting-pr", impl_version).body,
     m_builders.pr_delegation_marker(issue_proposal_id, pr_proposal_id, 7, impl_version, "g1"),
   }
 end
@@ -74,7 +74,7 @@ return {
     mock_issue_at_awaiting_pr("number,title,body,comments,labels,state,createdAt,updatedAt,assignees,author")
     mock_pr_with_comments({
       m_builders.pr_origin_marker(issue_proposal_id, 42, branch, impl_version, "dev"),
-      h.state_marker(issue_proposal_id, "reviewing", impl_version),
+      h.state_comment_request(issue_proposal_id, "reviewing", impl_version).body,
     })
 
     local result = run_observe(observe_issue_event(), opts("awaiting-pr-observe-issue-child-nonterminal"))

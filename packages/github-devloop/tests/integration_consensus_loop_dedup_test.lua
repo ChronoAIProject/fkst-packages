@@ -12,7 +12,7 @@ return {
   test_loop_reraised_proposal_dedup_follows_consensus_lineage_not_current_updated_at = function()
     local base_version = "consensus:github-devloop/issue/owner/repo/42/intake/1234567890"
     mock_issue_loop({ "fkst-dev:thinking" }, {
-      h.state_marker("github-devloop/issue/owner/repo/42", "thinking", base_version),
+      h.state_comment_request("github-devloop/issue/owner/repo/42", "thinking", base_version).body,
     }, {
       updated_at = "2026-06-14T01:02:03Z",
     })

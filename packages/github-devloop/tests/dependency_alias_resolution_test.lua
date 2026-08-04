@@ -56,11 +56,11 @@ end
 local function mock_canonical_issue(issue_number, state_name)
   local comments = ""
   if state_name ~= nil then
-    local marker = h.state_marker(
+    local marker = h.state_comment_request(
       base_ids.proposal_id(repo, issue_number),
       state_name,
       "v-" .. tostring(issue_number)
-    )
+    ).body
     comments = '{"body":"' .. encode_json_string(marker)
       .. '","author":{"login":"fkst-test-bot"},"createdAt":"2026-07-30T00:00:00Z"}'
   end

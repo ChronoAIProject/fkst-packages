@@ -108,7 +108,7 @@ local function parent_comments(fields)
   local state = f.state or "awaiting-pr"
   local state_version = f.version or version
   local comments = {
-    comment(h.state_marker(parent, state, state_version), core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
+    comment(h.state_comment_request(parent, state, state_version).body, core._test_bot_login, f.created_at or "2026-06-03T01:02:03Z"),
   }
   if f.delegation ~= false then
     table.insert(comments, comment(m_builders.pr_delegation_marker(f.parent or parent,
@@ -127,7 +127,7 @@ local function child_comments(state, child_version, opts)
   local base_branch = options.base_branch or integration_branch
   local branch = options.branch or original_branch
   local body = m_builders.pr_origin_marker(parent, issue_number, branch, effective_version, base_branch)
-    .. "\n" .. h.state_marker(parent, state, effective_version)
+    .. "\n" .. h.state_comment_request(parent, state, effective_version).body
   if state == "merged" then
     body = body .. "\n" .. m_builders.merged_marker(core, parent, pr_number, effective_version, head_sha)
   end
@@ -145,7 +145,7 @@ end
 local function child_merged_comments_with_kept_promotion()
   return {
     comment(m_builders.pr_origin_marker(parent, issue_number, original_branch, version, integration_branch)
-      .. "\n" .. h.state_marker(parent, "merged", version)
+      .. "\n" .. h.state_comment_request(parent, "merged", version).body
       .. "\n" .. m_builders.merged_marker(core, parent, pr_number, version, head_sha), core._test_bot_login, "2026-06-03T01:04:03Z"),
   }
 end
@@ -679,7 +679,7 @@ return {
   test_child_blocked_replay_is_idempotent_when_target_marker_is_visible = function()
     local blocked_version = transition_version.next_blocked(version, "child-pr-blocked")
     local comments = parent_comments()
-    table.insert(comments, comment(h.state_marker(parent, "blocked", blocked_version), core._test_bot_login, "2026-06-03T01:05:03Z"))
+    table.insert(comments, comment(h.state_comment_request(parent, "blocked", blocked_version).body, core._test_bot_login, "2026-06-03T01:05:03Z"))
     local state = {
       state = "awaiting-pr",
       version = version,

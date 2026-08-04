@@ -29,6 +29,7 @@ function M.new(deps)
   deps = deps or {}
   local t = deps.t or fkst.test
   local core = deps.core or error("testkit_internal.devloop_fixtures: deps.core is required")
+  local state_api = deps.state_api or error("testkit_internal.devloop_fixtures: deps.state_api is required")
   local base_ids = deps.base_ids or error("testkit_internal.devloop_fixtures: deps.base_ids is required")
   local entity_read_mocks = deps.entity_read_mocks
     or error("testkit_internal.devloop_fixtures: deps.entity_read_mocks is required")
@@ -159,8 +160,8 @@ function M.new(deps)
     }
   end
 
-  local function state_marker(proposal_id, state, version, effects)
-    return projected_state_fixture.state_marker(core, base_ids, proposal_id, state, version, effects)
+  local function state_comment_request(proposal_id, state, version, effects)
+    return projected_state_fixture.comment_request(state_api, base_ids, proposal_id, state, version, effects)
   end
 
   local function issue(extra)
@@ -380,7 +381,7 @@ function M.new(deps)
   local mocks = mocks_factory.new(ctx, {
     reviewing = reviewing,
     pr_link_marker_for_fix = pr_link_marker_for_fix,
-    state_marker = state_marker,
+    state_comment_request = state_comment_request,
   })
 
   local function mock_branch_config_env()
@@ -718,7 +719,7 @@ function M.new(deps)
     opts = opts,
     source_ref = source_ref,
     pr_source_ref = pr_source_ref,
-    state_marker = state_marker,
+    state_comment_request = state_comment_request,
     issue = issue,
     reached = reached,
     unresolved = unresolved,
