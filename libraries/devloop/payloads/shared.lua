@@ -11,7 +11,7 @@ function C.github(_M)
     return github_handle
   end
   if type(exec_argv) ~= "function" then
-    error("github-devloop: GitHub adapter requires exec_argv")
+    error("github-devloop: github-adapter-missing-exec-argv: GitHub adapter requires exec_argv")
   end
   github_handle = github_factory.production_handle()
   return github_handle

@@ -19,7 +19,7 @@ local max_cache_key_segment_len = 120
 
 local function github()
   if type(exec_argv) ~= "function" then
-    error("github-devloop: GitHub adapter requires exec_argv")
+    error("github-devloop: github-adapter-missing-exec-argv: GitHub adapter requires exec_argv")
   end
   return github_factory.production_handle()
 end
