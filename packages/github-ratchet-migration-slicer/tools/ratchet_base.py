@@ -97,13 +97,21 @@ def resolve_target_merge_base(root: Path) -> str | None:
 
 
 def changed_paths(root: Path, base_commit: str, pathspec: str) -> list[str] | None:
-    result = _git(
+    tracked = _git(
         root,
         ["diff", "--name-only", "--no-renames", base_commit, "--", pathspec],
     )
-    if result.returncode != 0:
+    if tracked.returncode != 0:
         return None
-    return [line for line in result.stdout.splitlines() if line]
+    untracked = _git(root, ["ls-files", "--others", "--exclude-standard", "--", pathspec])
+    if untracked.returncode != 0:
+        return None
+    return sorted({
+        line
+        for output in (tracked.stdout, untracked.stdout)
+        for line in output.splitlines()
+        if line
+    })
 
 
 def show_file_at(root: Path, commit: str, path: str) -> str | None:

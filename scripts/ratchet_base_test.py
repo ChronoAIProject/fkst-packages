@@ -122,6 +122,20 @@ class RatchetBaseTest(unittest.TestCase):
                 ["libraries/example/core.lua"],
             )
 
+    def test_changed_paths_include_untracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_repo(root)
+            base_commit = commit_file(root, "README.md", "base\n", "base")
+            source = root / "libraries/example/core.lua"
+            source.parent.mkdir(parents=True)
+            source.write_text('error("new debt")\n', encoding="utf-8")
+
+            self.assertEqual(
+                ratchet_base.changed_paths(root, base_commit, "libraries"),
+                ["libraries/example/core.lua"],
+            )
+
     def test_show_file_at_present_and_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
