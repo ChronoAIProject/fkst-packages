@@ -1,4 +1,6 @@
 local core = require("core")
+local devloop_base = require("devloop.base")
+local marker_builders = require("devloop.markers.builders")
 local payloads_builders = require("devloop.payloads.builders")
 local testing = require("testkit_internal.testing")
 local t = fkst.test
@@ -234,6 +236,13 @@ local function candidate()
   return payloads_builders.build_devloop_intake_candidate_payload("owner/repo", 42, "2026-06-03T01:02:03Z")
 end
 
+local function expected_decision_key(payload)
+  return devloop_base.intake_decision_dedup_key(payload.proposal_id, {
+    title = "Repair retry backoff for failed widget sync",
+    body = "Implement exponential backoff for widget sync retries. Acceptance: unit tests cover 1s, 2s, and capped retries.",
+  })
+end
+
 local function event(payload)
   return {
     queue = candidate_queue,
@@ -326,6 +335,27 @@ local tests = {
       class_siblings = class_siblings,
       codex = "⟦FKST:INTAKE⟧ escalate-to-class\n⟦FKST:CLASS⟧ standard\n⟦FKST:REASON⟧ Cites #80 and #81 as prior siblings; Rule of Three requires class-level retry policy.",
     })
+  end,
+
+  test_pr_state_marker_does_not_satisfy_issue_thinking_milestone = function()
+    local payload = candidate()
+    local decision_key = expected_decision_key(payload)
+    local current = {
+      labels = { "fkst-dev:enabled" },
+      comments = {
+        marker_builders.intake_decision_marker(payload.proposal_id, "enable", decision_key, "expedite"),
+        core.state_marker(payload.proposal_id, "reviewing", decision_key),
+      },
+    }
+    mock_workflow_select_path({
+      codex = "⟦FKST:INTAKE⟧ enable\n⟦FKST:CLASS⟧ expedite\n⟦FKST:REASON⟧ Replay must not run intake codex.",
+    }, current)
+
+    local result = run_workflow_select(payload, "workflow-select-pr-state-marker")
+
+    t.eq(#result.raises, 2)
+    t.eq(result.raises[1].queue, "github-proxy.github_issue_label_request")
+    t.eq(result.raises[2].queue, "github-devloop.devloop_execute_request")
   end,
 }
 
