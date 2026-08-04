@@ -11,7 +11,13 @@ local validators = require("devloop.commands.validators")
 
   function C.gh_pr_list_freshness(repo, timeout)
     return support.gh_result(function()
-      return support.github().issue_list(repo, timeout)
+      return support.github().pr_list(repo, timeout)
+    end)
+  end
+
+  function C.gh_issue_list_freshness(repo, issue_numbers, timeout)
+    return support.gh_result(function()
+      return support.github().issue_list_updated_at(repo, issue_numbers, timeout)
     end)
   end
 

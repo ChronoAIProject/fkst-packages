@@ -9,25 +9,21 @@ end
 function C.parse_pr_list_freshness(stdout)
   local decoded = json.decode(stdout or "[]")
   local prs = {}
-  local versions = { issue = {}, pr = {} }
+  local versions = { pr = {} }
   shared.each_paginated_item(decoded, function(pr)
     if type(pr) == "table" and tonumber(pr.number) ~= nil then
       local number = tonumber(pr.number)
       local updated_at = pr.updated_at or pr.updatedAt
-      if pr.pull_request ~= nil then
-        versions.pr[number] = updated_at
-        table.insert(prs, {
-          number = number,
-          state = pr.state,
-          updated_at = updated_at,
-          head_sha = pr.headRefOid or pr.head_ref_oid,
-          head_ref_name = pr.headRefName or pr.head_ref_name,
-          base_ref_name = pr.baseRefName or pr.base_ref_name,
-          is_draft = pr.isDraft or pr.is_draft or pr.draft,
-        })
-      else
-        versions.issue[number] = updated_at
-      end
+      versions.pr[number] = updated_at
+      table.insert(prs, {
+        number = number,
+        state = pr.state,
+        updated_at = updated_at,
+        head_sha = pr.headRefOid or pr.head_ref_oid,
+        head_ref_name = pr.headRefName or pr.head_ref_name,
+        base_ref_name = pr.baseRefName or pr.base_ref_name,
+        is_draft = pr.isDraft or pr.is_draft or pr.draft,
+      })
     end
   end)
   return prs, versions
