@@ -9,8 +9,8 @@ local config = require("devloop.config")
 
 function S.install(M)
 local strings = require("contract.strings")
-local dashboard = require("devloop.commands.dashboard")
-local labels = require("devloop.commands.labels")
+local dashboard = require("core.dashboard_commands")
+local labels = require("core.labels")
 local devloop_logging = require("devloop.logging")
 local dashboard_title = "fkst-dev board"
 local dashboard_label = "fkst-dashboard"

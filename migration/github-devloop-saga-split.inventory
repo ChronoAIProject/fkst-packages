@@ -31,7 +31,6 @@
 {"path":"libraries/devloop/liveness_scan.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/logging.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/markers.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
-{"path":"libraries/devloop/merge_batch.lua","owner":"shared","reason":"merge batch helpers are used by PR merge and integration tests during R1, so they must not peer-require github-devloop-pr."}
 {"path":"libraries/devloop/merge_gate_wait.lua","owner":"shared","reason":"merge-gate wait markers are read by shared liveness and PR merge reconciliation."}
 {"path":"libraries/devloop/merge_queue.lua","owner":"shared","reason":"merge queue helpers include WIP admission used by the remaining issue implement department."}
 {"path":"libraries/devloop/operator_commands.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
@@ -113,11 +112,13 @@
 {"path":"packages/github-devloop-integration/departments/sync_scan/main.lua","owner":"integration","reason":"owns branch topology or integration freshness work."}
 {"path":"packages/github-devloop-integration/departments/test_cache_seed/main.lua","owner":"cross-cutting","reason":"supports health, test probes, or cross-saga diagnostics."}
 {"path":"packages/github-devloop-ops/core/conflict_telemetry.lua","owner":"integration","reason":"core module supports branch topology or integration freshness work."}
+{"path":"packages/github-devloop-ops/core/dashboard_commands.lua","owner":"cross-cutting","reason":"package-local dashboard GitHub command adapter is shared by ensure-repo and observability dashboard."}
 {"path":"packages/github-devloop-ops/core/dependency_wait.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/doctor.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/ensure_repo.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/error_facts.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/failure_triage.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
+{"path":"packages/github-devloop-ops/core/labels.lua","owner":"cross-cutting","reason":"package-local repository label command adapter is owned by ensure-repo."}
 {"path":"packages/github-devloop-ops/core/output_obligation_resolution.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/observability_bounds.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
 {"path":"packages/github-devloop-ops/core/state_gap.lua","owner":"cross-cutting","reason":"core module supports diagnostics, observability, or cross-saga views."}
@@ -132,6 +133,7 @@
 {"path":"packages/github-devloop-pr/core/fix_rounds.lua","owner":"pr","reason":"github-devloop-pr owns the stable fix-round admission budget and terminal handoff."}
 {"path":"packages/github-devloop-pr/core/high_risk_merge_gate.lua","owner":"pr","reason":"github-devloop-pr owns PR high-risk merge authorization checks after extraction."}
 {"path":"packages/github-devloop-pr/core/merge_ci_wait.lua","owner":"pr","reason":"github-devloop-pr owns PR merge-gate wait effects after extraction."}
+{"path":"packages/github-devloop-pr/core/merge_batch.lua","owner":"pr","reason":"github-devloop-pr owns PR merge-batch execution."}
 {"path":"packages/github-devloop-pr/core/merge_executor.lua","owner":"pr","reason":"github-devloop-pr owns shared PR merge execution after extraction."}
 {"path":"packages/github-devloop-pr/core/merge_queue_tick.lua","owner":"pr","reason":"github-devloop-pr owns merge-queue tick redrive and chaining after extraction."}
 {"path":"packages/github-devloop-pr/core/merge_runtime_files.lua","owner":"pr","reason":"github-devloop-pr owns PR merge runtime file paths after extraction."}
