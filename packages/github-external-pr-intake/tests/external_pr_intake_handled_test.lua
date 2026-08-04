@@ -31,6 +31,10 @@ local function render_labels(labels)
 end
 
 local function pr_json(pr)
+  local is_cross_repository = pr.is_cross_repository
+  if is_cross_repository == nil then
+    is_cross_repository = true
+  end
   return '{"number":' .. tostring(pr.number or 7)
     .. ',"title":' .. json_string(pr.title or "Contributor patch")
     .. ',"headRefName":' .. json_string(pr.head_ref_name or "feature/contrib")
@@ -38,6 +42,7 @@ local function pr_json(pr)
     .. ',"state":' .. json_string(pr.state or "OPEN")
     .. ',"createdAt":' .. json_string(pr.created_at or "2026-06-03T01:02:03Z")
     .. ',"updatedAt":' .. json_string(pr.updated_at or "2026-06-19T01:02:03Z")
+    .. ',"isCrossRepository":' .. tostring(is_cross_repository)
     .. ',"author":{"login":' .. json_string(pr.author_login or "contributor")
     .. '},"comments":' .. render_comments(pr.comments)
     .. ',"assignees":[]}\n'

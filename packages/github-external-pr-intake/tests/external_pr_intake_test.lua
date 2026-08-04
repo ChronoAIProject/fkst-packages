@@ -77,6 +77,10 @@ local function pr_json(pr)
   for _, login in ipairs(pr.assignees or {}) do
     table.insert(assignees, '{"login":' .. json_string(login) .. "}")
   end
+  local is_cross_repository = pr.is_cross_repository
+  if is_cross_repository == nil then
+    is_cross_repository = true
+  end
   return '{"number":' .. tostring(pr.number or 7)
     .. ',"title":' .. json_string(pr.title or "Contributor patch")
     .. ',"headRefName":' .. json_string(pr.head_ref_name or "feature/contrib")
@@ -84,6 +88,7 @@ local function pr_json(pr)
     .. ',"state":' .. json_string(pr.state or "OPEN")
     .. ',"createdAt":' .. json_string(pr.created_at or "2026-06-03T01:02:03Z")
     .. ',"updatedAt":' .. json_string(pr.updated_at or "2026-06-19T01:02:03Z")
+    .. ',"isCrossRepository":' .. tostring(is_cross_repository)
     .. ',"author":{"login":' .. json_string(pr.author_login or "contributor")
     .. '},"comments":[' .. table.concat(comments, ",")
     .. '],"assignees":[' .. table.concat(assignees, ",") .. "]}\n"
@@ -550,6 +555,7 @@ pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
           title = "Bot patch",
           author_login = "fkst-test-bot[bot]",
           head_ref_name = "feature/bot",
+          is_cross_repository = false,
           state = "OPEN",
         },
         {
@@ -557,6 +563,7 @@ pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
           title = "Managed branch",
           author_login = "contributor",
           head_ref_name = "devloop/owner-repo-9",
+          is_cross_repository = false,
           state = "OPEN",
         },
         {
@@ -841,7 +848,7 @@ pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
     t.eq(count_kind(github._model.writes, "issue_search"), 1)
   end,
 
-  test_bot_authored_pr_is_ignored = function()
+  test_same_repository_bot_authored_pr_is_ignored = function()
     local github = new_fake_github({
       prs = {
         [7] = {
@@ -849,6 +856,7 @@ pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
           title = "Bot patch",
           author_login = "other-bot[bot]",
           head_ref_name = "feature/bot",
+          is_cross_repository = false,
           state = "OPEN",
           comments = {},
           assignees = {},
@@ -865,7 +873,7 @@ pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
     t.eq(count_kind(github._model.writes, "issue_search"), 0)
   end,
 
-  test_devloop_head_pr_is_ignored = function()
+  test_cross_repository_devloop_head_pr_is_not_self_excluded = function()
     local github = new_fake_github({
       prs = {
         [7] = {
@@ -884,9 +892,9 @@ pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
       event = candidate_event(7),
     })
 
-    t.eq(count_kind(github._model.writes, "issue_create"), 0)
-    t.eq(count_kind(github._model.writes, "issue_assign"), 0)
-    t.eq(count_kind(github._model.writes, "issue_search"), 0)
+    t.eq(count_kind(github._model.writes, "issue_create"), 1)
+    t.eq(count_kind(github._model.writes, "issue_assign"), 1)
+    t.eq(count_kind(github._model.writes, "pr_comment"), 1)
   end,
 
   test_other_assignee_claim_blocks_writes = function()
