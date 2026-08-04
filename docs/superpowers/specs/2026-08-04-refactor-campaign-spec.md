@@ -210,6 +210,20 @@ Gate: byte-identical generated fixture output for every exported helper; both su
 ## 4. Tier 2 and Tier 3
 
 ### T2.1 — One Lua lexical primitive for the checkers
+**STATUS: BLOCKED ON AN OWNERSHIP QUESTION — measured 2026-08-05, do not start as specified.**
+An implementation attempt stopped without changing a file and reported why: four checker paths under
+`scripts/` are **tracked symlinks whose canonical files live under `packages/`** —
+`check_repo_gh_git_adapter.py` (11 lexical references), `check_repo_dedup.py` and `ratchet_base.py`
+point into `packages/github-ratchet-migration-slicer/tools/`, and
+`check_repo_integration_coverage.py` points into `packages/integration-coverage-producer/tools/`.
+So the duplication does not live inside one directory: it straddles repository tooling and
+**package-owned tools that must stay independently runnable**. A shared primitive placed in
+`scripts/` would make those packages depend on repository tooling — a dependency inversion — while
+one placed in a package would make the repository checkers depend on a package.
+**The unblocking question is "where does the shared lexer live?", and it must be answered before any
+code moves.** Deduplicating only the non-symlinked half would leave the asymmetry the item exists to
+remove. Original analysis follows.
+
 *Seats: `fidelity`, `natural-ownership`, `worth`, and `parsimony` (as the exact-mechanics subset).*
 Behaviour-preserving.
 Evidence: 8 `lua_code_mask`, 3 `lua_string_literals`, 5 `mask_span`, 4 byte-identical `block_delta`
