@@ -9,7 +9,7 @@ local entity_list_cache = require("devloop.entity_list_cache")
 local author_policy = require("testkit_internal.github_author_policy")
 local h = require("tests.devloop_helpers")
 
-local repo = "owner/repo"
+local repo = "graph-fixture/admission-poll"
 local issue_number = 42
 
 local function source_ref()
@@ -31,12 +31,12 @@ local function mock_env()
 end
 
 local function mock_proxy_poll_lists()
-  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'", {
-    stdout = '[[{"number":42,"title":"Fresh unmanaged issue","html_url":"https://github.example/owner/repo/issues/42","updated_at":"2026-06-03T01:02:03Z","state":"open","labels":[{"name":"bug"}]}]]\n',
+  t.mock_command("gh api --paginate --slurp 'repos/graph-fixture/admission-poll/issues?state=open&per_page=100'", {
+    stdout = '[[{"number":42,"title":"Fresh unmanaged issue","html_url":"https://github.example/graph-fixture/admission-poll/issues/42","updated_at":"2026-06-03T01:02:03Z","state":"open","labels":[{"name":"bug"}]}]]\n',
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
+  t.mock_command("gh api --paginate --slurp 'repos/graph-fixture/admission-poll/pulls?state=open&per_page=100'", {
     stdout = "[[]]\n",
     stderr = "",
     exit_code = 0,
@@ -95,12 +95,12 @@ local function mock_transient_peer_replay_env()
 end
 
 local function mock_labelled_poll_snapshot()
-  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'", {
-    stdout = '[[{"number":42,"title":"Fresh unmanaged issue","html_url":"https://github.example/owner/repo/issues/42","updated_at":"2026-06-03T01:02:03Z","state":"open","labels":[{"name":"fkst-class:expedite"}],"assignees":[]}]]\n',
+  t.mock_command("gh api --paginate --slurp 'repos/graph-fixture/admission-poll/issues?state=open&per_page=100'", {
+    stdout = '[[{"number":42,"title":"Fresh unmanaged issue","html_url":"https://github.example/graph-fixture/admission-poll/issues/42","updated_at":"2026-06-03T01:02:03Z","state":"open","labels":[{"name":"fkst-class:expedite"}],"assignees":[]}]]\n',
     stderr = "",
     exit_code = 0,
   })
-  t.mock_command("gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'", {
+  t.mock_command("gh api --paginate --slurp 'repos/graph-fixture/admission-poll/pulls?state=open&per_page=100'", {
     stdout = "[[]]\n",
     stderr = "",
     exit_code = 0,
@@ -176,17 +176,17 @@ return {
     mock_other_authored_admission_view()
     mock_other_authored_admission_view()
     mock_empty_delivery_snapshot()
-    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+    t.mock_command("gh issue list --repo 'graph-fixture/admission-poll' --state all --limit 100 --json number,comments,author", {
       stdout = "",
       stderr = "transient peer discovery failure",
       exit_code = 1,
     })
-    t.mock_command("gh issue list --repo 'owner/repo' --state all --limit 100 --json number,comments,author", {
+    t.mock_command("gh issue list --repo 'graph-fixture/admission-poll' --state all --limit 100 --json number,comments,author", {
       stdout = "[]",
       stderr = "",
       exit_code = 0,
     })
-    t.mock_command("gh pr list --repo 'owner/repo' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
+    t.mock_command("gh pr list --repo 'graph-fixture/admission-poll' --state all --limit 100 --json number,headRefName,baseRefName,comments,author", {
       stdout = "[]",
       stderr = "",
       exit_code = 0,

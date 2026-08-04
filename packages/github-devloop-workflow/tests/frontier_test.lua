@@ -462,6 +462,49 @@ local tests = {
     t.eq(reader(child_ref), "recoverable")
   end,
 
+  test_reader_ignores_historical_blocked_marker_after_current_state_advances_to_thinking = function()
+    author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
+      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+    })
+    local child_issue = 252
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local blocked_version = "github-devloop/issue/owner/repo/252/2026-07-04T00-00-00Z/intake/1"
+    local thinking_version = "github-devloop/issue/owner/repo/252/2026-07-04T00-01-00Z/intake/2"
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(child_issue, "OPEN", {
+        comment(core.state_marker(child_proposal_id, "blocked", blocked_version)),
+        comment(core.state_marker(child_proposal_id, "thinking", thinking_version)),
+      }, { "fkst-dev:blocked" }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    t.eq(reader(child_ref), "running")
+  end,
+
+  test_reader_uses_canonical_blocked_marker_when_label_is_stale = function()
+    author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
+      configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,
+    })
+    local child_issue = 253
+    local child_proposal_id = base_ids.proposal_id(repo, child_issue)
+    local child_ref = actions.child_ref_for_entry(repo, { child_issue = child_issue })
+    local reader = child_status.reader(core, {}, repo)
+
+    t.mock_command("gh issue view", {
+      stdout = issue_view_stdout(child_issue, "OPEN", {
+        comment(core.state_marker(child_proposal_id, "blocked", "2026-07-04T00-00-00Z")),
+      }, { "fkst-dev:thinking" }),
+      stderr = "",
+      exit_code = 0,
+    })
+
+    t.eq(reader(child_ref), "fatal")
+  end,
+
   test_reader_ignores_old_impl_failure_after_current_state_advances = function()
     author_policy.mock_env(t, { env = { FKST_GITHUB_BOT_LOGIN = core._test_bot_login } }, {
       configure_trusted_bot_login = devloop_base.configure_trusted_bot_login,

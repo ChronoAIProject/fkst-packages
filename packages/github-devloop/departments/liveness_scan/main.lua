@@ -63,8 +63,17 @@ local function should_reinject_issue(repo, issue, limits, deadline)
   end
 
   local state = require("devloop.entity").current_entity_state(current.comments, proposal_id)
-  if not liveness_scan.liveness_scan_should_reinject_state(core, proposal_id, state) then
+  local should_reinject, reinject_reason = liveness_scan.liveness_scan_should_reinject_state(
+    core,
+    proposal_id,
+    state,
+    current.labels
+  )
+  if not should_reinject then
     return false
+  end
+  if reinject_reason == "label-projection-mismatch" then
+    return true
   end
   local snapshot = { comments = current.comments or {}, prs = {}, absent_prs = {}, state = state }
   local delegation = m_facts.pr_delegation_fact(current.comments, proposal_id, state.version)
@@ -87,7 +96,11 @@ local function should_reinject_issue(repo, issue, limits, deadline)
   end
   local timeout_action = liveness_scan.liveness_scan_maybe_timeout_action(core, liveness_scan.liveness_scan_issue_entity(repo, issue.number), state, {
     proposal_id = proposal_id,
-    current = { comments = current.comments or {}, labels = current.labels or {} },
+    current = {
+      comments = current.comments or {},
+      labels = current.labels or {},
+      title = current.title,
+    },
     current_issue = current,
     current_pr = current_pr,
     ["pr-delegation"] = delegation,

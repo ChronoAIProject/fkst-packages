@@ -51,6 +51,7 @@ public = [
   "devloop.di.select_caps",
   "devloop.dispatch_live_run",
   "devloop.entity",
+  "devloop.entity_highwater",
   "devloop.entity_list_cache",
   "devloop.execution_start",
   "devloop.forge_validators",

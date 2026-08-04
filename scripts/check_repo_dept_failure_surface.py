@@ -78,6 +78,7 @@ def parse_allowlist(text: str) -> set[str]:
     return entries
 
 
+# Local variants pass complete text to the parser and propagate dev-base errors.
 def load_allowlist(path: Path) -> set[str]:
     if not path.exists():
         return set()

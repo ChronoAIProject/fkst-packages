@@ -120,6 +120,10 @@ function C.has_thinking_converge_replay(M, current, proposal_id, state, source_r
   return replay_thinking_convergence.has_converge_replay(thinking_caps(M), current, proposal_id, state, source_ref)
 end
 
+function C.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+  return replay_thinking_convergence.level_replay_delivery_identity(proposal_id, state, event_ts)
+end
+
 local function replay_thinking(M, dept, issue, state, row, facts)
   return replay_thinking_convergence.replay(thinking_caps(M), dept, issue, state, row, facts,
     function(...) return log_skip(M, ...) end,
