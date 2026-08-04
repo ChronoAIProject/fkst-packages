@@ -1,3 +1,4 @@
+-- Canonical default intake executor shared by policy adapters.
 local context_bundle = require("devloop.context_bundle")
 local devloop_base = require("devloop.base")
 local devloop_commands = require("devloop.commands")
@@ -15,8 +16,6 @@ local v_execution_request = require("devloop.validators.execution_request")
 local v_intake_candidate = require("devloop.validators.intake_candidate")
 local workflow_codex = require("workflow_internal.codex")
 local premise_correction = require("devloop.premise_correction")
-
-local M = {}
 
 local function malformed_decision(reason)
   return {
@@ -81,7 +80,7 @@ local function raise_enable_successor(package_core, dept, repo, issue_number, ca
   return true
 end
 
-function M.read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event_ts, expected_decision_dedup_key)
+local function read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event_ts, expected_decision_dedup_key)
   local view = devloop_commands.gh_issue_view_intake_judge(repo, issue_number, 30)
   if view.exit_code ~= 0 then
     error("github-devloop: gh-issue-view-failed: gh issue intake judge view failed: " .. tostring(view.stderr))
@@ -180,7 +179,7 @@ end
 
 local function apply_intake_decision(package_core, dept, repo, issue_number, event, candidate, gate, parsed)
   with_lock(gate.lock_key, function()
-    local current_gate = M.read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
+    local current_gate = read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts, gate.decision_dedup_key)
     if current_gate == nil then
       return
     end
@@ -258,7 +257,7 @@ local function apply_intake_decision(package_core, dept, repo, issue_number, eve
   end)
 end
 
-function M.act(package_core, event, opts)
+local function act(package_core, event, opts)
   opts = opts or {}
   local dept = opts.dept or "intake_judge"
   local candidate = event.payload or {}
@@ -279,7 +278,7 @@ function M.act(package_core, event, opts)
   local gate = nil
   with_lock(lock_key, function()
     devloop_base.assert_trusted_bot_configured()
-    gate = M.read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts)
+    gate = read_current_for_candidate(package_core, dept, repo, issue_number, candidate, event.ts)
   end)
   if gate == nil then
     return
@@ -335,4 +334,7 @@ function M.act(package_core, event, opts)
   apply_intake_decision(package_core, dept, repo, issue_number, event, candidate, gate, parsed)
 end
 
-return M
+return {
+  act = act,
+  read_current_for_candidate = read_current_for_candidate,
+}
