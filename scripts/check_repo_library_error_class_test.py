@@ -157,7 +157,14 @@ class LibraryErrorClassRatchetTest(unittest.TestCase):
             violations: list[str] = []
             with mock.patch.dict(
                 "os.environ",
-                {"GITHUB_BASE_REF": "", "FKST_RATCHET_TARGET_REF": ""},
+                {
+                    "FKST_DEVLOOP_INTEGRATION_BRANCH": "",
+                    "FKST_RATCHET_TARGET_REF": "",
+                    "GITHUB_BASE_REF": "",
+                    "GITHUB_EVENT_NAME": "",
+                    "GITHUB_REF_NAME": "",
+                    "GITHUB_REF_TYPE": "",
+                },
             ):
                 check_repo_runner.check_library_error_class(check_repo, root, violations, enforce_base=True)
 

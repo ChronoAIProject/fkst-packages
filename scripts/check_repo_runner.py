@@ -55,7 +55,7 @@ def check_library_error_class(c, root, violations, allowlist_dir=None, enforce_b
             violations,
             "G-LIB-ERROR-CLASS",
             "cannot resolve target baseline diagnostics to enforce the shrink-only library error-class ratchet; "
-            "ensure CI provides GITHUB_BASE_REF or FKST_RATCHET_TARGET_REF",
+            "ensure an explicit target branch or FKST_RATCHET_TARGET_REF is available",
         )
     for message in check_repo_error_class.library_ratchet_messages(current, allowlist, target_sites):
         c.add(violations, "G-LIB-ERROR-CLASS", message)

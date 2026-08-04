@@ -52,25 +52,36 @@ def _resolve_ref(root: Path, refs: tuple[str, ...]) -> str | None:
     return None
 
 
+def _resolve_branch_ref(root: Path, branch: str) -> str | None:
+    if not _safe_ref(branch):
+        return None
+    return _resolve_ref(
+        root,
+        (
+            f"refs/remotes/origin/{branch}",
+            f"origin/{branch}",
+            f"refs/heads/{branch}",
+            branch,
+        ),
+    )
+
+
 def resolve_target_ref(root: Path) -> str | None:
-    # PR checks use their target branch; push and local checks retain dev as the canonical fallback.
+    # Use explicit CI and host topology facts; dev is the fallback when no target is configured.
     override = os.environ.get("FKST_RATCHET_TARGET_REF")
     if override:
         return _resolve_ref(root, (override,))
 
     github_base = os.environ.get("GITHUB_BASE_REF")
     if github_base:
-        if not _safe_ref(github_base):
-            return None
-        return _resolve_ref(
-            root,
-            (
-                f"refs/remotes/origin/{github_base}",
-                f"origin/{github_base}",
-                f"refs/heads/{github_base}",
-                github_base,
-            ),
-        )
+        return _resolve_branch_ref(root, github_base)
+
+    if os.environ.get("GITHUB_EVENT_NAME") == "push" and os.environ.get("GITHUB_REF_TYPE") == "branch":
+        return _resolve_branch_ref(root, os.environ.get("GITHUB_REF_NAME", ""))
+
+    integration_branch = os.environ.get("FKST_DEVLOOP_INTEGRATION_BRANCH")
+    if integration_branch:
+        return _resolve_branch_ref(root, integration_branch)
 
     return resolve_dev_ref(root)
 
