@@ -461,6 +461,52 @@ local tests = {
     t.eq(#deps.closes, 0)
   end,
 
+  test_completed_handoff_replay_is_idempotent_after_origin_closes = function()
+    local entities = {
+      [origin_issue] = origin_entity(),
+      [child_issue] = child_entity(child_issue),
+    }
+    local deps = fake_deps(entities)
+    local request = run_request(deps, request_payload("satisfied")).raises[1].payload
+    acknowledge_comment(deps, entities, request)
+    t.eq(#deps.closes, 1)
+
+    entities[origin_issue].state = "CLOSED"
+    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
+    testing.run_fake(dept, handoff_event(request))
+
+    t.eq(#deps.closes, 1)
+  end,
+
+  test_completed_transfer_replay_is_idempotent_after_linked_pr_merges = function()
+    local entities = {
+      [origin_issue] = origin_entity(),
+      [child_issue] = child_entity(child_issue),
+      [successor_issue] = child_entity(successor_issue),
+    }
+    entities[child_issue].comments = child_pr_comments(false)
+    local prs = {
+      [child_pr] = {
+        number = child_pr,
+        state = "OPEN",
+        comments = {},
+      },
+    }
+    local deps = fake_deps(entities, prs)
+    local request = run_request(deps, request_payload("transferred", {
+      successor_source_ref = base_ids.issue_source_ref(repo, successor_issue),
+    })).raises[1].payload
+    acknowledge_comment(deps, entities, request)
+    t.eq(#deps.closes, 1)
+
+    prs[child_pr].state = "MERGED"
+    prs[child_pr].merged_at = "2026-08-05T00:05:00Z"
+    local dept = saga.department(handoff_spec, child_disposition.handoff_handlers({ deps = deps }))
+    testing.run_fake(dept, handoff_event(request))
+
+    t.eq(#deps.closes, 1)
+  end,
+
   test_raw_closed_child_cannot_be_retrofitted_by_the_operation = function()
     local entities = {
       [origin_issue] = origin_entity(),

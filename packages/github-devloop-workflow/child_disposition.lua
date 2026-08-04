@@ -246,9 +246,7 @@ local function assert_authority(deps, request)
     base_ids.issue_source_ref(request.repo, request.origin_issue_number),
     "github-devloop-workflow.child-disposition-origin"
   )
-  if tostring(origin_issue and origin_issue.state or ""):upper() ~= "OPEN" then
-    fail("origin-not-open", "workflow origin must remain open while a child is disposed")
-  end
+  local origin_is_open = tostring(origin_issue and origin_issue.state or ""):upper() == "OPEN"
   local blueprint_fact = discovery.latest_blueprint(nil, origin_issue, request.origin)
   if blueprint_fact == nil or blueprint_fact.digest ~= request.blueprint_digest then
     fail("blueprint-lineage-mismatch", "request does not match the current trusted workflow blueprint")
@@ -273,6 +271,28 @@ local function assert_authority(deps, request)
     proposal_id = base_ids.proposal_id(request.repo, request.child_issue_number),
     source_ref = request.child_source_ref,
   }
+  if not same_lineage(trusted_lineage(child), expected_lineage(request)) then
+    fail("child-lineage-mismatch", "child does not carry trusted lineage for the created slot")
+  end
+  local current_fact = trusted_disposition_fact(child, {
+    origin = request.origin,
+    blueprint_digest = request.blueprint_digest,
+    slot = request.slot,
+    child_issue = tostring(request.child_issue_number),
+  })
+  if current_fact ~= nil and not same_disposition(current_fact, request) then
+    fail("conflicting-child-disposition", "child already has a different trusted disposition")
+  end
+  if tostring(child.state or ""):upper() == "CLOSED" then
+    if current_fact == nil then
+      fail("raw-closed-child", "a raw closed child cannot be retrofitted without a prior workflow disposition")
+    end
+    return child, current_fact
+  end
+  if not origin_is_open then
+    fail("origin-not-open", "workflow origin must remain open while a child is disposed")
+  end
+
   local link = child_completion.linked_pr(child, child_ref)
   if request.disposition ~= "satisfied" then
     local completion = child_completion.evidence(child, nil, child_ref)
@@ -288,9 +308,6 @@ local function assert_authority(deps, request)
       fail("child-already-merged", "a merged workflow child cannot be transferred or marked undeliverable")
     end
   end
-  if not same_lineage(trusted_lineage(child), expected_lineage(request)) then
-    fail("child-lineage-mismatch", "child does not carry trusted lineage for the created slot")
-  end
   if tostring(child.state or ""):upper() == "OPEN" then
     local claim_state = devloop_claims.issue_claim_state(
       child.assignees,
@@ -300,18 +317,6 @@ local function assert_authority(deps, request)
     if claim_state ~= "self" then
       fail("child-claim-not-self", "workflow child must retain the configured actor's claim")
     end
-  end
-  local current_fact = trusted_disposition_fact(child, {
-    origin = request.origin,
-    blueprint_digest = request.blueprint_digest,
-    slot = request.slot,
-    child_issue = tostring(request.child_issue_number),
-  })
-  if current_fact ~= nil and not same_disposition(current_fact, request) then
-    fail("conflicting-child-disposition", "child already has a different trusted disposition")
-  end
-  if tostring(child.state or ""):upper() == "CLOSED" and current_fact == nil then
-    fail("raw-closed-child", "a raw closed child cannot be retrofitted without a prior workflow disposition")
   end
 
   if request.successor_source_ref ~= nil then
