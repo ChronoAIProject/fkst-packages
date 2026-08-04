@@ -1,4 +1,5 @@
 local strings = require("contract.strings")
+local devloop_base = require("devloop.base")
 local fail = require("core.errors").fail
 
 local M = {}
@@ -36,11 +37,18 @@ M.LABEL_PROJECTION_STATES = {
   blocked = true,
 }
 
+M.CHILD_DISPOSITIONS = {
+  satisfied = true,
+  transferred = true,
+  undeliverable = true,
+}
+
 local BLUEPRINT_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:blueprint:v1.-%-%->"
 local MATERIALIZATION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:materialization:v1.-%-%->"
 local TERMINAL_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:terminal:v1.-%-%->"
 local LABEL_PROJECTION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:label%-projection:v1.-%-%->"
 local LINEAGE_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:lineage:v1.-%-%->"
+local CHILD_DISPOSITION_MARKER_PATTERN = "<!%-%- fkst:github%-devloop%-workflow:child%-disposition:v1.-%-%->"
 
 local function attr(marker, name)
   return marker:match(name .. '="([^"]*)"')
@@ -150,6 +158,77 @@ end
 
 local function validate_reason_code(value, path)
   return validate_attr(value, path, M.MAX_TERMINAL_REASON_CODE_BYTES)
+end
+
+local function validate_issue_source_ref(value, path)
+  if type(value) ~= "table" then
+    return false, fail(path, "not_source_ref", "must be an issue source_ref")
+  end
+  local repo, issue_number = devloop_base.parse_issue_source_ref(value)
+  if repo == nil or issue_number == nil then
+    return false, fail(path, "invalid_issue_source_ref", "must round-trip as an external issue source_ref")
+  end
+  return true, nil, {
+    kind = "external",
+    ref = tostring(repo) .. "#issue/" .. tostring(issue_number),
+  }
+end
+
+local function validate_child_disposition_fields(fields)
+  if type(fields) ~= "table" then
+    return nil, fail("fields", "not_table", "must be a table")
+  end
+  local ok, err = validate_origin(fields.origin, "origin")
+  if not ok then return nil, err end
+  ok, err = validate_digest(fields.blueprint_digest, "blueprint_digest")
+  if not ok then return nil, err end
+  ok, err = validate_slot(fields.slot, "slot")
+  if not ok then return nil, err end
+  local child_issue
+  ok, err, child_issue = validate_child_issue(fields.child_issue, "child_issue")
+  if not ok then return nil, err end
+  if child_issue == "" then
+    return nil, fail("child_issue", "empty", "must not be empty")
+  end
+  ok, err = validate_member(
+    fields.disposition,
+    "disposition",
+    M.CHILD_DISPOSITIONS,
+    "invalid_child_disposition"
+  )
+  if not ok then return nil, err end
+
+  local successor_source_ref = fields.successor_source_ref
+  if fields.disposition == "transferred" then
+    if successor_source_ref == nil then
+      return nil, fail("successor_source_ref", "required_for_transfer", "is required for transferred")
+    end
+    ok, err, successor_source_ref = validate_issue_source_ref(successor_source_ref, "successor_source_ref")
+    if not ok then return nil, err end
+  elseif successor_source_ref ~= nil then
+    return nil, fail("successor_source_ref", "forbidden_for_disposition", "is only allowed for transferred")
+  end
+
+  local reason_code = fields.reason_code
+  if fields.disposition == "undeliverable" then
+    if reason_code == nil or reason_code == "" then
+      return nil, fail("reason_code", "required_for_undeliverable", "is required for undeliverable")
+    end
+    ok, err = validate_reason_code(reason_code, "reason_code")
+    if not ok then return nil, err end
+  elseif reason_code ~= nil then
+    return nil, fail("reason_code", "forbidden_for_disposition", "is only allowed for undeliverable")
+  end
+
+  return {
+    origin = fields.origin,
+    blueprint_digest = fields.blueprint_digest,
+    slot = fields.slot,
+    child_issue = child_issue,
+    disposition = fields.disposition,
+    successor_source_ref = successor_source_ref,
+    reason_code = reason_code,
+  }, nil
 end
 
 function M.build_blueprint_marker(origin_proposal_id, workflow_id, plan_digest)
@@ -521,6 +600,59 @@ function M.parse_lineage_header(text)
     return lineage_fact_from_marker(marker)
   end
   return nil
+end
+
+function M.build_child_disposition_marker(fields)
+  local fact, err = validate_child_disposition_fields(fields)
+  if fact == nil then return nil, err end
+  local successor = fact.successor_source_ref or {}
+  return '<!-- fkst:github-devloop-workflow:child-disposition:v1 origin="' .. fact.origin
+    .. '" blueprint_digest="' .. fact.blueprint_digest
+    .. '" slot="' .. fact.slot
+    .. '" child_issue="' .. fact.child_issue
+    .. '" disposition="' .. fact.disposition
+    .. '" successor_kind="' .. tostring(successor.kind or "")
+    .. '" successor_ref="' .. tostring(successor.ref or "")
+    .. '" reason_code="' .. tostring(fact.reason_code or "")
+    .. '" -->',
+    nil
+end
+
+local function child_disposition_fact_from_marker(disposition_marker)
+  local successor_kind = attr(disposition_marker, "successor_kind")
+  local successor_ref = attr(disposition_marker, "successor_ref")
+  local reason_code = attr(disposition_marker, "reason_code")
+  local fields = {
+    origin = attr(disposition_marker, "origin"),
+    blueprint_digest = attr(disposition_marker, "blueprint_digest"),
+    slot = attr(disposition_marker, "slot"),
+    child_issue = attr(disposition_marker, "child_issue"),
+    disposition = attr(disposition_marker, "disposition"),
+    successor_source_ref = (successor_kind ~= "" or successor_ref ~= "") and {
+      kind = successor_kind,
+      ref = successor_ref,
+    } or nil,
+    reason_code = reason_code ~= "" and reason_code or nil,
+  }
+  return validate_child_disposition_fields(fields)
+end
+
+function M.parse_child_disposition_marker(text, origin, blueprint_digest, slot, child_issue)
+  if type(text) ~= "string" then
+    return nil
+  end
+  local latest = nil
+  for disposition_marker in text:gmatch(CHILD_DISPOSITION_MARKER_PATTERN) do
+    local fact = child_disposition_fact_from_marker(disposition_marker)
+    if fact ~= nil
+      and fact.origin == tostring(origin)
+      and fact.blueprint_digest == tostring(blueprint_digest)
+      and fact.slot == tostring(slot)
+      and fact.child_issue == tostring(child_issue) then
+      latest = fact
+    end
+  end
+  return latest
 end
 
 function M.install(target)

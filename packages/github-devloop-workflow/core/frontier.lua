@@ -31,16 +31,32 @@ local function terminal_blocked(reason, slot, child_ref)
 end
 
 local function terminal_block_reason(base, slot, detail)
-  local parts = { tostring(base or "child-fatal") }
-  if slot ~= nil and tostring(slot) ~= "" then
-    parts[#parts + 1] = tostring(slot)
+  local limit = marker.MAX_TERMINAL_REASON_CODE_BYTES
+  local base_reason = strings.sanitize_key(base or "child-fatal", limit):gsub("/", "-")
+  local slot_reason = slot ~= nil and tostring(slot) ~= ""
+    and strings.sanitize_key(slot, limit):gsub("/", "-")
+    or nil
+  local fatal_reason = type(detail) == "table"
+    and (detail.fatal_reason or detail.impl_failed_reason)
+    or nil
+  if type(fatal_reason) == "string" and fatal_reason ~= "" then
+    fatal_reason = strings.sanitize_key(fatal_reason, limit):gsub("/", "-")
+    local mandatory = base_reason .. "-" .. fatal_reason
+    if #mandatory > limit then
+      return fatal_reason
+    end
+    local slot_budget = limit - #mandatory - 1
+    if slot_reason ~= nil and slot_budget > 0 then
+      slot_reason = strings.sanitize_key(slot_reason, slot_budget):gsub("/", "-")
+      return table.concat({ base_reason, slot_reason, fatal_reason }, "-")
+    end
+    return mandatory
   end
-  if type(detail) == "table"
-    and type(detail.impl_failed_reason) == "string"
-    and detail.impl_failed_reason ~= "" then
-    parts[#parts + 1] = detail.impl_failed_reason
+  local parts = { base_reason }
+  if slot_reason ~= nil then
+    parts[#parts + 1] = slot_reason
   end
-  local reason = strings.sanitize_key(table.concat(parts, "-"), marker.MAX_TERMINAL_REASON_CODE_BYTES)
+  local reason = strings.sanitize_key(table.concat(parts, "-"), limit)
     :gsub("/", "-")
     :gsub("%-+", "-")
     :gsub("^%-+", "")

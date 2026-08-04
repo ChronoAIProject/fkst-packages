@@ -51,6 +51,63 @@ local tests = {
     t.eq(status, "fatal")
   end,
 
+  test_satisfied_disposition_is_result_ready = function()
+    local status, detail = child_result.child_result_status(deps({
+      current_obligation_disposition = function()
+        return { disposition = "satisfied" }
+      end,
+    }), child)
+    t.eq(status, "result_ready")
+    t.eq(detail.disposition, "satisfied")
+  end,
+
+  test_transferred_disposition_derives_status_from_successor = function()
+    local successor = {
+      kind = "issue",
+      proposal_id = "github-devloop/issue/owner/repo/43",
+      source_ref = { kind = "external", ref = "owner/repo#issue/43" },
+    }
+    local observed = nil
+    local status, detail = child_result.child_result_status(deps({
+      current_obligation_disposition = function()
+        return {
+          disposition = "transferred",
+          successor_ref = successor,
+        }
+      end,
+      transferred_child_status = function(ref)
+        observed = ref
+        return "running", { successor = true }
+      end,
+    }), child)
+    t.eq(status, "running")
+    t.eq(detail.successor, true)
+    t.eq(observed.proposal_id, successor.proposal_id)
+  end,
+
+  test_undeliverable_disposition_is_fatal_with_why = function()
+    local status, detail = child_result.child_result_status(deps({
+      current_obligation_disposition = function()
+        return {
+          disposition = "undeliverable",
+          reason_code = "premise-refuted",
+        }
+      end,
+    }), child)
+    t.eq(status, "fatal")
+    t.eq(detail.disposition, "undeliverable")
+    t.eq(detail.fatal_reason, "premise-refuted")
+  end,
+
+  test_unreadable_disposition_fact_is_unknown = function()
+    local status = child_result.child_result_status(deps({
+      current_obligation_disposition = function()
+        error("read failed")
+      end,
+    }), child)
+    t.eq(status, "unknown")
+  end,
+
   test_blocked_terminal_fact_is_fatal = function()
     local status = child_result.child_result_status(deps({
       irreversible_terminal = function() return { ok = true, reason = "blocked" } end,

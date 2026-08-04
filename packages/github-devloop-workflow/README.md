@@ -37,6 +37,17 @@ the general model, **dynamic result-driven materialization**.
   materialized child is an ordinary devloop issue whose merged result feeds the next slot. Later polls
   derive the advisory lifecycle-label projection from the trusted terminal marker: `done` projects to
   `fkst-dev:merged`, while `blocked` and `error` project to `fkst-dev:blocked`.
+- **`workflow_child_disposition`** is the published operation for closing an unmerged workflow
+  child. It re-reads the origin blueprint, created-slot ledger, child lineage, and (for a transfer)
+  successor lineage before writing one typed `satisfied`, `transferred`, or `undeliverable` receipt.
+  One disposition-invariant receipt identity makes the first persisted outcome authoritative, while
+  origin/child/merge-lane locking and fresh linked-PR evidence reject a late `transferred` or
+  `undeliverable` outcome after the child has merged.
+  `workflow_child_disposition_handoff` closes the child only after github-proxy acknowledges that
+  receipt and the same authority revalidates. `satisfied` completes the slot, `transferred` follows
+  the same-lineage successor, and `undeliverable` keeps the parent terminal `blocked` with its WHY.
+  A raw external close has no typed receipt and remains fatal; this operation does not migrate
+  already-closed children or create a new slot generation.
 
 Replay is idempotent by construction: materialization raises the child create immediately, using a
 deterministic child dedup key. Later polls first reconcile an already-created child from the
@@ -133,6 +144,16 @@ colliding ids.
   whether the terminal is monotonic; full prose in the comment body).
 - `fkst:github-devloop-workflow:lineage:v1` — in a materialized child's issue body (origin + blueprint
   digest + slot), so the child is recognized as an ordinary workflow-step issue.
+- `fkst:github-devloop-workflow:child-disposition:v1` — on a child closed through the workflow-owned
+  operation; binds the disposition to origin + blueprint digest + slot + child issue. `transferred`
+  requires an issue `successor_source_ref`; `undeliverable` requires a bounded `reason_code`; the
+  other combinations are rejected.
+
+The published `workflow_child_disposition_request` payload uses schema
+`github-devloop-workflow.child-disposition.v1` and carries `repo`, `origin_issue_number`,
+`child_issue_number`, `blueprint_digest`, `slot`, `disposition`, `dedup_key`, and the child's
+`source_ref`. It carries `successor_source_ref` only for `transferred`, or `reason_code` only for
+`undeliverable`.
 
 The full design rationale (seven-round adversarial convergence) is in
 `docs/superpowers/specs/2026-07-02-workflow-orchestration-layer-design.md`. The built-in mature

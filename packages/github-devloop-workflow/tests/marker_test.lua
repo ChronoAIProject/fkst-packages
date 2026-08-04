@@ -354,6 +354,93 @@ local tests = {
     t.is_nil(marker.parse_lineage_header(malformed))
     t.is_nil(marker.parse_lineage_header("ordinary body"))
   end,
+
+  test_child_disposition_marker_round_trips_each_typed_outcome = function()
+    local satisfied, satisfied_err = marker.build_child_disposition_marker({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "satisfied",
+    })
+    t.is_nil(satisfied_err)
+    local satisfied_fact = marker.parse_child_disposition_marker(satisfied, origin, digest, slot, "108")
+    t.eq(satisfied_fact.disposition, "satisfied")
+    t.is_nil(satisfied_fact.successor_source_ref)
+    t.is_nil(satisfied_fact.reason_code)
+
+    local transferred, transferred_err = marker.build_child_disposition_marker({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "transferred",
+      successor_source_ref = {
+        kind = "external",
+        ref = "owner/repo#issue/109",
+      },
+    })
+    t.is_nil(transferred_err)
+    local transferred_fact = marker.parse_child_disposition_marker(transferred, origin, digest, slot, "108")
+    t.eq(transferred_fact.disposition, "transferred")
+    t.eq(transferred_fact.successor_source_ref.kind, "external")
+    t.eq(transferred_fact.successor_source_ref.ref, "owner/repo#issue/109")
+    t.is_nil(transferred_fact.reason_code)
+
+    local undeliverable, undeliverable_err = marker.build_child_disposition_marker({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "undeliverable",
+      reason_code = "premise-refuted",
+    })
+    t.is_nil(undeliverable_err)
+    local undeliverable_fact = marker.parse_child_disposition_marker(undeliverable, origin, digest, slot, "108")
+    t.eq(undeliverable_fact.disposition, "undeliverable")
+    t.is_nil(undeliverable_fact.successor_source_ref)
+    t.eq(undeliverable_fact.reason_code, "premise-refuted")
+  end,
+
+  test_child_disposition_marker_rejects_ambiguous_outcomes = function()
+    local function rejects(fields, path, code)
+      local built, err = marker.build_child_disposition_marker(fields)
+      t.is_nil(built)
+      t.eq(err.path, path)
+      t.eq(err.code, code)
+    end
+
+    rejects({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "transferred",
+    }, "successor_source_ref", "required_for_transfer")
+    rejects({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "satisfied",
+      successor_source_ref = { kind = "external", ref = "owner/repo#issue/109" },
+    }, "successor_source_ref", "forbidden_for_disposition")
+    rejects({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "undeliverable",
+    }, "reason_code", "required_for_undeliverable")
+    rejects({
+      origin = origin,
+      blueprint_digest = digest,
+      slot = slot,
+      child_issue = "108",
+      disposition = "satisfied",
+      reason_code = "not-applicable",
+    }, "reason_code", "forbidden_for_disposition")
+  end,
 }
 
 return tests

@@ -8,6 +8,14 @@ M.STATUS_RECOVERABLE = "recoverable"
 M.STATUS_RUNNING = "running"
 M.STATUS_UNKNOWN = "unknown"
 
+local valid_status = {
+  [M.STATUS_RESULT_READY] = true,
+  [M.STATUS_FATAL] = true,
+  [M.STATUS_RECOVERABLE] = true,
+  [M.STATUS_RUNNING] = true,
+  [M.STATUS_UNKNOWN] = true,
+}
+
 local function call_reader(fn, ...)
   if type(fn) ~= "function" then
     return nil, false
@@ -116,6 +124,40 @@ local function impl_failed_reason(deps, child_ref)
   return tostring(reason), true
 end
 
+local function obligation_disposition_status(deps, child_ref)
+  if type(deps.current_obligation_disposition) ~= "function" then
+    return nil, nil, false, true
+  end
+  local ok, fact = pcall(deps.current_obligation_disposition, child_ref)
+  if not ok then
+    return nil, nil, true, false
+  end
+  if fact == nil then
+    return nil, nil, false, true
+  end
+  if type(fact) ~= "table" then
+    return nil, nil, true, false
+  end
+  if fact.disposition == "satisfied" then
+    return M.STATUS_RESULT_READY, { disposition = "satisfied" }, true, true
+  end
+  if fact.disposition == "undeliverable" and type(fact.reason_code) == "string" then
+    return M.STATUS_FATAL, {
+      disposition = "undeliverable",
+      fatal_reason = fact.reason_code,
+    }, true, true
+  end
+  if fact.disposition == "transferred"
+    and type(fact.successor_ref) == "table"
+    and type(deps.transferred_child_status) == "function" then
+    local successor_ok, status, detail = pcall(deps.transferred_child_status, fact.successor_ref)
+    if successor_ok and valid_status[status] == true then
+      return status, detail, true, true
+    end
+  end
+  return nil, nil, true, false
+end
+
 -- Uses only exact child-boundary evidence:
 --   deps.has_merged_marker
 --   devloop.markers.facts.merged_fact over trusted marker comments
@@ -140,6 +182,14 @@ function M.child_result_status(deps, child_ref)
   end
   if native_merged then
     return M.STATUS_RESULT_READY, { merged = true }
+  end
+
+  local disposition_status, disposition_detail, disposition_found, disposition_ok = obligation_disposition_status(deps, child_ref)
+  if not disposition_ok then
+    return M.STATUS_UNKNOWN
+  end
+  if disposition_found then
+    return disposition_status, disposition_detail
   end
 
   local impl_failed_fatal = impl_failed_is_fatal(deps, child_ref)

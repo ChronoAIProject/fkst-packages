@@ -187,6 +187,31 @@ local tests = {
     t.eq(action.reason_code, "child-fatal-first")
   end,
 
+  test_maximum_slot_id_preserves_undeliverable_why = function()
+    local plan = blueprint()
+    local slot = string.rep("s", 128)
+    plan.steps = {
+      {
+        id = slot,
+        title = "Maximum slot",
+        content = {
+          kind = "static",
+          intent = "Exercise the terminal reason boundary.",
+        },
+      },
+    }
+    local child = { proposal_id = "child-maximum-slot" }
+    local action = frontier.compute_frontier(plan, {
+      [slot] = created(slot, child),
+    }, function()
+      return "fatal", { fatal_reason = "premise-refuted" }
+    end)
+
+    t.eq(action.state, "blocked")
+    t.is_true(#action.reason_code <= 128)
+    t.is_true(action.reason_code:find("premise-refuted", 1, true) ~= nil)
+  end,
+
   test_recoverable_materialized_child_waits = function()
     local action = frontier.compute_frontier(blueprint(), {
       first = created("first", { proposal_id = "child-first" }),
