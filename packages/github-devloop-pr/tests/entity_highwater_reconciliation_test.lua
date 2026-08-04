@@ -14,6 +14,13 @@ local pr_number = 3093
 local source_ref = entity_lib.pr_source_ref(repo, pr_number)
 local highwater_key = entity_highwater.key("github-devloop-pr/observe_pr", source_ref)
 
+local function version(number)
+  local offset = number - 1
+  local minute = math.floor(offset / 60)
+  local second = offset % 60
+  return string.format("2026-08-04T00:%02d:%02dZ", minute, second)
+end
+
 local function event(updated_at)
   return {
     queue = "github-proxy.github_entity_changed",
@@ -32,9 +39,7 @@ end
 
 return {
   test_observe_pr_skips_a_version_superseded_by_the_fetched_pr = function()
-    local v1 = "2026-08-04T00:00:00Z"
-    local v2 = "2026-08-04T00:00:01Z"
-    local v432 = "2026-08-04T00:07:11Z"
+    local v432 = version(432)
     local reads = 0
     cache_set(highwater_key, "")
 
@@ -55,8 +60,10 @@ return {
     end
 
     local ok, err = pcall(function()
-      testing.run_fake(observe_pr, event(v1))
-      testing.run_fake(observe_pr, event(v2))
+      testing.run_fake(observe_pr, event(version(1)))
+      for number = 2, 431 do
+        testing.run_fake(observe_pr, event(version(number)))
+      end
     end)
     parsers_pr.parse_pr_view_origin = original_parse
     devloop_entity_view.fetch_pr_view_origin = original_fetch
@@ -66,7 +73,7 @@ return {
       error(err, 0)
     end
 
-    t.eq(reads, 1)
+    t.eq(reads, 1, "V1 fetching current V432 must make V2 through V431 zero-fetch no-ops")
     t.eq(cache_get(highwater_key), v432)
   end,
 }

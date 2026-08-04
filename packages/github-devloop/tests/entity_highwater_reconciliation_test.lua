@@ -16,6 +16,13 @@ local issue_number = 3093
 local source_ref = entity_lib.issue_source_ref(repo, issue_number)
 local highwater_key = entity_highwater.key("github-devloop/observe_issue", source_ref)
 
+local function version(number)
+  local offset = number - 1
+  local minute = math.floor(offset / 60)
+  local second = offset % 60
+  return string.format("2026-08-04T00:%02d:%02dZ", minute, second)
+end
+
 local function event(updated_at)
   return {
     queue = "github-proxy.github_entity_changed",
@@ -52,9 +59,7 @@ end
 
 return {
   test_observe_issue_skips_a_version_superseded_by_the_fetched_issue = function()
-    local v1 = "2026-08-04T00:00:00Z"
-    local v2 = "2026-08-04T00:00:01Z"
-    local v432 = "2026-08-04T00:07:11Z"
+    local v432 = version(432)
     local reads = 0
     cache_set(highwater_key, "")
 
@@ -71,8 +76,10 @@ return {
     end
 
     local ok, err = pcall(function()
-      testing.run_fake(observe_issue, event(v1))
-      testing.run_fake(observe_issue, event(v2))
+      testing.run_fake(observe_issue, event(version(1)))
+      for number = 2, 431 do
+        testing.run_fake(observe_issue, event(version(number)))
+      end
     end)
     parsers_issue.parse_issue_view_state = original_parse
     devloop_entity_view.fetch_issue_view_state = original_fetch
@@ -81,16 +88,14 @@ return {
       error(err, 0)
     end
 
-    t.eq(reads, 1)
+    t.eq(reads, 1, "V1 fetching current V432 must make V2 through V431 zero-fetch no-ops")
     t.eq(cache_get(highwater_key), v432)
   end,
 
   test_observe_issue_checkpoints_a_child_pr_without_advancing_its_parent_issue = function()
     local pr_number = 3094
     local parent_number = 3095
-    local v1 = "2026-08-04T00:00:00Z"
-    local v2 = "2026-08-04T00:00:01Z"
-    local v432 = "2026-08-04T00:07:11Z"
+    local v432 = version(432)
     local pr_key = entity_highwater.key(
       "github-devloop/observe_issue",
       entity_lib.pr_source_ref(repo, pr_number)
@@ -142,8 +147,10 @@ return {
     end
 
     local ok, err = pcall(function()
-      testing.run_fake(observe_issue, pr_event(pr_number, v1))
-      testing.run_fake(observe_issue, pr_event(pr_number, v2))
+      testing.run_fake(observe_issue, pr_event(pr_number, version(1)))
+      for number = 2, 431 do
+        testing.run_fake(observe_issue, pr_event(pr_number, version(number)))
+      end
     end)
     m_facts.pr_origin_fact = original_origin
     parsers_pr.parse_pr_view_origin = original_parse_pr
@@ -155,7 +162,7 @@ return {
       error(err, 0)
     end
 
-    t.eq(pr_reads, 1)
+    t.eq(pr_reads, 1, "V1 fetching current V432 must make V2 through V431 zero-fetch no-ops")
     t.eq(issue_reads, 1)
     t.eq(cache_get(pr_key), v432)
     t.eq(cache_get(parent_key), "")
