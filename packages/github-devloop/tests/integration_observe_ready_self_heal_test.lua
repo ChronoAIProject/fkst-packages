@@ -87,36 +87,7 @@ local function merge_gate_fix_marker(event)
   )
 end
 
-local function assert_ready_redrive(result, expected_proposal_id, expected_dedup_key)
-  t.eq(result.exit_code, 0)
-  t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
-  t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
-  local ready = find_raise(result.raises, "devloop_ready")
-  t.is_true(ready ~= nil)
-  t.eq(ready.payload.proposal_id, expected_proposal_id)
-  t.eq(ready.payload.dedup_key, expected_dedup_key)
-  t.eq(ready.payload.source_ref.ref, "owner/repo#issue/42")
-end
 
-local function assert_merged_terminal(result)
-  t.eq(result.exit_code, 0)
-  t.eq(find_raise(result.raises, "devloop_ready"), nil)
-  t.eq(find_raise(result.raises, "devloop_reviewing"), nil)
-  t.eq(find_raise(result.raises, "devloop_merge_ready"), nil)
-  local comment = find_raise(result.raises, "github-proxy.github_issue_comment_request")
-  t.is_true(comment ~= nil)
-  t.is_true(tostring(comment.payload.body):find('state="merged"', 1, true) ~= nil)
-  t.is_true(tostring(comment.payload.body):find("fkst:github-devloop:merged:v1", 1, true) ~= nil)
-  local merged_label = nil
-  for _, raise in ipairs(result.raises or {}) do
-    if raise.queue == "github-proxy.github_issue_label_request"
-      and has_value(raise.payload.add_labels, "fkst-dev:merged") then
-      merged_label = raise
-      break
-    end
-  end
-  t.is_true(merged_label ~= nil)
-end
 
 local function fresh_thinking_marker(proposal_id, version)
   return {

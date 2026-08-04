@@ -288,27 +288,7 @@ local function mock_queue_list(pr_numbers)
   })
 end
 
-local function mock_wip_issue_list(numbers)
-  local items = {}
-  for _, number in ipairs(numbers or {}) do
-    table.insert(items, string.format('{"number":%d}', number))
-  end
-  entity_read_mocks.mock_issue_list_raw_command(t, core.gh_issue_list_wip_cmd("owner/repo"), {
-    stdout = "[" .. table.concat(items, ",") .. "]\n",
-  })
-end
 
-local function mock_wip_issue_state(issue_number, state)
-  local proposal_id = base_ids.proposal_id("owner/repo", issue_number)
-  t.mock_command(core.gh_issue_view_state_cmd("owner/repo", issue_number), {
-    stdout = string.format(
-      '{"title":"Issue","state":"OPEN","labels":[{"name":"fkst-dev:enabled"}],"comments":[%s],"assignees":[{"login":"fkst-test-bot"}],"author":{"login":"fkst-test-bot"}}\n',
-      render_comment(core.state_marker(proposal_id, state, "ready/consensus-github-devloop/issue/owner/repo/" .. tostring(issue_number) .. "/2026-06-03T01-02-03Z"))
-    ),
-    stderr = "",
-    exit_code = 0,
-  })
-end
 
 local function predecessor_set_for(event)
   return "pr" .. tostring(event.pr_number)
