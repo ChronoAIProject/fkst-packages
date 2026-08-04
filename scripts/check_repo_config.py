@@ -102,36 +102,6 @@ def package_root(project_root: Path) -> Path:
     return package_roots(project_root)[0]
 
 
-def lua_long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
-
-
-def lua_long_bracket_end(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-
-def lua_quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    cursor = start + 1
-    while cursor < len(text):
-        if text[cursor] == "\\":
-            cursor += 2
-            continue
-        if text[cursor] == quote:
-            return cursor + 1
-        cursor += 1
-    return len(text)
-
-
 def allowlist_path(root: Path, allowlist_dir: Path | None, relpath: str) -> Path:
     if allowlist_dir is None:
         return root / relpath

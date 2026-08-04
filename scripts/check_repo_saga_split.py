@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import check_repo_config
+import check_repo_lua
 
 
 MANIFEST = "migration/github-devloop-saga-split.inventory"
@@ -259,27 +260,8 @@ def issue_state_contract_messages(root: Path) -> list[str]:
 
 
 def _strip_lua_line_comment(line: str) -> str:
-    quote: str | None = None
-    escaped = False
-    index = 0
-    while index < len(line):
-        char = line[index]
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            index += 1
-            continue
-        if line.startswith("--", index):
-            return line[:index]
-        index += 1
+    for span in check_repo_lua.comment_spans(line, recognize_long_brackets=False):
+        return line[: span.start]
     return line
 
 
@@ -292,31 +274,28 @@ def _line_number(text: str, index: int) -> int:
 
 
 def _call_end(text: str, open_paren: int) -> int | None:
-    quote: str | None = None
-    escaped = False
     depth = 0
     line_count = 0
     limit = min(len(text), open_paren + CALL_SCAN_MAX_CHARS)
     index = open_paren
     while index < limit:
+        literal = check_repo_lua.literal_span_at(
+            text,
+            index,
+            recognize_long_brackets=False,
+            include_line_metadata=False,
+        )
+        if literal is not None:
+            line_count += text.count("\n", literal.start, literal.end)
+            if line_count > CALL_SCAN_MAX_LINES:
+                return None
+            index = literal.end
+            continue
         char = text[index]
         if char == "\n":
             line_count += 1
             if line_count > CALL_SCAN_MAX_LINES:
                 return None
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            index += 1
-            continue
         if char == "(":
             depth += 1
         elif char == ")":
@@ -334,26 +313,20 @@ def _call_arguments(call_text: str) -> list[tuple[str, int]]:
         return []
     args_text = call_text[open_paren + 1:close_paren]
     args: list[tuple[str, int]] = []
-    quote: str | None = None
-    escaped = False
     depth = 0
     start = 0
     index = 0
     while index < len(args_text):
+        literal = check_repo_lua.literal_span_at(
+            args_text,
+            index,
+            recognize_long_brackets=False,
+            include_line_metadata=False,
+        )
+        if literal is not None:
+            index = literal.end
+            continue
         char = args_text[index]
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            index += 1
-            continue
         if char in "({[":
             depth += 1
         elif char in ")}]":

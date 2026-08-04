@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import check_repo_lua
+
 
 ALLOWLIST = "migration/coverage-uncovered.allowlist"
 REQUIRED_FLAG = "migration/coverage-uncovered.required"
@@ -162,32 +164,18 @@ def normalized_source_hash(text: str) -> str:
 
 
 def without_lua_string_literals(text: str) -> str:
-    result: list[str] = []
-    quote: str | None = None
-    escape = False
-    for char in text:
-        if quote is not None:
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == quote:
-                quote = None
-            result.append(" ")
-        elif char in {"'", '"'}:
-            quote = char
-            result.append(" ")
-        else:
-            result.append(char)
-    return "".join(result)
+    return check_repo_lua.code_mask(
+        text,
+        kinds={check_repo_lua.SHORT_STRING},
+        recognize_long_brackets=False,
+        recognize_comments=False,
+    )
 
 
 def strip_lua_line_comment(text: str) -> str:
-    candidate = without_lua_string_literals(text)
-    idx = candidate.find("--")
-    if idx == -1:
-        return text
-    return text[:idx]
+    for span in check_repo_lua.comment_spans(text, recognize_long_brackets=False):
+        return text[: span.start]
+    return text
 
 
 def is_candidate_executable_lua_line(text: str) -> bool:
