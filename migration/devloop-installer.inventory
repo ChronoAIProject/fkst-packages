@@ -1,14 +1,6 @@
 {
   "_comment": "G-DEVLOOP-INSTALLER shrink-only per-package baseline. Each entry is one production reader call through that package core to a symbol installed by that same package core. CI compares counts independently per package; record progress by deleting migrated sites. Target: no package entries.",
   "packages": {
-    "github-devloop-integration": [
-      {
-        "column": 10,
-        "line": 211,
-        "path": "packages/github-devloop-integration/core/release_notes.lua",
-        "symbol": "gh_pr_create_body"
-      }
-    ],
     "github-devloop-ops": [
       {
         "column": 7,
