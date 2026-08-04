@@ -1,0 +1,416 @@
+local devloop_base = require("devloop.base")
+local base_ids = require("devloop.base_ids")
+local parsers_issue = require("devloop.parsers.issue")
+local core, replay_fields = require("core"), require("devloop.replay_fields")
+local restart_owner = core.restart_package_name
+local transition_version = require("contract.transition_version")
+
+local saga = require("workflow.saga")
+local conv_reconcile = require("devloop.convergence.reconcile")
+local conv_attempts = require("devloop.convergence.attempts")
+local entity_lib = require("devloop.entity")
+local devloop_logging = require("devloop.logging")
+local devloop_state = require("devloop.state")
+local devloop_commands = require("devloop.commands")
+local restart_effect_facade = require("core.restart_effect_facade")
+local restart_effects = require("core.restart_effects")
+
+local spec = {
+  consumes = { "devloop_reconcile", "devloop_timeout_reconcile" },
+  produces = {
+    "github-proxy.github_issue_comment_request",
+    "github-proxy.github_issue_label_request",
+    "github-proxy.github_pr_comment_request",
+  },
+  stall_window = "2m",
+}
+
+local function emit_effects(proposal_id, effects)
+  for _, effect in ipairs(effects or {}) do
+    devloop_logging.log_raise("reconcile", proposal_id, effect.queue, effect.payload)
+  end
+end
+
+local function strip_timeout_transition_suffixes(version)
+  return transition_version.strip_timeout_suffixes(version)
+end
+
+local function maybe_adopt_open_implementation_pr(repo, issue_number, reconcile, current, state)
+  if reconcile.state ~= "implementing" then
+    return false
+  end
+  local impl_version = strip_timeout_transition_suffixes(state.version)
+  local ready = {
+    proposal_id = reconcile.proposal_id,
+    dedup_key = impl_version,
+    source_ref = reconcile.source_ref,
+  }
+  local issue = {
+    repo = repo,
+    number = issue_number,
+    title = current and current.title,
+    proposal_id = reconcile.proposal_id,
+    source_ref = reconcile.source_ref,
+    comments = current and current.comments or {},
+  }
+  local retry_attempt = core.implementation_retry_attempt(impl_version)
+  local generation = core.implementation_delegation_generation(impl_version, retry_attempt)
+  local child = core.adopt_existing_pr_child(issue, impl_version, generation)
+  if child == nil then
+    return false
+  end
+  local comment_request = core.build_parent_awaiting_pr_comment_request(repo, issue_number, ready, child)
+  local label_request = core.build_parent_awaiting_pr_label_request(repo, issue_number, ready, child)
+  local add_labels, remove_labels = devloop_state.state_label_changes("awaiting-pr")
+  devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "implementing", "awaiting-pr", "applied(open-pr-ground-truth)", "timeout reconcile found an open implementation PR before terminal write")
+  devloop_logging.log_apply("reconcile", reconcile.proposal_id, "awaiting-pr", impl_version, { add = add_labels, remove = remove_labels }, {
+    "github-proxy.github_pr_comment_request",
+    "github-proxy.github_issue_comment_request",
+    "github-proxy.github_issue_label_request",
+  })
+  emit_effects(reconcile.proposal_id, child.effects)
+  devloop_logging.log_raise("reconcile", reconcile.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+  devloop_logging.log_raise("reconcile", reconcile.proposal_id, "github-proxy.github_issue_label_request", label_request)
+  return true
+end
+
+local function pipeline_thinking(event)
+  local reconcile = event.payload or {}
+  if not conv_reconcile.is_supported_reconcile(reconcile) then
+    devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
+    devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "thinking", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
+    return
+  end
+
+  devloop_logging.log_entry("reconcile", event, reconcile.proposal_id, reconcile.dedup_key)
+  local repo, issue_number = base_ids.parse_proposal_id(reconcile.proposal_id)
+  if repo == nil then
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, "thinking", "blocked", "skip-foreign(proposal_id)", "proposal_id is outside github-devloop")
+    return
+  end
+
+  local lock_key = entity_lib.loop_lock_key(reconcile.proposal_id)
+  if lock_key == nil then
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, "thinking", "blocked", "skip-foreign(proposal_id)", "no transition lock key")
+    return
+  end
+
+  with_lock(lock_key, function()
+    devloop_base.assert_trusted_bot_configured()
+
+    local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
+    if view.exit_code ~= 0 then
+      error("github-devloop: issue-read-failed: gh issue reconcile view failed: " .. tostring(view.stderr))
+    end
+
+    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, current.comments)
+    local state = devloop_state.current_state(current.comments, reconcile.proposal_id)
+    if conv_reconcile.has_reconcile_marker(core, current.comments, reconcile.proposal_id, reconcile.base_version, reconcile.round) then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "skip-idempotent(reconcile marker already visible)", "reconcile result marker for incoming version is already visible")
+      return
+    end
+    if state.state ~= nil and devloop_state.stage_rank(state.state) >= devloop_state.stage_rank("blocked") then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "skip-idempotent(already terminal)", "current marker is already terminal at or beyond blocked")
+      return
+    end
+    if state.state == nil then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "pending", "thinking state marker not yet visible")
+      error("github-devloop: state-marker-pending: thinking state marker not yet visible for reconcile; retrying")
+    end
+    if state.state ~= "thinking" then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "skip-stale(state-advanced)", "current marker advanced beyond thinking")
+      return
+    end
+    if reconcile.base_version ~= state.version then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", "skip-stale(epoch-advanced)", "incoming reconcile epoch does not match current thinking epoch")
+      return
+    end
+
+    local version = conv_reconcile.reconcile_terminal_state_version(state.version, reconcile.round)
+    local snapshot = restart_effects.seal_snapshot({
+      owner = restart_owner,
+      entity = { kind = "issue", repo = repo, number = issue_number },
+      proposal_id = reconcile.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "issue-reconcile",
+        reconcile.proposal_id,
+        state.state,
+        state.version,
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. state.version,
+      generation = state.version,
+    })
+    local decision = restart_effects.decide_transition(snapshot, {
+      semantic_variant = "issue_reconcile_true_stall",
+      source_boundary = "devloop_reconcile",
+      target = "blocked",
+      incoming_version = version,
+    })
+    if devloop_logging.log_typed_guard("pending_log_error", decision,
+      "reconcile", reconcile.proposal_id, state, "thinking", "blocked",
+      "thinking state marker not yet visible") == "error" then
+      error("github-devloop: state-marker-pending: thinking state marker not yet visible for reconcile; retrying")
+    end
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", decision,
+      "reconcile", reconcile.proposal_id, state, "thinking", "blocked",
+      "current marker cannot be reconciled from thinking") == "return" then
+      return
+    end
+    if decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: issue reconcile decision rejected: "
+        .. tostring(decision.reason_code))
+    end
+
+    local grant = restart_effects.mint_grant(
+      snapshot,
+      decision,
+      "comment:issue:reconcile-blocked"
+    )
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: issue reconcile grant was not minted")
+    end
+    local facade = restart_effect_facade.make({
+      family = "issue-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+
+    -- re-design/re-cluster require a trusted directive fact; current deterministic reconcile drops.
+    local action = "drop"
+    local reason = tostring(reconcile.terminal_cause) .. "-after-" .. tostring(reconcile.round) .. "-rounds"
+    local args = {
+      core = core,
+      issue = { repo = repo, number = issue_number },
+      reconcile = reconcile,
+      action = action,
+      reason = reason,
+      state_version = decision.incoming_version,
+    }
+    local effects = {}
+    for _, effect_id in ipairs(decision.granted_effect_ids) do
+      local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: issue reconcile effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+    end
+
+    local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", decision.cas_outcome, reason)
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", decision.incoming_version, {
+      add = add_labels,
+      remove = remove_labels,
+    }, decision.granted_effect_ids)
+    for _, effect in ipairs(effects) do
+      devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
+    end
+  end)
+end
+
+local function pipeline_timeout(event)
+  local reconcile = event.payload or {}
+  if not conv_reconcile.is_supported_timeout_reconcile(core, reconcile) then
+    devloop_logging.log_entry("reconcile", event, "unknown", devloop_logging.payload_field(reconcile, "dedup_key"))
+    devloop_logging.log_cas_decision("reconcile", "unknown", { state = nil, version = nil }, "timeout", "blocked", "skip-foreign(proposal_id)", "unsupported event payload")
+    return
+  end
+
+  devloop_logging.log_entry("reconcile", event, reconcile.proposal_id, reconcile.dedup_key)
+  local repo, issue_number = base_ids.parse_proposal_id(reconcile.proposal_id)
+  local lock_key = entity_lib.transition_lock_key(reconcile.proposal_id)
+  if lock_key == nil then
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, { state = nil, version = nil }, reconcile.state, "blocked", "skip-foreign(proposal_id)", "no transition lock key")
+    return
+  end
+
+  with_lock(lock_key, function()
+    devloop_base.assert_trusted_bot_configured()
+
+    local view = devloop_commands.gh_issue_view_loop(repo, issue_number, 30)
+    if view.exit_code ~= 0 then
+      error("github-devloop: issue-read-failed: timeout-reconcile-issue-view-failed: " .. tostring(view.stderr))
+    end
+
+    local current = parsers_issue.parse_issue_view_loop(core, view.stdout)
+    local comments = current.comments or {}
+    devloop_logging.log_forged_markers("reconcile", reconcile.proposal_id, comments)
+    local state = require("devloop.entity").current_entity_state(comments, reconcile.proposal_id)
+    if conv_reconcile.has_timeout_reconcile_marker(core, comments, reconcile.proposal_id, reconcile.issue_version, reconcile.state, reconcile.round) then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(timeout reconcile marker already visible)", "timeout reconcile result marker for incoming version is already visible")
+      return
+    end
+    local live_row = replay_fields.restart_transition_row(core.restart_transition_table(), state.state)
+    if state.state ~= nil and live_row ~= nil and live_row.terminal == true then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-idempotent(already terminal)", "current marker is already terminal")
+      return
+    end
+    if state.state == nil then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "pending", "state marker not yet visible for timeout reconcile")
+      error("github-devloop: state-marker-pending: state marker not yet visible for timeout reconcile; retrying")
+    end
+    if state.state ~= reconcile.state then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(state-advanced)", "current marker advanced beyond timeout reconcile state")
+      return
+    end
+    if transition_version.strip_suffixes(state.version) ~= transition_version.strip_suffixes(reconcile.issue_version) then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(lineage-mismatch)", "timeout reconcile event does not match canonical state marker lineage")
+      return
+    end
+
+    local row = replay_fields.restart_transition_row(core.restart_transition_table(), reconcile.state)
+    local timeout_facts = {
+      proposal_id = reconcile.proposal_id,
+      current = current,
+      current_issue = current,
+      source_ref = reconcile.source_ref,
+      fresh_current_state = state,
+    }
+    local epoch = row and row.actionable_epoch
+    if type(epoch) == "table" and epoch.allows_state_entry_if_never_deferred == true then
+      timeout_facts.dependency_gate = core.dependency_gate(repo, issue_number, {
+        proposal_id = reconcile.proposal_id,
+        version = state.version,
+        comments = comments,
+      })
+    end
+    local due, age_minutes = core.liveness_timeout_due_with_facts(row, state, timeout_facts, now())
+    local decision = core.liveness_timeout_decision_with_facts(row, state, timeout_facts, now())
+    if row
+      and row.actionable_epoch
+      and row.actionable_epoch.source == "live_defer_heartbeat:v1" then
+      local signal = core.restart_row_liveness_signal(row, state, timeout_facts, now())
+      age_minutes = signal.age_minutes or age_minutes
+    end
+    local limit = tonumber(row and row.on_timeout and row.on_timeout.escalate_after_attempts) or nil
+    if not due or decision.action ~= "escalate" or tonumber(decision.attempt) < tonumber(reconcile.round) then
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, reconcile.state, "blocked", "skip-stale(no-longer-over-budget)", "current marker is no longer at timeout escalation threshold")
+      return
+    end
+    if maybe_adopt_open_implementation_pr(repo, issue_number, reconcile, current, state) then
+      return
+    end
+    if reconcile.state == "blocked" then
+      if conv_attempts.has_decompose_exhausted_marker(core, comments, reconcile.proposal_id, state.version) then
+        devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "skip-idempotent(decompose-exhausted)", "blocked decompose output obligation already reached terminal stop")
+        return
+      end
+      local comment_request = conv_attempts.build_decompose_exhausted_comment_request({
+        kind = "issue",
+        repo = repo,
+        number = issue_number,
+      }, reconcile.proposal_id, state, reconcile.source_ref, decision.attempt)
+      devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "blocked", "devloop_decompose", "applied(decompose-exhausted)", "blocked decompose output obligation exhausted")
+      devloop_logging.log_apply("reconcile", reconcile.proposal_id, nil, nil, { add = {}, remove = {} }, { "github-proxy.github_issue_comment_request" })
+      devloop_logging.log_raise("reconcile", reconcile.proposal_id, "github-proxy.github_issue_comment_request", comment_request)
+      return
+    end
+
+    local version = conv_reconcile.timeout_reconcile_state_version(state.version, reconcile.state, decision.attempt)
+    local snapshot = restart_effects.seal_snapshot({
+      owner = restart_owner,
+      entity = { kind = "issue", repo = repo, number = issue_number },
+      proposal_id = reconcile.proposal_id,
+      current = state,
+      snapshot_fingerprint = table.concat({
+        "timeout-reconcile",
+        reconcile.proposal_id,
+        state.state,
+        state.version,
+      }, "|"),
+      lock_epoch = lock_key .. "@" .. state.version,
+      generation = state.version,
+    })
+    local transition_decision = restart_effects.decide_transition(snapshot, {
+      semantic_variant = "actionable_kickoff_timeout",
+      target = "blocked",
+      incoming_version = version,
+    })
+    if devloop_logging.log_typed_guard("pending_log_error", transition_decision,
+      "reconcile", reconcile.proposal_id, state, reconcile.state, "blocked",
+      "state marker not yet visible for timeout reconcile") == "error" then
+      error("github-devloop: state-marker-pending: state marker not yet visible for timeout reconcile; retrying")
+    end
+    if devloop_logging.log_typed_guard("idempotent_or_stale_log_return", transition_decision,
+      "reconcile", reconcile.proposal_id, state, reconcile.state, "blocked",
+      "current marker cannot be timeout reconciled") == "return" then
+      return
+    end
+    if transition_decision.status ~= "apply" then
+      error("github-devloop: restart-effect-decision-illegal: timeout reconcile decision rejected: "
+        .. tostring(transition_decision.reason_code))
+    end
+
+    local action = "drop"
+    local reason_prefix = row and row.on_timeout and row.on_timeout.on_escalate and row.on_timeout.on_escalate.reason
+      or "state-output-obligation-timeout"
+    local reason = tostring(reason_prefix) .. "-after-" .. tostring(decision.attempt) .. "-attempts"
+    local why_fields = {
+      from_state = reconcile.state,
+      from_version = state.version,
+      terminal_version = transition_decision.incoming_version,
+      age_minutes = age_minutes,
+      budget_minutes = row and row.budget and tonumber(row.budget.minutes) or nil,
+      attempt = decision.attempt,
+      attempt_limit = limit,
+      driving_queue = row and row.driving_queue or nil,
+      reason_class = "state-output-obligation-timeout",
+      source_ref = base_ids.normalize_source_ref(reconcile.source_ref),
+    }
+    local grant = restart_effects.mint_grant(
+      snapshot,
+      transition_decision,
+      "comment:issue:timeout-reconcile"
+    )
+    if grant == nil then
+      error("github-devloop: restart-effect-grant-mint-failed: timeout reconcile grant was not minted")
+    end
+    local facade = restart_effect_facade.make({
+      family = "timeout-reconcile",
+      verify_grant = restart_effects.verify_grant,
+      sink_inventory = require("core.restart.sink_inventory"),
+    })
+    local args = {
+      issue = { repo = repo, number = issue_number },
+      reconcile = reconcile,
+      action = action,
+      reason = reason,
+      state_version = transition_decision.incoming_version,
+      why_fields = why_fields,
+    }
+    local effects = {}
+    for _, effect_id in ipairs(transition_decision.granted_effect_ids) do
+      local payload, rejection = facade.emit(grant, effect_id, snapshot, args)
+      if payload == nil then
+        error("github-devloop: restart-effect-facade-rejected: timeout reconcile effect "
+          .. tostring(effect_id) .. " rejected: " .. tostring(rejection))
+      end
+      table.insert(effects, { queue = effect_id, payload = payload })
+    end
+
+    local add_labels, remove_labels = devloop_state.state_label_changes("blocked")
+    devloop_logging.log_cas_decision("reconcile", reconcile.proposal_id, state, "thinking", "blocked", transition_decision.cas_outcome, reason)
+    devloop_logging.log_apply("reconcile", reconcile.proposal_id, "blocked", transition_decision.incoming_version, {
+      add = add_labels,
+      remove = remove_labels,
+    }, transition_decision.granted_effect_ids)
+    for _, effect in ipairs(effects) do
+      devloop_logging.log_raise("reconcile", reconcile.proposal_id, effect.queue, effect.payload)
+    end
+  end)
+end
+
+return saga.department(spec, {
+  done = function() return false end,
+  act = function(event)
+    local schema = devloop_logging.payload_field(event and event.payload, "schema")
+    if schema == "github-devloop.timeout-reconcile.v1" then
+      return pipeline_timeout(event)
+    end
+    return pipeline_thinking(event)
+  end,
+  wrap = devloop_logging.wrap_pipeline_failure,
+  name = "reconcile",
+})

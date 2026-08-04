@@ -1,0 +1,188 @@
+local h = require("tests.devloop_core_helpers")
+local core = h.core
+local t = h.t
+
+local function copy_value(value)
+  if type(value) ~= "table" then
+    return value
+  end
+  local out = {}
+  for key, nested in pairs(value) do
+    out[key] = copy_value(nested)
+  end
+  return out
+end
+
+local function rows_by_state(rows)
+  local by_state = {}
+  for _, row in ipairs(rows or {}) do
+    by_state[row.from_state] = row
+  end
+  return by_state
+end
+
+return {
+  test_merge_ready_is_approval_wait_handoff_with_explicit_merge_gate_boundary = function()
+    local row = rows_by_state(core.restart_transition_table())["merge-ready"]
+    local signature = row.responsibility_signature
+    local guard = row.guard_boundaries and row.guard_boundaries[1] or nil
+
+    t.eq(row.to_states[1], "merging")
+    t.eq(#row.to_states, 2)
+    t.eq(row.to_states[2], "blocked")
+    t.eq(signature.receiver_kind, "merge-ready-handoff")
+    t.eq(signature.state_kind, "queue_wait")
+    t.eq(signature.input_fact_family, "head-bound-merge-authorization")
+    t.eq(signature.output_postcondition_family, "merge_gate_handoff")
+    t.eq(signature.decision_type, nil)
+    t.eq(#row.receiver_activations, 3)
+    t.eq(row.receiver_activations[1].target, "merging")
+    t.eq(row.receiver_activations[1].output_variant, "handoff_to_merge_gate")
+    t.eq(row.receiver_activations[2].target, "blocked")
+    t.eq(row.receiver_activations[2].output_variant, "review_reject_to_blocked")
+    t.eq(row.receiver_activations[3].target, "blocked")
+    t.eq(row.receiver_activations[3].output_variant, "bounded_fix_to_blocked")
+    t.eq(#signature.successors, 1)
+    t.eq(signature.successors[1].state, "blocked")
+    t.eq(signature.successors[1].terminal, true)
+
+    t.eq(guard.name, "merge_gate")
+    t.eq(guard.kind, "guard_table")
+    t.eq(guard.gate_kind, "decision")
+    t.eq(guard.input_fact_family, "head-bound-merge-authorization")
+    t.eq(guard.output_postcondition_family, "merge_eligibility_decided")
+    t.eq(guard.decision_type, "MergeEligibility")
+    t.eq(#guard.successors, 4)
+    t.eq(guard.successors[1].state, "reviewing")
+    t.eq(guard.successors[1].output_variant, "approval_stale")
+    t.eq(guard.successors[1].decision_type, "MergeEligibility")
+    t.eq(guard.successors[2].state, "merging")
+    t.eq(guard.successors[2].output_variant, "eligible_now")
+    t.eq(guard.successors[2].decision_type, "MergeEligibility")
+    t.eq(guard.successors[3].state, "fixing")
+    t.eq(guard.successors[3].output_variant, "code_repair_needed")
+    t.eq(guard.successors[3].decision_type, "MergeEligibility")
+    t.eq(guard.successors[4].state, "blocked")
+    t.eq(guard.successors[4].terminal, true)
+  end,
+
+  test_merging_is_execution_boundary_not_merge_eligibility_decider = function()
+    local row = rows_by_state(core.restart_transition_table()).merging
+    local signature = row.responsibility_signature
+
+    t.eq(signature.receiver_kind, "merge-executor")
+    t.eq(signature.state_kind, "gate")
+    t.eq(signature.gate_kind, "decision")
+    t.eq(signature.decision_type, "MergeExecutionResult")
+    t.eq(signature.output_postcondition_family, "merge_execution_result")
+    for _, edge in ipairs(signature.successors) do
+      t.is_true(edge.output_variant ~= "approval_stale")
+      t.is_true(edge.output_variant ~= "code_repair_needed")
+      t.is_true(edge.decision_type ~= "MergeEligibility")
+    end
+  end,
+
+  test_merge_origin_fix_budget_escape_is_terminal_not_failure = function()
+    local rows = rows_by_state(core.restart_transition_table())
+    for _, expected in ipairs({
+      { state = "merge-ready", edge = 1, exit = 2 },
+      { state = "merging", edge = 4, exit = 4 },
+    }) do
+      local row = rows[expected.state]
+      local edge = row.responsibility_signature.successors[expected.edge]
+      t.eq(row.to_states[expected.exit], "blocked")
+      t.eq(row.output_obligation.exits[expected.exit], "blocked")
+      t.eq(edge.state, "blocked")
+      t.eq(edge.output_variant, "fix_budget_exhausted")
+      t.eq(edge.failure, nil)
+      t.eq(edge.terminal, true)
+      t.eq(edge.monotonic, true)
+      t.eq(core.state_successors(expected.state)[expected.exit], "blocked")
+    end
+    t.eq(#core.strict_restart_responsibility_contract_errors(core.restart_transition_table()), 0)
+  end,
+
+  test_fix_reconcile_entries_coexist_with_blocked_successors_and_merge_handoff = function()
+    local rows = rows_by_state(core.restart_transition_table())
+    local expected = {
+      reviewing = { "review_reconcile_true_stall", "review_reject_to_blocked" },
+      fixing = { "review_reject_to_blocked", "bounded_fix_to_blocked", "watchdog_reconcile_terminal" },
+      ["merge-ready"] = { "handoff_to_merge_gate", "review_reject_to_blocked", "bounded_fix_to_blocked" },
+      merging = { "review_reject_to_blocked", "bounded_fix_to_blocked", "watchdog_reconcile_terminal" },
+    }
+
+    for state, variants in pairs(expected) do
+      local row = rows[state]
+      t.eq(#row.receiver_activations, #variants)
+      for index, variant in ipairs(variants) do
+        local activation = row.receiver_activations[index]
+        t.eq(activation.kind, "entry")
+        t.eq(activation.output_variant, variant)
+        if variant == "handoff_to_merge_gate" then
+          t.eq(activation.boundary, nil)
+          t.eq(activation.target, "merging")
+        elseif variant == "review_reconcile_true_stall" then
+          t.eq(activation.boundary, "devloop_review_reconcile")
+          t.eq(activation.target, "blocked")
+        elseif variant == "watchdog_reconcile_terminal" then
+          t.eq(activation.boundary, "devloop_timeout_reconcile")
+          t.eq(activation.target, "blocked")
+        else
+          t.eq(activation.boundary, "devloop_fix_reconcile")
+          t.eq(activation.target, "blocked")
+        end
+      end
+    end
+
+    local reviewing_successor = rows.reviewing.responsibility_signature.successors[4]
+    t.eq(reviewing_successor.output_variant, "watchdog_reconcile_terminal")
+    t.eq(reviewing_successor.kind, "timeout")
+    for _, state in ipairs({ "fixing", "merge-ready", "merging" }) do
+      local successors = rows[state].responsibility_signature.successors
+      local successor = successors[#successors]
+      t.eq(successor.output_variant, "fix_budget_exhausted")
+      t.eq(successor.state, "blocked")
+      t.eq(successor.terminal, true)
+    end
+    t.eq(#core.strict_restart_responsibility_contract_errors(core.restart_transition_table()), 0)
+  end,
+
+  test_fixing_code_producer_keys_liveness_to_revision_goal_work_unit = function()
+    local row = rows_by_state(core.restart_transition_table()).fixing
+    local signature = row.responsibility_signature
+    local match = row.liveness_contract.real_execution.match
+    local lineage = {}
+    for _, key in ipairs(signature.lineage_keys or {}) do
+      lineage[key] = true
+    end
+
+    t.eq(signature.receiver_kind, "code-producer")
+    t.eq(signature.input_fact_family, "revision-goal")
+    t.eq(match.dedup_key, "state.work_unit_key")
+    t.eq(lineage["revision-goal.work_unit_key"], true)
+    t.eq(lineage["ci-failure.ci_failure_key"], nil)
+    t.is_true(row.dedup_shape:find("ci-failure:<proposal_id>/<pr>/<version>", 1, true) ~= nil)
+    t.is_true(row.dedup_shape:find("<ci_failure_key-or-noci>", 1, true) == nil)
+    t.eq(row.payload_fields.work_unit_key, "dedup:fixing-work-unit")
+    t.eq(row.payload_fields.ci_failure_key, "marker:merge-gate.ci_failure_key")
+    t.eq(row.to_states[3], "blocked")
+    t.eq(row.output_obligation.exits[4], "blocked")
+    t.eq(signature.successors[3].state, "blocked")
+    t.eq(signature.successors[3].output_variant, "fix_budget_exhausted")
+    t.eq(signature.successors[3].terminal, true)
+    t.eq(core.state_successors("fixing")[3], "blocked")
+    -- the fixing->blocked budget-exhaustion escape is terminal (not a second failure family);
+    -- the row must have zero strict restart-responsibility contract errors.
+    t.eq(#core.strict_restart_responsibility_contract_errors(core.restart_transition_table()), 0)
+    t.is_true(table.concat(row.output_obligation.kinds, ","):find("ci-repair-attempt:v1", 1, true) ~= nil)
+  end,
+
+  test_fixing_code_producer_rejects_version_keyed_ci_repair_liveness = function()
+    local row = copy_value(rows_by_state(core.restart_transition_table()).fixing)
+    row.liveness_contract.real_execution.match.dedup_key = "state.version"
+    local strict_errors = core.strict_restart_liveness_contract_errors({ row })
+    local generic_errors = core.liveness_contract_errors({ row })
+    t.is_true(table.concat(strict_errors, "\n"):find("fixing: code-producing CI repair codex_run defer real_execution.match.dedup_key must be state.work_unit_key", 1, true) ~= nil)
+    t.is_true(table.concat(generic_errors, "\n"):find("fixing: live-defer code-producing CI repair real_execution.match.dedup_key must be state.work_unit_key", 1, true) ~= nil)
+  end,
+}

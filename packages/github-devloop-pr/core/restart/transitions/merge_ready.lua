@@ -1,0 +1,258 @@
+local payloads_builders = require("devloop.payloads.builders")
+local devloop_state = require("devloop.state")
+local function effect_entitlements(kind, semantic_variant, effect_ids)
+  local id = "github-devloop-pr/merge-ready/" .. kind .. "/" .. semantic_variant
+  return {
+    apply = { id = id .. "/apply", effect_ids = effect_ids },
+    idempotent = { id = id .. "/idempotent", effect_ids = {} },
+  }
+end
+return function(M, h)
+  local fact = h.fact
+  local obligation = h.obligation
+  local effect = h.effect
+  local budget = h.budget
+  local timeout = h.timeout
+  local liveness = h.liveness
+  local watchdog = h.watchdog
+  local actionable_epoch = h.actionable_epoch
+  local responsibility_signature = h.responsibility_signature
+  local advancing_fact = h.advancing_fact
+  return {
+    from_state = "merge-ready",
+    liveness_class_id = "merge_ready.actionable",
+    watchdog = watchdog("row-budget-bounds-receiver", 390),
+    actionable_epoch = actionable_epoch("state_entry:v1"),
+    terminal = false,
+    to_states = { "merging", "blocked" },
+    driving_queue = "devloop_merge_ready",
+    observe_surfaces = { issue = true, pr = true, liveness_scan = true },
+    output_obligation = obligation({ "state:v1 merging", "state:v1 blocked" }, { "merging", "blocked" }),
+    temporal_obligations = {
+      {
+        obligation_id = "github-devloop-pr/merge-ready/response-with-deadline",
+        kind = "response-with-deadline",
+        body = {
+          actionable_epoch_source = "state_entry:v1",
+          resolver = "row-budget-bounds-receiver",
+          budget_minutes = 390,
+        },
+      },
+    },
+    budget = budget(390, "The merge-ready receiver is bounded by 30 minutes of merge work plus a 360 minute external CI wait window."),
+    liveness_contract = liveness({
+      mode = "row-budget-bounds-receiver",
+      receiver_bound_minutes = 30,
+      external_wait_bound_minutes = 360,
+      progress_signal = {
+        family = "merge-gate-wait",
+        producer = "merge-gate-wait",
+        resolver = "merge-gate-wait",
+        surface = "pr-comment-stream",
+        version_form = "raw",
+        max_age_minutes = 360,
+      },
+    }),
+    on_timeout = timeout("devloop_merge_ready"),
+    receiver_activations = {
+      {
+        kind = "entry",
+        boundary = nil,
+        target = "merging",
+        output_variant = "handoff_to_merge_gate",
+        cas_policy_id = "cas.legacy_merge_v1",
+        cas_variant = "merge_ready_or_merging_to_merging",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/apply",
+            effect_ids = { "github-proxy.github_pr_comment_request" },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merge-ready/entry/handoff_to_merge_gate/idempotent",
+            effect_ids = { "github-proxy.github_pr_comment_request" },
+          },
+        },
+        pending_order = { participates = true, predecessor_state = "merge-ready" },
+      },
+      {
+        kind = "entry",
+        boundary = "devloop_fix_reconcile",
+        target = "blocked",
+        output_variant = "review_reject_to_blocked",
+        cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
+        cas_variant = "review_reject_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merge-ready/entry/review_reject_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merge-ready/entry/review_reject_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+      {
+        kind = "entry",
+        boundary = "devloop_fix_reconcile",
+        target = "blocked",
+        output_variant = "bounded_fix_to_blocked",
+        cas_policy_id = "cas.legacy_pr_fix_reconcile_v1",
+        cas_variant = "bounded_fix_to_blocked",
+        transition_effect_entitlements = {
+          apply = {
+            id = "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked/apply",
+            effect_ids = {
+              "github-proxy.github_pr_comment_request",
+              "github-proxy.github_issue_label_request",
+            },
+          },
+          idempotent = {
+            id = "github-devloop-pr/merge-ready/entry/bounded_fix_to_blocked/idempotent",
+            effect_ids = {},
+          },
+        },
+        pending_order = { participates = false },
+      },
+    },
+    responsibility_signature = responsibility_signature({
+      receiver_kind = "merge-ready-handoff",
+      driving_queue = "devloop_merge_ready",
+      state_kind = "queue_wait",
+      liveness_class = "merge_ready.actionable",
+      input_fact_family = "head-bound-merge-authorization",
+      output_postcondition_family = "merge_gate_handoff",
+      phase_rank = devloop_state.stage_rank("merge-ready"),
+      lineage_keys = { "merge-ready.version", "merge-ready.pr", "merge-ready.head_sha", "merge-ready.review_dedup", "source_ref" },
+      successors = {
+        {
+          state = "blocked",
+          output_variant = "fix_budget_exhausted",
+          kind = "autonomous",
+          transition_effect_entitlements = effect_entitlements("autonomous", "fix_budget_exhausted", {
+            "devloop_fix_reconcile",
+          }),
+          pending_order = { participates = true, predecessor_state = "merge-ready" },
+          terminal = true,
+          monotonic = true,
+        },
+      },
+    }),
+    guard_boundaries = {
+      {
+        name = "merge_gate",
+        kind = "guard_table",
+        gate_kind = "decision",
+        input_fact_family = "head-bound-merge-authorization",
+        output_postcondition_family = "merge_eligibility_decided",
+        decision_type = "MergeEligibility",
+        successors = {
+          {
+            state = "reviewing",
+            output_variant = "approval_stale",
+            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "approval_stale", {
+              "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+            }),
+            pending_order = { participates = false },
+            decision_type = "MergeEligibility",
+            bump = true,
+          },
+          {
+            state = "merging",
+            output_variant = "eligible_now",
+            cas_policy_id = "cas.legacy_merge_v1",
+            cas_variant = "merge_ready_or_merging_to_merging",
+            transition_effect_entitlements = {
+              apply = {
+                id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/apply",
+                effect_ids = { "github.merge:verified-pr" },
+              },
+              idempotent = {
+                id = "github-devloop-pr/merge-ready/guard_boundary/merge_gate/eligible_now/idempotent",
+                effect_ids = { "github.merge:verified-pr" },
+              },
+            },
+            pending_order = { participates = true, predecessor_state = "merge-ready" },
+            decision_type = "MergeEligibility",
+            monotonic = true,
+          },
+          {
+            state = "fixing",
+            output_variant = "code_repair_needed",
+            cas_policy_id = "cas.legacy_merge_v1",
+            cas_variant = "merge_ready_to_fixing",
+            transition_effect_entitlements = effect_entitlements("guard_boundary/merge_gate", "code_repair_needed", {
+              "github-proxy.github_pr_comment_request", "github-proxy.github_issue_label_request",
+            }),
+            pending_order = { participates = false },
+            decision_type = "MergeEligibility",
+            failure = true,
+            bump = true,
+          },
+          {
+            state = "blocked",
+            output_variant = "watchdog_reconcile_terminal",
+            kind = "timeout",
+            cas_policy_id = "cas.legacy_timeout_reconcile_v1",
+            cas_variant = "merge_ready_to_blocked",
+            transition_effect_entitlements = {
+              apply = {
+                id = "github-devloop-pr/merge-ready/timeout/merge_gate/watchdog_reconcile_terminal/apply",
+                effect_ids = {
+                  "github-proxy.github_pr_comment_request",
+                  "github-proxy.github_issue_label_request",
+                },
+              },
+              idempotent = {
+                id = "github-devloop-pr/merge-ready/timeout/merge_gate/watchdog_reconcile_terminal/idempotent",
+                effect_ids = {},
+              },
+            },
+            pending_order = { participates = false },
+            failure = true,
+            terminal = true,
+            monotonic = true,
+          },
+        },
+      },
+    },
+    payload_builder = payloads_builders.build_devloop_merge_ready_payload,
+    dedup_shape = "merge-ready/<proposal_id>/<version>/<pr>/<review_dedup>/<current_head>",
+    required_facts = {
+      fact("state", "marker-read"),
+      fact("pr-link", "marker-read"),
+      fact("review-result", "marker-read"),
+      fact("merge-ready", "marker-read"),
+      fact("review-carry-over", "marker-read"),
+      fact("merge-gate-wait", "marker-read"),
+      fact("pr-head", "fetch-before-compare"),
+      fact("base-head", "fetch-before-compare"),
+    },
+    advancing_facts = {
+      advancing_fact("merge-ready", "merging", { pr = true, liveness_scan = true }, "source_ref:pr"),
+      advancing_fact("merge-ready", "blocked", { pr = true, liveness_scan = true }, "source_ref:pr"),
+    },
+    payload_fields = {
+      proposal_id = "marker:merge-ready.proposal",
+      pr_number = "marker:merge-ready.pr",
+      version = "marker:merge-ready.version",
+      review_proposal_id = "marker:merge-ready.review_proposal",
+      review_dedup_key = "marker:merge-ready.review_dedup",
+      reviewed_head_sha = "marker:merge-ready.head_sha",
+      source_ref = "source_ref:pr",
+    },
+    version_identity = "strip_transition_version_suffixes(merge-ready.version)",
+    effects = effect(
+      { "review-carry-over-marker", "devloop_merge_ready", "pr-state-label" },
+      "merge-ready replay is complete when head-bound approval and fetched PR head match, or when review_carry_over_marker proves the carried approval marker was written; the PR-local state label projection is requested when the PR label is stale",
+      "review_carry_over_marker"
+    ),
+    marker_facts = "state:v1 merge-ready plus merge-ready:v1",
+    kickoff = "devloop_merge_ready",
+    replay = "PR observe or merge retry re-derives merge-ready from head-bound approval facts.",
+  }
+end
