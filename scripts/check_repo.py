@@ -24,6 +24,7 @@ import check_repo_integration_coverage
 import check_repo_library_layering
 import check_repo_namespaced_queue
 import check_repo_ownership_gate
+import check_repo_pagination
 import check_repo_perm
 import check_repo_producer_liveness
 import check_repo_saga_handler
@@ -56,11 +57,6 @@ TEST_REQUIRE_RE = re.compile(
     r"(?:(?P<quote>[\"'])tests\.(?P<quoted>[A-Za-z0-9_.-]+)(?P=quote)"
     r"|(?P<long_literal>\[(?P<long_eq>=*)\[tests\.(?P<long>[A-Za-z0-9_.-]+)\](?P=long_eq)\]))"
     r"\s*(?P<close_parens>\)*)"
-)
-GRAPHQL_FIRST_CONNECTION_RE = re.compile(
-    r"\b[A-Za-z_][A-Za-z0-9_]*\s*"
-    r"\([^(){}]*\bfirst\s*:\s*\d+\b[^(){}]*\)\s*\{",
-    re.DOTALL,
 )
 LONG_STRING_CHAR_RE = re.compile(r"\bstring\s*\.\s*char\s*\((?P<args>[^)]*)\)", re.DOTALL)
 NUMERIC_ARG_RE = re.compile(r"(?:^|,)\s*(?:0x[0-9A-Fa-f]+|\d+)\s*(?=,|\Z)")
@@ -232,83 +228,18 @@ def lua_string_literals(text: str) -> list[LuaStringLiteral]:
     return literals
 
 
-def matching_graphql_brace(text: str, open_index: int) -> int | None:
-    depth = 0
-    for index in range(open_index, len(text)):
-        char = text[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index
-    return None
-
-
-def graphql_top_level_text(text: str) -> str:
-    chars: list[str] = []
-    depth = 0
-    for char in text:
-        if char == "{":
-            depth += 1
-            chars.append(" ")
-        elif char == "}":
-            depth = max(0, depth - 1)
-            chars.append(" ")
-        elif depth == 0:
-            chars.append(char)
-        elif char == "\n":
-            chars.append("\n")
-        else:
-            chars.append(" ")
-    return "".join(chars)
-
-
-def graphql_depth_at(text: str, index: int) -> int:
-    depth = 0
-    for char in text[:index]:
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth = max(0, depth - 1)
-    return depth
-
-
-def graphql_top_level_field_body(text: str, field_name: str) -> str | None:
-    field_re = re.compile(r"\b" + re.escape(field_name) + r"\b\s*\{")
-    for match in field_re.finditer(text):
-        if graphql_depth_at(text, match.start()) != 0:
-            continue
-        open_index = match.end() - 1
-        close_index = matching_graphql_brace(text, open_index)
-        if close_index is not None:
-            return text[open_index + 1 : close_index]
-    return None
-
-
-def graphql_connection_has_truncation_guard(selection_body: str) -> bool:
-    top_level = graphql_top_level_text(selection_body)
-    if re.search(r"\btotalCount\b", top_level):
-        return True
-
-    page_info_body = graphql_top_level_field_body(selection_body, "pageInfo")
-    if page_info_body is None:
-        return False
-    return re.search(r"\bhasNextPage\b", graphql_top_level_text(page_info_body)) is not None
-
-
 def unguarded_graphql_first_connection_lines(text: str) -> list[int]:
     lines: list[int] = []
     for literal in lua_string_literals(text):
         if "first" not in literal.content or "{" not in literal.content:
             continue
-        for match in GRAPHQL_FIRST_CONNECTION_RE.finditer(literal.content):
+        for match in check_repo_pagination.GRAPHQL_FIRST_CONNECTION_RE.finditer(literal.content):
             open_index = match.end() - 1
-            close_index = matching_graphql_brace(literal.content, open_index)
+            close_index = check_repo_pagination.matching_graphql_brace(literal.content, open_index)
             if close_index is None:
                 continue
             selection_body = literal.content[match.end() : close_index]
-            if not graphql_connection_has_truncation_guard(selection_body):
+            if not check_repo_pagination.graphql_connection_has_truncation_guard(selection_body):
                 lines.append(literal.line + literal.content.count("\n", 0, match.start()))
     return lines
 
