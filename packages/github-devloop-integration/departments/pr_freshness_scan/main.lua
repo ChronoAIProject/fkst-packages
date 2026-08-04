@@ -40,6 +40,10 @@ local function require_repo(repo)
   return value
 end
 
+local function scan_lock_key(repo)
+  return "github-devloop/pr-freshness-scan/" .. require_repo(repo)
+end
+
 local function trim_stdout(result)
   return tostring(result.stdout or ""):gsub("%s+$", "")
 end
@@ -415,16 +419,18 @@ return saga.department(spec, { done = function() return false end, act = functio
     devloop_logging.log_cas_decision("pr_freshness_scan", "pr-freshness", { state = "same-branch", version = branches.integration }, "tick", "freshness", "skip-idempotent(same-branch)", "integration branch equals upstream branch")
     return
   end
-  local prs = list_open_prs(repo)
-  local prepared_prs = {}
-  for _, listed_pr in ipairs(prs) do
-    local prepared = prepare_listed_pr(repo, branches, listed_pr)
-    if prepared ~= nil then
-      table.insert(prepared_prs, prepared)
+  with_lock(scan_lock_key(repo), function()
+    local prs = list_open_prs(repo)
+    local prepared_prs = {}
+    for _, listed_pr in ipairs(prs) do
+      local prepared = prepare_listed_pr(repo, branches, listed_pr)
+      if prepared ~= nil then
+        table.insert(prepared_prs, prepared)
+      end
     end
-  end
-  local issue_versions = list_issue_versions(repo, backing_issue_numbers(prepared_prs))
-  for _, prepared in ipairs(prepared_prs) do
-    process_prepared_pr(repo, branches, prepared, issue_versions)
-  end
+    local issue_versions = list_issue_versions(repo, backing_issue_numbers(prepared_prs))
+    for _, prepared in ipairs(prepared_prs) do
+      process_prepared_pr(repo, branches, prepared, issue_versions)
+    end
+  end)
 end, name = "pr_freshness_scan" })
