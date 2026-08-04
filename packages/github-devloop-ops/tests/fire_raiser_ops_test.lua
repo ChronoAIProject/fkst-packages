@@ -254,7 +254,7 @@ end
 local function mock_observability_empty_reads()
   t.mock_command(observe_issue_list_command(core._enabled_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
   t.mock_command(observe_issue_list_command(core._hold_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
-  for _, state in ipairs(core.issue_state_order()) do
+  for _, state in ipairs(core.lifecycle_state_order()) do
     t.mock_command(observe_issue_list_command(core.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
   end
   t.mock_command(core.gh_pr_list_observe_cmd("owner/repo", 1, true), { stdout = "[]\n", stderr = "", exit_code = 0 })

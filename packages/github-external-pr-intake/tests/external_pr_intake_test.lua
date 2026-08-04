@@ -474,7 +474,6 @@ return {
     local released_path = scratch .. "/released"
     local entered_path = scratch .. "/entered"
     local locker_script = scratch .. "/hold_lock.py"
-    local releaser_script = scratch .. "/release_lock.py"
 
     write_disk_file(locker_script, [[
 import fcntl
@@ -494,16 +493,7 @@ with open(lock_path, "a+", encoding="utf-8") as handle:
             pathlib.Path(released_path).write_text("timeout\n", encoding="utf-8")
             raise SystemExit(2)
         time.sleep(0.02)
-    pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
-]])
-    write_disk_file(releaser_script, [[
-import pathlib
-import sys
-import time
-
-release_path = sys.argv[1]
-time.sleep(0.2)
-pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
+pathlib.Path(released_path).write_text("released\n", encoding="utf-8")
 ]])
 
     local ok, err = pcall(function()
@@ -511,11 +501,25 @@ pathlib.Path(release_path).write_text("release\n", encoding="utf-8")
       if not wait_for_file(ready_path, 150) then
         error("github-external-pr-intake: lock helper did not acquire the bridge lock")
       end
-      start_python_background(releaser_script, { release_path })
 
+      -- Substrate #305 makes contention exit 75 as a supervise-owned transient defer.
+      local entered_while_busy = false
+      local busy_ok, busy_err = pcall(function()
+        with_lock(lock_key, function()
+          entered_while_busy = true
+        end)
+      end)
+      t.eq(busy_ok, false)
+      t.eq(tostring(busy_err):match("^[^\n]+"), "with_lock lock busy: " .. lock_key)
+      t.eq(entered_while_busy, false)
+
+      write_disk_file(release_path, "release\n")
+      if not wait_for_file(released_path, 150) then
+        error("github-external-pr-intake: lock helper did not release the bridge lock")
+      end
       local entered_after_release = false
       with_lock(lock_key, function()
-        entered_after_release = file.exists(released_path)
+        entered_after_release = true
         file.write(entered_path, tostring(entered_after_release))
       end)
 

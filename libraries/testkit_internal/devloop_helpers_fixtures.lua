@@ -39,6 +39,7 @@ local function materialize_context_bundle(payload, runtime_root)
     file.write(dir .. "/diff.patch", "diff --git a/file.lua b/file.lua\n+return true\n")
     file.write(dir .. "/risk.txt", "PR risk tier: normal\n")
   end
+  return dir
 end
 
 local function copy_into(target, source)
@@ -165,7 +166,7 @@ function M.new(deps)
       and run_opts.env
       and run_opts.env.FKST_RUNTIME_ROOT
       or mock_context_runtime_root
-    materialize_context_bundle(payload, materialized_runtime_root)
+    local materialized_context_dir = materialize_context_bundle(payload, materialized_runtime_root)
     local empty_diff_name_only = run_opts
       and run_opts.env
       and run_opts.env.FKST_TEST_PR_EMPTY_DIFF_NAME_ONLY == "1"
@@ -181,15 +182,21 @@ function M.new(deps)
         exit_code = 0,
       })
     end
+    local directory_probe = "test -d"
+    local path_probe = "test -e"
+    if run_opts and run_opts.strict_context_path_probe_mocks then
+      directory_probe = directory_probe .. " " .. shell_quote(materialized_context_dir)
+      path_probe = path_probe .. " " .. shell_quote(materialized_context_dir)
+    end
     for _ = 1, 3 do
-      helpers.t.mock_command("test -d", {
+      helpers.t.mock_command(directory_probe, {
         stdout = "",
         stderr = "",
         exit_code = 1,
       })
     end
     for _ = 1, 3 do
-      helpers.t.mock_command("test -e", {
+      helpers.t.mock_command(path_probe, {
         stdout = "",
         stderr = "",
         exit_code = 1,

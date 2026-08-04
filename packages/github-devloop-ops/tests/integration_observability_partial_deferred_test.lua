@@ -52,7 +52,7 @@ return {
     mock_env()
     t.mock_command(issue_list_first(core._enabled_label), { stdout = "", stderr = "timed out", exit_code = 124 })
     t.mock_command(issue_list_first(core._hold_label), { stdout = "[]\n", stderr = "", exit_code = 0 })
-    for _, state in ipairs(core.issue_state_order()) do
+    for _, state in ipairs(core.lifecycle_state_order()) do
       t.mock_command(issue_list_first(core.state_label(state)), { stdout = "[]\n", stderr = "", exit_code = 0 })
     end
     t.mock_command(core.gh_pr_list_observe_cmd("owner/repo", 1, true), { stdout = "[]\n", stderr = "", exit_code = 0 })

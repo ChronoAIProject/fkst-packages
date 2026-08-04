@@ -534,25 +534,15 @@ function C.implement_version_mismatch_key(expected_version, current_version)
   })
 end
 
-function C.intake_decision_dedup_key(proposal_id, current, reintake_command, effective_updated_at)
-  local reintake_created_at = "none"
-  if reintake_command ~= nil then
-    reintake_created_at = tostring(reintake_command.created_at or "unknown")
-  end
-  local effective = effective_updated_at ~= nil and tostring(effective_updated_at) or nil
-  local parts = {
+function C.intake_decision_dedup_key(proposal_id, current)
+  return dedup_key({
     tostring(proposal_id),
     "intake",
-  }
-  if effective ~= nil and effective ~= "" then
-    table.insert(parts, C.safe_updated_at(effective))
-  end
-  table.insert(parts, decimal_checksum(table.concat({
-    "title=" .. tostring(current and current.title or ""),
-    "body=" .. tostring(current and current.body or ""),
-    "reintake_created_at=" .. reintake_created_at,
-  }, "\n")))
-  return dedup_key(parts)
+    decimal_checksum(table.concat({
+      "title=" .. tostring(current and current.title or ""),
+      "body=" .. tostring(current and current.body or ""),
+    }, "\n")),
+  })
 end
 
 function C.ci_selfheal_once_key(repo, pr_number, head_sha)
