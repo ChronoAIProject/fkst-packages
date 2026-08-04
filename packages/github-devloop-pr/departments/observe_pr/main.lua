@@ -159,11 +159,17 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     devloop_logging.log_cas_decision("observe_pr", origin.proposal_id, state, "blocked", "decomposed", "skip-foreign(decomposed)", "decomposed marker is not visible")
     return false
   end
-  local feedback = nil
+  local feedback, fix_feedback_observation = nil, nil
   if not devloop_state.is_current_state(
       current_pr.comments, origin.proposal_id, "review-meta", state.version) then
-    feedback = core.fixing_replay_feedback_fact(
+    local observation = m_fix_feedback_observation.observe(
       current_pr.comments, origin.proposal_id, state.version)
+    if observation.source == "merge-gate" and observation.status == "invalid" then
+      fix_feedback_observation = observation
+    else
+      feedback = core.fixing_replay_feedback_fact(
+        current_pr.comments, origin.proposal_id, state.version)
+    end
   end
   return replayer.replay_from_table(core, "observe_pr", {
     repo = origin.repo,
@@ -188,6 +194,7 @@ local function replay_pr_local_state(origin, pr_number, current_pr, state, sourc
     source_ref = source_ref,
     now_seconds = now_seconds,
     feedback = feedback,
+    fix_feedback_observation = fix_feedback_observation,
     fix_feedback = feedback,
   })
 end

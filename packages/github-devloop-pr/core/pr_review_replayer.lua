@@ -265,6 +265,33 @@ local function replay_fixing(dept, issue, state, row, facts, tools)
   if not M.fixing_version_matches_link(state.version, link.impl_version) then
     return tools.log_skip(dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(pr-link)", "fixing recovery requires a same-version pr-link marker")
   end
+  local observation = facts.fix_feedback_observation
+  if type(observation) == "table" and observation.status == "invalid" then
+    local new_version = devloop_state.next_fix_version(state.version)
+    local source_ref = entity_lib.pr_source_ref(issue.repo, link.pr_number)
+    devloop_logging.log_line("warn", dept, proposal_id, "FIX_FEEDBACK_INVALID", {
+      "status=invalid",
+      "source=" .. tostring(observation.source or "unknown"),
+      "reason_code=" .. tostring(observation.reason_code or "unknown"),
+      "action=reenter-reviewing",
+      "current_head_sha=" .. tostring(current_pr.head_sha),
+    })
+    local effects = { {
+      queue = "github-proxy.github_pr_comment_request",
+      payload = requests_review.build_fix_feedback_recovery_reviewing_comment_request(
+        issue.repo, proposal_id, link.pr_number, new_version,
+        current_pr.head_sha, source_ref),
+    } }
+    add_issue_label_effect(issue, proposal_id, "reviewing", new_version,
+      issue_source_ref(issue), effects, {
+        "fix-feedback-recovery", "label", tostring(proposal_id),
+        tostring(new_version), tostring(link.pr_number), tostring(current_pr.head_sha),
+      }, { kind = "pr", number = link.pr_number })
+    devloop_logging.log_cas_decision(dept, proposal_id, state, "fixing", "reviewing",
+      "applied(replay)", "invalid fix feedback requires a fresh review of the current head")
+    return tools.raise_effects(dept, proposal_id, "reviewing", new_version,
+      { add = { "fkst-dev:reviewing" }, remove = { "fkst-dev:fixing" } }, effects)
+  end
   local feedback = feedback_from_comments(facts, current_pr)
   if feedback == nil then
     return tools.log_skip(dept, proposal_id, state, "fixing", "fixing|reviewing", "skip-foreign(fix-feedback)", "trusted fix feedback marker is not visible")
