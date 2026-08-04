@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_config
+
 
 INTAKE_DEFAULT_PACKAGE = "github-devloop-intake-default"
 CANONICAL_RISK_PATH = "libraries/devloop/github_risk.lua"
@@ -44,45 +46,15 @@ def _mask(chars: list[str], start: int, end: int) -> None:
             chars[index] = " "
 
 
-def quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == quote:
-            return index + 1
-        index += 1
-    return len(text)
-
-
-def long_bracket_at(text: str, index: int) -> tuple[int, str] | None:
-    if index >= len(text) or text[index] != "[":
-        return None
-    cursor = index + 1
-    while cursor < len(text) and text[cursor] == "=":
-        cursor += 1
-    if cursor >= len(text) or text[cursor] != "[":
-        return None
-    level = cursor - index - 1
-    return cursor - index + 1, "]" + ("=" * level) + "]"
-
-
-def long_bracket_end(text: str, body_start: int, closer: str) -> int:
-    close_start = text.find(closer, body_start)
-    return len(text) if close_start == -1 else close_start + len(closer)
-
-
 def lua_code_mask(text: str) -> str:
     chars = list(text)
     index = 0
     while index < len(text):
         if text.startswith("--", index):
-            long = long_bracket_at(text, index + 2)
+            long = check_repo_config.lua_long_bracket_at(text, index + 2)
             if long is not None:
                 opener_len, closer = long
-                end = long_bracket_end(text, index + 2 + opener_len, closer)
+                end = check_repo_config.lua_long_bracket_end(text, index + 2 + opener_len, closer)
                 _mask(chars, index, end)
                 index = end
                 continue
@@ -91,16 +63,16 @@ def lua_code_mask(text: str) -> str:
             _mask(chars, index, end)
             index = end
             continue
-        long = long_bracket_at(text, index)
+        long = check_repo_config.lua_long_bracket_at(text, index)
         if long is not None:
             opener_len, closer = long
-            end = long_bracket_end(text, index + opener_len, closer)
+            end = check_repo_config.lua_long_bracket_end(text, index + opener_len, closer)
             _mask(chars, index, end)
             index = end
             continue
         char = text[index]
         if char in {"'", '"'}:
-            end = quoted_string_end(text, index)
+            end = check_repo_config.lua_quoted_string_end(text, index)
             _mask(chars, index, end)
             index = end
             continue
