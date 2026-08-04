@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import check_repo_config
 import ratchet_base
 
 
@@ -90,7 +91,7 @@ def lua_code_mask(text: str) -> str:
             continue
         char = text[index]
         if char in {"'", '"'}:
-            end = _quoted_string_end(text, index)
+            end = check_repo_config.lua_quoted_string_end(text, index)
             _mask(chars, index, end)
             index = end
             continue
@@ -102,19 +103,6 @@ def _mask(chars: list[str], start: int, end: int) -> None:
     for index in range(start, end):
         if chars[index] != "\n":
             chars[index] = " "
-
-
-def _quoted_string_end(text: str, start: int) -> int:
-    quote = text[start]
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == quote:
-            return index + 1
-        index += 1
-    return len(text)
 
 
 def block_delta(line: str) -> int:
@@ -256,6 +244,7 @@ def sites(sources: dict[str, str]) -> set[ContentTruncationSite]:
     return result
 
 
+# Local variants parse typed ContentTruncationSite entries for current and dev data.
 def load_allowlist(path: Path) -> set[ContentTruncationSite]:
     if not path.exists():
         return set()
