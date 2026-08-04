@@ -4,6 +4,9 @@ local t = h.t
 local core = h.core
 local entity_read_mocks = require("tests.entity_read_mock_helpers")
 local m_builders = require("devloop.markers.builders")
+local command_support = require("devloop.commands.support")
+local github_factory = require("devloop.github_factory")
+local pr_freshness_scan_department = require("departments.pr_freshness_scan.main")
 
 local branch = "devloop/issue/owner/repo/42/ready-1234567890"
 local version = "ready/consensus-github-devloop/issue/owner/repo/42/2026-06-03T01-02-03Z"
@@ -171,6 +174,90 @@ local function mock_worktree_merge(exit_code, unmerged_stdout)
 end
 
 return {
+  test_overlapping_ticks_skip_second_unchanged_deep_view_through_scan_pipeline = function()
+    local checkpoint_cache = {}
+    local deep_views = 0
+    local overlap_started = false
+    local nested_result = nil
+    local held_locks = {}
+    local lock_waiters = {}
+    local run_direct_tick
+    local original_cache_get = cache_get
+    local original_cache_set = cache_set
+    local original_with_lock = with_lock
+    local original_github = command_support.github
+
+    local function serialized_lock(key, fn)
+      if held_locks[key] then
+        lock_waiters[key] = lock_waiters[key] or {}
+        table.insert(lock_waiters[key], fn)
+        return nil
+      end
+
+      held_locks[key] = true
+      local result = table.pack(pcall(fn))
+      held_locks[key] = nil
+      local waiting = lock_waiters[key] or {}
+      lock_waiters[key] = nil
+      for _, waiter in ipairs(waiting) do
+        serialized_lock(key, waiter)
+      end
+      if not result[1] then
+        error(result[2], 0)
+      end
+      return table.unpack(result, 2, result.n)
+    end
+
+    local test_github = github_factory.new(function(spec)
+      local argv = type(spec) == "table" and spec.argv or {}
+      if argv[1] == "gh" and argv[2] == "pr" and argv[3] == "view" and argv[4] == "7" then
+        deep_views = deep_views + 1
+        if not overlap_started then
+          overlap_started = true
+          nested_result = run_direct_tick()
+        end
+      end
+      return exec_argv(spec)
+    end, exec_sync)
+
+    run_direct_tick = function()
+      local ok, err = pcall(pr_freshness_scan_department.pipeline, {
+        queue = "devloop_branch_tick",
+        payload = { schema = "github-devloop.branch-tick.v1" },
+      })
+      return { exit_code = ok and 0 or 1, error = err }
+    end
+
+    for _ = 1, 2 do
+      mock_env("")
+      mock_pr_list(false, nil, nil, {
+        issue_updated_at = issue_updated_at,
+        pr_updated_at = pr_updated_at,
+      })
+      mock_pr_view("fixing", {})
+    end
+
+    cache_get = function(key) return checkpoint_cache[key] end
+    cache_set = function(key, value) checkpoint_cache[key] = value end
+    with_lock = serialized_lock
+    command_support.github = function() return test_github end
+    local ok, err = pcall(function()
+      local outer = run_direct_tick()
+      t.eq(outer.exit_code, 0, tostring(outer.error))
+      t.is_true(overlap_started)
+      t.eq(nested_result and nested_result.exit_code, 0, tostring(nested_result and nested_result.error))
+      t.eq(h.count_calls("repos/owner/repo/pulls?state=open"), 2)
+      t.eq(deep_views, 1)
+    end)
+    command_support.github = original_github
+    with_lock = original_with_lock
+    cache_set = original_cache_set
+    cache_get = original_cache_get
+    if not ok then
+      error(err, 0)
+    end
+  end,
+
   test_pr_freshness_poll_checkpoint_skips_only_unchanged_deep_views = function()
     local run_opts = opts("pr-freshness-poll-checkpoint")
 
