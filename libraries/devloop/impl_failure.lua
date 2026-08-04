@@ -33,7 +33,7 @@ function M.valid_attempt(value)
   return n
 end
 
-function M.valid_fault_class(value)
+local function valid_fault_class(value)
   if type(value) ~= "string" or valid_fault_classes[value] ~= true then
     return nil
   end
@@ -57,7 +57,7 @@ local function fact_from_marker(max_key_len, max_dedup_len, marker, comment, pro
   local raw_fault_class = marker_attr(marker, "fault_class")
   local raw_retryable = marker_attr(marker, "retryable")
   local legacy_v1 = raw_fault_class == nil and raw_retryable == nil
-  local fault_class = legacy_v1 and nil or M.valid_fault_class(raw_fault_class)
+  local fault_class = legacy_v1 and nil or valid_fault_class(raw_fault_class)
   local retryable
   if legacy_v1 then
     retryable = legacy_v1_retryable_reasons[reason] == true
@@ -128,4 +128,13 @@ function M.next_retry_attempt(fact)
   return M.valid_attempt(fact.attempt or 1) + 1
 end
 
-return M
+return {
+  MAX_AUTO_RETRY_ATTEMPTS = M.MAX_AUTO_RETRY_ATTEMPTS,
+  MAX_RETRY_ATTEMPTS = M.MAX_RETRY_ATTEMPTS,
+  valid_attempt = M.valid_attempt,
+  valid_fault_class = valid_fault_class,
+  fact = M.fact,
+  current_fact = M.current_fact,
+  retry_allowed = M.retry_allowed,
+  next_retry_attempt = M.next_retry_attempt,
+}

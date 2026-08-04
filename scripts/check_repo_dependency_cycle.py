@@ -6,8 +6,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+import check_repo_config
 import check_repo_std_dependency_model
-import ratchet_base
 
 
 ALLOWLIST = "migration/dependency-cycle.allowlist"
@@ -152,21 +152,7 @@ def parse_allowlist_lines(lines: list[str]) -> set[str]:
     return entries
 
 
-def load_allowlist(path: Path) -> set[str]:
-    if not path.exists():
-        return set()
-    return parse_allowlist_lines(path.read_text(encoding="utf-8").splitlines())
-
-
-def allowlist_at_dev_base(root: Path) -> tuple[str, set[str] | None]:
-    try:
-        status, shown = ratchet_base.file_at_base(root, ALLOWLIST)
-        if status != "present":
-            return status, None
-        assert shown is not None
-        return "present", parse_allowlist_lines(shown.splitlines())
-    except Exception:
-        return "unresolved", None
+load_allowlist, allowlist_at_dev_base = check_repo_config.bind_allowlist_helpers(ALLOWLIST, parse_allowlist_lines)
 
 
 def ratchet_messages(

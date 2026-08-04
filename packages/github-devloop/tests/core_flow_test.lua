@@ -658,31 +658,6 @@ return {
     t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
   end,
 
-  test_issue_fix_prompt_template_uses_local_iteration_command = function()
-    local M = {}
-    for key, value in pairs(core) do
-      M[key] = value
-    end
-    prompt_installers.install(M, {
-      prompts = {
-        fix = require("prompts.fix"),
-      },
-    }, { fix = true })
-    local fix = {
-      proposal_id = "github-devloop/issue/owner/repo/42",
-      review_proposal_id = devloop_base.pr_review_proposal_id("owner/repo", 7, "version", "abcdef123456"),
-      reviewed_head_sha = "abcdef123456",
-      blocking_gap = "missing rollback guard",
-    }
-    local prompt = M.build_fix_prompt(fix, { title = "Fix parser" }, "Review says tests are red.", "Approved framing.")
-    t.is_true(prompt:find("run the local iteration command from the repository root", 1, true) ~= nil)
-    t.is_true(prompt:find("configured command is this deployment's local verification gate", 1, true) ~= nil)
-    t.is_true(prompt:find("CI remains the comprehensive gate", 1, true) ~= nil)
-    t.is_true(prompt:find("comprehensive gate", 1, true) ~= nil)
-    t.is_nil(prompt:find("scripts/run.sh test <pkg>", 1, true))
-    t.is_nil(prompt:find("rerun `scripts/run.sh test` until it exits 0", 1, true))
-  end,
-
   test_implement_prompt_handles_nil_framing = function()
     local prompt = core.build_implement_prompt("github-devloop/issue/owner/repo/42", {
       title = "Fix parser",

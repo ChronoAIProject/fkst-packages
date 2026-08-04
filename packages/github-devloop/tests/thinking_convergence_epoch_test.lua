@@ -58,7 +58,11 @@ return {
     t.eq(result.exit_code, 0)
     local proposal = find_raise(result.raises, "devloop_consensus_request")
     t.is_true(proposal ~= nil)
-    t.eq(proposal.payload.dedup_key, current_epoch)
+    -- #3104 gave each thinking redrive its own delivery identity: dedup_key now carries the
+    -- redrive lineage while effect_version stays the logical epoch. Assert the epoch on
+    -- effect_version, and that dedup_key is distinct, matching the sibling tests adapted there.
+    t.eq(proposal.payload.effect_version, current_epoch)
+    t.is_true(proposal.payload.dedup_key ~= nil)
     t.eq(find_raise(result.raises, "github-proxy.github_issue_label_request"), nil)
     local reconcile = find_raise(
       result.raises,
