@@ -344,6 +344,12 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts, strategy)
   end
 
   local cached = decode_cached_view(cache_get(key))
+  local cached_key = key
+  local compatible_cache_kind = strategy and strategy.compatible_cache_kind or nil
+  if cached == nil and compatible_cache_kind ~= nil then
+    cached_key = entity_view_cache_key(repo, compatible_cache_kind, number)
+    cached = decode_cached_view(cache_get(cached_key))
+  end
   if validator ~= "" then
     -- GitHub updatedAt is second-granular, so this validator is freshness-best-effort only.
     -- It is safe for stale-tolerant observe reads; authority and write-gate reads must force_fresh.
@@ -363,7 +369,7 @@ local function fetch_entity_view(repo, kind, number, updated_at, opts, strategy)
     if parse_updated_at_stdout(current.stdout) == cached.updated_at then
       return success_from_cache(cached)
     end
-    cache_set(key, "")
+    cache_set(cached_key, "")
   end
 
   local result = fetch_live(repo, selected_kind, number, timeout)
@@ -437,6 +443,7 @@ function C.fetch_issue_view_state(repo, issue_number, updated_at, opts)
   options.consumer = options.consumer or "observe_issue"
   return fetch_entity_view(repo, "issue", issue_number, updated_at, options, {
     cache_kind = "issue-state",
+    compatible_cache_kind = "issue",
     fetch_live = issue_state_view_result,
   })
 end

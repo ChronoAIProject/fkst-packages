@@ -193,7 +193,7 @@ return {
     t.eq(count_exact_calls(comments_command), 0)
   end,
 
-  test_validator_mismatch_fetches_rest_issue_view_and_recaches = function()
+  test_full_issue_view_recaches_and_satisfies_state_projection = function()
     mock_author_policy()
     local repo = "owner/cache-miss"
     local issue_number = 4243
@@ -224,12 +224,12 @@ return {
     t.eq(third.exit_code, 0)
     t.is_true(third.stdout:find('"After"', 1, true) ~= nil)
     t.eq(count_exact_calls(view_command), 0)
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 1)
+    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 0)
     t.eq(count_exact_calls(rest_command), 1)
     t.eq(count_exact_calls(comments_command), 1)
   end,
 
-  test_force_fresh_issue_view_bypasses_cache_and_recaches = function()
+  test_force_fresh_full_issue_view_recaches_for_state_projection = function()
     mock_author_policy()
     local repo = "owner/force-fresh"
     local issue_number = 4244
@@ -261,7 +261,7 @@ return {
     t.is_true(forced.stdout:find('"After"', 1, true) ~= nil)
     t.is_true(cached.stdout:find('"After"', 1, true) ~= nil)
     t.eq(count_exact_calls(view_command), 0)
-    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 1)
+    t.eq(count_calls(core.gh_issue_view_state_cmd(repo, issue_number)), 0)
     t.eq(count_exact_calls(rest_command), 1)
     t.eq(count_exact_calls(comments_command), 1)
   end,
