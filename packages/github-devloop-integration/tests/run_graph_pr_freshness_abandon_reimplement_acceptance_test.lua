@@ -25,6 +25,8 @@ local PR_PROPOSAL_ID = entity_lib.pr_proposal_id(REPO, PR_NUMBER)
 local ORIGINAL_BRANCH = devloop_base.implement_branch(REPO, ISSUE_NUMBER, ROOT_VERSION)
 local REPLACEMENT_BRANCH = devloop_base.implement_branch(REPO, ISSUE_NUMBER, REPLACEMENT_VERSION)
 local UNMERGED = "100644 abcdef 1\tpackages/github-devloop/core.lua\n"
+local ATTEMPT_LEDGER_SHA = "4444444444444444444444444444444444444444"
+local ATTEMPT_LEDGER_TREE_SHA = "5555555555555555555555555555555555555555"
 
 local function comment(body, created_at, id)
   return {
@@ -166,6 +168,23 @@ local function mock_conflict_git(event, final_integration_read)
   t.mock_command("git worktree remove --force", { stdout = "", stderr = "", exit_code = 0 })
 end
 
+local function mock_attempt_ledger(event, attempt)
+  local ref = core.sync_conflict_attempt_ref(event)
+  t.mock_command("git ls-remote origin " .. ref, {
+    stdout = ATTEMPT_LEDGER_SHA .. "\t" .. ref .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+  t.mock_command("git fetch origin " .. ref, { stdout = "", stderr = "", exit_code = 0 })
+  t.mock_command("git cat-file -p " .. ATTEMPT_LEDGER_SHA, {
+    stdout = "tree " .. ATTEMPT_LEDGER_TREE_SHA .. "\n\n"
+      .. core.sync_conflict_attempt_ledger(event, attempt)
+      .. "\n",
+    stderr = "",
+    exit_code = 0,
+  })
+end
+
 local function mock_parent_reads(times)
   entity_mocks.mock_issue_read_forms(t, {
     repo = REPO,
@@ -197,8 +216,7 @@ end
 
 local function run_exhausted_conflict(event, opts)
   local options = opts or {}
-  local fingerprint = core.sync_conflict_fingerprint(event, UNMERGED)
-  core.record_sync_conflict_attempt(event, fingerprint, core.max_sync_conflict_attempts())
+  mock_attempt_ledger(event, core.max_sync_conflict_attempts())
   mock_conflict_git(event, options.final_integration_read == true)
   mock_freshness_pr(
     event.integration_branch,
@@ -461,10 +479,7 @@ return {
       error(recovery_step.error, 0)
     end
     t.eq(recovery_step.exit_code, 0)
-    t.eq(core.sync_conflict_attempt_count(
-      original,
-      core.sync_conflict_fingerprint(original, UNMERGED)
-    ), core.max_sync_conflict_attempts())
+    t.eq(h.count_calls("git cat-file -p " .. ATTEMPT_LEDGER_SHA), 1)
     t.eq(h.count_calls("gh pr close"), 1, "initial exhausted original closes exactly once")
     t.eq(h.count_calls("codex exec"), 0)
     t.eq(h.count_calls("commit -F"), 0)
