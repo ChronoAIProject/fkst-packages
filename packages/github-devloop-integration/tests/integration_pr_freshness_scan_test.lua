@@ -63,21 +63,31 @@ local function render_comments(comments)
   return table.concat(rendered, ",")
 end
 
-local function mock_pr_list(is_draft, managed_branch, repo, extra)
-  local fields = extra or {}
-  t.mock_command("repos/" .. (repo or "owner/repo") .. "/issues?state=open", {
+local function mock_issue_freshness_list(updated_at)
+  t.mock_command("gh api graphql", {
     stdout = string.format(
-      '[[{"number":42,"state":"open","updated_at":"%s"},{"number":7,"headRefOid":"%s","headRefName":"%s","baseRefName":"integration/dev","state":"open","draft":%s,"updated_at":"%s","pull_request":{"url":"https://api.github.test/repos/%s/pulls/7"}}]]\n',
-      encode_json_string(fields.issue_updated_at or unparseable_updated_at),
-      branch_sha,
-      encode_json_string(managed_branch or branch),
-      is_draft and "true" or "false",
-      encode_json_string(fields.pr_updated_at or unparseable_updated_at),
-      encode_json_string(repo or "owner/repo")
+      '{"data":{"repository":{"i42":{"number":42,"updatedAt":"%s"}}}}\n',
+      encode_json_string(updated_at or unparseable_updated_at)
     ),
     stderr = "",
     exit_code = 0,
   })
+end
+
+local function mock_pr_list(is_draft, managed_branch, repo, extra)
+  local fields = extra or {}
+  t.mock_command("repos/" .. (repo or "owner/repo") .. "/pulls?state=open", {
+    stdout = string.format(
+      '[[{"number":7,"headRefOid":"%s","headRefName":"%s","baseRefName":"integration/dev","state":"open","draft":%s,"updated_at":"%s"}]]\n',
+      branch_sha,
+      encode_json_string(managed_branch or branch),
+      is_draft and "true" or "false",
+      encode_json_string(fields.pr_updated_at or unparseable_updated_at)
+    ),
+    stderr = "",
+    exit_code = 0,
+  })
+  mock_issue_freshness_list(fields.issue_updated_at)
 end
 
 local function pr_comments(state, author_login)
@@ -185,29 +195,54 @@ return {
     t.eq(unchanged.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 1)
     t.eq(h.count_calls("gh issue view '42'"), 1)
+    t.eq(h.count_calls("i42:issue(number:42)"), 2)
 
-    local changed_at = "2026-06-03T02:03:05Z"
+    local changed_issue_at = "2026-06-03T01:02:04Z"
     mock_env("")
     mock_pr_list(false, nil, nil, {
-      issue_updated_at = issue_updated_at,
-      pr_updated_at = changed_at,
+      issue_updated_at = changed_issue_at,
+      pr_updated_at = pr_updated_at,
     })
-    mock_pr_view("fixing", nil, { updated_at = changed_at })
-    local changed = run_scan(run_opts)
-    t.eq(changed.exit_code, 0)
-    t.eq(h.count_calls("gh pr view '7'"), 2)
-    t.eq(h.count_calls("gh issue view '42'"), 1)
+    mock_issue_view({}, nil, core._test_bot_login, nil, { updated_at = changed_issue_at })
+    local changed_issue = run_scan(run_opts)
+    t.eq(changed_issue.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 2)
 
     mock_env("")
     mock_pr_list(false, nil, nil, {
-      issue_updated_at = issue_updated_at,
+      issue_updated_at = unparseable_updated_at,
+      pr_updated_at = pr_updated_at,
+    })
+    mock_issue_view({}, nil, core._test_bot_login, nil, { updated_at = changed_issue_at })
+    local unparsable_issue = run_scan(run_opts)
+    t.eq(unparsable_issue.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 3)
+
+    local changed_pr_at = "2026-06-03T02:03:05Z"
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = changed_issue_at,
+      pr_updated_at = changed_pr_at,
+    })
+    mock_pr_view("fixing", nil, { updated_at = changed_pr_at })
+    local changed_pr = run_scan(run_opts)
+    t.eq(changed_pr.exit_code, 0)
+    t.eq(h.count_calls("gh pr view '7'"), 2)
+    t.eq(h.count_calls("gh issue view '42'"), 3)
+
+    mock_env("")
+    mock_pr_list(false, nil, nil, {
+      issue_updated_at = changed_issue_at,
       pr_updated_at = unparseable_updated_at,
     })
-    mock_pr_view("fixing", nil, { updated_at = changed_at })
-    local unparsable = run_scan(run_opts)
-    t.eq(unparsable.exit_code, 0)
+    mock_pr_view("fixing", nil, { updated_at = changed_pr_at })
+    local unparsable_pr = run_scan(run_opts)
+    t.eq(unparsable_pr.exit_code, 0)
     t.eq(h.count_calls("gh pr view '7'"), 3)
-    t.eq(h.count_calls("gh issue view '42'"), 1)
+    t.eq(h.count_calls("gh issue view '42'"), 3)
+    t.eq(h.count_calls("repos/owner/repo/issues?state=open"), 0)
   end,
 
   test_pr_freshness_poll_checkpoint_advances_only_after_processing_success = function()

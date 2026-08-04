@@ -7,6 +7,23 @@ function C.parse_issue_view_state(M, stdout)
   return C.issue_state_from_json(M, decoded)
 end
 
+function C.parse_issue_list_freshness(stdout)
+  local decoded = json.decode(stdout or "{}")
+  local data = type(decoded) == "table" and decoded.data or nil
+  local repository = type(data) == "table" and data.repository or nil
+  local versions = {}
+  if type(repository) ~= "table" then
+    return versions
+  end
+  for _, issue in pairs(repository) do
+    local number = type(issue) == "table" and tonumber(issue.number) or nil
+    if number ~= nil then
+      versions[number] = issue.updatedAt or issue.updated_at
+    end
+  end
+  return versions
+end
+
 function C.issue_state_from_json(M, decoded)
   local labels = {}
   for _, label in ipairs(decoded.labels or {}) do

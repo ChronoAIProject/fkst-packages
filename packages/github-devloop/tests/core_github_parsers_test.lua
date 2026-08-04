@@ -94,7 +94,7 @@ return {
       "gh issue list --repo 'owner/repo' --state open --limit 50 --json number,title,body,updatedAt,labels,assignees,author"
     )
     t.eq(core.gh_issue_list_observe_cmd("owner/repo"), "gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'")
-    t.eq(core.gh_pr_list_freshness_cmd("owner/repo"), "gh api --paginate --slurp 'repos/owner/repo/issues?state=open&per_page=100'")
+    t.eq(core.gh_pr_list_freshness_cmd("owner/repo"), "gh api --paginate --slurp 'repos/owner/repo/pulls?state=open&per_page=100'")
     t.eq(core.gh_issue_list_observe_cmd("owner/repo", core._enabled_label), "gh api --paginate --slurp 'repos/owner/repo/issues?state=open&labels=fkst-dev%3Aenabled&per_page=100'")
     t.eq(core.gh_issue_list_observe_cmd("owner/repo", core._enabled_label, 2), "gh api 'repos/owner/repo/issues?state=open&labels=fkst-dev%3Aenabled&per_page=100&page=2'")
     t.eq(core.gh_pr_list_observe_cmd("owner/repo", 1), "gh api 'repos/owner/repo/pulls?state=open&per_page=100&page=1'")
@@ -126,13 +126,17 @@ return {
     t.eq(#parsers_pr.parse_pr_list_observe("[[]]"), 0)
     t.eq(#parsers_pr.parse_pr_list_head_base("[[]]"), 0)
     local freshness_prs, freshness_versions = parsers_pr.parse_pr_list_freshness(
-      '[[{"number":42,"updated_at":"2026-06-03T01:02:03Z"},{"number":7,"updated_at":"2026-06-03T02:03:04Z","pull_request":{"url":"https://api.github.test/repos/owner/repo/pulls/7"}}]]'
+      '[[{"number":7,"updated_at":"2026-06-03T02:03:04Z"}]]'
     )
     t.eq(#freshness_prs, 1)
     t.eq(freshness_prs[1].number, 7)
     t.eq(freshness_prs[1].updated_at, "2026-06-03T02:03:04Z")
     t.eq(freshness_versions.pr[7], "2026-06-03T02:03:04Z")
-    t.eq(freshness_versions.issue[42], "2026-06-03T01:02:03Z")
+    local freshness_issues = parsers_issue.parse_issue_list_freshness(
+      '{"data":{"repository":{"i42":{"number":42,"updatedAt":"2026-06-03T01:02:03Z"},"i43":null}}}'
+    )
+    t.eq(freshness_issues[42], "2026-06-03T01:02:03Z")
+    t.eq(freshness_issues[43], nil)
     local rollup_prs = parsers_pr.parse_pr_list_head_base('[[{"number":9,"head":{"sha":"abc123","ref":"integration/dev"},"base":{"ref":"dev"},"state":"open"}]]')
     t.eq(rollup_prs[1].number, 9)
     t.eq(rollup_prs[1].head_sha, "abc123")
