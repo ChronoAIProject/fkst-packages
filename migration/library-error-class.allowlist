@@ -163,10 +163,6 @@ libraries/devloop/github_factory.lua:28
 libraries/devloop/github_proxy_entity_view.lua:106
 libraries/devloop/github_proxy_entity_view.lua:111
 libraries/devloop/github_proxy_entity_view.lua:177
-libraries/devloop/github_proxy_entity_view.lua:302
-libraries/devloop/github_proxy_entity_view.lua:355
-libraries/devloop/github_proxy_entity_view.lua:372
-libraries/devloop/github_proxy_entity_view.lua:457
 libraries/devloop/hidden_state_conformance.lua:46
 libraries/devloop/hidden_state_conformance.lua:53
 libraries/devloop/logging.lua:34
