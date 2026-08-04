@@ -196,6 +196,10 @@ local function replay_or_timeout(issue, proposal_id, current, link, snapshot, st
   if issue.source ~= "liveness-scan"
     and state_is_issue_local
     and core.restart_observe_replay_due(row, "issue", state, facts, now()) then
+    local delivery = replayer.thinking_level_replay_delivery_identity(proposal_id, state, event_ts)
+    if delivery ~= nil then
+      facts.redrive_delivery = delivery
+    end
     return replayer.replay_from_table(core, "observe_issue", issue, state, row, facts)
   end
   if core.restart_row_observable_on(row, "issue")
