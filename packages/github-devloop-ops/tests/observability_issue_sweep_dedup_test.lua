@@ -98,7 +98,7 @@ return {
     end
     expect_label(devloop_base._enabled_label)
     expect_label(devloop_base._hold_label)
-    for _, state in ipairs(devloop_state.issue_state_order()) do
+    for _, state in ipairs(devloop_state.lifecycle_state_order()) do
       expect_label(devloop_state.state_label(state))
     end
 
