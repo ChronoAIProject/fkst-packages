@@ -567,13 +567,17 @@ function M.new(deps)
     })
   end
 
-  local function mock_implement_codex(exit_code, stdout, stderr)
+  local function mock_implement_codex(exit_code, stdout, stderr, result_fields)
     local resolved_exit_code = exit_code or 0
-    t.mock_command("codex exec", {
+    local result = {
       stdout = stdout or "implemented",
       stderr = stderr or "",
       exit_code = resolved_exit_code,
-    })
+    }
+    for key, value in pairs(result_fields or {}) do
+      result[key] = value
+    end
+    t.mock_command("codex exec", result)
     if resolved_exit_code == 0 then
       t.mock_command("scripts/run.sh test-affected", {
         stdout = "",

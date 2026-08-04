@@ -11,12 +11,14 @@ local payloads_predicates = require("devloop.payloads.predicates")
 local conv_reconcile = require("devloop.convergence.reconcile")
 local conv_rounds = require("devloop.convergence.rounds")
 local devloop_logging = require("devloop.logging")
+local implementation_escalation = require("devloop.implementation_escalation")
 local spec = {
   consumes = { "github-proxy.github_comment_written" },
   produces = {
     "github-proxy.github_issue_label_request",
     "devloop_ready",
     "devloop_reconcile",
+    "github-devloop-decompose.devloop_decompose",
   },
   fanout = { "github-proxy.github_comment_written" },
   stall_window = "30s",
@@ -94,6 +96,10 @@ local function supported_handoff(payload)
     and source_refs.has_bounded_source_ref(handoff.source_ref, devloop_base._max_key_len) then
     return handoff
   end
+  if handoff.kind == "github-devloop.implementation-escalation"
+    and implementation_escalation.is_supported_payload(handoff) then
+    return handoff
+  end
   return nil
 end
 
@@ -149,6 +155,16 @@ local function act_handoff(event)
     }, handoff.round, handoff.base_version, handoff.terminal_cause)
     devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id, { state = "thinking", version = handoff.base_version }, "comment-written", "devloop_reconcile", "applied(own-write-comment-id)", "converge round comment write was acknowledged")
     devloop_logging.log_raise("comment_handoff", handoff.proposal_id, "devloop_reconcile", reconcile)
+    return
+  end
+
+  if handoff.kind == "github-devloop.implementation-escalation" then
+    devloop_logging.log_cas_decision("comment_handoff", handoff.proposal_id,
+      { state = "implementing", version = handoff.version },
+      "comment-written", "github-devloop-decompose.devloop_decompose",
+      "applied(own-write-comment-id)", "typed implementation escalation evidence write was acknowledged")
+    devloop_logging.log_raise("comment_handoff", handoff.proposal_id,
+      "github-devloop-decompose.devloop_decompose", handoff)
     return
   end
 

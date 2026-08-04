@@ -18,6 +18,7 @@ local m_builders = require("devloop.markers.builders")
 local m_facts = require("devloop.markers.facts")
 local devloop_base = require("devloop.base")
 local requests_lifecycle = require("devloop.requests.lifecycle")
+local implementation_escalation = require("devloop.implementation_escalation")
 
 local function stale_started_at()
   return tostring(now() - 7201)
@@ -384,6 +385,72 @@ return {
     t.is_true(final ~= nil)
     local fact = m_facts.implementing_fact({ final.payload.body }, event.proposal_id, event.dedup_key)
     t.eq(fact.head_sha, "2222222222222222222222222222222222222222")
+  end,
+
+  test_second_typed_timeout_with_stationary_checkpoint_requests_nonterminal_escalation = function()
+    local event = ready()
+    local branch = deterministic_branch_for(event)
+    local checkpoint_head = "1111111111111111111111111111111111111111"
+    local first_result = implementation_escalation.attempt_result({
+      proposal_id = event.proposal_id,
+      version = event.dedup_key,
+      attempt = 1,
+      finish_head_sha = checkpoint_head,
+      worker_result = { exit_code = 124, error_kind = "timeout" },
+    })
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+      m_builders.implement_checkpoint_marker(event.proposal_id, event.dedup_key, branch, checkpoint_head, "dev", "abc123", 1),
+      implementation_escalation.attempt_result_marker(first_result),
+    })
+    mock_remote_branch(branch, checkpoint_head)
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    mock_remote_checkpoint_worktree_reuse(branch, checkpoint_head)
+    mock_implement_codex(124, "checkpoint did not advance", "codex timed out", {
+      error_kind = "timeout",
+    })
+    mock_git_status("")
+    mock_branch_diff_paths("packages/github-devloop/core.lua\n")
+    t.mock_command("rev-list --count", {
+      stdout = "1\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("rev-parse --verify refs/heads/", {
+      stdout = checkpoint_head .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    t.mock_command("scripts/run.sh test-affected", {
+      stdout = "",
+      stderr = "local verification failed",
+      exit_code = 1,
+    })
+    mock_real_write_mode()
+    t.mock_command("push origin HEAD:refs/heads/" .. branch, {
+      stdout = "pushed " .. branch .. "\n",
+      stderr = "",
+      exit_code = 0,
+    })
+    mock_issue_implement({ "fkst-dev:implementing" }, {
+      core.state_marker(event.proposal_id, "implementing", event.dedup_key),
+      core.implement_attempt_marker(event.proposal_id, event.dedup_key, 1, stale_started_at()),
+    })
+
+    local result = run_implement(event, opts("implement-stationary-timeout-escalation", {
+      FKST_GITHUB_WRITE = "1",
+    }))
+
+    t.eq(result.exit_code, 0, tostring(result.error))
+    t.eq(count_calls("codex exec"), 1)
+    t.eq(count_calls("impl-failed"), 0)
+    local checkpoint = checkpoint_comment(result)
+    t.is_true(checkpoint ~= nil)
+    t.is_true(tostring(checkpoint.payload.body):find(
+      "fkst:github-devloop:implementation-escalation:v1", 1, true) ~= nil)
+    t.eq(checkpoint.payload.handoff.kind, "github-devloop.implementation-escalation")
+    t.eq(checkpoint.payload.handoff.attempt, 2)
   end,
 
   test_unmarked_remote_progress_is_retried_not_handed_off = function()

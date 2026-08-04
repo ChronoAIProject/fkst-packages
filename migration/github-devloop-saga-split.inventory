@@ -26,6 +26,7 @@
 {"path":"libraries/devloop/github_risk.lua","owner":"shared","reason":"GitHub risk classification is shared by PR review/fix context and issue-side checks."}
 {"path":"libraries/devloop/hidden_state_conformance.lua","owner":"cross-cutting","reason":"shared behavioral hidden-state conformance applied to issue and PR restart tables."}
 {"path":"libraries/devloop/impl_failure.lua","owner":"shared","reason":"impl-failure marker facts and bounded retry classification are shared by the issue lifecycle and workflow child-result adapter."}
+{"path":"libraries/devloop/implementation_escalation.lua","owner":"shared","reason":"typed implementation progress evidence is shared by the issue-side producer and pre-PR escalation consumer."}
 {"path":"libraries/devloop/liveness.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/liveness_scan.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}
 {"path":"libraries/devloop/logging.lua","owner":"shared","reason":"shared devloop kernel used across issue and PR packages."}

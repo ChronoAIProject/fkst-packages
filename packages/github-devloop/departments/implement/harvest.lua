@@ -7,6 +7,7 @@ local substrate_pin = require("departments.implement.substrate_pin")
 local local_iteration_result = require("departments.implement.local_iteration_result")
 local local_iteration_verdict = require("departments.implement.local_iteration_verdict")
 local devloop_logging = require("devloop.logging")
+local implementation_escalation = require("devloop.implementation_escalation")
 
 local exec_sync = exec_sync
 
@@ -44,7 +45,7 @@ local function implementation_outcome(ready, worktree, branch, head_sha, base_br
   }
 end
 
-local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason)
+local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch, base_sha, attempt, started_at, exec_ref, detail, reason, attempt_result)
   local checkpoint_reason = reason or "codex-failed"
   return {
     kind = "implement-checkpoint",
@@ -60,6 +61,7 @@ local function checkpoint_outcome(ready, worktree, branch, head_sha, base_branch
     finished_at = now(),
     detail = detail,
     reason = checkpoint_reason,
+    attempt_result = attempt_result,
     outcome = "checkpointed: " .. tostring(checkpoint_reason),
   }
 end
@@ -386,7 +388,8 @@ function M.after_codex_success(repo, issue_number, ready, integration_branch, br
   return implementation_outcome(ready, worktree, branch, verified_head, integration_branch, base_head, attempt, started_at, exec_ref)
 end
 
-function M.after_codex_failure(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, stderr)
+function M.after_codex_failure(repo, issue_number, ready, integration_branch, branch, base_head, worktree, attempt, started_at, exec_ref, worker_result, start_head_sha)
+  local stderr = type(worker_result) == "table" and worker_result.stderr or "nil result"
   local status = devloop_commands.git_status(worktree, 30)
   if status.exit_code ~= 0 then
     error("github-devloop: git-status-failed: git status failed: " .. tostring(status.stderr))
@@ -404,7 +407,17 @@ function M.after_codex_failure(repo, issue_number, ready, integration_branch, br
     return implementation_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref)
   end
   if progress_head ~= nil then
-    return checkpoint_outcome(ready, worktree, branch, progress_head, integration_branch, base_head, attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr)
+    local attempt_result = implementation_escalation.attempt_result({
+      proposal_id = ready.proposal_id,
+      version = ready.dedup_key,
+      attempt = attempt,
+      start_head_sha = start_head_sha,
+      finish_head_sha = progress_head,
+      worker_result = worker_result,
+    })
+    return checkpoint_outcome(ready, worktree, branch, progress_head, integration_branch, base_head,
+      attempt, started_at, exec_ref, verify_detail ~= "" and verify_detail or stderr,
+      attempt_result.worker_outcome, attempt_result)
   end
   return impl_failed_outcome(ready, "codex-failed", stderr, attempt, started_at, exec_ref, base_head)
 end

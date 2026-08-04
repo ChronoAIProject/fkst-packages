@@ -11,6 +11,7 @@ local saga = require("workflow.saga")
 local convergence_identity = require("contract.convergence_identity")
 local workflow_codex = require("workflow_internal.codex")
 local pr_child_handoff = require("departments.implement.pr_child_handoff")
+local escalation_publication = require("departments.implement.escalation_publication")
 local refusal_publication = require("departments.implement.refusal_publication")
 local forks = require("devloop.forks")
 local slice_gate = require("departments.implement.slice_gate")
@@ -291,7 +292,7 @@ local function prepare_attempt(repo, issue_number, ready, branches, branch, base
 end
 
 local function run_attempt(repo, issue_number, ready, current, branches, branch, base_head, worktree,
-    codex_started_at, exec_ref, receiver_authorization, attempt, event_ts, event_queue)
+    codex_started_at, exec_ref, receiver_authorization, attempt, event_ts, event_queue, checkpoint)
   return attempt_runner.run({
     repo = repo,
     issue_number = issue_number,
@@ -307,6 +308,7 @@ local function run_attempt(repo, issue_number, ready, current, branches, branch,
     attempt = attempt,
     event_ts = event_ts,
     event_queue = event_queue,
+    checkpoint = checkpoint,
     codex_dispatch = function(identity, opts)
       return workflow_codex.dispatch(identity, opts)
     end,
@@ -368,6 +370,13 @@ local function raise_attempt_outcome(repo, issue_number, outcome, publish_author
       outcome.exec_ref,
       outcome.detail,
       outcome.reason
+    )
+    request = escalation_publication.attach(
+      request,
+      outcome.ready,
+      outcome.branch,
+      outcome.attempt_result,
+      outcome.escalation
     )
     devloop_logging.log_raise("implement", outcome.ready.proposal_id, "github-proxy.github_issue_comment_request", request)
     return
@@ -851,7 +860,8 @@ local function process_ready_event(event)
   local outcome = run_attempt(repo, issue_number, attempt_plan.marker_ready,
     attempt_plan.current, attempt_plan.branches, attempt_plan.branch,
     attempt_plan.base_head, worktree, codex_started_at, exec_ref,
-    receiver_authorization, attempt_plan.attempt, event.ts, event.queue)
+    receiver_authorization, attempt_plan.attempt, event.ts, event.queue,
+    attempt_plan.checkpoint)
   if outcome == nil then return end
   with_lock(lock_key, function()
     local write_gate_ok, publish_state = recheck_implementation_write_gate(repo, issue_number, lock_key,

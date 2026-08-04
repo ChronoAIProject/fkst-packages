@@ -12,6 +12,7 @@ local proof_attempt = require("departments.implement.proof_attempt")
 local restart_sink_grants = require("restart_sink_grants")
 local substrate_pin = require("departments.implement.substrate_pin")
 local workflow_codex = require("workflow_internal.codex")
+local implementation_escalation = require("devloop.implementation_escalation")
 
 local M = {}
 
@@ -186,7 +187,7 @@ local function run_attempt(args)
       source_ref = args.ready.source_ref,
       terminal = false,
     })
-    return harvest.after_codex_failure(
+    local outcome = harvest.after_codex_failure(
       args.repo,
       args.issue_number,
       args.ready,
@@ -197,8 +198,16 @@ local function run_attempt(args)
       args.attempt,
       args.codex_started_at,
       args.exec_ref,
-      stderr
+      result,
+      args.checkpoint and args.checkpoint.head_sha or nil
     )
+    if outcome.kind == "implement-checkpoint" and outcome.attempt_result ~= nil then
+      outcome.escalation = implementation_escalation.escalation_evidence(
+        args.current.comments,
+        outcome.attempt_result
+      )
+    end
+    return outcome
   end
   devloop_logging.log_codex_result("implement", args.ready.proposal_id, "implement", result, "result=completed", nil)
 

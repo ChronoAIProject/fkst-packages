@@ -1,5 +1,6 @@
 local entity_lib = require("devloop.entity")
 local h = require("tests.devloop_helpers")
+local implementation_escalation = require("devloop.implementation_escalation")
 local payloads_builders = require("devloop.payloads.builders")
 local v_ready = require("devloop.validators.ready")
 local t = h.t
@@ -85,6 +86,41 @@ return {
     t.eq(ready.ready_hand_off.marker_version, marker_version)
     t.eq(ready.ready_hand_off.event_version, ready.dedup_key)
     t.eq(v_ready.is_supported_ready(core, ready), true)
+  end,
+
+  test_comment_written_implementation_escalation_ack_raises_pre_pr_supervisor_seam = function()
+    local source_ref = entity_lib.issue_source_ref("owner/repo", 42)
+    local version = "ready/github-devloop/issue/owner/repo/42/intake/123"
+    local handoff = implementation_escalation.build_payload({
+      proposal_id = "github-devloop/issue/owner/repo/42",
+      version = version,
+      branch = "devloop-owner-repo-42-123",
+      source_ref = source_ref,
+    }, {
+      policy_id = "adjacent-wall-clock-exhaustion-stationary-head-v1",
+      previous_attempt = 1,
+      attempt = 2,
+      head_sha = "1111111111111111111111111111111111111111",
+    })
+    handoff.kind = "github-devloop.implementation-escalation"
+    local result = run_handoff({
+      schema = "github-proxy.comment-written.v1",
+      repo = "owner/repo",
+      target = "issue",
+      issue_number = 42,
+      comment_id = "IC_implementation_escalation_1",
+      request_dedup_key = "implement/comment/checkpoint/2",
+      dedup_key = "implement/comment/checkpoint/2/written/IC_implementation_escalation_1",
+      source_ref = source_ref,
+      handoff = handoff,
+    }, "comment-handoff-implementation-escalation")
+
+    t.eq(result.exit_code, 0)
+    t.eq(#result.raises, 1)
+    local raised = find_raise(result.raises, "github-devloop-decompose.devloop_decompose")
+    t.eq(raised.payload.schema, "github-devloop.implementation-escalation.v1")
+    t.eq(raised.payload.attempt, 2)
+    t.eq(raised.payload.head_sha, "1111111111111111111111111111111111111111")
   end,
 
 }
